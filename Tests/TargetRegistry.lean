@@ -18,10 +18,24 @@ def requireSome {α : Type} (value : Option α) (message : String) : IO α :=
 def main : IO UInt32 := do
   let evmProfile ← requireSome (find? "evm") "missing evm target profile"
   require (evmProfile.id == "evm") "evm target id mismatch"
+  require (evmProfile.chainSemantics.nativeAmount? == some NativeAmountSemantics.evmWeiU256)
+    "evm native amount semantics mismatch"
+  require (evmProfile.chainSemantics.indexedEvents == IndexedEventSemantics.evmTopics 3)
+    "evm indexed event semantics mismatch"
+  require (evmProfile.chainSemantics.crosscall == CrosscallSemantics.evmCall)
+    "evm crosscall semantics mismatch"
   require (find? "robinhood-chain-testnet" |>.isNone)
     "robinhood-chain-testnet must not be registered as a compiler target"
 
   let nearProfile ← requireSome (find? "wasm-near") "missing wasm-near target profile"
+  require (nearProfile.chainSemantics.nativeAmount? == some NativeAmountSemantics.nearYoctoNearU128)
+    "wasm-near native amount semantics mismatch"
+  require nearProfile.chainSemantics.requiresNativeAmountProjection
+    "wasm-near native amount must require a wide amount projection"
+  require (nearProfile.chainSemantics.indexedEvents == IndexedEventSemantics.nearJsonLogNoTopics)
+    "wasm-near indexed event semantics mismatch"
+  require (nearProfile.chainSemantics.crosscall == CrosscallSemantics.nearPromise)
+    "wasm-near crosscall semantics mismatch"
   require (nearProfile.deploymentAllocator? == some ProofForge.IR.ChainAllocator.nearWeeModel)
     "wasm-near deployment allocator must stay on the NEAR wasm-internal profile"
   require (nearProfile.offlineAllocators == #[ProofForge.IR.ExperimentAllocator.hostBump])

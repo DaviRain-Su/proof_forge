@@ -8,7 +8,7 @@ ValueType	fixedArray	lowered	EmitWat lowers fixed array literals, indexing, equa
 ValueType	structType	lowered	EmitWat lowers struct literals, field access, scalar struct storage field read/write, equality through field values, and release deallocation.
 StateKind	scalar	lowered	EmitWat stateLayout maps scalar state ids to storage keys and lowers scalar read/write helpers for U32/U64/Bool/Hash and struct-valued scalar state.
 StateKind	map	lowered	EmitWat mapLayout maps map state to storage prefixes and lowers contains/get/set/insert for U64 and Hash keys with scalar or hash values.
-StateKind	array	lowered	EmitWat mapLayout represents array state as U64-keyed storage prefixes and lowers storageArrayRead/storageArrayWrite.
+StateKind	array	lowered	EmitWat mapLayout represents array state as U64-keyed storage prefixes and lowers storageArrayRead/storageArrayWrite for U32/U64/Bool/Hash arrays plus field access for struct arrays.
 Literal	u32	lowered	EmitWat emits i32.const for U32 literals.
 Literal	u64	lowered	EmitWat emits i64.const for U64 literals.
 Literal	bool	lowered	EmitWat emits i32.const 1/0 for Bool literals.
@@ -56,14 +56,14 @@ Expr	boolNot	lowered	EmitWat lowers boolean not with i32.eqz.
 Expr	hashValue	lowered	EmitWat lowers four U64 limbs into a hash value helper.
 Expr	hash	lowered	EmitWat lowers hash preimage hashing through the sha256-backed helper.
 Expr	hashTwoToOne	lowered	EmitWat lowers two-to-one hash through the hash concat helper.
-Expr	nativeValue	unsupported	EmitWat does not lower native attached value inspection; lowerExpr falls through to the unsupported expression diagnostic.
-Expr	crosscallInvoke	unsupported	EmitWat capability checking rejects crosscall.invoke before lowering.
-Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls before lowering.
-Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls before lowering.
-Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects static typed cross-contract calls before lowering.
-Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls before lowering.
-Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability.
-Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability.
+Expr	nativeValue	unsupported	EmitWat rejects nativeValue with a NEAR chain-semantics diagnostic: attached deposit is yoctoNEAR/U128 and needs an explicit native-amount IR projection.
+Expr	crosscallInvoke	unsupported	EmitWat capability checking rejects crosscall.invoke with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects static typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
+Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
 Expr	effect	lowered	EmitWat lowerExpr delegates expression-position effects to storage/context/map/array/struct effect lowering.
 Effect	storageScalarRead	lowered	EmitWat lowers scalar reads through typed storage_read helpers.
 Effect	storageScalarWrite	lowered	EmitWat lowers scalar writes through typed storage_write helpers, including struct-valued scalar writes.
@@ -72,20 +72,20 @@ Effect	storageMapContains	lowered	EmitWat lowers map contains through storage_ha
 Effect	storageMapGet	lowered	EmitWat lowers map get through typed map read helpers with default-on-missing behavior.
 Effect	storageMapInsert	lowered	EmitWat lowers map insert through the same map write helper surface as set, returning the previous value.
 Effect	storageMapSet	lowered	EmitWat lowers map set through map write helpers, returning the previous value when used as an expression.
-Effect	storageArrayRead	lowered	EmitWat lowers array state reads as U64-keyed map reads.
-Effect	storageArrayWrite	lowered	EmitWat lowers array state writes as U64-keyed map writes.
+Effect	storageArrayRead	lowered	EmitWat lowers array state reads as U64-keyed map reads for U32/U64/Bool/Hash arrays.
+Effect	storageArrayWrite	lowered	EmitWat lowers array state writes as U64-keyed map writes for U32/U64/Bool/Hash arrays.
 Effect	storageArrayStructFieldRead	lowered	EmitWat lowers field reads inside struct-valued storage arrays by reading the U64-indexed storage blob into STRUCT_BUF and loading the field offset.
 Effect	storageArrayStructFieldWrite	lowered	EmitWat lowers field writes inside struct-valued storage arrays by reading the U64-indexed storage blob, patching the field offset, and writing the blob back.
 Effect	storageStructFieldRead	lowered	EmitWat lowers scalar struct storage field reads by reading the struct blob and loading the field offset.
 Effect	storageStructFieldWrite	lowered	EmitWat lowers scalar struct storage field writes by reading the struct blob, patching a field, and writing the blob back.
-Effect	storagePathRead	lowered	EmitWat lowers single mapKey storage paths to map get; multi-segment field/index paths are rejected.
-Effect	storagePathWrite	lowered	EmitWat lowers single mapKey storage paths to map write; multi-segment field/index paths are rejected.
-Effect	storagePathAssignOp	lowered	EmitWat lowers storagePathAssignOp for single mapKey paths with U32/U64 map values; field/index and effectful key paths remain rejected.
+Effect	storagePathRead	lowered	EmitWat lowers mapKey paths, index paths over U32/U64/Bool/Hash arrays, field paths over scalar structs, and index+field paths over struct arrays.
+Effect	storagePathWrite	lowered	EmitWat lowers mapKey paths, index paths over U32/U64/Bool/Hash arrays, field paths over scalar structs, and index+field paths over struct arrays.
+Effect	storagePathAssignOp	lowered	EmitWat lowers storagePathAssignOp for mapKey paths with U32/U64 map values, index paths with U32/U64 arrays, scalar struct fields, and array struct fields; effectful duplicated path/value expressions remain rejected.
 Effect	contextRead	lowered	EmitWat lowers userId, contractId, and checkpointId context reads through NEAR host helpers.
 Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
-Effect	eventEmitIndexed	unsupported	EmitWat does not yet lower indexed events.
-StoragePathSegment	field	unsupported	EmitWat only supports single mapKey storage paths; field path segments are not lowered yet.
-StoragePathSegment	index	unsupported	EmitWat only supports single mapKey storage paths; index path segments are not lowered yet.
+Effect	eventEmitIndexed	unsupported	EmitWat rejects indexed events with a NEAR chain-semantics diagnostic because NEAR JSON logs do not provide native EVM-style topics.
+StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
+StoragePathSegment	index	lowered	EmitWat lowers index as a storage array path segment and before field for struct-valued storage arrays.
 StoragePathSegment	mapKey	lowered	EmitWat lowers single mapKey path segments through map helpers.
 Statement	letBind	lowered	EmitWat lowers immutable let bindings to local.set after expression lowering.
 Statement	letMutBind	lowered	EmitWat lowers mutable let bindings to local.set after expression lowering.

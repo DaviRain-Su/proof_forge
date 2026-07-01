@@ -2,6 +2,7 @@ import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Allocator
 import ProofForge.Target.Capability
+import ProofForge.Target.ChainSemantics
 
 namespace ProofForge.Target
 
@@ -42,6 +43,7 @@ structure TargetProfile where
   family : TargetFamily
   artifactKind : ArtifactKind
   capabilities : CapabilitySet
+  chainSemantics : ChainSemantics := {}
   deploymentAllocator? : Option ProofForge.IR.ChainAllocator := none
   offlineAllocators : Array ProofForge.IR.ExperimentAllocator := #[]
   requiredTools : Array String := #[]
@@ -85,6 +87,11 @@ def evm : TargetProfile := {
     .assertions,
     .accountExplicit
   ]
+  chainSemantics := {
+    nativeAmount? := some .evmWeiU256
+    indexedEvents := .evmTopics 3
+    crosscall := .evmCall
+  }
   requiredTools := #["solc", "foundry"]
 }
 
@@ -105,6 +112,16 @@ def wasmNear : TargetProfile := {
     .accountExplicit,
     .assertions
   ]
+  chainSemantics := {
+    nativeAmount? := some .nearYoctoNearU128
+    indexedEvents := .nearJsonLogNoTopics
+    crosscall := .nearPromise
+    notes := #[
+      "NEAR deployment uses wasm-internal allocation; offline experiments use host-managed linear-memory allocation.",
+      "NEAR native value is attached_deposit, which needs an explicit U128 IR projection before EmitWat can lower it.",
+      "NEAR cross-contract execution is Promise-based and asynchronous."
+    ]
+  }
   requiredTools := #["rustup", "cargo", "near-cli"]
 }
 
@@ -124,6 +141,11 @@ def wasmCosmWasm : TargetProfile := {
     .envBlock,
     .cryptoHash
   ]
+  chainSemantics := {
+    nativeAmount? := some .cosmWasmFunds
+    indexedEvents := .cosmWasmAttributes
+    crosscall := .cosmWasmSubmessage
+  }
   requiredTools := #["zig", "cosmwasm-check"]
 }
 
@@ -144,6 +166,11 @@ def solanaSbpfLinker : TargetProfile := {
     .storagePda,
     .crosscallCpi
   ]
+  chainSemantics := {
+    nativeAmount? := some .solanaLamportsU64
+    indexedEvents := .unsupported
+    crosscall := .solanaCpi
+  }
   requiredTools := #["zig", "sbpf-linker"]
 }
 
@@ -152,6 +179,7 @@ def solanaZigFork : TargetProfile := {
   family := .solana
   artifactKind := .solanaElf
   capabilities := solanaSbpfLinker.capabilities
+  chainSemantics := solanaSbpfLinker.chainSemantics
   requiredTools := #["solana-zig"]
 }
 
@@ -170,6 +198,11 @@ def moveAptos : TargetProfile := {
     .cryptoHash,
     .accountExplicit
   ]
+  chainSemantics := {
+    nativeAmount? := some .moveCoinResources
+    indexedEvents := .moveEvents
+    crosscall := .moveEntryFunction
+  }
   requiredTools := #["aptos"]
 }
 
@@ -188,6 +221,11 @@ def moveSui : TargetProfile := {
     .cryptoHash,
     .accountExplicit
   ]
+  chainSemantics := {
+    nativeAmount? := some .moveCoinResources
+    indexedEvents := .moveEvents
+    crosscall := .moveEntryFunction
+  }
   requiredTools := #["sui"]
 }
 
@@ -214,6 +252,12 @@ def psyDpn : TargetProfile := {
     .zkCircuit,
     .zkProof
   ]
+  chainSemantics := {
+    nativeAmount? := none
+    indexedEvents := .unsupported
+    crosscall := .unsupported
+    notes := #["Psy DPN is a circuit sourcegen target; chain-native value and cross-contract execution are not modeled here."]
+  }
   requiredTools := #["dargo"]
 }
 
