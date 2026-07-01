@@ -31,6 +31,28 @@ def pathAssignModule : Module := {
   entrypoints := #[pathAssignLifecycle]
 }
 
+def indexPathState : StateDecl := {
+  id := "values"
+  kind := .array 3
+  type := .u64
+}
+
+def indexPathLifecycle : Entrypoint := {
+  name := "index_path_lifecycle"
+  returns := .u64
+  body := #[
+    .effect (.storagePathWrite "values" #[.index (u64 2)] (u64 10)),
+    .effect (.storagePathAssignOp "values" #[.index (u64 2)] .add (u64 5)),
+    .return (.effect (.storagePathRead "values" #[.index (u64 2)]))
+  ]
+}
+
+def indexPathModule : Module := {
+  name := "IndexPathProbe"
+  state := #[indexPathState]
+  entrypoints := #[indexPathLifecycle]
+}
+
 def main : IO UInt32 := do
   let render (module : Module) (path : String) : IO UInt32 := do
     match renderModule module with
@@ -42,4 +64,5 @@ def main : IO UInt32 := do
     | .error e => IO.eprintln e.message *> pure 1
   let r1 ← render emitWatPathModule "build/wasm-near/emitwat-path.wat"
   let r2 ← render pathAssignModule "build/wasm-near/emitwat-path-assign.wat"
-  if r1 == 0 && r2 == 0 then pure 0 else pure 1
+  let r3 ← render indexPathModule "build/wasm-near/emitwat-path-index.wat"
+  if r1 == 0 && r2 == 0 && r3 == 0 then pure 0 else pure 1

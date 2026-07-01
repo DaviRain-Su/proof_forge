@@ -6,10 +6,10 @@ EmitWat — lowers the portable IR (`ProofForge.IR.Contract`) to a `Wasm.Module`
 that `Wasm.Printer` renders to WAT, deployable to the NEAR VM via `wat2wasm`.
 
 Canonical wasm-near backend (decision D-023). Scope: scalar value types
-U32/U64/Bool — literals, locals, arithmetic, bitwise, shift, comparisons,
-boolean ops, casts, scalar storage read/write, assignment, assert/assertEq,
-and U32/U64/Bool returns. Hash / map / context / events / control flow land
-later.
+U32/U64/Bool/Hash plus flat structs/fixed arrays — literals, locals,
+arithmetic, bitwise, shift, comparisons, boolean ops, casts, scalar/map/array
+storage, path storage, context, events, bounded control flow, explicit release,
+and NEAR `value_return` for U32/U64/Bool/Hash.
 -/
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
@@ -25,6 +25,22 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+
+def wasmNearChainSemantics : ProofForge.Target.ChainSemantics :=
+  ProofForge.Target.wasmNear.chainSemantics
+
+def nativeValueUnsupportedMessage : String :=
+  match wasmNearChainSemantics.nativeAmount? with
+  | some amount =>
+      s!"EmitWat: NEAR native value uses {amount.id} ({amount.description}); IR v0 lacks an exact U128/native-amount projection, so nativeValue cannot be lowered yet"
+  | none =>
+      "EmitWat: native value is not modeled for the wasm-near target"
+
+def indexedEventUnsupportedMessage (name : String) : String :=
+  s!"EmitWat: event `{name}` uses indexed fields, but {wasmNearChainSemantics.indexedEvents.description}; add a NEAR indexing policy before lowering eventEmitIndexed"
+
+def crosscallUnsupportedMessage : String :=
+  s!"EmitWat: crosscall.invoke maps to {wasmNearChainSemantics.crosscall.description}, but EmitWat v0 has no NEAR Promise lowering yet"
 
 structure EmitError where
   message : String
@@ -66,7 +82,7 @@ def loadOpFor : ValueType → String
 def storeOpFor : ValueType → String
   | .u32 => "i32.store" | .u64 => "i64.store" | .bool => "i32.store8" | _ => "i64.store"
 def typeSuffix (vt : ValueType) : String :=
-  match vt with | .u32 => "u32" | .u64 => "u64" | .bool => "bool" | _ => "x"
+  match vt with | .u32 => "u32" | .u64 => "u64" | .bool => "bool" | .hash => "hash" | _ => "x"
 def readName  (vt : ValueType) : String := "__pf_read_"  ++ typeSuffix vt
 def writeName (vt : ValueType) : String := "__pf_write_" ++ typeSuffix vt
 def returnU64Name  : String := "__pf_return_u64"
@@ -181,39 +197,74 @@ def mapBuildkeyFunc : Func :=
       .i32Const MAPKEY_BUF, .localGet "pl", .plain "i32.add", .localGet "k", .store "i64.store" 0 ] } }
 
 def mapReadFunc (vt : ValueType) : Func :=
-  { name := mapReadName vt,
-    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
-    results := #[wasmTypeOf vt],
-    locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
-    body := { insns := #[
-      .const (wasmTypeOf vt) "0", .localSet "r",
-      .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-      .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-      .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
-      .localGet "found", .i64Const 0, .plain "i64.ne",
-      .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                        .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
-      .localGet "r" ] } }
+  if vt == .hash then
+    { name := mapReadName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
+      results := #[.i32],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
+      body := { insns := #[
+        .i32Const ZERO_HASH_BUF, .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
+                          .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
+        .localGet "r" ] } }
+  else
+    { name := mapReadName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
+      results := #[wasmTypeOf vt],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
+      body := { insns := #[
+        .const (wasmTypeOf vt) "0", .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
+                          .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
+        .localGet "r" ] } }
 
 def mapWriteFunc (vt : ValueType) : Func :=
-  { name := mapWriteName vt,
-    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
-                { name := "k", type := .i64 }, { name := "v", type := wasmTypeOf vt }],
-    results := #[wasmTypeOf vt],
-    locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
-    body := { insns := #[
-      .const (wasmTypeOf vt) "0", .localSet "r",
-      .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-      .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-      .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
-      .localGet "found", .i64Const 0, .plain "i64.ne",
-      .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                        .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
-      .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0,
-      .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-      .i64Const MAPKEY_BUF, .i64Const (scalarWidth vt), .i64Const KEY_BUF, .i64Const 0,
-      .call "storage_write", .drop,
-      .localGet "r" ] } }
+  if vt == .hash then
+    { name := mapWriteName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "k", type := .i64 }, { name := "v", type := .i32 }],
+      results := #[.i32],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
+      body := { insns := #[
+        .i32Const ZERO_HASH_BUF, .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
+                          .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
+        .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const 32, .i64Const KEY_BUF, .i64Const 0,
+        .call "storage_write", .drop,
+        .localGet "r" ] } }
+  else
+    { name := mapWriteName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "k", type := .i64 }, { name := "v", type := wasmTypeOf vt }],
+      results := #[wasmTypeOf vt],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
+      body := { insns := #[
+        .const (wasmTypeOf vt) "0", .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
+                          .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
+        .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0,
+        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+        .i64Const MAPKEY_BUF, .i64Const (scalarWidth vt), .i64Const KEY_BUF, .i64Const 0,
+        .call "storage_write", .drop,
+        .localGet "r" ] } }
 
 def mapContainsFunc : Func :=
   { name := mapContainsName,
@@ -230,7 +281,7 @@ def storageHasKeyImport : Import :=
 
 def mapHelperFuncs : Array Func :=
   #[ mapBuildkeyFunc, mapReadFunc .u32, mapWriteFunc .u32, mapReadFunc .u64, mapWriteFunc .u64,
-     mapReadFunc .bool, mapWriteFunc .bool, mapContainsFunc ]
+     mapReadFunc .bool, mapWriteFunc .bool, mapReadFunc .hash, mapWriteFunc .hash, mapContainsFunc ]
 
 -- Map<Hash, T>: storage key = prefix ++ 32 key bytes (key is a hash pointer).
 
@@ -400,6 +451,9 @@ def structFieldType? (s : ProofForge.IR.StructDecl) (fieldName : String) : Optio
 def structLitName (typeName : String) : String := "__pf_struct_lit_" ++ typeName
 def isStructStorageFieldType : ValueType → Bool
   | .u32 | .u64 | .bool => true
+  | _ => false
+def isIndexedStorageValueType : ValueType → Bool
+  | .u32 | .u64 | .bool | .hash => true
   | _ => false
 def structStorageFieldsSupported (s : ProofForge.IR.StructDecl) : Bool :=
   s.fields.all (fun f => isStructStorageFieldType f.type)
@@ -697,25 +751,35 @@ def stateLayout (mod : ProofForge.IR.Module) : Array StateInfo :=
 def findScalarState? (layout : Array StateInfo) (id : String) : Option StateInfo :=
   layout.find? (fun s => s.id == id)
 
+def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
+  #[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read",
+    .i64Const 0, .plain "i64.ne",
+    .if_ { insns := #[.i64Const 0, .i64Const STRUCT_BUF, .call "read_register"] }
+         { insns := zeroStructBufInsns sd }]
+
 structure MapInfo where
   id        : String
   keyType   : ValueType
   valueType : ValueType
   prefixPtr : Nat
   prefixLen : Nat
+  isArray   : Bool
 
 /-- Map state → prefix data segment `id ++ ":"` laid out back-to-back from a high offset. -/
 def mapLayout (mod : ProofForge.IR.Module) : Array MapInfo :=
   let step (acc : Array MapInfo) (offset : Nat) (s : StateDecl) : Array MapInfo × Nat :=
     match s.kind with
-    | .map kt _ => (acc.push { id := s.id, keyType := kt, valueType := s.type, prefixPtr := offset, prefixLen := s.id.length + 1 }, offset + s.id.length + 2)
-    | .array _ => (acc.push { id := s.id, keyType := .u64, valueType := s.type, prefixPtr := offset, prefixLen := s.id.length + 1 }, offset + s.id.length + 2)
+    | .map kt _ => (acc.push { id := s.id, keyType := kt, valueType := s.type, prefixPtr := offset, prefixLen := s.id.length + 1, isArray := false }, offset + s.id.length + 2)
+    | .array _ => (acc.push { id := s.id, keyType := .u64, valueType := s.type, prefixPtr := offset, prefixLen := s.id.length + 1, isArray := true }, offset + s.id.length + 2)
     | _ => (acc, offset)
   let result : Array MapInfo × Nat := mod.state.foldl (init := (#[], 20000)) fun (acc, offset) s => step acc offset s
   result.fst
 
 def findMapState? (layout : Array MapInfo) (id : String) : Option MapInfo :=
   layout.find? (fun m => m.id == id)
+
+def findArrayState? (layout : Array MapInfo) (id : String) : Option MapInfo :=
+  layout.find? (fun m => m.id == id && m.isArray)
 
 def readArrayStructBufInsns (m : MapInfo) (s : ProofForge.IR.StructDecl) : Array Insn :=
   #[.i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
@@ -890,6 +954,7 @@ mutual
       if t != .bool then err s!"EmitWat: boolean not operand expected Bool, got `{t.name}`"
       else .ok (is ++ #[.plain "i32.eqz"], .bool)
     | .cast value target => lowerCast ctx env value target
+    | .nativeValue => err nativeValueUnsupportedMessage
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s =>
@@ -905,56 +970,13 @@ mutual
     | .nativeValue => .ok (#[.call "attached_deposit"], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value
-    | .effect (.storageArrayRead id index) =>
-      match findMapState? ctx.maps id with
-      | none => err s!"EmitWat: unknown array state `{id}`"
-      | some m =>
-        if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-        else do
-          let kis ← lowerMapKeyU64 ctx env index
-          .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call (mapReadName m.valueType)], m.valueType)
+    | .effect (.storageArrayRead id index) => lowerStorageArrayRead ctx env id index
     | .effect (.storageArrayStructFieldRead id index fieldName) =>
-      match findMapState? ctx.maps id with
-      | none => err s!"EmitWat: unknown array state `{id}`"
-      | some m =>
-        if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-        else match m.valueType with
-          | .structType typeName =>
-            match findStruct? ctx.structs typeName with
-            | none => err s!"EmitWat: unknown struct `{typeName}`"
-            | some sd =>
-              if !structStorageFieldsSupported sd then
-                err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
-              else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-                | some off, some ft =>
-                  if !isStructStorageFieldType ft then
-                    err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-                  else do
-                    let kis ← lowerMapKeyU64 ctx env index
-                    .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call mapBuildkeyName]
-                          ++ readArrayStructBufInsns m sd
-                          ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0],
-                          ft)
-                | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
-          | _ => err s!"EmitWat: storageArrayStructFieldRead expects a struct-valued array, got `{m.valueType.name}`"
+      lowerArrayStructFieldRead ctx env id index fieldName
     | .effect (.storageStructFieldRead id fieldName) =>
-      match findScalarState? ctx.scalars id with
-      | none => err s!"EmitWat: unknown scalar state `{id}`"
-      | some s => match s.type with
-        | .structType typeName =>
-          match findStruct? ctx.structs typeName with
-          | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd => match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-            | some off, some ft =>
-              .ok (#[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read", .drop,
-                     .i64Const 0, .i64Const STRUCT_BUF, .call "read_register",
-                     .i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0], ft)
-            | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
-        | _ => err s!"EmitWat: storageStructFieldRead expects a struct state, got `{s.type.name}`"
+      lowerScalarStructFieldRead ctx id fieldName
     | .effect (.storagePathRead id path) =>
-      match path.toList with
-      | [.mapKey k] => lowerMapGet ctx env id k
-      | _ => err "EmitWat: storagePathRead only supports single mapKey-segment paths (multi-segment struct/array paths not yet lowered)"
+      lowerStoragePathRead ctx env id path
     | .arrayLit elementType values => do
       let lowered ← values.mapM fun v => do
         let (is, t) ← lowerExpr ctx env v
@@ -1079,42 +1101,285 @@ mutual
     match findMapState? ctx.maps id with
     | none => err s!"EmitWat: unknown map state `{id}`"
     | some m =>
-      let readCall ← match m.keyType with
-        | .u64 => do pure #[.call (mapReadName m.valueType)]
-        | .hash => do pure #[.call (mapReadHashName m.valueType)]
-        | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported (`{id}` has key `{m.keyType.name}`)"
-      let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-      .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ readCall, m.valueType)
+      if m.isArray then err s!"EmitWat: state `{id}` is an array; use storageArrayRead or an index storage path"
+      else do
+        let readCall ← match m.keyType with
+          | .u64 => do pure #[.call (mapReadName m.valueType)]
+          | .hash => do pure #[.call (mapReadHashName m.valueType)]
+          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported (`{id}` has key `{m.keyType.name}`)"
+        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ readCall, m.valueType)
 
   partial def lowerMapContains (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
     match findMapState? ctx.maps id with
     | none => err s!"EmitWat: unknown map state `{id}`"
     | some m =>
-      let containsCall ← match m.keyType with
-        | .u64 => do pure #[.call mapContainsName]
-        | .hash => do pure #[.call mapContainsHashName]
-        | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
-      let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-      .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ containsCall ++ #[.plain "i32.wrap_i64"], .bool)
+      if m.isArray then err s!"EmitWat: state `{id}` is an array; map contains is only valid for map state"
+      else do
+        let containsCall ← match m.keyType with
+          | .u64 => do pure #[.call mapContainsName]
+          | .hash => do pure #[.call mapContainsHashName]
+          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ containsCall ++ #[.plain "i32.wrap_i64"], .bool)
   partial def lowerMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn × ValueType) := do
     match findMapState? ctx.maps id with
     | none => err s!"EmitWat: unknown map state `{id}`"
     | some m =>
-      let writeCall ← match m.keyType with
-        | .u64 => pure #[.call (mapWriteName m.valueType)]
-        | .hash => pure #[.call (mapWriteHashName m.valueType)]
-        | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
-      let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-      if valueType != m.valueType then err s!"EmitWat: map write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
-      else .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ valueInsns ++ writeCall, m.valueType)
+      if m.isArray then err s!"EmitWat: state `{id}` is an array; use storageArrayWrite or an index storage path"
+      else do
+        let writeCall ← match m.keyType with
+          | .u64 => pure #[.call (mapWriteName m.valueType)]
+          | .hash => pure #[.call (mapWriteHashName m.valueType)]
+          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+        if valueType != m.valueType then err s!"EmitWat: map write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
+        else .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ valueInsns ++ writeCall, m.valueType)
 
   partial def lowerMapWrite (ctx : Ctx) (env : LocalTypes) (id : String) (key value : Expr)
       : Except EmitError (Array Insn × ValueType) := do
     let (vis, vt) ← lowerExpr ctx env value
     lowerMapWriteValue ctx env id key vis vt
+
+  partial def lowerStorageArrayRead (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findArrayState? ctx.maps id with
+    | none => err s!"EmitWat: unknown array state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+      else if !isIndexedStorageValueType m.valueType then
+        err s!"EmitWat: indexed storage path `{id}` has unsupported element type `{m.valueType.name}`; use index+field for struct arrays"
+      else do
+        let kis ← lowerMapKeyU64 ctx env index
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call (mapReadName m.valueType)], m.valueType)
+
+  partial def lowerStorageArrayWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr)
+      (valueInsns : Array Insn) (valueType : ValueType)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findArrayState? ctx.maps id with
+    | none => err s!"EmitWat: unknown array state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+      else if !isIndexedStorageValueType m.valueType then
+        err s!"EmitWat: indexed storage path `{id}` has unsupported element type `{m.valueType.name}`; use index+field for struct arrays"
+      else if valueType != m.valueType then
+        err s!"EmitWat: array write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
+      else do
+        let kis ← lowerMapKeyU64 ctx env index
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ valueInsns ++ #[.call (mapWriteName m.valueType)], m.valueType)
+
+  partial def lowerStorageArrayWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index value : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    let (vis, vt) ← lowerExpr ctx env value
+    lowerStorageArrayWriteValue ctx env id index vis vt
+
+  partial def lowerScalarStructFieldRead (ctx : Ctx) (id fieldName : String)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findScalarState? ctx.scalars id with
+    | none => err s!"EmitWat: unknown scalar state `{id}`"
+    | some s => match s.type with
+      | .structType typeName =>
+        match findStruct? ctx.structs typeName with
+        | none => err s!"EmitWat: unknown struct `{typeName}`"
+        | some sd =>
+          if !structStorageFieldsSupported sd then
+            err s!"EmitWat: scalar struct `{typeName}` storage fields must be U32/U64/Bool"
+          else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
+            | some off, some ft =>
+              if !isStructStorageFieldType ft then
+                err s!"EmitWat: scalar struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
+              else
+                .ok (readScalarStructBufInsns s sd ++
+                  #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0], ft)
+            | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+      | _ => err s!"EmitWat: storageStructFieldRead expects a struct state, got `{s.type.name}`"
+
+  partial def lowerScalarStructFieldWriteValue (ctx : Ctx) (id fieldName : String)
+      (valueInsns : Array Insn) (valueType : ValueType)
+      : Except EmitError (Array Insn) := do
+    match findScalarState? ctx.scalars id with
+    | none => err s!"EmitWat: unknown scalar state `{id}`"
+    | some s => match s.type with
+      | .structType typeName =>
+        match findStruct? ctx.structs typeName with
+        | none => err s!"EmitWat: unknown struct `{typeName}`"
+        | some sd =>
+          if !structStorageFieldsSupported sd then
+            err s!"EmitWat: scalar struct `{typeName}` storage fields must be U32/U64/Bool"
+          else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
+            | some off, some ft =>
+              if !isStructStorageFieldType ft then
+                err s!"EmitWat: scalar struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
+              else if valueType != ft then
+                err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+              else
+                .ok (readScalarStructBufInsns s sd ++
+                  #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++
+                  #[.store (storeOpFor ft) 0,
+                    .i64Const s.keyLen, .i64Const s.keyPtr, .i64Const (structTotalSize sd),
+                    .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
+            | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+      | _ => err s!"EmitWat: storageStructFieldWrite expects a struct state, got `{s.type.name}`"
+
+  partial def lowerScalarStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id fieldName : String) (value : Expr)
+      : Except EmitError (Array Insn) := do
+    let (vis, vt) ← lowerExpr ctx env value
+    lowerScalarStructFieldWriteValue ctx id fieldName vis vt
+
+  partial def lowerArrayStructFieldRead (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findArrayState? ctx.maps id with
+    | none => err s!"EmitWat: unknown array state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+      else match m.valueType with
+        | .structType typeName =>
+          match findStruct? ctx.structs typeName with
+          | none => err s!"EmitWat: unknown struct `{typeName}`"
+          | some sd =>
+            if !structStorageFieldsSupported sd then
+              err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
+            else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
+              | some off, some ft =>
+                if !isStructStorageFieldType ft then
+                  err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
+                else do
+                  let kis ← lowerMapKeyU64 ctx env index
+                  .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call mapBuildkeyName]
+                        ++ readArrayStructBufInsns m sd
+                        ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0],
+                        ft)
+              | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+        | _ => err s!"EmitWat: storageArrayStructFieldRead expects a struct-valued array, got `{m.valueType.name}`"
+
+  partial def lowerArrayStructFieldWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String)
+      (valueInsns : Array Insn) (valueType : ValueType)
+      : Except EmitError (Array Insn) := do
+    match findArrayState? ctx.maps id with
+    | none => err s!"EmitWat: unknown array state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+      else if !canDuplicateExpr index then
+        err "EmitWat: storage array struct field path index must be a pure expression until key temporaries are lowered"
+      else match m.valueType with
+        | .structType typeName =>
+          match findStruct? ctx.structs typeName with
+          | none => err s!"EmitWat: unknown struct `{typeName}`"
+          | some sd =>
+            if !structStorageFieldsSupported sd then
+              err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
+            else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
+              | some off, some ft =>
+                if !isStructStorageFieldType ft then
+                  err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
+                else if valueType != ft then
+                  err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+                else do
+                  let readKey ← lowerMapKeyU64 ctx env index
+                  let writeKey ← lowerMapKeyU64 ctx env index
+                  .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKey ++ #[.call mapBuildkeyName]
+                        ++ readArrayStructBufInsns m sd
+                        ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++ #[.store (storeOpFor ft) 0]
+                        ++ #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKey ++
+                        #[.call mapBuildkeyName, .i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
+                          .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
+              | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+        | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
+
+  partial def lowerArrayStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String) (value : Expr)
+      : Except EmitError (Array Insn) := do
+    if !canDuplicateExpr value then
+      err "EmitWat: storageArrayStructFieldWrite value must be a pure expression while STRUCT_BUF is the field patch buffer"
+    let (vis, vt) ← lowerExpr ctx env value
+    lowerArrayStructFieldWriteValue ctx env id index fieldName vis vt
+
+  partial def lowerStoragePathRead (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment)
+      : Except EmitError (Array Insn × ValueType) := do
+    match path.toList with
+    | [.mapKey key] => lowerMapGet ctx env id key
+    | [.index index] => lowerStorageArrayRead ctx env id index
+    | [.field fieldName] => lowerScalarStructFieldRead ctx id fieldName
+    | [.index index, .field fieldName] => lowerArrayStructFieldRead ctx env id index fieldName
+    | _ => err "EmitWat: storagePathRead supports mapKey, index, field, or index+field paths"
+
+  partial def lowerStoragePathWrite (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment) (value : Expr)
+      : Except EmitError (Array Insn) := do
+    match path.toList with
+    | [.mapKey key] => do
+      let (is, _) ← lowerMapWrite ctx env id key value
+      .ok (is ++ #[.drop])
+    | [.index index] => do
+      let (is, _) ← lowerStorageArrayWrite ctx env id index value
+      .ok (is ++ #[.drop])
+    | [.field fieldName] => do
+      if !canDuplicateExpr value then
+        err "EmitWat: storagePathWrite field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      lowerScalarStructFieldWrite ctx env id fieldName value
+    | [.index index, .field fieldName] =>
+      lowerArrayStructFieldWrite ctx env id index fieldName value
+    | _ => err "EmitWat: storagePathWrite supports mapKey, index, field, or index+field paths"
+
+  partial def lowerStoragePathAssignOp (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment)
+      (op : AssignOp) (value : Expr) : Except EmitError (Array Insn) := do
+    match path.toList with
+    | [.mapKey key] => do
+      if !canDuplicateExpr key then
+        err "EmitWat: storagePathAssignOp mapKey must be a pure expression until key temporaries are lowered"
+      let (currentInsns, currentType) ← lowerMapGet ctx env id key
+      if !isNumeric currentType then
+        err s!"EmitWat: storagePathAssignOp requires U32/U64 map values, got `{currentType.name}`"
+      let (valueInsns, valueType) ← lowerExpr ctx env value
+      if valueType != currentType then
+        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let (writeInsns, _) ← lowerMapWriteValue ctx env id key computed currentType
+      .ok (writeInsns ++ #[.drop])
+    | [.index index] => do
+      if !canDuplicateExpr index then
+        err "EmitWat: storagePathAssignOp index must be a pure expression until key temporaries are lowered"
+      let (currentInsns, currentType) ← lowerStorageArrayRead ctx env id index
+      if !isNumeric currentType then
+        err s!"EmitWat: storagePathAssignOp requires U32/U64 array values, got `{currentType.name}`"
+      let (valueInsns, valueType) ← lowerExpr ctx env value
+      if valueType != currentType then
+        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let (writeInsns, _) ← lowerStorageArrayWriteValue ctx env id index computed currentType
+      .ok (writeInsns ++ #[.drop])
+    | [.field fieldName] => do
+      if !canDuplicateExpr value then
+        err "EmitWat: storagePathAssignOp field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      let (currentInsns, currentType) ← lowerScalarStructFieldRead ctx id fieldName
+      if !isNumeric currentType then
+        err s!"EmitWat: storagePathAssignOp requires U32/U64 struct fields, got `{currentType.name}`"
+      let (valueInsns, valueType) ← lowerExpr ctx env value
+      if valueType != currentType then
+        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      lowerScalarStructFieldWriteValue ctx id fieldName computed currentType
+    | [.index index, .field fieldName] => do
+      if !canDuplicateExpr value then
+        err "EmitWat: storagePathAssignOp index+field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      let (currentInsns, currentType) ← lowerArrayStructFieldRead ctx env id index fieldName
+      if !isNumeric currentType then
+        err s!"EmitWat: storagePathAssignOp requires U32/U64 array struct fields, got `{currentType.name}`"
+      let (valueInsns, valueType) ← lowerExpr ctx env value
+      if valueType != currentType then
+        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      lowerArrayStructFieldWriteValue ctx env id index fieldName computed currentType
+    | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, or index+field paths"
+
+  partial def collectArrayLitsPathSegment (segment : StoragePathSegment) : Array (ValueType × Nat) :=
+    match segment with
+    | .field _ => #[]
+    | .index index => collectArrayLitsExpr index
+    | .mapKey key => collectArrayLitsExpr key
+  partial def collectArrayLitsPath (path : Array StoragePathSegment) : Array (ValueType × Nat) :=
+    path.foldl (fun acc segment => acc ++ collectArrayLitsPathSegment segment) #[]
 
   partial def collectArrayLitsExpr (e : Expr) : Array (ValueType × Nat) :=
     match e with
@@ -1158,9 +1423,9 @@ mutual
     | .storageArrayStructFieldWrite _ i _ v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectArrayLitsExpr v
-    | .storagePathRead _ _ => #[]
-    | .storagePathWrite _ _ v => collectArrayLitsExpr v
-    | .storagePathAssignOp _ _ _ v => collectArrayLitsExpr v
+    | .storagePathRead _ path => collectArrayLitsPath path
+    | .storagePathWrite _ path v => collectArrayLitsPath path ++ collectArrayLitsExpr v
+    | .storagePathAssignOp _ path _ v => collectArrayLitsPath path ++ collectArrayLitsExpr v
     | .contextRead _ => #[]
     | .eventEmit _ fields => fields.foldl (fun acc f => acc ++ collectArrayLitsExpr f.snd) #[]
     | .eventEmitIndexed _ indexedFields dataFields =>
@@ -1192,6 +1457,13 @@ mutual
     | .crosscallCreate value _ => collectStructLitsExpr value
     | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
     | .effect eff => collectStructLitsEffect eff
+  partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=
+    match segment with
+    | .field _ => #[]
+    | .index index => collectStructLitsExpr index
+    | .mapKey key => collectStructLitsExpr key
+  partial def collectStructLitsPath (path : Array StoragePathSegment) : Array String :=
+    path.foldl (fun acc segment => acc ++ collectStructLitsPathSegment segment) #[]
   partial def collectStructLitsEffect (eff : Effect) : Array String :=
     match eff with
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v => collectStructLitsExpr v
@@ -1203,9 +1475,9 @@ mutual
     | .storageArrayStructFieldWrite _ i _ v => collectStructLitsExpr i ++ collectStructLitsExpr v
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectStructLitsExpr v
-    | .storagePathRead _ _ => #[]
-    | .storagePathWrite _ _ v => collectStructLitsExpr v
-    | .storagePathAssignOp _ _ _ v => collectStructLitsExpr v
+    | .storagePathRead _ path => collectStructLitsPath path
+    | .storagePathWrite _ path v => collectStructLitsPath path ++ collectStructLitsExpr v
+    | .storagePathAssignOp _ path _ v => collectStructLitsPath path ++ collectStructLitsExpr v
     | .contextRead _ => #[]
     | .eventEmit _ fields => fields.foldl (fun acc f => acc ++ collectStructLitsExpr f.snd) #[]
     | .eventEmitIndexed _ indexedFields dataFields =>
@@ -1385,43 +1657,11 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
         let callName := if s.type == .hash then writeHashName else writeName s.type
         .ok (#[.i32Const s.keyPtr, .i32Const s.keyLen] ++ is ++ #[.call callName])
   | .effect (.storageStructFieldWrite id fieldName value) => do
-    match findScalarState? ctx.scalars id with
-    | none => err s!"EmitWat: unknown scalar state `{id}`"
-    | some s => match s.type with
-      | .structType typeName =>
-        match findStruct? ctx.structs typeName with
-        | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd => match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-          | some off, some ft =>
-            let (vis, vt) ← lowerExpr ctx env value
-            if vt != ft then err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{vt.name}`"
-            else .ok (#[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read", .drop,
-                       .i64Const 0, .i64Const STRUCT_BUF, .call "read_register",
-                       .i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ vis ++ #[.store (storeOpFor ft) 0,
-                       .i64Const s.keyLen, .i64Const s.keyPtr, .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
-          | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
-      | _ => err s!"EmitWat: storageStructFieldWrite expects a struct state, got `{s.type.name}`"
+    lowerScalarStructFieldWrite ctx env id fieldName value
   | .effect (.storagePathWrite id path value) => do
-    match path.toList with
-    | [.mapKey k] => do
-      let (is, _) ← lowerMapWrite ctx env id k value
-      .ok (is ++ #[.drop])
-    | _ => err "EmitWat: storagePathWrite only supports single mapKey-segment paths (multi-segment struct/array paths not yet lowered)"
+    lowerStoragePathWrite ctx env id path value
   | .effect (.storagePathAssignOp id path op value) => do
-    match path.toList with
-    | [.mapKey key] => do
-      if !canDuplicateExpr key then
-        err "EmitWat: storagePathAssignOp mapKey must be a pure expression until key temporaries are lowered"
-      let (currentInsns, currentType) ← lowerMapGet ctx env id key
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 map values, got `{currentType.name}`"
-      let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
-      let (writeInsns, _) ← lowerMapWriteValue ctx env id key computed currentType
-      .ok (writeInsns ++ #[.drop])
-    | _ => err "EmitWat: storagePathAssignOp only supports single mapKey-segment paths (multi-segment struct/array paths not yet lowered)"
+    lowerStoragePathAssignOp ctx env id path op value
   | .effect (.storageScalarAssignOp id op value) => do
     let some s ← pure (findScalarState? ctx.scalars id) | err s!"EmitWat: unknown scalar state `{id}`"
     if s.type == .hash then err s!"EmitWat: storageScalarAssignOp not supported on Hash scalars (`{id}`)"
@@ -1435,49 +1675,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     let (is, _) ← lowerMapWrite ctx env id key value
     .ok (is ++ #[.drop])
   | .effect (.storageArrayWrite id index value) => do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else do
-        let kis ← lowerMapKeyU64 ctx env index
-        let (vis, vt) ← lowerExpr ctx env value
-        if vt != m.valueType then err s!"EmitWat: array write `{id}` expected `{m.valueType.name}`, got `{vt.name}`"
-        else .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ vis ++ #[.call (mapWriteName m.valueType), .drop])
+    let (is, _) ← lowerStorageArrayWrite ctx env id index value
+    .ok (is ++ #[.drop])
   | .effect (.storageArrayStructFieldWrite id index fieldName value) => do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else match m.valueType with
-        | .structType typeName =>
-          match findStruct? ctx.structs typeName with
-          | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd =>
-            if !structStorageFieldsSupported sd then
-              err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
-            else if !canDuplicateExpr index then
-              err "EmitWat: storageArrayStructFieldWrite index must be a pure expression until key temporaries are lowered"
-            else if !canDuplicateExpr value then
-              err "EmitWat: storageArrayStructFieldWrite value must be a pure expression while STRUCT_BUF is the field patch buffer"
-            else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-              | some off, some ft =>
-                if !isStructStorageFieldType ft then
-                  err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-                else do
-                  let readKey ← lowerMapKeyU64 ctx env index
-                  let writeKey ← lowerMapKeyU64 ctx env index
-                  let (vis, vt) ← lowerExpr ctx env value
-                  if vt != ft then
-                    err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{vt.name}`"
-                  else .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKey ++ #[.call mapBuildkeyName]
-                            ++ readArrayStructBufInsns m sd
-                            ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ vis ++ #[.store (storeOpFor ft) 0]
-                            ++ #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKey ++
-                            #[.call mapBuildkeyName, .i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
-                              .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
-              | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
-        | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
+    lowerArrayStructFieldWrite ctx env id index fieldName value
   | .effect (.eventEmit name fields) => lowerEventEmit ctx env name fields
   | .effect (.eventEmitIndexed name indexedFields dataFields) =>
       -- NEAR events are log_utf8 strings; indexed/data distinction is EVM-specific.
@@ -1675,6 +1876,7 @@ def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>
     if emitWatCapabilities.contains c then .ok ()
+    else if c == .crosscallInvoke then .error { message := crosscallUnsupportedMessage }
     else .error { message := s!"EmitWat: capability `{c.id}` is not supported by the EmitWat backend" }) ()
 
 def checkTargetPlan (plan : ProofForge.Target.CapabilityPlan) : Except EmitError Unit :=

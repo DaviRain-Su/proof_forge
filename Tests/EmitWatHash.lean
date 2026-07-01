@@ -1,5 +1,6 @@
 import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.IR.Contract
+import ProofForge.IR.Examples.HashStorageProbe
 
 open ProofForge.IR ProofForge.Backend.WasmNear.EmitWat
 
@@ -41,12 +42,16 @@ def hashModule : Module := {
   entrypoints := #[setHash, checkStored, checkDeterminism, checkTwoToOne] }
 
 def main : IO UInt32 := do
-  match renderModule hashModule with
-  | .ok wat =>
-    IO.FS.createDirAll "build/wasm-near"
-    IO.FS.writeFile "build/wasm-near/emitwat-hash.wat" wat
-    IO.println s!"wrote build/wasm-near/emitwat-hash.wat ({wat.length} bytes)"
-    pure 0
-  | .error e =>
-    IO.eprintln s!"EmitWat failed: {e.message}"
-    pure 1
+  let render (module : Module) (path : String) : IO UInt32 := do
+    match renderModule module with
+    | .ok wat =>
+      IO.FS.createDirAll "build/wasm-near"
+      IO.FS.writeFile path wat
+      IO.println s!"wrote {path} ({wat.length} bytes)"
+      pure 0
+    | .error e =>
+      IO.eprintln s!"EmitWat failed: {e.message}"
+      pure 1
+  let r1 ← render hashModule "build/wasm-near/emitwat-hash.wat"
+  let r2 ← render ProofForge.IR.Examples.HashStorageProbe.module "build/wasm-near/emitwat-hash-storage.wat"
+  if r1 == 0 && r2 == 0 then pure 0 else pure 1

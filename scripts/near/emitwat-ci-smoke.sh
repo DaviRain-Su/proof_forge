@@ -52,13 +52,29 @@ out="$("${HOST[@]}" build/wasm-near/emitwat-arith.wat u32_arithmetic --input-hex
 echo "$out"
 assert_contains "$out" "call 1:u32_arithmetic: return_hex=0100000000000000 return_u64=1" "arith"
 
+out="$("${HOST[@]}" build/wasm-near/emitwat-hash-storage.wat array_lifecycle)"
+echo "$out"
+assert_contains "$out" "call 1:array_lifecycle: return_hex=370000000000000042000000000000004d000000000000005800000000000000 return_len=32" "hash array path"
+
 out="$("${HOST[@]}" build/wasm-near/emitwat-path-assign.wat path_assign_lifecycle)"
 echo "$out"
 assert_contains "$out" "call 1:path_assign_lifecycle: return_hex=1e00000000000000 return_u64=30" "path assign"
 
+out="$("${HOST[@]}" build/wasm-near/emitwat-path-index.wat index_path_lifecycle)"
+echo "$out"
+assert_contains "$out" "call 1:index_path_lifecycle: return_hex=0f00000000000000 return_u64=15" "index path assign"
+
+out="$("${HOST[@]}" build/wasm-near/emitwat-scalar-struct-path.wat scalar_struct_path_lifecycle)"
+echo "$out"
+assert_contains "$out" "call 1:scalar_struct_path_lifecycle: return_hex=3000000000000000 return_u64=48" "scalar struct path"
+
 out="$("${HOST[@]}" build/wasm-near/emitwat-array-struct.wat array_struct_lifecycle)"
 echo "$out"
 assert_contains "$out" "call 1:array_struct_lifecycle: return_hex=1e00000000000000 return_u64=30" "array struct fields"
+
+out="$("${HOST[@]}" build/wasm-near/emitwat-array-struct.wat array_struct_path_lifecycle)"
+echo "$out"
+assert_contains "$out" "call 1:array_struct_path_lifecycle: return_hex=1e00000000000000 return_u64=30" "array struct path"
 
 for fixture in emitwat-alloc-reset emitwat-alloc-minimal emitwat-alloc-near; do
   out="$("${HOST[@]}" "build/wasm-near/${fixture}.wat" sum_literal --repeat 2)"
