@@ -2698,7 +2698,7 @@ Focus: prove the unified authoring story on all three primary chains.
 
 | ID | Task | Acceptance |
 |---|---|---|
-| CS-5.1 | Expand testkit scenarios for `contract_source`-authored Counter/ValueVault on `evm`, `solana-sbpf-asm`, `wasm-near` | `just testkit` covers same scenario file, different `--target` artifacts |
+| CS-5.1 | Expand testkit scenarios for `contract_source`-authored Counter/ValueVault on `evm`, `solana-sbpf-asm`, `wasm-near` | ✅ `just testkit` covers same scenario file, different `--target` artifacts |
 | CS-5.2 | Resource budget baselines for new stdlib contracts (EVM gas, Solana CU) | Workstream 31 budgets extended; regressions fail CI |
 | CS-5.3 | Authoring-model worked example: one business module, three targets, zero source forks | Tutorial in docs (EN + zh sync via translate pipeline) |
 
@@ -2707,10 +2707,13 @@ Current CS-5.1 testkit slice: `testkit/scenarios/counter.toml` and
 "Examples/Shared/*.lean"`. The EVM, Solana, and NEAR harnesses consume that
 field and run target-first `proof-forge build --target ... --root . <source>`
 instead of fixture-only emission for Counter/ValueVault. Scenario assertions now
-pin `contract-sdk` metadata, NEAR artifact metadata, Solana source/IDL/client
-artifacts, metadata file references, and the existing behavior/budget traces.
-The fixture-only paths remain for specialized compiler/runtime scenarios such
-as `error-ref` and allocator probes.
+pin `contract-sdk` metadata, NEAR artifact/deploy-manifest metadata parity,
+Solana source/IDL/client artifacts, metadata file references, and the existing
+behavior/budget traces. CI installs Rust 1.88 and the minimal Solana testkit
+toolchain (`solana-keygen` + `sbpf`) before `just testkit` so all three primary
+targets execute instead of skipping Solana. Rust 1.91+ is required for the
+pinned testkit dependencies (`revm` and `sbpf`). The fixture-only paths remain for
+specialized compiler/runtime scenarios such as `error-ref` and allocator probes.
 
 ### Phase CS-6 — Documentation and legacy cleanup
 

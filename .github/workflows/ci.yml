@@ -36,6 +36,12 @@ jobs:
           sudo mv solc-static-linux /usr/local/bin/solc
           solc --version
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+
+      - name: Install Solana testkit tools
+        run: scripts/solana/install-testkit-ci-tools.sh
+
       - name: Tool versions
         run: |
           lean --version
@@ -43,6 +49,8 @@ jobs:
           forge --version
           cast --version
           solc --version
+          rustc --version
+          cargo --version
           just --version
 
       - name: Build Lean package

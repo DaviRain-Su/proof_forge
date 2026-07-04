@@ -13,6 +13,7 @@ pub struct NearHarness;
 struct NearFixtureArtifact {
     wat_path: PathBuf,
     metadata_path: Option<PathBuf>,
+    deploy_manifest_path: Option<PathBuf>,
     contract_spec_path: Option<PathBuf>,
     near_wrapper_path: Option<PathBuf>,
 }
@@ -43,6 +44,12 @@ impl ChainHarness for NearHarness {
         if let Some(ref path) = artifact.metadata_path {
             outputs.push(ArtifactOutput {
                 name: "metadata",
+                path,
+            });
+        }
+        if let Some(ref path) = artifact.deploy_manifest_path {
+            outputs.push(ArtifactOutput {
+                name: "deploy-manifest",
                 path,
             });
         }
@@ -215,6 +222,7 @@ fn emit_wat_fixture(
     Ok(NearFixtureArtifact {
         wat_path,
         metadata_path: None,
+        deploy_manifest_path: None,
         contract_spec_path,
         near_wrapper_path,
     })
@@ -274,12 +282,37 @@ fn build_contract_source_wat(
         "{fixture_name} WAT build did not create `{}`",
         metadata_path.display()
     );
+    let deploy_manifest_path = default_deploy_manifest_output(&metadata_path);
+    ensure!(
+        deploy_manifest_path.exists(),
+        "{fixture_name} WAT build did not create `{}`",
+        deploy_manifest_path.display()
+    );
     Ok(NearFixtureArtifact {
         wat_path,
         metadata_path: Some(metadata_path),
+        deploy_manifest_path: Some(deploy_manifest_path),
         contract_spec_path: None,
         near_wrapper_path: None,
     })
+}
+
+fn default_deploy_manifest_output(metadata_output: &Path) -> PathBuf {
+    let file_name = metadata_output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("proof-forge-artifact.json");
+    let deploy_name = if file_name == "proof-forge-artifact.json" {
+        "proof-forge-deploy.json".to_string()
+    } else if let Some(stem) = file_name.strip_suffix(".proof-forge-artifact.json") {
+        format!("{stem}.proof-forge-deploy.json")
+    } else {
+        format!("{file_name}.proof-forge-deploy.json")
+    };
+    metadata_output
+        .parent()
+        .map(|parent| parent.join(&deploy_name))
+        .unwrap_or_else(|| PathBuf::from(deploy_name))
 }
 
 fn scenario_source(case: &ScenarioCase, repo_root: &Path) -> Result<Option<PathBuf>> {

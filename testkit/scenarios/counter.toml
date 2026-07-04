@@ -25,6 +25,11 @@ kind = "string"
 equals = "wasm-near"
 
 [[artifact.json]]
+path = "targetFamily"
+kind = "string"
+equals = "wasmHost"
+
+[[artifact.json]]
 path = "artifactKind"
 kind = "string"
 equals = "wasm"
@@ -46,9 +51,150 @@ path = "sourceModule"
 equals = "Counter"
 
 [[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+length = 1
+
+[[artifact.json]]
+path = "capabilities"
+contains = "storage.scalar"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact.json]]
+path = "abi.entrypoints[0].name"
+equals = "initialize"
+
+[[artifact.json]]
+path = "abi.entrypoints[1].name"
+equals = "increment"
+
+[[artifact.json]]
+path = "abi.entrypoints[2].name"
+equals = "get"
+
+[[artifact.json]]
+path = "validation.emitWat"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.watGeneration"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.deployManifest"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.wat2wasm"
+equals = "skipped"
+
+[[artifact.json]]
 path = "artifacts"
 kind = "object"
 non_empty = true
+length = 2
+
+[[artifact.file]]
+path = "artifacts.wat"
+artifact = "wat"
+
+[[artifact.file]]
+path = "artifacts.deployManifest"
+artifact = "deploy-manifest"
+
+[[artifact]]
+target = "wasm-near"
+name = "deploy-manifest"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "kind"
+kind = "string"
+equals = "proof-forge-wasm-near-deploy-manifest"
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "wasm-near"
+
+[[artifact.json]]
+path = "targetFamily"
+kind = "string"
+equals = "wasmHost"
+
+[[artifact.json]]
+path = "artifactKind"
+kind = "string"
+equals = "wasm-deploy"
+
+[[artifact.json]]
+path = "fixture"
+equals = "counter"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "irVersion"
+kind = "null"
+
+[[artifact.json]]
+path = "sourceModule"
+equals = "Counter"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+length = 1
+
+[[artifact.json]]
+path = "capabilities"
+contains = "storage.scalar"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact.json]]
+path = "abi.entrypoints[0].name"
+equals = "initialize"
+
+[[artifact.json]]
+path = "abi.entrypoints[1].name"
+equals = "increment"
+
+[[artifact.json]]
+path = "abi.entrypoints[2].name"
+equals = "get"
+
+[[artifact.json]]
+path = "deployment.mode"
+kind = "string"
+equals = "local-offline-host"
+
+[[artifact.json]]
+path = "deployment.status"
+kind = "string"
+equals = "not-broadcast"
+
+[[artifact.json]]
+path = "deployment.localExecutor"
+kind = "string"
+equals = "runtime/offline-host"
 
 [[artifact.file]]
 path = "artifacts.wat"
@@ -314,7 +460,7 @@ equals = "passed"
 path = "artifacts"
 kind = "object"
 non_empty = true
-length = 4
+length = 6
 
 [[artifact.file]]
 path = "artifacts.yul"
