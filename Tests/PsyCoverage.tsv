@@ -6,6 +6,9 @@ ValueType	u64	lowered	valueTypeName lowers U64 to Felt; Counter, ArithmeticProbe
 ValueType	hash	lowered	valueTypeName, literal hash4, HashProbe, HashStorageProbe, MapProbe, and U32HashPackingProbe cover Hash values.
 ValueType	fixedArray	lowered	valueTypeName, array literal/index lowering, and fixed-array equality are covered by ArrayProbe, BoolStorageArrayProbe, StructArrayProbe, AbiAggregateProbe, NestedAggregateProbe, and U32HashPackingProbe.
 ValueType	structType	lowered	structDecl, struct literals, field access, ABI structs, and storage structs are covered by StructProbe, StructArrayProbe, AbiAggregateProbe, NestedAggregateProbe, and StorageNestedAggregateProbe.
+ValueType	address	lowered	valueTypeName and validateAbiValueType accept Address as a scalar Felt-backed type; validateValueType accepts Address in storage. Pattern match exhaustiveness verified across Psy backend.
+ValueType	bytes	validated	validateAbiValueType rejects Bytes with an explicit diagnostic; Psy IR v0 does not support dynamic bytes types. Pattern match exhaustiveness verified.
+ValueType	string	validated	validateAbiValueType rejects String with an explicit diagnostic; Psy IR v0 does not support dynamic string types. Pattern match exhaustiveness verified.
 StateKind	scalar	lowered	stateDecl and scalar storage effects are covered by Counter, ConditionalProbe, StructProbe, BoolStorageScalarProbe, HashStorageProbe, U32StorageScalarProbe, and StorageNestedAggregateProbe.
 StateKind	map	validated	validateState accepts only Map<Hash, Hash, N>; MapProbe covers the supported shape and Tests/PsyDiagnostics.lean covers unsupported map shapes.
 StateKind	array	lowered	stateDecl and storage-array effects are covered by ArrayProbe, BoolStorageArrayProbe, HashStorageProbe, StructArrayProbe, StorageNestedAggregateProbe, and U32StorageArrayProbe.
@@ -13,6 +16,7 @@ Literal	u32	lowered	literal emits Nu32 and is covered by U32ArithmeticProbe, U32
 Literal	u64	lowered	literal emits Felt numerals and is covered by Counter, ArithmeticProbe, ArrayProbe, and storage fixtures.
 Literal	bool	lowered	literal emits true/false and is covered by AssertProbe, ExpressionPredicateProbe, BoolStorageScalarProbe, and BoolStorageArrayProbe.
 Literal	hash4	lowered	literal emits Hash four-limb arrays and is covered by HashProbe, HashStorageProbe, and MapProbe.
+Literal	address	lowered	literal emits Address as a Felt-backed value; Psy backend accepts Address in ABI parameters and validateAbiValueType. Pattern match exhaustiveness verified in Psy/IR.lean.
 ContextField	userId	lowered	contextFunction lowers to get_user_id and ContextProbe covers it.
 ContextField	contractId	lowered	contextFunction lowers to get_contract_id and ContextProbe covers it.
 ContextField	checkpointId	lowered	contextFunction lowers to get_checkpoint_id and ContextProbe covers it.
