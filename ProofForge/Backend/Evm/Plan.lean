@@ -925,6 +925,17 @@ structure MetadataPlan where
   capabilities : Array Capability
   deriving Repr
 
+/-! ## ContextPlan: EVM context operation summary -/
+
+structure ContextPlan where
+  field : ContextField
+  deriving Repr
+
+def ContextPlan.beq (a b : ContextPlan) : Bool :=
+  a.field.name == b.field.name
+
+instance : BEq ContextPlan := ⟨ContextPlan.beq⟩
+
 /-! ## ModulePlan: the complete EVM semantic plan -/
 
 structure ModulePlan where
@@ -942,6 +953,7 @@ structure ModulePlan where
   nestedLocalArrayGetShapes : Array (Array Nat)
   usesCheckedArithmetic : Bool
   metadata : MetadataPlan
+  contextOps : Array ContextPlan
   deriving Repr
 
 def ModulePlan.capabilities (plan : ModulePlan) : Array Capability :=
@@ -949,6 +961,93 @@ def ModulePlan.capabilities (plan : ModulePlan) : Array Capability :=
 
 def ModulePlan.hasHelper (plan : ModulePlan) (helper : Helper) : Bool :=
   HelperSet.contains plan.helpers helper
+
+mutual
+  partial def contextOpsFromExpr (expr : Expr) : Array ContextPlan :=
+    match expr with
+    | .literal _ | .local _ | .nativeValue => #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc v => acc ++ contextOpsFromExpr v
+    | .arrayGet array index =>
+        contextOpsFromExpr array ++ contextOpsFromExpr index
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
+    | .field base _ => contextOpsFromExpr base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
+        contextOpsFromExpr lhs ++ contextOpsFromExpr rhs
+    | .cast value _ | .boolNot value | .hash value => contextOpsFromExpr value
+    | .hashValue a b c d =>
+        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
+    | .crosscallInvoke target methodId args
+    | .crosscallInvokeTyped target methodId args _
+    | .crosscallInvokeStaticTyped target methodId args _
+    | .crosscallInvokeDelegateTyped target methodId args _ =>
+        contextOpsFromExpr target ++ contextOpsFromExpr methodId ++
+          args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
+    | .crosscallInvokeValueTyped target methodId callValue args _ =>
+        contextOpsFromExpr target ++ contextOpsFromExpr methodId ++ contextOpsFromExpr callValue ++
+          args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
+    | .crosscallCreate callValue _ => contextOpsFromExpr callValue
+    | .crosscallCreate2 callValue salt _ =>
+        contextOpsFromExpr callValue ++ contextOpsFromExpr salt
+    | .effect e => contextOpsFromEffect e
+
+  partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=
+    match effect with
+    | .storageScalarRead _ => #[]
+    | .storageScalarWrite _ value => contextOpsFromExpr value
+    | .storageScalarAssignOp _ _ value => contextOpsFromExpr value
+    | .storageMapContains _ key => contextOpsFromExpr key
+    | .storageMapGet _ key => contextOpsFromExpr key
+    | .storageMapInsert _ key value | .storageMapSet _ key value =>
+        contextOpsFromExpr key ++ contextOpsFromExpr value
+    | .storageArrayRead _ index => contextOpsFromExpr index
+    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
+        contextOpsFromExpr index ++ contextOpsFromExpr value
+    | .storageArrayStructFieldRead _ index _ => contextOpsFromExpr index
+    | .storageStructFieldRead _ _ => #[]
+    | .storageStructFieldWrite _ _ value => contextOpsFromExpr value
+    | .storagePathRead _ path =>
+        path.foldl (init := #[]) fun acc segment =>
+          match segment with
+          | .mapKey key | .index key => acc ++ contextOpsFromExpr key
+          | .field _ => acc
+    | .storagePathWrite _ path value | .storagePathAssignOp _ path _ value =>
+        path.foldl (init := #[]) fun acc segment =>
+          match segment with
+          | .mapKey key | .index key => acc ++ contextOpsFromExpr key
+          | .field _ => acc
+        ++ contextOpsFromExpr value
+    | .contextRead field => #[{ field }]
+    | .eventEmit _ fields | .eventEmitIndexed _ fields _ =>
+        fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
+
+  partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=
+    match statement with
+    | .letBind _ _ value | .letMutBind _ _ value => contextOpsFromExpr value
+    | .assign target value | .assignOp target _ value =>
+        contextOpsFromExpr target ++ contextOpsFromExpr value
+    | .effect e => contextOpsFromEffect e
+    | .assert condition _ _ => contextOpsFromExpr condition
+    | .assertEq lhs rhs _ _ => contextOpsFromExpr lhs ++ contextOpsFromExpr rhs
+    | .release _ | .revert _ | .revertWithError _ => #[]
+    | .ifElse condition thenBody elseBody =>
+        contextOpsFromExpr condition ++ contextOpsFromStatements thenBody ++ contextOpsFromStatements elseBody
+    | .boundedFor _ _ _ body => contextOpsFromStatements body
+    | .return value => contextOpsFromExpr value
+
+  partial def contextOpsFromStatements (statements : Array Statement) : Array ContextPlan :=
+    statements.foldl (init := #[]) fun acc stmt => acc ++ contextOpsFromStatement stmt
+end
+
+def contextOpsFromModule (module : Module) : Array ContextPlan :=
+  let all := module.entrypoints.foldl (init := #[]) fun acc ep => acc ++ contextOpsFromStatements ep.body
+  all.foldl (init := #[]) fun acc plan =>
+    if acc.contains plan then acc else acc.push plan
 
 def buildModulePlanWithTargetPlan (module : Module) (targetPlan : CapabilityPlan) :
     Except PlanError ModulePlan := do
@@ -978,6 +1077,7 @@ def buildModulePlanWithTargetPlan (module : Module) (targetPlan : CapabilityPlan
         events := #[]
         capabilities := targetPlan.capabilities
       }
+      contextOps := contextOpsFromModule module
     }
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan :=

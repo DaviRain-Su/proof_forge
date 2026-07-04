@@ -7365,6 +7365,7 @@ def buildSemanticPlanBestEffort (module : Module) : ProofForge.Backend.Evm.Plan.
         events := #[]
         capabilities := #[]
       }
+      contextOps := ProofForge.Backend.Evm.Plan.contextOpsFromModule module
     }
 
 def lowerModule (module : Module) : Except LowerError Lean.Compiler.Yul.Object := do

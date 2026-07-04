@@ -1,6 +1,7 @@
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Compiler.Yul.Printer
+import ProofForge.IR.Examples.EvmContextProbe
 import ProofForge.IR.Examples.EvmMapProbe
 import ProofForge.IR.Examples.EvmTypedMapProbe
 import ProofForge.Target.Capability
@@ -278,6 +279,16 @@ def testWrongTargetPlanRejected : IO Unit := do
         (err.render == "EVM module plan requires target `evm`, got `solana-sbpf-asm`")
         "wrong-target diagnostic mismatch"
 
+def testContextOpsPlan : IO Unit := do
+  let plan ← requireOk (buildModulePlan ProofForge.IR.Examples.EvmContextProbe.module) "EVM context module plan failed"
+  let fieldNames := plan.contextOps.map (fun op => op.field.name)
+  require (fieldNames.contains "userId") "contextOps must include userId"
+  require (fieldNames.contains "timestamp") "contextOps must include timestamp"
+  require (fieldNames.contains "origin") "contextOps must include origin"
+  require (fieldNames.contains "blockHash") "contextOps must include blockHash"
+  require (fieldNames.contains "coinbase") "contextOps must include coinbase"
+  requireEqNat plan.contextOps.size 12 "EvmContextProbe contextOps count"
+
 def main : IO UInt32 := do
   testMapProbeLayout
   testScalarSlotPlan
@@ -286,6 +297,7 @@ def main : IO UInt32 := do
   testArraySlotPlans
   testModulePlanCapabilities
   testWrongTargetPlanRejected
+  testContextOpsPlan
   IO.println "evm-plan: ok"
   return 0
 
