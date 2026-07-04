@@ -40,7 +40,7 @@
 |---|---|---|
 | R1：RFC 0009 和 D-039 滞后于已经落地的 CLI M1 工作 | 当前 `main` 已关闭：RFC 0009 已标记为 Accepted，并说明 M1/M3 已落地；D-039 也已经改为追认 compatibility-layer 实现，而不是宣称代码前冻结 | 随着 M4 legacy-alias removal 被排期，持续同步 RFC 0009 和 CLI 迁移文档 |
 | R2：同时存在过多半成品工作流 | 接受为排期风险 | Gate P0 已关闭，CLI M3 已由 `just cli-target-first` 守住；M4 alias removal 继续放在兼容窗口之后，Tier-1 M3/M4 不应隐式打开 |
-| R3：尚无端到端证明把用户不变量连接到生成制品 | 部分接受：已有源级证明、FV-2 aggregate/storage/map/control-flow/event-log IR traces、第一批基于 IR 语义的 FV-8 ValueVault accounting/net-value invariant anchors、NEAR trace obligations 加 Counter 和 ValueVault EmitWat artifact-surface/offline-host execution-surface obligations、NEAR ValueVault backend-invariant state bridge，以及 EVM FV-4 可执行 Yul trace anchors；但完整 IR-to-artifact 语义保持还没有完成。EVM map/storage/aggregate/control-flow/event 切片现在已经把覆盖到的 FV-2 IR traces 接到可执行 Yul obligations。 | 将 NEAR FV-4 从新的 backend-invariant state bridge 继续扩展到更丰富的 Wasm/offline-host 语义边界，再证明超出当前 state/IO equality anchors 的语义保持 |
+| R3：尚无端到端证明把用户不变量连接到生成制品 | 部分接受：已有源级证明、FV-2 aggregate/storage/map/control-flow/event-log IR traces、第一批基于 IR 语义的 FV-8 ValueVault accounting/net-value invariant anchors、NEAR trace obligations 加 Counter 和 ValueVault EmitWat artifact-surface/offline-host execution-surface obligations、NEAR ValueVault backend-invariant state bridge、NEAR host import-signature、entrypoint input-frame、context-frame、storage-read-key-frame、storage-write-key-value-frame、host-call frame、memory-layout、return-payload-byte、per-step storage-snapshot、storage-byte 和 log-payload-byte obligations，以及 EVM FV-4 可执行 Yul trace anchors；但完整 IR-to-artifact 语义保持还没有完成。EVM map/storage/aggregate/control-flow/event 切片现在已经把覆盖到的 FV-2 IR traces 接到可执行 Yul obligations。 | 将 NEAR FV-4 从新的 backend-invariant/import/input-frame/context-frame/storage-read-key-frame/storage-write-key-value-frame/frame/memory-layout/return-payload-byte/storage-byte/log-payload-byte bridge 继续扩展到更丰富的 Wasm/offline-host 语义边界，再证明超出当前 state/IO、host-ABI、entrypoint input-frame、context-frame、storage-read-key-frame、storage-write-key-value-frame、host-call-frame、memory-layout、return-payload-byte、storage-snapshot、storage-byte 和 log-payload-byte anchors 的语义保持 |
 | R4：capability 粒度太粗 | 当前阶段不 churn capability id；storage 已经拆成 scalar/map/array/PDA，Solana account 语义也已与 storage pattern 分离建模 | 把跨目标运行时差异交给预算和诊断义务：每个 target 必须显式拒绝不支持形状，并为支持形状锁定资源预算 |
 | R5：docs-first target notes 形成隐藏沉没成本 | 排期层面已关闭：D-045 和 target roadmap 在 Gate P0 关闭前把产品硬化限制在 `solana-sbpf-asm`、`evm`、`wasm-near` | 保留 research notes 作为库存；显式排期 Tier-1 M3/M4，而不是让旧 research notes 自动变成实现范围 |
 | R6：Lean/工具链入门摩擦 | 部分关闭：`docs/onboarding.md` 已存在并列出核心工具链和各目标工具；但 editor workspace config、templates 和 scaffolding 仍是开放 DX 工作 | 补 VS Code/Cursor workspace recommendations 和最小项目模板 |
@@ -60,15 +60,40 @@
    与可执行 emitted Yul 对比。NEAR 现在有 Counter 和 ValueVault EmitWat AST
    artifact-surface obligations，并新增 offline-host execution-surface obligations，
    用来固定 Borsh 输入字节、确定性的 host return/log observations、
-   storage-key 计数和累计 log 计数。FV-8 现在也有第一个 ValueVault IR
-   invariant anchor，覆盖共享 11 步场景的 return trace、accounting、final
-   storage 和 net-value 检查。最新的 NEAR FV-4 切片新增了一条可由
-   `native_decide` 检查的 backend-invariant state bridge：ValueVault
-   offline-host 输入序列从 FV-8 场景输入派生，返回片段会对齐 FV-8
-   expected returns，最终 offline-host state 会对齐 FV-8 scenario state
-   以及 accounting/final-storage predicates，ValueVault 事件日志 JSON 片段
-   会从 invariant final state 派生。下一步把这条 bridge 从 state/IO
-   equality 扩展到更丰富的 Wasm memory 和 host-call 语义边界。
+   storage-key 计数和累计 log 计数。artifact surface 现在还会在 Wasm AST
+   边界检查 NEAR host import ABI：对用到的 `input`、`read_register`、
+   `storage_read`、`storage_write`、`value_return`、`log_utf8` 和
+   `block_index` 固定 module name 以及参数/返回签名。NEAR artifact surface
+   还会固定 `u64` storage read/write helpers、`value_return` 和 `log_utf8`
+   的 host-call frames，包括传给 host 的常量和内存缓冲区。offline-host
+   surface 现在还会记录每一步的 storage snapshot 以及对应的 little-endian/Borsh
+   storage bytes，所以 Counter 和 ValueVault 必须在每个被检查的 entrypoint
+   之后同时匹配语义层 storage 内容和 host storage 字节串，而不只是匹配最终
+   storage 或 key count。offline-host surface 现在还会固定标量返回值的
+   byte-level `value_return` payload hex bytes，以及 ValueVault 事件的 byte-level
+   `log_utf8` payload hex fragments，把 host payload bytes 和便于阅读的 return/log
+   line fragments 分开检查。FV-8 现在也有第一个 ValueVault IR invariant anchor，
+   覆盖共享 11 步场景的 return trace、accounting、final storage 和 net-value
+   检查。最新的 NEAR FV-4 切片新增了可由 `native_decide` 检查的
+   backend-invariant state/import/input-frame/context-frame/storage-read-key-frame/storage-write-key-value-frame/frame/memory-layout/return-payload-byte/storage-byte/log-payload-byte bridge：ValueVault offline-host
+   输入序列从 FV-8 场景输入派生，返回片段会对齐 FV-8 expected returns，最终
+   offline-host state 会对齐 FV-8 scenario state 以及 accounting/final-storage
+   predicates，标量 `value_return` payload bytes 会从 FV-8 expected returns 派生，
+   ValueVault 事件日志 JSON 片段会从 invariant final state 派生，
+   每个 `log_utf8` payload hex fragment 都会从同一个 invariant event stream 派生，
+   每一步 offline-host storage snapshot 和 storage-byte snapshot 都被固定，Wasm
+   memory declaration 会被固定，并且固定 host buffers（`KEY_BUF`、`RET_BUF`、
+   `EVENT_BUF`、`EVT_KEY_PTR`、`INPUT_BUF`）会被检查为落在第一页且互不重叠。
+   host import signatures、entrypoint `input`/`read_register` frames、从
+   `INPUT_BUF` 读取标量 u64 参数的 offset loads、传给 `__pf_read_u64` 的
+   storage-read key pointer/length frames、传给 `__pf_write_u64` 的
+   storage-write key/value frames、ValueVault `block_index` context reads 写入
+   `checkpoint`，以及 helper host-call frames 都会在 WAT 打印前被固定。
+   下一步把这条 bridge 从 state/IO、host-ABI、entrypoint input-frame、
+   context-frame、storage-read-key-frame、storage-write-key-value-frame、
+   host-call-frame、memory-layout、return-payload-byte、storage-snapshot、
+   storage-byte、log-payload-byte equality 扩展到更丰富的 Wasm memory/host
+   语义边界。
 4. 处理剩余 DX 项：`.vscode` recommendations、项目模板和脚手架；前提是它们不与 P0 关闭抢资源。
 
 ## 工作流 1：目标注册表
@@ -981,7 +1006,7 @@
   anchors，以及 bounded-loop decreasing-measure anchor。剩余：
   为已验证的类型化子集证明 progress/preservation。
 - FV-3：证明 `IR/Ownership.lean` 检查器相对于释放感知语义（无释放后使用、无重复释放）是稳健的，为三种不同的 `release` 降级（EmitWat 分配器、EVM/Psy 拒绝、TS no-op）提供依据。
-- FV-4：已在 `Backend/Evm/Refinement.lean` 中落地 EVM Counter、ValueVault 和 EvmExpressionProbe 可执行追踪义务，并由 `Backend/Evm/YulSemantics.lean` 支撑。这些义务镜像 `Backend/WasmNear/Refinement.lean` 的 scalar IR trace，检查 selector-dispatched Yul surface，并执行聚焦的已发射 Yul 子集（`calldataload`、`calldatasize`、`sstore`、`sload`、标量算术、`exp`、bitwise/shift operators、comparisons、casts、assertions、`number`、确定性的 memory-sensitive `keccak256` surrogate、`log0`-`log4`、`mstore`、`return`、聚焦的 `switch` 和有界 `for`），将可观察 EVM return words 与 IR trace 对比。ValueVault 覆盖 calldata 参数、多入口标量存储更新、区块号上下文读取、事件字段求值以及 return words；EvmExpressionProbe 覆盖 assertion success paths、`assertEq`、predicate expressions、U32/U64 arithmetic、casts、bitwise operators 和 shifts。新增的可执行义务覆盖 `EvmMapProbe`（map value/presence slots 和嵌套 map paths）、`EvmTypedStorageProbe`（typed storage arrays 和 hash array reads）、`EvmStorageStructProbe`（storage structs 和 flat struct arrays）、`EvmAbiAggregateProbe`（aggregate ABI params/returns）、`ConditionalProbe`（if/else storage updates）以及 `EvmLoopProbe`（bounded loops 和 branch/loop early returns）。覆盖到的 FV-2 IR aggregate/storage/map/control-flow/event traces 现在已经通过显式 IR 调用参数和 `*_ir_observable_trace_ok` 定理锚点接入这些 EVM obligations，因此同一组 observable return words 会同时在 IR 侧和可执行 emitted-Yul 侧检查。NEAR 现在有基于 `EmitWat.lowerModule` 产出的 `Compiler.Wasm.AST` 的 Counter 和 ValueVault artifact-surface obligations，用来锁定 entrypoint/helper host-boundary calls、memory、storage-key data 和 ValueVault event data，先于 WAT 打印阶段检查。NEAR 也新增 Counter 和 ValueVault offline-host execution-surface obligations，从同一个 IR trace 边界导出 Borsh/little-endian 输入字节和预期的确定性 host return fragments；CI smoke 会通过 `runtime/offline-host` 执行生成的 WAT，并检查对应的 ValueVault returns/events。下一步：将 NEAR FV-4 从这些 execution surfaces 扩展到更丰富的 Wasm/offline-host 语义边界；在解释器存在之前，让 Psy/Solana 保持在差异门控上。
+- FV-4：已在 `Backend/Evm/Refinement.lean` 中落地 EVM Counter、ValueVault 和 EvmExpressionProbe 可执行追踪义务，并由 `Backend/Evm/YulSemantics.lean` 支撑。这些义务镜像 `Backend/WasmNear/Refinement.lean` 的 scalar IR trace，检查 selector-dispatched Yul surface，并执行聚焦的已发射 Yul 子集（`calldataload`、`calldatasize`、`sstore`、`sload`、标量算术、`exp`、bitwise/shift operators、comparisons、casts、assertions、`number`、确定性的 memory-sensitive `keccak256` surrogate、`log0`-`log4`、`mstore`、`return`、聚焦的 `switch` 和有界 `for`），将可观察 EVM return words 与 IR trace 对比。ValueVault 覆盖 calldata 参数、多入口标量存储更新、区块号上下文读取、事件字段求值以及 return words；EvmExpressionProbe 覆盖 assertion success paths、`assertEq`、predicate expressions、U32/U64 arithmetic、casts、bitwise operators 和 shifts。新增的可执行义务覆盖 `EvmMapProbe`（map value/presence slots 和嵌套 map paths）、`EvmTypedStorageProbe`（typed storage arrays 和 hash array reads）、`EvmStorageStructProbe`（storage structs 和 flat struct arrays）、`EvmAbiAggregateProbe`（aggregate ABI params/returns）、`ConditionalProbe`（if/else storage updates）以及 `EvmLoopProbe`（bounded loops 和 branch/loop early returns）。覆盖到的 FV-2 IR aggregate/storage/map/control-flow/event traces 现在已经通过显式 IR 调用参数和 `*_ir_observable_trace_ok` 定理锚点接入这些 EVM obligations，因此同一组 observable return words 会同时在 IR 侧和可执行 emitted-Yul 侧检查。NEAR 现在有基于 `EmitWat.lowerModule` 产出的 `Compiler.Wasm.AST` 的 Counter 和 ValueVault artifact-surface obligations，用来锁定 entrypoint/helper host-boundary calls、memory、storage-key data、ValueVault event data，以及 host import module/type signatures，先于 WAT 打印阶段检查。同一个 artifact surface 现在还会固定 Wasm memory declaration、key/return/event/event-key/input buffers 的固定 host buffer layout、entrypoint `input`/`read_register` prologues、从 `INPUT_BUF` 读取标量 u64 参数的 loads、传给 `__pf_read_u64` 的 storage-read key pointer/length frames、传给 `__pf_write_u64` 的 storage-write key/value frames，以及 ValueVault `block_index` checkpoint reads。NEAR 也新增 Counter 和 ValueVault offline-host execution-surface obligations，从同一个 IR trace 边界导出 Borsh/little-endian 输入字节、预期的确定性 host return fragments、storage/log 计数、最终 ValueVault state、标量 `value_return` payload bytes、per-step storage bytes、event-log fragments 和 byte-level `log_utf8` payload hex fragments；CI smoke 会通过 `runtime/offline-host` 执行生成的 WAT，并检查对应的 ValueVault returns/events。下一步：将 NEAR FV-4 从这些 execution surfaces 扩展到更丰富的 Wasm memory 与 host-call 语义边界；在解释器存在之前，让 Psy/Solana 保持在差异门控上。
 - FV-5：在 IR 值域中统一陈述检查算术溢出/除法语义，并将溢出分支添加到后端义务中。
 - FV-6：证明配对测试夹具子集的 `.learn` 与 `contract_source` 降级等价性（可判定的 `ContractSpec` 相等性）。
 - FV-7：证明 Token SDK 计划不变性（全特性路由、已文档化的不兼容诊断、计划良构性）。

@@ -8423,3 +8423,298 @@ lake env lean --run Tests/NearWasmFormal.lean
 Result:
 
 - NEAR ValueVault backend-invariant state bridge checks passed locally.
+
+### NEAR EmitWat Host Import Signatures
+
+Commit: pending
+
+Summary:
+
+- Added `WasmImportExpectation` to the NEAR refinement artifact surface so
+  obligations can check host import module names plus Wasm parameter/result
+  signatures, not only imported function names.
+- Pinned the Counter and ValueVault NEAR host-call ABI for `input`,
+  `read_register`, `storage_read`, `storage_write`, `value_return`,
+  `log_utf8`, and `block_index` where those imports are part of the checked
+  surface.
+- Added decide-checkable `counter_emitwat_host_import_signatures_ok` and
+  `value_vault_emitwat_host_import_signatures_ok` anchors and wired both into
+  the formal smoke entrypoint.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat host import signature checks passed locally.
+
+### NEAR EmitWat Host Call Frames
+
+Commit: pending
+
+Summary:
+
+- Added `WasmTraceOp` and `WasmHostFrameExpectation` to the NEAR refinement
+  artifact surface so obligations can check contiguous Wasm AST instruction
+  frames around host calls, not only call names.
+- Pinned the `u64` storage read/write helper frames for `storage_read`,
+  `read_register`, and `storage_write`, including the key/value buffer
+  constants passed to the NEAR host ABI.
+- Pinned the `u64` return helper frame for `value_return` and the ValueVault
+  event-log frame for `log_utf8`.
+- Added decide-checkable `counter_emitwat_host_frames_ok` and
+  `value_vault_emitwat_host_frames_ok` anchors and wired both into the formal
+  smoke entrypoint.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat host call-frame checks passed locally.
+
+### NEAR Offline-Host Storage Snapshots
+
+Commit: pending
+
+Summary:
+
+- Added per-step `storageSnapshot` data to NEAR offline-host IO expectations.
+- Extended the offline-host trace runner so each checked Counter and ValueVault
+  entrypoint records the full IR storage contents after execution, not only the
+  number of storage keys.
+- Added `OfflineHostExecutionObligation.storageSnapshotsOk` plus
+  decide-checkable Counter and ValueVault storage-snapshot anchors.
+- Folded the ValueVault storage-snapshot check into the existing
+  backend-invariant bridge so the FV-8 scenario now constrains every checked
+  intermediate storage state as well as final storage.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR offline-host storage snapshot checks passed locally.
+
+### NEAR Offline-Host Storage Bytes
+
+Commit: pending
+
+Summary:
+
+- Added byte-level `storageHexSnapshot` data to NEAR offline-host IO
+  expectations.
+- Derived storage bytes from the same Borsh/little-endian scalar encoder used
+  for offline-host inputs and return observations.
+- Pinned Counter and ValueVault storage byte strings after every checked
+  entrypoint, connecting the semantic storage snapshots to the byte strings
+  that the NEAR host storage boundary would persist.
+- Added decide-checkable Counter and ValueVault storage-byte anchors and folded
+  the ValueVault storage-byte check into the backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR offline-host storage byte checks passed locally.
+
+### NEAR Offline-Host Log Payload Bytes
+
+Commit: pending
+
+Summary:
+
+- Added byte-level `logPayloadHexFragments` data to NEAR offline-host IO
+  expectations for ValueVault event logs.
+- Split ValueVault event formatting into the host `log_utf8` payload and the
+  human-readable offline-host log-line fragment, so obligations can check the
+  actual UTF-8 payload bytes separately from console text.
+- Derived expected `log_utf8` payload hex fragments from the same FV-8
+  ValueVault invariant event stream that produces the semantic event logs.
+- Added decide-checkable ValueVault log-payload-byte anchors and folded the
+  log payload hex check into the backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR offline-host log payload byte checks passed locally.
+
+### NEAR Offline-Host Return Payload Bytes
+
+Commit: pending
+
+Summary:
+
+- Added byte-level `returnPayloadHex` data to NEAR offline-host IO
+  expectations.
+- Derived `returnPayloadHex` from the same scalar Borsh/little-endian encoder
+  used by `value_return` observations, rather than relying only on the
+  human-readable `returnLineFragment`.
+- Added decide-checkable Counter and ValueVault return-payload-byte anchors.
+- Folded the ValueVault return payload hex check into the backend-invariant
+  bridge so FV-8 expected returns now constrain both semantic return values and
+  the host `value_return` payload bytes.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR offline-host return payload byte checks passed locally.
+
+### NEAR EmitWat Memory Layout Surface
+
+Commit: pending
+
+Summary:
+
+- Added a memory-surface check to NEAR artifact obligations so Counter and
+  ValueVault pin the emitted Wasm memory declaration, not only the memory export
+  name.
+- Added fixed host-buffer memory region expectations for `KEY_BUF`, `RET_BUF`,
+  `EVENT_BUF`, `EVT_KEY_PTR`, and `INPUT_BUF`.
+- Checked that those host buffers have nonzero size, fit in the first Wasm
+  memory page, and do not overlap.
+- Wired the new memory-surface anchors into the formal smoke entrypoint and the
+  ValueVault backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat memory layout surface checks passed locally.
+
+### NEAR EmitWat Entrypoint Input Frames
+
+Commit: pending
+
+Summary:
+
+- Added artifact-surface host-frame expectations for entrypoint input
+  prologues.
+- Pinned the `input(0)` plus `read_register(0, INPUT_BUF)` sequence used by
+  Counter and ValueVault exported entrypoints before parameter decoding.
+- Pinned scalar u64 parameter loads from `INPUT_BUF` for ValueVault's
+  `initialize`, `deposit`, `charge_fee`, and `release` entrypoints, including
+  the second `charge_fee` parameter at offset 8.
+- Wired the new Counter and ValueVault input-frame anchors into the formal
+  smoke entrypoint and the ValueVault backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat entrypoint input-frame checks passed locally.
+
+### NEAR EmitWat Context Host Frames
+
+Commit: pending
+
+Summary:
+
+- Added ValueVault context host-frame expectations for `checkpointId`
+  lowering.
+- Pinned the `block_index` host call followed by `local.set checkpoint` in both
+  `initialize` and `snapshot`.
+- Wired the new context-frame anchor into the formal smoke entrypoint and the
+  ValueVault backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat context host-frame checks passed locally.
+
+### NEAR EmitWat Storage Read Key Frames
+
+Commit: pending
+
+Summary:
+
+- Added artifact-surface host-frame expectations for scalar storage reads.
+- Pinned the Counter `count` key pointer/length passed into `__pf_read_u64`
+  for `increment` and `get`.
+- Pinned the ValueVault `balance`, `released`, `fees`, and `operations` key
+  pointer/length pairs passed into `__pf_read_u64` for `deposit`,
+  `charge_fee`, `release`, `snapshot`, `get_balance`, and `get_net_value`.
+- Wired the new storage-read-key-frame anchors into the formal smoke entrypoint
+  and the ValueVault backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat storage read key-frame checks passed locally.
+
+### NEAR EmitWat Storage Write Key/Value Frames
+
+Commit: pending
+
+Summary:
+
+- Added artifact-surface host-frame expectations for scalar storage writes.
+- Pinned Counter `count` writes passed into `__pf_write_u64` for `initialize`
+  and `increment`, including the `n + 1` value expression.
+- Pinned ValueVault `balance`, `released`, `fees`, `last_value`,
+  `last_checkpoint`, and `operations` write key/value frames for `initialize`,
+  `deposit`, `charge_fee`, `release`, and `snapshot`.
+- Wired the new storage-write-key-value-frame anchors into the formal smoke
+  entrypoint and the ValueVault backend-invariant bridge.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR EmitWat storage write key/value-frame checks passed locally.
