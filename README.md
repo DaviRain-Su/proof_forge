@@ -30,16 +30,17 @@ Start here:
 
 All backends live on `main` (chains are directories and target ids, not
 branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.md).
-The primary-chain completion covenant (D-045) is closed: `solana-sbpf-asm`,
-`evm`, and `wasm-near` have production-grade local/CI gates. The next hardening
-lane is the CLI M3/M4 migration from legacy flags to
-`proof-forge build|emit|check --target ...` before Tier-1 M3/M4 work.
+The primary-chain completion covenant (D-045) is closed and all P0 SDK
+blockers across `evm`, `solana-sbpf-asm`, and `wasm-near` are resolved:
+**0 open P0 blockers** remain. Three-chain portable scenarios
+(Counter, ValueVault) compile and execute on all three targets via
+`just portable-counter-multi-target` and `just portable-value-vault`.
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke, Anvil deploy |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates |
-| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke, artifact/deploy metadata |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke, Anvil deploy, constructor body, stdlib (ERC-20/721/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2) |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Token-2022 extensions |
+| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike | Counter/PureMath golden fixtures and smokes |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research (off-chain host, D-033) | `tsc` type-check, `wrangler` dry-run |
@@ -188,9 +189,12 @@ Phase 0: EVM baseline                      (done)
 Phase 1: target registry + portable IR     (done)
 Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
                                             Aleo, CF Workers research)
-Current:  shared-scenario parity on evm + solana-sbpf-asm + wasm-near,
-          consolidation follow-ups (Workstream 24),
-          formal verification roadmap (Workstream 25)
+Phase 3:  three-chain P0 SDK cleanup        (done — 0 open P0 blockers;
+                                            Counter + ValueVault portable
+                                            on evm + solana-sbpf-asm + wasm-near)
+Current:  P1 feature expansion — full NEAR Promise async execution,
+          Solana map storage, EVM dynamic constructor args runtime,
+          Pinocchio reference breadth, formal verification (Workstream 25)
 Later:    Move family (Aptos first), cloud platform (after two+ targets
           reach Experimental with shared-scenario parity; D-010)
 ```

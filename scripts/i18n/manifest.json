@@ -1,8 +1,7 @@
 {
   "README.md": {
-    "sha256": "ece34a5f90ee944b2e7e13baf0041c94ee156c28db4c43dd98a725b1c1b3f10f",
-    "zh": "docs/zh/README-root.zh.md",
-    "model": "gemini-3-flash-preview"
+    "sha256": "b86739e1f948935fb666c4d57a56a4035cbc7547fe2f14c653a7e44dc4a5e621",
+    "translated": false
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
