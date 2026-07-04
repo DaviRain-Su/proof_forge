@@ -2964,6 +2964,35 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .crosscallCreate2 _ _ _
   | .effect _ => false
 
+partial def lowerPlanEffectExpr
+    (module : Module)
+    (env : TypeEnv) :
+    ProofForge.Backend.Evm.Plan.EffectPlan → Except LowerError Lean.Compiler.Yul.Expr
+  | .storageScalarRead stateId => do
+      match ← scalarStateType module stateId with
+      | .structType _ =>
+          .error {
+            message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
+          }
+      | _ => pure ()
+      lowerScalarStorageReadExpr module env stateId
+  | .contextRead (.blockHash blockNumber) => do
+      .ok (Lean.Compiler.Yul.builtin "blockhash" #[← lowerExpr module env blockNumber])
+  | .contextRead field =>
+      .ok (ProofForge.Backend.Evm.ToYul.contextExpr field)
+  | _ =>
+      .error { message := "EVM ExprPlan-to-Yul scalar lowering does not support this effect plan yet" }
+
+partial def lowerExprPlanExpr
+    (module : Module)
+    (env : TypeEnv)
+    (plan : ProofForge.Backend.Evm.Plan.ExprPlan) :
+    Except LowerError Lean.Compiler.Yul.Expr :=
+  ProofForge.Backend.Evm.ToYul.exprPlanExpr
+    toYulError
+    (fun expr => lowerExpr module env expr)
+    (lowerPlanEffectExpr module env)
+    plan
 partial def lowerExprViaPlan
     (module : Module)
     (env : TypeEnv)
