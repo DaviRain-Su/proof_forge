@@ -98,13 +98,13 @@ equals = "passed"
 
 [[artifact.json]]
 path = "validation.wat2wasm"
-equals = "skipped"
+equals = "passed"
 
 [[artifact.json]]
 path = "artifacts"
 kind = "object"
 non_empty = true
-length = 2
+length = 3
 
 [[artifact.file]]
 path = "artifacts.wat"
