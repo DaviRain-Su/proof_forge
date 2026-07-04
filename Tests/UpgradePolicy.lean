@@ -40,8 +40,20 @@ def testResolverMatrix : IO Unit := do
   let governance := counterSpecWith (.governance "dao/main")
 
   discard <| requireResolves evm immutable
-  requireRejects evm authority "EVM target does not support `authority`"
+  requireRejects evm authority "without a documented proxy pattern"
   requireRejects evm governance "EVM target does not support `governance`"
+
+  let baseAuthority := counterSpecWith (.authority "admin")
+  let uupsAuthority : ContractSpec := {
+    baseAuthority with
+    proxyPattern? := some .uups
+    module := { baseAuthority.module with evmProxyPattern? := some "uups" }
+  }
+  let uupsPlan ← requireResolves evm uupsAuthority
+  require (metadataValue? uupsPlan "upgrade.proxy.pattern" == some "uups")
+    "EVM UUPS authority plan missing upgrade.proxy.pattern metadata"
+  require (metadataValue? uupsPlan "upgrade.policy.key_ref" == some "admin")
+    "EVM UUPS authority plan missing upgrade.policy.key_ref metadata"
 
   let solanaPlan ← requireResolves solanaSbpfAsm authority
   require (metadataValue? solanaPlan "upgrade.policy.kind" == some "authority")

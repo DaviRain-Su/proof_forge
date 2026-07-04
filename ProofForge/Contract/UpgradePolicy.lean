@@ -19,6 +19,16 @@ def UpgradePolicy.keyRef? : UpgradePolicy → Option KeyRef
   | .authority keyRef => some keyRef
   | _ => none
 
+/-- EVM proxy layout declared by `contract_source` for honest upgrade-policy lowering. -/
+inductive ProxyPattern where
+  | uups
+  | transparent
+  deriving BEq, Repr
+
+def ProxyPattern.kind : ProxyPattern → String
+  | .uups => "uups"
+  | .transparent => "transparent"
+
 private def jsonString (value : String) : String :=
   let escapeChar : Char → String
     | '"' => "\\\""
@@ -49,5 +59,8 @@ def UpgradePolicy.json (policy : UpgradePolicy) : String :=
         ("kind", jsonString "governance"),
         ("ref", jsonString ref)
       ]
+
+def ProxyPattern.json (pattern : ProxyPattern) : String :=
+  jsonObject #[("kind", jsonString pattern.kind)]
 
 end ProofForge.Contract

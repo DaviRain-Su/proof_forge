@@ -223,6 +223,8 @@ structure Module where
   state : Array StateDecl
   entrypoints : Array Entrypoint
   allocator : AllocatorConfig := defaultAllocator
+  /-- When set to `uups`, EVM lowering adds a delegatecall fallback for proxy shells. -/
+  evmProxyPattern? : Option String := none
   deriving Repr
 
 def Effect.capability : Effect → ProofForge.Target.Capability

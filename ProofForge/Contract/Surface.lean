@@ -41,8 +41,20 @@ def contract (name : String) (body : ModuleM Unit) : ContractSpec :=
 def declareConstructorParam (name : String) (abiType : String) : ModuleM Unit :=
   ProofForge.Contract.Builder.constructorParam name abiType
 
+def setUpgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit :=
+  ProofForge.Contract.Builder.upgradePolicy policy
+
+def setProxyPattern (pattern : ProofForge.Contract.ProxyPattern) : ModuleM Unit :=
+  ProofForge.Contract.Builder.proxyPattern pattern
+
 def slot (id : String) (type : ValueType) : ScalarRef :=
   { id, type }
+
+/-- ERC-1967 implementation slot (`bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1)`). -/
+def eip1967ImplementationId : String := "$eip1967.implementation"
+
+def eip1967Implementation : ScalarRef :=
+  slot eip1967ImplementationId .u64
 
 def binding (id : String) (type : ValueType) : BindingRef :=
   { id, type }

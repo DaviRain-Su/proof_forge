@@ -359,6 +359,43 @@ contract ProofForgeSmokeTest {
         (bool burnedOwnerOk,) = probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
         assertFalse(burnedOwnerOk);
     }
+
+    function testUUPSProxyUpgradeLifecycle() public {
+        address admin = address(0xA11CE);
+        address proxy = address(0x5005);
+        address implV1 = address(0x1001);
+        address implV2 = address(0x1002);
+        deployRuntime(hex"$(cat "$OUT_DIR/UUPSProxy.bin")", proxy);
+        deployRuntime(hex"$(cat "$OUT_DIR/CounterUUPSImpl.bin")", implV1);
+        deployRuntime(hex"$(cat "$OUT_DIR/CounterUUPSImpl.bin")", implV2);
+
+        (bool setImplOk,) = proxy.call(abi.encodeWithSignature("init(address)", implV1));
+        assertTrue(setImplOk);
+
+        vm.prank(admin);
+        (bool initOk,) = proxy.call(abi.encodeWithSignature("init()"));
+        assertTrue(initOk);
+
+        (bool get0Ok, bytes memory get0) = proxy.call(abi.encodeWithSignature("get()"));
+        assertTrue(get0Ok);
+        assertEq(abi.decode(get0, (uint256)), 0);
+
+        (bool incOk,) = proxy.call(abi.encodeWithSignature("increment()"));
+        assertTrue(incOk);
+
+        (, bytes memory get1) = proxy.call(abi.encodeWithSignature("get()"));
+        assertEq(abi.decode(get1, (uint256)), 1);
+
+        vm.prank(admin);
+        (bool upgradeOk,) = proxy.call(abi.encodeWithSignature("upgradeTo(address)", implV2));
+        assertTrue(upgradeOk);
+
+        (bool inc2Ok,) = proxy.call(abi.encodeWithSignature("increment()"));
+        assertTrue(inc2Ok);
+
+        (, bytes memory get2) = proxy.call(abi.encodeWithSignature("get()"));
+        assertEq(abi.decode(get2, (uint256)), 2);
+    }
 }
 SOL
 

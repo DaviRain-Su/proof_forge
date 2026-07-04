@@ -17,6 +17,7 @@ structure ContractSpec where
   module : ProofForge.IR.Module
   intents : Array Intent := #[]
   upgradePolicy? : Option UpgradePolicy := none
+  proxyPattern? : Option ProxyPattern := none
   evmConstructorParams : Array EvmConstructorParam := #[]
   deriving Repr
 

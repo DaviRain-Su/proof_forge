@@ -95,6 +95,7 @@ def storageSlotExpr
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr) :
     StorageSlotPlan → Except ε Lean.Compiler.Yul.Expr
   | .scalarSlot slot => .ok (slotExpr slot)
+  | .fixedSlot slotHex => .ok (Lean.Compiler.Yul.Expr.lit (Lean.Compiler.Yul.Literal.hex slotHex))
   | .mapValueSlot rootSlot keys =>
       if keys.isEmpty then
         .error (mkError "EVM map value slot plan requires at least one key")

@@ -140,6 +140,10 @@ def render (spec : ContractSpec) : String :=
     match spec.upgradePolicy? with
     | some policy => ("upgradePolicy", UpgradePolicy.json policy)
     | none => ("upgradePolicy", "null")
+  let proxyPatternField :=
+    match spec.proxyPattern? with
+    | some pattern => ("proxyPattern", ProxyPattern.json pattern)
+    | none => ("proxyPattern", "null")
   jsonObject #[
     ("schema", jsonString "proof-forge.contract-spec.v0"),
     ("name", jsonString spec.name),
@@ -149,7 +153,8 @@ def render (spec : ContractSpec) : String :=
     ("capabilities", jsonStringArray (dedupStrings (spec.module.capabilities.map fun c => c.id))),
     ("intents", jsonArray (spec.intents.map intentJson)),
     ("errors", jsonArray (errorCatalog spec.module |>.map errorCatalogEntryJson)),
-    upgradePolicyField
+    upgradePolicyField,
+    proxyPatternField
   ]
 
 end ProofForge.Contract.Spec.Json

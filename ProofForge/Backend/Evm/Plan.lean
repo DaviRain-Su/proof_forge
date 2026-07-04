@@ -143,6 +143,7 @@ def ValuePlan.fromExpr (expr : Expr) : ValuePlan :=
 
 inductive StorageSlotPlan where
   | scalarSlot (slot : Nat)
+  | fixedSlot (slotHex : String)
   | mapValueSlot (rootSlot : Nat) (keys : Array ValuePlan)
   | mapPresenceSlot (rootSlot : Nat) (keys : Array ValuePlan)
   | arraySlot (rootSlot length : Nat) (index : ValuePlan)
@@ -151,6 +152,7 @@ inductive StorageSlotPlan where
 
 def StorageSlotPlan.keyCount : StorageSlotPlan → Nat
   | .scalarSlot _ => 0
+  | .fixedSlot _ => 0
   | .mapValueSlot _ keys => keys.size
   | .mapPresenceSlot _ keys => keys.size
   | .arraySlot .. => 0
@@ -158,6 +160,7 @@ def StorageSlotPlan.keyCount : StorageSlotPlan → Nat
 
 def StorageSlotPlan.requiredHelpers : StorageSlotPlan → HelperSet
   | .scalarSlot _ => #[]
+  | .fixedSlot _ => #[]
   | .mapValueSlot _ _ => #[Helper.mapSlot]
   | .mapPresenceSlot _ keys =>
       let helpers : HelperSet := #[Helper.mapPresenceSlot]
@@ -195,11 +198,14 @@ def requireMapState (module : Module) (stateId : String) : Except PlanError MapS
       .error { message := s!"EVM storage state '{stateId}' is not a map" }
 
 def scalarSlotPlan (module : Module) (stateId : String) : Except PlanError StorageSlotPlan := do
-  let (slot, state) ← requireState module stateId
-  match state.kind with
-  | .scalar => .ok (.scalarSlot slot)
-  | .map _ _ | .array _ =>
-      .error { message := s!"EVM storage state '{stateId}' is not a scalar slot" }
+  if stateId == "$eip1967.implementation" then
+    .ok (.fixedSlot "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+  else
+    let (slot, state) ← requireState module stateId
+    match state.kind with
+    | .scalar => .ok (.scalarSlot slot)
+    | .map _ _ | .array _ =>
+        .error { message := s!"EVM storage state '{stateId}' is not a scalar slot" }
 
 def mapValueSlotPlan (module : Module) (stateId : String) (keys : Array Expr) : Except PlanError StorageSlotPlan := do
   let mapState ← requireMapState module stateId

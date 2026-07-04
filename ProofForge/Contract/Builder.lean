@@ -14,6 +14,8 @@ structure ModuleBuilder where
   entrypoints : Array Entrypoint := #[]
   intents : Array Intent := #[]
   evmConstructorParams : Array ProofForge.Contract.EvmConstructorParam := #[]
+  upgradePolicy? : Option ProofForge.Contract.UpgradePolicy := none
+  proxyPattern? : Option ProofForge.Contract.ProxyPattern := none
   deriving Repr
 
 structure EntryBuilder where
@@ -29,6 +31,7 @@ def ModuleBuilder.toModule (builder : ModuleBuilder) : Module := {
   structs := builder.structs
   state := builder.state
   entrypoints := builder.entrypoints
+  evmProxyPattern? := builder.proxyPattern?.map ProofForge.Contract.ProxyPattern.kind
 }
 
 def ModuleBuilder.toSpec (builder : ModuleBuilder) : ContractSpec :=
@@ -37,6 +40,8 @@ def ModuleBuilder.toSpec (builder : ModuleBuilder) : ContractSpec :=
     name := module.name
     module := module
     intents := intentsFromIR module ++ builder.intents
+    upgradePolicy? := builder.upgradePolicy?
+    proxyPattern? := builder.proxyPattern?
     evmConstructorParams := builder.evmConstructorParams
   }
 
@@ -87,6 +92,12 @@ def constructorParam (name : String) (abiType : String) : ModuleM Unit := do
     { builder with
       evmConstructorParams := builder.evmConstructorParams.push { name, abiType }
     }
+
+def upgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit := do
+  modify fun builder => { builder with upgradePolicy? := some policy }
+
+def proxyPattern (pattern : ProofForge.Contract.ProxyPattern) : ModuleM Unit := do
+  modify fun builder => { builder with proxyPattern? := some pattern }
 
 def mapState (id : String) (keyType type : ValueType) (capacity : Nat) : ModuleM Unit :=
   state id type (.map keyType capacity)

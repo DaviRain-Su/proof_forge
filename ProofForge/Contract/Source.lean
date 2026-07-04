@@ -140,6 +140,10 @@ scoped syntax "cpi " ident " spl_token_set_authority" "(" ident ", " ident ", " 
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "use " term : contractItem
 scoped syntax "compose " ident ";" : contractItem
+scoped syntax "upgrade_policy_immutable;" : contractItem
+scoped syntax "upgrade_policy_authority " ident ";" : contractItem
+scoped syntax "proxy_pattern_uups;" : contractItem
+scoped syntax "proxy_pattern_transparent;" : contractItem
 scoped syntax "import " ident ";" : contractItem
 scoped syntax "open " ident ";" : contractItem
 scoped syntax "constructor_param " ident " : " term ";" : contractItem
@@ -484,6 +488,19 @@ private structure LoweredItem where
 
 private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
   match item with
+  | `(contractItem| upgrade_policy_immutable;) =>
+      let action ← `(ProofForge.Contract.Surface.setUpgradePolicy ProofForge.Contract.UpgradePolicy.immutable)
+      return { action? := some action }
+  | `(contractItem| upgrade_policy_authority $keyRef:ident;) =>
+      let keyLit := identNameLit keyRef
+      let action ← `(ProofForge.Contract.Surface.setUpgradePolicy (ProofForge.Contract.UpgradePolicy.authority $keyLit))
+      return { action? := some action }
+  | `(contractItem| proxy_pattern_uups;) =>
+      let action ← `(ProofForge.Contract.Surface.setProxyPattern ProofForge.Contract.ProxyPattern.uups)
+      return { action? := some action }
+  | `(contractItem| proxy_pattern_transparent;) =>
+      let action ← `(ProofForge.Contract.Surface.setProxyPattern ProofForge.Contract.ProxyPattern.transparent)
+      return { action? := some action }
   | `(contractItem| constructor_param $name:ident : "cstring";) =>
       let nameLit := identNameLit name
       let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "string")

@@ -45,7 +45,7 @@ def defaultMetadata (profile : TargetProfile) (spec : ProofForge.Contract.Contra
   { key := "contract", value := spec.name },
   { key := "target", value := profile.id },
   { key := "resolver", value := "ir-capability-plan-v0" }
-] ++ upgradePolicyMetadata spec
+] ++ upgradePolicyMetadata spec ++ proxyPatternMetadata spec
 where
   upgradePolicyMetadata (spec : ProofForge.Contract.ContractSpec) : Array TargetMetadata :=
     match spec.upgradePolicy? with
@@ -58,6 +58,13 @@ where
         | .immutable => base
         | .authority keyRef => base.push { key := "upgrade.policy.key_ref", value := keyRef }
         | .governance ref => base.push { key := "upgrade.policy.ref", value := ref }
+
+  proxyPatternMetadata (spec : ProofForge.Contract.ContractSpec) : Array TargetMetadata :=
+    match spec.proxyPattern? with
+    | none => #[]
+    | some pattern => #[
+        { key := "upgrade.proxy.pattern", value := pattern.kind }
+      ]
 
 def metadataRequiresSolana (metadata : Array TargetMetadata) : Bool :=
   metadata.any (fun item => item.key.startsWith "solana.")
@@ -125,7 +132,7 @@ def defaultResolve (profile : TargetProfile) (spec : ProofForge.Contract.Contrac
   match spec.upgradePolicy? with
   | none => pure ()
   | some policy =>
-      match ProofForge.Contract.UpgradePolicy.checkSupported profile.id policy with
+      match ProofForge.Contract.UpgradePolicy.checkSupported profile.id policy spec.proxyPattern? with
       | .ok () => pure ()
       | .error message => .error { message }
   let plan : CapabilityPlan := {

@@ -17,13 +17,15 @@ def mergeModules (name : String) (left right : Module) : Module :=
   { name := name
     structs := left.structs ++ right.structs
     state := left.state ++ right.state
-    entrypoints := left.entrypoints ++ right.entrypoints }
+    entrypoints := left.entrypoints ++ right.entrypoints
+    evmProxyPattern? := left.evmProxyPattern? <|> right.evmProxyPattern? }
 
 def mergeSpecs (name : String) (left right : ContractSpec) : ContractSpec :=
   { name := name
     module := mergeModules name left.module right.module
     intents := left.intents ++ right.intents
     upgradePolicy? := left.upgradePolicy? <|> right.upgradePolicy?
+    proxyPattern? := left.proxyPattern? <|> right.proxyPattern?
     evmConstructorParams := left.evmConstructorParams ++ right.evmConstructorParams }
 
 def mergeMany (name : String) (specs : Array ContractSpec) : ContractSpec :=
