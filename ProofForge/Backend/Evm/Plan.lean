@@ -39,6 +39,8 @@ structure StorageStatePlan where
   span : Nat
   kind : StateKind
   type : ValueType
+  byteOffset : Nat := 0
+  byteWidth : Nat := 32
   deriving Repr
 
 structure StorageLayout where
@@ -46,20 +48,40 @@ structure StorageLayout where
   deriving Repr
 
 def storageLayout (module : Module) : StorageLayout := {
-  states := go 0 0 module.state #[]
+  states := go 0 0 0 module.state #[]
 }
 where
-  go (idx slot : Nat) (states : Array StateDecl) (acc : Array StorageStatePlan) : Array StorageStatePlan :=
+  go (idx slot usedBytes : Nat) (states : Array StateDecl) (acc : Array StorageStatePlan) : Array StorageStatePlan :=
     if h : idx < states.size then
       let state := states[idx]
       let span := stateSlotSpan module state
-      go (idx + 1) (slot + span) states (acc.push {
-        id := state.id
-        slot
-        span
-        kind := state.kind
-        type := state.type
-      })
+      let w := state.type.byteWidth
+      -- Only scalar states with byteWidth > 0 and < 32 can be packed.
+      -- Arrays, maps, structs, hash (32 bytes), bytes/string always start a new slot.
+      let canPack := state.kind == .scalar && w > 0 && w < 32
+      if canPack && usedBytes + w <= 32 then
+        -- Pack into current slot
+        go (idx + 1) slot (usedBytes + w) states (acc.push {
+          id := state.id
+          slot
+          span := 0
+          kind := state.kind
+          type := state.type
+          byteOffset := usedBytes
+          byteWidth := w
+        })
+      else
+        -- Start a new slot
+        let nextSlot := if usedBytes > 0 then slot + 1 else slot
+        go (idx + 1) (nextSlot + span) (if span > 0 then 0 else w) states (acc.push {
+          id := state.id
+          slot := nextSlot
+          span
+          kind := state.kind
+          type := state.type
+          byteOffset := 0
+          byteWidth := if canPack then w else 32
+        })
     else
       acc
 

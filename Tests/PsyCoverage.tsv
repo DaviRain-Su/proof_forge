@@ -9,6 +9,8 @@ ValueType	structType	lowered	structDecl, struct literals, field access, ABI stru
 ValueType	address	lowered	valueTypeName and validateAbiValueType accept Address as a scalar Felt-backed type; validateValueType accepts Address in storage. Pattern match exhaustiveness verified across Psy backend.
 ValueType	bytes	validated	validateAbiValueType rejects Bytes with an explicit diagnostic; Psy IR v0 does not support dynamic bytes types. Pattern match exhaustiveness verified.
 ValueType	string	validated	validateAbiValueType rejects String with an explicit diagnostic; Psy IR v0 does not support dynamic string types. Pattern match exhaustiveness verified.
+ValueType	u8	lowered	Psy IR v0 lowers U8 as a Felt-backed scalar (same as U32); valueTypeName returns "U8", literal emits toString value; U8 ABI parameters accepted by validateAbiValueType.
+ValueType	u128	unsupported	Psy IR v0 rejects U128; valueTypeName returns error "Psy IR v0 does not support U128"; validateValueType and validateAbiValueType reject U128.
 StateKind	scalar	lowered	stateDecl and scalar storage effects are covered by Counter, ConditionalProbe, StructProbe, BoolStorageScalarProbe, HashStorageProbe, U32StorageScalarProbe, and StorageNestedAggregateProbe.
 StateKind	map	validated	validateState accepts only Map<Hash, Hash, N>; MapProbe covers the supported shape and Tests/PsyDiagnostics.lean covers unsupported map shapes.
 StateKind	array	lowered	stateDecl and storage-array effects are covered by ArrayProbe, BoolStorageArrayProbe, HashStorageProbe, StructArrayProbe, StorageNestedAggregateProbe, and U32StorageArrayProbe.
@@ -17,6 +19,8 @@ Literal	u64	lowered	literal emits Felt numerals and is covered by Counter, Arith
 Literal	bool	lowered	literal emits true/false and is covered by AssertProbe, ExpressionPredicateProbe, BoolStorageScalarProbe, and BoolStorageArrayProbe.
 Literal	hash4	lowered	literal emits Hash four-limb arrays and is covered by HashProbe, HashStorageProbe, and MapProbe.
 Literal	address	lowered	literal emits Address as a Felt-backed value; Psy backend accepts Address in ABI parameters and validateAbiValueType. Pattern match exhaustiveness verified in Psy/IR.lean.
+Literal	u8	lowered	literal emits toString value for U8 literals; Psy backend accepts U8 in ABI parameters.
+Literal	u128	unsupported	Psy IR v0 does not support U128 literals; literal function returns placeholder toString value.
 ContextField	userId	lowered	contextFunction lowers to get_user_id and ContextProbe covers it.
 ContextField	contractId	lowered	contextFunction lowers to get_contract_id and ContextProbe covers it.
 ContextField	checkpointId	lowered	contextFunction lowers to get_checkpoint_id and ContextProbe covers it.
