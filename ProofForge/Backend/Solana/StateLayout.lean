@@ -123,9 +123,27 @@ def computeSingleAccountLayout (dataSize : Nat) : Nat × Nat :=
   (dataStart, instrDataStart)
 
 /-- Compute the total account data size needed for all IR state variables.
-Phase 1 packs everything as 8-byte words. -/
+    Scalar state occupies 8 bytes. Map state occupies `capacity × 16` bytes
+    (8-byte key + 8-byte value per entry). Array state occupies `length × 8`. -/
 def moduleDataSize (module : Module) : Nat :=
-  module.state.size * 8
+  module.state.foldl (fun acc state =>
+    match state.kind with
+    | .scalar => acc + 8
+    | .map _ capacity => acc + capacity * 16
+    | .array length => acc + length * 8
+  ) 0
+
+/-- Map entry layout: key (8 bytes) + value (8 bytes) = 16 bytes per entry. -/
+def MAP_ENTRY_SIZE : Nat := 16
+def MAP_KEY_OFFSET : Nat := 0
+def MAP_VALUE_OFFSET : Nat := 8
+
+/-- Compute the byte size of a single state declaration in account data. -/
+def stateDeclSize (state : StateDecl) : Nat :=
+  match state.kind with
+  | .scalar => 8
+  | .map _ capacity => capacity * MAP_ENTRY_SIZE
+  | .array length => length * 8
 
 -- ============================================================================
 -- Per-module field offsets
@@ -136,13 +154,14 @@ structure StateField where
   absOff : Nat
   deriving Repr, Inhabited
 
-/-- Build a flat list of absolute account-data offsets for every state field. -/
+/-- Build a flat list of absolute account-data offsets for every state field.
+    Scalar state: 8 bytes. Map/array state: variable size (see stateDeclSize). -/
 def buildStateOffsetsAtBase (module : Module) (acctDataOff : Nat) : Array StateField := Id.run do
   let mut offsets := #[]
   let mut fieldOff := 0
   for state in module.state do
     offsets := offsets.push { id := state.id, absOff := acctDataOff + fieldOff }
-    fieldOff := fieldOff + 8
+    fieldOff := fieldOff + stateDeclSize state
   return offsets
 
 /-- Build a flat list of absolute account-data offsets for every state field

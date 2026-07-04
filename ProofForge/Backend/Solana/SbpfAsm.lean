@@ -381,12 +381,63 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     match ctx.stateAbsOff? stateId with
     | some absOff => .ok (#[ .instruction (res .ldxdw (src := some .r1) (off := some (.num absOff))) ], ctx)
     | none => .error { message := s!"unknown state: {stateId}" }
+  | .effect (.storageMapGet stateId key) => do
+    -- Linear search the map region: entries of (key:u64, value:u64) = 16 bytes each.
+    -- key is lowered into r2; we search mapBase[i].key == r2.
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown map state: {stateId}" }
+    | some mapBase =>
+      let (kn, ctx') ← lowerExpr ctx key
+      let (keyScratch, ctx') := ctx'.allocScratch
+      let (idxScratch, ctx') := ctx'.allocScratch
+      let (foundLabel, ctx') := ctx'.freshLabel
+      let (notFoundLabel, ctx') := ctx'.freshLabel
+      let (endLabel, ctx') := ctx'.freshLabel
+      let entrySize := 16  -- key(8) + value(8)
+      let maxEntries := 256  -- default capacity
+      .ok (kn ++ #[
+        .comment s!"solana.storage.map_get {stateId}: linear search {maxEntries} entries at base={mapBase}",
+        -- Save key to scratch
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num keyScratch), src := some .r2 },
+        -- r3 = index counter = 0
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 0) },
+        .label foundLabel,
+        -- Check if we've exhausted the map
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num maxEntries) },
+        .instruction { opcode := .jge, dst := some .r3, src := some .r4, off := some (.sym notFoundLabel) },
+        -- Compute entry address: r5 = r1 + mapBase + r3 * entrySize
+        .instruction { opcode := .mov64, dst := some .r5, imm := some (.num entrySize) },
+        .instruction { opcode := .mul64, dst := some .r5, src := some .r3 },
+        .instruction { opcode := .add64, dst := some .r5, imm := some (.num mapBase) },
+        .instruction { opcode := .add64, dst := some .r5, src := some .r1 },
+        -- Load entry key: r6 = *(u64*)(r5 + 0)
+        .instruction { opcode := .ldxdw, dst := some .r6, src := some .r5, off := some (.num 0) },
+        -- Load saved key: r7 = scratch
+        .instruction { opcode := .ldxdw, dst := some .r7, src := some .r10, off := some (.num keyScratch) },
+        -- Compare: if key matches, load value
+        .instruction { opcode := .jne, dst := some .r6, src := some .r7, off := some (.sym notFoundLabel) },
+        -- Found! Load value: r1 = *(u64*)(r5 + 8)
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r5, off := some (.num 8) },
+        .instruction { opcode := .ja, off := some (.sym endLabel) },
+        .label notFoundLabel,
+        -- Not found (or continue): increment index, loop
+        .instruction { opcode := .add64, dst := some .r3, imm := some (.num 1) },
+        .instruction { opcode := .ja, off := some (.sym foundLabel) },
+        .label endLabel,
+        -- Result in r1; save and reload to preserve caller r1
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num idxScratch), src := some .r1 },
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num idxScratch) }
+      ], ctx')
   | .effect (.storagePathRead stateId path) =>
     if path.isEmpty then
       match ctx.stateAbsOff? stateId with
       | some absOff => .ok (#[ .instruction (res .ldxdw (src := some .r1) (off := some (.num absOff))) ], ctx)
       | none => .error { message := s!"unknown state: {stateId}" }
-    else .error { message := "storage path read with non-empty path not supported in Phase 1" }
+    else
+      -- Single mapKey path: treat as storageMapGet
+      match path[0]? with
+      | some (ProofForge.IR.StoragePathSegment.mapKey key) => lowerExpr ctx (.effect (.storageMapGet stateId key))
+      | _ => .error { message := "storage path read with non-mapKey segments not supported" }
   | .effect (.contextRead .checkpointId) =>
     let (inputPtrScratch, ctx) := ctx.allocScratch
     let (clockBuffer, ctx) := ctx.allocScratchBytes CLOCK_SYSVAR_SIZE
@@ -488,6 +539,51 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       let (vn, ctx') ← lowerExpr ctx value
       .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r1, off := some (.num absOff), src := some .r2 } ], ctx')
     | none => .error { message := s!"unknown state: {stateId}" }
+  | .effect (.storageMapSet stateId key value) | .effect (.storageMapInsert stateId key value) => do
+    -- Find matching key or empty slot, write (key, value)
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown map state: {stateId}" }
+    | some mapBase => do
+      let (kn, ctx') ← lowerExpr ctx key
+      let (keyScratch, ctx') := ctx'.allocScratch
+      let (valScratch, ctx') := ctx'.allocScratch
+      let (loopLabel, ctx') := ctx'.freshLabel
+      let (writeLabel, ctx') := ctx'.freshLabel
+      let (endLabel, ctx') := ctx'.freshLabel
+      let entrySize := 16
+      let maxEntries := 256
+      -- Lower value after key
+      let (vn2, ctx') ← lowerExpr ctx' value
+      .ok (kn ++ #[
+        .comment s!"solana.storage.map_set {stateId}: find slot and write",
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num keyScratch), src := some .r2 },
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 0) },
+        .label loopLabel,
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num maxEntries) },
+        .instruction { opcode := .jge, dst := some .r3, src := some .r4, off := some (.sym endLabel) },
+        -- Compute entry address
+        .instruction { opcode := .mov64, dst := some .r5, imm := some (.num entrySize) },
+        .instruction { opcode := .mul64, dst := some .r5, src := some .r3 },
+        .instruction { opcode := .add64, dst := some .r5, imm := some (.num mapBase) },
+        .instruction { opcode := .add64, dst := some .r5, src := some .r1 },
+        -- Load entry key
+        .instruction { opcode := .ldxdw, dst := some .r6, src := some .r5, off := some (.num 0) },
+        .instruction { opcode := .ldxdw, dst := some .r7, src := some .r10, off := some (.num keyScratch) },
+        -- If key matches or slot empty (key==0), write here
+        .instruction { opcode := .jeq, dst := some .r6, src := some .r7, off := some (.sym writeLabel) },
+        .instruction { opcode := .jeq, dst := some .r6, imm := some (.num 0), off := some (.sym writeLabel) },
+        -- Continue searching
+        .instruction { opcode := .add64, dst := some .r3, imm := some (.num 1) },
+        .instruction { opcode := .ja, off := some (.sym loopLabel) },
+        .label writeLabel
+      ] ++ vn2 ++ #[ -- value now in r2
+        -- Write key + value
+        .instruction { opcode := .ldxdw, dst := some .r7, src := some .r10, off := some (.num keyScratch) },
+        .instruction { opcode := .stxdw, dst := some .r5, off := some (.num 0), src := some .r7 },
+        .instruction { opcode := .stxdw, dst := some .r5, off := some (.num 8), src := some .r2 },
+        .label endLabel,
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num keyScratch) }
+      ], ctx')
   | .effect (.storagePathWrite stateId path value) =>
     if path.isEmpty then
       match ctx.stateAbsOff? stateId with
@@ -495,7 +591,10 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
         let (vn, ctx') ← lowerExpr ctx value
         .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r1, off := some (.num absOff), src := some .r2 } ], ctx')
       | none => .error { message := s!"unknown state: {stateId}" }
-    else .error { message := "storage path write with non-empty path not supported in Phase 1" }
+    else
+      match path[0]? with
+      | some (ProofForge.IR.StoragePathSegment.mapKey key) => lowerStmt ctx (.effect (.storageMapSet stateId key value))
+      | _ => .error { message := "storage path write with non-mapKey segments not supported" }
   | .effect (.storageScalarAssignOp stateId opA value) => do
     match ctx.stateAbsOff? stateId with
     | some absOff => do
