@@ -133,6 +133,45 @@ just portable-value-vault
 legacy `Examples/Learn/ValueVault.learn` fixture 继续保留，用于 parser
 等价覆盖。它不是新合约推荐的 authoring 路径。
 
+分步 walkthrough 见
+[tutorials/portable-contract-three-targets.md](../tutorials/portable-contract-three-targets.md)
+（中文：[portable-contract-three-targets.zh.md](tutorials/portable-contract-three-targets.zh.md)）。
+
+## Resource budget baseline（CS-5.2）
+
+Gate G0 要求行为 parity **以及** 三个主目标的逐步 resource budget。
+`contract_source` Counter 与 ValueVault 场景在以下文件中固定 baseline：
+
+- `testkit/scenarios/counter.toml`
+- `testkit/scenarios/value-vault.toml`
+
+每个场景在 `[scenario.reference.toolchain]` 下记录参考 harness 工具链
+（revm、Mollusk、wasmtime、sbpf）。当依赖升级改变测量成本时，应在同一 PR
+中更新 scenario TOML。
+
+| 场景 | 断言指标 | 典型容差 |
+|---|---|---|
+| Counter | 每步 `evm_gas`、`solana_cu`、`near_gas` | EVM ±10%，Solana/NEAR ±5% |
+| ValueVault | 同上 | 同上 |
+
+本地运行 budget gate：
+
+```bash
+just testkit-budget-gate
+```
+
+该命令通过 `just testkit` 执行 Counter 与 ValueVault 场景。CI 通过完整
+`just testkit` 套件运行相同断言；Solana CU 或 EVM gas 的刻意回归会使 gate 失败。
+
+锁定新 baseline 时，可用 `--trace` 查看测量值：
+
+```bash
+cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter --trace
+```
+
+将报告的 `solana_cu`、`evm_gas`、`near_gas` 复制到 scenario 文件。详见
+[RFC 0010](../rfcs/0010-resource-budgets-as-gates.md)。
+
 ## ZK 目标 Experimental 标准
 
 `psy-dpn` 不属于 Phase 2 退出标准，但它现在已经通过生成 `.psy` 源码和 Dargo 验证复用了 Counter 场景。

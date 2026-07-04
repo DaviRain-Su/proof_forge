@@ -36,6 +36,26 @@ pub struct Scenario {
     pub targets: Vec<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub reference: Option<ScenarioReference>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScenarioReference {
+    #[serde(default)]
+    pub toolchain: Option<ScenarioToolchainReference>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScenarioToolchainReference {
+    #[serde(default)]
+    pub revm: Option<String>,
+    #[serde(default)]
+    pub mollusk: Option<String>,
+    #[serde(default)]
+    pub wasmtime: Option<String>,
+    #[serde(default)]
+    pub sbpf: Option<String>,
 }
 
 impl Scenario {

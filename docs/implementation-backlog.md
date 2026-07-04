@@ -2699,8 +2699,8 @@ Focus: prove the unified authoring story on all three primary chains.
 | ID | Task | Acceptance |
 |---|---|---|
 | CS-5.1 | Expand testkit scenarios for `contract_source`-authored Counter/ValueVault on `evm`, `solana-sbpf-asm`, `wasm-near` | ✅ `just testkit` covers same scenario file, different `--target` artifacts |
-| CS-5.2 | Resource budget baselines for new stdlib contracts (EVM gas, Solana CU) | Workstream 31 budgets extended; regressions fail CI |
-| CS-5.3 | Authoring-model worked example: one business module, three targets, zero source forks | Tutorial in docs (EN + zh sync via translate pipeline) |
+| CS-5.2 | Resource budget baselines for new stdlib contracts (EVM gas, Solana CU) | ✅ Workstream 31 budgets extended; regressions fail CI |
+| CS-5.3 | Authoring-model worked example: one business module, three targets, zero source forks | ✅ Tutorial in docs (EN + zh sync via translate pipeline) |
 
 Current CS-5.1 testkit slice: `testkit/scenarios/counter.toml` and
 `testkit/scenarios/value-vault.toml` now declare `source =
@@ -2714,6 +2714,20 @@ toolchain (`solana-keygen` + `sbpf`) before `just testkit` so all three primary
 targets execute instead of skipping Solana. Rust 1.91+ is required for the
 pinned testkit dependencies (`revm` and `sbpf`). The fixture-only paths remain for
 specialized compiler/runtime scenarios such as `error-ref` and allocator probes.
+
+Current CS-5.2 budget slice: `testkit/scenarios/counter.toml` and
+`testkit/scenarios/value-vault.toml` pin per-step `evm_gas`, `solana_cu`, and
+`near_gas` baselines for the shared `contract_source` modules. Each scenario
+records reference harness toolchains under `[scenario.reference.toolchain]`.
+`just testkit-budget-gate` runs Counter and ValueVault through the unified
+testkit; CI still executes the full `just testkit` suite, so budget regressions
+fail the default pipeline.
+
+Current CS-5.3 tutorial slice: [tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.md)
+walks through `Examples/Shared/Counter.lean` and ValueVault with build commands,
+`just portable-counter-multi-target`, testkit parity, and budget gates. The zh
+mirror lives at [docs/zh/tutorials/portable-contract-three-targets.zh.md](zh/tutorials/portable-contract-three-targets.zh.md)
+and is tracked in the translate manifest.
 
 ### Phase CS-6 — Documentation and legacy cleanup
 

@@ -290,6 +290,11 @@ testkit:
 testkit-list:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 
+# Run contract_source Counter/ValueVault scenarios with budget assertions.
+testkit-budget-gate:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
+
 # Run the fast local baseline used before broader target smokes.
 check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
 

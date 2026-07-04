@@ -11,7 +11,7 @@ M3/M4 工作排在这次清理之后。
 
 | 如果你是... | 从这里开始 | 然后阅读 |
 |---|---|---|
-| 新贡献者 | 本页面 + [README](../README.md) + [入职指南](onboarding.zh.md) | [验证门禁](validation-gates.md), [待办事项](implementation-backlog.md) |
+| 新贡献者 | 本页面 + [README](../README.md) + [入职指南](onboarding.zh.md) | [三目标可移植教程](tutorials/portable-contract-three-targets.md), [验证门禁](validation-gates.md), [待办事项](implementation-backlog.md) |
 | 实现后端 | [RFC 0002](rfcs/0002-target-implementation-design.md) | [决策](decisions.md), [可移植 IR](portable-ir.md), 目标说明 |
 | 评审设计 | [评审清单](review-checklist.md) | RFCs, [能力注册表](capability-registry.md), [共享场景](shared-scenario.md) |
 | 策略 / 中文读者 | [zh/README](zh/README.md) | [可行性分析](zh/feasibility-analysis.md), [决策](decisions.md) |
@@ -45,6 +45,7 @@ flowchart TB
 - [RFC 0004: EVM semantic plan 与 Yul AST 边界](rfcs/0004-evm-semantic-plan.md)：位于 portable IR 和低层 Yul 语法之间的 EVM target-semantic plan 层。
 - [能力注册表](capability-registry.md)：规范的能力 id。
 - [共享场景：计数器](shared-scenario.md)：跨目标验收测试。
+- [教程：一个模块、三个目标](tutorials/portable-contract-three-targets.md)：可移植 `contract_source` 演练（CS-5.3）。
 
 ## RFC
 

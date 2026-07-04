@@ -10,7 +10,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "82bf57f7782c13282e189322bbab5f1d24327523874a7f754c8f3c0461b46dd9",
+    "sha256": "e2e808e5ebf328a101dd4492edc13dd476dc73b309487058f08d150d28555778",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "gemini-3-flash-preview"
   },
@@ -40,12 +40,17 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/shared-scenario.md": {
-    "sha256": "8ff634a56db273ecbb4bc36b6b2c93c6732af7ccbad1f2e965a8b7e8110bdb2f",
+    "sha256": "c0434f66200120c2625564c7afd9a581b2f82d13674e7dbb45362d9fda826471",
     "zh": "docs/zh/shared-scenario.zh.md",
     "model": "gemini-3-flash-preview"
   },
+  "docs/tutorials/portable-contract-three-targets.md": {
+    "sha256": "d6f4ca2cf61f0174d8110320ac53a32460462c19cc2673052b97aafef0f91e81",
+    "zh": "docs/zh/tutorials/portable-contract-three-targets.zh.md",
+    "model": "manual"
+  },
   "docs/implementation-backlog.md": {
-    "sha256": "e185a2a5c5b53e1622ce0454696f45209494e0cb9808381a46e421cab8bedf75",
+    "sha256": "d9ddec9d616b1d5c63c9dad31db5c9b9358ffa975e7e5d107e0610a4a7543af4",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "gemini-3-flash-preview"
   },

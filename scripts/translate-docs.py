@@ -67,6 +67,7 @@ DOC_MAP: dict[str, str] = {
     "docs/capability-registry.md": "docs/zh/capability-registry.zh.md",
     "docs/portable-ir.md": "docs/zh/portable-ir.zh.md",
     "docs/shared-scenario.md": "docs/zh/shared-scenario.zh.md",
+    "docs/tutorials/portable-contract-three-targets.md": "docs/zh/tutorials/portable-contract-three-targets.zh.md",
     "docs/implementation-backlog.md": "docs/zh/implementation-backlog.zh.md",
     "docs/review-checklist.md": "docs/zh/review-checklist.zh.md",
     "docs/development-standards.md": "docs/zh/development-standards.zh.md",

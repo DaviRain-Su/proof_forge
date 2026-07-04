@@ -145,6 +145,47 @@ The legacy `Examples/Learn/ValueVault.learn` fixture is retained for parser
 equivalence coverage. It is not the recommended authoring path for new
 contracts.
 
+For a step-by-step walkthrough of this authoring model, see
+[tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.md).
+
+## Resource budget baselines (CS-5.2)
+
+Gate G0 requires behavior parity **and** per-step resource budgets for the
+three primary targets. The `contract_source` Counter and ValueVault scenarios
+pin baselines in:
+
+- `testkit/scenarios/counter.toml`
+- `testkit/scenarios/value-vault.toml`
+
+Each scenario records the reference harness toolchains under
+`[scenario.reference.toolchain]` (revm, Mollusk, wasmtime, sbpf). When a
+dependency upgrade changes measured costs, update the scenario TOML in the same
+PR that bumps the toolchain.
+
+| Scenario | Metrics asserted | Typical tolerance |
+|---|---|---|
+| Counter | `evm_gas`, `solana_cu`, `near_gas` on every step | EVM ±10%, Solana/NEAR ±5% |
+| ValueVault | same | same |
+
+Run the budget gate locally:
+
+```bash
+just testkit-budget-gate
+```
+
+This executes the Counter and ValueVault scenarios through `just testkit`.
+CI runs the full suite via `just testkit`, which includes the same budget
+assertions. A deliberate regression in Solana CU or EVM gas fails the gate.
+
+To inspect measured budgets while authoring new baselines, run:
+
+```bash
+cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter --trace
+```
+
+Copy reported `solana_cu`, `evm_gas`, and `near_gas` values into the scenario
+file when locking a new baseline. See [RFC 0010](rfcs/0010-resource-budgets-as-gates.md).
+
 ## ZK Target Experimental Criteria
 
 `psy-dpn` is not part of Phase 2 exit criteria, but it now reuses the Counter

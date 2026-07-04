@@ -5,6 +5,12 @@ source = "Examples/Shared/Counter.lean"
 targets = ["wasm-near", "evm", "solana-sbpf-asm"]
 capabilities = ["storage.scalar", "entrypoint.external"]
 
+[scenario.reference.toolchain]
+revm = "41.0.0"
+mollusk = "0.13.4"
+wasmtime = "26.0.1"
+sbpf = "0.2.2"
+
 [[artifact]]
 target = "wasm-near"
 name = "wat"

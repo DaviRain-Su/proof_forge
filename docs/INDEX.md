@@ -15,7 +15,7 @@ that cleanup.
 
 | If you are… | Start here | Then read |
 |---|---|---|
-| New contributor | This page + [README](../README.md) + [Onboarding](onboarding.md) | [Validation gates](validation-gates.md), [backlog](implementation-backlog.md) |
+| New contributor | This page + [README](../README.md) + [Onboarding](onboarding.md) | [Portable three-target tutorial](tutorials/portable-contract-three-targets.md), [Validation gates](validation-gates.md), [backlog](implementation-backlog.md) |
 | Implementing a backend | [RFC 0002](rfcs/0002-target-implementation-design.md) | [decisions](decisions.md), [portable IR](portable-ir.md), target notes |
 | Reviewing design | [review-checklist](review-checklist.md) | RFCs, [capability registry](capability-registry.md), [shared scenario](shared-scenario.md) |
 | Strategy / 中文读者 | [zh/README](zh/README.md) | [可行性分析](zh/feasibility-analysis.md), [decisions](decisions.md) |
@@ -49,6 +49,7 @@ flowchart TB
 - [RFC 0004: EVM semantic plan and Yul AST boundary](rfcs/0004-evm-semantic-plan.md): target-semantic EVM plan layer between portable IR and low-level Yul syntax.
 - [Capability registry](capability-registry.md): canonical capability ids.
 - [Shared scenario: Counter](shared-scenario.md): cross-target acceptance test.
+- [Tutorial: one module, three targets](tutorials/portable-contract-three-targets.md): portable `contract_source` walkthrough (CS-5.3).
 
 ## RFCs
 
