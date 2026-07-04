@@ -67,6 +67,21 @@ just build-all
 just forge-test
 just forge-script
 just forge-all
+just check-all
+```
+
+Editor setup:
+
+- Open this folder in VS Code or Cursor and accept the recommended extensions.
+- Use the bundled `.vscode/tasks.json` recipes for `proof-forge check` and multi-target builds.
+
+Target checks:
+
+```sh
+just check-evm
+just check-solana
+just check-near
+just check-all
 ```
 
 Or invoke the CLI directly:
@@ -217,11 +232,15 @@ def initCommand (opts : ScaffoldOptions) : IO UInt32 := do
   let foundryTemplate := joinPath templateDir "foundry"
   if ← pathExists foundryTemplate then
     copyTemplateDirectory foundryTemplate (joinPath targetDir "foundry")
+  let vscodeTemplate := joinPath templateDir ".vscode"
+  if ← pathExists vscodeTemplate then
+    copyTemplateDirectory vscodeTemplate (joinPath targetDir ".vscode")
   IO.println s!"init: wrote portable Counter starter to {targetDir}"
   IO.println "next steps:"
   IO.println s!"  cd {targetDir}"
   IO.println "  lake update"
   IO.println "  just build-evm"
+  IO.println "  just check-evm"
   IO.println "  just forge-test"
   IO.println "  just build-solana"
   return 0

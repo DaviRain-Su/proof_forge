@@ -27,6 +27,7 @@ import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
 import ProofForge.Cli.Deploy
+import ProofForge.Cli.Check
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -427,6 +428,7 @@ structure CliOptions where
   targetId? : Option String := none
   fixture? : Option String := none
   format? : Option String := none
+  reportFormat? : Option String := none
   mode : EmitMode := .yul
   fromNewSurface : Bool := false
   deriving Inhabited
@@ -2497,6 +2499,7 @@ structure NewCommandParseState where
   target? : Option String := none
   fixture? : Option String := none
   format? : Option String := none
+  reportFormat? : Option String := none
   out? : Option String := none
   yulOut? : Option String := none
   artifactOut? : Option String := none
@@ -2530,6 +2533,9 @@ partial def parseNewOptions : List String → NewCommandParseState → Except St
   | "--format" :: rest, state => do
       let (format, rest) ← takeOption rest "--format"
       parseNewOptions rest { state with format? := some format }
+  | "--report-format" :: rest, state => do
+      let (format, rest) ← takeOption rest "--report-format"
+      parseNewOptions rest { state with reportFormat? := some format }
   | "-o" :: rest, state => do
       let (out, rest) ← takeOption rest "-o"
       parseNewOptions rest { state with out? := some out }
@@ -2759,59 +2765,20 @@ def newCommandArgsToLegacy (args : List String) : Except String (List String) :=
   | _ => Except.error "expected build, emit, or check"
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
-  match fixtureId with
-  | "counter" => some ProofForge.IR.Examples.Counter.module
-  | "error-ref" => some ProofForge.IR.Examples.ErrorRefProbe.module
-  | "context" => some ProofForge.IR.Examples.ContextProbe.module
-  | "hash" => some ProofForge.IR.Examples.HashProbe.module
-  | "map" => some ProofForge.IR.Examples.MapProbe.emitWatModule
-  | _ => none
-
-def toolOnPath (tool : String) : IO Bool := do
-  try
-    let r ← IO.Process.output { cmd := "which", args := #[tool] }
-    return r.exitCode == 0
-  catch _ =>
-    return false
+  ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
 
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
     | some id => pure id
     | none => throw <| IO.userError "check requires --target <id>"
-  let profile ← match ProofForge.Target.find? targetId with
-    | some p => pure p
-    | none => throw <| IO.userError s!"unknown target '{targetId}'\nknown targets: {String.intercalate ", " ProofForge.Target.knownIds.toList}"
-  if let some fixtureId := opts.fixture? then
-    if !ProofForge.Cli.Fixture.isValidId fixtureId then
-      throw <| IO.userError s!"unknown fixture '{fixtureId}'\nknown fixtures: {ProofForge.Cli.Fixture.listIds}"
-    let format ← match opts.format? with
-      | some fmt =>
-          match ProofForge.Cli.Fixture.parseFormat? fmt with
-          | some f => pure f
-          | none => throw <| IO.userError s!"unknown format '{fmt}'"
-      | none =>
-          match ProofForge.Cli.Fixture.defaultFormatFor targetId fixtureId with
-          | some f => pure f
-          | none => throw <| IO.userError s!"no default format for --target {targetId} --fixture {fixtureId}"
-    if !ProofForge.Cli.Fixture.supportsFormat targetId fixtureId format then
-      throw <| IO.userError s!"fixture '{fixtureId}' does not support format '{format.id}' for target '{targetId}'"
-    if targetId == ProofForge.Target.wasmNear.id && format == .wat then
-      let module ← match emitWatFixtureModule? fixtureId with
-        | some module => pure module
-        | none => throw <| IO.userError s!"fixture '{fixtureId}' is not mapped to the wasm-near EmitWat backend"
-      match ProofForge.Backend.WasmNear.EmitWat.renderModule module with
-      | .ok _ => pure ()
-      | .error err => throw <| IO.userError err.message
-    else
-      let caps := ProofForge.Cli.Fixture.capabilitiesFor fixtureId
-      match ProofForge.Target.requireCapabilities profile caps with
-      | .ok _ => pure ()
-      | .error err => throw <| IO.userError err.render
-  for tool in profile.requiredTools do
-    if !(← toolOnPath tool) then
-      IO.eprintln s!"warning: required tool '{tool}' not found on PATH for target '{targetId}'"
-  IO.println "check: ok"
-  return 0
+  ProofForge.Cli.Check.checkCommand
+    targetId
+    opts.fixture?
+    (opts.input?.map (·.toString))
+    opts.format?
+    opts.reportFormat?
+    opts.root?
+    opts.moduleName?
 
 def writeTextFile (path : FilePath) (contents : String) : IO Unit := do
   if let some parent := path.parent then
@@ -5444,8 +5411,10 @@ unsafe def main (args : List String) : IO UInt32 := do
             targetId? := state.target?,
             fixture? := state.fixture?,
             format? := state.format?,
+            reportFormat? := state.reportFormat?,
             input? := state.input?.map FilePath.mk,
             root? := state.root?.map FilePath.mk,
+            moduleName? := state.module?.map ProofForge.Cli.parseModuleName,
             fromNewSurface := true
             : ProofForge.Cli.CliOptions }
         | Except.error msg => Except.error msg

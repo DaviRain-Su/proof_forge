@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "proof-forge: check EVM",
+      "type": "shell",
+      "command": "lake env proof-forge check --target evm --root . Counter.lean",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "proof-forge: check Solana",
+      "type": "shell",
+      "command": "lake env proof-forge check --target solana-sbpf-asm --root . Counter.lean",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "proof-forge: check NEAR",
+      "type": "shell",
+      "command": "lake env proof-forge check --target wasm-near --root . Counter.lean",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "just: build-all",
+      "type": "shell",
+      "command": "just build-all",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

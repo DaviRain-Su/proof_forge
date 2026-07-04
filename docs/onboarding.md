@@ -34,6 +34,8 @@ Recommended editor setup:
 - The repository includes `.vscode/extensions.json` and `.vscode/settings.json`
   so the Lean extension, TOML syntax, and low-noise search/watch exclusions are
   offered automatically.
+- Scaffolded portable projects copy the same `.vscode` recommendations and
+  `proof-forge check` task recipes.
 - Open the repository root, not a subdirectory, so Lake, imports, and
   `lean-toolchain` resolve consistently.
 - Let the extension use the repo toolchain through `elan`; do not override the
@@ -70,6 +72,11 @@ git diff --check
 `just check` is the normal fast gate. It runs the common build, diagnostics,
 coverage, and smoke slices that CI expects without requiring every live-chain
 tool.
+
+Use `proof-forge check --target <id> [--fixture <id>|input.lean]` to validate
+capability support and lowering before building artifacts. Pass
+`--report-format json` for machine-readable diagnostics suitable for editor
+integration and smoke validators.
 
 ## Target-Specific Tools
 

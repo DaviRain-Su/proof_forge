@@ -41,5 +41,7 @@ echo "init-smoke: Solana"
 test -f "$OUT/build/evm/Counter.bin"
 test -f "$OUT/build/solana/Counter.s"
 test -d "$OUT/foundry/test"
+test -f "$OUT/.vscode/extensions.json"
+test -f "$OUT/.vscode/tasks.json"
 
 echo "init-smoke: ok"

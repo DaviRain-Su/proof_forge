@@ -40,6 +40,17 @@ deploy-evm-plan: build-evm
       --plan-only \
       --output build/evm/Counter.proof-forge-deploy-plan.json
 
+check-evm: build-cli check-source
+    {{proof_forge}} check --target evm --root . {{source}}
+
+check-solana: build-cli check-source
+    {{proof_forge}} check --target solana-sbpf-asm --root . {{source}}
+
+check-near: build-cli check-source
+    {{proof_forge}} check --target wasm-near --root . {{source}}
+
+check-all: check-evm check-solana check-near
+
 build-solana: build-cli check-source
     mkdir -p build/solana
     {{proof_forge}} build --target solana-sbpf-asm --root . \

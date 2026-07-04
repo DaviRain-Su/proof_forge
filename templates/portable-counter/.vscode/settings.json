@@ -1,0 +1,14 @@
+{
+  "files.watcherExclude": {
+    "**/.lake/**": true,
+    "**/build/**": true
+  },
+  "search.exclude": {
+    "**/.lake": true,
+    "**/build": true
+  },
+  "files.associations": {
+    "justfile": "just",
+    "*.toml": "toml"
+  }
+}

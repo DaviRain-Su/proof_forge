@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "leanprover.lean4",
+    "tamasfe.even-better-toml",
+    "nefrob.vscode-just"
+  ]
+}

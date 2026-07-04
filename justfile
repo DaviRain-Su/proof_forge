@@ -24,6 +24,10 @@ contract-client:
 cli-deploy:
     lake env lean --run Tests/CliDeploy.lean
 
+# Check structured proof-forge check diagnostics.
+cli-check:
+    lake env lean --run Tests/CliCheck.lean
+
 # Check that shared contract_source examples match their legacy Learn fixtures.
 shared-contract-source:
     lake env lean --run Tests/SharedContractSource.lean
@@ -134,6 +138,10 @@ portable-init-smoke:
 # Validate init + Foundry workspace (forge test/script on stable build/evm paths).
 portable-foundry-workspace:
     scripts/portable/foundry-workspace-smoke.sh
+
+# Run proof-forge check diagnostics on a scaffolded portable project.
+portable-check-smoke:
+    scripts/portable/check-smoke.sh
 
 # Validate init project emits EVM TypeScript client beside build/evm artifacts.
 portable-evm-client:
@@ -283,7 +291,7 @@ testkit-list:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
+check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
