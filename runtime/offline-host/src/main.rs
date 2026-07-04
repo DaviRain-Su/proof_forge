@@ -636,6 +636,15 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> i64 { caller.data().block_index as i64 },
     )?;
 
+    // Promise API stubs
+    linker.func_wrap("env", "promise_create",
+        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
+    linker.func_wrap("env", "promise_then",
+        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
+    linker.func_wrap("env", "promise_results_count", |_: Caller<'_, HostState>| -> i64 { 0 })?;
+    linker.func_wrap("env", "promise_result", |_: i64, _: i64| -> i64 { 2 })?;
+    linker.func_wrap("env", "promise_return", |_: i64| {},)?;
+
     Ok(())
 }
 

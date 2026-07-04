@@ -51,7 +51,12 @@ def HostBridge.requiredImports : HostBridge → Array String
       "env.read_register",
       "env.value_return",
       "env.signer_account_id",
-      "env.attached_deposit"
+      "env.attached_deposit",
+      "env.promise_create",
+      "env.promise_then",
+      "env.promise_results_count",
+      "env.promise_result",
+      "env.promise_return"
     ]
   | .cosmWasm => #[
       "env.db_read",
@@ -72,7 +77,12 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "read_register", params := #["i64", "i64"], results := #[] },
       { name := "value_return",  params := #["i64", "i64"], results := #[] },
       { name := "signer_account_id", params := #["i64"], results := #[] },
-      { name := "attached_deposit", params := #[], results := #["i64"] }
+      { name := "attached_deposit", params := #[], results := #["i64"] },
+      { name := "promise_create", params := #["i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
+      { name := "promise_then", params := #["i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
+      { name := "promise_results_count", params := #[], results := #["i64"] },
+      { name := "promise_result", params := #["i64", "i64"], results := #["i64"] },
+      { name := "promise_return", params := #["i64"], results := #[] }
     ]
   | .cosmWasm => #[
       { name := "db_read",  params := #["i32"], results := #["i32"] },
