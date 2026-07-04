@@ -194,6 +194,9 @@ jobs:
       - name: Run Anvil deploy smoke
         run: just evm-anvil-deploy
 
+      - name: Run dynamic constructor Anvil smoke
+        run: just evm-dynamic-constructor-anvil
+
   solana-pinocchio-live:
     runs-on: ubuntu-latest
     timeout-minutes: 75

@@ -14,6 +14,7 @@ structure ModuleBuilder where
   entrypoints : Array Entrypoint := #[]
   intents : Array Intent := #[]
   evmConstructorParams : Array ProofForge.Contract.EvmConstructorParam := #[]
+  evmConstructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]
   upgradePolicy? : Option ProofForge.Contract.UpgradePolicy := none
   proxyPattern? : Option ProofForge.Contract.ProxyPattern := none
   deriving Repr
@@ -43,6 +44,7 @@ def ModuleBuilder.toSpec (builder : ModuleBuilder) : ContractSpec :=
     upgradePolicy? := builder.upgradePolicy?
     proxyPattern? := builder.proxyPattern?
     evmConstructorParams := builder.evmConstructorParams
+    evmConstructorInitBindings := builder.evmConstructorInitBindings
   }
 
 def buildModule (name : String) (body : ModuleM Unit) : Module :=
@@ -91,6 +93,14 @@ def constructorParam (name : String) (abiType : String) : ModuleM Unit := do
   modify fun builder =>
     { builder with
       evmConstructorParams := builder.evmConstructorParams.push { name, abiType }
+    }
+
+def constructorInitBinding
+    (stateId paramName : String) (kind : ProofForge.Contract.EvmConstructorInitKind) : ModuleM Unit := do
+  modify fun builder =>
+    { builder with
+      evmConstructorInitBindings :=
+        builder.evmConstructorInitBindings.push { stateId, paramName, kind }
     }
 
 def upgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit := do

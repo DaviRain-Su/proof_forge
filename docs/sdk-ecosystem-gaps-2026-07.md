@@ -67,7 +67,7 @@ gaps.
 |---|---|---|---|
 | Custom errors (0.8.4+) | Partial | Structured revert payloads exist; no Solidity custom-error selector surface | P1 |
 | Structured events | Covered | Named events, indexed topics, aggregate data — all lowered | — |
-| Constructor args | Partial | CLI ABI-encodes static words (`uint256`/`uint64`/`uint32`/`bool`/`bytes32`/`address`) and dynamic types (`string`/`bytes`/`uint256[]` with head-offset + tail encoding, CS-3.4) into the initcode tail; deploy manifest records the schema. **Gaps:** (a) no example uses `cstring`/`cbytes`/`u256array`; (b) no positive Foundry/Anvil smoke for dynamic types; (c) the emitted runtime bytecode has no constructor body that consumes the tail (`codecopy` → storage init) — args are encoded but not read at deploy time | P0 |
+| Constructor args | Covered | CLI ABI-encodes static words and dynamic types (`string`/`bytes`/`uint256[]`, CS-3.4) into the initcode tail; deploy manifest records the schema; `DynamicConstructorProbe` exercises `cstring`/`cbytes`/`u256array` with `evmConstructorInitBindings`; deploy-object initcode reads the tail via `codesize()-argsSize` and binds storage at deploy time; Foundry (`foundry-smoke.sh`) and Anvil (`dynamic-constructor-anvil-smoke.sh`) positive smokes | — |
 | Storage packing | Missing | One slot per field; no packing/layout optimizer | P1 |
 | Batch operations | Missing | No multicall / batch mint/transfer pattern | P1 |
 | Factory deployment | Partial | Foundry deploys init code; no reusable factory contract | P1 |
@@ -193,7 +193,7 @@ economics) is almost entirely missing.
 
 ## Summary: P0 blockers per chain
 
-**EVM (1 open P0, 4 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin). **Open:** Constructor dynamic args — CLI ABI encoding is implemented (CS-3.4) but no positive Foundry/Anvil smoke, no example using `cstring`/`cbytes`/`u256array`, and no runtime constructor body that consumes the initcode tail.
+**EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable are closed. Live generated-program Token-2022 direct-CPI validation remains a P1 validation expansion.
 

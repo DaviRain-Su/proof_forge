@@ -41,6 +41,10 @@ def contract (name : String) (body : ModuleM Unit) : ContractSpec :=
 def declareConstructorParam (name : String) (abiType : String) : ModuleM Unit :=
   ProofForge.Contract.Builder.constructorParam name abiType
 
+def declareConstructorInitBinding
+    (stateId paramName : String) (kind : ProofForge.Contract.EvmConstructorInitKind) : ModuleM Unit :=
+  ProofForge.Contract.Builder.constructorInitBinding stateId paramName kind
+
 def setUpgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit :=
   ProofForge.Contract.Builder.upgradePolicy policy
 

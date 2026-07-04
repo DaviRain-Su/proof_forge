@@ -2805,7 +2805,7 @@ so authors never drop to Builder for common EVM patterns. Cross-ref
 | CS-3.1 | `payable` entry / `msg.value` syntax (`nativeValue` routing) | P0 | Authoring syntax for value-bearing entries; Foundry value tests |
 | CS-3.2 | Native ETH transfer helper (plain transfer to EOA/contract) | P0 | No manual `crosscallInvokeValueTyped(u64 0)` in examples |
 | CS-3.3 | Entry modifiers / guards (`onlyOwner`, `whenNotPaused`, role guards) | P0 | Desugar to portable IR checks; diagnostics on misuse |
-| CS-3.4 | Constructor dynamic ABI (string, bytes, dynamic arrays) | P0 | CLI + artifact metadata; Anvil smoke with non-empty constructor args |
+| CS-3.4 | Constructor dynamic ABI (string, bytes, dynamic arrays) | P0 | CLI + artifact metadata; deploy-object init reads initcode tail into storage; Foundry + Anvil smokes with `DynamicConstructorProbe` |
 | CS-3.5 | Custom errors (Solidity-style selectors) | P1 | Structured revert surface + client decode helpers |
 | CS-3.6 | ERC-165 `supportsInterface` module | P0 | Foundry interface probe tests |
 | CS-3.7 | AccessControl roles (grant/revoke/hasRole) | P0 | Role-guarded entries in `contract_source` |

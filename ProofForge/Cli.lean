@@ -3,6 +3,7 @@ import Lean
 import Lean.Elab.Frontend
 import Lean.Util.Path
 import ProofForge.Backend.Evm.IR
+import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Psy.IR
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Manifest
@@ -1249,12 +1250,40 @@ def deploymentInitCodeHex (runtimeBytecode constructorArgsHex : String) : Except
     let offsetPush ← pushDataHex headerBytes
     .ok (sizePush ++ offsetPush ++ "600039" ++ sizePush ++ "6000f3" ++ runtime ++ constructorArgs)
 
-def writeEvmInitCode (bytecodeOutput : FilePath) (constructorArgsHex : String) : IO FilePath := do
+def writeEvmInitCode
+    (opts : CliOptions)
+    (module? : Option ProofForge.IR.Module)
+    (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding)
+    (bytecodeOutput : FilePath)
+    (constructorArgsHex : String) : IO FilePath := do
   let runtimeBytecode ← IO.FS.readFile bytecodeOutput
+  let runtimeTrimmed := trimAsciiString runtimeBytecode
+  let argsTrimmed := stripHexPrefix (trimAsciiString constructorArgsHex)
+  let argsByteLen := argsTrimmed.length / 2
+  let specParams := opts.evmConstructorParams.map fun param =>
+    { name := param.name, abiType := param.abiType : ProofForge.Contract.EvmConstructorParam }
   let initCode ←
-    match deploymentInitCodeHex runtimeBytecode constructorArgsHex with
-    | .ok initCode => pure initCode
-    | .error msg => throw <| IO.userError msg
+    match module? with
+    | some module =>
+        if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject constructorInitBindings constructorArgsHex then
+          match ProofForge.Backend.Evm.ConstructorInit.renderDeployObject
+              module.name module specParams constructorInitBindings runtimeTrimmed argsByteLen with
+          | .error err => throw <| IO.userError err.render
+          | .ok deployYul =>
+              let deployYulPath := bytecodeOutput.withExtension "deploy.yul"
+              if let some parent := deployYulPath.parent then
+                IO.FS.createDirAll parent
+              IO.FS.writeFile deployYulPath (deployYul ++ "\n")
+              let creationHex ← solcBytecode opts.solc deployYulPath
+              pure (creationHex ++ argsTrimmed)
+        else
+          match deploymentInitCodeHex runtimeTrimmed constructorArgsHex with
+          | .ok initCode => pure initCode
+          | .error msg => throw <| IO.userError msg
+    | none =>
+        match deploymentInitCodeHex runtimeTrimmed constructorArgsHex with
+        | .ok initCode => pure initCode
+        | .error msg => throw <| IO.userError msg
   let initCodeOutput := defaultInitCodeOutput bytecodeOutput
   if let some parent := initCodeOutput.parent then
     IO.FS.createDirAll parent
@@ -2117,12 +2146,14 @@ def writeEvmArtifactMetadata
     (source? : Option FilePath)
     (yulOutput bytecodeOutput : FilePath)
     (extraArtifacts : Array (String × String) := #[])
-    (storageLayout? : Option String := none) : IO Unit := do
+    (storageLayout? : Option String := none)
+    (module? : Option ProofForge.IR.Module := none)
+    (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]) : IO Unit := do
   let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput bytecodeOutput)
   let deployOutput := defaultDeployManifestOutput metadataOutput
   let chainProfile? ← resolveEvmChainProfile? opts.evmChainProfile?
   let constructorArgs ← constructorArgsJson opts.evmConstructorArgsHex opts.evmConstructorArgsSource
-  let initCodeOutput ← writeEvmInitCode bytecodeOutput opts.evmConstructorArgsHex
+  let initCodeOutput ← writeEvmInitCode opts module? constructorInitBindings bytecodeOutput opts.evmConstructorArgsHex
   let yulArtifact ← artifactEntryJson yulOutput
   let bytecodeArtifact ← artifactEntryJson bytecodeOutput
   let initCodeArtifact ← artifactEntryJson initCodeOutput
@@ -2212,7 +2243,8 @@ def writeEvmModuleArtifactMetadata
     (fixture sourceKind sourceModule : String)
     (module : ProofForge.IR.Module)
     (yulOutput bytecodeOutput : FilePath)
-    (extraArtifacts : Array (String × String) := #[]) : IO Unit := do
+    (extraArtifacts : Array (String × String) := #[])
+    (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]) : IO Unit := do
   let events ← eventAbisForModule opts.cast module
   let mut entrypoints := #[]
   for entrypoint in module.entrypoints do
@@ -2234,6 +2266,8 @@ def writeEvmModuleArtifactMetadata
     bytecodeOutput
     extraArtifacts
     (some (storageLayoutJson module))
+    (some module)
+    constructorInitBindings
 
 def writeEvmContractSdkClientArtifacts
     (spec : ProofForge.Contract.ContractSpec)
@@ -2264,7 +2298,7 @@ def writeEvmContractSdkArtifactMetadata
   writeEvmModuleArtifactMetadata opts fixture "contract-sdk" sourceModule module yulOutput bytecodeOutput #[
     ("contractSpec", specArtifact),
     ("client", clientArtifact)
-  ]
+  ] spec.evmConstructorInitBindings
 
 def writeEvmIrArtifactMetadata
     (opts : CliOptions)

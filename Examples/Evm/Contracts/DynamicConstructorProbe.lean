@@ -3,18 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
 Dynamic constructor probe: exercises `cstring`, `cbytes`, and `u256array`
-constructor params through the EVM target. Validates that the CLI ABI-encodes
-dynamic types (head-offset + tail) into the initcode tail and the deploy
-manifest records the schema.
-
-Compile:
-```
-lake env proof-forge build --target evm --root . \
-  -o build/evm/DynamicConstructor.bin \
-  --evm-constructor-arg "name=hello" \
-  --evm-constructor-arg "amounts=1,2,3" \
-  Examples/Evm/Contracts/DynamicConstructorProbe.lean
-```
+constructor params through the EVM target.
 -/
 import ProofForge.Contract.Source
 
@@ -22,20 +11,52 @@ namespace DynamicConstructorProbe
 
 open ProofForge.Contract.Source
 
+namespace Core
 contract_source DynamicConstructorProbe do
   constructor_param name : "cstring";
+  constructor_param payload : "cbytes";
   constructor_param amounts : "u256array";
 
-  state count : .u64
+  state nameLen : .u64
+  state nameHash : .hash
+  state payloadLen : .u64
+  state payloadHash : .hash
+  state amountCount : .u64
+  state amountSum : .u64
 
-  entry «initialize» do
-    count := u64 0;
+  query getNameLen returns(.u64) do
+    return nameLen;
 
-  entry increment do
-    let n : .u64 := count;
-    count := n +! u64 1;
+  query getNameHash returns(.hash) do
+    return nameHash;
 
-  query get returns(.u64) do
-    return count;
+  query getPayloadLen returns(.u64) do
+    return payloadLen;
+
+  query getPayloadHash returns(.hash) do
+    return payloadHash;
+
+  query getAmountCount returns(.u64) do
+    return amountCount;
+
+  query getAmountSum returns(.u64) do
+    return amountSum;
+
+end Core
+
+def spec : ProofForge.Contract.ContractSpec :=
+  { Core.spec with
+    evmConstructorInitBindings := #[
+      { stateId := "nameLen", paramName := "name", kind := .stringLength },
+      { stateId := "nameHash", paramName := "name", kind := .stringKeccak },
+      { stateId := "payloadLen", paramName := "payload", kind := .bytesLength },
+      { stateId := "payloadHash", paramName := "payload", kind := .bytesKeccak },
+      { stateId := "amountCount", paramName := "amounts", kind := .arrayLength },
+      { stateId := "amountSum", paramName := "amounts", kind := .arraySumU64 }
+    ]
+  }
+
+def module : ProofForge.IR.Module :=
+  spec.module
 
 end DynamicConstructorProbe

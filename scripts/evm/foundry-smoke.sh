@@ -21,6 +21,43 @@ fi
 
 "$ROOT/scripts/evm/build-examples.sh"
 
+if [[ -n "${PROOF_FORGE_BIN:-}" ]]; then
+  proof_forge=("$PROOF_FORGE_BIN")
+else
+  proof_forge=(lake env proof-forge)
+fi
+
+# Build constructor-init initcode fixtures without disturbing the default
+# Counter.init.bin used by testCounterInitCodeDeploysRuntime().
+rebuild_constructor_init_fixture() {
+  local name="$1"
+  local lean_file="$2"
+  shift 2
+  (
+    cd "$ROOT"
+    "${proof_forge[@]}" build \
+      --target evm \
+      --root . \
+      --yul-output "$OUT_DIR/$name.yul" \
+      --artifact-output "$OUT_DIR/$name.proof-forge-artifact.json" \
+      -o "$OUT_DIR/$name.ctor.bin" \
+      "$@" \
+      "$lean_file"
+    diff -u "${lean_file%.lean}.golden.yul" "$OUT_DIR/$name.yul"
+  )
+}
+
+NAME_HASH="$(cast keccak hello | sed 's/^0x//')"
+PAYLOAD_HASH="$(cast keccak 0xdeadbeef | sed 's/^0x//')"
+
+rebuild_constructor_init_fixture DynamicConstructorProbe "$ROOT/Examples/Evm/Contracts/DynamicConstructorProbe.lean" \
+  --evm-constructor-arg "name=hello" \
+  --evm-constructor-arg "payload=0xdeadbeef" \
+  --evm-constructor-arg "amounts=1,2,3"
+
+rebuild_constructor_init_fixture Counter "$ROOT/Examples/Evm/Contracts/Counter.lean" \
+  --evm-constructor-arg "initial=123"
+
 rm -rf "$FORGE_DIR"
 mkdir -p "$FORGE_DIR/test"
 
@@ -114,6 +151,30 @@ contract ProofForgeSmokeTest {
     function testCounterInitCodeDeploysRuntime() public {
         address counter = deployInitCode(hex"$(cat "$OUT_DIR/Counter.init.bin")");
         assertCounterLifecycle(counter);
+    }
+
+    function testCounterConstructorInitBindsInitial() public {
+        address counter = deployInitCode(hex"$(cat "$OUT_DIR/Counter.ctor.init.bin")");
+        (bool ok, bytes memory result) = counter.call(abi.encodeWithSignature("get()"));
+        assertTrue(ok);
+        assertEq(abi.decode(result, (uint256)), 123);
+    }
+
+    function testDynamicConstructorProbeInitCodeBindsStorage() public {
+        address probe = deployInitCode(hex"$(cat "$OUT_DIR/DynamicConstructorProbe.ctor.init.bin")");
+        (bool ok0, bytes memory r0) = probe.call(abi.encodeWithSignature("getNameLen()"));
+        (bool ok1, bytes memory r1) = probe.call(abi.encodeWithSignature("getNameHash()"));
+        (bool ok2, bytes memory r2) = probe.call(abi.encodeWithSignature("getPayloadLen()"));
+        (bool ok3, bytes memory r3) = probe.call(abi.encodeWithSignature("getPayloadHash()"));
+        (bool ok4, bytes memory r4) = probe.call(abi.encodeWithSignature("getAmountCount()"));
+        (bool ok5, bytes memory r5) = probe.call(abi.encodeWithSignature("getAmountSum()"));
+        assertTrue(ok0 && ok1 && ok2 && ok3 && ok4 && ok5);
+        assertEq(abi.decode(r0, (uint256)), 5);
+        assertEq(abi.decode(r1, (uint256)), uint256(bytes32(hex"$NAME_HASH")));
+        assertEq(abi.decode(r2, (uint256)), 4);
+        assertEq(abi.decode(r3, (uint256)), uint256(bytes32(hex"$PAYLOAD_HASH")));
+        assertEq(abi.decode(r4, (uint256)), 3);
+        assertEq(abi.decode(r5, (uint256)), 6);
     }
 
     function testArrayExample() public {

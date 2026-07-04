@@ -1,4 +1,5 @@
 import Init.Data.Array.Basic
+import ProofForge.Contract.EvmConstructorInit
 import ProofForge.Contract.Intent
 import ProofForge.Contract.UpgradePolicy
 import ProofForge.IR.Contract
@@ -19,6 +20,7 @@ structure ContractSpec where
   upgradePolicy? : Option UpgradePolicy := none
   proxyPattern? : Option ProxyPattern := none
   evmConstructorParams : Array EvmConstructorParam := #[]
+  evmConstructorInitBindings : Array EvmConstructorInitBinding := #[]
   deriving Repr
 
 def moduleIntent (module : ProofForge.IR.Module) : Intent := {

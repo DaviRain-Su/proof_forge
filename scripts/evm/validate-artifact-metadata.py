@@ -261,9 +261,14 @@ def validate_constructor_args(
     return actual_hex
 
 
-def validate_deployment_init_code(init_path: Path, runtime_path: Path, constructor_args_hex: str, prefix: str) -> None:
-    init_hex = expect_hex_text(init_path, f"{prefix}.initCode")
-    runtime_hex = expect_hex_text(runtime_path, f"{prefix}.runtimeBytecode")
+def is_legacy_initcode_header(init_hex: str) -> bool:
+    if len(init_hex) < 20:
+        return False
+    head = init_hex[:120].lower()
+    return "600039" in head and "6000f3" in head
+
+
+def validate_legacy_deployment_init_code(init_hex: str, runtime_hex: str, constructor_args_hex: str, prefix: str) -> None:
     runtime_size = len(runtime_hex) // 2
 
     size, offset = read_push_value(init_hex, 0, f"{prefix}.initCode.runtimeSize")
@@ -280,6 +285,29 @@ def validate_deployment_init_code(init_path: Path, runtime_path: Path, construct
     runtime_end = offset + len(runtime_hex)
     expect(init_hex[offset:runtime_end].lower() == runtime_hex.lower(), f"{prefix}.initCode runtime segment mismatch")
     expect(init_hex[runtime_end:].lower() == constructor_args_hex, f"{prefix}.initCode constructor args suffix mismatch")
+
+
+def validate_deploy_object_init_code(init_hex: str, runtime_hex: str, constructor_args_hex: str, prefix: str) -> None:
+    expect(
+        runtime_hex.lower() in init_hex.lower(),
+        f"{prefix}.initCode must embed referenced runtime bytecode",
+    )
+    if constructor_args_hex:
+        expect(
+            init_hex.lower().endswith(constructor_args_hex.lower()),
+            f"{prefix}.initCode constructor args suffix mismatch",
+        )
+    else:
+        expect(init_hex.lower().endswith(runtime_hex.lower()), f"{prefix}.initCode must end with runtime bytecode")
+
+
+def validate_deployment_init_code(init_path: Path, runtime_path: Path, constructor_args_hex: str, prefix: str) -> None:
+    init_hex = expect_hex_text(init_path, f"{prefix}.initCode")
+    runtime_hex = expect_hex_text(runtime_path, f"{prefix}.runtimeBytecode")
+    if is_legacy_initcode_header(init_hex):
+        validate_legacy_deployment_init_code(init_hex, runtime_hex, constructor_args_hex, prefix)
+    else:
+        validate_deploy_object_init_code(init_hex, runtime_hex, constructor_args_hex, prefix)
 
 
 def expected_constructor_param_encoding(abi_type: str) -> str:

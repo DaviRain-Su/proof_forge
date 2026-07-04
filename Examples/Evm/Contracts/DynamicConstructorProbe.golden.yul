@@ -1,53 +1,56 @@
 object "DynamicConstructorProbe" {
   code {
     switch shr(224, calldataload(0))
-    case 0x8129fc1c {
-      f_DynamicConstructorProbe_initialize()
-      return(0, 0)
+    case 0x67644d3f {
+      let _r := f_DynamicConstructorProbe_getNameLen()
+      mstore(0, _r)
+      return(0, 32)
     }
-    case 0xd09de08a {
-      f_DynamicConstructorProbe_increment()
-      return(0, 0)
+    case 0xe102d950 {
+      let _r := f_DynamicConstructorProbe_getNameHash()
+      mstore(0, _r)
+      return(0, 32)
     }
-    case 0x6d4ce63c {
-      let _r := f_DynamicConstructorProbe_get()
+    case 0x185b4216 {
+      let _r := f_DynamicConstructorProbe_getPayloadLen()
+      mstore(0, _r)
+      return(0, 32)
+    }
+    case 0xe08ca110 {
+      let _r := f_DynamicConstructorProbe_getPayloadHash()
+      mstore(0, _r)
+      return(0, 32)
+    }
+    case 0xc976d9b0 {
+      let _r := f_DynamicConstructorProbe_getAmountCount()
+      mstore(0, _r)
+      return(0, 32)
+    }
+    case 0x1c4cbd36 {
+      let _r := f_DynamicConstructorProbe_getAmountSum()
       mstore(0, _r)
       return(0, 32)
     }
     default {
       revert(0, 0)
     }
-    function f_DynamicConstructorProbe_initialize() {
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
-    }
-    function f_DynamicConstructorProbe_increment() {
-      let n := and(shr(192, sload(0)), 18446744073709551615)
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_add(n, 1))))
-    }
-    function f_DynamicConstructorProbe_get() -> result {
+    function f_DynamicConstructorProbe_getNameLen() -> result {
       result := and(shr(192, sload(0)), 18446744073709551615)
     }
-    function __pf_checked_add(a, b) -> r {
-      if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
-        revert(0, 0)
-      }
-      r := add(a, b)
+    function f_DynamicConstructorProbe_getNameHash() -> result {
+      result := sload(1)
     }
-    function __pf_checked_sub(a, b) -> r {
-      if gt(b, a) {
-        revert(0, 0)
-      }
-      r := sub(a, b)
+    function f_DynamicConstructorProbe_getPayloadLen() -> result {
+      result := and(shr(192, sload(2)), 18446744073709551615)
     }
-    function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
-        r := 0
-        leave
-      }
-      if gt(a, div(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
-        revert(0, 0)
-      }
-      r := mul(a, b)
+    function f_DynamicConstructorProbe_getPayloadHash() -> result {
+      result := sload(3)
+    }
+    function f_DynamicConstructorProbe_getAmountCount() -> result {
+      result := and(shr(192, sload(4)), 18446744073709551615)
+    }
+    function f_DynamicConstructorProbe_getAmountSum() -> result {
+      result := and(shr(128, sload(4)), 18446744073709551615)
     }
   }
 }

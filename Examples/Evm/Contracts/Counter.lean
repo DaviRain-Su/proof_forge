@@ -3,9 +3,6 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
 Portable Counter example for the unified EVM entry path.
-
-Compile:
-`lake env proof-forge build --target evm --root . -o build/evm/Counter.bin Examples/Evm/Contracts/Counter.lean`
 -/
 import ProofForge.Contract.Source
 
@@ -13,6 +10,7 @@ namespace Counter
 
 open ProofForge.Contract.Source
 
+namespace Core
 contract_source Counter do
   constructor_param initial : .u64;
 
@@ -27,5 +25,17 @@ contract_source Counter do
 
   query get returns(.u64) do
     return count;
+
+end Core
+
+def spec : ProofForge.Contract.ContractSpec :=
+  { Core.spec with
+    evmConstructorInitBindings := #[
+      { stateId := "count", paramName := "initial", kind := .scalarU64 }
+    ]
+  }
+
+def module : ProofForge.IR.Module :=
+  spec.module
 
 end Counter
