@@ -17,6 +17,177 @@ Each entry should include:
 
 ## 2026-07-04
 
+### EmitWat Coverage Manifest CI Fix
+
+Commit: this commit
+
+Summary:
+
+- Added explicit `Tests/EmitWatCoverage.tsv` entries for the expanded
+  `ContextField` constructors that direct EmitWat does not lower today.
+- Classified the EVM-only block/gas/origin/coinbase/block-hash context reads
+  as `unsupported` for EmitWat, preserving the existing direct-WAT host surface
+  of `userId`, `contractId`, and `checkpointId`.
+
+Validation run:
+
+```sh
+scripts/near/check-ir-coverage-manifest.py --manifest Tests/EmitWatCoverage.tsv --label emitwat-ir-coverage
+```
+
+Known limitations:
+
+- This only fixes manifest completeness. It does not add new EmitWat context
+  lowering.
+
+Next step:
+
+- Keep CI green before continuing backend migration slices.
+
+### EVM EventPlan-To-Yul Topic Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Added `ToYul` helpers for event signature topic construction, indexed topic
+  names, indexed field counting, and final `log1`-`log4` statement selection.
+- Routed `IR.lean` event emission through `Lower.eventPlanForFields` so the
+  signature topic and final log statement are driven by `EventPlan`.
+- Kept compatibility wrappers for existing `IR.packedUtf8Words`,
+  `IR.eventSignatureTopicStatements`, `IR.eventIndexedTopicName`, and
+  `IR.eventLogBuiltinName` callers.
+- Extended `Tests/EvmSemanticPlan.lean` to assert the plan-to-Yul topic0 and
+  indexed log statement shapes.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+scripts/evm/event-ir-smoke.sh
+scripts/evm/diagnostic-smoke.sh
+```
+
+Known limitations:
+
+- Event data word evaluation and indexed aggregate hashing still use the
+  compatibility facade after `EventPlan` determines the event shape. Full
+  `EventPlan -> Yul` extraction remains a later slice.
+
+Next step:
+
+- Move event data-word and indexed aggregate topic assembly behind explicit
+  `EventPlan -> Yul` inputs, or migrate storage effect write values through
+  `ExprPlan -> ToYul`.
+
+### EVM Scalar Event Field Plan-To-Yul Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Routed scalar event data word lowering through the supported
+  `ExprPlan -> ToYul` expression boundary.
+- Routed scalar indexed event topic lowering through the same boundary before
+  emitting the existing `log1`-`log4` Yul shape.
+- Extended `Tests/EvmSemanticPlan.lean` to lock Yul AST shapes for plan-driven
+  event data expressions and indexed storage-backed topic expressions.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+scripts/evm/event-ir-smoke.sh
+scripts/evm/diagnostic-smoke.sh
+```
+
+Known limitations:
+
+- This slice only moves scalar event word expressions. Aggregate event
+  flattening, indexed aggregate topic hashing, event statement sequencing,
+  crosscalls, creates, metadata planning, and full `EventPlan -> Yul` assembly
+  extraction remain later semantic-plan slices.
+
+Next step:
+
+- Extract event signature topic, indexed topic, and data-word assembly behind
+  `EventPlan -> Yul`, or continue migrating storage effect writes through
+  `ExprPlan -> ToYul`.
+
+### EVM Scalar Control-Flow Condition Plan-To-Yul Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Routed scalar `ifElse` conditions through the supported
+  `ExprPlan -> ToYul` expression boundary before emitting the existing Yul
+  `switch` shape.
+- Routed synthesized `boundedFor` loop guards through the same expression
+  boundary by building the scalar predicate `index < stopExclusive`.
+- Extended `Tests/EvmSemanticPlan.lean` to lock Yul AST shapes for plan-driven
+  conditional and loop guard expressions.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+scripts/evm/conditional-ir-smoke.sh
+scripts/evm/loop-ir-smoke.sh
+scripts/evm/diagnostic-smoke.sh
+```
+
+Known limitations:
+
+- This slice only moves control-flow condition expressions. Statement
+  sequencing, branch and loop body assembly, early-return handling, dynamic
+  aggregate helper snapshots, storage effect writes, events, crosscalls, and
+  create paths still move over in later semantic-plan slices.
+
+Next step:
+
+- Start extracting narrow `StmtPlan -> Yul` assembly helpers, or migrate event
+  field/value expression lowering through `ExprPlan -> ToYul`.
+
+### EVM Scalar Assignment Plan-To-Yul Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Routed direct scalar `assign` RHS lowering through the supported
+  `ExprPlan -> ToYul` expression boundary.
+- Routed direct scalar `assignOp` RHS lowering through the same boundary before
+  applying the existing checked arithmetic / bitwise assignment operator.
+- Extended `Tests/EvmSemanticPlan.lean` to lock Yul AST shapes for scalar
+  assignment and compound-assignment RHS expressions.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+scripts/evm/assignment-ir-smoke.sh
+scripts/evm/assign-op-ir-smoke.sh
+scripts/evm/diagnostic-smoke.sh
+```
+
+Known limitations:
+
+- This slice covers direct scalar assignment and direct scalar compound
+  assignment RHS expressions. Whole-aggregate assignment, dynamic aggregate
+  helper snapshots, storage effect writes, branch conditions, events,
+  crosscalls, and create paths still move over in later semantic-plan slices.
+
+Next step:
+
+- Move scalar `ifElse` and `boundedFor` condition lowering through
+  `ExprPlan -> ToYul`, or start extracting statement-plan to Yul assembly
+  helpers outside the compatibility facade.
+
 ### EVM Scalar Return Plan-To-Yul Assembly Slice
 
 Commit: this commit

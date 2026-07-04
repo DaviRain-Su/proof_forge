@@ -59,6 +59,69 @@ def hashPackExpr
     ]
   ]
 
+def packedUtf8Words (value : String) : Array Nat × Nat := Id.run do
+  let bytes := value.toUTF8
+  let wordCount := (bytes.size + 31) / 32
+  let mut words := #[]
+  for _h : wordIdx in [0:wordCount] do
+    let mut wordVal := 0
+    for _h : byteIdx in [0:32] do
+      let pos := wordIdx * 32 + byteIdx
+      if pos < bytes.size then
+        let b := (bytes.get! pos).toNat
+        let shift := (31 - byteIdx) * 8
+        wordVal := wordVal + (b * (2 ^ shift))
+    words := words.push wordVal
+  pure (words, bytes.size)
+
+def eventIndexedTopicName (index : Nat) : String :=
+  s!"_indexed_topic{index}"
+
+def eventIndexedFieldCount (event : EventPlan) : Nat :=
+  event.fields.foldl
+    (fun count field => if field.indexed then count + 1 else count)
+    0
+
+def eventLogBuiltinName
+    {ε : Type}
+    (mkError : String → ε)
+    (indexedFieldCount : Nat) : Except ε String :=
+  if indexedFieldCount <= 3 then
+    .ok s!"log{indexedFieldCount + 1}"
+  else
+    .error (mkError "EVM IR v0 supports at most 3 indexed event fields")
+
+def eventSignatureTopicStatements (event : EventPlan) : Array Lean.Compiler.Yul.Statement := Id.run do
+  let (words, length) := packedUtf8Words event.signature
+  let mut statements := #[]
+  for _h : idx in [0:words.size] do
+    statements := statements.push <|
+      .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+        Lean.Compiler.Yul.Expr.num (idx * 32),
+        Lean.Compiler.Yul.Expr.num words[idx]
+      ])
+  pure <| statements.push <|
+    .varDecl #[{ name := "_topic0" }]
+      (some (Lean.Compiler.Yul.builtin "keccak256" #[
+        Lean.Compiler.Yul.Expr.num 0,
+        Lean.Compiler.Yul.Expr.num length
+      ]))
+
+def eventLogStatement
+    {ε : Type}
+    (mkError : String → ε)
+    (event : EventPlan)
+    (dataWordCount : Nat) : Except ε Lean.Compiler.Yul.Statement := do
+  let indexedFieldCount := eventIndexedFieldCount event
+  let mut logArgs : Array Lean.Compiler.Yul.Expr := #[
+    Lean.Compiler.Yul.Expr.num 0,
+    Lean.Compiler.Yul.Expr.num (dataWordCount * 32),
+    Lean.Compiler.Yul.Expr.id "_topic0"
+  ]
+  for _h : idx in [0:indexedFieldCount] do
+    logArgs := logArgs.push (Lean.Compiler.Yul.Expr.id (eventIndexedTopicName idx))
+  .ok (.exprStmt (Lean.Compiler.Yul.builtin (← eventLogBuiltinName mkError indexedFieldCount) logArgs))
+
 def lowerValuePlan
     {ε : Type}
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr) :

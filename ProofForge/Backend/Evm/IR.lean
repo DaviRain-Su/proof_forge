@@ -292,20 +292,8 @@ def validateEventName (name : String) : Except LowerError Unit := do
   if name.toUTF8.size == 0 then
     .error { message := "event name must be non-empty for IR EVM v0" }
 
-def packedUtf8Words (value : String) : Array Nat × Nat := Id.run do
-  let bytes := value.toUTF8
-  let wordCount := (bytes.size + 31) / 32
-  let mut words := #[]
-  for _h : wordIdx in [0:wordCount] do
-    let mut wordVal := 0
-    for _h : byteIdx in [0:32] do
-      let pos := wordIdx * 32 + byteIdx
-      if pos < bytes.size then
-        let b := (bytes.get! pos).toNat
-        let shift := (31 - byteIdx) * 8
-        wordVal := wordVal + (b * (2 ^ shift))
-    words := words.push wordVal
-  pure (words, bytes.size)
+def packedUtf8Words (value : String) : Array Nat × Nat :=
+  ProofForge.Backend.Evm.ToYul.packedUtf8Words value
 
 partial def eventSignatureFieldType (module : Module) (eventName fieldName : String) (type : ValueType) : Except LowerError String :=
   let erc20FieldType? : Option String :=
@@ -373,15 +361,8 @@ def ensureIndexedEventFieldType
     (type : ValueType) : Except LowerError Unit := do
   discard <| eventSignatureFieldType module eventName fieldName type
 
-def eventSignatureTopicStatements (signature : String) : Array Lean.Compiler.Yul.Statement := Id.run do
-  let (words, length) := packedUtf8Words signature
-  let mut statements := #[]
-  for h : idx in [0:words.size] do
-    statements := statements.push <|
-      .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num (idx * 32), Lean.Compiler.Yul.Expr.num words[idx]])
-  pure <| statements.push <|
-    .varDecl #[{ name := "_topic0" }]
-      (some (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num length]))
+def eventSignatureTopicStatements (signature : String) : Array Lean.Compiler.Yul.Statement :=
+  ProofForge.Backend.Evm.ToYul.eventSignatureTopicStatements (ProofForge.Backend.Evm.Plan.EventPlan.mk "" signature #[])
 
 def validateEventFieldName (eventName fieldName : String) : Except LowerError Unit :=
   if fieldName.isEmpty then
@@ -412,13 +393,10 @@ def validateIndexedEventFieldCount (eventName : String) (count : Nat) : Except L
     .ok ()
 
 def eventIndexedTopicName (index : Nat) : String :=
-  s!"_indexed_topic{index}"
+  ProofForge.Backend.Evm.ToYul.eventIndexedTopicName index
 
 def eventLogBuiltinName (indexedFieldCount : Nat) : Except LowerError String :=
-  if indexedFieldCount <= 3 then
-    .ok s!"log{indexedFieldCount + 1}"
-  else
-    .error { message := s!"EVM IR v0 supports at most 3 indexed event fields" }
+  ProofForge.Backend.Evm.ToYul.eventLogBuiltinName toYulError indexedFieldCount
 
 def revertStmt : Lean.Compiler.Yul.Statement :=
   Lean.Compiler.Yul.Statement.exprStmt
@@ -2826,7 +2804,7 @@ partial def lowerEventStructDataWords
         ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
         let some field := fields.find? fun field => field.fst == fieldDecl.id
           | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
-        words := words.push (← lowerExpr module env field.snd)
+        words := words.push (← lowerScalarPlanExprOrFallback module env field.snd)
       .ok words
   | .effect (.storageScalarRead stateId) => do
       let fields ← lowerStructStorageReadFields module s!"event `{eventName}` data field `{fieldName}`" typeName stateId
@@ -2902,7 +2880,7 @@ partial def lowerEventFixedArrayDataWords
                   ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
                   let some field := fields.find? fun field => field.fst == fieldDecl.id
                     | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
-                  words := words.push (← lowerExpr module env field.snd)
+                  words := words.push (← lowerScalarPlanExprOrFallback module env field.snd)
             | other =>
                 let actualType ← inferExprType module env other
                 .error {
@@ -2934,7 +2912,7 @@ partial def lowerEventFixedArrayDataWords
             }
           let mut words : Array Lean.Compiler.Yul.Expr := #[]
           for h : idx in [0:values.size] do
-            words := words.push (← lowerExpr module env values[idx])
+            words := words.push (← lowerScalarPlanExprOrFallback module env values[idx])
           .ok words
       | _ =>
           .error {
@@ -2953,7 +2931,7 @@ partial def lowerEventDataWords
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
   match type with
   | .u32 | .u64 | .bool | .hash =>
-      .ok #[← lowerExpr module env value]
+      .ok #[← lowerScalarPlanExprOrFallback module env value]
   | .fixedArray elementType length =>
       lowerEventFixedArrayDataWords module env eventName fieldName elementType length value
   | .structType typeName =>
@@ -2980,7 +2958,7 @@ partial def lowerIndexedEventTopicStatements
   let topicName := eventIndexedTopicName index
   match type with
   | .u32 | .u64 | .bool | .hash =>
-      .ok #[.varDecl #[{ name := topicName }] (some (← lowerExpr module env value))]
+      .ok #[.varDecl #[{ name := topicName }] (some (← lowerScalarPlanExprOrFallback module env value))]
   | .fixedArray _ _ | .structType _ => do
       let words ← lowerEventDataWords module env eventName fieldName type value
       .ok <| eventDataStoreStatements words |>.push
@@ -2996,11 +2974,16 @@ def lowerEventEmitCoreStmt
     (env : TypeEnv)
     (name : String)
     (indexedFields dataFields : Array (String × ProofForge.IR.Expr)) : Except LowerError Lean.Compiler.Yul.Statement := do
-  validateIndexedEventFieldCount name indexedFields.size
-  for field in indexedFields do
-    ensureIndexedEventFieldType module name field.fst (← inferEventFieldExprType module env field.snd)
-  let signature ← eventSignature module env name (indexedFields ++ dataFields)
-  let mut statements := eventSignatureTopicStatements signature
+  let eventPlan ←
+    match ProofForge.Backend.Evm.Lower.eventPlanForFields
+        module
+        (toValidateTypeEnv env)
+        name
+        indexedFields
+        dataFields with
+    | .ok eventPlan => .ok eventPlan
+    | .error err => .error { message := err.message }
+  let mut statements := ProofForge.Backend.Evm.ToYul.eventSignatureTopicStatements eventPlan
   for h : idx in [0:indexedFields.size] do
     let field := indexedFields[idx]
     let type ← inferEventFieldExprType module env field.snd
@@ -3010,15 +2993,7 @@ def lowerEventEmitCoreStmt
     let type ← inferEventFieldExprType module env field.snd
     dataWords := dataWords ++ (← lowerEventDataWords module env name field.fst type field.snd)
   statements := statements ++ eventDataStoreStatements dataWords
-  let mut logArgs : Array Lean.Compiler.Yul.Expr := #[
-    Lean.Compiler.Yul.Expr.num 0,
-    Lean.Compiler.Yul.Expr.num (dataWords.size * 32),
-    Lean.Compiler.Yul.Expr.id "_topic0"
-  ]
-  for h : idx in [0:indexedFields.size] do
-    logArgs := logArgs.push (Lean.Compiler.Yul.Expr.id (eventIndexedTopicName idx))
-  statements := statements.push <|
-    .exprStmt (Lean.Compiler.Yul.builtin (← eventLogBuiltinName indexedFields.size) logArgs)
+  statements := statements.push (← ProofForge.Backend.Evm.ToYul.eventLogStatement toYulError eventPlan dataWords.size)
   .ok (.block { statements := statements })
 
 def lowerEventEmitStmt
@@ -4061,12 +4036,12 @@ def lowerAssignStmt
           .ok #[← lowerWholeLocalAssignStmt module env name binding value]
       | _ =>
           let targetName ← lowerAssignTargetName "assignment target" target
-          .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+          .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
   | .arrayGet (.local name) index =>
       match literalArrayIndex? index with
       | some _ => do
           let targetName ← lowerAssignTargetName "assignment target" target
-          .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+          .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
       | none => do
           let (_, length) ← requireLocalFixedArray "assignment target" env name
           .ok #[← lowerDynamicLocalFixedArrayAssignStmt module env name length index value]
@@ -4074,7 +4049,7 @@ def lowerAssignStmt
       match literalArrayIndex? index with
       | some _ => do
           let targetName ← lowerAssignTargetName "assignment target" target
-          .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+          .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
       | none => do
           let (_, length, _) ← requireLocalFixedStructArrayField module env "assignment target" name fieldName
           .ok #[← lowerDynamicLocalStructArrayFieldAssignStmt module env name fieldName length index value]
@@ -4086,7 +4061,7 @@ def lowerAssignStmt
             .ok #[← lowerDynamicLocalFixedArrayPathFieldAssignStmt module env name binding path fieldName none value]
           else
             let targetName ← lowerAssignTargetName "assignment target" target
-            .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+            .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
       | none =>
           match collectLocalArrayGetPath target with
           | some (name, path) =>
@@ -4095,10 +4070,10 @@ def lowerAssignStmt
                 .ok #[← lowerDynamicLocalFixedArrayPathAssignStmt module env name binding path none value]
               else
                 let targetName ← lowerAssignTargetName "assignment target" target
-                .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+                .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
           | none =>
               let targetName ← lowerAssignTargetName "assignment target" target
-              .ok #[.assignment #[targetName] (← lowerExpr module env value)]
+              .ok #[.assignment #[targetName] (← lowerScalarPlanExprOrFallback module env value)]
 
 def lowerAssignOpStmt
     (module : Module)
@@ -4111,7 +4086,7 @@ def lowerAssignOpStmt
       match literalArrayIndex? index with
       | some _ => do
           let targetName ← lowerAssignTargetName "compound assignment target" target
-          .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerExpr module env value))]
+          .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerScalarPlanExprOrFallback module env value))]
       | none => do
           let (_, length) ← requireLocalFixedArray "compound assignment target" env name
           .ok #[← lowerDynamicLocalFixedArrayAssignOpStmt module env name length index op value]
@@ -4119,7 +4094,7 @@ def lowerAssignOpStmt
       match literalArrayIndex? index with
       | some _ => do
           let targetName ← lowerAssignTargetName "compound assignment target" target
-          .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerExpr module env value))]
+          .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerScalarPlanExprOrFallback module env value))]
       | none => do
           let (_, length, _) ← requireLocalFixedStructArrayField module env "compound assignment target" name fieldName
           .ok #[← lowerDynamicLocalStructArrayFieldAssignOpStmt module env name fieldName length index op value]
@@ -4131,7 +4106,7 @@ def lowerAssignOpStmt
             .ok #[← lowerDynamicLocalFixedArrayPathFieldAssignStmt module env name binding path fieldName (some op) value]
           else
             let targetName ← lowerAssignTargetName "compound assignment target" target
-            .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerExpr module env value))]
+            .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerScalarPlanExprOrFallback module env value))]
       | none =>
           match collectLocalArrayGetPath target with
           | some (name, path) =>
@@ -4140,10 +4115,10 @@ def lowerAssignOpStmt
                 .ok #[← lowerDynamicLocalFixedArrayPathAssignStmt module env name binding path (some op) value]
               else
                 let targetName ← lowerAssignTargetName "compound assignment target" target
-                .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerExpr module env value))]
+                .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerScalarPlanExprOrFallback module env value))]
           | none =>
               let targetName ← lowerAssignTargetName "compound assignment target" target
-              .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerExpr module env value))]
+              .ok #[.assignment #[targetName] (lowerAssignOpExpr op (Lean.Compiler.Yul.Expr.id targetName) (← lowerScalarPlanExprOrFallback module env value))]
 
 mutual
   partial def statementAlwaysReturns : Statement → Bool
@@ -4492,7 +4467,7 @@ mutual
     | .ifElse condition thenBody elseBody => do
         let thenStatements ← lowerStatements module entrypointName returnType env true thenBody
         let elseStatements ← lowerStatements module entrypointName returnType env true elseBody
-        .ok (#[.switchStmt (← lowerExpr module env condition) #[
+        .ok (#[.switchStmt (← lowerScalarPlanExprOrFallback module env condition) #[
           {
             value := some (Lean.Compiler.Yul.Literal.natLit 0)
             body := { statements := elseStatements }
@@ -4507,11 +4482,12 @@ mutual
           .error { message := s!"bounded loop `{indexName}` must have stop greater than start" }
         let loopEnv ← addLocal env indexName .u32 false
         let bodyStatements ← lowerStatements module entrypointName returnType loopEnv true body
+        let loopCondition ← lowerScalarPlanExprOrFallback module loopEnv (.lt (.local indexName) (.literal (.u32 stopExclusive)))
         .ok (#[.forLoop
           { statements := #[
             .varDecl #[{ name := indexName }] (some (Lean.Compiler.Yul.Expr.num start))
           ] }
-          (Lean.Compiler.Yul.builtin "lt" #[Lean.Compiler.Yul.Expr.id indexName, Lean.Compiler.Yul.Expr.num stopExclusive])
+          loopCondition
           { statements := #[
             .assignment #[indexName] (Lean.Compiler.Yul.builtin "add" #[Lean.Compiler.Yul.Expr.id indexName, Lean.Compiler.Yul.Expr.num 1])
           ] }

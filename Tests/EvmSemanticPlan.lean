@@ -89,6 +89,30 @@ def testEventSemanticPlan : IO Unit := do
   require (fields[0]!.name == "value") "event plan ValueEvent field name"
   require (fields[0]!.type == .u64) "event plan ValueEvent field type"
   require (fields[0]!.indexed == false) "event plan ValueEvent field not indexed"
+  let topicStmts := ProofForge.Backend.Evm.ToYul.eventSignatureTopicStatements valueEvent
+  require (topicStmts.size > 0) "event plan-to-yul topic statement count"
+  match topicStmts[topicStmts.size - 1]? with
+  | some (Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args))) => do
+      match vars[0]? with
+      | some var => require (var.name == "_topic0") "event plan-to-yul topic var name"
+      | none => throw <| IO.userError "event plan-to-yul missing topic var"
+      require (args.size == 2) "event plan-to-yul keccak arg count"
+  | _ => throw <| IO.userError "event plan-to-yul topic must end with keccak topic0"
+  let indexedEvent ← requireSome
+    (plan.events.find? (fun ev => ev.name == "IndexedValue"))
+    "event plan missing IndexedValue"
+  let logStmt ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventLogStatement toYulError indexedEvent 1)
+    "event plan-to-yul log statement"
+  match logStmt with
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin name args) => do
+      require (name == "log2") "event plan-to-yul indexed log builtin"
+      require (args.size == 4) "event plan-to-yul indexed log arg count"
+      match args[3]! with
+      | Lean.Compiler.Yul.Expr.ident topicName =>
+          require (topicName == "_indexed_topic0") "event plan-to-yul indexed topic arg"
+      | _ => throw <| IO.userError "event plan-to-yul indexed log topic must be identifier"
+  | _ => throw <| IO.userError "event plan-to-yul log must be expr statement"
 
 def testArtifactMetadata : IO Unit := do
   let artifactMeta ← requireOk (buildPlanArtifactMetadata ProofForge.IR.Examples.Counter.module) "counter artifact metadata"
@@ -220,6 +244,129 @@ def testScalarReturnPlanToYul : IO Unit := do
       require (args.size == 1) "storage scalar return plan-to-yul arg count"
   | _ => throw <| IO.userError "storage scalar return plan-to-yul must assign sload"
 
+def testScalarAssignmentPlanToYul : IO Unit := do
+  let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := true }]
+  let assignStmts ← requireOk
+    (lowerAssignStmt
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.local "n")
+      (.add (.local "n") (.literal (.u64 1))))
+    "scalar assignment plan-to-yul"
+  require (assignStmts.size == 1) "scalar assignment plan-to-yul statement count"
+  match assignStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+      require (names == #["n"]) "scalar assignment plan-to-yul target"
+      require (name == "__pf_checked_add") "scalar assignment plan-to-yul helper"
+      require (args.size == 2) "scalar assignment plan-to-yul arg count"
+  | _ => throw <| IO.userError "scalar assignment plan-to-yul must assign helper result"
+  let assignOpStmts ← requireOk
+    (lowerAssignOpStmt
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.local "n")
+      .add
+      (.effect (.storageScalarRead "count")))
+    "scalar compound assignment plan-to-yul"
+  require (assignOpStmts.size == 1) "scalar compound assignment plan-to-yul statement count"
+  match assignOpStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+      require (names == #["n"]) "scalar compound assignment plan-to-yul target"
+      require (name == "__pf_checked_add") "scalar compound assignment plan-to-yul helper"
+      require (args.size == 2) "scalar compound assignment plan-to-yul arg count"
+      match args[1]! with
+      | Lean.Compiler.Yul.Expr.builtin name _ =>
+          require (name == "sload") "scalar compound assignment plan-to-yul rhs opcode"
+      | _ => throw <| IO.userError "scalar compound assignment plan-to-yul rhs must be sload"
+  | _ => throw <| IO.userError "scalar compound assignment plan-to-yul must assign helper result"
+
+def testScalarControlFlowPlanToYul : IO Unit := do
+  let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := true }]
+  let (ifStmts, _) ← requireOk
+    (lowerStatement
+      ProofForge.IR.Examples.Counter.module
+      "control_flow"
+      .unit
+      env
+      false
+      (.ifElse
+        (.gt (.local "n") (.literal (.u64 0)))
+        #[.assign (.local "n") (.add (.local "n") (.literal (.u64 1)))]
+        #[.assign (.local "n") (.literal (.u64 1))]))
+    "scalar ifElse condition plan-to-yul"
+  require (ifStmts.size == 1) "scalar ifElse condition plan-to-yul statement count"
+  match ifStmts[0]! with
+  | Lean.Compiler.Yul.Statement.switchStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
+      require (name == "gt") "scalar ifElse condition plan-to-yul opcode"
+      require (args.size == 2) "scalar ifElse condition plan-to-yul arg count"
+  | _ => throw <| IO.userError "scalar ifElse condition plan-to-yul must lower to switch over builtin"
+  let (forStmts, _) ← requireOk
+    (lowerStatement
+      ProofForge.IR.Examples.Counter.module
+      "control_flow"
+      .unit
+      env
+      false
+      (.boundedFor
+        "i"
+        0
+        3
+        #[.assign (.local "n") (.add (.local "n") (.local "i"))]))
+    "scalar boundedFor condition plan-to-yul"
+  require (forStmts.size == 1) "scalar boundedFor condition plan-to-yul statement count"
+  match forStmts[0]! with
+  | Lean.Compiler.Yul.Statement.forLoop _ (Lean.Compiler.Yul.Expr.builtin name args) _ _ => do
+      require (name == "lt") "scalar boundedFor condition plan-to-yul opcode"
+      require (args.size == 2) "scalar boundedFor condition plan-to-yul arg count"
+  | _ => throw <| IO.userError "scalar boundedFor condition plan-to-yul must lower to for over builtin"
+
+def testScalarEventPlanToYul : IO Unit := do
+  let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
+  let dataStmt ← requireOk
+    (lowerEventEmitCoreStmt
+      ProofForge.IR.Examples.EventProbe.evmModule
+      env
+      "PlanValue"
+      #[]
+      #[("value", .add (.local "n") (.literal (.u64 1)))])
+    "scalar event data field plan-to-yul"
+  match dataStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      let mut foundCheckedAdd := false
+      for stmt in block.statements do
+        match stmt with
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "mstore" args) => do
+            if args.size == 2 then
+              match args[1]! with
+              | Lean.Compiler.Yul.Expr.call "__pf_checked_add" addArgs =>
+                  foundCheckedAdd := foundCheckedAdd || addArgs.size == 2
+              | _ => pure ()
+        | _ => pure ()
+      require foundCheckedAdd "scalar event data field must lower through checked add plan"
+  | _ => throw <| IO.userError "scalar event data field plan-to-yul must lower to block"
+  let indexedStmt ← requireOk
+    (lowerEventEmitCoreStmt
+      ProofForge.IR.Examples.EventProbe.evmModule
+      env
+      "PlanIndexed"
+      #[("key", .effect (.storageScalarRead "_proof_forge_marker"))]
+      #[("value", .add (.local "n") (.literal (.u64 1)))])
+    "scalar indexed event topic plan-to-yul"
+  match indexedStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      let mut foundIndexedSload := false
+      for stmt in block.statements do
+        match stmt with
+        | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "sload" args)) => do
+            match vars[0]? with
+            | some var =>
+                if vars.size == 1 && var.name == "_indexed_topic0" then
+                  foundIndexedSload := foundIndexedSload || args.size == 1
+            | none => pure ()
+        | _ => pure ()
+      require foundIndexedSload "scalar indexed event topic must lower storage read through plan"
+  | _ => throw <| IO.userError "scalar indexed event topic plan-to-yul must lower to block"
+
 def main : IO UInt32 := do
   testCounterSemanticPlan
   testEventSemanticPlan
@@ -229,6 +376,9 @@ def main : IO UInt32 := do
   testScalarExprPlanToYul
   testScalarAssertPlanToYul
   testScalarReturnPlanToYul
+  testScalarAssignmentPlanToYul
+  testScalarControlFlowPlanToYul
+  testScalarEventPlanToYul
   IO.println "evm-semantic-plan: ok"
   return 0
 

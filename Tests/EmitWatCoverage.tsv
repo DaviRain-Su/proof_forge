@@ -16,6 +16,15 @@ Literal	hash4	lowered	EmitWat emits four U64 limbs and calls the hash constructo
 ContextField	userId	lowered	EmitWat lowers userId to predecessor_account_id hashing through the context helper.
 ContextField	contractId	lowered	EmitWat lowers contractId to current_account_id hashing through the context helper.
 ContextField	checkpointId	lowered	EmitWat lowers checkpointId to block_index.
+ContextField	timestamp	unsupported	EmitWat does not lower timestamp context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	chainId	unsupported	EmitWat does not lower chainId context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	gasPrice	unsupported	EmitWat does not lower gasPrice context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	gasLeft	unsupported	EmitWat does not lower gasLeft context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	baseFee	unsupported	EmitWat does not lower baseFee context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	prevRandao	unsupported	EmitWat does not lower prevRandao context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	origin	unsupported	EmitWat does not lower origin context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	coinbase	unsupported	EmitWat does not lower coinbase context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	blockHash	unsupported	EmitWat does not lower blockHash context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
 AssignOp	add	lowered	EmitWat lowers local and scalar-storage compound add with the numeric wasm add operator.
 AssignOp	sub	lowered	EmitWat lowers local and scalar-storage compound subtract with the numeric wasm sub operator.
 AssignOp	mul	lowered	EmitWat lowers local and scalar-storage compound multiply with the numeric wasm mul operator.
