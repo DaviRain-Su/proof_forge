@@ -390,15 +390,19 @@ def littleEndianHex (byteCount value : Nat) : String :=
   String.intercalate "" <|
     (List.range byteCount).map fun idx => byteHex ((value / (256 ^ idx)) % 256)
 
-def borshValueHex : ProofForge.IR.Semantics.Value → Except String String
+partial def borshValueHex : ProofForge.IR.Semantics.Value → Except String String
   | .unit => .ok ""
   | .bool value => .ok (if value then "01" else "00")
   | .u32 value => .ok (littleEndianHex 4 value)
   | .u64 value => .ok (littleEndianHex 8 value)
   | .hash a b c d =>
       .ok (littleEndianHex 8 a ++ littleEndianHex 8 b ++ littleEndianHex 8 c ++ littleEndianHex 8 d)
-  | .array _ => .error "offline-host execution obligation does not yet encode aggregate Borsh input values"
-  | .struct _ _ => .error "offline-host execution obligation does not yet encode struct Borsh input values"
+  | .array values => do
+      let parts ← values.mapM borshValueHex
+      .ok (String.intercalate "" parts)
+  | .struct _ fields => do
+      let parts ← fields.mapM fun (_, v) => borshValueHex v
+      .ok (String.intercalate "" parts)
   | .address value => .ok (littleEndianHex 8 value)
   | .bytes _ => .error "offline-host execution obligation does not yet encode bytes Borsh input values"
   | .string _ => .error "offline-host execution obligation does not yet encode string Borsh input values"

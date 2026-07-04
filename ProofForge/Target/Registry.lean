@@ -102,13 +102,18 @@ def wasmNear : TargetProfile := {
   capabilities := #[
     .storageScalar,
     .storageMap,
+    .storageArray,
     .callerSender,
     .valueNative,
     .eventsEmit,
     .envBlock,
     .cryptoHash,
     .accountExplicit,
-    .assertions
+    .assertions,
+    .controlConditional,
+    .controlBoundedLoop,
+    .dataFixedArray,
+    .dataStruct
   ]
   hostBridge? := some .near
   requiredTools := #["rustup", "cargo", "near-cli"]

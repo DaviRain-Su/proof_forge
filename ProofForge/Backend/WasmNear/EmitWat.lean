@@ -57,6 +57,8 @@ def wasmTypeOf : ValueType → ValType
 def widthOf : ValueType → String
   | .u32 => "i32" | .u64 => "i64" | .bool => "i32" | .hash => "i32" | _ => "i32"
 def isNumeric (t : ValueType) : Bool := match t with | .u32 | .u64 => true | _ => false
+def isScalarBorshType (t : ValueType) : Bool :=
+  match t with | .u32 | .u64 | .bool | .hash => true | _ => false
 def scalarWidth : ValueType → Nat
   | .u32 => 4 | .u64 => 8 | .bool => 1 | .hash => 32 | _ => 8
 def loadOpFor : ValueType → String
@@ -601,7 +603,7 @@ def ctxSignerFunc : Func :=
       .i32Const CTX_BUF, .load "i64.load" 0 ] } }
 
 def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc, ctxSignerFunc ]
-def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, signerImport, depositImport, registerLenImport, blockHeightImport ]
+def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, registerLenImport, blockHeightImport ]
 
 -- Event helpers --------------------------------------------------------
 -- Build a JSON event string in EVENT_BUF via an append pointer, then log_utf8.
@@ -1514,10 +1516,16 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
              .localGet indexName, .i64Const 1, .plain "i64.add", .localSet indexName, .br 0 ] } ] } ])
   | _ => err "EmitWat: this statement form is not yet supported"
 
-/-- Build the Borsh input prologue: env.input → INPUT_BUF, then load each
+/-- Build the Borsh input prologue: env.input -> INPUT_BUF, then load each
     param at its cumulative Borsh offset into a local. Entrypoint params have
-    no wasm-level params; they are decoded from input and held in locals. -/
-def loadParams (params : Array (String × ValueType))
+    no wasm-level params; they are decoded from input and held in locals.
+
+    Scalar types (u32/u64/bool) load directly. Hash loads 32 bytes into a
+    param hash slot. Fixed arrays of scalars and flat structs are decoded
+    from Borsh (fields/elements laid out sequentially) into heap-allocated
+    memory, with the local holding an i32 pointer. -/
+def loadParams (structs : Array ProofForge.IR.StructDecl)
+    (params : Array (String × ValueType))
     : Except EmitError (Array Insn × Array Local) := do
   let prologue : Array Insn :=
     #[.i64Const 0, .call "input", .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
@@ -1533,12 +1541,57 @@ def loadParams (params : Array (String × ValueType))
         let loadInsns := #[.i32Const slot, .i32Const (INPUT_BUF + offset), .i32Const 32, .call memcpyName,
                            .i32Const slot, .localSet name]
         .ok (insns ++ loadInsns, locals.push { name := name, type := wasmTypeOf vt }, offset + 32, hslot + 1)
+      | .fixedArray elemType n =>
+        if !(isScalarBorshType elemType) then
+          err s!"EmitWat: param `{name}` has unsupported fixedArray element type `{elemType.name}` (only scalar elements supported in Borsh params)"
+        else
+          let elemWidth := scalarWidth elemType
+          let totalBytes := n * elemWidth
+          let loadInsns :=
+            #[.i64Const totalBytes, .call arrAllocName, .localSet name] ++
+            (Array.range n).foldl (fun (acc : Array Insn) i =>
+              let srcOff := INPUT_BUF + offset + i * elemWidth
+              let dstOff := i * elemWidth
+              let loadElem :=
+                if elemType == ProofForge.IR.ValueType.hash then
+                  #[.i32Const dstOff, .localGet name, .plain "i32.add",
+                    .i32Const srcOff, .i32Const 32, .call memcpyName]
+                else
+                  #[.i32Const dstOff, .localGet name, .plain "i32.add",
+                    .i32Const srcOff, .load (loadOpFor elemType) 0,
+                    .store (storeOpFor elemType) 0]
+              acc ++ loadElem) #[]
+          .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
+      | .structType typeName =>
+        match structs.find? (fun s => s.name == typeName) with
+        | none => err s!"EmitWat: param `{name}` references unknown struct `{typeName}`"
+        | some sd =>
+          if !structStorageFieldsSupported sd then
+            err s!"EmitWat: param `{name}` struct `{typeName}` has non-scalar fields (only u32/u64/bool/hash supported in Borsh params)"
+          else
+            let totalBytes := structTotalSize sd
+            let loadInsns :=
+              #[.i64Const totalBytes, .call arrAllocName, .localSet name] ++
+              sd.fields.foldl (fun (acc : Array Insn) f =>
+                let fieldOff := structFieldOffset? sd f.id |>.getD 0
+                let srcOff := INPUT_BUF + offset + fieldOff
+                let dstOff := fieldOff
+                let loadField :=
+                  if f.type == ProofForge.IR.ValueType.hash then
+                    #[.i32Const dstOff, .localGet name, .plain "i32.add",
+                      .i32Const srcOff, .i32Const 32, .call memcpyName]
+                  else
+                    #[.i32Const dstOff, .localGet name, .plain "i32.add",
+                      .i32Const srcOff, .load (loadOpFor f.type) 0,
+                      .store (storeOpFor f.type) 0]
+                acc ++ loadField) #[]
+          .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
       | _ => err s!"EmitWat: param `{name}` has unsupported Borsh type `{vt.name}`"
   pure (result.fst, result.snd.fst)
 
 def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
   let bodyLocals ← collectLocals ep.body
-  let (paramPrologue, paramLocals) ← loadParams ep.params
+  let (paramPrologue, paramLocals) ← loadParams ctx.structs ep.params
   let allLocalTypes : LocalTypes :=
     (ep.params.map (fun (n, t) => { name := n, vt := t : LBind })) ++ bodyLocals
   let locals := paramLocals ++ bodyLocals.map (fun b => { name := b.name, type := wasmTypeOf b.vt : Local })
@@ -1594,7 +1647,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     and cross-contract calls are NOT in this set; they stay rejected until the
     profile explicitly opens them. -/
 def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  ProofForge.Target.wasmNear.capabilities ++ #[.controlConditional, .controlBoundedLoop]
+  ProofForge.Target.wasmNear.capabilities
 
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>

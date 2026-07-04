@@ -25,6 +25,8 @@ struct Config {
     inputs: Option<Vec<Vec<u8>>>,
     current_account_id: Vec<u8>,
     predecessor_account_id: Vec<u8>,
+    signer_account_id: Vec<u8>,
+    attached_deposit: u64,
     block_index: u64,
 }
 
@@ -40,6 +42,8 @@ impl Config {
         let mut inputs = None;
         let mut current_account_id = b"proof-forge.testnet".to_vec();
         let mut predecessor_account_id = b"alice.testnet".to_vec();
+        let mut signer_account_id = b"alice.testnet".to_vec();
+        let mut attached_deposit: u64 = 0;
         let mut block_index = 0;
 
         let mut args = args.into_iter().peekable();
@@ -78,6 +82,15 @@ impl Config {
                     predecessor_account_id =
                         take_arg(&mut args, "--predecessor-account-id")?.into_bytes();
                 }
+                "--signer-account-id" => {
+                    signer_account_id =
+                        take_arg(&mut args, "--signer-account-id")?.into_bytes();
+                }
+                "--attached-deposit" => {
+                    attached_deposit = take_arg(&mut args, "--attached-deposit")?
+                        .parse()
+                        .context("--attached-deposit must be a non-negative integer")?;
+                }
                 "--block-index" => {
                     block_index = take_arg(&mut args, "--block-index")?
                         .parse()
@@ -115,6 +128,8 @@ impl Config {
             inputs,
             current_account_id,
             predecessor_account_id,
+            signer_account_id,
+            attached_deposit,
             block_index,
         })
     }
@@ -140,6 +155,8 @@ fn print_usage() {
            --input-file PATH             Borsh input bytes from a file\n\
            --current-account-id ID       current_account_id stub value\n\
            --predecessor-account-id ID   predecessor_account_id stub value\n\
+           --signer-account-id ID        signer_account_id stub value\n\
+           --attached-deposit N          attached_deposit stub value\n\
            --block-index N               block_index stub value"
     );
 }
@@ -188,6 +205,8 @@ fn run(config: Config) -> Result<()> {
         config.input,
         config.current_account_id,
         config.predecessor_account_id,
+        config.signer_account_id,
+        config.attached_deposit,
         config.block_index,
     );
     let mut store = Store::new(&engine, host);
@@ -285,6 +304,8 @@ struct HostState {
     input: Vec<u8>,
     current_account_id: Vec<u8>,
     predecessor_account_id: Vec<u8>,
+    signer_account_id: Vec<u8>,
+    attached_deposit: u64,
     block_index: u64,
     allocator: LinearMemoryAllocator,
     panic_message: Option<String>,
@@ -296,6 +317,8 @@ impl HostState {
         input: Vec<u8>,
         current_account_id: Vec<u8>,
         predecessor_account_id: Vec<u8>,
+        signer_account_id: Vec<u8>,
+        attached_deposit: u64,
         block_index: u64,
     ) -> Self {
         Self {
@@ -306,6 +329,8 @@ impl HostState {
             input,
             current_account_id,
             predecessor_account_id,
+            signer_account_id,
+            attached_deposit,
             block_index,
             allocator: LinearMemoryAllocator::new(heap_base),
             panic_message: None,
@@ -585,6 +610,24 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
             caller.data_mut().registers.insert(register_id, value);
             Ok(())
         },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "signer_account_id",
+        |mut caller: Caller<'_, HostState>, register_id: i64| -> Result<()> {
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let value = caller.data().signer_account_id.clone();
+            caller.data_mut().registers.insert(register_id, value);
+            Ok(())
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "attached_deposit",
+        |caller: Caller<'_, HostState>| -> i64 { caller.data().attached_deposit as i64 },
     )?;
 
     linker.func_wrap(
