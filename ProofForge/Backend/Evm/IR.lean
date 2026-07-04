@@ -3065,6 +3065,7 @@ partial def lowerIndexedEventTopicStatements
   | .u32 | .u64 | .bool | .hash | .address =>
       .ok #[.varDecl #[{ name := topicName }] (some (← lowerScalarPlanExprOrFallback module env value))]
   | .fixedArray _ _ | .structType _ => do
+
       let words ← lowerEventDataWords module env eventName fieldName type value
       .ok <| eventDataStoreStatements words |>.push
         (.varDecl #[{ name := topicName }]
