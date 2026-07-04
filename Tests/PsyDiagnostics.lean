@@ -671,7 +671,7 @@ def cases : Array (String × Module × String) := #[
   (
     "unit entrypoint parameter",
     unitParamModule,
-    "entrypoint `bad` parameter `x` uses Unit; Psy IR v0 entrypoint parameters must use Felt, U32, Bool, Hash, fixed arrays, or declared structs"
+    "entrypoint `bad` parameter `x` uses Unit; Psy IR v0 entrypoint parameters must use Felt, U32, Bool, Hash, Address, fixed arrays, or declared structs"
   ),
   (
     "zero-length ABI array parameter",
