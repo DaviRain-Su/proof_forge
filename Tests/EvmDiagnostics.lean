@@ -570,7 +570,7 @@ def cases : Array (String × Module × String) := #[
   (
     "unit parameter unsupported",
     unitParameterModule,
-    "entrypoint `set` parameter `value` uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, fixed arrays, or structs"
+    "entrypoint `set` parameter `value` uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs"
   ),
   (
     "zero-length ABI array unsupported",

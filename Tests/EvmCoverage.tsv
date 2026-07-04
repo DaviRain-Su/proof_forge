@@ -13,6 +13,10 @@ Literal	u32	validated	EvmExpressionProbe validates U32 literals in arithmetic, b
 Literal	u64	validated	EvmExpressionProbe validates U64 literals in arithmetic, bitwise, predicate, and assertion expressions.
 Literal	bool	validated	EvmExpressionProbe validates Bool literals in predicate equality/inequality and assertion expressions.
 Literal	hash4	validated	EvmHashProbe validates four-limb Hash literals packed into one EVM bytes32 word.
+Literal	address	lowered	Address literals lower as single-word EVM values (like Hash); pending EvmDynamicAbiProbe Foundry test.
+ValueType	address	lowered	Address is a static single-word EVM type (like Hash) that participates in ABI parameters, crosscall, storage, and fixed arrays; pattern match exhaustiveness verified across EVM backend; pending EvmDynamicAbiProbe Foundry test for ABI round-trip verification.
+ValueType	bytes	lowered	Bytes is a dynamic ABI type requiring head-tail encoding; pattern match exhaustiveness verified across EVM backend; pending head-tail dispatcher implementation and EvmDynamicAbiProbe Foundry test.
+ValueType	string	lowered	String is a dynamic ABI type requiring head-tail encoding; pattern match exhaustiveness verified across EVM backend; pending head-tail dispatcher implementation and EvmDynamicAbiProbe Foundry test.
 ContextField	userId	validated	ContextProbe lowers userId context reads to Yul caller() and Foundry verifies a vm.prank sender.
 ContextField	contractId	validated	ContextProbe lowers contractId context reads to Yul address() and Foundry verifies the etched runtime address.
 ContextField	checkpointId	validated	ContextProbe lowers checkpointId context reads to Yul number() and Foundry verifies a vm.roll block number.

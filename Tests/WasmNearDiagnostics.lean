@@ -382,7 +382,7 @@ def cases : Array (String × Module × String) := #[
   ("map shape unsupported", u32KeyMapModule,
     "map state `balances` has unsupported wasm-near IR v0 type `Map<U32, U64, 16>`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported"),
   ("unit parameter unsupported", unitParameterModule,
-    "entrypoint `set` parameter `value` uses `Unit`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, or Hash"),
+    "entrypoint `set` parameter `value` uses `Unit`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address"),
   ("invalid module name", invalidModuleName,
     "module name `1bad` is not a valid Rust identifier; identifiers must start with an ASCII letter or `_` and contain only ASCII letters, digits, or `_`"),
   ("reserved entrypoint name", reservedEntrypointNameModule,
