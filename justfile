@@ -123,6 +123,10 @@ near-target-first:
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
 
+# Scaffold a portable Counter project with `proof-forge init` and build EVM + Solana.
+portable-init-smoke:
+    scripts/portable/init-smoke.sh
+
 # Run a live Solana Token-2022 transfer-fee plan smoke on Surfpool with Web3.js.
 solana-token-2022-transfer-fee-web3:
     scripts/solana/token-2022-transfer-fee-web3-smoke.sh

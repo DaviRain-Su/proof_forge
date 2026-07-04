@@ -25,6 +25,7 @@ import ProofForge.Backend.CosmWasm.EmitWat
 import ProofForge.Backend.Move.Aptos
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
+import ProofForge.Cli.Scaffold
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -401,6 +402,7 @@ inductive Command where
   | build
   | emit
   | check
+  | init
   | listTargets
   | listFixtures
   deriving BEq, Inhabited, Repr
@@ -567,6 +569,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-leo [-o output.leo]",
     "  proof-forge --emit-counter-ir-cosmwasm [-o output.wat]   (CosmWasm Counter spike)",
     "  proof-forge --emit-counter-ir-aptos [-o output-dir]       (Aptos Move Counter spike)",
+    "  proof-forge init [DIR] [--template portable-counter]",
     "",
     "EVM bytecode mode loads `spec : ContractSpec` from the Lean module and uses Foundry `cast sig` plus `solc --strict-assembly`.",
     "`--evm-chain-profile <id>` records deployment profile metadata in the EVM deploy manifest without broadcasting transactions.",
@@ -5375,54 +5378,62 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
 end ProofForge.Cli
 
 unsafe def main (args : List String) : IO UInt32 := do
-  let parseResult : Except String ProofForge.Cli.CliOptions :=
-    match args with
-    | "--list-targets" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listTargets }
-    | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
-    | "build" :: _ | "emit" :: _ =>
-      match ProofForge.Cli.newCommandArgsToLegacy args with
-      | Except.ok legacyArgs =>
-        match ProofForge.Cli.parseArgs legacyArgs {} with
-        | Except.ok opts => Except.ok { opts with
-            cmd :=
-              match args with
-              | "build" :: _ => ProofForge.Cli.Command.build
-              | _ => ProofForge.Cli.Command.emit,
-            fromNewSurface := true }
+  match args with
+  | "init" :: rest =>
+    match ProofForge.Cli.Scaffold.parseInitOptions rest with
+    | Except.ok opts => ProofForge.Cli.Scaffold.initCommand opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1
+  | _ =>
+    let parseResult : Except String ProofForge.Cli.CliOptions :=
+      match args with
+      | "--list-targets" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listTargets }
+      | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
+      | "build" :: _ | "emit" :: _ =>
+        match ProofForge.Cli.newCommandArgsToLegacy args with
+        | Except.ok legacyArgs =>
+          match ProofForge.Cli.parseArgs legacyArgs {} with
+          | Except.ok opts => Except.ok { opts with
+              cmd :=
+                match args with
+                | "build" :: _ => ProofForge.Cli.Command.build
+                | _ => ProofForge.Cli.Command.emit,
+              fromNewSurface := true }
+          | Except.error msg => Except.error msg
         | Except.error msg => Except.error msg
-      | Except.error msg => Except.error msg
-    | "check" :: rest =>
-      match ProofForge.Cli.parseNewOptions rest {} with
-      | Except.ok state =>
-        Except.ok {
-          cmd := ProofForge.Cli.Command.check,
-          targetId? := state.target?,
-          fixture? := state.fixture?,
-          format? := state.format?,
-          input? := state.input?.map FilePath.mk,
-          root? := state.root?.map FilePath.mk,
-          fromNewSurface := true
-          : ProofForge.Cli.CliOptions }
-      | Except.error msg => Except.error msg
-    | _ => ProofForge.Cli.parseArgs args {}
-  match parseResult with
-  | Except.ok opts => do
-      match opts.cmd with
-      | ProofForge.Cli.Command.listTargets =>
-        IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
-        return 0
-      | ProofForge.Cli.Command.listFixtures =>
-        IO.println (String.intercalate "\n" ProofForge.Cli.Fixture.ids.toList)
-        return 0
-      | ProofForge.Cli.Command.check =>
-        ProofForge.Cli.checkCommand opts
-      | _ =>
-        if !opts.fromNewSurface then
-          if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then
-            IO.eprintln note
-        if opts.evmChainProfile?.isSome then
-          discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?
-        ProofForge.Cli.compileFile opts
-  | Except.error msg =>
-      IO.eprintln msg
-      return 1
+      | "check" :: rest =>
+        match ProofForge.Cli.parseNewOptions rest {} with
+        | Except.ok state =>
+          Except.ok {
+            cmd := ProofForge.Cli.Command.check,
+            targetId? := state.target?,
+            fixture? := state.fixture?,
+            format? := state.format?,
+            input? := state.input?.map FilePath.mk,
+            root? := state.root?.map FilePath.mk,
+            fromNewSurface := true
+            : ProofForge.Cli.CliOptions }
+        | Except.error msg => Except.error msg
+      | _ => ProofForge.Cli.parseArgs args {}
+    match parseResult with
+    | Except.ok opts => do
+        match opts.cmd with
+        | ProofForge.Cli.Command.listTargets =>
+          IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
+          return 0
+        | ProofForge.Cli.Command.listFixtures =>
+          IO.println (String.intercalate "\n" ProofForge.Cli.Fixture.ids.toList)
+          return 0
+        | ProofForge.Cli.Command.check =>
+          ProofForge.Cli.checkCommand opts
+        | _ =>
+          if !opts.fromNewSurface then
+            if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then
+              IO.eprintln note
+          if opts.evmChainProfile?.isSome then
+            discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?
+          ProofForge.Cli.compileFile opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1

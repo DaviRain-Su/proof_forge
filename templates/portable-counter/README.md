@@ -5,6 +5,21 @@ contract. The source imports `ProofForge.Contract.Source`, not an EVM, Solana,
 or NEAR SDK. It expands to `ContractSpec` / portable IR; target selection
 happens at the CLI layer.
 
+## Quick Start
+
+Scaffold a standalone project:
+
+```sh
+lake env proof-forge init my-counter
+cd my-counter
+lake update
+just build-evm
+just build-solana
+```
+
+The generated project includes `Counter.lean`, `lakefile.lean`, `lean-toolchain`,
+`justfile`, and `.gitignore`.
+
 ## Source Validation
 
 ```sh
@@ -54,4 +69,10 @@ when Foundry's `cast` is not on `PATH`.
 PORTABLE_COUNTER_SOURCE=templates/portable-counter/Counter.lean \
 PORTABLE_COUNTER_OUT=build/portable-counter-template \
 just portable-counter-multi-target
+```
+
+For a checked end-to-end init scaffold plus EVM/Solana builds:
+
+```sh
+just portable-init-smoke
 ```
