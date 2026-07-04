@@ -29,7 +29,7 @@ echo "portable-counter: EVM"
   -o "$OUT/Counter.bin" \
   --yul-output "$OUT/Counter.yul" \
   --artifact-output "$OUT/Counter.proof-forge-artifact.json" \
-  "${cast_args[@]}" \
+  "${cast_args[@]+"${cast_args[@]}"}" \
   "$SOURCE"
 diff -u Examples/Evm/Counter.golden.yul "$OUT/Counter.yul"
 python3 scripts/evm/validate-artifact-metadata.py \
