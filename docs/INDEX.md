@@ -41,6 +41,15 @@ flowchart TB
   BL --> TGT
 ```
 
+## Architecture diagrams (Excalidraw)
+
+Editable hand-drawn-style diagrams for presentations and onboarding — open on
+[excalidraw.com](https://excalidraw.com) or in-editor with an Excalidraw plugin:
+
+- [Diagram catalog](diagrams/README.md) — seven `.excalidraw` files covering
+  platform overview, compile pipeline, multi-target Counter, capability routing,
+  developer workflow, codebase layout, and target landscape.
+
 ## Specs and Decisions
 
 - [Design decisions](decisions.md): settled architecture choices and roadmap summary.

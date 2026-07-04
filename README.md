@@ -153,7 +153,8 @@ flowchart TB
 See [docs/authoring-model.md](docs/authoring-model.md) for the authoring
 layers (the legacy `.learn` parser is a frozen compatibility surface, not a
 second product language) and [docs/portable-ir.md](docs/portable-ir.md) for
-the IR spec.
+the IR spec. Editable [Excalidraw architecture diagrams](docs/diagrams/README.md)
+(open on [excalidraw.com](https://excalidraw.com)) complement the Mermaid figure above.
 
 ## Development Docs
 
