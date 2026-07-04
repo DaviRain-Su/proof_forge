@@ -188,6 +188,7 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
             | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
                 .error {
                   message := s!"event `{eventName}` field `{fieldName}` struct `{typeName}` field `{field.id}` has unsupported EVM IR v0 event type `{field.type.name}`; event structs must be flat U32, U64, Bool, or Hash fields"
+                }
           .ok ("(" ++ String.intercalate "," parts.toList ++ ")")
 
 def ensureIndexedEventFieldType

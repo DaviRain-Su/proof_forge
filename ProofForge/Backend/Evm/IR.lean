@@ -3185,6 +3185,7 @@ partial def lowerIndexedEventTopicStatements
     (index : Nat)
     (fieldPlan : ProofForge.Backend.Evm.Plan.EventFieldPlan)
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
+  let topicName := eventIndexedTopicName index
   let type := fieldPlan.type
   match type with
   | .u32 | .u64 | .bool | .hash | .address =>
@@ -3196,11 +3197,8 @@ partial def lowerIndexedEventTopicStatements
           (some (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num (words.size * 32)])))
   | .unit | .bytes | .string =>
       .error {
-        message := s!"event `{eventName}` indexed field `{fieldName}` has unsupported EVM IR v0 type `Unit`; indexed event fields must be U32, U64, Bool, Hash, flat structs, or fixed arrays"
+        message := s!"event `{eventName}` indexed field `{fieldName}` has unsupported EVM IR v0 type `{type.name}`; indexed event fields must be U32, U64, Bool, Hash, Address, flat structs, or fixed arrays"
       }
-  | _ => do
-      let words ← lowerEventDataWords module env eventName fieldName type value
-      ProofForge.Backend.Evm.ToYul.eventIndexedTopicStatements toYulError fieldPlan index words
 
 def lowerEventEmitCoreStmt
     (module : Module)

@@ -6,6 +6,9 @@ ValueType	u64	lowered	valueTypeName emits u64, literal emits Nu64, and U64 scala
 ValueType	hash	lowered	valueTypeName emits [u64; 4], literal emits four-limb arrays, and hash/hash_two_to_one intrinsics plus hash map values lower with sha256 helpers; Hasher fixture and diagnostics cover it.
 ValueType	fixedArray	unsupported	wasm-near target profile rejects data.fixed_array before lowering; validateCapabilities emits a capability error and lowerExpr also rejects array literals/indexing.
 ValueType	structType	unsupported	wasm-near target profile rejects data.struct before lowering; struct decls and struct literals/field access are rejected by validateCapabilities.
+ValueType	address	lowered	valueTypeName emits u64 (same as numeric scalars), literal emits {value}u64, and Address ABI parameters/returns/event fields/storage lower directly; pattern match exhaustiveness verified across wasm-near backend.
+ValueType	bytes	unsupported	wasm-near IR v0 rejects data.dynamic_bytes; valueTypeName returns error "wasm-near IR v0 does not support Bytes" and validateEntrypointParameters/validateEntrypointReturn reject bytes parameters and returns.
+ValueType	string	unsupported	wasm-near IR v0 rejects data.dynamic_bytes; valueTypeName returns error "wasm-near IR v0 does not support String" and validateEntrypointParameters/validateEntrypointReturn reject string parameters and returns.
 StateKind	scalar	lowered	scalar state lowers to a pub struct field read/written via self.<id>; U32/U64/Bool/Hash scalar shapes are accepted by validateState and Counter covers U64 scalar storage.
 StateKind	map	validated	validateState accepts only Map<U64|Hash, U32|U64|Bool|Hash, N>; Ledger covers Map<U64, U64, 16> and Tests/WasmNearDiagnostics.lean covers zero-capacity and U32-key map rejection.
 StateKind	array	unsupported	wasm-near target profile rejects storage.array before lowering; array state triggers a capability error in validateCapabilities.
@@ -13,6 +16,7 @@ Literal	u32	lowered	literal emits Nu32 and is covered by cast/assignOp diagnosti
 Literal	u64	lowered	literal emits Nu64 and is covered by Counter, Ledger, Hasher, and Accum fixtures plus arithmetic/return diagnostics.
 Literal	bool	lowered	literal emits true/false and is covered by the conditional and assert diagnostics and the Accum fixture.
 Literal	hash4	lowered	literal emits four-limb [u64; 4] arrays and is covered by the Hasher fixture and the cast-mismatch diagnostic.
+Literal	address	lowered	literal emits {value}u64 and is covered by validateLiteralBounds and pattern match exhaustiveness across the wasm-near backend; address is treated as a u64 scalar.
 ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::predecessor_account_id()); Hasher fixture covers it and the context-as-statement diagnostic guards misuse.
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
 ContextField	checkpointId	lowered	lowerEffectExpr emits env::block_height(); capability envBlock is present in the wasm-near profile.

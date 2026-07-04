@@ -15,7 +15,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/onboarding.md": {
-    "sha256": "d427522c335a668bb3ca5d913510ba4cb0e63423d3c139ccc0b8446f52f31656",
+    "sha256": "cae8c22556e3dda35ac151c4a7d78cef790ae8dfd345a09fe6e14b641c9a7a7b",
     "zh": "docs/zh/onboarding.zh.md",
     "model": "gemini-3-flash-preview"
   },

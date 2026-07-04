@@ -6,6 +6,9 @@ ValueType	u64	lowered	EmitWat lowers U64 literals, params, locals, returns, arit
 ValueType	hash	lowered	EmitWat lowers Hash literals as four limbs, hash helpers, hash params/returns, hash scalars, and hash map keys/values.
 ValueType	fixedArray	lowered	EmitWat lowers fixed array literals, indexing, equality, local storage in linear memory, and release deallocation.
 ValueType	structType	lowered	EmitWat lowers struct literals, field access, scalar struct storage field read/write, equality through field values, and release deallocation.
+ValueType	address	lowered	EmitWat lowers Address as u64 (same as WasmNear IR v0); address literals, params, locals, returns, storage scalars, and map values use the u64 lowering path; pattern match exhaustiveness verified across EmitWat/WasmNear backend.
+ValueType	bytes	unsupported	EmitWat does not support Bytes; WasmNear IR v0 rejects data.dynamic_bytes before lowering, and EmitWat valueTypeName returns error "wasm-near IR v0 does not support Bytes".
+ValueType	string	unsupported	EmitWat does not support String; WasmNear IR v0 rejects data.dynamic_bytes before lowering, and EmitWat valueTypeName returns error "wasm-near IR v0 does not support String".
 StateKind	scalar	lowered	EmitWat stateLayout maps scalar state ids to storage keys and lowers scalar read/write helpers for U32/U64/Bool/Hash and struct-valued scalar state.
 StateKind	map	lowered	EmitWat mapLayout maps map state to storage prefixes and lowers contains/get/set/insert for U64 and Hash keys with scalar or hash values.
 StateKind	array	lowered	EmitWat mapLayout represents array state as U64-keyed storage prefixes and lowers storageArrayRead/storageArrayWrite.
@@ -13,6 +16,7 @@ Literal	u32	lowered	EmitWat emits i32.const for U32 literals.
 Literal	u64	lowered	EmitWat emits i64.const for U64 literals.
 Literal	bool	lowered	EmitWat emits i32.const 1/0 for Bool literals.
 Literal	hash4	lowered	EmitWat emits four U64 limbs and calls the hash constructor helper.
+Literal	address	lowered	EmitWat emits i64.const for Address literals (same as U64); address is treated as a u64 scalar in the wasm-near backend.
 ContextField	userId	lowered	EmitWat lowers userId to predecessor_account_id hashing through the context helper.
 ContextField	contractId	lowered	EmitWat lowers contractId to current_account_id hashing through the context helper.
 ContextField	checkpointId	lowered	EmitWat lowers checkpointId to block_index.

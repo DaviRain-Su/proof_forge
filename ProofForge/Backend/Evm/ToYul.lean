@@ -124,7 +124,7 @@ def eventIndexedTopicStatements
     Except ε (Array Lean.Compiler.Yul.Statement) := do
   let topicName := eventIndexedTopicName index
   match field.type with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address =>
       match words[0]? with
       | some word =>
           if words.size == 1 then
@@ -140,8 +140,8 @@ def eventIndexedTopicStatements
             Lean.Compiler.Yul.Expr.num 0,
             Lean.Compiler.Yul.Expr.num (words.size * 32)
           ])))
-  | .unit =>
-      .error (mkError s!"EVM indexed event field `{field.name}` has unsupported Unit type")
+  | .unit | .bytes | .string =>
+      .error (mkError s!"EVM indexed event field `{field.name}` has unsupported type `{field.type.name}`")
 
 def eventLogStatement
     {ε : Type}
