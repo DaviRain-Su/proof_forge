@@ -24,22 +24,22 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| ERC-20 | Partial | `ProofForge/Contract/Token/Evm.lean` emits selectors/events; `learn-token-erc20-vm-smoke.sh` exercises it; but stdlib surface is non-canonical | P0 |
-| ERC-721 (NFT) | Missing | No `ERC721`/`ownerOf`/`safeTransferFrom` path | P0 |
+| ERC-20 | Covered | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `learn-token-erc20-vm-smoke.sh` exercises the Token SDK path; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | — |
+| ERC-721 (NFT) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **Limitation:** `safeTransferFrom` does not invoke `onERC721Received` (documented in stdlib header) | P1 |
 | ERC-1155 (multi-token) | Missing | No batch receiver or multi-token path | P1 |
 | ERC-4626 (vault standard) | Missing | VerifiedVault is custom, not ERC-4626 interface | P1 |
 | ERC-2612 (permit) | Missing | TokenSpec advertises `erc20.permit` but no EVM lowering | P1 |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
-| ERC-165 (supportsInterface) | Missing | No `supportsInterface` in any example or SDK path | P0 |
+| ERC-165 (supportsInterface) | Covered | `ProofForge/Contract/Stdlib/ERC165.lean` stdlib mixin (supportsInterface + registerInterface); `Examples/Evm/Contracts/stdlib/ERC165.lean` golden Yul | — |
 
 ### Access patterns
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | Ownable | Covered | `stdlib/Ownable.lean` — owner storage, onlyOwner, transfer, renounce | — |
-| AccessControl (roles) | Missing | Single-owner only; no role grant/revoke | P0 |
-| Pausable | Partial | `stdlib/Pausable.lean` has pause/unpause guards but no owner/role auth | P1 |
-| ReentrancyGuard | Partial | VerifiedVault hand-rolls nonReentrant; no reusable stdlib guard | P1 |
+| AccessControl (roles) | Covered | `stdlib/AccessControl.lean` — `grantRole`/`revokeRole`/`hasRole` + nested map `(role, account) → membership` + `guard_role` DSL statement; `Examples/Evm/Contracts/stdlib/AccessControl.lean` golden Yul | — |
+| Pausable | Partial | `stdlib/Pausable.lean` has pause/unpause + `guard_not_paused`/`guard_paused` DSL statements + Lean proof (`not_paused_zero`); `Examples/Evm/Contracts/stdlib/Pausable.lean` golden Yul. **Gap:** pause/unpause have no owner/role auth (compose with Ownable/AccessControl for guarded pause) | P1 |
+| ReentrancyGuard | Covered | `stdlib/ReentrancyGuard.lean` — reusable `acquireLock`/`releaseLock` mixin via `acquire_lock`/`release_lock` DSL statements; `Examples/Evm/Contracts/stdlib/ReentrancyGuard.lean` golden Yul. VerifiedVault hand-rolled guard predates the stdlib | — |
 
 ### Proxy / Upgrade patterns
 
@@ -67,7 +67,7 @@ gaps.
 |---|---|---|---|
 | Custom errors (0.8.4+) | Partial | Structured revert payloads exist; no Solidity custom-error selector surface | P1 |
 | Structured events | Covered | Named events, indexed topics, aggregate data — all lowered | — |
-| Constructor args | Partial | Static word ABI blobs only; no dynamic types; scenarios use empty constructors | P0 |
+| Constructor args | Partial | CLI ABI-encodes static words (`uint256`/`uint64`/`uint32`/`bool`/`bytes32`/`address`) and dynamic types (`string`/`bytes`/`uint256[]` with head-offset + tail encoding, CS-3.4) into the initcode tail; deploy manifest records the schema. **Gaps:** (a) no example uses `cstring`/`cbytes`/`u256array`; (b) no positive Foundry/Anvil smoke for dynamic types; (c) the emitted runtime bytecode has no constructor body that consumes the tail (`codecopy` → storage init) — args are encoded but not read at deploy time | P0 |
 | Storage packing | Missing | One slot per field; no packing/layout optimizer | P1 |
 | Batch operations | Missing | No multicall / batch mint/transfer pattern | P1 |
 | Factory deployment | Partial | Foundry deploys init code; no reusable factory contract | P1 |
@@ -193,11 +193,11 @@ economics) is almost entirely missing.
 
 ## Summary: P0 blockers per chain
 
-**EVM (5 P0):** ERC-20 completion, ERC-721 NFT, ERC-165, AccessControl roles, Constructor dynamic args
+**EVM (1 open P0, 4 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin). **Open:** Constructor dynamic args — CLI ABI encoding is implemented (CS-3.4) but no positive Foundry/Anvil smoke, no example using `cstring`/`cbytes`/`u256array`, and no runtime constructor body that consumes the initcode tail.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable are closed. Live generated-program Token-2022 direct-CPI validation remains a P1 validation expansion.
 
 **NEAR (6 P0):** Promise API (create/then/and/batch), Callback handling, NEP-141 FT, signer_account_id, attached_deposit, Aggregate ABI (structs/arrays in entrypoint params)
 
-Total: 11 open P0 blockers across three chains. These must close before "any
-contract can be written and deployed" is true for any chain.
+Total: 7 open P0 blockers across three chains (1 EVM + 0 Solana + 6 NEAR). These
+must close before "any contract can be written and deployed" is true for any chain.

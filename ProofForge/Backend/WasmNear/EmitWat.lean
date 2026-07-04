@@ -354,10 +354,13 @@ def inputImport : Import := hostImport "input" #[.i64] #[]
 def panicImport : Import := hostImport "panic" #[.i64, .i64] #[]
 def predecessorImport : Import := hostImport "predecessor_account_id" #[.i64] #[]
 def currentAcctImport : Import := hostImport "current_account_id" #[.i64] #[]
+def signerImport : Import := hostImport "signer_account_id" #[.i64] #[]
+def depositImport : Import := hostImport "attached_deposit" #[] #[.i64]
 def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
 def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
+def ctxSignerName : String := "__pf_ctx_signer_id"
 
 def hashPtrGlobalDecl : Global :=
   { name := hashPtrGlobal, type := .i32, init := toString HASH_HEAP, isMutable := true }
@@ -583,8 +586,22 @@ def ctxContractIdFunc : Func :=
       .i64Const 1, .i64Const CTX_BUF, .call "read_register",
       .i32Const CTX_BUF, .load "i64.load" 0 ] } }
 
-def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc ]
-def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, registerLenImport, blockHeightImport ]
+/-- Signer account id: sha256(signer_account_id_bytes)[0..8] as u64.
+    Maps to IR `ContextField.origin` (tx.origin equivalent). On NEAR the signer
+    is the account that signed the transaction, distinct from the predecessor
+    (the immediate caller). -/
+def ctxSignerFunc : Func :=
+  { name := ctxSignerName, results := #[.i64], locals := #[{ name := "len", type := .i64 }],
+    body := { insns := #[
+      .i64Const 0, .call "signer_account_id",
+      .i64Const 0, .call "register_len", .localSet "len",
+      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
+      .localGet "len", .i64Const CTX_BUF, .i64Const 1, .call "sha256",
+      .i64Const 1, .i64Const CTX_BUF, .call "read_register",
+      .i32Const CTX_BUF, .load "i64.load" 0 ] } }
+
+def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc, ctxSignerFunc ]
+def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, signerImport, depositImport, registerLenImport, blockHeightImport ]
 
 -- Event helpers --------------------------------------------------------
 -- Build a JSON event string in EVENT_BUF via an append pointer, then log_utf8.
@@ -880,6 +897,8 @@ mutual
     | .effect (.contextRead .userId) => .ok (#[.call ctxUserIdName], .u64)
     | .effect (.contextRead .contractId) => .ok (#[.call ctxContractIdName], .u64)
     | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
+    | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
+    | .nativeValue => .ok (#[.call "attached_deposit"], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value
     | .effect (.storageArrayRead id index) =>
@@ -1567,16 +1586,15 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
         memory := some { min := 1 },
         dataSegments := scalarData ++ mapData ++ boolData ++ #[evtKeyData] ++ stringData ++ (if hasPanic then panicData else #[]) }
 
-/-- EmitWat supports the same capability surface as the Rust-v0 `wasmNear` profile:
-    scalars, maps, caller, events, block, hash, assertions, account. Anything the
-    profile rejects (arrays, structs, control flow, crosscall, …) EmitWat also
-    cannot lower — fail fast with a capability error instead of reaching the
-    lowering and reporting an opaque "not yet supported". -/
-/- EmitWat capability surface: the wasmNear profile plus `controlConditional`
-    and `controlBoundedLoop` (if/else + boundedFor are lowered natively in WAT).
-    Arrays / structs / fixed arrays / crosscall stay rejected. -/
+/-! EmitWat supports the same capability surface as the `wasmNear` target profile,
+    plus `controlConditional` and `controlBoundedLoop` (if/else + boundedFor are
+    lowered natively in WAT). This set is intentionally kept in sync with the
+    `wasmNear` profile so that the target-adapter capability gate and EmitWat's
+    own gate reject the same shapes. Aggregate entrypoint params (structs/arrays)
+    and cross-contract calls are NOT in this set; they stay rejected until the
+    profile explicitly opens them. -/
 def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  ProofForge.Target.wasmNear.capabilities ++ #[.controlConditional, .controlBoundedLoop, .storageArray, .dataFixedArray, .dataStruct]
+  ProofForge.Target.wasmNear.capabilities ++ #[.controlConditional, .controlBoundedLoop]
 
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>

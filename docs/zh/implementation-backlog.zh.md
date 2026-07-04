@@ -1417,19 +1417,19 @@ Counter 和 ValueVault。完整差距分析见
 **原则：** Tier-1 targets（CosmWasm、Aptos）保持冻结，直到每条主链的 P0 SDK
 blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就意味着真实开发者无法编写常见合约模式。
 
-### EVM SDK blockers（5 个 P0，10 个 P1）
+### EVM SDK blockers（1 个 P0 开放，4 个 P0 已关闭，10 个 P1）
 
 详细跟踪见 **工作流 34 阶段 CS-2/CS-3**；实现必须落在
 `contract_source` / Token SDK 语法，而不是 Builder fixture。
 
-- P0：ERC-20 完整化（规范 selector surface、带 permit 的 stdlib ERC-20、所有 token 方法的 EVM lowering）
-- P0：ERC-721 NFT（ownerOf、safeTransferFrom、mint、burn、tokenURI）
-- P0：ERC-165 supportsInterface（NFT 和 token introspection 的基础）
-- P0：AccessControl roles（grant、revoke、hasRole、基于角色的 modifier）
-- P0：构造函数动态类型参数（string、bytes、动态数组）
+- ✅ P0：ERC-20 完整化 —— `Stdlib/ERC20.lean` mixin（transfer/approve/transferFrom/mint/burn + Lean 证明）+ golden Yul + compose 测试
+- ✅ P0：ERC-721 NFT —— `Stdlib/ERC721.lean` mixin（ownerOf/transferFrom/safeTransferFrom/mint/burn）；**限制：** safeTransferFrom 不调 onERC721Received（降级为 P1）
+- ✅ P0：ERC-165 supportsInterface —— `Stdlib/ERC165.lean` mixin + golden Yul
+- ✅ P0：AccessControl roles —— `Stdlib/AccessControl.lean` mixin（grantRole/revokeRole/hasRole + guard_role）+ golden Yul
+- P0：构造函数动态类型参数 —— CLI ABI 编码已实现（CS-3.4: string/bytes/uint256[] head+offset+tail）；**缺口：** 无 example 使用 cstring/cbytes/u256array、无正向 Foundry/Anvil smoke、runtime 不消费 constructor arg（无 Yul constructor body）
 - P1：ERC-1155 multi-token、ERC-4626 vault、ERC-2612 permit、custom errors、
   storage packing、batch operations、factory deployment template、AMM、
-  Pausable auth、ReentrancyGuard stdlib
+  Pausable auth、ERC-721 onERC721Received
 
 ### Solana SDK blockers（5 个已跟踪 P0，4 个已关闭，7 个 P1）
 

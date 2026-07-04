@@ -131,6 +131,7 @@ scoped syntax "account " ident " writable " "owner " term : contractItem
 scoped syntax "account " ident " writable " "signer " "owner " term : contractItem
 scoped syntax "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer" : contractItem
 scoped syntax "cpi " ident " system_transfer" "(" ident ", " ident ", " ident ")" : contractItem
+scoped syntax "cpi " ident " memo" "(" ident ")" : contractItem
 scoped syntax "cpi " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term : contractItem
 scoped syntax "cpi " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
@@ -169,6 +170,7 @@ scoped syntax "emit " ident " indexed " term " data " term ";" : entryStmt
 scoped syntax "return " term ";" : entryStmt
 scoped syntax "derive " "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer;" : entryStmt
 scoped syntax "invoke " ident " system_transfer" "(" ident ", " ident ", " ident ")" ";" : entryStmt
+scoped syntax "invoke " ident " memo" "(" ident ")" ";" : entryStmt
 scoped syntax "invoke " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term ";" : entryStmt
 scoped syntax "invoke " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
@@ -395,6 +397,11 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt)) :
         let lamportsLit := identNameLit lamportsSource
         acc ←
           `(ProofForge.Solana.invokeSystemTransfer $callLit $fromLit $toLit $lamportsLit *> $acc)
+    | `(entryStmt| invoke $call:ident memo($memoSource:ident);) =>
+        let callLit := identNameLit call
+        let memoLit := identNameLit memoSource
+        acc ←
+          `(ProofForge.Solana.invokeMemo $callLit $memoLit *> $acc)
     | `(entryStmt| invoke $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term;) =>
         let callLit := identNameLit call
         let payerLit := identNameLit payer
@@ -596,6 +603,12 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       let action ←
         `(ProofForge.Solana.systemTransfer $callLit $fromLit $toLit $lamportsLit)
       return { action? := some action }
+  | `(contractItem| cpi $call:ident memo($memoSource:ident)) =>
+      let callLit := identNameLit call
+      let memoLit := identNameLit memoSource
+      let action ←
+        `(ProofForge.Solana.memo $callLit $memoLit)
+      return { action? := some action, binder := mkCpiLet call }
   | `(contractItem| cpi $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term) =>
       let callLit := identNameLit call
       let payerLit := identNameLit payer

@@ -131,6 +131,16 @@ def invokeSystemTransfer (call : CpiRef) (fromAccount toAccount : AccountRef)
   ProofForge.Solana.invokeSystemTransfer call.name fromAccount.name toAccount.name lamportsSource.id
     (signerSeeds := signerSeeds)
 
+/-- Memo program CPI: logs a UTF-8 memo on-chain. No accounts needed. -/
+def memo (call : CpiRef) (memoSource : ProofForge.Contract.Surface.BindingRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.memo call.name memoSource.id
+
+/-- Memo program CPI as an entry statement. -/
+def invokeMemo (call : CpiRef) (memoSource : ProofForge.Contract.Surface.BindingRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeMemo call.name memoSource.id
+
 def splTokenTransferChecked (call : CpiRef) (source mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef) (decimals : Nat)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)

@@ -209,6 +209,11 @@ def ge (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 def caller : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .userId
 
+/-- The transaction signer (EVM `tx.origin` / NEAR `signer_account_id`).
+    Distinct from `caller` (the immediate caller / predecessor). -/
+def signer : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .origin
+
 def nativeValue : ProofForge.IR.Expr :=
   .nativeValue
 

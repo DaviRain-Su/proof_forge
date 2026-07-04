@@ -726,7 +726,7 @@ mutual
     | .hashTwoToOne lhs rhs => do
         .ok s!"__pf_hash_two_to_one({← lowerExpr module lhs}, {← lowerExpr module rhs})"
     | .nativeValue =>
-        .error { message := "native value inspection is not supported by wasm-near IR v0; add a dedicated attached-deposit IR context field first" }
+        .ok "env::attached_deposit()"
     | .crosscallInvoke _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallInvokeTyped _ _ _ _
@@ -784,8 +784,10 @@ mutual
         .ok "__pf_account_id_hash_u64(&env::current_account_id())"
     | .contextRead .checkpointId =>
         .ok "env::block_height()"
+    | .contextRead .origin =>
+        .ok "__pf_account_id_hash_u64(&env::signer_account_id())"
     | .contextRead field =>
-        .error { message := s!"wasm-near IR v0 context read `{field.name}` is not supported; only userId, contractId, and checkpointId are available" }
+        .error { message := s!"wasm-near IR v0 context read `{field.name}` is not supported; only userId, contractId, checkpointId, and origin are available" }
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>

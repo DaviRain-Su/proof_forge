@@ -49,8 +49,9 @@ def HostBridge.requiredImports : HostBridge → Array String
       "env.storage_read",
       "env.storage_write",
       "env.read_register",
-      "env.register_len",
-      "env.value_return"
+      "env.value_return",
+      "env.signer_account_id",
+      "env.attached_deposit"
     ]
   | .cosmWasm => #[
       "env.db_read",
@@ -69,7 +70,9 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "storage_read",  params := #["i64", "i64", "i64"], results := #["i64"] },
       { name := "storage_write", params := #["i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
       { name := "read_register", params := #["i64", "i64"], results := #[] },
-      { name := "value_return",  params := #["i64", "i64"], results := #[] }
+      { name := "value_return",  params := #["i64", "i64"], results := #[] },
+      { name := "signer_account_id", params := #["i64"], results := #[] },
+      { name := "attached_deposit", params := #[], results := #["i64"] }
     ]
   | .cosmWasm => #[
       { name := "db_read",  params := #["i32"], results := #["i32"] },

@@ -562,6 +562,14 @@ def splToken2022Program : String :=
 def associatedTokenProgram : String :=
   "associated_token"
 
+def memoProgram : String :=
+  "memo"
+
+def memoMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "memo"
+  ]
+
 def tokenProtocolForProgram (tokenProgram : String) : String :=
   if tokenProgram == splToken2022Program then
     "token-2022"
@@ -600,6 +608,20 @@ def systemTransferCall (name fromAccount to lamportsSource : String)
   dataLayout? := some "system.transfer"
   extraMetadata := systemMetadata ++ #[
     kv "solana.cpi.lamports_source" lamportsSource
+  ]
+}
+
+/-- Memo program CPI: logs a UTF-8 memo string on-chain. No accounts, no signer
+    seeds — the memo is purely instruction data. -/
+def memoCall (name memoSource : String) : CpiCall := {
+  name := name
+  program := memoProgram
+  instruction := "memo"
+  accounts := #[]
+  signerSeeds := #[]
+  dataLayout? := some "memo.memo"
+  extraMetadata := memoMetadata ++ #[
+    kv "solana.cpi.memo_source" memoSource
   ]
 }
 
@@ -1405,6 +1427,12 @@ def invokeSystemCreateAccount (name payer newAccount lamportsSource spaceSource 
     (signerSeeds : Array String := #[]) : ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (systemCreateAccountCall name payer newAccount lamportsSource spaceSource owner
     (signerSeeds := signerSeeds))
+
+def memo (name memoSource : String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (memoCall name memoSource)
+
+def invokeMemo (name memoSource : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (memoCall name memoSource)
 
 def splTokenTransferChecked (name source mint destination authority amountSource : String)
     (decimals : Nat) (tokenProgram : String := splTokenProgram)

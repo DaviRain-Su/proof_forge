@@ -4,7 +4,7 @@ import ProofForge.IR.Contract
 open ProofForge.IR ProofForge.Backend.WasmNear.EmitWat
 
 /-! Context probe: predecessor/contract id determinism (sha256 of account id),
-    and block_height (checkpoint). -/
+    block_height (checkpoint), signer (origin), and attached_deposit (nativeValue). -/
 
 def callerStable : Entrypoint := {
   name := "callerStable", returns := .u64,
@@ -22,9 +22,19 @@ def checkpoint : Entrypoint := {
   name := "checkpoint", returns := .u64,
   body := #[.return (.effect (.contextRead .checkpointId))] }
 
+def signerStable : Entrypoint := {
+  name := "signerStable", returns := .u64,
+  body := #[
+    .assertEq (.effect (.contextRead .origin)) (.effect (.contextRead .origin)) "signer unstable",
+    .return (.effect (.contextRead .origin)) ] }
+
+def depositProbe : Entrypoint := {
+  name := "depositProbe", returns := .u64,
+  body := #[.return .nativeValue] }
+
 def contextModule : Module := {
   name := "ContextProbe", state := #[],
-  entrypoints := #[callerStable, contractStable, checkpoint] }
+  entrypoints := #[callerStable, contractStable, checkpoint, signerStable, depositProbe] }
 
 def main : IO UInt32 := do
   match renderModule contextModule with
