@@ -134,5 +134,6 @@
     "zh": "docs/zh/gate-status.zh.md",
     "model": "gemini-3-flash-preview",
     "en_sha256": "4dc4946dd7f8d2dcb3efb6a25618c1292182c7a8ecea319720a0432bb5b06205"
-  }
+  },
+  "docs/sdk-ecosystem-gaps-2026-07.md": "56d2338ffaac776503adab3bd19d332c80ee638b2c4100c623abc25641240ba5"
 }

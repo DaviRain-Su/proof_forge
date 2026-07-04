@@ -1000,6 +1000,12 @@ mutual
             .ok (pb ++ #[.i32Const off, .plain "i32.add", .load (loadOpFor ft) 0], ft)
           | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
+    | .crosscallInvokeTyped _ _ _ _ | .crosscallInvoke _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
+    | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ =>
+      -- Cross-contract call via NEAR Promise API. This minimal lowering logs
+      -- the intent and returns 0 (promise index placeholder). Full async
+      -- promise execution requires account-id string passing (future work).
+      .ok (#[.i32Const 4, .i32Const EVT_KEY_PTR, .call "log_utf8", .i64Const 0], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
