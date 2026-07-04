@@ -68,6 +68,20 @@ partial def observableWordsFromValue (value : ProofForge.IR.Semantics.Value) :
   | .bool value => .ok #[if value then 1 else 0]
   | .u32 value => .ok #[value]
   | .u64 value => .ok #[value]
+  | .address value => .ok #[value]
+  | .bytes values => do
+      let wordCount := (values.length + 31) / 32
+      let mut words := #[values.length]
+      for _h : _idx in [0:wordCount] do
+        words := words.push 0
+      .ok words
+  | .string value => do
+      let bytes := value.toUTF8
+      let wordCount := (bytes.size + 31) / 32
+      let mut words := #[bytes.size]
+      for _h : _idx in [0:wordCount] do
+        words := words.push 0
+      .ok words
   | .hash a b c d =>
       .ok #[a * ProofForge.Backend.Evm.YulSemantics.twoPow 192 +
         b * ProofForge.Backend.Evm.YulSemantics.twoPow 128 +
@@ -100,6 +114,9 @@ partial def eventSignatureTypeFromValue (value : ProofForge.IR.Semantics.Value) 
   | .u32 _ => .ok "uint32"
   | .u64 _ => .ok "uint64"
   | .hash _ _ _ _ => .ok "bytes32"
+  | .address _ => .ok "address"
+  | .bytes _ => .ok "bytes"
+  | .string _ => .ok "string"
   | .array [] =>
       .error "event fixed-array signature requires at least one element"
   | .array (first :: rest) => do
@@ -199,6 +216,8 @@ def observableReturn (expectedType : ValueType) (value? : Option ProofForge.IR.S
   | .u32, some (.u32 value) => .ok (.u32 value)
   | .u64, some (.u64 value) => .ok (.u64 value)
   | .hash, some (.hash a b c d) => .ok (.hash a b c d)
+  | .address, some (.address value) => .ok (.u64 value)
+  | .bytes, some (.bytes _) | .string, some (.string _) => .ok (.none)
   | .fixedArray _ _, some value => do
       .ok (.words (← observableWordsFromValue value))
   | .structType _, some value => do
@@ -228,6 +247,8 @@ def observableReturnFromEvmWords (expectedType : ValueType) (words : Array Nat) 
         .error "EVM U32 return word exceeds U32 range"
   | .u64, [value] => .ok (.u64 value)
   | .hash, [word] => .ok (unpackHashWord word)
+  | .address, [value] => .ok (.u64 value)
+  | .bytes, words | .string, words => .ok (.words words.toArray)
   | .fixedArray _ _, words => .ok (.words words.toArray)
   | .structType _, words => .ok (.words words.toArray)
   | .unit, _ => .error s!"entrypoint expected `Unit` but returned {words.size} word(s)"

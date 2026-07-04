@@ -64,6 +64,9 @@ def tsType : ValueType → Ty
   | .u32 => .number
   | .u64 => .bigint
   | .hash => .string
+  | .address => .string
+  | .bytes => .string
+  | .string => .string
   | .fixedArray elem _ => .named s!"Array<{printTypeName elem}>"
   | .structType name => .named name
 where
@@ -73,6 +76,9 @@ where
     | .u32 => "number"
     | .u64 => "bigint"
     | .hash => "string"
+    | .address => "string"
+    | .bytes => "string"
+    | .string => "string"
     | .fixedArray elem len => s!"Array<{printTypeName elem},{len}>"
     | .structType name => name
 
@@ -103,6 +109,7 @@ def emitLit : Literal → Expr
   | .u64 n => .bigint n
   | .bool b => .bool b
   | .hash4 a b c d => .str s!"{a}{b}{c}{d}"
+  | .address value => .str (toString value)
 
 /-- Convert a stored-string expression to the requested IR type. -/
 def fromStoredString (type : ValueType) (raw : Expr) : Expr :=

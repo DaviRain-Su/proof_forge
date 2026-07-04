@@ -253,8 +253,8 @@ def storagePathMapPresenceSlotPlan
       .error { message := "EVM plan supports map storage paths only as one or more mapKey segments" }
 
 def isStorageWordType : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash => true
-  | .unit | .fixedArray _ _ | .structType _ => false
+  | .u32 | .u64 | .bool | .hash | .address => true
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def findStruct? (module : Module) (name : String) : Option StructDecl :=
   module.structs.find? (fun decl => decl.name == name)

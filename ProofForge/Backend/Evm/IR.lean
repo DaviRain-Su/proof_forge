@@ -92,7 +92,8 @@ def crosscallReturnTypeSuffix : ValueType → Except LowerError String
   | .u32 => .ok "_u32"
   | .bool => .ok "_bool"
   | .hash => .ok "_hash"
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .address => .ok "_address"
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0" }
 
 def crosscallFunctionName (arity : Nat) (returnType : ValueType) : Except LowerError String := do
@@ -123,7 +124,8 @@ def crosscallReturnWordTag : ValueType → Except LowerError String
   | .u32 => .ok "u32"
   | .bool => .ok "bool"
   | .hash => .ok "hash"
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .address => .ok "address"
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := "crosscall aggregate return words must be U32, U64, Bool, or Hash in IR EVM v0" }
 
 def crosscallReturnWordTagsSuffix (wordTypes : Array ValueType) : Except LowerError String := do
@@ -312,6 +314,9 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
   | .u64 => .ok "uint64"
   | .bool => .ok "bool"
   | .hash => .ok "bytes32"
+  | .address => .ok "address"
+  | .bytes => .ok "bytes"
+  | .string => .ok "string"
   | .fixedArray elementType length => do
       if length == 0 then
         .error { message := s!"event `{eventName}` field `{fieldName}` uses Array<{elementType.name},0>; event fixed arrays must have non-zero length" }
@@ -327,9 +332,9 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
           let mut parts := #[]
           for field in decl.fields do
             match field.type with
-            | .u32 | .u64 | .bool | .hash =>
+            | .u32 | .u64 | .bool | .hash | .address =>
                 parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
-            | .unit | .fixedArray _ _ | .structType _ =>
+            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
                 .error {
                   message := s!"event `{eventName}` field `{fieldName}` struct `{typeName}` field `{field.id}` has unsupported EVM IR v0 event type `{field.type.name}`; event structs must be flat U32, U64, Bool, or Hash fields"
                 }
@@ -345,15 +350,15 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
       let mut parts := #[]
       for field in decl.fields do
         match field.type with
-        | .u32 | .u64 | .bool | .hash =>
+        | .u32 | .u64 | .bool | .hash | .address =>
             parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
-        | .unit | .fixedArray _ _ | .structType _ =>
+        | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
             .error {
               message := s!"event `{eventName}` field `{fieldName}` struct `{typeName}` field `{field.id}` has unsupported EVM IR v0 event type `{field.type.name}`; event structs must be flat U32, U64, Bool, or Hash fields"
             }
       .ok ("(" ++ String.intercalate "," parts.toList ++ ")")
   | .unit =>
-      .error { message := s!"event `{eventName}` field `{fieldName}` has unsupported EVM IR v0 type `Unit`; event fields must be U32, U64, Bool, Hash, flat structs, or fixed arrays" }
+      .error { message := s!"event `{eventName}` field `{fieldName}` has unsupported EVM IR v0 type `Unit`; event fields must be U32, U64, Bool, Hash, Address, flat structs, or fixed arrays" }
 
 def ensureIndexedEventFieldType
     (module : Module)
@@ -623,23 +628,23 @@ def abiDispatchResultName (index : Nat) : String :=
 
 def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
-        message := s!"{context} has unsupported EVM IR v0 ABI word type `{type.name}`; ABI aggregate words support U32, U64, Bool, or Hash"
+        message := s!"{context} has unsupported EVM IR v0 ABI word type `{type.name}`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
       }
 
 def ensureCrosscallWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
-        message := s!"{context} has unsupported EVM IR v0 crosscall word type `{type.name}`; crosscall scalar words support U32, U64, Bool, or Hash"
+        message := s!"{context} has unsupported EVM IR v0 crosscall word type `{type.name}`; crosscall scalar words support U32, U64, Bool, Hash, or Address"
       }
 
 def isCrosscallWordType : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash => true
-  | .unit | .fixedArray _ _ | .structType _ => false
+  | .u32 | .u64 | .bool | .hash | .address => true
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def abiStructWordTypes (module : Module) (context typeName : String) : Except LowerError (Array ValueType) := do
   let some decl := module.structs.find? fun decl => decl.name == typeName
@@ -668,8 +673,11 @@ partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : 
   | .u64 => .ok #[.u64]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
+  | .address => .ok #[.address]
+  | .bytes | .string =>
+      .error { message := s!"{context} uses a dynamic type; IR EVM v0 ABI nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .unit =>
-      .error { message := s!"{context} uses Unit; IR EVM v0 ABI nested fixed arrays must have U32, U64, Bool, Hash, or flat struct leaves" }
+      .error { message := s!"{context} uses Unit; IR EVM v0 ABI nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .fixedArray elementType length => do
       if length == 0 then
         .error { message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 ABI fixed arrays must have non-zero length" }
@@ -686,8 +694,11 @@ partial def abiValueWordTypes (module : Module) (context : String) : ValueType �
   | .u64 => .ok #[.u64]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
+  | .address => .ok #[.address]
+  | .bytes => .ok #[.bytes]
+  | .string => .ok #[.string]
   | .unit =>
-      .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, fixed arrays, or structs" }
+      .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs" }
   | .fixedArray elementType length => do
       if length == 0 then
         .error { message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 ABI fixed arrays must have non-zero length" }
@@ -712,8 +723,11 @@ partial def crosscallNestedFixedArrayWordTypes (module : Module) (context : Stri
   | .u64 => .ok #[.u64]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
+  | .address => .ok #[.address]
+  | .bytes | .string =>
+      .error { message := s!"{context} uses a dynamic type; IR EVM v0 crosscall nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .unit =>
-      .error { message := s!"{context} uses Unit; IR EVM v0 crosscall nested fixed arrays must have U32, U64, Bool, Hash, or flat struct leaves" }
+      .error { message := s!"{context} uses Unit; IR EVM v0 crosscall nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .fixedArray elementType length => do
       if length == 0 then
         .error { message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 crosscall fixed arrays must have non-zero length" }
@@ -730,8 +744,11 @@ partial def crosscallValueWordTypes (module : Module) (context : String) : Value
   | .u64 => .ok #[.u64]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
+  | .address => .ok #[.address]
+  | .bytes | .string =>
+      .error { message := s!"{context} uses a dynamic type; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, Address, fixed arrays, or structs" }
   | .unit =>
-      .error { message := s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, fixed arrays, or structs" }
+      .error { message := s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, Address, fixed arrays, or structs" }
   | .fixedArray elementType length => do
       if length == 0 then
         .error { message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 crosscall fixed arrays must have non-zero length" }
@@ -764,7 +781,7 @@ partial def abiValueParamNamesAt
     (module : Module)
     (context name : String)
     (path : Array Nat) : ValueType → Except LowerError (Array String)
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
       if path.isEmpty then
         .ok #[name]
       else
@@ -840,7 +857,7 @@ def abiParamValidationStmts (module : Module) (entrypoint : Entrypoint) : Except
       -- U64 and Hash each occupy a full 32-byte word with no narrower
       -- range to enforce; no extra validation is needed here. Struct/array
       -- word types are rejected upstream by `abiValueWordTypes`.
-      | .u64 | .hash | .unit | .fixedArray _ _ | .structType _ => statements
+      | .u64 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => statements
   .ok statements
 
 def contextExpr : ContextField → Lean.Compiler.Yul.Expr
@@ -861,8 +878,8 @@ def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"
 
 def isStorageWordType : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash => true
-  | .unit | .fixedArray _ _ | .structType _ => false
+  | .u32 | .u64 | .bool | .hash | .address => true
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def requireStorageMapState (module : Module) (stateId : String) : Except LowerError (Nat × ValueType × ValueType) :=
   match stateInfo? module stateId with
@@ -1074,9 +1091,9 @@ def lowerAssignOpExpr
 
 def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .bool | .u32 | .u64 | .hash => .ok ()
+  | .bool | .u32 | .u64 | .hash | .address => .ok ()
   | .unit => .error { message := s!"{context} does not support Unit equality" }
-  | .fixedArray _ _ | .structType _ =>
+  | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := s!"{context} does not support `{type.name}` equality in IR EVM v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -1127,8 +1144,8 @@ def findStructFieldWithOffset? (decl : StructDecl) (fieldName : String) : Option
 
 def ensureStructLocalFieldType (structName fieldName : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
         message := s!"field `{fieldName}` in struct `{structName}` has unsupported EVM IR v0 local struct field type `{type.name}`; local structs support U32, U64, Bool, or Hash fields"
       }
@@ -1145,7 +1162,7 @@ def ensureLocalFlatStructType (module : Module) (context typeName : String) : Ex
 partial def ensureLocalNestedFixedArrayValueType
     (module : Module)
     (context name : String) : ValueType → Except LowerError Unit
-  | .u32 | .u64 | .bool | .hash => .ok ()
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
   | .structType typeName => do
       discard <| ensureLocalFlatStructType module s!"{context} `{name}` nested fixed-array leaf" typeName
   | .fixedArray elementType length => do
@@ -1154,9 +1171,9 @@ partial def ensureLocalNestedFixedArrayValueType
       else
         pure ()
       ensureLocalNestedFixedArrayValueType module context name elementType
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
-        message := s!"{context} `{name}` has unsupported EVM IR v0 nested fixed-array leaf type `Unit`; nested local fixed arrays support U32, U64, Bool, Hash, or flat struct leaves"
+        message := s!"{context} `{name}` has unsupported EVM IR v0 nested fixed-array leaf type; nested local fixed arrays support U32, U64, Bool, Hash, Address, or flat struct leaves"
       }
 
 def structFieldType (module : Module) (typeName fieldName : String) : Except LowerError ValueType := do
@@ -1272,6 +1289,7 @@ mutual
     | .literal (.u64 _) => .ok .u64
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.address _) => .ok .address
     | .local name =>
         match findLocal? env name with
         | some binding => .ok binding.type
@@ -1526,6 +1544,7 @@ partial def inferEventFieldExprType (module : Module) (env : TypeEnv) : ProofFor
   | .literal (.u64 _) => .ok .u64
   | .literal (.bool _) => .ok .bool
   | .literal (.hash4 ..) => .ok .hash
+  | .literal (.address _) => .ok .address
   | .local name =>
       match findLocal? env name with
       | some binding => .ok binding.type
@@ -1676,12 +1695,12 @@ def validateLocalFixedArrayTarget
       | none => pure ()
       ensureType s!"{context} value" elementType (← inferExprType module env value)
       match elementType with
-      | .u32 | .u64 | .bool | .hash => pure ()
+      | .u32 | .u64 | .bool | .hash | .address => pure ()
       | .structType _ =>
           .error {
             message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
           }
-      | .unit | .fixedArray _ _ =>
+      | .unit | .fixedArray _ _ | .bytes | .string =>
           .error {
             message := s!"{context} local `{name}` has unsupported EVM IR v0 element target type `{elementType.name}`; local fixed-array element targets must resolve to U32, U64, Bool, or Hash leaves"
           }
@@ -1699,12 +1718,12 @@ def validateLocalFixedArrayStaticPathTarget
   let targetType ← validateFixedArrayIndexPathTarget module env context binding.type path
   ensureType s!"{context} value" targetType (← inferExprType module env value)
   match targetType with
-  | .u32 | .u64 | .bool | .hash => .ok targetType
+  | .u32 | .u64 | .bool | .hash | .address => .ok targetType
   | .structType _ =>
       .error {
         message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
       }
-  | .unit | .fixedArray _ _ =>
+  | .unit | .fixedArray _ _ | .bytes | .string =>
       .error {
         message := s!"{context} local `{name}` has unsupported EVM IR v0 element target type `{targetType.name}`; local fixed-array element targets must resolve to U32, U64, Bool, or Hash leaves"
       }
@@ -1773,12 +1792,12 @@ def validateAssignTarget
         match binding.type with
         | .fixedArray elementType _ => do
             match elementType with
-            | .u32 | .u64 | .bool | .hash => pure ()
+            | .u32 | .u64 | .bool | .hash | .address => pure ()
             | .fixedArray _ _ =>
                 ensureLocalNestedFixedArrayValueType module "assignment target" name elementType
             | .structType typeName =>
                 discard <| ensureLocalFlatStructType module s!"assignment target `{name}` fixed-array element" typeName
-            | .unit =>
+            | .unit | .bytes | .string =>
                 .error {
                   message := s!"assignment target `{name}` has unsupported EVM IR v0 fixed-array element type `{elementType.name}`; local fixed arrays support U32, U64, Bool, Hash, flat struct elements, or nested fixed arrays with scalar or flat struct leaves"
                 }
@@ -2131,12 +2150,12 @@ mutual
       (path : Array ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Expr := do
     let (lengths, leafType) ← validateFixedArrayIndexExprPath module env "fixed array index" binding.type path
     match leafType with
-    | .u32 | .u64 | .bool | .hash => pure ()
+    | .u32 | .u64 | .bool | .hash | .address => pure ()
     | .structType _ =>
         .error {
           message := s!"fixed array indexing local `{name}` returns struct values; IR EVM v0 requires field access such as array[index].field"
         }
-    | .unit | .fixedArray _ _ =>
+    | .unit | .fixedArray _ _ | .bytes | .string =>
         .error {
           message := s!"fixed array indexing local `{name}` has unsupported EVM IR v0 element type `{leafType.name}`"
         }
@@ -2166,13 +2185,13 @@ mutual
                 | .error { message := s!"unknown local `{name}`" }
               let elementType ← fixedArrayPathType "fixed array index" binding.type path
               match elementType with
-              | .u32 | .u64 | .bool | .hash =>
+              | .u32 | .u64 | .bool | .hash | .address =>
                   .ok (Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path))
               | .structType _ =>
                   .error {
                     message := s!"fixed array indexing local `{name}` returns struct values; IR EVM v0 requires field access such as array[index].field"
                   }
-              | .unit | .fixedArray _ _ =>
+              | .unit | .fixedArray _ _ | .bytes | .string =>
                   .error {
                     message := s!"fixed array indexing local `{name}` has unsupported EVM IR v0 element type `{elementType.name}`"
                   }
@@ -2193,11 +2212,11 @@ mutual
             .error {
               message := s!"fixed array indexing local `{name}` returns struct values; IR EVM v0 requires field access such as array[index].field"
             }
-        | .unit | .fixedArray _ _ =>
+        | .unit | .fixedArray _ _ | .bytes | .string =>
             .error {
               message := s!"fixed array indexing local `{name}` has unsupported EVM IR v0 element type `{elementType.name}`"
             }
-        | .u32 | .u64 | .bool | .hash => pure ()
+        | .u32 | .u64 | .bool | .hash | .address => pure ()
         match literalArrayIndex? index with
         | some indexValue => do
             ensureFixedArrayIndexInBounds "fixed array index" indexValue length
@@ -2300,12 +2319,12 @@ mutual
       (module : Module)
       (context name : String)
       (path : Array Nat) : ValueType → Except LowerError (Array Lean.Compiler.Yul.Expr)
-    | .u32 | .u64 | .bool | .hash =>
+    | .u32 | .u64 | .bool | .hash | .address =>
         if path.isEmpty then
           .ok #[Lean.Compiler.Yul.Expr.id name]
         else
           .ok #[Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path)]
-    | .unit =>
+    | .unit | .bytes | .string =>
         .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, fixed arrays, or structs" }
     | .fixedArray elementType length => do
         discard <| abiValueWordTypes module context (.fixedArray elementType length)
@@ -2342,12 +2361,12 @@ mutual
       (module : Module)
       (context name : String)
       (path : Array Nat) : ValueType → Except LowerError (Array Lean.Compiler.Yul.Expr)
-    | .u32 | .u64 | .bool | .hash =>
+    | .u32 | .u64 | .bool | .hash | .address =>
         if path.isEmpty then
           .ok #[Lean.Compiler.Yul.Expr.id name]
         else
           .ok #[Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path)]
-    | .unit =>
+    | .unit | .bytes | .string =>
         .error { message := s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, fixed arrays, or structs" }
     | .fixedArray elementType length => do
         discard <| crosscallValueWordTypes module context (.fixedArray elementType length)
@@ -2515,13 +2534,13 @@ mutual
     let type ← inferExprType module env arg
     discard <| crosscallArgWordTypes module context type
     match type with
-    | .u32 | .u64 | .bool | .hash =>
+    | .u32 | .u64 | .bool | .hash | .address =>
         .ok #[← lowerExpr module env arg]
     | .fixedArray elementType length =>
         lowerCrosscallFixedArrayArgWords module env context elementType length arg
     | .structType typeName =>
         lowerCrosscallStructArgWords module env context typeName arg
-    | .unit =>
+    | .unit | .bytes | .string =>
         .error { message := s!"{context} uses Unit; IR EVM v0 crosscall arguments must use U32, U64, Bool, Hash, fixed arrays, or structs" }
 
   partial def lowerCrosscallArgWordsMany
@@ -2540,6 +2559,7 @@ mutual
     | .literal (.bool value) => .ok (if value then Lean.Compiler.Yul.Expr.num 1 else Lean.Compiler.Yul.Expr.num 0)
     | .literal (.hash4 a b c d) => do
         .ok (Lean.Compiler.Yul.Expr.num (← packedHashLiteral a b c d))
+    | .literal (.address value) => .ok (Lean.Compiler.Yul.Expr.num value)
     | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
     | .arrayLit _ _ =>
         .error { message := "fixed array literals must be consumed by a fixed array local binding or literal index in IR EVM v0" }
@@ -2926,7 +2946,7 @@ partial def lowerEventFixedArrayDataWords
           .error {
             message := s!"event `{eventName}` data field `{fieldName}` fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
           }
-  | .u32 | .u64 | .bool | .hash => do
+  | .u32 | .u64 | .bool | .hash | .address => do
       match value with
       | .local name => do
           let (sourceElementType, sourceLength) ← requireLocalFixedArray s!"event `{eventName}` data field `{fieldName}`" env name
@@ -2953,7 +2973,7 @@ partial def lowerEventFixedArrayDataWords
           .error {
             message := s!"event `{eventName}` data field `{fieldName}` fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
           }
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
         message := s!"event `{eventName}` data field `{fieldName}` has unsupported EVM IR v0 fixed-array element type `{elementType.name}`"
       }
@@ -2965,13 +2985,13 @@ partial def lowerEventDataWords
     (type : ValueType)
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
   match type with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address =>
       .ok #[← lowerScalarPlanExprOrFallback module env value]
   | .fixedArray elementType length =>
       lowerEventFixedArrayDataWords module env eventName fieldName elementType length value
   | .structType typeName =>
       lowerEventStructDataWords module env eventName fieldName typeName value
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
         message := s!"event `{eventName}` data field `{fieldName}` has unsupported EVM IR v0 type `Unit`; event data fields must be U32, U64, Bool, Hash, flat structs, or fixed arrays"
       }
@@ -2988,7 +3008,14 @@ partial def lowerIndexedEventTopicStatements
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
   let type := fieldPlan.type
   match type with
-  | .unit =>
+  | .u32 | .u64 | .bool | .hash | .address =>
+      .ok #[.varDecl #[{ name := topicName }] (some (← lowerScalarPlanExprOrFallback module env value))]
+  | .fixedArray _ _ | .structType _ => do
+      let words ← lowerEventDataWords module env eventName fieldName type value
+      .ok <| eventDataStoreStatements words |>.push
+        (.varDecl #[{ name := topicName }]
+          (some (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num (words.size * 32)])))
+  | .unit | .bytes | .string =>
       .error {
         message := s!"event `{eventName}` indexed field `{fieldName}` has unsupported EVM IR v0 type `Unit`; indexed event fields must be U32, U64, Bool, Hash, flat structs, or fixed arrays"
       }
@@ -3318,15 +3345,14 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
 
 def ensureLocalScalarType (context name : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash => .ok ()
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
   | .unit => .error { message := s!"{context} `{name}` has unsupported EVM IR v0 type `Unit`" }
-  | .fixedArray _ _ => .error { message := s!"{context} `{name}` has unsupported EVM IR v0 type `{type.name}`" }
-  | .structType _ => .error { message := s!"{context} `{name}` has unsupported EVM IR v0 type `{type.name}`" }
+  | .fixedArray _ _ | .structType _ | .bytes | .string => .error { message := s!"{context} `{name}` has unsupported EVM IR v0 type `{type.name}`" }
 
 def ensureLocalFixedArrayElementType (context name : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
         message := s!"{context} `{name}` has unsupported EVM IR v0 fixed-array element type `{type.name}`; local fixed arrays support U32, U64, Bool, or Hash elements"
       }
@@ -3380,7 +3406,7 @@ partial def lowerNestedFixedArrayLetBindings
     (type : ValueType)
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
   match type with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address =>
       .ok #[Lean.Compiler.Yul.Statement.varDecl
         #[{ name := arrayLocalPathName name path }]
         (some (← lowerExpr module env value))]
@@ -3411,7 +3437,7 @@ partial def lowerNestedFixedArrayLetBindings
             #[{ name := arrayStructLocalPathFieldName name path field.fst }]
             (some field.snd)
       .ok statements
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
         message := s!"let binding `{name}` has unsupported EVM IR v0 nested fixed-array leaf type `Unit`; nested local fixed arrays support U32, U64, Bool, Hash, or flat struct leaves"
       }
@@ -3599,7 +3625,7 @@ partial def lowerNestedFixedArrayLocalSourceExprs
     (module : Module)
     (sourceName : String)
     (path : Array Nat) : ValueType → Except LowerError (Array NestedFixedArraySourceExpr)
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address =>
       .ok #[{ path := path, fieldName? := none, expr := Lean.Compiler.Yul.Expr.id (arrayLocalPathName sourceName path) }]
   | .structType typeName => do
       let decl ← ensureLocalFlatStructType module s!"assignment value `{sourceName}` nested fixed-array leaf" typeName
@@ -3617,7 +3643,7 @@ partial def lowerNestedFixedArrayLocalSourceExprs
       for _h : idx in [0:length] do
         values := values ++ (← lowerNestedFixedArrayLocalSourceExprs module sourceName (path.push idx) elementType)
       .ok values
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
         message := s!"assignment value `{sourceName}` has unsupported EVM IR v0 nested fixed-array leaf type `Unit`; nested local fixed arrays support U32, U64, Bool, Hash, or flat struct leaves"
       }
@@ -3630,7 +3656,7 @@ partial def lowerNestedFixedArrayLiteralSourceExprs
     (expectedType : ValueType)
     (value : ProofForge.IR.Expr) : Except LowerError (Array NestedFixedArraySourceExpr) := do
   match expectedType with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address =>
       .ok #[{ path := path, fieldName? := none, expr := ← lowerExpr module env value }]
   | .structType typeName => do
       let fields ← lowerStructValueFieldExprs module env s!"assignment target `{name}` nested fixed-array leaf" typeName value
@@ -3652,7 +3678,7 @@ partial def lowerNestedFixedArrayLiteralSourceExprs
           .ok lowered
       | _ =>
           .error { message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0" }
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error {
         message := s!"assignment target `{name}` has unsupported EVM IR v0 nested fixed-array leaf type `{expectedType.name}`; nested local fixed arrays support U32, U64, Bool, Hash, or flat struct leaves"
       }
@@ -4181,7 +4207,7 @@ end
 
 def abiReturnNames (module : Module) (entrypointName : String) : ValueType → Except LowerError (Array String)
   | .unit => .ok #[]
-  | .u32 | .u64 | .bool | .hash => .ok #["result"]
+  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string => .ok #["result"]
   | .fixedArray elementType length => do
       let words ← abiValueWordTypes module s!"entrypoint `{entrypointName}` return value" (.fixedArray elementType length)
       let mut names : Array String := #[]
@@ -4338,9 +4364,9 @@ def lowerReturnWords
     (returnType : ValueType)
     (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Expr) :=
   match returnType with
-  | .unit =>
+  | .unit | .bytes | .string =>
       .error { message := s!"entrypoint `{entrypointName}` has Unit return type and cannot return a value" }
-  | .u32 | .u64 | .bool | .hash => do
+  | .u32 | .u64 | .bool | .hash | .address => do
       .ok #[← lowerScalarPlanExprOrFallback module env value]
   | .fixedArray elementType length =>
       lowerFixedArrayReturnWords module env entrypointName elementType length value
@@ -4929,16 +4955,16 @@ def crosscallReturnGuardStatementsForName (resultName : String) (returnType : Va
           (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num 1])
           { statements := #[revertStmt] }
       ]
-  | .u64 | .hash => .ok #[]
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u64 | .hash | .address => .ok #[]
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0" }
 
 def crosscallReturnGuardStatements (returnType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
   match returnType with
   | .u32 => crosscallReturnGuardStatementsForName "result" .u32
   | .bool => crosscallReturnGuardStatementsForName "result" .bool
-  | .u64 | .hash => .ok #[]
-  | .unit | .fixedArray _ _ | .structType _ =>
+  | .u64 | .hash | .address => .ok #[]
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0" }
 
 def crosscallHelperReturnNames (wordCount : Nat) : Array Lean.Compiler.Yul.TypedName :=
@@ -5477,8 +5503,8 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
             match fixedArrayPathShape "fixed array index" binding.type path with
             | .ok (lengths, leafType) =>
                 match leafType with
-                | .u32 | .u64 | .bool | .hash | .structType _ => #[lengths]
-                | .unit | .fixedArray _ _ => #[]
+                | .u32 | .u64 | .bool | .hash | .address | .structType _ => #[lengths]
+                | .unit | .fixedArray _ _ | .bytes | .string => #[]
             | .error _ => #[]
         | none => #[]
       else

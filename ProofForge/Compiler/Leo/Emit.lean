@@ -15,6 +15,9 @@ def valueType (t : ValueType) : Except AST.LowerError LeoType :=
   | .u32 => .ok (.integer .u32)
   | .u64 => .ok (.integer .u64)
   | .hash => .error { message := "Leo emitter does not support Hash" }
+  | .address => .error { message := "Leo emitter does not support Address" }
+  | .bytes => .error { message := "Leo emitter does not support Bytes" }
+  | .string => .error { message := "Leo emitter does not support String" }
   | .fixedArray _ _ => .error { message := "Leo emitter does not support fixed arrays" }
   | .structType name => .ok (.composite name)
 
@@ -24,6 +27,7 @@ def lit : IR.Literal → AST.Literal
   | .u64 value => .integer .u64 value
   | .bool value => .boolean value
   | .hash4 _ _ _ _ => .none
+  | .address _ => .none
 
 def assignOpToBinary : AssignOp → BinaryOperation
   | .add => .add

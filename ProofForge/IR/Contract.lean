@@ -10,6 +10,9 @@ inductive ValueType where
   | bool
   | u32
   | u64
+  | address
+  | bytes
+  | string
   | hash
   | fixedArray (element : ValueType) (length : Nat)
   | structType (name : String)
@@ -20,6 +23,9 @@ def ValueType.name : ValueType → String
   | .bool => "Bool"
   | .u32 => "U32"
   | .u64 => "U64"
+  | .address => "Address"
+  | .bytes => "Bytes"
+  | .string => "String"
   | .hash => "Hash"
   | .fixedArray element length => s!"Array<{element.name},{length}>"
   | .structType name => name
@@ -29,6 +35,9 @@ def ValueType.capabilities : ValueType → Array ProofForge.Target.Capability
   | .bool => #[]
   | .u32 => #[]
   | .u64 => #[]
+  | .address => #[]
+  | .bytes => #[.dataDynamicBytes]
+  | .string => #[.dataDynamicBytes]
   | .hash => #[]
   | .fixedArray element _ => #[.dataFixedArray] ++ element.capabilities
   | .structType _ => #[.dataStruct]
@@ -64,6 +73,7 @@ inductive Literal where
   | u64 (value : Nat)
   | bool (value : Bool)
   | hash4 (a b c d : Nat)
+  | address (value : Nat)
   deriving BEq, Repr
 
 inductive AssignOp where

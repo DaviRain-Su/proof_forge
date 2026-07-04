@@ -69,6 +69,7 @@ def literalPlan : Literal → Except LowerError ExprPlan
   | .bool value => .ok (.literalWord (if value then 1 else 0))
   | .hash4 a b c d => do
       .ok (.literalWord (← packedHashLiteral a b c d))
+  | .address value => .ok (.literalWord value)
 
 def eventPlanForFields
     (module : Module)

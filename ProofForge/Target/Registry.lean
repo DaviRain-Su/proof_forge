@@ -84,6 +84,7 @@ def evm : TargetProfile := {
     .controlConditional,
     .controlBoundedLoop,
     .dataFixedArray,
+    .dataDynamicBytes,
     .dataStruct,
     .cryptoHash,
     .assertions,

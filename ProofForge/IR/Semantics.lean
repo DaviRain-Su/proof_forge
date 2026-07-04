@@ -46,6 +46,9 @@ inductive Value where
   | bool (value : Bool)
   | u32 (value : Nat)
   | u64 (value : Nat)
+  | address (value : Nat)
+  | bytes (values : List Nat)
+  | string (value : String)
   | hash (a b c d : Nat)
   | array (values : List Value)
   | struct (typeName : String) (fields : List (String × Value))
@@ -147,12 +150,16 @@ def literalValue : Literal → Except String Value
   | .u64 value => .ok (.u64 value)
   | .bool value => .ok (.bool value)
   | .hash4 a b c d => .ok (.hash a b c d)
+  | .address value => .ok (.address value)
 
 def valueMatchesType : ValueType → Value → Bool
   | .unit, .unit => true
   | .bool, .bool _ => true
   | .u32, .u32 _ => true
   | .u64, .u64 _ => true
+  | .address, .address _ => true
+  | .bytes, .bytes _ => true
+  | .string, .string _ => true
   | .hash, .hash _ _ _ _ => true
   | .fixedArray element length, .array values =>
       values.length == length && values.all (valueMatchesType element)
@@ -164,6 +171,9 @@ partial def zeroLike : Value → Value
   | .bool _ => .bool false
   | .u32 _ => .u32 0
   | .u64 _ => .u64 0
+  | .address _ => .address 0
+  | .bytes _ => .bytes []
+  | .string _ => .string ""
   | .hash _ _ _ _ => .hash 0 0 0 0
   | .array values => .array (values.map zeroLike)
   | .struct typeName fields => .struct typeName (fields.map fun field => (field.fst, zeroLike field.snd))
@@ -173,6 +183,9 @@ partial def valueKey : Value → String
   | .bool value => if value then "true" else "false"
   | .u32 value => s!"u32:{value}"
   | .u64 value => s!"u64:{value}"
+  | .address value => s!"addr:{value}"
+  | .bytes values => "bytes:" ++ String.intercalate "," (values.map toString)
+  | .string value => s!"str:{value}"
   | .hash a b c d => s!"hash:{a}:{b}:{c}:{d}"
   | .array values =>
       "[" ++ String.intercalate "," (values.map valueKey) ++ "]"
@@ -239,6 +252,9 @@ def evalEquality (lhs rhs : Value) : Except String Value :=
   | .u32 lhsValue, .u32 rhsValue => .ok (.bool (lhsValue == rhsValue))
   | .hash a0 b0 c0 d0, .hash a1 b1 c1 d1 =>
       .ok (.bool (a0 == a1 && b0 == b1 && c0 == c1 && d0 == d1))
+  | .address lhsValue, .address rhsValue => .ok (.bool (lhsValue == rhsValue))
+  | .bytes lhsValues, .bytes rhsValues => .ok (.bool (lhsValues == rhsValues))
+  | .string lhsValue, .string rhsValue => .ok (.bool (lhsValue == rhsValue))
   | .array lhsValues, .array rhsValues => .ok (.bool (lhsValues == rhsValues))
   | .struct lhsName lhsFields, .struct rhsName rhsFields =>
       .ok (.bool (lhsName == rhsName && lhsFields == rhsFields))
@@ -270,6 +286,11 @@ def castValue (value : Value) (targetType : ValueType) : Except String Value :=
   | .u64 1, .bool => .ok (.bool true)
   | .u64 _, .bool => .error "U64 to Bool cast expects canonical 0 or 1"
   | .hash a b c d, .hash => .ok (.hash a b c d)
+  | .address value, .address => .ok (.address value)
+  | .u64 value, .address => .ok (.address value)
+  | .address value, .u64 => .ok (.u64 value)
+  | .bytes values, .bytes => .ok (.bytes values)
+  | .string value, .string => .ok (.string value)
   | _, _ => .error s!"cast to `{targetType.name}` is not supported by the scalar semantics model"
 
 def truthy : Value → Except String Bool

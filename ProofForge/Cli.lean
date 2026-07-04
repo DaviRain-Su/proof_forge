@@ -1182,8 +1182,11 @@ def entrypointAbiScalarTypeName
       | .u64 => .ok "uint256"
       | .bool => .ok "bool"
       | .hash => .ok "bytes32"
+      | .address => .ok "address"
+      | .bytes => .ok "bytes"
+      | .string => .ok "string"
       | .unit | .fixedArray _ _ | .structType _ =>
-          .error s!"{context} has unsupported EVM ABI word type `{type.name}`; entrypoint ABI words support U32, U64, Bool, or Hash"
+          .error s!"{context} has unsupported EVM ABI word type `{type.name}`; entrypoint ABI words support U32, U64, Bool, Hash, Address, Bytes, or String"
 
 partial def entrypointAbiType
     (module : ProofForge.IR.Module)
@@ -1191,10 +1194,10 @@ partial def entrypointAbiType
     (type : ProofForge.IR.ValueType)
     (evmAbiWord? : Option String := none) : Except String String := do
   match type with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
       entrypointAbiScalarTypeName context type evmAbiWord?
   | .unit =>
-      .error s!"{context} uses Unit; EVM entrypoint parameters and non-Unit returns must use U32, U64, Bool, Hash, fixed arrays, or flat structs"
+      .error s!"{context} uses Unit; EVM entrypoint parameters and non-Unit returns must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
   | .fixedArray elementType length => do
       if length == 0 then
         .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"
@@ -1215,10 +1218,10 @@ partial def entrypointAbiWordTypes
     (context : String)
     (type : ProofForge.IR.ValueType) : Except String (Array String) := do
   match type with
-  | .u32 | .u64 | .bool | .hash =>
+  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
       .ok #[← entrypointAbiScalarTypeName context type]
   | .unit =>
-      .error s!"{context} uses Unit; EVM entrypoint ABI values must use U32, U64, Bool, Hash, fixed arrays, or flat structs"
+      .error s!"{context} uses Unit; EVM entrypoint ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
   | .fixedArray elementType length => do
       if length == 0 then
         .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"
@@ -1243,7 +1246,9 @@ def entrypointAbiValueJson
     (abiType : String)
     (wordTypes : Array String) : String :=
   let encoding :=
-    if type == .unit then "none" else "abi-static-words"
+    if type == .unit then "none"
+    else if type == .bytes || type == .string then "abi-dynamic-bytes"
+    else "abi-static-words"
   let nameFields :=
     match name? with
     | some name => #[("name", jsonString name)]

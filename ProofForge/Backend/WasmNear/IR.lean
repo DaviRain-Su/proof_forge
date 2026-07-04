@@ -174,8 +174,8 @@ def ensureSameNumericType (operator : String) (lhs rhs : ValueType) : Except Low
 def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
   | .unit => .error { message := s!"{context} does not support Unit equality" }
-  | .bool | .u32 | .u64 | .hash => .ok ()
-  | .fixedArray _ _ | .structType _ =>
+  | .bool | .u32 | .u64 | .hash | .address => .ok ()
+  | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error { message := s!"{context} does not support `{type.name}` equality in wasm-near IR v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -322,15 +322,15 @@ def validateIdentifiers (module : Module) : Except LowerError Unit := do
 def validateEntrypointParameters (entrypoint : Entrypoint) : Except LowerError Unit := do
   for param in entrypoint.params do
     match param.snd with
-    | .unit | .fixedArray _ _ | .structType _ =>
-        .error { message := s!"entrypoint `{entrypoint.name}` parameter `{param.fst}` uses `{param.snd.name}`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, or Hash" }
-    | .u32 | .u64 | .bool | .hash => pure ()
+    | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+        .error { message := s!"entrypoint `{entrypoint.name}` parameter `{param.fst}` uses `{param.snd.name}`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address" }
+    | .u32 | .u64 | .bool | .hash | .address => pure ()
 
 def validateEntrypointReturn (entrypoint : Entrypoint) : Except LowerError Unit :=
   match entrypoint.returns with
-  | .unit | .u32 | .u64 | .bool | .hash => pure ()
-  | .fixedArray _ _ | .structType _ =>
-      .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}`; wasm-near IR v0 supports only Unit, U32, U64, Bool, and Hash" }
+  | .unit | .u32 | .u64 | .bool | .hash | .address => pure ()
+  | .fixedArray _ _ | .structType _ | .bytes | .string =>
+      .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}`; wasm-near IR v0 supports only Unit, U32, U64, Bool, Hash, and Address" }
 
 mutual
   partial def inferExprType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
@@ -338,6 +338,7 @@ mutual
     | .literal (.u64 _) => .ok .u64
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.address _) => .ok .address
     | .local name =>
         match findLocal? env name with
         | some binding => .ok binding.type
@@ -582,9 +583,9 @@ mutual
             .error { message := s!"event `{name}` field name must be non-empty" }
           let actual ← inferExprType module env field.snd
           match actual with
-          | .u32 | .u64 | .bool | .hash => pure ()
-          | .unit | .fixedArray _ _ | .structType _ =>
-              .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type `{actual.name}`; event fields must be U32, U64, Bool, or Hash" }
+          | .u32 | .u64 | .bool | .hash | .address => pure ()
+          | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+              .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type `{actual.name}`; event fields must be U32, U64, Bool, Hash, or Address" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
   partial def validateStatements (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) (statements : Array Statement) : Except LowerError TypeEnv :=
@@ -621,6 +622,9 @@ def valueTypeName : ValueType → Except LowerError String
   | .u32 => .ok "u32"
   | .u64 => .ok "u64"
   | .hash => .ok "[u64; 4]"
+  | .address => .ok "u64"
+  | .bytes => .error { message := "wasm-near IR v0 does not support Bytes" }
+  | .string => .error { message := "wasm-near IR v0 does not support String" }
   | .fixedArray element length =>
       .error { message := s!"fixed array type `{element.name}`x{length} is not supported by wasm-near IR v0" }
   | .structType name =>
@@ -632,12 +636,14 @@ def literal : Literal → String
   | .bool true => "true"
   | .bool false => "false"
   | .hash4 a b c d => s!"[{a}u64, {b}u64, {c}u64, {d}u64]"
+  | .address value => s!"{value}u64"
 
 def literalType : Literal → ValueType
   | .u32 _ => .u32
   | .u64 _ => .u64
   | .bool _ => .bool
   | .hash4 _ _ _ _ => .hash
+  | .address _ => .address
 
 def maxU32 : Nat := 4294967295
 def maxU64 : Nat := 18446744073709551615
@@ -658,6 +664,7 @@ def checkLiteralBounds (lit : Literal) : Except LowerError Unit :=
       checkedLiteralLimb "b" b maxU64
       checkedLiteralLimb "c" c maxU64
       checkedLiteralLimb "d" d maxU64
+  | .address value => checkedLiteralLimb "value" value maxU64
 
 -- ---------------------------------------------------------------------------
 -- Lowering
@@ -872,9 +879,9 @@ mutual
           let value ← lowerExpr module field.snd
           let jsonValue ← match ← inferExprType module #[] field.snd with
             | .hash => .ok s!"[{value}[0], {value}[1], {value}[2], {value}[3]]"
-            | .u32 | .u64 | .bool => .ok value
-            | .unit | .fixedArray _ _ | .structType _ =>
-                .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type; event fields must be U32, U64, Bool, or Hash" }
+            | .u32 | .u64 | .bool | .address => .ok value
+            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+                .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type; event fields must be U32, U64, Bool, Hash, or Address" }
           .ok s!"\"{field.fst}\":{jsonValue}"
         let jsonParts := #[s!"\"event\":\"{name}\""] ++ fieldJson
         let logLine := "near_sdk::log!(\"{" ++ String.intercalate "," jsonParts.toList ++ "}\");"
