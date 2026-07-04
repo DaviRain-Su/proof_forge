@@ -284,16 +284,16 @@ docs-check:
 
 # Run the unified RFC 0007 testkit scenario suite.
 testkit:
-    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run
 
 # List RFC 0007 testkit scenarios.
 testkit-list:
-    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 
 # Run contract_source Counter/ValueVault scenarios with budget assertions.
 testkit-budget-gate:
-    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter
-    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
 check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage

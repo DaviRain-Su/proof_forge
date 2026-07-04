@@ -117,3 +117,5 @@ Expr	crosscallCreate	unsupported	Psy IR v0 rejects EVM contract creation with an
 Expr	crosscallCreate2	unsupported	Psy IR v0 rejects EVM deterministic contract creation with an explicit diagnostic because DPN does not expose EVM create2 semantics.
 Effect	eventEmit	lowered	lowerEffectStmt emits __emit([fields]) with an event-name comment; EventProbe covers it and Dargo test confirms result_events contains the emitted data.
 Effect	eventEmitIndexed	unsupported	Psy IR v0 rejects indexed events with an explicit diagnostic instead of lowering and silently dropping indexed-topic semantics.
+ValueType	array	unsupported	Psy IR v0 rejects dynamic arrays with explicit diagnostics in validateAbiValueType, validateValueType, and valueTypeName; ValueType.array is recognized but not lowered.
+StateKind	dynamicArray	unsupported	Psy IR v0 rejects storage.dynamicArray in validateState with an explicit diagnostic; StateKind.dynamicArray is recognized but not lowered.

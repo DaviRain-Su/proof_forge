@@ -16,6 +16,7 @@ inductive Capability where
   | controlBoundedLoop
   | dataDynamicBytes
   | dataFixedArray
+  | dataDynamicArray
   | dataStruct
   | cryptoHash
   | assertions
@@ -42,6 +43,7 @@ def Capability.id : Capability → String
   | .controlConditional => "control.conditional"
   | .controlBoundedLoop => "control.bounded_loop"
   | .dataFixedArray => "data.fixed_array"
+  | .dataDynamicArray => "data.dynamic_array"
   | .dataDynamicBytes => "data.dynamic_bytes"
   | .dataStruct => "data.struct"
   | .cryptoHash => "crypto.hash"

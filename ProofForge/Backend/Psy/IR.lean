@@ -95,6 +95,7 @@ def valueTypeName : ValueType → Except LowerError String
         .error { message := "Psy IR v0 fixed arrays must have non-zero length" }
       .ok s!"[{← valueTypeName element}; {length}]"
   | .structType name => .ok name
+  | .array _ => .error { message := "Psy IR v0 does not support dynamic arrays" }
 
 def literal : Literal → String
   | .u32 value => s!"{value}u32"
@@ -203,6 +204,8 @@ def stateDecl (state : StateDecl) : Except LowerError (Array String) := do
           .ok #[s!"pub {state.id}: [Felt; {length}],"]
       | _ =>
           .ok #[s!"pub {state.id}: [{← valueTypeName state.type}; {length}],"]
+  | .dynamicArray =>
+      .error { message := s!"state `{state.id}` is storage.dynamicArray; Psy IR v0 does not lower portable dynamic array storage" }
 
 def findState? (module : Module) (stateId : String) : Option StateDecl :=
   module.state.find? fun state => state.id == stateId
@@ -220,6 +223,7 @@ def requireScalarState (module : Module) (stateId : String) : Except LowerError 
       | .scalar => .ok ()
       | .map _ _ => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
       | .array _ => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
+      | .dynamicArray => .error { message := s!"state `{stateId}` is a dynamic array, not scalar storage" }
   | none => .error { message := s!"unknown scalar state `{stateId}`" }
 
 def requireMapState (module : Module) (stateId : String) : Except LowerError Unit :=
@@ -229,6 +233,7 @@ def requireMapState (module : Module) (stateId : String) : Except LowerError Uni
       | .map _ _ => .ok ()
       | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
       | .array _ => .error { message := s!"state `{stateId}` is array storage, not a map" }
+      | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not a map" }
   | none => .error { message := s!"unknown map state `{stateId}`" }
 
 def requireArrayState (module : Module) (stateId : String) : Except LowerError Unit :=
@@ -238,6 +243,7 @@ def requireArrayState (module : Module) (stateId : String) : Except LowerError U
       | .array _ => .ok ()
       | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not an array" }
       | .map _ _ => .error { message := s!"state `{stateId}` is map storage, not an array" }
+      | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not an array" }
   | none => .error { message := s!"unknown array state `{stateId}`" }
 
 def requireStructScalarState (module : Module) (stateId fieldName : String) : Except LowerError Unit :=
@@ -257,6 +263,8 @@ def requireStructScalarState (module : Module) (stateId fieldName : String) : Ex
           .error { message := s!"state `{stateId}` is map storage, not struct scalar storage" }
       | .array _, _ =>
           .error { message := s!"state `{stateId}` is array storage, not struct scalar storage" }
+      | .dynamicArray, _ =>
+          .error { message := s!"state `{stateId}` is dynamic array storage, not struct scalar storage" }
   | none => .error { message := s!"unknown struct state `{stateId}`" }
 
 def requireStructArrayState (module : Module) (stateId fieldName : String) : Except LowerError Unit :=
@@ -278,6 +286,8 @@ def requireStructArrayState (module : Module) (stateId fieldName : String) : Exc
           .error { message := s!"state `{stateId}` is scalar storage, not struct array storage" }
       | .map _ _, _ =>
           .error { message := s!"state `{stateId}` is map storage, not struct array storage" }
+      | .dynamicArray, _ =>
+          .error { message := s!"state `{stateId}` is dynamic array storage, not struct array storage" }
   | none => .error { message := s!"unknown struct array state `{stateId}`" }
 
 def storagePathStartType (module : Module) (stateId : String) (path : Array StoragePathSegment) : Except LowerError (ValueType × List StoragePathSegment) :=
@@ -306,6 +316,8 @@ def storagePathStartType (module : Module) (stateId : String) (path : Array Stor
             match path.toList with
             | .mapKey _ :: rest => .ok (state.type, rest)
             | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
+      | .dynamicArray =>
+          .error { message := s!"storage path state `{stateId}` is dynamic array storage; Psy IR v0 does not lower portable dynamic array storage" }
   | none => .error { message := s!"unknown storage path state `{stateId}`" }
 
 partial def resolveStoragePathSegments (module : Module) : ValueType → List StoragePathSegment → Except LowerError ValueType
@@ -354,6 +366,8 @@ partial def validateValueType (module : Module) (type : ValueType) : Except Lowe
   | .bool | .u8 | .u32 | .u64 | .hash | .address => pure ()
   | .bytes | .string | .u128 =>
       .error { message := "Psy IR v0 does not support Bytes, String, or U128 as stored or structured value types" }
+  | .array _ =>
+      .error { message := "Psy IR v0 does not support dynamic arrays as stored or structured value types" }
   | .fixedArray element length =>
       if length == 0 then
         .error { message := "Psy IR v0 fixed arrays must have non-zero length" }
@@ -373,6 +387,8 @@ partial def validateAbiValueType (module : Module) (type : ValueType) (context :
   | .bool | .u8 | .u32 | .u64 | .hash | .address => pure ()
   | .bytes | .string | .u128 =>
       .error { message := s!"{context} uses Bytes, String, or U128; Psy IR v0 entrypoint parameters must use Felt, U8, U32, Bool, Hash, Address, fixed arrays, or declared structs" }
+  | .array _ =>
+      .error { message := s!"{context} uses dynamic array; Psy IR v0 entrypoint parameters must use Felt, U8, U32, Bool, Hash, Address, fixed arrays, or declared structs" }
   | .fixedArray element length =>
       if length == 0 then
         .error { message := s!"{context} uses a zero-length fixed array; Psy IR v0 fixed arrays must have non-zero length" }
@@ -462,7 +478,7 @@ def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit 
   match type with
   | .unit =>
       .error { message := s!"{context} does not support Unit equality" }
-  | .bool | .u8 | .u32 | .u64 | .hash | .address | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+  | .bool | .u8 | .u32 | .u64 | .hash | .address | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
       .ok ()
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -497,6 +513,7 @@ def scalarStateType (module : Module) (stateId : String) : Except LowerError Val
   | .scalar => .ok state.type
   | .map _ _ => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
   | .array _ => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is a dynamic array, not scalar storage" }
 
 def mapStateTypes (module : Module) (stateId : String) : Except LowerError (ValueType × ValueType) := do
   let state ← stateDeclOf module stateId "map"
@@ -504,6 +521,7 @@ def mapStateTypes (module : Module) (stateId : String) : Except LowerError (Valu
   | .map keyType _ => .ok (keyType, state.type)
   | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
   | .array _ => .error { message := s!"state `{stateId}` is array storage, not a map" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not a map" }
 
 def arrayStateElementType (module : Module) (stateId : String) : Except LowerError ValueType := do
   let state ← stateDeclOf module stateId "array"
@@ -511,6 +529,7 @@ def arrayStateElementType (module : Module) (stateId : String) : Except LowerErr
   | .array _ => .ok state.type
   | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not an array" }
   | .map _ _ => .error { message := s!"state `{stateId}` is map storage, not an array" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not an array" }
 
 mutual
   partial def inferExprType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
@@ -722,7 +741,7 @@ mutual
                   | .mapKey _ =>
                       .error { message := s!"storage path `{stateId}` can use a map key only as its first segment" }
             | _ => pure ()
-        | .scalar | .array _ =>
+        | .scalar | .array _ | .dynamicArray =>
             for segment in path do
               match segment with
               | .field _ => pure ()
@@ -1489,6 +1508,8 @@ def validateState (module : Module) : Except LowerError Unit := do
             .error { message := s!"array state `{state.id}` references unknown struct `{typeName}`" }
     | .array _, valueType =>
         .error { message := s!"array state `{state.id}` has unsupported Psy IR v0 element type `{valueType.name}`; only Felt, Bool, U32, Hash, and deriveStorage structs are supported" }
+    | .dynamicArray, _ =>
+        .error { message := s!"state `{state.id}` is storage.dynamicArray; Psy IR v0 does not lower portable dynamic array storage" }
 
 def validateCapabilities (module : Module) : Except LowerError Unit :=
   match resolveModule Target.psyDpn module with

@@ -117,3 +117,5 @@ Statement	boundedFor	lowered	EmitWat lowers boundedFor to wasm block/loop/br_if 
 Statement	return	lowered	EmitWat lowers returns to value_return helpers for U32/U64/Bool/Hash values.
 Statement	revert	lowered	EmitWat lowers revert to unreachable trap (no message encoding in Wasm).
 Statement	revertWithError	lowered	EmitWat lowers revertWithError to unreachable trap (no ErrorRef encoding in Wasm).
+ValueType	array	unsupported	EmitWat does not support dynamic arrays; WasmNear IR v0 rejects data.dynamic_array before lowering and valueTypeName returns an explicit error.
+StateKind	dynamicArray	unsupported	EmitWat does not support dynamic array storage; WasmNear IR v0 rejects storage.dynamicArray before lowering with an explicit diagnostic.

@@ -61,6 +61,7 @@ def stateKindName : StateKind → String
   | .scalar => "scalar"
   | .map _ _ => "map"
   | .array _ => "array"
+  | .dynamicArray => "dynamicArray"
 
 def stateKindJson : StateKind → String
   | .scalar =>
@@ -77,6 +78,10 @@ def stateKindJson : StateKind → String
       jsonObject #[
         ("kind", jsonString "array"),
         ("length", toString length)
+      ]
+  | .dynamicArray =>
+      jsonObject #[
+        ("kind", jsonString "dynamicArray")
       ]
 
 def structFieldJson (field : StructField) : String :=

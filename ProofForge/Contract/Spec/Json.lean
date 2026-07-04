@@ -59,7 +59,8 @@ def stateJson (state : StateDecl) : String :=
     ("kind", jsonString (match state.kind with
       | .scalar => "scalar"
       | .map _ _ => "map"
-      | .array _ => "array")),
+      | .array _ => "array"
+      | .dynamicArray => "dynamic_array")),
     ("type", valueTypeJson state.type)
   ]
 

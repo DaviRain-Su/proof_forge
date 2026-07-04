@@ -162,7 +162,7 @@ def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) : ExprPlan :=
 
 def fixedArrayScalarLeafType? : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 mutual
   partial def localArrayGetExprPlan?
@@ -316,6 +316,8 @@ mutual
             .ok #[.localCrosscallWords name type]
         | _ =>
             buildCrosscallStructArgWordPlans module env context typeName arg
+    | .array _ =>
+        .error { message := s!"{context} uses dynamic array; IR EVM v0 crosscall arguments do not yet support dynamic arrays" }
     | .unit | .bytes | .string =>
         .error { message := s!"{context} uses Unit; IR EVM v0 crosscall arguments must use U32, U64, Bool, Hash, fixed arrays, or structs" }
 
@@ -1259,7 +1261,7 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
             | .ok (lengths, leafType) =>
                 match leafType with
                 | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .structType _ => #[lengths]
-                | .unit | .fixedArray _ _ | .bytes | .string => #[]
+                | .unit | .fixedArray _ _ | .bytes | .string | .array _ => #[]
             | .error _ => #[]
         | none => #[]
       else
