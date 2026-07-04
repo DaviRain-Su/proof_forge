@@ -28,9 +28,9 @@
 这不是普通的研究路线图偏好，而是产品前置条件，作为 Gate P0 记录在
 [gate-status.md](gate-status.md) 中。“完成”意味着三条链分别具备 target-first
 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖
-以及同步维护的文档。新链可以继续做 docs-first 研究说明，已落地的非主链 spike
-可以做 CI/安全维护，但在 Gate P0 关闭前，不应推进任何额外链的 registry stage、
-能力表面、testkit harness 或 CI 覆盖。
+以及同步维护的文档。新链实现工作现在不再被 D-045 阻塞。CLI M3 target-first
+迁移已经为 executable callers 落地；Tier-1 M3/M4 的推进仍需要显式排期，
+不应把旧 research notes 当作隐式实现范围。
 
 ## 评审处置（2026-07-04）
 
@@ -40,7 +40,7 @@
 |---|---|---|
 | R1：RFC 0009 和 D-039 滞后于已经落地的 CLI M1 工作 | 当前 `main` 已关闭：RFC 0009 已标记为 Accepted，并说明 M1/M3 已落地；D-039 也已经改为追认 compatibility-layer 实现，而不是宣称代码前冻结 | 随着 M4 legacy-alias removal 被排期，持续同步 RFC 0009 和 CLI 迁移文档 |
 | R2：同时存在过多半成品工作流 | 接受为排期风险 | Gate P0 已关闭，CLI M3 已由 `just cli-target-first` 守住；M4 alias removal 继续放在兼容窗口之后，Tier-1 M3/M4 不应隐式打开 |
-| R3：尚无端到端证明把用户不变量连接到生成制品 | 部分接受：已有源级证明、NEAR trace obligations、EVM FV-4 可执行 Yul trace anchors，以及 FV-2 aggregate/storage/map/control-flow IR traces；但完整 IR-to-artifact 语义保持还没有完成。EVM map/storage/aggregate/control-flow 切片现在已经把覆盖到的 FV-2 IR traces 接到可执行 Yul obligations。 | 继续扩展 FV-2 的 observable event-log traces，把 NEAR 从 export coverage 深化到 artifact execution obligations，然后再把用户级不变量接到已覆盖的 IR 语义上 |
+| R3：尚无端到端证明把用户不变量连接到生成制品 | 部分接受：已有源级证明、FV-2 aggregate/storage/map/control-flow/event-log IR traces、第一批基于 IR 语义的 FV-8 ValueVault accounting/net-value invariant anchors、NEAR trace obligations 加 Counter 和 ValueVault EmitWat artifact-surface/offline-host execution-surface obligations、NEAR ValueVault backend-invariant state bridge，以及 EVM FV-4 可执行 Yul trace anchors；但完整 IR-to-artifact 语义保持还没有完成。EVM map/storage/aggregate/control-flow/event 切片现在已经把覆盖到的 FV-2 IR traces 接到可执行 Yul obligations。 | 将 NEAR FV-4 从新的 backend-invariant state bridge 继续扩展到更丰富的 Wasm/offline-host 语义边界，再证明超出当前 state/IO equality anchors 的语义保持 |
 | R4：capability 粒度太粗 | 当前阶段不 churn capability id；storage 已经拆成 scalar/map/array/PDA，Solana account 语义也已与 storage pattern 分离建模 | 把跨目标运行时差异交给预算和诊断义务：每个 target 必须显式拒绝不支持形状，并为支持形状锁定资源预算 |
 | R5：docs-first target notes 形成隐藏沉没成本 | 排期层面已关闭：D-045 和 target roadmap 在 Gate P0 关闭前把产品硬化限制在 `solana-sbpf-asm`、`evm`、`wasm-near` | 保留 research notes 作为库存；显式排期 Tier-1 M3/M4，而不是让旧 research notes 自动变成实现范围 |
 | R6：Lean/工具链入门摩擦 | 部分关闭：`docs/onboarding.md` 已存在并列出核心工具链和各目标工具；但 editor workspace config、templates 和 scaffolding 仍是开放 DX 工作 | 补 VS Code/Cursor workspace recommendations 和最小项目模板 |
@@ -53,11 +53,22 @@
    并运行 target-first 映射回归测试。M4 legacy flag removal 仍按 RFC 0009
    的兼容窗口延后。
 3. 继续形式化验证：FV-2 已具备 aggregate/storage executable traces、
-   state-threaded map insert/set lifecycle traces，以及 `ifElse`/`boundedFor`
-   control-flow traces；覆盖到的 EVM map/storage/aggregate/control-flow
-   obligations 现在会把这些 IR traces 与可执行 emitted Yul 对比。下一步扩展
-   observable event-log traces，并把 NEAR 从 export coverage 深化到 artifact
-   execution obligations。
+   state-threaded map insert/set lifecycle traces、`ifElse`/`boundedFor`
+   control-flow traces、observable event-log traces，以及 determinism 和
+   bounded-loop measure anchors；覆盖到的 EVM
+   map/storage/aggregate/control-flow/event obligations 现在会把这些 IR traces
+   与可执行 emitted Yul 对比。NEAR 现在有 Counter 和 ValueVault EmitWat AST
+   artifact-surface obligations，并新增 offline-host execution-surface obligations，
+   用来固定 Borsh 输入字节、确定性的 host return/log observations、
+   storage-key 计数和累计 log 计数。FV-8 现在也有第一个 ValueVault IR
+   invariant anchor，覆盖共享 11 步场景的 return trace、accounting、final
+   storage 和 net-value 检查。最新的 NEAR FV-4 切片新增了一条可由
+   `native_decide` 检查的 backend-invariant state bridge：ValueVault
+   offline-host 输入序列从 FV-8 场景输入派生，返回片段会对齐 FV-8
+   expected returns，最终 offline-host state 会对齐 FV-8 scenario state
+   以及 accounting/final-storage predicates，ValueVault 事件日志 JSON 片段
+   会从 invariant final state 派生。下一步把这条 bridge 从 state/IO
+   equality 扩展到更丰富的 Wasm memory 和 host-call 语义边界。
 4. 处理剩余 DX 项：`.vscode` recommendations、项目模板和脚手架；前提是它们不与 P0 关闭抢资源。
 
 ## 工作流 1：目标注册表
@@ -965,14 +976,22 @@
 - FV-2：将 `ProofForge/IR/Semantics.lean` 扩展到标量子集之外。已完成：
   fixed arrays、struct values、aggregate ABI params/returns、storage arrays、
   storage struct fields、nested storage paths、覆盖 map insert/set lifecycle
-  的 state-threaded effectful expressions，以及 `ifElse`/`boundedFor`
-  control-flow execution。剩余：将 events 建模为 observable log traces，然后证明确定性以及有界循环终止性。
+  的 state-threaded effectful expressions、`ifElse`/`boundedFor`
+  control-flow execution、observable event-log traces、deterministic-result
+  anchors，以及 bounded-loop decreasing-measure anchor。剩余：
+  为已验证的类型化子集证明 progress/preservation。
 - FV-3：证明 `IR/Ownership.lean` 检查器相对于释放感知语义（无释放后使用、无重复释放）是稳健的，为三种不同的 `release` 降级（EmitWat 分配器、EVM/Psy 拒绝、TS no-op）提供依据。
-- FV-4：已在 `Backend/Evm/Refinement.lean` 中落地 EVM Counter、ValueVault 和 EvmExpressionProbe 可执行追踪义务，并由 `Backend/Evm/YulSemantics.lean` 支撑。这些义务镜像 `Backend/WasmNear/Refinement.lean` 的 scalar IR trace，检查 selector-dispatched Yul surface，并执行聚焦的已发射 Yul 子集（`calldataload`、`calldatasize`、`sstore`、`sload`、标量算术、`exp`、bitwise/shift operators、comparisons、casts、assertions、`number`、确定性的 memory-sensitive `keccak256` surrogate、`log0`-`log4`、`mstore`、`return`、聚焦的 `switch` 和有界 `for`），将可观察 EVM return words 与 IR trace 对比。ValueVault 覆盖 calldata 参数、多入口标量存储更新、区块号上下文读取、事件字段求值以及 return words；EvmExpressionProbe 覆盖 assertion success paths、`assertEq`、predicate expressions、U32/U64 arithmetic、casts、bitwise operators 和 shifts。新增的可执行义务覆盖 `EvmMapProbe`（map value/presence slots 和嵌套 map paths）、`EvmTypedStorageProbe`（typed storage arrays 和 hash array reads）、`EvmStorageStructProbe`（storage structs 和 flat struct arrays）、`EvmAbiAggregateProbe`（aggregate ABI params/returns）、`ConditionalProbe`（if/else storage updates）以及 `EvmLoopProbe`（bounded loops 和 branch/loop early returns）。覆盖到的 FV-2 IR aggregate/storage/map/control-flow traces 现在已经通过显式 IR 调用参数和 `*_ir_observable_trace_ok` 定理锚点接入这些 EVM obligations，因此同一组 observable return words 会同时在 IR 侧和可执行 emitted-Yul 侧检查。下一步：继续扩展 FV-2 的 observable event-log traces，把 NEAR 从 export coverage 深化到 artifact execution obligations；在解释器存在之前，让 Psy/Solana 保持在差异门控上。
+- FV-4：已在 `Backend/Evm/Refinement.lean` 中落地 EVM Counter、ValueVault 和 EvmExpressionProbe 可执行追踪义务，并由 `Backend/Evm/YulSemantics.lean` 支撑。这些义务镜像 `Backend/WasmNear/Refinement.lean` 的 scalar IR trace，检查 selector-dispatched Yul surface，并执行聚焦的已发射 Yul 子集（`calldataload`、`calldatasize`、`sstore`、`sload`、标量算术、`exp`、bitwise/shift operators、comparisons、casts、assertions、`number`、确定性的 memory-sensitive `keccak256` surrogate、`log0`-`log4`、`mstore`、`return`、聚焦的 `switch` 和有界 `for`），将可观察 EVM return words 与 IR trace 对比。ValueVault 覆盖 calldata 参数、多入口标量存储更新、区块号上下文读取、事件字段求值以及 return words；EvmExpressionProbe 覆盖 assertion success paths、`assertEq`、predicate expressions、U32/U64 arithmetic、casts、bitwise operators 和 shifts。新增的可执行义务覆盖 `EvmMapProbe`（map value/presence slots 和嵌套 map paths）、`EvmTypedStorageProbe`（typed storage arrays 和 hash array reads）、`EvmStorageStructProbe`（storage structs 和 flat struct arrays）、`EvmAbiAggregateProbe`（aggregate ABI params/returns）、`ConditionalProbe`（if/else storage updates）以及 `EvmLoopProbe`（bounded loops 和 branch/loop early returns）。覆盖到的 FV-2 IR aggregate/storage/map/control-flow/event traces 现在已经通过显式 IR 调用参数和 `*_ir_observable_trace_ok` 定理锚点接入这些 EVM obligations，因此同一组 observable return words 会同时在 IR 侧和可执行 emitted-Yul 侧检查。NEAR 现在有基于 `EmitWat.lowerModule` 产出的 `Compiler.Wasm.AST` 的 Counter 和 ValueVault artifact-surface obligations，用来锁定 entrypoint/helper host-boundary calls、memory、storage-key data 和 ValueVault event data，先于 WAT 打印阶段检查。NEAR 也新增 Counter 和 ValueVault offline-host execution-surface obligations，从同一个 IR trace 边界导出 Borsh/little-endian 输入字节和预期的确定性 host return fragments；CI smoke 会通过 `runtime/offline-host` 执行生成的 WAT，并检查对应的 ValueVault returns/events。下一步：将 NEAR FV-4 从这些 execution surfaces 扩展到更丰富的 Wasm/offline-host 语义边界；在解释器存在之前，让 Psy/Solana 保持在差异门控上。
 - FV-5：在 IR 值域中统一陈述检查算术溢出/除法语义，并将溢出分支添加到后端义务中。
 - FV-6：证明配对测试夹具子集的 `.learn` 与 `contract_source` 降级等价性（可判定的 `ContractSpec` 相等性）。
 - FV-7：证明 Token SDK 计划不变性（全特性路由、已文档化的不兼容诊断、计划良构性）。
-- FV-8：基于 IR 语义的面向用户的合约不变性，以 ValueVault 作为实际案例。
+- FV-8：第一批 ValueVault worked-example invariants 已落在
+  `ProofForge.Contract.Examples.ValueVaultInvariant`。这些 `decide` 可检查锚点
+  会用 FV-2 IR 解释器执行链无关的 ValueVault `contract_source` 模块共享 11 步场景，
+  然后检查 observable return trace、`balance + released + fees = externally supplied value`、
+  final storage fields，以及 `get_net_value = balance - fees`。下一步：把这个
+  具体模块推广成面向作者的 invariant pattern，并将已证明的 IR invariants 连接到
+  FV-4 backend obligations。
 
 验收标准：
 

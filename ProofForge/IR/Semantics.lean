@@ -626,6 +626,41 @@ def runEntrypoint (state : State) (entrypoint : Entrypoint) :
     Except String (State × Option Value) :=
   runEntrypointWithArgs state entrypoint #[]
 
+/-! FV-2 metatheory anchors for the executable semantics. These are intentionally
+small, but they make the interpreter's determinism and bounded-loop measure
+explicit in Lean rather than leaving them as prose in the roadmap. -/
+
+theorem evalExpr_deterministic {state : State} {frame : Frame} {expr : Expr}
+    {lhs rhs : Except String ExprResult}
+    (hLhs : evalExpr state frame expr = lhs)
+    (hRhs : evalExpr state frame expr = rhs) :
+    lhs = rhs :=
+  hLhs.symm.trans hRhs
+
+theorem execStatements_deterministic {statements : List Statement} {state : State}
+    {frame : Frame} {lhs rhs : Except String (State × Option Value)}
+    (hLhs : execStatements statements state frame = lhs)
+    (hRhs : execStatements statements state frame = rhs) :
+    lhs = rhs :=
+  hLhs.symm.trans hRhs
+
+theorem runEntrypointWithArgs_deterministic {state : State} {entrypoint : Entrypoint}
+    {args : Array Value} {lhs rhs : Except String (State × Option Value)}
+    (hLhs : runEntrypointWithArgs state entrypoint args = lhs)
+    (hRhs : runEntrypointWithArgs state entrypoint args = rhs) :
+    lhs = rhs :=
+  hLhs.symm.trans hRhs
+
+def boundedForRemaining (index stopExclusive : Nat) : Nat :=
+  stopExclusive - index
+
+theorem boundedForRemaining_decreases {index stopExclusive : Nat}
+    (h : index < stopExclusive) :
+    boundedForRemaining (index + 1) stopExclusive <
+      boundedForRemaining index stopExclusive := by
+  unfold boundedForRemaining
+  omega
+
 def counterTrace : Except String (State × Option Value) := do
   let (initialized, _) ←
     runEntrypoint State.empty ProofForge.IR.Examples.Counter.initializeEntrypoint

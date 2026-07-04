@@ -17,6 +17,194 @@ Each entry should include:
 
 ## 2026-07-04
 
+### FV-8 ValueVault IR Invariant Anchor
+
+Commit: this commit
+
+Summary:
+
+- Added `ProofForge.Contract.Examples.ValueVaultInvariant` as the first
+  user-facing contract-invariant proof surface over the executable IR
+  semantics.
+- The module runs the chain-neutral ValueVault `contract_source` module through
+  the shared 11-step scenario and checks the observable return trace.
+- Added decide-checkable accounting and net-value invariants over the final IR
+  state: `balance + released + fees` equals externally supplied value, final
+  storage matches the scenario inputs, and `get_net_value` equals
+  `balance - fees`.
+- Wired the new FV-8 theorem anchors into `Tests/NearWasmFormal.lean`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Contract.Examples.ValueVaultInvariant
+lake env lean --run Tests/NearWasmFormal.lean
+git diff --check
+```
+
+Known limitations:
+
+- This is a concrete executable-trace invariant for the ValueVault worked
+  example, not yet a source-level invariant DSL or a universally quantified
+  theorem over all valid inputs.
+- It proves the invariant against the FV-2 IR semantics. It does not yet
+  transport the invariant to emitted EVM, Solana, or NEAR artifacts.
+
+Next step:
+
+- Generalize the FV-8 shape so `contract_source` authors can state reusable
+  invariants near the contract and then connect those invariants to the FV-4
+  backend obligations.
+
+### FV-4 NEAR Offline-Host Execution Surface Anchor
+
+Commit: this commit
+
+Summary:
+
+- Added a decide-checkable NEAR/Wasm offline-host execution-surface obligation
+  for Counter and ValueVault.
+- The obligation derives each exported call's Borsh/little-endian input bytes
+  and expected `runtime/offline-host` return-line fragment from the same IR
+  trace boundary used by the formal anchors.
+- Extended `scripts/near/emitwat-ci-smoke.sh` so CI now emits the ValueVault
+  WAT fixture and executes the full 11-step ValueVault sequence through
+  `runtime/offline-host`, checking typed inputs, return words, event logs, and
+  fuel-based `near_gas` observations.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+scripts/near/emitwat-ci-smoke.sh
+git diff --check
+```
+
+Known limitations:
+
+- This is an execution-surface anchor, not a full Wasm semantics proof and not
+  a proof about Wasmtime or the NEAR runtime.
+- Aggregate Borsh input values remain outside this small obligation shape.
+
+Next step:
+
+- Deepen the NEAR FV-4 boundary from host-observed IO fragments toward a
+  focused Wasm/offline-host semantics model.
+
+### FV-4 NEAR ValueVault Artifact Surface Anchor
+
+Commit: this commit
+
+Summary:
+
+- Extended the NEAR/Wasm artifact-surface obligation from Counter to
+  ValueVault.
+- The ValueVault obligation inspects the `Compiler.Wasm.AST` emitted by
+  `EmitWat.lowerModule` and checks all seven exported entrypoints:
+  `initialize`, `deposit`, `charge_fee`, `release`, `snapshot`,
+  `get_balance`, and `get_net_value`.
+- The check pins the host-boundary shape for storage reads/writes, block
+  context reads, value returns, event logging, memory export, storage-key data
+  segments, and event-name data segments.
+- Wired `value_vault_emitwat_artifact_surface_ok` into
+  `Tests/NearWasmFormal.lean`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+git diff --check
+```
+
+Known limitations:
+
+- This is still an AST-level obligation, not a full Wasm evaluator or a proof
+  about `wat2wasm`, Wasmtime, or the NEAR runtime.
+- It proves the emitted artifact surface for the shared ValueVault scenario;
+  the next NEAR FV-4 step is to relate offline-host execution observations to
+  the same IR trace boundary.
+
+Next step:
+
+- Add an executable offline-host trace obligation shape for the NEAR Counter
+  and ValueVault scenarios, then align it with the existing IR observable
+  traces.
+
+### FV-4 NEAR EmitWat Artifact Surface Anchor
+
+Commit: this commit
+
+Summary:
+
+- Added a decide-checkable NEAR/Wasm artifact-surface obligation in
+  `ProofForge.Backend.WasmNear.Refinement`.
+- The new obligation inspects the `Compiler.Wasm.AST` produced by
+  `EmitWat.lowerModule` instead of matching WAT text. It pins the Counter
+  artifact's required host imports, exported entrypoint call sequences,
+  helper-function calls into NEAR storage/return host functions, memory export,
+  and the `count` storage-key data segment.
+- Wired `counter_emitwat_artifact_surface_ok` into
+  `Tests/NearWasmFormal.lean`, advancing the NEAR FV-4 path beyond export-name
+  coverage while keeping the claim below full Wasm semantic preservation.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+git diff --check
+```
+
+Known limitations:
+
+- This is an AST-level artifact-surface proof, not a full Wasm evaluator or a
+  theorem about `wat2wasm`, Wasmtime, or the NEAR runtime.
+- It covers the Counter artifact first. Richer EmitWat fixtures beyond
+  ValueVault still need their own NEAR FV-4 obligations.
+
+Next step:
+
+- Connect the offline-host execution trace shape to the same observable IR
+  trace boundary.
+
+### FV-2 IR Semantics Metatheory Anchors
+
+Commit: this commit
+
+Summary:
+
+- Added deterministic-result theorems for the executable IR semantics:
+  `evalExpr_deterministic`, `execStatements_deterministic`, and
+  `runEntrypointWithArgs_deterministic`.
+- Added `boundedForRemaining` and `boundedForRemaining_decreases`, a Nat
+  measure anchor for `boundedFor` execution. This records the structurally
+  decreasing loop argument that the FV-2 roadmap calls out as the bounded-loop
+  termination basis.
+- Wired the new theorem anchors into `Tests/NearWasmFormal.lean` so the
+  existing formal anchor gate checks them alongside the IR trace obligations.
+
+Validation run:
+
+```sh
+lake build ProofForge.IR.Semantics
+lake env lean --run Tests/NearWasmFormal.lean
+git diff --check
+```
+
+Known limitations:
+
+- These are metatheory anchors over the current executable interpreter, not a
+  full progress/preservation proof for every typed IR node.
+- `execBoundedFor` remains in the existing partial mutual interpreter; this
+  slice proves the decreasing measure used by the bounded loop step.
+
+Next step:
+
+- Continue FV-2 with progress/preservation for the validated typed subset, or
+  deepen FV-4 on the NEAR side toward artifact-level execution obligations.
+
 ### FV-1 Target Capability Routing Anchors
 
 Commit: this commit
@@ -8203,3 +8391,35 @@ lake env lean --run Tests/SolanaSdkManifest.lean
 Result:
 
 - Solana IDL/client error catalogue checks passed locally.
+
+### NEAR ValueVault Backend-Invariant State Bridge
+
+Commit: pending
+
+Summary:
+
+- Extended the decide-checkable NEAR FV-4 bridge from the ValueVault FV-8
+  invariant scenario to the EmitWat/offline-host execution surface.
+- Derived the ValueVault offline-host input sequence from
+  `ValueVaultInvariant.defaultInputs` and checked return fragments against
+  `ValueVaultInvariant.expectedReturns`.
+- Added storage-key counts and cumulative log counts to each offline-host IO
+  expectation.
+- Checked the final offline-host state against the FV-8 scenario state plus
+  the ValueVault accounting and final-storage predicates.
+- Derived the ValueVault event log JSON fragments from the invariant final
+  state, covering `VaultInitialized`, `ValueDeposited`, `ValueCharged`,
+  `ValueReleased`, and `ValueSnapshot`.
+- Wired the new `value_vault_emitwat_backend_invariant_bridge_ok` theorem into
+  the formal smoke entrypoint.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.WasmNear.Refinement
+lake env lean --run Tests/NearWasmFormal.lean
+```
+
+Result:
+
+- NEAR ValueVault backend-invariant state bridge checks passed locally.

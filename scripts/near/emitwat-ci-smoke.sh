@@ -23,6 +23,7 @@ lake env lean --run Tests/EmitWatArray.lean
 lake env lean --run Tests/EmitWatStruct.lean
 lake env lean --run Tests/EmitWatAlloc.lean
 lake env lean --run Tests/EmitWatOwnership.lean
+lake env lean --run Tests/EmitWatValueVault.lean
 
 HOST=(cargo run --quiet --manifest-path runtime/offline-host/Cargo.toml -- run)
 
@@ -70,5 +71,28 @@ out="$("${HOST[@]}" build/wasm-near/emitwat-release-minimal.wat release_then_sum
 echo "$out"
 assert_contains "$out" "call 1:release_then_sum: return_hex=3c00000000000000 return_u64=60" "release call 1"
 assert_contains "$out" "call 2:release_then_sum: return_hex=3c00000000000000 return_u64=60" "release call 2"
+
+value_vault_inputs="6400000000000000,,1900000000000000,,6400000000000000fa00000000000000,,,1700000000000000,,,"
+out="$("${HOST[@]}" build/wasm-near/emitwat-value-vault.wat \
+  initialize get_balance deposit get_balance charge_fee get_balance get_net_value \
+  release get_balance snapshot get_net_value \
+  --inputs-hex "$value_vault_inputs")"
+echo "$out"
+assert_contains "$out" "call 1:initialize: return=<none>" "value vault initialize"
+assert_contains "$out" "call 1:get_balance: return_hex=6400000000000000 return_u64=100" "value vault initial balance"
+assert_contains "$out" "call 1:deposit: return=<none>" "value vault deposit"
+assert_contains "$out" "call 1:get_balance: return_hex=7d00000000000000 return_u64=125" "value vault deposited balance"
+assert_contains "$out" "call 1:charge_fee: return=<none>" "value vault charge fee"
+assert_contains "$out" "call 1:get_balance: return_hex=df00000000000000 return_u64=223" "value vault charged balance"
+assert_contains "$out" "call 1:get_net_value: return_hex=dd00000000000000 return_u64=221" "value vault charged net value"
+assert_contains "$out" "call 1:release: return=<none>" "value vault release"
+assert_contains "$out" "call 1:get_balance: return_hex=c800000000000000 return_u64=200" "value vault released balance"
+assert_contains "$out" "call 1:snapshot: return_hex=c800000000000000 return_u64=200" "value vault snapshot"
+assert_contains "$out" "call 1:get_net_value: return_hex=c600000000000000 return_u64=198" "value vault final net value"
+assert_contains "$out" 'log: {"event":"VaultInitialized","initial":100,"checkpoint":0}' "value vault initialized log"
+assert_contains "$out" 'log: {"event":"ValueDeposited","amount":25,"balance":125,"operations":2}' "value vault deposited log"
+assert_contains "$out" 'log: {"event":"ValueCharged","gross":100,"fee":2,"net":98,"balance":223}' "value vault charged log"
+assert_contains "$out" 'log: {"event":"ValueReleased","amount":23,"balance":200,"released":23}' "value vault released log"
+assert_contains "$out" 'log: {"event":"ValueSnapshot","balance":200,"released":23,"fees":2,"checkpoint":0}' "value vault snapshot log"
 
 echo "near-emitwat-ci: ok"

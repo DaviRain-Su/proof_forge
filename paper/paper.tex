@@ -71,6 +71,7 @@
 %% Compact table font
 \newcommand{\tsum}{\footnotesize}
 \newcommand{\ttab}{\scriptsize}
+\setlength{\headheight}{15.5pt}
 
 %% TikZ styles
 \tikzset{
@@ -118,6 +119,7 @@
 \email{davirain.dev@gmail.com}
 \affiliation{%
   \institution{Independent Researcher}
+  \city{Shanghai}
   \country{China}
 }
 
@@ -131,19 +133,21 @@ Smart contract development across heterogeneous blockchain platforms (EVM, Solan
 Move-based chains, ZK circuits) remains fragmented: each ecosystem demands its own language,
 toolchain, and security audit. We present \textbf{ProofForge}, a Lean-first multi-chain smart
 contract compilation platform that enables developers to write contract business logic,
-state-machine rules, and formal proofs once in Lean~4, then compile to chain-native artifacts
-across multiple target families through a single portable intermediate representation (IR).
+state-machine rules, and verification annotations once in Lean~4, then compile to
+chain-native artifacts across multiple target families through a single portable
+intermediate representation (IR).
 The platform's core innovation is a \emph{capability-based routing model}: each target declares
 which capabilities it supports, and the compiler rejects unsupported contract intents at
 compile time rather than silently changing semantics. We describe the four-layer architecture
 (authoring SDK $\to$ ContractSpec $\to$ portable IR $\to$ target backends), the capability
-registry with 23 registered capability identifiers across 9 target profiles, and three
-production-grade backends---EVM (via Yul/solc), Solana sBPF (direct assembly), and NEAR/Wasm
-(via EmitWat). The platform includes executable IR semantics with \texttt{decide}-checked
-trace obligations, ownership rules for heap-backed locals, and a staged formal verification
-roadmap (FV-1 through FV-8). The unified testkit achieves behavior parity and resource budget
-baselines for the Counter and ValueVault shared scenarios across all three primary targets.
-Gate~P0---the primary-chain completion covenant---is closed as of July~2026.
+registry with 23 registered capability identifiers across 10 target profiles, and three
+P0-signed primary backends---EVM (via Yul/solc), Solana sBPF (direct assembly), and
+NEAR/Wasm (via EmitWat). The platform includes executable IR semantics with
+\texttt{decide}-checked trace obligations where implemented, ownership checks for
+heap-backed locals, and a staged formal verification roadmap (FV-1 through FV-8).
+The unified testkit achieves behavior parity and resource budget baselines for the
+Counter and ValueVault shared scenarios across all three primary targets. Gate~P0---the
+primary-chain completion covenant---is closed as of July~2026.
 \end{abstract}
 
 %%
@@ -202,24 +206,29 @@ We present \textbf{ProofForge}~\cite{proofforge}, a Lean-first multi-chain smart
 compilation platform built on three design principles:
 
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{One verified source, multiple targets.} Contract logic, state-machine rules,
-  and invariants are written once in Lean~4~\cite{lean4}. The compiler lowers them through a
+  \item \textbf{Proof-oriented source, multiple targets.} Contract logic,
+  state-machine rules, and invariants are written once in Lean~4~\cite{lean4}. The compiler lowers them through a
   portable intermediate representation to chain-native artifacts.
   \item \textbf{Reject, don't silently change semantics.} A capability-based routing model
   ensures that if a contract uses an operation unsupported by the selected target, the compiler
   emits a diagnostic with the specific capability identifier and target identifier---rather than
   producing incorrect code.
-  \item \textbf{Proofs gate codegen.} Formal verification is integrated into the pipeline:
-  proofs are checked in Lean before backend lowering, not retrofitted after deployment.
+  \item \textbf{Verification belongs before codegen.} Executable semantics,
+  trace obligations, and future proof obligations are checked in Lean before or alongside
+  backend lowering, not retrofitted after deployment.
 \end{enumerate}
 
-ProofForge currently supports three production-grade backends: EVM (via Yul and
+ProofForge currently supports three P0-signed primary backends: EVM (via Yul and
 \texttt{solc}~\cite{yul}), Solana (via direct sBPF assembly to ELF~\cite{solana}), and NEAR (via
 EmitWat to Wasm~\cite{near,wasm}). Additional backends for Aleo Leo (ZK~\cite{aleo}),
 Cloudflare Workers (off-chain), and Move (Aptos~\cite{move}) are in research or frozen-spike
 stages. The platform has closed Gate~P0---the primary-chain completion covenant---meaning all
 three primary targets pass behavior parity and resource budget tests for the shared Counter and
 ValueVault scenarios. Figure~\ref{fig:pipeline} shows the overall compilation pipeline.
+Here, ``P0-signed'' means the repository's production-grade gate for the shared scenario
+surface: target-first emission/build, local execution or deployment smoke, artifact/deploy
+metadata, capability diagnostics, resource budgets, and green CI evidence. It does not claim
+full SDK ecosystem completeness for arbitrary contracts.
 
 \begin{figure*}[t]
   \centering
@@ -239,10 +248,11 @@ This paper makes the following contributions:
   \item A \textbf{portable contract IR} with typed effects, ownership rules, and capability
   annotations that sits between chain-neutral contract logic and target-specific backends
   (\S\ref{sec:arch}).
-  \item A \textbf{capability routing model} with 23 registered capability identifiers across 9
+  \item A \textbf{capability routing model} with 23 registered capability identifiers across 10
   target profiles, enabling compile-time rejection of unsupported operations (\S\ref{sec:cap}).
-  \item Three \textbf{production-grade backend implementations}---EVM/Yul, Solana/sBPF-asm, and
-  NEAR/EmitWat---each with full artifact emission, deployment metadata, and validation gates
+  \item Three \textbf{P0-signed backends} (EVM/Yul, Solana/sBPF-asm, NEAR/EmitWat)
+  with artifact emission, deployment metadata, and validation gates for the shared
+  P0 scenario surface
   (\S\ref{sec:backends}).
   \item An \textbf{executable IR semantics} with \texttt{decide}-checked trace obligations and a
   staged formal verification roadmap (\S\ref{sec:fv}).
@@ -495,7 +505,9 @@ and the target adapter checks support before lowering.
 \subsection{Capability Registry}
 
 The canonical capability registry defines 23 core capability identifiers across 13 domains.
-Table~\ref{tab:capreg} shows the support matrix for primary and representative targets.
+The implementation registry currently contains 10 target profiles, including historical
+Solana routes retained for compatibility; Table~\ref{tab:capreg} shows the support matrix
+for the primary and representative active targets.
 
 \begin{table*}[t]
   \caption{Core capability registry (selected). Y = supported, P = partial/spike, N = not supported.}
@@ -558,9 +570,9 @@ shown in Figure~\ref{fig:cap-flow}.
 \subsection{Ownership and Allocator Model}
 
 The IR includes an ownership system for heap-backed locals (the \texttt{release} statement).
-An ownership checker (\texttt{ProofForge.IR.Ownership.lean}) validates that released locals are
-never used afterward (no use-after-release) and never released twice (no double-release). Each
-target configures its allocator via \texttt{AllocatorConfig}; see Table~\ref{tab:alloc}.
+The checker in \texttt{IR/Ownership.lean} rejects use-after-release and double-release
+patterns. Each target configures its allocator via \texttt{AllocatorConfig}; see
+Table~\ref{tab:alloc}.
 
 \begin{table}[t]
   \caption{Allocator configuration per target.}
@@ -609,12 +621,10 @@ which are validated and type-inferred before Yul generation. This separation ens
 Yul output is type-correct and that checked arithmetic semantics (trap on overflow) are
 enforced at the plan level.
 
-The EVM SDK (\texttt{ProofForge.Evm}) provides extern declarations for all EVM opcodes
-(\texttt{calldataload}, \texttt{sstore}, \texttt{sload}, \texttt{caller}, \texttt{callvalue},
-\texttt{keccak256}, \texttt{log0}--\texttt{log4}, etc.) that are recognized by EmitYul and lowered
-directly to EVM instructions. Typed storage helpers (\texttt{Storage.Var}, \texttt{Storage.Map},
-\texttt{Storage.Map2}) provide compile-time slot assignment and mapping slot computation via
-\texttt{keccak256(key || slot)}.
+The EVM SDK (\texttt{ProofForge.Evm}) provides extern declarations for EVM opcodes such as
+\texttt{calldataload}, \texttt{sstore}, \texttt{sload}, \texttt{caller}, and \texttt{keccak256}.
+EmitYul recognizes these externs and lowers them directly to EVM instructions. Typed
+storage helpers provide compile-time slot assignment and mapping slot computation.
 
 Validation gates include: 58 diagnostic cases, 99 IR coverage entries, 19 IR smoke tests,
 Foundry runtime smoke tests, and Anvil deploy tests~\cite{foundry}.
@@ -632,14 +642,13 @@ portable IR
   -> Mollusk / Surfpool / Pinocchio tests
 \end{lstlisting}
 
-The backend defines Solana-specific constructs in \texttt{ProofForge.Solana}:
-\texttt{AccountMeta} (writable/read-only accounts with signer policies),
-\texttt{PdaBinding} (program-derived address derivation with seeds and bump),
-\texttt{CpiCall} (cross-program invocations with account metas and signer seeds),
-\texttt{SysvarReadAction} (system variable reads: rent, epoch schedule, etc.),
-\texttt{MemoryAction} (runtime memory operations: memcpy, memset, memcmp),
-\texttt{CryptoHashAction} (SHA-256, Keccak-256, Blake3), and
-\texttt{ComputeUnitsAction} (compute budget introspection).
+The backend defines Solana-specific constructs in the Solana SDK layer:
+\begin{itemize}[leftmargin=*,nosep]
+  \item account metas and signer policies;
+  \item PDA bindings with seeds and bump values;
+  \item CPI calls with account metas and signer seeds;
+  \item sysvar, memory, crypto-hash, and compute-budget actions.
+\end{itemize}
 
 These Solana-specific constructs are gated by \texttt{crosscall.cpi} and \texttt{storage.pda}
 capabilities (D-027) and never appear in the portable IR itself---they live in the Solana
@@ -665,25 +674,24 @@ portable IR
   -> offline host execution / NEAR deployment
 \end{lstlisting}
 
-EmitWat avoids the macro coupling of Rust \texttt{near-sdk-rs} source generation (D-031) and
-the Lean-runtime-to-Wasm port that blocked prior approaches. Because the portable IR already
-abstracts over Lean objects (only \texttt{u32}/\texttt{u64}/\texttt{bool}/\texttt{hash} scalars
-+ storage effects), EmitWat needs no Lean runtime port, object-model boxing, or garbage
-collection.
+EmitWat avoids Rust \texttt{near-sdk-rs} macro coupling (D-031) and the Lean-runtime-to-Wasm
+port that blocked prior approaches. Because the portable IR already abstracts over Lean
+objects, EmitWat needs no Lean runtime port, object-model boxing, or garbage collection.
 
 The NEAR backend includes target-first \texttt{check}, \texttt{emit}, and \texttt{build}
-commands, writes \texttt{proof-forge-artifact.json} and \texttt{proof-forge-deploy.json},
-validates WAT/Wasm hashes, ABI entrypoints, and capabilities, and executes the generated
-Counter WAT through an offline host.
+commands. It writes artifact and deploy manifests, validates WAT/Wasm hashes,
+ABI entrypoints, and capabilities, and executes the generated Counter WAT through
+an offline host.
 
 \subsection{Research and Frozen Backends}
 
 Additional backends exist in research or frozen-spike stages:
-\textbf{Psy/DPN} (portable IR $\to$ \texttt{.psy} $\to$ Dargo $\to$ DPN circuit JSON, experimental),
-\textbf{Aleo Leo} (portable IR $\to$ Leo package, research spike with golden fixtures~\cite{aleo}),
-\textbf{Cloudflare Workers} (portable IR $\to$ TypeScript Worker, off-chain host),
-\textbf{Move/Aptos}~\cite{move} (frozen at M1/M2 spike per D-044), and
-\textbf{CosmWasm}~\cite{cosmwasm} (frozen at M1/M2 spike).
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{Psy/DPN} and \textbf{Aleo Leo}~\cite{aleo};
+  \item \textbf{Cloudflare Workers};
+  \item \textbf{Move/Aptos}~\cite{move} and \textbf{CosmWasm}~\cite{cosmwasm}.
+\end{itemize}
+These paths are useful architecture probes, but they are outside the P0 production-grade claim.
 
 %% =====================================================
 %% 6. FORMAL VERIFICATION
@@ -691,14 +699,15 @@ Additional backends exist in research or frozen-spike stages:
 \section{Formal Verification}
 \label{sec:fv}
 
-ProofForge is Lean-first, but most current assurance comes from tests and golden files rather
-than theorems. The formal verification roadmap (FV-1 through FV-8) progressively turns
-test-validated invariants into machine-checked theorems. Proofs gate codegen, per RFC~0001:
-no proof transport to chains, no on-chain verification of Lean proofs.
+ProofForge is Lean-first, but most current assurance comes from executable semantics,
+trace obligations, tests, and golden files rather than complete metatheory. The formal
+verification roadmap (FV-1 through FV-8) progressively turns test-validated invariants into
+machine-checked theorems. The intended model is compile-time proof checking and no proof
+transport to chains: Lean proofs are not verified on-chain.
 
 \subsection{Existing Formal Anchors}
 
-Three formal anchors are already implemented on \texttt{main}; see Table~\ref{tab:fv}.
+Three verification anchors are already implemented on \texttt{main}; see Table~\ref{tab:fv}.
 
 \begin{table*}[t]
   \caption{Existing formal verification anchors.}
@@ -709,11 +718,11 @@ Three formal anchors are already implemented on \texttt{main}; see Table~\ref{ta
     \toprule
     \bfseries Anchor & \bfseries What it provides \\
     \midrule
-    IR Semantics \scriptsize(\texttt{IR/Semantics.lean}) & Trace interpreter for scalars, arrays, structs, storage, control flow, events; \texttt{decide}-checked \\
+    IR Semantics \scriptsize(\texttt{IR/Semantics.lean}) & Executable trace interpreter for the covered scalar, aggregate, storage, control-flow, and event slices; \texttt{decide}-checked \\
     \addlinespace
-    Ownership Rules \scriptsize(\texttt{IR/Ownership.lean}) & \texttt{release}/owned-local discipline; no use-after-release, no double-release \\
+    Ownership Rules \scriptsize(\texttt{IR/Ownership.lean}) & Static \texttt{release}/owned-local checker; FV-3 will prove semantic no-use-after-release and no-double-release soundness \\
     \addlinespace
-    Trace Obligations \scriptsize(\texttt{Backend/*/Refinement.lean}) & \texttt{decide}-checked theorems: Counter, ValueVault + 8 probe traces match expected observable values on EVM Yul and NEAR WAT \\
+    Trace Obligations \scriptsize(\texttt{Backend/*/Refinement.lean}) & \texttt{decide}-checked obligations: EVM/Yul covers Counter, ValueVault, and focused probe traces; NEAR/WAT currently anchors the Counter IR trace/export surface \\
     \bottomrule
   \end{tabularx}
 \end{table*}
@@ -737,6 +746,8 @@ Figure~\ref{fig:fv-roadmap} shows the staged FV roadmap and its dependency struc
     \draw[arrow] (fv1) -- (fv2);
     \draw[arrow] (fv2) -- (fv3);
     \draw[arrow] (fv3) -- (fv4);
+    \draw[arrow] (fv4.east) -- (fv5.west);
+    \draw[arrow] (fv4.east) to[bend left=14] (fv6.west);
     \draw[arrow] (fv4) -- (fv7);
     \draw[arrow] (fv7) -- (fv8);
   \end{tikzpicture}
@@ -748,11 +759,10 @@ Figure~\ref{fig:fv-roadmap} shows the staged FV roadmap and its dependency struc
   \label{fig:fv-roadmap}
 \end{figure}
 
-\textbf{FV-1 (Capability Routing Soundness):} Prove that if
-\texttt{resolveSpec profile spec = .ok plan}, then every capability in
-\texttt{plan.calls} is in \texttt{profile.capabilities} (soundness), and that if the spec
-references a capability outside the profile, \texttt{resolveSpec} returns \texttt{.error}
-(completeness of rejection). These are structural inductions over arrays---no semantics needed.
+\textbf{FV-1 (Capability Routing Soundness):} Prove that a successful
+\texttt{resolveSpec} result only contains capabilities supported by the target profile.
+Also prove rejection completeness: if the spec references an unsupported capability,
+resolution returns an error. These are structural inductions over arrays---no semantics needed.
 
 \textbf{FV-2 (IR Semantics):} Extend \texttt{IR/Semantics.lean} from the scalar subset toward
 the full checked IR surface. State and prove: determinism (one trace per input/state), progress
@@ -761,8 +771,8 @@ static bounds. Keep the semantics executable (\texttt{decide}-friendly) so CI ch
 
 \textbf{FV-3 (Ownership/Release Soundness):} Once FV-2 gives release-aware semantics, prove
 that programs accepted by the ownership checker never evaluate a released local and never
-release twice. This is the formal justification for lowering \texttt{release} to allocator frees
-in EmitWat while EVM/Psy reject it and TS ignores it.
+release twice. This justifies target-specific \texttt{release} lowering choices: allocator
+frees in EmitWat, rejection on EVM/Psy, and no-op treatment in TS.
 
 \textbf{FV-4 (Backend Refinement):} Replicate the \texttt{TraceObligation} pattern per backend
 against the shared scenario (Counter first, ValueVault second). Each backend earns
@@ -816,9 +826,11 @@ and verifies trace parity. Table~\ref{tab:parity} summarizes the results.
 Per D-040, Tier-0 parity requires comparing behavior \emph{and} resource budgets. The testkit
 scenarios pin budget baselines with tolerance bands for EVM gas, Solana compute units (CU), and
 NEAR gas (Tgas). Table~\ref{tab:validation} summarizes the validation coverage per target.
+Rows marked ``---'' are target-specific gates rather than missing P0 evidence; the shared rows
+apply to all three primary targets.
 
 \begin{table*}[t]
-  \caption{Validation gate coverage per primary target.}
+  \caption{Dedicated and shared validation gate coverage per primary target.}
   \label{tab:validation}
   \centering
   \ttab
@@ -826,6 +838,8 @@ NEAR gas (Tgas). Table~\ref{tab:validation} summarizes the validation coverage p
     \toprule
     \bfseries Gate & \bfseries EVM & \bfseries Solana sBPF & \bfseries NEAR/Wasm \\
     \midrule
+    Shared scenario behavior parity & \checkmark & \checkmark & \checkmark \\
+    Resource budget baselines       & \checkmark & \checkmark & \checkmark \\
     Diagnostic cases              & 58 & --- & --- \\
     IR coverage entries            & 99 & --- & --- \\
     IR smoke tests                 & 19 & --- & --- \\
@@ -864,8 +878,8 @@ Table~\ref{tab:compare} compares ProofForge with the two closest multi-chain pla
     \bfseries Feature & \bfseries ProofForge & \bfseries Reach & \bfseries Solang \\
     \midrule
     Source language        & Lean 4 & Reach DSL & Solidity \\
-    Formal proofs          & Integrated (Lean) & Linear temporal logic & No \\
-    Capability model       & 23 IDs, 9 profiles & Network-specific & EVM-centric \\
+    Formal proofs          & Lean anchors + roadmap & Linear temporal logic & No \\
+    Capability model       & 23 IDs, 10 profiles & Network-specific & EVM-centric \\
     Compile-time reject    & Capability + target ID & Partial & No \\
     Targets                & EVM + Solana + NEAR & EVM + Algorand & Solana + Polkadot \\
     Portable IR            & Yes (typed effects) & Partial & No \\
@@ -888,7 +902,7 @@ documented with rationale and date. Key decisions include: \textbf{D-027} (CPI/P
 in a Solana-specific layer, not the portable IR); \textbf{D-028} (user contracts target a
 chain-neutral Contract Intent API; the selected target resolves intents into capability plans);
 \textbf{D-031} (EmitWat is the canonical Wasm-family backend); and \textbf{D-045} (the three
-priority chains must be completed to production-grade quality before any additional chain
+priority chains must be completed to P0 production-grade quality before any additional chain
 advances beyond docs-only research).
 
 \subsection{Limitations}
@@ -907,12 +921,12 @@ to \texttt{proof-forge build|emit|check -{}-target}; legacy aliases remain for c
 \section{Conclusion and Future Work}
 \label{sec:concl}
 
-ProofForge demonstrates that a Lean-first, capability-routed, portable-IR-centered architecture
-can produce production-grade smart contract artifacts across heterogeneous blockchain platforms
-without silently changing semantics. The platform's core promise---\emph{one verified contract
-source, multiple chain-native artifacts, unsupported operations rejected at compile time}---is
-validated by the closure of Gate~P0, with behavior parity and resource budgets confirmed across
-EVM, Solana sBPF, and NEAR/Wasm.
+ProofForge demonstrates that a Lean-first, capability-routed architecture can produce P0-grade
+smart contract artifacts across heterogeneous blockchain platforms without silently changing
+semantics. The platform's core promise---\emph{one proof-oriented contract source, multiple
+chain-native artifacts, unsupported operations rejected at compile time}---is validated by
+the closure of Gate~P0, with behavior parity and resource budgets confirmed across EVM,
+Solana sBPF, and NEAR/Wasm.
 
 The staged formal verification roadmap (FV-1 through FV-8) provides a clear path from the current
 test-validated invariants toward machine-checked theorems, starting with capability routing

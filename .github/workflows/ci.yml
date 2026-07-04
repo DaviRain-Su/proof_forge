@@ -81,6 +81,7 @@ jobs:
       - name: Check formal semantics anchors
         run: |
           lake build ProofForge.Backend.Evm.Refinement
+          lake build ProofForge.Contract.Examples.ValueVaultInvariant
           lake env lean --run Tests/NearWasmFormal.lean
 
       - name: Run EmitWat offline host smoke

@@ -45,7 +45,7 @@ disposition is:
 |---|---|---|
 | R1: RFC 0009 and D-039 lagged behind the landed CLI M1 work | Closed on current `main`: RFC 0009 is accepted with M1/M3 landed, and D-039 now ratifies the compatibility-layer implementation instead of claiming a pre-code freeze | Keep RFC 0009 and CLI migration docs synchronized as M4 legacy-alias removal is scheduled |
 | R2: too many half-finished workstreams are active | Accepted as a planning risk | Gate P0 is closed and CLI M3 is now guarded by `just cli-target-first`; keep M4 alias removal behind the compatibility window and avoid opening Tier-1 M3/M4 work implicitly |
-| R3: no end-to-end proof connects user invariants to generated artifacts | Partially accepted: source-level proofs, NEAR trace obligations, EVM FV-4 executable Yul trace anchors, and FV-2 aggregate/storage/map/control-flow IR traces exist, but full IR-to-artifact semantic preservation is not done. The EVM map/storage/aggregate/control-flow slices now connect covered FV-2 IR traces to executable Yul obligations. | Extend FV-2 over observable event-log traces, deepen NEAR from export coverage toward artifact execution obligations, and then connect user-level invariants to the covered IR semantics |
+| R3: no end-to-end proof connects user invariants to generated artifacts | Partially accepted: source-level proofs, FV-2 aggregate/storage/map/control-flow/event-log IR traces, the first FV-8 ValueVault accounting/net-value invariant anchors over IR semantics, NEAR trace obligations plus Counter and ValueVault EmitWat artifact-surface/offline-host execution-surface obligations, the NEAR ValueVault backend-invariant state bridge, and EVM FV-4 executable Yul trace anchors exist, but full IR-to-artifact semantic preservation is not done. The EVM map/storage/aggregate/control-flow/event slices now connect covered FV-2 IR traces to executable Yul obligations. | Extend NEAR FV-4 from the new backend-invariant state bridge toward a richer Wasm/offline-host semantics boundary, then prove semantic preservation beyond the current state/IO equality anchors |
 | R4: capability granularity is too coarse | Do not churn capability ids in the current phase; storage is already split into scalar/map/array/PDA, and Solana account semantics are modeled separately from storage patterns | Treat cross-target runtime differences as budget/diagnostic obligations: each target must reject unsupported shapes explicitly and pin resource budgets for supported ones |
 | R5: docs-first target notes create hidden sunk cost | Closed at the scheduling layer: D-045 and the target roadmap restricted product hardening to `solana-sbpf-asm`, `evm`, and `wasm-near` until Gate P0 closed | Keep research notes as inventory; schedule Tier-1 M3/M4 explicitly rather than letting old research notes create automatic implementation scope |
 | R6: Lean/toolchain onboarding friction | Partially closed: `docs/onboarding.md` exists and names the core toolchain and per-target tools, but editor workspace config, templates, and scaffolding remain open DX work | Add VS Code/Cursor workspace recommendations and a minimal project template after the NEAR/Wasm P0-3 closure, unless onboarding friction blocks P0 work earlier |
@@ -59,12 +59,24 @@ The immediate engineering order after this review is therefore:
    and runs the target-first mapping regression suite. M4 legacy flag removal
    remains intentionally deferred until the RFC 0009 compatibility window.
 3. Continue formal verification work: FV-2 now has aggregate/storage executable
-   traces, state-threaded map insert/set lifecycle traces, and control-flow
-   traces for `ifElse`/`boundedFor`. The covered EVM
-   map/storage/aggregate/control-flow obligations compare those IR traces
-   against executable emitted Yul. Next extend FV-2 over observable event-log
-   traces and deepen NEAR from export coverage toward artifact execution
-   obligations.
+   traces, state-threaded map insert/set lifecycle traces, control-flow traces
+   for `ifElse`/`boundedFor`, observable event-log traces, and determinism plus
+   bounded-loop measure anchors. The covered EVM
+   map/storage/aggregate/control-flow/event obligations compare those IR traces
+   against executable emitted Yul. NEAR now has Counter and ValueVault EmitWat
+   AST artifact-surface obligations plus offline-host execution-surface
+   obligations that pin Borsh input bytes, deterministic host return/log
+   observations, storage-key counts, and cumulative log counts. FV-8 now has a
+   first ValueVault IR invariant anchor for the shared 11-step scenario,
+   including return-trace, accounting, final-storage, and net-value checks. The
+   latest NEAR FV-4 slice adds a decide-checkable backend-invariant state
+   bridge: the ValueVault offline-host input sequence is derived from the FV-8
+   scenario inputs, return fragments are checked against FV-8 expected returns,
+   final offline-host state is checked against the FV-8 scenario state and
+   accounting/final-storage predicates, and ValueVault event log JSON fragments
+   are derived from the invariant final state. Next extend this bridge from
+   state/IO equality toward a richer Wasm memory and host-call semantics
+   boundary.
 4. Address the remaining DX items (`.vscode` recommendations, project template,
    and scaffolding) once they no longer compete with the P0 closure.
 
@@ -2086,9 +2098,10 @@ Tasks (see the roadmap for full statements):
   Done: executable aggregate/storage slices for fixed arrays, struct values,
   aggregate ABI params/returns, storage arrays, storage struct fields, nested
   storage paths, state-threaded effectful expressions covering map insert/set
-  lifecycles, and control-flow execution for `ifElse` plus `boundedFor`.
-  Remaining: model events as observable log traces, then prove determinism plus
-  bounded-loop termination.
+  lifecycles, control-flow execution for `ifElse` plus `boundedFor`,
+  observable event-log traces, deterministic-result anchors, and a
+  bounded-loop decreasing-measure anchor. Remaining: progress/preservation for
+  the validated typed subset.
 - FV-3: prove the `IR/Ownership.lean` checker sound against release-aware
   semantics (no use-after-release, no double release), justifying the three
   divergent `release` lowerings (EmitWat allocator, EVM/Psy reject, TS
@@ -2112,21 +2125,34 @@ Tasks (see the roadmap for full statements):
   (storage structs and arrays of flat structs), `EvmAbiAggregateProbe`
   (aggregate ABI params/returns), `ConditionalProbe` (if/else storage updates),
   and `EvmLoopProbe` (bounded loops plus branch/loop early returns). The covered
-  FV-2 IR aggregate/storage/map/control-flow traces are now wired into those EVM
+  FV-2 IR aggregate/storage/map/control-flow/event traces are now wired into those EVM
   obligations through explicit IR call arguments and `*_ir_observable_trace_ok`
   theorem anchors, so the same observable return words are checked on the IR
-  side and the executable emitted-Yul side. Next: extend FV-2 over observable
-  event-log traces, deepen NEAR from export coverage toward artifact execution
-  obligations, and keep Psy/Solana on differential gates until their
-  interpreters exist.
+  side and the executable emitted-Yul side. NEAR now has Counter and ValueVault
+  artifact-surface obligations over the `Compiler.Wasm.AST` produced by
+  `EmitWat.lowerModule`, pinning entrypoint/helper host-boundary calls, memory,
+  storage-key data, and ValueVault event data before WAT printing. NEAR also
+  has Counter and ValueVault offline-host execution-surface obligations that
+  derive the Borsh/little-endian input bytes and expected deterministic host
+  return fragments from the same IR trace boundary, while the CI smoke executes
+  the generated WAT through `runtime/offline-host` and checks the matching
+  ValueVault returns/events. Next: extend NEAR FV-4 from these execution
+  surfaces toward a richer Wasm/offline-host semantics boundary, and keep
+  Psy/Solana on differential gates until their interpreters exist.
 - FV-5: state checked-arithmetic overflow/division semantics once in the IR
   value domain and add the overflow branch to backend obligations.
 - FV-6: prove `.learn`-vs-`contract_source` lowering equivalence for the
   paired fixture subset (decidable `ContractSpec` equality).
 - FV-7: prove Token SDK plan invariants (total feature routing, documented
   incompatibility diagnostics, plan well-formedness).
-- FV-8: user-facing contract invariants over IR semantics, ValueVault as the
-  worked example.
+- FV-8: first ValueVault worked-example invariants are now in
+  `ProofForge.Contract.Examples.ValueVaultInvariant`. The decide-checkable
+  anchors execute the chain-neutral ValueVault `contract_source` module through
+  the shared 11-step FV-2 IR scenario, then check the observable return trace,
+  `balance + released + fees = externally supplied value`, final storage
+  fields, and `get_net_value = balance - fees`. Next: turn this concrete
+  module into an author-facing invariant pattern and connect the proved IR
+  invariants to FV-4 backend obligations.
 
 Acceptance criteria:
 

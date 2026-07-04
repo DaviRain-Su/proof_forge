@@ -15,8 +15,9 @@ The NEAR work contributed the first three formal anchors, now on `main`:
 | Anchor | Module | What it gives us |
 |---|---|---|
 | Executable IR semantics (scalar + first aggregate/storage/control-flow/event slice) | `ProofForge/IR/Semantics.lean` | A small executable trace interpreter for scalar values plus fixed arrays, structs, storage arrays, storage struct fields, storage paths, aggregate ABI params/returns, `ifElse`, `boundedFor`, and observable event-log items; used by the NEAR trace obligations and the first FV-2 aggregate/storage/control-flow/event checks |
+| User contract invariants over IR traces | `ProofForge/Contract/Examples/ValueVaultInvariant.lean`, `Tests/NearWasmFormal.lean` | The first FV-8 worked example: the chain-neutral ValueVault `contract_source` module is executed through the shared 11-step IR scenario, then decide-checked theorems pin the observable returns, the accounting invariant `balance + released + fees = externally supplied value`, final storage fields, and `get_net_value = balance - fees` |
 | Ownership rules | `ProofForge/IR/Ownership.lean`, `Tests/IROwnership.lean` | Checker for `release`/owned-local discipline (no use-after-release, branch consistency), currently validated by tests |
-| Backend trace obligations | `ProofForge/Backend/WasmNear/Refinement.lean`, `ProofForge/Backend/Evm/Refinement.lean`, `ProofForge/Backend/Evm/YulSemantics.lean`, `Tests/NearWasmFormal.lean` | `TraceObligation` with `decide`-checked theorems: the Counter, ValueVault, EvmExpressionProbe, EvmMapProbe, EvmTypedStorageProbe, EvmStorageStructProbe, EvmAbiAggregateProbe, ConditionalProbe, EvmLoopProbe, and EventProbe IR traces match expected observable values where IR semantics exists, EmitWat exports cover the NEAR trace entrypoints, the EVM Yul surface contains selector-dispatched functions for the same traces, and the focused emitted Yul subset executes scalar, map, typed-array storage, storage-struct, aggregate ABI, control-flow, and event-log traces to the same observable return/log words |
+| Backend trace obligations | `ProofForge/Backend/WasmNear/Refinement.lean`, `ProofForge/Backend/Evm/Refinement.lean`, `ProofForge/Backend/Evm/YulSemantics.lean`, `Tests/NearWasmFormal.lean` | `TraceObligation` with `decide`-checked theorems: the Counter, ValueVault, EvmExpressionProbe, EvmMapProbe, EvmTypedStorageProbe, EvmStorageStructProbe, EvmAbiAggregateProbe, ConditionalProbe, EvmLoopProbe, and EventProbe IR traces match expected observable values where IR semantics exists, EmitWat exports cover the NEAR trace entrypoints, the NEAR Counter and ValueVault artifact-surface obligations pin emitted Wasm AST host-boundary calls before WAT printing, the NEAR offline-host execution-surface obligations pin Borsh input bytes plus deterministic host return fragments for Counter and ValueVault, the EVM Yul surface contains selector-dispatched functions for the same traces, and the focused emitted Yul subset executes scalar, map, typed-array storage, storage-struct, aggregate ABI, control-flow, and event-log traces to the same observable return/log words |
 
 These are the right shape: small executable definitions plus decidable
 theorems, checked in CI without external tools.
@@ -51,15 +52,15 @@ arrays, struct values, aggregate ABI params/returns, storage arrays, storage
 struct fields, storage paths (including nested map-key paths), and
 state-threaded effectful expressions for storage map insert/set lifecycles,
 `ifElse`, `boundedFor`, and observable event-log trace items, through
-`decide`-checked traces in `Tests/NearWasmFormal.lean`. The next FV-2 work is
-to state:
+`decide`-checked traces in `Tests/NearWasmFormal.lean`. The first FV-2
+metatheory anchors also state deterministic interpreter results and the
+decreasing measure used by `boundedFor`. The next FV-2 work is to state:
 
-- **Determinism:** evaluation of a well-formed entrypoint body is
-  deterministic (one trace per input/state).
 - **Progress/preservation for the typed subset:** statements that pass the
   existing shape/type validation do not get stuck and preserve binding types.
-- **Bounded termination:** `boundedFor` with static bounds always terminates
-  (structurally true today; state it so future IR changes cannot break it).
+- **Bounded termination completion:** the current decreasing-measure anchor
+  should grow into a theorem over the release-aware, validated statement
+  subset once FV-3 introduces that semantics.
 
 This is the foundation everything else refines against. Keep it executable
 (`decide`-friendly) so CI checks stay cheap.
@@ -80,7 +81,7 @@ scenario (Counter first, ValueVault second):
 
 | Backend | Obligation shape | Feasibility |
 |---|---|---|
-| `wasm-near` / EmitWat | Exists (exports + IR trace); extend to Wasm-level evaluation of the emitted WAT through the offline host | High — offline host already executes the artifact deterministically |
+| `wasm-near` / EmitWat | Exists (exports + IR trace) and now has Counter + ValueVault artifact-surface obligations over the emitted Wasm AST: required NEAR host imports, entrypoint/helper call sequences, memory export, storage-key data, and ValueVault event data are checked before WAT printing. It also has Counter + ValueVault offline-host execution-surface obligations: the same IR trace boundary derives the Borsh/little-endian input bytes and deterministic host return fragments that `runtime/offline-host` must print when executing the generated WAT. Extend this toward a richer Wasm/offline-host semantics boundary | High — offline host already executes the artifact deterministically |
 | `evm` (IR → Yul plan) | Counter, ValueVault, and EvmExpressionProbe obligations exist for IR trace + selector-dispatched Yul surface + executable Yul-subset trace (`calldataload`, `calldatasize`, `sstore`, `sload`, scalar arithmetic, `exp`, bitwise/shift operators, comparisons, casts, assertions, `number`, deterministic memory-sensitive `keccak256` surrogate, `log0`-`log4`, `mstore`, `return`, focused `switch`, and bounded `for`). The covered FV-2 aggregate/storage, map lifecycle, control-flow, and event-log traces are now wired into the EVM obligations for `EvmMapProbe`, `EvmTypedStorageProbe`, `EvmStorageStructProbe`, `EvmAbiAggregateProbe`, `ConditionalProbe`, `EvmLoopProbe`, and `EventProbe`, so maps, presence slots, typed storage arrays, storage structs, aggregate ABI params/returns, if/else branches, bounded loops, early returns, ValueVault business events, signature-derived `topic0`, scalar indexed events, aggregate event data, and hashed aggregate indexed topics are checked on both the IR trace and executable emitted-Yul sides. | Medium — the focused Yul-subset interpreter is in Lean; expanding coverage keeps `solc` out of the trusted path but not out of the build |
 | `psy-dpn` | Compare `dargo execute` result vectors against IR trace outputs (differential gate, not a theorem) | Already close: smoke scripts assert `result_vm` values today |
 | `solana-sbpf-asm` | Differential testing via Mollusk/Surfpool first; assembly-level semantics is a research track, not a near-term proof | Low for proofs, high for differential gates |
@@ -126,7 +127,18 @@ The long-term differentiator: let contract authors state invariants next to
 `contract_source` (e.g. `balance = deposits - releases + fees` for
 ValueVault) and prove them against the FV-2 semantics before codegen. This
 needs no backend work — it is pure Lean over the IR semantics — and is the
-first proof surface users see. Start with ValueVault as the worked example.
+first proof surface users see. The first worked example is now
+`ProofForge.Contract.Examples.ValueVaultInvariant`: it executes ValueVault's
+shared scenario in the FV-2 interpreter and pins the return trace, final
+storage shape, accounting invariant, and net-value invariant.
+
+Next, turn that concrete module into an authoring pattern:
+
+- make invariant declarations live near `contract_source`;
+- separate reusable invariant predicates from scenario-specific inputs;
+- connect proved IR invariants to FV-4 backend obligations so generated
+  artifacts cannot drift from the proved scenario without a theorem/gate
+  failure.
 
 ## Non-goals
 
@@ -143,11 +155,14 @@ first proof surface users see. Start with ValueVault as the worked example.
 1. FV-1 capability soundness (structural, unblocks nothing, high trust value).
 2. FV-2 semantics extension + determinism (foundation).
 3. FV-3 ownership soundness (justifies the merged `release` lowerings).
-4. FV-4 EVM Yul-subset trace obligations: scalar IR traces are done for
+4. FV-4 backend trace obligations: scalar EVM IR traces are done for
    Counter, ValueVault, and EvmExpressionProbe; FV-2 map/aggregate/storage,
    control-flow, and event-log IR traces are now also connected to the EVM map,
    typed-storage, storage-struct, aggregate-ABI, conditional, loop, and event
-   obligations. Next, deepen the Wasm/NEAR side from export coverage toward
-   artifact-level execution obligations.
+   obligations. NEAR now has Counter and ValueVault EmitWat artifact-surface
+   obligations plus offline-host execution-surface obligations; next, deepen
+   that boundary toward richer Wasm/offline-host semantics.
 5. FV-6 authoring-surface equivalence for the fixture subset.
-6. FV-5 / FV-7 as the respective surfaces stabilize; FV-8 once FV-2 lands.
+6. FV-5 / FV-7 as the respective surfaces stabilize; continue FV-8 by turning
+   the ValueVault invariant anchor into a reusable authoring surface and then
+   linking it to backend obligations.
