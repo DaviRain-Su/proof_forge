@@ -2,55 +2,44 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Portable Ownable access-control primitive for the unified EVM entry path.
+Portable Ownable access-control primitive authored with `contract_source`.
 -/
-import ProofForge.Contract.Builder
+import ProofForge.Contract.Source
 
 namespace Ownable
 
-open ProofForge.Contract.Builder
-open ProofForge.IR
+open ProofForge.Contract.Source
 
 namespace Spec
 
 structure State where
-  owner : Nat
+  ownerAddr : Nat
 
-def initialized (s : State) : Prop := s.owner ≠ 0
+def initialized (s : State) : Prop := s.ownerAddr ≠ 0
 
-def isOwner (s : State) (caller : Nat) : Prop := caller = s.owner
+def isOwner (s : State) (caller : Nat) : Prop := caller = s.ownerAddr
 
-theorem isOwner_refl (s : State) : isOwner s s.owner := by rfl
+theorem isOwner_refl (s : State) : isOwner s s.ownerAddr := by rfl
 
 end Spec
 
-def spec : ProofForge.Contract.ContractSpec :=
-  build "Ownable" do
-    scalarState "owner" .u64
+contract_source Ownable do
+  state «owner» : .u64
 
-    entry "init" do
-      letBind "current" .u64 (storageScalarRead "owner")
-      assert (eq (.local "current") (u64 0)) "already initialized"
-      letBind "sender" .u64 (contextRead .userId)
-      effect (storageScalarWrite "owner" (.local "sender"))
+  entry init do
+    do ProofForge.Contract.Surface.requireZero «owner» "already initialized";
+    do ProofForge.Contract.Surface.write «owner» caller;
 
-    entryReturns "owner" .u64 do
-      ret (storageScalarRead "owner")
+  query «owner» returns(.u64) do
+    return «owner»;
 
-    entryWithParams "transferOwnership" #[("newOwner", .u64)] .unit do
-      letBind "sender" .u64 (contextRead .userId)
-      letBind "current" .u64 (storageScalarRead "owner")
-      assert (eq (.local "sender") (.local "current")) "not owner"
-      assert (ne (.local "newOwner") (u64 0)) "zero address"
-      effect (storageScalarWrite "owner" (.local "newOwner"))
+  entry transferOwnership (newOwner : .u64) do
+    do ProofForge.Contract.Surface.requireOwner «owner»;
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref newOwner) "zero address";
+    «owner» := newOwner;
 
-    entry "renounceOwnership" do
-      letBind "sender" .u64 (contextRead .userId)
-      letBind "current" .u64 (storageScalarRead "owner")
-      assert (eq (.local "sender") (.local "current")) "not owner"
-      effect (storageScalarWrite "owner" (u64 0))
-
-def module : ProofForge.IR.Module :=
-  spec.module
+  entry renounceOwnership do
+    do ProofForge.Contract.Surface.requireOwner «owner»;
+    «owner» := u64 0;
 
 end Ownable

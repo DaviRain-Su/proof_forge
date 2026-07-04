@@ -95,6 +95,7 @@ declare_syntax_cat solanaSeed
 declare_syntax_cat solanaSignerSeed
 
 scoped syntax "state " ident " : " term : contractItem
+scoped syntax "mapping " ident " from " term " to " term : contractItem
 scoped syntax "binding " ident " : " term : contractItem
 scoped syntax "event " ident : contractItem
 scoped syntax "allocator " "bump" : contractItem
@@ -119,6 +120,7 @@ scoped syntax "use " term : contractItem
 scoped syntax "entry " ident " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident "(" ident " : " term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ")" " do" ppLine entryStmt* : contractItem
+scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
@@ -166,6 +168,13 @@ private def mkParamLet (name : TSyntax `ident) (type : TSyntax `term)
 private def mkBindingLet (name : TSyntax `ident) (type : TSyntax `term)
     (body : TSyntax `term) : MacroM (TSyntax `term) :=
   mkParamLet name type body
+
+private def mkMapLet (name : TSyntax `ident) (keyType valueType : TSyntax `term)
+    (body : TSyntax `term) : MacroM (TSyntax `term) := do
+  let nameLit := identNameLit name
+  `(let $name : ProofForge.Contract.Surface.MapRef :=
+      { id := $nameLit, keyType := $keyType, valueType := $valueType }
+    $body)
 
 private def mkStateLet (name : TSyntax `ident) (type : TSyntax `term)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
@@ -324,6 +333,18 @@ private def mkEntry2 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
           (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2] $retTy)
           $body)))
 
+private def mkEntry3 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
+    (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 retTy : TSyntax `term)
+    (stmts : Array (TSyntax `entryStmt)) : MacroM (TSyntax `term) := do
+  let nameLit := identNameLit name
+  let body ← lowerEntryBody stmts
+  mkParamLet p1 t1
+    (← mkParamLet p2 t2
+      (← mkParamLet p3 t3
+        (← `(ProofForge.Contract.Surface.entry
+            (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3] $retTy)
+            $body))))
+
 private structure LoweredItem where
   action? : Option (TSyntax `term) := none
   binder : TSyntax `term → MacroM (TSyntax `term) := fun body => pure body
@@ -333,6 +354,9 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
   | `(contractItem| state $name:ident : $type:term) =>
       let action ← `(ProofForge.Contract.Surface.scalar $name)
       return { action? := some action, binder := mkStateLet name type }
+  | `(contractItem| mapping $name:ident from $keyType:term to $valueType:term) =>
+      let action ← `(ProofForge.Contract.Surface.mapState $name)
+      return { action? := some action, binder := mkMapLet name keyType valueType }
   | `(contractItem| binding $name:ident : $type:term) =>
       return { binder := mkBindingLet name type }
   | `(contractItem| event $name:ident) =>
@@ -420,6 +444,8 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       return { action? := some (← mkEntry1 name p1 t1 (← `(.unit)) stmts) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term) do $stmts:entryStmt*) =>
       return { action? := some (← mkEntry2 name p1 t1 p2 t2 (← `(.unit)) stmts) }
+  | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term) do $stmts:entryStmt*) =>
+      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 (← `(.unit)) stmts) }
   | `(contractItem| query $name:ident returns($retTy:term) do $stmts:entryStmt*) =>
       return { action? := some (← mkEntry0 name retTy stmts) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term) returns($retTy:term) do $stmts:entryStmt*) =>
@@ -452,5 +478,30 @@ macro_rules
         def $moduleId : ProofForge.IR.Module :=
           ($specId).module
       )
+
+def mapRead [ToExpr α] (mapRef : ProofForge.Contract.Surface.MapRef) (mapKey : α) :
+    ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.mapGet mapRef (expr mapKey)
+
+def mapWrite [ToExpr α] [ToExpr β]
+    (mapRef : ProofForge.Contract.Surface.MapRef) (mapKey : α) (mapValue : β) : EntryM Unit :=
+  ProofForge.Contract.Surface.mapSet mapRef (expr mapKey) (expr mapValue)
+
+def pathReadAllowance (mapRef : ProofForge.Contract.Surface.MapRef)
+    (ownerKey spenderKey : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.pathRead mapRef.id
+    (ProofForge.Contract.Surface.allowancePath ownerKey spenderKey)
+
+def pathWriteAllowance [ToExpr α]
+    (mapRef : ProofForge.Contract.Surface.MapRef) (ownerKey spenderKey : ProofForge.IR.Expr)
+    (mapValue : α) : EntryM Unit :=
+  ProofForge.Contract.Surface.pathWrite mapRef.id
+    (ProofForge.Contract.Surface.allowancePath ownerKey spenderKey) (expr mapValue)
+
+def caller : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.caller
+
+def nativeValue : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.nativeValue
 
 end ProofForge.Contract.Source

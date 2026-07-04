@@ -21,15 +21,13 @@ object "Pausable" {
       result := sload(0)
     }
     function f_Pausable_pause() {
-      let p := sload(0)
-      if iszero(eq(p, 0)) {
+      if iszero(eq(sload(0), 0)) {
         revert(0, 0)
       }
       sstore(0, 1)
     }
     function f_Pausable_unpause() {
-      let p := sload(0)
-      if iszero(iszero(eq(p, 0))) {
+      if iszero(iszero(eq(sload(0), 0))) {
         revert(0, 0)
       }
       sstore(0, 0)

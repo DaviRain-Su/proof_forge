@@ -25,20 +25,16 @@ object "Ownable" {
       revert(0, 0)
     }
     function f_Ownable_init() {
-      let current := sload(0)
-      if iszero(eq(current, 0)) {
+      if iszero(eq(sload(0), 0)) {
         revert(0, 0)
       }
-      let sender := caller()
-      sstore(0, sender)
+      sstore(0, caller())
     }
     function f_Ownable_owner() -> result {
       result := sload(0)
     }
     function f_Ownable_transferOwnership(newOwner) {
-      let sender := caller()
-      let current := sload(0)
-      if iszero(eq(sender, current)) {
+      if iszero(eq(caller(), sload(0))) {
         revert(0, 0)
       }
       if iszero(iszero(eq(newOwner, 0))) {
@@ -47,9 +43,7 @@ object "Ownable" {
       sstore(0, newOwner)
     }
     function f_Ownable_renounceOwnership() {
-      let sender := caller()
-      let current := sload(0)
-      if iszero(eq(sender, current)) {
+      if iszero(eq(caller(), sload(0))) {
         revert(0, 0)
       }
       sstore(0, 0)

@@ -162,4 +162,89 @@ def mul (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 def div (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.div lhs rhs
 
+def eq (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.eq lhs rhs
+
+def ne (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.ne lhs rhs
+
+def le (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.le lhs rhs
+
+def ge (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.ge lhs rhs
+
+def caller : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .userId
+
+def nativeValue : ProofForge.IR.Expr :=
+  .nativeValue
+
+def assertCondition (condition : ProofForge.IR.Expr) (message : String) : EntryM Unit :=
+  ProofForge.Contract.Builder.assert condition message
+
+def requireEq (lhs rhs : ProofForge.IR.Expr) (message : String) : EntryM Unit :=
+  ProofForge.Contract.Builder.assertEq lhs rhs message
+
+def requireNe (lhs rhs : ProofForge.IR.Expr) (message : String) : EntryM Unit :=
+  assertCondition (ne lhs rhs) message
+
+def requireGe (lhs rhs : ProofForge.IR.Expr) (message : String) : EntryM Unit :=
+  assertCondition (ge lhs rhs) message
+
+def requireNonZero (value : ProofForge.IR.Expr) (message : String) : EntryM Unit :=
+  assertCondition (ne value (u64 0)) message
+
+def requireZero (slot : ScalarRef) (message : String) : EntryM Unit :=
+  requireEq (read slot) (u64 0) message
+
+def requireOwner (ownerSlot : ScalarRef) (message : String := "not owner") : EntryM Unit :=
+  requireEq caller (read ownerSlot) message
+
+def requireNotPaused (pausedSlot : ScalarRef) (message : String := "paused") : EntryM Unit :=
+  requireEq (read pausedSlot) (u64 0) message
+
+def requirePaused (pausedSlot : ScalarRef) (message : String := "not paused") : EntryM Unit :=
+  requireNe (read pausedSlot) (u64 0) message
+
+def requireUnlocked (lockSlot : ScalarRef) (message : String := "reentrant") : EntryM Unit :=
+  requireEq (read lockSlot) (u64 0) message
+
+structure MapRef where
+  id : String
+  keyType : ValueType
+  valueType : ValueType
+  capacity : Nat := 256
+  deriving BEq, Repr
+
+def mapState (ref : MapRef) : ModuleM Unit :=
+  ProofForge.Contract.Builder.mapState ref.id ref.keyType ref.valueType ref.capacity
+
+def mapGet (ref : MapRef) (key : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.storageMapGet ref.id key
+
+def mapSet (ref : MapRef) (key value : ProofForge.IR.Expr) : EntryM Unit :=
+  ProofForge.Contract.Builder.effect
+    (ProofForge.Contract.Builder.storageMapSet ref.id key value)
+
+def mapKey (key : ProofForge.IR.Expr) : StoragePathSegment :=
+  .mapKey key
+
+def pathRead (stateId : String) (path : Array StoragePathSegment) : ProofForge.IR.Expr :=
+  .effect (.storagePathRead stateId path)
+
+def pathWrite (stateId : String) (path : Array StoragePathSegment) (value : ProofForge.IR.Expr) :
+    EntryM Unit :=
+  ProofForge.Contract.Builder.effect (.storagePathWrite stateId path value)
+
+def allowancePath (ownerKey spenderKey : ProofForge.IR.Expr) : Array StoragePathSegment :=
+  #[mapKey ownerKey, mapKey spenderKey]
+
+def acquireLock (lockSlot : ScalarRef) : EntryM Unit := do
+  requireUnlocked lockSlot
+  write lockSlot (u64 1)
+
+def releaseLock (lockSlot : ScalarRef) : EntryM Unit :=
+  write lockSlot (u64 0)
+
 end ProofForge.Contract.Surface

@@ -2,14 +2,13 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Portable Pausable emergency-stop primitive for the unified EVM entry path.
+Portable Pausable emergency-stop primitive authored with `contract_source`.
 -/
-import ProofForge.Contract.Builder
+import ProofForge.Contract.Source
 
 namespace Pausable
 
-open ProofForge.Contract.Builder
-open ProofForge.IR
+open ProofForge.Contract.Source
 
 namespace Spec
 
@@ -19,24 +18,18 @@ theorem not_paused_zero : ¬ paused 0 := by simp [paused]
 
 end Spec
 
-def spec : ProofForge.Contract.ContractSpec :=
-  build "Pausable" do
-    scalarState "paused" .u64
+contract_source Pausable do
+  state «paused» : .u64
 
-    entryReturns "paused" .u64 do
-      ret (storageScalarRead "paused")
+  query «paused» returns(.u64) do
+    return «paused»;
 
-    entry "pause" do
-      letBind "p" .u64 (storageScalarRead "paused")
-      assert (eq (.local "p") (u64 0)) "already paused"
-      effect (storageScalarWrite "paused" (u64 1))
+  entry pause do
+    do ProofForge.Contract.Surface.requireNotPaused «paused» "already paused";
+    «paused» := u64 1;
 
-    entry "unpause" do
-      letBind "p" .u64 (storageScalarRead "paused")
-      assert (ne (.local "p") (u64 0)) "not paused"
-      effect (storageScalarWrite "paused" (u64 0))
-
-def module : ProofForge.IR.Module :=
-  spec.module
+  entry unpause do
+    do ProofForge.Contract.Surface.requirePaused «paused»;
+    «paused» := u64 0;
 
 end Pausable

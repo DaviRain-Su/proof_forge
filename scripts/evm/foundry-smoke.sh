@@ -156,6 +156,60 @@ contract ProofForgeSmokeTest {
         assertFalse(reverted);
     }
 
+    function testOwnableLifecycle() public {
+        address ownable = address(0x0551);
+        address alice = address(0xA11CE);
+        address bob = address(0xB0B);
+        deployRuntime(hex"$(cat "$OUT_DIR/Ownable.bin")", ownable);
+
+        vm.prank(alice);
+        (bool initOk,) = ownable.call(abi.encodeWithSignature("init()"));
+        assertTrue(initOk);
+
+        (bool ownerOk, bytes memory ownerResult) = ownable.call(abi.encodeWithSignature("owner()"));
+        assertTrue(ownerOk);
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(alice)));
+
+        vm.prank(alice);
+        (bool transferOk,) = ownable.call(abi.encodeWithSignature("transferOwnership(uint256)", uint256(uint160(bob))));
+        assertTrue(transferOk);
+
+        (bool ownerBobOk, bytes memory ownerBobResult) = ownable.call(abi.encodeWithSignature("owner()"));
+        assertTrue(ownerBobOk);
+        assertEq(abi.decode(ownerBobResult, (uint256)), uint256(uint160(bob)));
+
+        vm.prank(bob);
+        (bool renounceOk,) = ownable.call(abi.encodeWithSignature("renounceOwnership()"));
+        assertTrue(renounceOk);
+
+        (bool ownerZeroOk, bytes memory ownerZeroResult) = ownable.call(abi.encodeWithSignature("owner()"));
+        assertTrue(ownerZeroOk);
+        assertEq(abi.decode(ownerZeroResult, (uint256)), 0);
+    }
+
+    function testPausableLifecycle() public {
+        address pausable = address(0xFA5E);
+        deployRuntime(hex"$(cat "$OUT_DIR/Pausable.bin")", pausable);
+
+        (bool paused0Ok, bytes memory paused0) = pausable.call(abi.encodeWithSignature("paused()"));
+        assertTrue(paused0Ok);
+        assertEq(abi.decode(paused0, (uint256)), 0);
+
+        (bool pauseOk,) = pausable.call(abi.encodeWithSignature("pause()"));
+        assertTrue(pauseOk);
+
+        (bool paused1Ok, bytes memory paused1) = pausable.call(abi.encodeWithSignature("paused()"));
+        assertTrue(paused1Ok);
+        assertEq(abi.decode(paused1, (uint256)), 1);
+
+        (bool unpauseOk,) = pausable.call(abi.encodeWithSignature("unpause()"));
+        assertTrue(unpauseOk);
+
+        (bool paused2Ok, bytes memory paused2) = pausable.call(abi.encodeWithSignature("paused()"));
+        assertTrue(paused2Ok);
+        assertEq(abi.decode(paused2, (uint256)), 0);
+    }
+
     function testVerifiedVaultLifecycle() public {
         address vault = address(0x7A17);
         address alice = address(0xA11CE);

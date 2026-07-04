@@ -2,14 +2,13 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Portable ERC-20 token for the unified EVM entry path.
+Portable ERC-20 token authored with `contract_source`.
 -/
-import ProofForge.Contract.Builder
+import ProofForge.Contract.Source
 
 namespace ERC20
 
-open ProofForge.Contract.Builder
-open ProofForge.IR
+open ProofForge.Contract.Source
 
 namespace Spec
 
@@ -31,65 +30,58 @@ theorem burn_decreases_supply {supply amount : Nat}
 
 end Spec
 
-def allowancePath (owner spender : Expr) : Array StoragePathSegment :=
-  #[.mapKey owner, .mapKey spender]
+contract_source ERC20 do
+  state totalSupply : .u64
+  mapping balances from .u64 to .u64
+  mapping allowances from .u64 to .u64
 
-def spec : ProofForge.Contract.ContractSpec :=
-  build "ERC20" do
-    scalarState "totalSupply" .u64
-    mapState "balances" .u64 .u64 256
-    mapState "allowances" .u64 .u64 256
+  query totalSupply returns(.u64) do
+    return totalSupply;
 
-    entryReturns "totalSupply" .u64 do
-      ret (storageScalarRead "totalSupply")
+  query balanceOf (who : .u64) returns(.u64) do
+    return mapRead balances who;
 
-    entryWithParams "balanceOf" #[("account", .u64)] .u64 do
-      ret (storageMapGet "balances" (.local "account"))
+  entry transfer (recipient : .u64, amount : .u64) do
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
+    let sender : .u64 := caller;
+    let srcBal : .u64 := mapRead balances sender;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal) (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do mapWrite balances sender (srcBal -! amount);
+    let dstBal : .u64 := mapRead balances recipient;
+    do mapWrite balances recipient (dstBal +! amount);
 
-    entryWithParams "transfer" #[("to", .u64), ("amount", .u64)] .unit do
-      letBind "sender" .u64 (contextRead .userId)
-      assert (ne (.local "to") (u64 0)) "zero recipient"
-      letBind "srcBal" .u64 (storageMapGet "balances" (.local "sender"))
-      assert (ge (.local "srcBal") (.local "amount")) "insufficient balance"
-      effect (storageMapSet "balances" (.local "sender") (sub (.local "srcBal") (.local "amount")))
-      letBind "dstBal" .u64 (storageMapGet "balances" (.local "to"))
-      effect (storageMapSet "balances" (.local "to") (add (.local "dstBal") (.local "amount")))
+  query allowance (ownerAddr : .u64, spender : .u64) returns(.u64) do
+    return pathReadAllowance allowances (ProofForge.Contract.Surface.ref ownerAddr) (ProofForge.Contract.Surface.ref spender);
 
-    entryWithParams "allowance" #[("owner", .u64), ("spender", .u64)] .u64 do
-      ret (.effect (.storagePathRead "allowances" (allowancePath (.local "owner") (.local "spender"))))
+  entry approve (spender : .u64, amount : .u64) do
+    let ownerAddr : .u64 := caller;
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref spender) "zero spender";
+    do pathWriteAllowance allowances (ProofForge.Contract.Surface.ref ownerAddr) (ProofForge.Contract.Surface.ref spender) amount;
 
-    entryWithParams "approve" #[("spender", .u64), ("amount", .u64)] .unit do
-      letBind "owner" .u64 (contextRead .userId)
-      assert (ne (.local "spender") (u64 0)) "zero spender"
-      effect (.storagePathWrite "allowances" (allowancePath (.local "owner") (.local "spender")) (.local "amount"))
+  entry transferFrom (src : .u64, dst : .u64, amount : .u64) do
+    let spender : .u64 := caller;
+    let current : .u64 := pathReadAllowance allowances (ProofForge.Contract.Surface.ref src) (ProofForge.Contract.Surface.ref spender);
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref current) (ProofForge.Contract.Surface.ref amount) "insufficient allowance";
+    do pathWriteAllowance allowances (ProofForge.Contract.Surface.ref src) (ProofForge.Contract.Surface.ref spender) (current -! amount);
+    let srcBal : .u64 := mapRead balances src;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal) (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do mapWrite balances src (srcBal -! amount);
+    let dstBal : .u64 := mapRead balances dst;
+    do mapWrite balances dst (dstBal +! amount);
 
-    entryWithParams "transferFrom" #[("src", .u64), ("dst", .u64), ("amount", .u64)] .unit do
-      letBind "spender" .u64 (contextRead .userId)
-      letBind "current" .u64 (.effect (.storagePathRead "allowances" (allowancePath (.local "src") (.local "spender"))))
-      assert (ge (.local "current") (.local "amount")) "insufficient allowance"
-      effect (.storagePathWrite "allowances" (allowancePath (.local "src") (.local "spender")) (sub (.local "current") (.local "amount")))
-      letBind "srcBal" .u64 (storageMapGet "balances" (.local "src"))
-      assert (ge (.local "srcBal") (.local "amount")) "insufficient balance"
-      effect (storageMapSet "balances" (.local "src") (sub (.local "srcBal") (.local "amount")))
-      letBind "dstBal" .u64 (storageMapGet "balances" (.local "dst"))
-      effect (storageMapSet "balances" (.local "dst") (add (.local "dstBal") (.local "amount")))
+  entry mint (who : .u64, amount : .u64) do
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref who) "zero account";
+    let ts : .u64 := totalSupply;
+    totalSupply := ts +! amount;
+    let bal : .u64 := mapRead balances who;
+    do mapWrite balances who (bal +! amount);
 
-    entryWithParams "mint" #[("account", .u64), ("amount", .u64)] .unit do
-      assert (ne (.local "account") (u64 0)) "zero account"
-      letBind "ts" .u64 (storageScalarRead "totalSupply")
-      effect (storageScalarWrite "totalSupply" (add (.local "ts") (.local "amount")))
-      letBind "bal" .u64 (storageMapGet "balances" (.local "account"))
-      effect (storageMapSet "balances" (.local "account") (add (.local "bal") (.local "amount")))
-
-    entryWithParams "burn" #[("account", .u64), ("amount", .u64)] .unit do
-      assert (ne (.local "account") (u64 0)) "zero account"
-      letBind "bal" .u64 (storageMapGet "balances" (.local "account"))
-      assert (ge (.local "bal") (.local "amount")) "insufficient balance"
-      effect (storageMapSet "balances" (.local "account") (sub (.local "bal") (.local "amount")))
-      letBind "ts" .u64 (storageScalarRead "totalSupply")
-      effect (storageScalarWrite "totalSupply" (sub (.local "ts") (.local "amount")))
-
-def module : ProofForge.IR.Module :=
-  spec.module
+  entry burn (who : .u64, amount : .u64) do
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref who) "zero account";
+    let bal : .u64 := mapRead balances who;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref bal) (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do mapWrite balances who (bal -! amount);
+    let ts : .u64 := totalSupply;
+    totalSupply := ts -! amount;
 
 end ERC20

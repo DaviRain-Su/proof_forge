@@ -63,33 +63,33 @@ object "ERC20" {
     function f_ERC20_totalSupply() -> result {
       result := sload(0)
     }
-    function f_ERC20_balanceOf(account) -> result {
-      result := sload(__proof_forge_map_slot(1, account))
+    function f_ERC20_balanceOf(who) -> result {
+      result := sload(__proof_forge_map_slot(1, who))
     }
-    function f_ERC20_transfer(to, amount) {
-      let sender := caller()
-      if iszero(iszero(eq(to, 0))) {
+    function f_ERC20_transfer(recipient, amount) {
+      if iszero(iszero(eq(recipient, 0))) {
         revert(0, 0)
       }
+      let sender := caller()
       let srcBal := sload(__proof_forge_map_slot(1, sender))
       if iszero(iszero(lt(srcBal, amount))) {
         revert(0, 0)
       }
       __proof_forge_map_write(1, sender, __pf_checked_sub(srcBal, amount))
-      let dstBal := sload(__proof_forge_map_slot(1, to))
-      __proof_forge_map_write(1, to, __pf_checked_add(dstBal, amount))
+      let dstBal := sload(__proof_forge_map_slot(1, recipient))
+      __proof_forge_map_write(1, recipient, __pf_checked_add(dstBal, amount))
     }
-    function f_ERC20_allowance(owner, spender) -> result {
-      result := sload(__proof_forge_map_slot(__proof_forge_map_slot(2, owner), spender))
+    function f_ERC20_allowance(ownerAddr, spender) -> result {
+      result := sload(__proof_forge_map_slot(__proof_forge_map_slot(2, ownerAddr), spender))
     }
     function f_ERC20_approve(spender, amount) {
-      let owner := caller()
+      let ownerAddr := caller()
       if iszero(iszero(eq(spender, 0))) {
         revert(0, 0)
       }
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(2, owner), spender)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(2, owner), spender)
+        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(2, ownerAddr), spender)
+        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(2, ownerAddr), spender)
         sstore(_slot, amount)
         sstore(_presence_slot, 1)
       }
@@ -114,24 +114,24 @@ object "ERC20" {
       let dstBal := sload(__proof_forge_map_slot(1, dst))
       __proof_forge_map_write(1, dst, __pf_checked_add(dstBal, amount))
     }
-    function f_ERC20_mint(account, amount) {
-      if iszero(iszero(eq(account, 0))) {
+    function f_ERC20_mint(who, amount) {
+      if iszero(iszero(eq(who, 0))) {
         revert(0, 0)
       }
       let ts := sload(0)
       sstore(0, __pf_checked_add(ts, amount))
-      let bal := sload(__proof_forge_map_slot(1, account))
-      __proof_forge_map_write(1, account, __pf_checked_add(bal, amount))
+      let bal := sload(__proof_forge_map_slot(1, who))
+      __proof_forge_map_write(1, who, __pf_checked_add(bal, amount))
     }
-    function f_ERC20_burn(account, amount) {
-      if iszero(iszero(eq(account, 0))) {
+    function f_ERC20_burn(who, amount) {
+      if iszero(iszero(eq(who, 0))) {
         revert(0, 0)
       }
-      let bal := sload(__proof_forge_map_slot(1, account))
+      let bal := sload(__proof_forge_map_slot(1, who))
       if iszero(iszero(lt(bal, amount))) {
         revert(0, 0)
       }
-      __proof_forge_map_write(1, account, __pf_checked_sub(bal, amount))
+      __proof_forge_map_write(1, who, __pf_checked_sub(bal, amount))
       let ts := sload(0)
       sstore(0, __pf_checked_sub(ts, amount))
     }
