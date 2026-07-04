@@ -999,10 +999,12 @@
 - 统一 CI 工作流：合并后的 `.github/workflows/ci.yml` 现在承载 EVM、Solana-light、NEAR 和 Psy 门控；一旦它们的工具链（`leo`、`tsc`/`wrangler`）固定，就将 Aleo 和 TS/Cloudflare 冒烟测试添加为可选作业。
 - 命名清理：决定公开 SDK 名称，安排 `Lean.Evm` → `ProofForge.*` 命名空间重命名，并执行 Learn 冻结（[authoring-model](authoring-model.md)）。
 - 在 RFC 0004 中宣布 `ContractSpec` → EVM Plan → Yul 为 EVM 产品流水线；将 LCNF → `EmitYul` 标记为 Lean-native Experimental 路径。
+  ✅ 已完成（D-046 / CS-6.3）：LCNF `EmitYul` 已移除；RFC 0004 为 Accepted；
+  `contract_source` 为产品入口。
 - 决定 `wasm-cloudflare-workers` 是保留其在 `wasmHost` 下的注册表条目，还是移动到独立的离线宿主家族（无共识，无链上状态），以免稀释能力语义；与 D-033 一起记录在 `decisions.md` 中。
 - 已完成：在 `decisions.md`、`target-roadmap.md` 和 `gate-status.md` 中记录 Gate G0 以及更严格的 Gate P0 主三链完成规约。Gate G0 关闭共享行为/预算切片；在 Gate P0 关闭前，新的和非主链目标保持 docs-only 或 maintenance-only——不得推进 registry、capability、testkit、CI 或产品范围。
 
-验收标准：- `docs/decisions.md` 显示了一个线性决策日志（D-001…D-045，无重复 id），记录了分配器统一结果，并使 D-039/RFC 0009 以及 D-045/Gate P0 与代码库实际状态保持一致。
+验收标准：- `docs/decisions.md` 显示了一个线性决策日志（D-001…D-046，无重复 id），记录了分配器统一结果，并使 D-039/RFC 0009 以及 D-045/Gate P0 与代码库实际状态保持一致。
 - 开发标准包含分支和 i18n 规则。
 - 所有四个已合并的链分支均已删除或归档。
 
@@ -1338,8 +1340,8 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 |---|---|---|
 | CS-6.1 | 重写 `docs/targets/evm.md` pipeline 章节为统一入口（移除 EmitYul/Lean.Evm） | ✅ 当前 EVM target note 描述 `contract_source` / `ContractSpec` → portable IR → EVM semantic plan → Yul AST/printer → solc，并把旧 EVM/LCNF 路线标为 legacy/research |
 | CS-6.2 | 更新 `development-standards.md` library root（去掉 `ProofForge.Evm`、`EmitYul`） | ✅ 当前 roots 与 `lakefile.lean` 对齐；authoring 指引使用 `contract_source`，并把旧 EVM/LCNF 路线标为 legacy/research |
-| CS-6.3 | 关闭工作流 24 条目：声明 LCNF→EmitYul 已移除；记录 `contract_source` 为 EVM 产品 pipeline | decision log + RFC 0004 对齐 |
-| CS-6.4 | `Examples/Evm/README.md` 变更时保持 `docs/zh/examples-evm-README.zh.md` 同步 | `just docs-check` 通过 |
+| CS-6.3 | 关闭工作流 24 条目：声明 LCNF→EmitYul 已移除；记录 `contract_source` 为 EVM 产品 pipeline | ✅ decision log + RFC 0004 对齐（D-046） |
+| CS-6.4 | `Examples/Evm/README.md` 变更时保持 `docs/zh/examples-evm-README.zh.md` 同步 | ✅ `just docs-check` 通过；translate manifest 跟踪 `Examples/Evm/README.md` |
 
 当前 CS-6.2 切片：`docs/development-standards.md` 及其 zh 镜像现在列出
 `lakefile.lean` 中的当前 Lake roots，从当前包规范里移除了 `ProofForge.Evm` 和
@@ -1353,6 +1355,17 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 模块布局、metadata source kind `contract-sdk`，以及 EVM 门禁。旧的 `.evm-methods`
 和 `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` 路线只作为 legacy compatibility
 或历史研究背景保留。
+
+当前 CS-6.3 切片：[decisions.md](decisions.md) D-046 记录移除
+`ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods`；[RFC 0004](rfcs/0004-evm-semantic-plan.md)
+为 **Accepted**，并将 `contract_source` → portable IR → EVM semantic plan →
+Yul → solc 作为唯一 EVM 产品流水线。[INDEX.md](INDEX.md)、
+[validation-gates.md](validation-gates.md) 和 [targets/evm.md](targets/evm.md)
+不再把 LCNF 描述为 live compiler 路线。
+
+当前 CS-6.4 切片：`Examples/Evm/README.md` 与
+`docs/zh/examples-evm-README.zh.md` 在统一 `contract_source` 入口上保持一致；
+translate manifest 条目使 English README 变更时 `just docs-check` 保持绿色。
 
 ### 建议排期（工作流 34）
 

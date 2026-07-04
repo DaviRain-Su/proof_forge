@@ -26,8 +26,9 @@ Lean contract_source / ContractSpec
 Yul，并调用 `solc --strict-assembly` 生成 runtime bytecode。同一次 build 会写出
 机器可读的 artifact metadata；bytecode build 还会写出 deploy manifest。
 
-RFC 0004 的 semantic-plan 架构现在就是当前 EVM 产品流水线。旧的
-`ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` 路线只是历史研究/兼容背景，不是新示例的 authoring 路径。
+RFC 0004 的 semantic-plan 架构是 EVM 产品流水线（Accepted；见 D-046）。已移除的
+`ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` / `.evm-methods` 路线只是历史背景，
+不在当前代码树中。
 
 ## EVM 兼容链 profile
 
@@ -186,11 +187,9 @@ EVM 的 `add`、`sub` 和 `mul` 降级为**checked** helper（`__pf_checked_add`
 Solidity 0.8 语义一致。这些 helper 在使用它们的 module 里每个 module 发射
 一次。`div`、`mod`、exponentiation（`exp`）、bitwise operator（`and`、`or`、
 `xor`、`not`）和 shift（`shl`、`shr`、`sar`）使用原始 EVM builtin，因为它们
-不会溢出 256-bit word。这个 checked-arithmetic 行为在两条降级路径上是共享的：
-portable IR EVM plan（`Backend/Evm/IR.lean` 的
-`checkedArithmeticHelperFunctions`）和 legacy LCNF 路径
-（`Compiler/LCNF/EmitYul.lean`），因此无论通过哪条路径编译的合约，在
-add/sub/mul 溢出时都会 revert 而不是 wrapping。
+不会溢出 256-bit word。这个 checked-arithmetic 行为在 portable IR EVM plan
+（`Backend/Evm/IR.lean` 的 `checkedArithmeticHelperFunctions`）中实现，因此
+产品构建在 add/sub/mul 溢出时都会 revert 而不是 wrapping。
 
 EVM 不支持（设计上针对其他目标）：
 

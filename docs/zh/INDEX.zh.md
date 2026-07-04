@@ -109,7 +109,9 @@ flowchart TB
 ## 当前实现基线
 
 - 目标注册表（`ProofForge/Target/Registry.lean`）、可移植 IR（`ProofForge/IR/Contract.lean`）、capability 路由和 `proof-forge-artifact.json` 产出均已实现。
-- EVM：`proof-forge build --target evm` 通过 LCNF、Yul 和 `solc --strict-assembly` 编译 Lean 合约；portable IR 合约走 EVM 语义 plan（`Backend/Evm/Plan.lean`）降级。Foundry 和 Anvil 冒烟验证运行时行为。
+- EVM：`proof-forge build --target evm` 将 `contract_source` 模块通过 portable
+  IR、EVM semantic plan、Yul 和 `solc --strict-assembly` 编译。Foundry 和
+  Anvil 冒烟验证运行时行为。
 - Solana：`proof-forge emit --target solana-sbpf-asm --format s|elf` 产出 sBPF assembly 和 ELF 包，由 Mollusk、Surfpool/Web3.js 和 Pinocchio 等价性门禁验证。
 - NEAR：`proof-forge emit|build --target wasm-near --format wat` 把 portable IR 经 Wasm AST 降级为 WAT，带形式化 trace obligation（`Tests/NearWasmFormal.lean`）、target-first metadata 和离线宿主冒烟。
 - Psy/DPN、Aleo Leo 和 Cloudflare Workers 从 portable IR fixture 产出目标源码；各门禁的工具前置条件见 [validation-gates.md](validation-gates.zh.md)。

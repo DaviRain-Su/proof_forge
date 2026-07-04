@@ -2165,6 +2165,8 @@ Tasks:
   ([authoring-model](authoring-model.md)).
 - Declare `ContractSpec` → EVM Plan → Yul the EVM product pipeline in
   RFC 0004; label LCNF → `EmitYul` as the Lean-native experimental path.
+  ✅ Done (D-046 / CS-6.3): LCNF `EmitYul` removed; RFC 0004 Accepted;
+  `contract_source` is the product entry.
 - Decide whether `wasm-cloudflare-workers` keeps its registry entry under
   `wasmHost` or moves to a distinct off-chain host family (no consensus, no
   on-chain state) so it does not dilute capability semantics; record in
@@ -2177,7 +2179,7 @@ Tasks:
 
 Acceptance criteria:
 
-- `docs/decisions.md` shows one linear decision log (D-001…D-045, no
+- `docs/decisions.md` shows one linear decision log (D-001…D-046, no
   duplicate ids), records the allocator-unification outcome, and aligns
   D-039/RFC 0009 plus D-045/Gate P0 with the codebase's actual state.
 - Development standards contain the branch and i18n rules.
@@ -2735,8 +2737,8 @@ and is tracked in the translate manifest.
 |---|---|---|
 | CS-6.1 | Rewrite `docs/targets/evm.md` pipeline section for unified entry (remove EmitYul/Lean.Evm) | ✅ Current EVM target note describes `contract_source` / `ContractSpec` → portable IR → EVM semantic plan → Yul AST/printer → solc, and labels the old EVM/LCNF route legacy/research |
 | CS-6.2 | Update `development-standards.md` library roots (drop `ProofForge.Evm`, `EmitYul`) | ✅ Current roots match `lakefile.lean`; authoring guidance names `contract_source` and labels the old EVM/LCNF route legacy/research |
-| CS-6.3 | Close Workstream 24 items: declare LCNF→EmitYul removed; record `contract_source` as EVM product pipeline | Decision log + RFC 0004 alignment |
-| CS-6.4 | Keep `docs/zh/examples-evm-README.zh.md` synced when `Examples/Evm/README.md` changes | `just docs-check` green |
+| CS-6.3 | Close Workstream 24 items: declare LCNF→EmitYul removed; record `contract_source` as EVM product pipeline | ✅ Decision log + RFC 0004 alignment (D-046) |
+| CS-6.4 | Keep `docs/zh/examples-evm-README.zh.md` synced when `Examples/Evm/README.md` changes | ✅ `just docs-check` green; translate manifest tracks `Examples/Evm/README.md` |
 
 Current CS-6.2 slice: `docs/development-standards.md` and its zh mirror now
 list the current Lake roots from `lakefile.lean`, remove `ProofForge.Evm` and
@@ -2751,6 +2753,18 @@ current unified EVM product pipeline, selector/ABI derivation from
 metadata source kind `contract-sdk`, and EVM gates. The old `.evm-methods` and
 `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` route remains documented only as
 legacy compatibility or historical research context.
+
+Current CS-6.3 slice: [decisions.md](decisions.md) D-046 records removal of
+`ProofForge.Evm`, LCNF `EmitYul`, and `.evm-methods`; [RFC 0004](rfcs/0004-evm-semantic-plan.md)
+is **Accepted** and names `contract_source` → portable IR → EVM semantic plan →
+Yul → solc as the sole EVM product pipeline. [INDEX.md](INDEX.md),
+[validation-gates.md](validation-gates.md), and [targets/evm.md](targets/evm.md)
+no longer describe LCNF as a live compiler route.
+
+Current CS-6.4 slice: `Examples/Evm/README.md` and
+`docs/zh/examples-evm-README.zh.md` are aligned on the unified `contract_source`
+entry; the translate manifest entry keeps `just docs-check` green when the
+English README changes.
 
 ### Suggested sequencing (Workstream 34)
 

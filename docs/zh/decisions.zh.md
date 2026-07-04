@@ -53,12 +53,13 @@
 | D-043 | 2026-07-03 | 添加 `upgradePolicy` 意图（`immutable | authority(keyRef) | governance(ref)`），并将签名保持在编译器之外 | 每个目标诚实地降级策略，或在编译时拒绝；EVM v0 仅支持 `immutable`；Solana 支持 `immutable` 和 `authority`；NEAR 支持 `immutable` 和 `authority` 作为账户密钥策略。ProofForge 仅发射未签名的交易/清单；密钥托管保留在钱包/KMS/CI 密钥中。RFC 0013 定义了完整生命周期和签名边界 |
 | D-044 | 2026-07-03 | **Tier-0 优先完成：** 在进行任何新链推进之前，按实现优先级顺序完成 `solana-sbpf-asm`、`evm`、`wasm-near`，以达到完整的 DoD——包括行为一致性*以及*资源预算（D-040） | 落实 D-035/D-040。在 Gate G0 随预算关闭之前，已落地的 Aptos/CosmWasm spike 冻结在当前的 M1/M2 状态（无注册表阶段，无 M3/M4，不启动 Tier-2）；D-045 会把该冻结延长到更严格的主三链签署 Gate P0。D-034/Workstream 28 中旧的“并行开启 Tier-1”措辞在当前阶段被此“完成优先”规则取代。参见 [target-roadmap](target-roadmap.md) Tier-0 完成检查清单和 [gate-status](gate-status.md) 以获取各标准状态。 |
 | D-045 | 2026-07-03 | **主三链完成规约：** 产品实现优先级为 `solana-sbpf-asm` → `evm`（Ethereum）→ `wasm-near`（NEAR/Wasm），这三条链必须达到生产级完善后，任何额外链才能推进到文档优先研究或冻结 spike 维护之外 | 这是高于单个工作流的产品级排序规则。“完成”意味着每条链都具备 target-first 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖以及同步维护的文档。新目标仍可写文档优先研究说明，已落地的 Aptos/CosmWasm/Aleo/Psy/Cloudflare spike 可做 CI/安全维护，但在 [gate-status](gate-status.md) 记录主三链签署之前，不应为额外链落地新的注册表、能力、testkit 或 CI 推进。 |
+| D-046 | 2026-07-04 | **关闭 legacy EVM authoring 路线：** `ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods` 已从产品树移除（CS-0.2）；**`contract_source` → portable IR → EVM semantic plan → Yul → solc** 是唯一的 EVM 产品流水线；[RFC 0004](rfcs/0004-evm-semantic-plan.md) 为 **Accepted** | Workstream 24 / CS-6.3 收尾。应用示例使用 `contract_source` 或 stdlib 组合；Builder/`ContractSpec` fixture 仅保留在编译器测试路径。历史 RFC 仍可提及 LCNF 作为项目历史，而非受支持路线。 |
 
 ## 目标家族分类
 
 | 目标家族 | 目标 | 后端模式 |
 |---|---|---|
-| 直接编译器 | `evm` | ContractSpec / 可移植 IR → EVM 语义计划 → Yul AST/源代码 → solc；旧的 Lean → LCNF → Yul 路径仅用于 Research/等效性 |
+| 直接编译器 | `evm` | `contract_source` / ContractSpec → portable IR → EVM 语义计划 → Yul AST/源代码 → solc |
 | EVM 兼容链 profile | `robinhood-chain-testnet` | 复用 `evm` 字节码/ABI 输出；添加 chain id、RPC、浏览器、验证器、rollup 以及部署制品元数据 |
 | Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`（链下宿主，D-033）, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031, [wasm-family](targets/wasm-family.md))；Cloudflare Workers 目前使用 TypeScript 源代码生成 |
 | 二进制工具链 | `solana-sbpf-linker`, `solana-zig-fork` | Lean → 发射 Zig → bitcode → sbpf-linker（历史参考；已被 D-026 取代） |

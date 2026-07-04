@@ -1,16 +1,17 @@
 # RFC 0004：EVM 语义计划与 Yul AST 边界
 
-Status: Draft
+Status: **Accepted**
 
 Date: 2026-07-02
+
+Implemented: 2026-07-04 (CS-6.3 / D-046)
 
 ## 摘要
 
 EVM portable IR 后端不应该长期从 ProofForge portable IR 直接降到低层
-Yul 语法节点。ProofForge 现在已经有 `ProofForge.Compiler.Yul.AST`，LCNF
-的 `EmitYul` 路径和 portable IR EVM 后端最终都会通过 `Yul.Printer`
-渲染这个 AST。这个 AST 很有价值，但它是语法 AST：它描述 Yul object、
-block、statement、expression、function 和 literal。
+Yul 语法节点。ProofForge 现在已经有 `ProofForge.Compiler.Yul.AST`，portable
+IR EVM 后端通过 `Yul.Printer` 渲染这个 AST。这个 AST 很有价值，但它是语法
+AST：它描述 Yul object、block、statement、expression、function 和 literal。
 
 缺少的是 portable IR 和这个语法 AST 之间的一层 target-semantic EVM
 plan。
@@ -18,7 +19,7 @@ plan。
 EVM target 的产品流水线应当是：
 
 ```text
-ContractSpec / contract surface
+contract_source / ContractSpec
   -> ProofForge portable IR
   -> EVM semantic plan
   -> Yul AST
@@ -27,10 +28,10 @@ ContractSpec / contract surface
   -> runtime bytecode + ProofForge metadata
 ```
 
-较旧的 `Lean.Compiler.LCNF` → `ProofForge.Compiler.LCNF.EmitYul` 路径是
-Lean-native experimental route，不是产品流水线。它仍可用于研究和等价性实验，
-但新的 EVM 工作、CI gates 和文档应遵循上面的 portable-IR → EVM-plan → Yul
-pipeline。
+legacy `Lean.Compiler.LCNF` → `ProofForge.Compiler.LCNF.EmitYul` 路线、
+`ProofForge.Evm` 和 `.evm-methods` sidecar 已在 CS-0.2 中从产品树移除，不再
+可用于新工作。新的 EVM 示例、CI gate 和文档遵循上面的 portable-IR →
+EVM-plan → Yul pipeline。
 
 本 RFC 定义这层 EVM semantic plan 的边界和迁移路径。它保留现有 Yul AST
 作为最终语法层，但不再让 ABI dispatch、storage layout、helper discovery、

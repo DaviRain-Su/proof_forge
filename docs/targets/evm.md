@@ -31,9 +31,9 @@ EVM semantic plan, prints Yul from the shared Yul AST, then invokes
 `solc --strict-assembly` for runtime bytecode. The same build writes
 machine-readable artifact metadata and, for bytecode builds, a deploy manifest.
 
-RFC 0004's semantic-plan architecture is now the current EVM product pipeline.
-The older `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` route is historical
-research/compatibility context and is not the authoring path for new examples.
+RFC 0004's semantic-plan architecture is the EVM product pipeline (Accepted;
+see D-046). The removed `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` /
+`.evm-methods` route is historical context only and is not in the current tree.
 
 ## EVM-Compatible Chain Profiles
 
@@ -225,10 +225,9 @@ underflow, matching Solidity 0.8 semantics. The helpers are emitted once per
 module that uses them. `div`, `mod`, exponentiation (`exp`), bitwise operators
 (`and`, `or`, `xor`, `not`), and shifts (`shl`, `shr`, `sar`) use the raw EVM
 builtins because they cannot overflow a 256-bit word. This checked-arithmetic
-behavior is shared by both lowering paths: the portable IR EVM plan
-(`Backend/Evm/IR.lean` `checkedArithmeticHelperFunctions`) and the legacy LCNF
-path (`Compiler/LCNF/EmitYul.lean`), so a contract compiled through either route
-reverts on add/sub/mul overflow rather than wrapping.
+behavior is implemented in the portable IR EVM plan
+(`Backend/Evm/IR.lean` `checkedArithmeticHelperFunctions`), so product builds
+revert on add/sub/mul overflow rather than wrapping.
 
 Not supported on EVM (by design for other targets):
 

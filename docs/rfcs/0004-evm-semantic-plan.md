@@ -1,17 +1,18 @@
 # RFC 0004: EVM semantic plan and Yul AST boundary
 
-Status: Draft
+Status: **Accepted**
 
 Date: 2026-07-02
+
+Implemented: 2026-07-04 (CS-6.3 / D-046)
 
 ## Summary
 
 The EVM portable IR backend should not lower directly from ProofForge portable
 IR into low-level Yul syntax nodes. ProofForge already has a Yul AST in
-`ProofForge.Compiler.Yul.AST`, and both the LCNF `EmitYul` path and the
-portable IR EVM backend render that AST through `Yul.Printer`. That AST is
-valuable, but it is a syntax AST: it models Yul objects, blocks, statements,
-expressions, functions, and literals.
+`ProofForge.Compiler.Yul.AST`, and the portable IR EVM backend renders that AST
+through `Yul.Printer`. That AST is valuable, but it is a syntax AST: it models
+Yul objects, blocks, statements, expressions, functions, and literals.
 
 The missing layer is a target-semantic EVM plan between portable IR and that
 syntax AST.
@@ -19,7 +20,7 @@ syntax AST.
 The product pipeline for the EVM target is:
 
 ```text
-ContractSpec / contract surface
+contract_source / ContractSpec
   -> ProofForge portable IR
   -> EVM semantic plan
   -> Yul AST
@@ -28,10 +29,10 @@ ContractSpec / contract surface
   -> runtime bytecode + ProofForge metadata
 ```
 
-The older `Lean.Compiler.LCNF` → `ProofForge.Compiler.LCNF.EmitYul` path is a
-Lean-native experimental route that is not the product pipeline. It remains
-available for research and equivalence experiments, but new EVM work, CI gates,
-and documentation should follow the portable-IR → EVM-plan → Yul pipeline above.
+The legacy `Lean.Compiler.LCNF` → `ProofForge.Compiler.LCNF.EmitYul` route,
+`ProofForge.Evm`, and `.evm-methods` sidecars were removed from the product tree
+in CS-0.2. They are not available for new work. New EVM examples, CI gates, and
+documentation follow the portable-IR → EVM-plan → Yul pipeline above.
 
 This RFC defines the boundary and migration path for that EVM semantic plan.
 It keeps the existing Yul AST as the final syntax layer, but stops treating it
@@ -335,8 +336,9 @@ A migration slice is accepted only when:
   computed summary from plan traversal?
 - Should storage layout be computed before all type validation, or only after
   validation produces a typed module?
-- How much of the existing LCNF `EmitYul` path should share the same semantic
-  EVM plan, if any?
+- ~~How much of the existing LCNF `EmitYul` path should share the same semantic
+  EVM plan, if any?~~ **Resolved (D-046):** the LCNF route is removed; the EVM
+  semantic plan is the sole lowering path for product builds.
 
 ## Initial implementation recommendation
 

@@ -114,10 +114,9 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
 - The target registry (`ProofForge/Target/Registry.lean`), portable IR
   (`ProofForge/IR/Contract.lean`), capability routing, and
   `proof-forge-artifact.json` emission are implemented.
-- EVM: `proof-forge build --target evm` compiles Lean contracts through LCNF,
-  Yul, and `solc --strict-assembly`; portable-IR contracts lower through the
-  EVM semantic plan (`Backend/Evm/Plan.lean`). Foundry and Anvil smokes
-  validate runtime behavior.
+- EVM: `proof-forge build --target evm` compiles `contract_source` modules through
+  portable IR, the EVM semantic plan, Yul, and `solc --strict-assembly`.
+  Foundry and Anvil smokes validate runtime behavior.
 - Solana: `proof-forge emit --target solana-sbpf-asm --format s|elf` emits
   sBPF assembly and ELF packages, validated by Mollusk, Surfpool/Web3.js, and
   Pinocchio equivalence gates.
