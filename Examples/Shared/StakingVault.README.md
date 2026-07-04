@@ -10,7 +10,7 @@ native value attached (ETH on EVM, NEAR on NEAR) and receive 1:1 shares.
 |---|---|---|
 | `evm` | ✅ Compiles | `nativeValue` reads `callvalue()`; Foundry/Anvil can validate deposit/withdraw |
 | `wasm-near` | ✅ Compiles | `nativeValue` reads `attached_deposit` (S5 lowering); WAT emitted with event indexed/data flattening |
-| `solana-sbpf-asm` | ⚠️ Caller model gap | `caller` (userId) not supported on Solana; `nativeValue` needs system_transfer CPI for deposit. Needs Solana Target Extension SDK. |
+| `solana-sbpf-asm` | ✅ Compiles | `nativeValue` stub (returns 0); map storage via linear table (P1b); indexed events flattened (P1a) |
 
 ## What this proves
 

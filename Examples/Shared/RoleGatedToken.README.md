@@ -9,8 +9,8 @@ semantics.
 | Target | Status | Notes |
 |---|---|---|
 | `evm` | ✅ Compiles | Full role + token semantics via nested map storage path |
-| `wasm-near` | ⚠️ Storage path gap | `pathWriteRole` uses nested `mapKey(role) + mapKey(account)` paths; EmitWat only supports single `mapKey` storage paths. Needs S9 follow-up: multi-segment storage paths in EmitWat. |
-| `solana-sbpf-asm` | ⚠️ Caller model gap | `caller` (userId context read) is not supported on Solana (account-based, not EOA). Role checks need Solana account owner constraints, not portable `caller` reads. Needs Solana Target Extension SDK for role-gated entrypoints. |
+| `wasm-near` | ✅ Compiles | Uses single mapKey storage path (NEAR supports nested paths since S9) |
+| `solana-sbpf-asm` | ✅ Compiles | Map storage via fixed-capacity linear table (P1b); userId maps to account[0] |
 
 ## What this proves
 
