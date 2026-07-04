@@ -197,6 +197,19 @@ Mapped to [capability-registry](../capability-registry.md) ids:
 | `crypto.hash` | Portable IR `Hash` values lower to one-word EVM `bytes32`; `hash` / `hash_two_to_one` lower to Yul `keccak256` helpers |
 | `account.explicit` | Partial: portable IR `contractId` context reads lower to Yul `address()` |
 
+### Arithmetic semantics
+
+EVM `add`, `sub`, and `mul` lower to **checked** helpers (`__pf_checked_add`,
+`__pf_checked_sub`, `__pf_checked_mul`) that revert on U256 overflow or
+underflow, matching Solidity 0.8 semantics. The helpers are emitted once per
+module that uses them. `div`, `mod`, exponentiation (`exp`), bitwise operators
+(`and`, `or`, `xor`, `not`), and shifts (`shl`, `shr`, `sar`) use the raw EVM
+builtins because they cannot overflow a 256-bit word. This checked-arithmetic
+behavior is shared by both lowering paths: the portable IR EVM plan
+(`Backend/Evm/IR.lean` `checkedArithmeticHelperFunctions`) and the legacy LCNF
+path (`Compiler/LCNF/EmitYul.lean`), so a contract compiled through either route
+reverts on add/sub/mul overflow rather than wrapping.
+
 Not supported on EVM (by design for other targets):
 
 - `storage.pda`, `crosscall.cpi`
@@ -489,7 +502,8 @@ reverts, invalid typed return reverts, and unknown-selector reverts.
 
 `EvmExpressionProbe` validates scalar expression lowering directly rather than
 through storage or assignment side effects. It covers `U64` and `U32`
-arithmetic (`add`, `sub`, `mul`, `div`, `mod`), `U64` exponentiation through
+arithmetic (`add`, `sub`, `mul` via checked helpers that revert on overflow or
+underflow, plus `div`, `mod` via raw builtins), `U64` exponentiation through
 Yul `exp`, `U64`/`U32` bitwise operators and shifts with EVM operand ordering,
 predicate expressions (`eq`, `ne`, `lt`, `le`, `gt`, `ge`), boolean
 `and`/`or`/`not`, scalar literals, immutable local reads, supported

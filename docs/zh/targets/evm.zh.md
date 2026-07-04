@@ -159,6 +159,19 @@ entrypoint。
 | `crypto.hash` | Portable IR `Hash` 值降为单 word EVM `bytes32`；`hash` / `hash_two_to_one` 降为 Yul `keccak256` helper |
 | `account.explicit` | 部分支持：Portable IR `contractId` context read 降为 Yul `address()` |
 
+### 算术语义
+
+EVM 的 `add`、`sub` 和 `mul` 降级为**checked** helper（`__pf_checked_add`、
+`__pf_checked_sub`、`__pf_checked_mul`），在 U256 溢出或下溢时 revert，与
+Solidity 0.8 语义一致。这些 helper 在使用它们的 module 里每个 module 发射
+一次。`div`、`mod`、exponentiation（`exp`）、bitwise operator（`and`、`or`、
+`xor`、`not`）和 shift（`shl`、`shr`、`sar`）使用原始 EVM builtin，因为它们
+不会溢出 256-bit word。这个 checked-arithmetic 行为在两条降级路径上是共享的：
+portable IR EVM plan（`Backend/Evm/IR.lean` 的
+`checkedArithmeticHelperFunctions`）和 legacy LCNF 路径
+（`Compiler/LCNF/EmitYul.lean`），因此无论通过哪条路径编译的合约，在
+add/sub/mul 溢出时都会 revert 而不是 wrapping。
+
 EVM 不支持（设计上针对其他目标）：
 
 - `storage.pda`, `crosscall.cpi`
@@ -250,7 +263,7 @@ scripts/evm/ir-counter-smoke.sh
 
 `EvmCrosscallProbe` 验证 portable IR `crosscallInvoke`、`crosscallInvokeTyped`、`crosscallInvokeValueTyped`、`crosscallInvokeStaticTyped`、`crosscallInvokeDelegateTyped`、`crosscallCreate` 和 `crosscallCreate2`。Call-like 表达式会降为按 arity、返回类型、value 模式、static 模式和 delegate 模式区分的 Yul helper。EVM IR v0 把 target 表达式解释为地址 word，把 method 表达式解释为低 32 位 selector，把 scalar 参数解释为 32-byte ABI word，把扁平 struct、scalar fixed-array、元素为扁平 struct 的 fixed-array，以及 leaf 为 scalar word 或扁平 struct 的嵌套 fixed-array 参数按 ABI 顺序展开为连续 word，并把带 value 调用的 call value 解释为 U64 word。helper 会打包 calldata，执行 `call(gas(), target, 0, ...)`、`call(gas(), target, call_value, ...)`、`staticcall(gas(), target, ...)` 或 `delegatecall(gas(), target, ...)`，在调用失败或返回数据短于预期大小时 revert，并解码一个或多个 32-byte 返回 word。Typed helper 在 normal、value、static 和 delegate 模式下覆盖 `Bool`、`U32`、`U64`、`Hash`、entrypoint 直接返回的扁平 struct、scalar fixed array、元素为扁平 struct 的 fixed array，以及 leaf 为 scalar word 或扁平 struct 的嵌套 fixed array；Bool 和 U32 helper 会在返回给 dispatcher 前拒绝越界 return word。Creation helper 会把固定 init-code hex 写入 memory，执行 `create` 或 `create2`，并在返回零地址时 revert。对应 smoke 会检查 golden Yul 可复现、`solc --strict-assembly` 字节码生成、metadata 能力 `crosscall.invoke`、metadata entrypoint、Foundry U64 零/一/二参数调用、typed Bool/U32/Hash 调用、normal/value/static/delegate 模式下的扁平 struct、scalar fixed-array、元素为扁平 struct 的 fixed-array 和 leaf 为 scalar word 或扁平 struct 的嵌套 fixed-array aggregate typed return、扁平 struct、scalar fixed-array、元素为扁平 struct 的 fixed-array 和 leaf 为 scalar word 或扁平 struct 的嵌套 fixed-array typed-call 参数、normal/value/static/delegate 模式下的 aggregate Bool/U32 malformed return guard、native value 转发到 payable callee、带 value 的扁平/嵌套 scalar-or-flat-struct aggregate 参数、U64 read-only staticcall 返回、Bool/U32/Hash static typed return、static 扁平/嵌套 scalar-or-flat-struct aggregate 参数、非法 static Bool/U32 return guard、static context 状态写入失败、caller-storage delegatecall 读写、Bool/U32/Hash delegate typed return、delegate 扁平/嵌套 scalar-or-flat-struct aggregate 参数、非法 delegate Bool/U32 return guard、固定 init-code `create` 部署、确定性 `create2` 地址校验、对 deployed runtime 的调用、callee revert、短返回 revert、非法 typed return revert，以及未知 selector revert。
 
-`EvmExpressionProbe` 直接验证 scalar expression lowering，而不是借由 storage 或 assignment side effect 间接覆盖。它覆盖 `U64` 和 `U32` arithmetic（`add`、`sub`、`mul`、`div`、`mod`）、通过 Yul `exp` 实现的 `U64` exponentiation、`U64`/`U32` bitwise operator 和符合 EVM 参数顺序的 shift、predicate expression（`eq`、`ne`、`lt`、`le`、`gt`、`ge`）、boolean `and`/`or`/`not`、scalar literal、不可变 local read、支持的 `U32`/`U64`/`Bool` cast、单 word scalar return、`U32`/`Bool` calldata dispatcher guard，以及 assertion guard。对应 smoke 会检查 golden Yul 可复现、`solc --strict-assembly` 字节码生成、metadata 能力 `assertions.check`、Foundry 运行时结果、malformed calldata revert，以及未知 selector revert。
+`EvmExpressionProbe` 直接验证 scalar expression lowering，而不是借由 storage 或 assignment side effect 间接覆盖。它覆盖 `U64` 和 `U32` arithmetic（通过在溢出/下溢时 revert 的 checked helper 实现 `add`、`sub`、`mul`，以及通过原始 builtin 实现 `div`、`mod`）、通过 Yul `exp` 实现的 `U64` exponentiation、`U64`/`U32` bitwise operator 和符合 EVM 参数顺序的 shift、predicate expression（`eq`、`ne`、`lt`、`le`、`gt`、`ge`）、boolean `and`/`or`/`not`、scalar literal、不可变 local read、支持的 `U32`/`U64`/`Bool` cast、单 word scalar return、`U32`/`Bool` calldata dispatcher guard，以及 assertion guard。对应 smoke 会检查 golden Yul 可复现、`solc --strict-assembly` 字节码生成、metadata 能力 `assertions.check`、Foundry 运行时结果、malformed calldata revert，以及未知 selector revert。
 
 `EvmMapProbe` 验证 portable IR `Map<U64, U64, N>` storage 使用与 SDK 一致的 Solidity-style value slot layout：先把 `key` 和 `slot` 作为两个 32-byte word 写入内存，再计算 `keccak256(key || slot)`。`storage.map.contains` 使用 ProofForge 管理的 presence mapping，其根为 `keccak256(slot || PROOF_FORGE_MAP_PRESENCE)`，因此 insert 或 set 过的 key 即使 value 是零也仍然 present。对应 smoke 会检查 golden Yul 可复现、`solc --strict-assembly` 字节码生成、metadata 能力（`storage.scalar`、`storage.map`、`assertions.check`）、ABI get/set/insert/contains 行为、单段以及嵌套连续 `mapKey` storage path 的 read、write 和复合赋值、Foundry `vm.load` 原始 value 和 presence storage slot，以及未知 selector revert。嵌套 map value slot 会折叠同一个 Solidity-style mapping helper，例如 `keccak256(inner || keccak256(outer || slot))`；嵌套 presence slot 会使用父层 value slot 作为 presence root，再对最终 key 做哈希。混合 map/aggregate storage path 保持显式诊断。
 
