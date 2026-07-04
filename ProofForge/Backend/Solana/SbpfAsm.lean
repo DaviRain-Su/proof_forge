@@ -532,8 +532,32 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       ]
       ctx := ctx'
     .ok (nodes, ctx)
-  | .effect (.eventEmitIndexed _ _ _) =>
-    .error { message := "Solana indexed event lowering is not supported in Phase 1; use eventEmit scalar fields" }
+  | .effect (.eventEmitIndexed name indexedFields dataFields) => do
+    -- On Solana, the indexed/data distinction is EVM-specific and has no
+    -- runtime equivalent (sol_log_64_ just logs raw values). Flatten both
+    -- indexed and data fields into a single ordered field list, same as
+    -- non-indexed eventEmit. Indexed fields come first.
+    let allFields := indexedFields ++ dataFields
+    let mut nodes := #[.comment s!"solana.event.emit_indexed {name}: sol_log_64_ ({indexedFields.size} indexed + {dataFields.size} data fields flattened)"]
+    let mut ctx := ctx
+    let tag := stableEventTag name
+    for field in allFields, idx in [0:allFields.size] do
+      let (fieldName, value) := field
+      let (vn, ctx') ← lowerExpr ctx value
+      let (inputPtrScratch, ctx') := ctx'.allocScratch
+      nodes := nodes ++ vn ++ #[
+        .comment s!"solana.event.field {name}.{fieldName}: tag={tag} index={idx}",
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num inputPtrScratch), src := some .r1 },
+        .instruction { opcode := .mov64, dst := some .r3, src := some .r2 },
+        .instruction { opcode := .mov64, dst := some .r1, imm := some (.num tag) },
+        .instruction { opcode := .mov64, dst := some .r2, imm := some (.num idx) },
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 0) },
+        .instruction { opcode := .mov64, dst := some .r5, imm := some (.num 0) },
+        .instruction { opcode := .call, imm := some (.sym sol_log_64_) },
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
+      ]
+      ctx := ctx'
+    .ok (nodes, ctx)
   | .assert cond _ errorRef? => do
     let (cn, ctx') ← lowerExpr ctx cond
     match errorRef? with
