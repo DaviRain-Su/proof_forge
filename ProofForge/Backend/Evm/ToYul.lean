@@ -1317,7 +1317,7 @@ def eventIndexedTopicStatements
     Except ε (Array Lean.Compiler.Yul.Statement) := do
   let topicName := eventIndexedTopicName index
   match field.type with
-  | .u32 | .u64 | .bool | .hash | .address =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       match words[0]? with
       | some word =>
           if words.size == 1 then

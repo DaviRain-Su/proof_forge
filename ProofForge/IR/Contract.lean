@@ -8,8 +8,10 @@ namespace ProofForge.IR
 inductive ValueType where
   | unit
   | bool
+  | u8
   | u32
   | u64
+  | u128
   | address
   | bytes
   | string
@@ -21,8 +23,10 @@ inductive ValueType where
 def ValueType.name : ValueType → String
   | .unit => "Unit"
   | .bool => "Bool"
+  | .u8 => "U8"
   | .u32 => "U32"
   | .u64 => "U64"
+  | .u128 => "U128"
   | .address => "Address"
   | .bytes => "Bytes"
   | .string => "String"
@@ -33,7 +37,9 @@ def ValueType.name : ValueType → String
 def ValueType.capabilities : ValueType → Array ProofForge.Target.Capability
   | .unit => #[]
   | .bool => #[]
+  | .u8 => #[]
   | .u32 => #[]
+  | .u128 => #[]
   | .u64 => #[]
   | .address => #[]
   | .bytes => #[.dataDynamicBytes]
@@ -41,6 +47,22 @@ def ValueType.capabilities : ValueType → Array ProofForge.Target.Capability
   | .hash => #[]
   | .fixedArray element _ => #[.dataFixedArray] ++ element.capabilities
   | .structType _ => #[.dataStruct]
+
+/--! Byte width of a scalar `ValueType` in EVM storage. Returns 0 for non-scalar types. -/
+def ValueType.byteWidth : ValueType → Nat
+  | .bool => 1
+  | .u8 => 1
+  | .u32 => 4
+  | .u64 => 8
+  | .u128 => 16
+  | .address => 20
+  | .hash => 32
+  | .unit | .bytes | .string | .fixedArray _ _ | .structType _ => 0
+
+/--! Whether a `ValueType` is a packed storage scalar (byteWidth > 0 and < 32). -/
+def ValueType.isPackedScalar : ValueType → Bool
+  | .bool | .u8 | .u32 | .u64 | .u128 | .address => true
+  | .unit | .hash | .bytes | .string | .fixedArray _ _ | .structType _ => false
 
 structure StructField where
   id : String
@@ -69,6 +91,8 @@ structure StateDecl where
   deriving Repr
 
 inductive Literal where
+  | u8 (value : Nat)
+  | u128 (value : Nat)
   | u32 (value : Nat)
   | u64 (value : Nat)
   | bool (value : Bool)

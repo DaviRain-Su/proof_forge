@@ -44,6 +44,8 @@ EmitWat output to these traces.
 inductive Value where
   | unit
   | bool (value : Bool)
+  | u8 (value : Nat)
+  | u128 (value : Nat)
   | u32 (value : Nat)
   | u64 (value : Nat)
   | address (value : Nat)
@@ -146,6 +148,8 @@ def Frame.write (frame : Frame) (name : String) (value : Value) : Frame :=
   { frame with locals := insert name value frame.locals }
 
 def literalValue : Literal → Except String Value
+  | .u8 value => .ok (.u8 value)
+  | .u128 value => .ok (.u128 value)
   | .u32 value => .ok (.u32 value)
   | .u64 value => .ok (.u64 value)
   | .bool value => .ok (.bool value)
@@ -155,7 +159,9 @@ def literalValue : Literal → Except String Value
 def valueMatchesType : ValueType → Value → Bool
   | .unit, .unit => true
   | .bool, .bool _ => true
+  | .u8, .u8 _ => true
   | .u32, .u32 _ => true
+  | .u128, .u128 _ => true
   | .u64, .u64 _ => true
   | .address, .address _ => true
   | .bytes, .bytes _ => true
@@ -169,7 +175,9 @@ def valueMatchesType : ValueType → Value → Bool
 partial def zeroLike : Value → Value
   | .unit => .unit
   | .bool _ => .bool false
+  | .u8 _ => .u8 0
   | .u32 _ => .u32 0
+  | .u128 _ => .u128 0
   | .u64 _ => .u64 0
   | .address _ => .address 0
   | .bytes _ => .bytes []
@@ -181,7 +189,9 @@ partial def zeroLike : Value → Value
 partial def valueKey : Value → String
   | .unit => "unit"
   | .bool value => if value then "true" else "false"
+  | .u8 value => s!"u8:{value}"
   | .u32 value => s!"u32:{value}"
+  | .u128 value => s!"u128:{value}"
   | .u64 value => s!"u64:{value}"
   | .address value => s!"addr:{value}"
   | .bytes values => "bytes:" ++ String.intercalate "," (values.map toString)
@@ -195,9 +205,11 @@ partial def valueKey : Value → String
       typeName ++ "{" ++ String.intercalate "," rendered ++ "}"
 
 def indexValue : Value → Except String Nat
+  | .u8 value => .ok value
   | .u32 value => .ok value
+  | .u128 value => .ok value
   | .u64 value => .ok value
-  | _ => .error "array/storage index expects U32 or U64"
+  | _ => .error "array/storage index expects U8, U32, U64, or U128"
 
 def arrayGetValue (value : Value) (index : Nat) : Except String Value :=
   match value with
@@ -235,6 +247,8 @@ def evalNumericBinary (opName : String) (op : Nat → Nat → Nat) (lhs rhs : Va
   match lhs, rhs with
   | .u64 lhsValue, .u64 rhsValue => .ok (.u64 (op lhsValue rhsValue))
   | .u32 lhsValue, .u32 rhsValue => .ok (.u32 (op lhsValue rhsValue))
+  | .u8 lhsValue, .u8 rhsValue => .ok (.u8 (op lhsValue rhsValue))
+  | .u128 lhsValue, .u128 rhsValue => .ok (.u128 (op lhsValue rhsValue))
   | _, _ => .error s!"{opName} expects matching numeric operands"
 
 def evalNumericPredicate (opName : String) (op : Nat → Nat → Bool) (lhs rhs : Value) :
@@ -242,6 +256,8 @@ def evalNumericPredicate (opName : String) (op : Nat → Nat → Bool) (lhs rhs 
   match lhs, rhs with
   | .u64 lhsValue, .u64 rhsValue => .ok (.bool (op lhsValue rhsValue))
   | .u32 lhsValue, .u32 rhsValue => .ok (.bool (op lhsValue rhsValue))
+  | .u8 lhsValue, .u8 rhsValue => .ok (.bool (op lhsValue rhsValue))
+  | .u128 lhsValue, .u128 rhsValue => .ok (.bool (op lhsValue rhsValue))
   | _, _ => .error s!"{opName} expects matching numeric operands"
 
 def evalEquality (lhs rhs : Value) : Except String Value :=
@@ -250,6 +266,8 @@ def evalEquality (lhs rhs : Value) : Except String Value :=
   | .bool lhsValue, .bool rhsValue => .ok (.bool (lhsValue == rhsValue))
   | .u64 lhsValue, .u64 rhsValue => .ok (.bool (lhsValue == rhsValue))
   | .u32 lhsValue, .u32 rhsValue => .ok (.bool (lhsValue == rhsValue))
+  | .u8 lhsValue, .u8 rhsValue => .ok (.bool (lhsValue == rhsValue))
+  | .u128 lhsValue, .u128 rhsValue => .ok (.bool (lhsValue == rhsValue))
   | .hash a0 b0 c0 d0, .hash a1 b1 c1 d1 =>
       .ok (.bool (a0 == a1 && b0 == b1 && c0 == c1 && d0 == d1))
   | .address lhsValue, .address rhsValue => .ok (.bool (lhsValue == rhsValue))
@@ -269,6 +287,8 @@ def evalBooleanBinary (opName : String) (op : Bool → Bool → Bool) (lhs rhs :
 def castValue (value : Value) (targetType : ValueType) : Except String Value :=
   match value, targetType with
   | .bool value, .bool => .ok (.bool value)
+  | .bool value, .u8 => .ok (.u8 (if value then 1 else 0))
+  | .bool value, .u128 => .ok (.u128 (if value then 1 else 0))
   | .bool value, .u32 => .ok (.u32 (if value then 1 else 0))
   | .bool value, .u64 => .ok (.u64 (if value then 1 else 0))
   | .u32 value, .u32 => .ok (.u32 value)
@@ -276,15 +296,30 @@ def castValue (value : Value) (targetType : ValueType) : Except String Value :=
   | .u32 0, .bool => .ok (.bool false)
   | .u32 1, .bool => .ok (.bool true)
   | .u32 _, .bool => .error "U32 to Bool cast expects canonical 0 or 1"
+  | .u8 value, .u8 => .ok (.u8 value)
+  | .u8 value, .u32 => .ok (.u32 value)
+  | .u8 value, .u64 => .ok (.u64 value)
+  | .u8 value, .u128 => .ok (.u128 value)
+  | .u8 0, .bool => .ok (.bool false)
+  | .u8 1, .bool => .ok (.bool true)
+  | .u8 _, .bool => .error "U8 to Bool cast expects canonical 0 or 1"
   | .u64 value, .u64 => .ok (.u64 value)
   | .u64 value, .u32 =>
       if value <= maxU32 then
         .ok (.u32 value)
       else
         .error "U64 to U32 cast exceeds U32 range"
+  | .u32 value, .u8 => .ok (.u8 value)
+  | .u32 value, .u128 => .ok (.u128 value)
   | .u64 0, .bool => .ok (.bool false)
   | .u64 1, .bool => .ok (.bool true)
   | .u64 _, .bool => .error "U64 to Bool cast expects canonical 0 or 1"
+  | .u64 value, .u8 => .ok (.u8 value)
+  | .u64 value, .u128 => .ok (.u128 value)
+  | .u128 value, .u128 => .ok (.u128 value)
+  | .u128 value, .u64 => .ok (.u64 value)
+  | .u128 value, .u32 => .ok (.u32 value)
+  | .u128 value, .u8 => .ok (.u8 value)
   | .hash a b c d, .hash => .ok (.hash a b c d)
   | .address value, .address => .ok (.address value)
   | .u64 value, .address => .ok (.address value)

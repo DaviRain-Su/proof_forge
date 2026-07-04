@@ -1186,8 +1186,10 @@ def entrypointAbiScalarTypeName
   | some word => .ok word
   | none =>
       match type with
+      | .u8 => .ok "uint8"
       | .u32 => .ok "uint32"
       | .u64 => .ok "uint256"
+      | .u128 => .ok "uint128"
       | .bool => .ok "bool"
       | .hash => .ok "bytes32"
       | .address => .ok "address"
@@ -1202,7 +1204,7 @@ partial def entrypointAbiType
     (type : ProofForge.IR.ValueType)
     (evmAbiWord? : Option String := none) : Except String String := do
   match type with
-  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
       entrypointAbiScalarTypeName context type evmAbiWord?
   | .unit =>
       .error s!"{context} uses Unit; EVM entrypoint parameters and non-Unit returns must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
@@ -1226,7 +1228,7 @@ partial def entrypointAbiWordTypes
     (context : String)
     (type : ProofForge.IR.ValueType) : Except String (Array String) := do
   match type with
-  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
       .ok #[← entrypointAbiScalarTypeName context type]
   | .unit =>
       .error s!"{context} uses Unit; EVM entrypoint ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
@@ -1382,8 +1384,10 @@ def liftExceptString (result : Except String α) : IO α :=
   | .error msg => throw <| IO.userError msg
 
 def eventAbiWordTypeName : ProofForge.IR.ValueType → Except String String
+  | .u8 => .ok "uint8"
   | .u32 => .ok "uint32"
   | .u64 => .ok "uint64"
+  | .u128 => .ok "uint128"
   | .bool => .ok "bool"
   | .hash => .ok "bytes32"
   | type => .error s!"event ABI word type must be scalar, got `{type.name}`"

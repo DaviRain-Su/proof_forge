@@ -63,6 +63,8 @@ def tsType : ValueType → Ty
   | .bool => .boolean
   | .u32 => .number
   | .u64 => .bigint
+  | .u8 => .number
+  | .u128 => .bigint
   | .hash => .string
   | .address => .string
   | .bytes => .string
@@ -74,6 +76,8 @@ where
     | .unit => "void"
     | .bool => "boolean"
     | .u32 => "number"
+    | .u8 => "number"
+    | .u128 => "bigint"
     | .u64 => "bigint"
     | .hash => "string"
     | .address => "string"
@@ -107,6 +111,8 @@ def kvPutExpr (key : String) (value : Expr) : Expr :=
 def emitLit : Literal → Expr
   | .u32 n => .num n
   | .u64 n => .bigint n
+  | .u8 n => .num n
+  | .u128 n => .bigint n
   | .bool b => .bool b
   | .hash4 a b c d => .str s!"{a}{b}{c}{d}"
   | .address value => .str (toString value)

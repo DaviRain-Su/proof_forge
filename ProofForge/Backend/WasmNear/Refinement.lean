@@ -404,6 +404,8 @@ partial def borshValueHex : ProofForge.IR.Semantics.Value → Except String Stri
       let parts ← fields.mapM fun (_, v) => borshValueHex v
       .ok (String.intercalate "" parts)
   | .address value => .ok (littleEndianHex 8 value)
+  | .u8 value => .ok (littleEndianHex 1 value)
+  | .u128 _ => .error "offline-host execution obligation does not yet encode u128 Borsh input values"
   | .bytes _ => .error "offline-host execution obligation does not yet encode bytes Borsh input values"
   | .string _ => .error "offline-host execution obligation does not yet encode string Borsh input values"
 
@@ -596,6 +598,8 @@ def observableReturnFromSemValue? : Option SemValue → Except String Observable
   | some (.u64 value) => .ok (.u64 value)
   | some (.hash a b c d) => .ok (.hash a b c d)
   | some (.address value) => .ok (.u64 value)
+  | some (.u8 value) => .ok (.u32 value)
+  | some (.u128 _) => .error "offline-host execution obligation does not yet encode u128 return values"
   | some (.bytes _) =>
       .error "offline-host execution obligation does not yet encode bytes return values"
   | some (.string _) =>

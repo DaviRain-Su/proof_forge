@@ -16,6 +16,8 @@ def solanaIdlPath : String := "proof-forge-idl.json"
 def typeToTs : ValueType → String
   | .u32 => "number"
   | .u64 => "bigint"
+  | .u8 => "number"
+  | .u128 => "bigint"
   | .bool => "boolean"
   | .hash => "string"
   | .address => "string"
@@ -28,6 +30,8 @@ def typeToTs : ValueType → String
 def solidityAbiType : ValueType → String
   | .u32 => "uint32"
   | .u64 => "uint64"
+  | .u8 => "uint8"
+  | .u128 => "uint128"
   | .bool => "bool"
   | .hash => "bytes32"
   | .address => "address"

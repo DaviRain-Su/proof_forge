@@ -66,8 +66,10 @@ partial def observableWordsFromValue (value : ProofForge.IR.Semantics.Value) :
   match value with
   | .unit => .ok #[]
   | .bool value => .ok #[if value then 1 else 0]
+  | .u8 value => .ok #[value]
   | .u32 value => .ok #[value]
   | .u64 value => .ok #[value]
+  | .u128 value => .ok #[value]
   | .address value => .ok #[value]
   | .bytes values => do
       let wordCount := (values.length + 31) / 32
@@ -113,6 +115,8 @@ partial def eventSignatureTypeFromValue (value : ProofForge.IR.Semantics.Value) 
   | .bool _ => .ok "bool"
   | .u32 _ => .ok "uint32"
   | .u64 _ => .ok "uint64"
+  | .u8 _ => .ok "uint8"
+  | .u128 _ => .ok "uint128"
   | .hash _ _ _ _ => .ok "bytes32"
   | .address _ => .ok "address"
   | .bytes _ => .ok "bytes"
@@ -215,6 +219,8 @@ def observableReturn (expectedType : ValueType) (value? : Option ProofForge.IR.S
   | .bool, some (.bool value) => .ok (.bool value)
   | .u32, some (.u32 value) => .ok (.u32 value)
   | .u64, some (.u64 value) => .ok (.u64 value)
+  | .u8, some (.u8 value) => .ok (.u8 value)
+  | .u128, some (.u128 value) => .ok (.u128 value)
   | .hash, some (.hash a b c d) => .ok (.hash a b c d)
   | .address, some (.address value) => .ok (.u64 value)
   | .bytes, some (.bytes _) | .string, some (.string _) => .ok (.none)
@@ -246,6 +252,8 @@ def observableReturnFromEvmWords (expectedType : ValueType) (words : Array Nat) 
       else
         .error "EVM U32 return word exceeds U32 range"
   | .u64, [value] => .ok (.u64 value)
+  | .u8, [value] => .ok (.u8 value)
+  | .u128, [value] => .ok (.u128 value)
   | .hash, [word] => .ok (unpackHashWord word)
   | .address, [value] => .ok (.u64 value)
   | .bytes, words | .string, words => .ok (.words words.toArray)

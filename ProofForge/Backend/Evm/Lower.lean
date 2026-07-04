@@ -80,6 +80,8 @@ instead of re-walking the portable IR at Yul assembly time. -/
 def literalPlan : Literal → Except LowerError ExprPlan
   | .u32 value => .ok (.literalWord value)
   | .u64 value => .ok (.literalWord value)
+  | .u8 value => .ok (.literalWord value)
+  | .u128 value => .ok (.literalWord value)
   | .bool value => .ok (.literalWord (if value then 1 else 0))
   | .hash4 a b c d => do
       .ok (.literalWord (← packedHashLiteral a b c d))

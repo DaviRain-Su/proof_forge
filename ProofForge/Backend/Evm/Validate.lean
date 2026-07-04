@@ -146,6 +146,8 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
       | .bool => .ok "bool"
       | .hash => .ok "bytes32"
       | .address => .ok "address"
+      | .u8 => .ok "uint8"
+      | .u128 => .ok "uint128"
       | .bytes => .ok "bytes"
       | .string => .ok "string"
       | .fixedArray elementType length => do
@@ -163,7 +165,7 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
               let mut parts := #[]
               for field in decl.fields do
                 match field.type with
-                | .u32 | .u64 | .bool | .hash | .address =>
+                | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
                     parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
                 | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
                     .error {
@@ -183,7 +185,7 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
           let mut parts := #[]
           for field in decl.fields do
             match field.type with
-            | .u32 | .u64 | .bool | .hash | .address =>
+            | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
                 parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
             | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
                 .error {
@@ -269,7 +271,7 @@ def structLocalFieldName (name fieldName : String) : String :=
 
 def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
         message := s!"{context} has unsupported EVM IR v0 ABI word type `{type.name}`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
@@ -277,14 +279,14 @@ def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError 
 
 def ensureCrosscallWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
         message := s!"{context} has unsupported EVM IR v0 crosscall word type `{type.name}`; crosscall scalar words support U32, U64, Bool, Hash, or Address"
       }
 
 def isCrosscallWordType : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash | .address => true
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def abiStructWordTypes (module : Module) (context typeName : String) : Except LowerError (Array ValueType) := do
@@ -310,8 +312,10 @@ def crosscallStructWordTypes (module : Module) (context typeName : String) : Exc
   .ok words
 
 partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
+  | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
   | .u64 => .ok #[.u64]
+  | .u128 => .ok #[.u128]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
@@ -331,8 +335,10 @@ partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : 
       abiStructWordTypes module context typeName
 
 partial def abiValueWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
+  | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
   | .u64 => .ok #[.u64]
+  | .u128 => .ok #[.u128]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
@@ -360,8 +366,10 @@ partial def abiValueWordTypes (module : Module) (context : String) : ValueType �
       abiStructWordTypes module context typeName
 
 partial def crosscallNestedFixedArrayWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
+  | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
   | .u64 => .ok #[.u64]
+  | .u128 => .ok #[.u128]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
@@ -381,8 +389,10 @@ partial def crosscallNestedFixedArrayWordTypes (module : Module) (context : Stri
       crosscallStructWordTypes module context typeName
 
 partial def crosscallValueWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
+  | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
   | .u64 => .ok #[.u64]
+  | .u128 => .ok #[.u128]
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
@@ -422,7 +432,7 @@ partial def abiValueParamNamesAt
     (module : Module)
     (context name : String)
     (path : Array Nat) : ValueType → Except LowerError (Array String)
-  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
       if path.isEmpty then
         .ok #[name]
       else
@@ -462,7 +472,7 @@ def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"
 
 def isStorageWordType : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash | .address => true
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def requireStorageMapState (module : Module) (stateId : String) : Except LowerError (Nat × ValueType × ValueType) :=
@@ -652,20 +662,19 @@ def ensureAssignOpTypes (op : AssignOp) (targetType valueType : ValueType) : Exc
 
 def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .bool | .u32 | .u64 | .hash | .address | .bytes | .string => .ok ()
+  | .bool | .u8 | .u32 | .u64 | .u128 | .hash | .address | .bytes | .string => .ok ()
   | .unit => .error { message := s!"{context} does not support Unit equality" }
   | .fixedArray _ _ | .structType _ =>
       .error { message := s!"{context} does not support `{type.name}` equality in IR EVM v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
   match source, target with
-  | .u32, .u64 => .ok ()
-  | .u64, .u32 => .ok ()
-  | .u32, .bool => .ok ()
-  | .bool, .u64 => .ok ()
-  | .bool, .u32 => .ok ()
-  | .u64, .bool => .ok ()
+  | .u8, .u32 | .u8, .u64 | .u8, .u128 | .u8, .bool => .ok ()
+  | .u32, .u8 | .u32, .u64 | .u32, .u128 | .u32, .bool => .ok ()
+  | .u64, .u8 | .u64, .u32 | .u64, .u128 | .u64, .bool => .ok ()
   | .u64, .address => .ok ()
+  | .u128, .u8 | .u128, .u32 | .u128, .u64 => .ok ()
+  | .bool, .u8 | .bool, .u32 | .bool, .u64 | .bool, .u128 => .ok ()
   | .address, .u64 => .ok ()
   | .hash, .address => .ok ()
   | .address, .hash => .ok ()
@@ -709,7 +718,7 @@ def findStructFieldWithOffset? (decl : StructDecl) (fieldName : String) : Option
 
 def ensureStructLocalFieldType (structName fieldName : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error {
         message := s!"field `{fieldName}` in struct `{structName}` has unsupported EVM IR v0 local struct field type `{type.name}`; local structs support U32, U64, Bool, Hash, or Address fields"
@@ -727,7 +736,7 @@ def ensureLocalFlatStructType (module : Module) (context typeName : String) : Ex
 partial def ensureLocalNestedFixedArrayValueType
     (module : Module)
     (context name : String) : ValueType → Except LowerError Unit
-  | .u32 | .u64 | .bool | .hash | .address => .ok ()
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
   | .structType typeName => do
       discard <| ensureLocalFlatStructType module s!"{context} `{name}` nested fixed-array leaf" typeName
   | .fixedArray elementType length => do
@@ -839,6 +848,8 @@ def validateStructLiteralFields
 mutual
   partial def inferExprType (module : Module) (env : TypeEnv) : ProofForge.IR.Expr → Except LowerError ValueType
     | .literal (.u32 _) => .ok .u32
+    | .literal (.u8 _) => .ok .u8
+    | .literal (.u128 _) => .ok .u128
     | .literal (.u64 _) => .ok .u64
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
@@ -1248,7 +1259,7 @@ def validateLocalFixedArrayTarget
       | none => pure ()
       ensureType s!"{context} value" elementType (← inferExprType module env value)
       match elementType with
-      | .u32 | .u64 | .bool | .hash | .address => pure ()
+      | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => pure ()
       | .structType _ =>
           .error {
             message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
@@ -1271,7 +1282,7 @@ def validateLocalFixedArrayStaticPathTarget
   let targetType ← validateFixedArrayIndexPathTarget module env context binding.type path
   ensureType s!"{context} value" targetType (← inferExprType module env value)
   match targetType with
-  | .u32 | .u64 | .bool | .hash | .address => .ok targetType
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok targetType
   | .structType _ =>
       .error {
         message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
@@ -1345,7 +1356,7 @@ def validateAssignTarget
         match binding.type with
         | .fixedArray elementType _ => do
             match elementType with
-            | .u32 | .u64 | .bool | .hash | .address => pure ()
+            | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => pure ()
             | .fixedArray _ _ =>
                 ensureLocalNestedFixedArrayValueType module "assignment target" name elementType
             | .structType typeName =>
