@@ -89,17 +89,12 @@ def StorageLayout.find? (layout : StorageLayout) (stateId : String) : Option Sto
   layout.states.find? (fun state => state.id == stateId)
 
 def stateInfo? (module : Module) (stateId : String) : Option (Nat × StateDecl) :=
-  go 0 0 module.state
-where
-  go (idx slot : Nat) (states : Array StateDecl) : Option (Nat × StateDecl) :=
-    if h : idx < states.size then
-      let state := states[idx]
-      if state.id == stateId then
-        some (slot, state)
-      else
-        go (idx + 1) (slot + stateSlotSpan module state) states
-    else
-      none
+  match module.state.find? (fun s => s.id == stateId) with
+  | some state =>
+    match storageLayout module |>.find? stateId with
+    | some plan => some (plan.slot, state)
+    | none => none
+  | none => none
 
 def stateSlot? (module : Module) (stateId : String) : Option Nat :=
   match stateInfo? module stateId with

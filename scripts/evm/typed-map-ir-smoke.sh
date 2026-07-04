@@ -181,7 +181,7 @@ contract ProofForgeIRTypedMapSmokeTest {
         bytes32 rootB = packed(5, 6, 7, 8);
 
         assertEq(callU256(probe, abi.encodeWithSignature("typed_map_lifecycle()")), 31);
-        assertEq(readStorage(probe, bytes32(uint256(3))), 777);
+        assertEq(readStorage(probe, bytes32(uint256(3))) >> 192, 777);
         assertEq(readStorage(probe, mapSlot(7, 0)), 13);
         assertEq(readStorage(probe, mapSlot(8, 0)), 17);
         assertEq(readStorage(probe, mapPresenceSlot(7, 0)), 1);

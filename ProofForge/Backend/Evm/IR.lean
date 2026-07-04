@@ -1042,6 +1042,11 @@ def scalarStateType (module : Module) (stateId : String) : Except LowerError Val
   | .map _ _ => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
   | .array _ => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
 
+def scalarStatePacking (module : Module) (stateId : String) : Except LowerError (Nat × Nat) := do
+  match ProofForge.Backend.Evm.Plan.storageLayout module |>.find? stateId with
+  | some plan => .ok (plan.byteOffset, plan.byteWidth)
+  | none => .error { message := s!"unknown EVM state '{stateId}'" }
+
 def mapStateTypes (module : Module) (stateId : String) : Except LowerError (ValueType × ValueType) := do
   let state ← stateDeclOf module stateId "map"
   match state.kind with
@@ -1877,6 +1882,55 @@ mutual
     let plan ← lowerPlan <| ProofForge.Backend.Evm.Plan.scalarSlotPlan module stateId
     lowerStorageSlotPlanExpr module env plan
 
+  partial def lowerScalarStorageReadExpr
+      (module : Module)
+      (env : TypeEnv)
+      (stateId : String) : Except LowerError Lean.Compiler.Yul.Expr := do
+    let storageSlot ← lowerScalarStorageSlotExpr module env stateId
+    let (byteOffset, byteWidth) ← scalarStatePacking module stateId
+    if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
+      .ok (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
+    else
+      let shiftBits := (32 - byteOffset - byteWidth) * 8
+      let mask := (2^(byteWidth * 8 : Nat)) - 1
+      .ok (Lean.Compiler.Yul.builtin "and" #[
+        Lean.Compiler.Yul.builtin "shr" #[
+          Lean.Compiler.Yul.Expr.num shiftBits,
+          Lean.Compiler.Yul.builtin "sload" #[storageSlot]
+        ],
+        Lean.Compiler.Yul.Expr.num mask
+      ])
+
+  partial def lowerScalarStorageWriteStmt
+      (module : Module)
+      (env : TypeEnv)
+      (stateId : String)
+      (value : Lean.Compiler.Yul.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+    let storageSlot ← lowerScalarStorageSlotExpr module env stateId
+    let (byteOffset, byteWidth) ← scalarStatePacking module stateId
+    if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
+      .ok (.exprStmt (Lean.Compiler.Yul.builtin "sstore" #[storageSlot, value]))
+    else
+      let shiftBits := (32 - byteOffset - byteWidth) * 8
+      let mask := (2^(byteWidth * 8 : Nat)) - 1
+      let shiftedMask := Lean.Compiler.Yul.builtin "shl" #[
+        Lean.Compiler.Yul.Expr.num shiftBits,
+        Lean.Compiler.Yul.Expr.num mask
+      ]
+      .ok (.exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
+        storageSlot,
+        Lean.Compiler.Yul.builtin "or" #[
+          Lean.Compiler.Yul.builtin "and" #[
+            Lean.Compiler.Yul.builtin "sload" #[storageSlot],
+            Lean.Compiler.Yul.builtin "not" #[shiftedMask]
+          ],
+          Lean.Compiler.Yul.builtin "shl" #[
+            Lean.Compiler.Yul.Expr.num shiftBits,
+            value
+          ]
+        ]
+      ]))
+
   partial def lowerMapSlotExpr
       (module : Module)
       (env : TypeEnv)
@@ -1920,8 +1974,7 @@ mutual
                 message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
               }
           | _ => pure ()
-          let storageSlot ← lowerScalarStorageSlotExpr module env stateId
-          .ok (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
+          lowerScalarStorageReadExpr module env stateId
       | .contextRead (.blockHash blockNumber) => do
           .ok (Lean.Compiler.Yul.builtin "blockhash" #[← lowerExpr module env blockNumber])
       | .contextRead field =>
@@ -2629,8 +2682,7 @@ mutual
               message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
             }
         | _ => pure ()
-        let storageSlot ← lowerScalarStorageSlotExpr module env stateId
-        .ok (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
+        lowerScalarStorageReadExpr module env stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
     | .storageScalarAssignOp _ _ _ =>
@@ -2820,6 +2872,35 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .crosscallCreate2 _ _ _
   | .effect _ => false
 
+partial def lowerPlanEffectExpr
+    (module : Module)
+    (env : TypeEnv) :
+    ProofForge.Backend.Evm.Plan.EffectPlan → Except LowerError Lean.Compiler.Yul.Expr
+  | .storageScalarRead stateId => do
+      match ← scalarStateType module stateId with
+      | .structType _ =>
+          .error {
+            message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
+          }
+      | _ => pure ()
+      lowerScalarStorageReadExpr module env stateId
+  | .contextRead (.blockHash blockNumber) => do
+      .ok (Lean.Compiler.Yul.builtin "blockhash" #[← lowerExpr module env blockNumber])
+  | .contextRead field =>
+      .ok (ProofForge.Backend.Evm.ToYul.contextExpr field)
+  | _ =>
+      .error { message := "EVM ExprPlan-to-Yul scalar lowering does not support this effect plan yet" }
+
+partial def lowerExprPlanExpr
+    (module : Module)
+    (env : TypeEnv)
+    (plan : ProofForge.Backend.Evm.Plan.ExprPlan) :
+    Except LowerError Lean.Compiler.Yul.Expr :=
+  ProofForge.Backend.Evm.ToYul.exprPlanExpr
+    toYulError
+    (fun expr => lowerExpr module env expr)
+    (lowerPlanEffectExpr module env)
+    plan
 partial def lowerExprViaPlan
     (module : Module)
     (env : TypeEnv)

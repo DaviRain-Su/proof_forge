@@ -106,7 +106,7 @@ contract ProofForgeIRAssignOpSmokeTest {
             callU256(probe, abi.encodeWithSignature("compound_assignment(uint256)", uint256(10))),
             58
         );
-        assertEq(readStorage(probe, 0), 58);
+        assertEq(readStorage(probe, 0) >> 192, 58);
     }
 
     function testIRCompoundAssignmentSupportsU32Locals() public {

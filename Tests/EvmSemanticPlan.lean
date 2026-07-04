@@ -157,7 +157,7 @@ def testCounterSemanticPlan : IO Unit := do
   | _ => throw <| IO.userError "counter plan get body must return storage scalar read"
   let storageCount ← requireSome (plan.storage.find? "count") "counter plan missing count storage"
   require (storageCount.slot == 0) "counter plan count slot"
-  require (storageCount.span == 1) "counter plan count span"
+  require (storageCount.span == 0) "counter plan count span (packed scalar has zero span)"
   require (plan.usesCheckedArithmetic == true) "counter plan checked arithmetic (increment uses add)"
   require (plan.creates.size == 0) "counter plan no creates"
   require (plan.dispatch.entrypoints.size == plan.entrypoints.size) "counter plan dispatch entrypoint count"
@@ -767,13 +767,33 @@ def testScalarExprPlanToYul : IO Unit := do
     "counter scalar read plan-to-yul"
   match readExpr with
   | Lean.Compiler.Yul.Expr.builtin name args => do
-      require (name == "sload") "counter scalar read plan-to-yul opcode"
-      require (args.size == 1) "counter scalar read plan-to-yul arg count"
-      match args[0]! with
+      -- Packed scalar read: and(shr(shift, sload(slot)), mask)
+      require (name == "and") "counter scalar read plan-to-yul opcode (packed read = and)"
+      require (args.size == 2) "counter scalar read plan-to-yul arg count (and)"
+      match args[1]! with
       | Lean.Compiler.Yul.Expr.lit lit =>
-          require (lit.value == "0") "counter scalar read plan-to-yul slot"
-      | _ => throw <| IO.userError "counter scalar read plan-to-yul slot must be literal"
-  | _ => throw <| IO.userError "counter scalar read plan-to-yul must be sload"
+          -- The mask for u64 (8 bytes) is 0xFFFFFFFFFFFFFFFF
+          require (lit.value == "18446744073709551615") "counter scalar read plan-to-yul mask"
+      | _ => throw <| IO.userError "counter scalar read plan-to-yul mask must be literal"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.builtin shrName shrArgs => do
+          require (shrName == "shr") "counter scalar read plan-to-yul inner shr"
+          require (shrArgs.size == 2) "counter scalar read plan-to-yul shr arg count"
+          match shrArgs[0]! with
+          | Lean.Compiler.Yul.Expr.lit lit =>
+              require (lit.value == "192") "counter scalar read plan-to-yul shift amount"
+          | _ => throw <| IO.userError "counter scalar read plan-to-yul shift must be literal"
+          match shrArgs[1]! with
+          | Lean.Compiler.Yul.Expr.builtin sloadName sloadArgs => do
+              require (sloadName == "sload") "counter scalar read plan-to-yul inner sload"
+              require (sloadArgs.size == 1) "counter scalar read plan-to-yul sload arg count"
+              match sloadArgs[0]! with
+              | Lean.Compiler.Yul.Expr.lit lit =>
+                  require (lit.value == "0") "counter scalar read plan-to-yul slot"
+              | _ => throw <| IO.userError "counter scalar read plan-to-yul slot must be literal"
+          | _ => throw <| IO.userError "counter scalar read plan-to-yul must have sload inside shr"
+      | _ => throw <| IO.userError "counter scalar read plan-to-yul must be packed read (and/shr/sload)"
+  | _ => throw <| IO.userError "counter scalar read plan-to-yul must be packed read (and/shr/sload)"
   let addExpr ← requireOk
     (lowerExprViaPlan
       ProofForge.IR.Examples.Counter.module
@@ -1670,9 +1690,10 @@ def testScalarReturnPlanToYul : IO Unit := do
   match storageReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin name args) => do
       require (names == #["result"]) "storage scalar return plan-to-yul target"
-      require (name == "sload") "storage scalar return plan-to-yul opcode"
-      require (args.size == 1) "storage scalar return plan-to-yul arg count"
-  | _ => throw <| IO.userError "storage scalar return plan-to-yul must assign sload"
+      -- Packed read: and(shr(shift, sload(slot)), mask)
+      require (name == "and") "storage scalar return plan-to-yul opcode (packed read = and)"
+      require (args.size == 2) "storage scalar return plan-to-yul arg count (and)"
+  | _ => throw <| IO.userError "storage scalar return plan-to-yul must assign packed read (and/shr/sload)"
 
 def testScalarBindingStmtPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
@@ -1885,8 +1906,9 @@ def testScalarAssignmentPlanToYul : IO Unit := do
       require (args.size == 2) "scalar compound assignment plan-to-yul arg count"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin name _ =>
-          require (name == "sload") "scalar compound assignment plan-to-yul rhs opcode"
-      | _ => throw <| IO.userError "scalar compound assignment plan-to-yul rhs must be sload"
+          -- Packed read: and(shr(..., sload(...)), mask)
+          require (name == "and") "scalar compound assignment plan-to-yul rhs opcode (packed read = and)"
+      | _ => throw <| IO.userError "scalar compound assignment plan-to-yul rhs must be packed read (and)"
   | _ => throw <| IO.userError "scalar compound assignment plan-to-yul must assign helper result"
   let arrayAssignStmts ← requireOk
     (lowerAssignStmt
@@ -2116,11 +2138,13 @@ def testScalarEventPlanToYul : IO Unit := do
       let mut foundIndexedSload := false
       for stmt in block.statements do
         match stmt with
-        | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "sload" args)) => do
+        | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin andName _)) => do
+            -- Packed read: varDecl _indexed_topic0 = and(shr(..., sload(...)), mask)
             match vars[0]? with
             | some var =>
                 if vars.size == 1 && var.name == "_indexed_topic0" then
-                  foundIndexedSload := foundIndexedSload || args.size == 1
+                  require (andName == "and") "scalar indexed event topic must lower to packed read (and)"
+                  foundIndexedSload := true
             | none => pure ()
         | _ => pure ()
       require foundIndexedSload "scalar indexed event topic must lower storage read through plan"
@@ -2182,13 +2206,24 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (.storageScalarWrite "count" (.add (.local "n") (.literal (.u64 1)))))
     "scalar storage write value plan-to-yul"
   match writeStmt with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+      require (ssName == "sstore") "scalar storage write plan-to-yul must lower to sstore"
       require (args.size == 2) "scalar storage write plan-to-yul arg count"
       match args[1]! with
-      | Lean.Compiler.Yul.Expr.call name addArgs => do
-          require (name == "__pf_checked_add") "scalar storage write plan-to-yul helper"
-          require (addArgs.size == 2) "scalar storage write plan-to-yul helper arg count"
-      | _ => throw <| IO.userError "scalar storage write plan-to-yul value must be helper call"
+      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
+          require (orName == "or") "scalar storage write plan-to-yul must be packed or"
+          -- Packed write: or(and(sload(slot), not(mask)), shl(shift, value))
+          require (orArgs.size == 2) "scalar storage write plan-to-yul packed or arg count"
+          match orArgs[1]! with
+          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
+              require (shlName == "shl") "scalar storage write plan-to-yul must have shl in packed write"
+              match shlArgs[1]! with
+              | Lean.Compiler.Yul.Expr.call name addArgs => do
+                  require (name == "__pf_checked_add") "scalar storage write plan-to-yul helper"
+                  require (addArgs.size == 2) "scalar storage write plan-to-yul helper arg count"
+              | _ => throw <| IO.userError "scalar storage write plan-to-yul packed value must be helper call"
+          | _ => throw <| IO.userError "scalar storage write plan-to-yul must have shl in packed write"
+      | _ => throw <| IO.userError "scalar storage write plan-to-yul value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage write plan-to-yul must lower to sstore"
   let assignOpStmt ← requireOk
     (lowerEffectStmt
@@ -2197,17 +2232,28 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (.storageScalarAssignOp "count" .add (.effect (.storageScalarRead "count"))))
     "scalar storage assign_op value plan-to-yul"
   match assignOpStmt with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+      require (ssName == "sstore") "scalar storage assign_op plan-to-yul must lower to sstore"
       require (args.size == 2) "scalar storage assign_op plan-to-yul arg count"
       match args[1]! with
-      | Lean.Compiler.Yul.Expr.call name addArgs => do
-          require (name == "__pf_checked_add") "scalar storage assign_op plan-to-yul helper"
-          require (addArgs.size == 2) "scalar storage assign_op plan-to-yul helper arg count"
-          match addArgs[1]! with
-          | Lean.Compiler.Yul.Expr.builtin readName _ =>
-              require (readName == "sload") "scalar storage assign_op rhs must be plan-lowered sload"
-          | _ => throw <| IO.userError "scalar storage assign_op rhs must be sload"
-      | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul value must be helper call"
+      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
+          require (orName == "or") "scalar storage assign_op plan-to-yul must be packed or"
+          -- Packed write: or(and(sload(slot), not(mask)), shl(shift, helper(packedRead, value)))
+          require (orArgs.size == 2) "scalar storage assign_op plan-to-yul packed or arg count"
+          match orArgs[1]! with
+          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
+              require (shlName == "shl") "scalar storage assign_op must have shl in packed write"
+              match shlArgs[1]! with
+              | Lean.Compiler.Yul.Expr.call name addArgs => do
+                  require (name == "__pf_checked_add") "scalar storage assign_op plan-to-yul helper"
+                  require (addArgs.size == 2) "scalar storage assign_op plan-to-yul helper arg count"
+                  -- The first arg to checked_add is the packed read (and/shr/sload)
+                  match addArgs[0]! with
+                  | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
+                  | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
+              | _ => throw <| IO.userError "scalar storage assign_op packed value must be helper call"
+          | _ => throw <| IO.userError "scalar storage assign_op must have shl in packed write"
+      | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul must lower to sstore"
 
 def testMapWritePlanToYul : IO Unit := do
@@ -2278,9 +2324,10 @@ def testMapWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "map write key must be plan-lowered checked add"
       match args[2]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "map write value must lower storage read through plan"
-          require (readArgs.size == 1) "map write value sload arg count"
-      | _ => throw <| IO.userError "map write value must be plan-lowered storage read"
+          -- Packed read: and(shr(shift, sload(slot)), mask)
+          require (readName == "and") "map write value must lower storage read through plan (packed = and)"
+          require (readArgs.size == 2) "map write value packed read arg count (and)"
+      | _ => throw <| IO.userError "map write value must be plan-lowered packed storage read"
   | _ => throw <| IO.userError "map write plan-to-yul must lower to helper call"
   let setReturnExpr ← requireOk
     (lowerMapSetReturnExpr
@@ -2377,13 +2424,15 @@ def testArrayWritePlanToYul : IO Unit := do
         (.effect (.storageScalarRead "before"))))
     "array write storage-read value plan-to-yul"
   match storageValueStmt with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+      require (ssName == "sstore") "array write storage-read value must lower to sstore"
       require (args.size == 2) "array write storage-read value arg count"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "array write value must lower storage read through plan"
-          require (readArgs.size == 1) "array write value sload arg count"
-      | _ => throw <| IO.userError "array write value must be plan-lowered storage read"
+          -- Packed read: and(shr(shift, sload(slot)), mask)
+          require (readName == "and") "array write value must lower storage read through plan (packed = and)"
+          require (readArgs.size == 2) "array write value packed read arg count (and)"
+      | _ => throw <| IO.userError "array write value must be plan-lowered packed storage read"
   | _ => throw <| IO.userError "array write storage-read value must lower to sstore"
 
 def testStructFieldWritePlanToYul : IO Unit := do
@@ -2496,7 +2545,8 @@ def testStructFieldWritePlanToYul : IO Unit := do
         (.effect (.storageScalarRead "before"))))
     "struct array field write value plan-to-yul"
   match arrayFieldStmt with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+      require (ssName == "sstore") "struct array field write plan-to-yul must lower to sstore"
       require (args.size == 2) "struct array field write plan-to-yul arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.call slotName slotArgs => do
@@ -2505,9 +2555,9 @@ def testStructFieldWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "struct array field write plan-to-yul slot must use struct-array helper"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "struct array field write value must lower storage read through plan"
-          require (readArgs.size == 1) "struct array field write sload arg count"
-      | _ => throw <| IO.userError "struct array field write value must be plan-lowered storage read"
+          require (readName == "and") "struct array field write value must lower storage read through plan (packed = and)"
+          require (readArgs.size == 2) "struct array field write packed read arg count (and)"
+      | _ => throw <| IO.userError "struct array field write value must be plan-lowered packed storage read"
   | _ => throw <| IO.userError "struct array field write plan-to-yul must lower to sstore"
 
 def testWholeStructStorageWritePlanToYul : IO Unit := do
@@ -2598,11 +2648,11 @@ def testWholeStructStorageWritePlanToYul : IO Unit := do
             | some var =>
                 foundStorageY := foundStorageY ||
                   (var.name == storageStructAssignTempName "current" "y" &&
-                    readName == "sload" &&
-                    readArgs.size == 1)
+                    readName == "and" &&
+                    readArgs.size == 2)
             | none => pure ()
-        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-            if args.size == 2 then
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+            if ssName == "sstore" && args.size == 2 then
               match args[1]! with
               | Lean.Compiler.Yul.Expr.ident name =>
                   foundStoreX := foundStoreX || name == storageStructAssignTempName "current" "x"
@@ -2749,9 +2799,9 @@ def testStoragePathWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "direct map storage path assign_op key must be plan-lowered checked add"
       match args[2]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "direct map storage path assign_op value must lower storage read through plan"
-          require (readArgs.size == 1) "direct map storage path assign_op value sload arg count"
-      | _ => throw <| IO.userError "direct map storage path assign_op value must be plan-lowered storage read"
+          require (readName == "and") "direct map storage path assign_op value must lower storage read through plan (packed = and)"
+          require (readArgs.size == 2) "direct map storage path assign_op value packed read arg count (and)"
+      | _ => throw <| IO.userError "direct map storage path assign_op value must be plan-lowered packed storage read"
   | _ => throw <| IO.userError "direct map storage path assign_op plan-to-yul must lower to helper call"
   let nestedMapAssign ← requireOk
     (lowerEffectStmt
@@ -2768,15 +2818,15 @@ def testStoragePathWritePlanToYul : IO Unit := do
       let mut foundStorageReadValue := false
       for stmt in block.statements do
         match stmt with
-        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-            if args.size == 2 then
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+            if ssName == "sstore" && args.size == 2 then
               match args[0]!, args[1]! with
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if slotName == "_slot" && addName == "__pf_checked_add" && addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
-                          (readName == "sload" && readArgs.size == 1)
+                          (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
               | _, _ => pure ()
         | _ => pure ()
@@ -2797,15 +2847,15 @@ def testStoragePathWritePlanToYul : IO Unit := do
       let mut foundStorageReadValue := false
       for stmt in block.statements do
         match stmt with
-        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-            if args.size == 2 then
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
+            if ssName == "sstore" && args.size == 2 then
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
-                          (readName == "sload" && readArgs.size == 1)
+                          (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
               | _ => pure ()
         | _ => pure ()
@@ -2827,8 +2877,8 @@ def testStoragePathWritePlanToYul : IO Unit := do
       let mut foundCheckedValue := false
       for stmt in block.statements do
         match stmt with
-        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-            if args.size == 2 then
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName1 args) => do
+            if ssName1 == "sstore" && args.size == 2 then
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
@@ -2856,15 +2906,15 @@ def testStoragePathWritePlanToYul : IO Unit := do
       let mut foundStorageReadValue := false
       for stmt in block.statements do
         match stmt with
-        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-            if args.size == 2 then
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName2 args) => do
+            if ssName2 == "sstore" && args.size == 2 then
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
-                          (readName == "sload" && readArgs.size == 1)
+                          (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
               | _ => pure ()
         | _ => pure ()

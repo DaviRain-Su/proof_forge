@@ -67,8 +67,8 @@ object "EvmStorageStructProbe" {
       revert(0, 0)
     }
     function f_EvmStorageStructProbe_struct_lifecycle() -> result {
-      sstore(0, 111)
-      sstore(3, 222)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 111)))
+      sstore(3, or(and(sload(3), not(shl(192, 18446744073709551615))), shl(192, 222)))
       sstore(1, 7)
       sstore(2, 11)
       result := __pf_checked_add(sload(1), sload(2))

@@ -18,14 +18,14 @@ object "Counter" {
       revert(0, 0)
     }
     function f_Counter_initialize() {
-      sstore(0, 0)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
     }
     function f_Counter_increment() {
-      let n := sload(0)
-      sstore(0, __pf_checked_add(n, 1))
+      let n := and(shr(192, sload(0)), 18446744073709551615)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_add(n, 1))))
     }
     function f_Counter_get() -> result {
-      result := sload(0)
+      result := and(shr(192, sload(0)), 18446744073709551615)
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {

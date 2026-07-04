@@ -142,9 +142,9 @@ contract ProofForgeIRMapSmokeTest {
         assertEq(callU256(probe, abi.encodeWithSignature("map_lifecycle()")), 55);
         assertEq(callU256(probe, abi.encodeWithSignature("get_seed_balance()")), 55);
 
-        assertEq(readStorage(probe, bytes32(uint256(0))), 111);
+        assertEq(readStorage(probe, bytes32(uint256(0))) >> 192, 111);
         assertEq(readStorage(probe, bytes32(uint256(1))), 0);
-        assertEq(readStorage(probe, bytes32(uint256(2))), 222);
+        assertEq(readStorage(probe, bytes32(uint256(2))) >> 192, 222);
         assertEq(readStorage(probe, mapSlot(1001)), 55);
         assertEq(readStorage(probe, mapPresenceSlot(1001)), 1);
     }

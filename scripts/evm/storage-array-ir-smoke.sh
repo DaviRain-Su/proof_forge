@@ -122,11 +122,11 @@ contract ProofForgeIRStorageArraySmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertEq(callU256(probe, abi.encodeWithSignature("storage_lifecycle()")), 31);
-        assertEq(readStorage(probe, bytes32(uint256(0))), 111);
+        assertEq(readStorage(probe, bytes32(uint256(0))) >> 192, 111);
         assertEq(readStorage(probe, arraySlot(0)), 7);
         assertEq(readStorage(probe, arraySlot(1)), 11);
         assertEq(readStorage(probe, arraySlot(2)), 13);
-        assertEq(readStorage(probe, bytes32(uint256(4))), 222);
+        assertEq(readStorage(probe, bytes32(uint256(4))) >> 192, 222);
     }
 
     function testIRStorageArrayParameterizedReadWrite() public {

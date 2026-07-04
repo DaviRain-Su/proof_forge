@@ -127,7 +127,7 @@ object "EvmTypedMapProbe" {
       revert(0, 0)
     }
     function f_EvmTypedMapProbe_typed_map_lifecycle() -> result {
-      sstore(3, 777)
+      sstore(3, or(and(sload(3), not(shl(192, 18446744073709551615))), shl(192, 777)))
       let old0 := __proof_forge_map_set_return(0, 7, 11)
       if iszero(eq(old0, 0)) {
         revert(0, 0)

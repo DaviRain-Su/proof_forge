@@ -46,14 +46,14 @@ object "EvmTypedStorageProbe" {
       revert(0, 0)
     }
     function f_EvmTypedStorageProbe_bool_scalar_lifecycle() -> result {
-      sstore(0, 1)
-      if iszero(eq(sload(0), 1)) {
+      sstore(0, or(and(sload(0), not(shl(248, 255))), shl(248, 1)))
+      if iszero(eq(and(shr(248, sload(0)), 255), 1)) {
         revert(0, 0)
       }
-      result := sload(0)
+      result := and(shr(248, sload(0)), 255)
     }
     function f_EvmTypedStorageProbe_typed_array_lifecycle() -> result {
-      sstore(8, 999)
+      sstore(8, or(and(sload(8), not(shl(192, 18446744073709551615))), shl(192, 999)))
       sstore(__proof_forge_array_slot(1, 3, 0), 7)
       sstore(__proof_forge_array_slot(1, 3, 1), 11)
       sstore(__proof_forge_array_slot(1, 3, 2), 13)

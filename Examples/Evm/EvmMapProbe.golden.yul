@@ -74,8 +74,8 @@ object "EvmMapProbe" {
       revert(0, 0)
     }
     function f_EvmMapProbe_map_lifecycle() -> result {
-      sstore(0, 111)
-      sstore(2, 222)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 111)))
+      sstore(2, or(and(sload(2), not(shl(192, 18446744073709551615))), shl(192, 222)))
       let old0 := __proof_forge_map_set_return(1, 1001, 11)
       if iszero(eq(old0, 0)) {
         revert(0, 0)

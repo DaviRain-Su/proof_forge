@@ -26,32 +26,32 @@ object "EvmLoopProbe" {
       revert(0, 0)
     }
     function f_EvmLoopProbe_count_to_three() -> result {
-      sstore(0, 0)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
       for {
         let _i := 0
       } lt(_i, 3) {
         _i := add(_i, 1)
       } {
-        let n := sload(0)
-        sstore(0, __pf_checked_add(n, 1))
+        let n := and(shr(192, sload(0)), 18446744073709551615)
+        sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_add(n, 1))))
       }
-      result := sload(0)
+      result := and(shr(192, sload(0)), 18446744073709551615)
     }
     function f_EvmLoopProbe_choose_with_early_return(flag) -> result {
-      sstore(0, 0)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
       switch flag
       case 0 {
-        sstore(0, 22)
+        sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 22)))
       }
       default {
         result := 11
         leave
       }
-      sstore(0, 99)
-      result := sload(0)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 99)))
+      result := and(shr(192, sload(0)), 18446744073709551615)
     }
     function f_EvmLoopProbe_loop_early_return() -> result {
-      sstore(0, 100)
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 100)))
       for {
         let _i := 0
       } lt(_i, 3) {
