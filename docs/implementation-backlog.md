@@ -2978,15 +2978,14 @@ means a real developer cannot write a common contract pattern.
 Tracked in detail as **Workstream 34 Phase CS-2/CS-3**; implementation must
 land in `contract_source` / Token SDK syntax, not Builder fixtures.
 
-- P0: ERC-20 completion (canonical selector surface, stdlib ERC-20 with
-  permit, EVM lowering of all token methods)
-- P0: ERC-721 NFT (ownerOf, safeTransferFrom, mint, burn, tokenURI)
-- P0: ERC-165 supportsInterface (required for NFT and token introspection)
-- P0: AccessControl roles (grant, revoke, hasRole, role-based modifiers)
-- P0: Constructor dynamic-type args (string, bytes, dynamic arrays)
+- ✅ P0: ERC-20 (stdlib mixin + compose + Foundry + VM smoke)
+- ✅ P0: ERC-721 NFT (stdlib mixin; safeTransferFrom lacks onERC721Received → P1)
+- ✅ P0: ERC-165 supportsInterface (stdlib mixin)
+- ✅ P0: AccessControl roles (stdlib mixin + guard_role)
+- ✅ P0: Constructor dynamic-type args (CLI ABI encoding + constructor_body + Anvil verified)
 - P1: ERC-1155 multi-token, ERC-4626 vault, ERC-2612 permit, custom errors,
   storage packing, batch operations, factory deployment template, AMM,
-  Pausable auth, ReentrancyGuard stdlib
+  Pausable auth, ERC-721 onERC721Received, dynamic constructor args runtime
 
 ### Solana SDK blockers (5 tracked P0, 4 closed, 7 P1)
 
@@ -3021,14 +3020,14 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
-### NEAR SDK blockers (6 P0, 10 P1)
+### NEAR SDK blockers (0 open P0, 6 closed, 10 P1)
 
-- P0: Promise API (promise_create, promise_then, promise_and, batch actions,
-  promise_results, callback patterns)
-- P0: NEP-141 fungible token (ft_transfer, ft_balance_of, storage deposit)
-- P0: signer_account_id host import
-- P0: attached_deposit / native value host import
-- P0: Aggregate ABI (structs, dynamic arrays in entrypoint params)
-- P1: NEP-145 storage management, NEP-148 metadata, NEP-171 NFT,
-  keccak256/crypto, storage_remove, block_timestamp, gas accounting APIs,
+- ✅ P0: Promise API (host imports in HostBridge + EmitWat crosscall stub; full async is P1)
+- ✅ P0: NEP-141 fungible token (NearFungibleToken.lean stdlib mixin)
+- ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
+- ✅ P0: attached_deposit (host import + .nativeValue lowering)
+- ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
+- ✅ P0: Callback handling (promise_result host import + offline stub)
+- P1: Full Promise async execution, NEP-145 storage management, NEP-148 metadata,
+  NEP-171 NFT, keccak256/crypto, storage_remove, block_timestamp, gas accounting,
   real NEAR broadcast smoke, near-api-js view/gas/deposit client options
