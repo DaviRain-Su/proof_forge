@@ -27,6 +27,9 @@ inductive TokenFeature where
   | nonTransferable
   | confidentialTransfer
   | transferHook
+  | metadataPointer
+  | defaultAccountState
+  | immutableOwner
   deriving BEq, DecidableEq, Repr
 
 def TokenFeature.id : TokenFeature → String
@@ -39,6 +42,9 @@ def TokenFeature.id : TokenFeature → String
   | .nonTransferable => "non_transferable"
   | .confidentialTransfer => "confidential_transfer"
   | .transferHook => "transfer_hook"
+  | .metadataPointer => "metadata_pointer"
+  | .defaultAccountState => "default_account_state"
+  | .immutableOwner => "immutable_owner"
 
 def knownFeatureIds : Array String := #[
   TokenFeature.mintable.id,
@@ -49,7 +55,10 @@ def knownFeatureIds : Array String := #[
   TokenFeature.transferFee.id,
   TokenFeature.nonTransferable.id,
   TokenFeature.confidentialTransfer.id,
-  TokenFeature.transferHook.id
+  TokenFeature.transferHook.id,
+  TokenFeature.metadataPointer.id,
+  TokenFeature.defaultAccountState.id,
+  TokenFeature.immutableOwner.id
 ]
 
 def TokenFeature.ofId? (id : String) : Option TokenFeature :=
@@ -63,6 +72,9 @@ def TokenFeature.ofId? (id : String) : Option TokenFeature :=
   | "non_transferable" => some .nonTransferable
   | "confidential_transfer" => some .confidentialTransfer
   | "transfer_hook" => some .transferHook
+  | "metadata_pointer" => some .metadataPointer
+  | "default_account_state" => some .defaultAccountState
+  | "immutable_owner" => some .immutableOwner
   | _ => none
 
 def TokenFeature.parse (id : String) : Except String TokenFeature :=
@@ -86,7 +98,10 @@ def TokenSpec.needsToken2022 (spec : TokenSpec) : Bool :=
   spec.hasFeature .transferFee ||
   spec.hasFeature .nonTransferable ||
   spec.hasFeature .confidentialTransfer ||
-  spec.hasFeature .transferHook
+  spec.hasFeature .transferHook ||
+  spec.hasFeature .metadataPointer ||
+  spec.hasFeature .defaultAccountState ||
+  spec.hasFeature .immutableOwner
 
 inductive TokenArtifactKind where
   | evmErc20Contract
@@ -229,7 +244,10 @@ def token2022FeatureOperations (spec : TokenSpec) : Array String :=
   ] else #[]) ++
   (if spec.hasFeature .nonTransferable then #["token-2022.extension.non_transferable"] else #[]) ++
   (if spec.hasFeature .confidentialTransfer then #["token-2022.extension.confidential_transfer"] else #[]) ++
-  (if spec.hasFeature .transferHook then #["token-2022.extension.transfer_hook"] else #[])
+  (if spec.hasFeature .transferHook then #["token-2022.extension.transfer_hook"] else #[]) ++
+  (if spec.hasFeature .metadataPointer then #["token-2022.extension.metadata_pointer"] else #[]) ++
+  (if spec.hasFeature .defaultAccountState then #["token-2022.extension.default_account_state"] else #[]) ++
+  (if spec.hasFeature .immutableOwner then #["token-2022.extension.immutable_owner"] else #[])
 
 def solanaSplTokenProgramId : String :=
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -398,6 +416,42 @@ private def solanaToken2022Extensions (spec : TokenSpec) : Array SolanaTokenExte
       requiresConfig := true,
       notes := #[
         "Requires a transfer-hook program id; ProofForge should generate or reference that program explicitly."
+      ]
+    }
+  ] else #[]) ++
+  (if spec.hasFeature .metadataPointer then #[
+    {
+      feature := TokenFeature.metadataPointer.id,
+      extension := "metadata_pointer",
+      scope := "mint",
+      initInstruction := "initialize_metadata_pointer",
+      requiresConfig := true,
+      notes := #[
+        "Points to a metadata program account for the mint."
+      ]
+    }
+  ] else #[]) ++
+  (if spec.hasFeature .defaultAccountState then #[
+    {
+      feature := TokenFeature.defaultAccountState.id,
+      extension := "default_account_state",
+      scope := "mint",
+      initInstruction := "initialize_default_account_state",
+      requiresConfig := true,
+      notes := #[
+        "Sets the default state (frozen/unfrozen) for new token accounts."
+      ]
+    }
+  ] else #[]) ++
+  (if spec.hasFeature .immutableOwner then #[
+    {
+      feature := TokenFeature.immutableOwner.id,
+      extension := "immutable_owner",
+      scope := "account",
+      initInstruction := "initialize_immutable_owner",
+      requiresConfig := false,
+      notes := #[
+        "Marks token accounts as having an immutable owner; set at account creation."
       ]
     }
   ] else #[])

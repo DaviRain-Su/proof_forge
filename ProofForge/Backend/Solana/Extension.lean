@@ -2145,6 +2145,41 @@ def lowerToken2022InitializeNonTransferableMintData : Array AstNode :=
     storeImm .stb .r8 0 32
   ]
 
+/-- Initialize metadata pointer: u8 instruction=39, pubkey metadata_program_id, pubkey metadata_account. -/
+def lowerToken2022InitializeMetadataPointerData (accountBindings : Array CpiAccountBinding)
+    (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data token-2022.initialize_metadata_pointer: u8 instruction=39, pubkey metadata_program_id, pubkey metadata_account"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 39
+  ] ++
+  lowerCpiOwnerField accountBindings cpi 1
+
+/-- Initialize default account state: u8 instruction=38, u8 state (0=unfrozen, 1=frozen).
+    The state value comes from `solana.cpi.default_account_state` metadata as a
+    literal string (0 or 1). -/
+def lowerToken2022InitializeDefaultAccountStateData (cpi : CpiInvoke) : Array AstNode :=
+  let stateVal := match cpiMetadataValue? cpi "solana.cpi.default_account_state" with
+    | some "1" => 1
+    | _ => 0
+  #[
+    .comment s!"solana.cpi.data token-2022.initialize_default_account_state: u8 instruction=38, u8 state={stateVal}"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 38,
+    storeImm .stb .r8 1 stateVal
+  ]
+
+/-- Initialize immutable owner: u8 instruction=37 (discriminator only, no extra data). -/
+def lowerToken2022InitializeImmutableOwnerData : Array AstNode :=
+  #[
+    .comment "solana.cpi.data token-2022.initialize_immutable_owner: u8 instruction=37"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 37
+  ]
+
 /-- Memo CPI data: raw bytes from the input binding. No discriminator — the
     Memo program accepts arbitrary bytes as instruction data. This initial
     lowering copies up to 8 bytes (one u64 word) from the binding's offset;
@@ -2210,6 +2245,12 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerToken2022SetTransferFeeData valueBindings cpi, 12)
   | some "token-2022.initialize_non_transferable_mint" =>
       (lowerToken2022InitializeNonTransferableMintData, 1)
+  | some "token-2022.initialize_metadata_pointer" =>
+      (lowerToken2022InitializeMetadataPointerData accountBindings cpi, 1)
+  | some "token-2022.initialize_default_account_state" =>
+      (lowerToken2022InitializeDefaultAccountStateData cpi, 2)
+  | some "token-2022.initialize_immutable_owner" =>
+      (lowerToken2022InitializeImmutableOwnerData, 1)
   | some "memo.memo" =>
       (lowerMemoData valueBindings cpi, 8)
   | some dl =>
@@ -2219,9 +2260,6 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       -- metadata in Token.lean but no sBPF instruction-data lowering yet.
       if dl == "token-2022.initialize_confidential_transfer_mint"
          ∨ dl == "token-2022.initialize_transfer_hook"
-         ∨ dl == "token-2022.initialize_metadata_pointer"
-         ∨ dl == "token-2022.initialize_default_account_state"
-         ∨ dl == "token-2022.initialize_immutable_owner"
          ∨ dl == "token-2022.initialize_permanent_delegate"
          ∨ dl == "token-2022.initialize_interest_bearing_mint"
          ∨ dl == "token-2022.initialize_memo_transfer" then
