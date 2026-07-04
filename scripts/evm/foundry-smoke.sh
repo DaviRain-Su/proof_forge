@@ -320,6 +320,45 @@ contract ProofForgeSmokeTest {
         (bool noRoleOk,) = probe.call(abi.encodeWithSignature("touch()"));
         assertFalse(noRoleOk);
     }
+
+    function testERC721ProbeLifecycle() public {
+        address probe = address(0x7210);
+        address alice = address(0xA11CE);
+        address bob = address(0xB0B);
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC721Probe.bin")", probe);
+
+        vm.prank(alice);
+        (bool mintOk,) = probe.call(abi.encodeWithSignature("mint(address,uint256)", alice, uint256(1)));
+        assertTrue(mintOk);
+
+        (bool ownerOk, bytes memory ownerResult) =
+            probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
+        assertTrue(ownerOk);
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(alice)));
+
+        vm.prank(alice);
+        (bool transferOk,) =
+            probe.call(abi.encodeWithSignature("transferFrom(address,address,uint256)", alice, bob, uint256(1)));
+        assertTrue(transferOk);
+
+        (, ownerResult) = probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(bob)));
+
+        vm.prank(bob);
+        (bool safeOk,) =
+            probe.call(abi.encodeWithSignature("safeTransferFrom(address,address,uint256)", bob, alice, uint256(1)));
+        assertTrue(safeOk);
+
+        (, ownerResult) = probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(alice)));
+
+        vm.prank(alice);
+        (bool burnOk,) = probe.call(abi.encodeWithSignature("burn(uint256)", uint256(1)));
+        assertTrue(burnOk);
+
+        (bool burnedOwnerOk,) = probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
+        assertFalse(burnedOwnerOk);
+    }
 }
 SOL
 
