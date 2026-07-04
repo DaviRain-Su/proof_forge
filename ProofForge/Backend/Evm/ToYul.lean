@@ -300,6 +300,38 @@ def scalarBindingStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul scalar binding lowering expected a let binding")
 
+def assertStatementFromCondition
+    (condition : Lean.Compiler.Yul.Expr)
+    (revertStatements : Array Lean.Compiler.Yul.Statement) :
+    Lean.Compiler.Yul.Statement :=
+  Lean.Compiler.Yul.Statement.ifStmt
+    (Lean.Compiler.Yul.builtin "iszero" #[condition])
+    { statements := revertStatements }
+
+def scalarAssertStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (revertStatementsFor : Option ProofForge.IR.ErrorRef → Array Lean.Compiler.Yul.Statement) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .assert condition _ errorRef? => do
+      .ok #[
+        assertStatementFromCondition
+          (← exprPlanExpr mkError lowerExpr lowerEffect condition)
+          (revertStatementsFor errorRef?)
+      ]
+  | .assertEq lhs rhs _ errorRef? => do
+      let lhsExpr ← exprPlanExpr mkError lowerExpr lowerEffect lhs
+      let rhsExpr ← exprPlanExpr mkError lowerExpr lowerEffect rhs
+      .ok #[
+        assertStatementFromCondition
+          (Lean.Compiler.Yul.builtin "eq" #[lhsExpr, rhsExpr])
+          (revertStatementsFor errorRef?)
+      ]
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul scalar assertion lowering expected assert/assertEq")
+
 /-! ## Plan-driven helper requirements
 
 `StorageSlotPlan.requiredHelpers` lets the plan declare which EVM helper functions

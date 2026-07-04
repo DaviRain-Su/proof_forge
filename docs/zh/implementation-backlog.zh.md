@@ -182,7 +182,7 @@
   - 已开始：`Lower.buildEntrypointPlan` 现在会用结构化 `ExprPlan`/`StmtPlan` 节点填充 `EntrypointPlan.body`，表示入口 IR 主体，同时 `IR.lean` 仍作为兼容性 Yul 组装外观保留。
   - 已开始：标量局部绑定初始化现在会在受支持的标量子集上消费语义计划路径：`IR Expr -> Lower.buildExprPlan -> ToYul.exprPlanExpr -> Yul.Expr`。Counter、expression 和 context 冒烟测试证明生成的字节码仍可运行；尚不支持的聚合/crosscall plan 节点继续留在兼容性外观路径上，直到对应迁移切片补齐验证覆盖。
   - 已开始：标量 `let` 和 `let mut` 的 statement 组装现在会在受支持的标量 initializer 表达式上消费第一条窄 `StmtPlan -> ToYul` helper，从 `StmtPlan.letBind`/`StmtPlan.letMutBind` 生成 Yul `varDecl`。尚不支持的聚合或字段 initializer 形态仍留在兼容外观中，直到更完整的 `StmtPlan -> Yul` 降级落地。
-  - 已开始：标量 `assert` 和 `assertEq` 守卫现在也会在受支持的标量表达式上消费同一个 `ExprPlan -> ToYul` 表达式边界。`just evm-semantic-plan` 现在会在 `lean --run` 之前构建它导入的 example 模块，因此 semantic-plan 门禁可以在干净 checkout 中稳定运行，而不依赖旧的 `.olean` 文件。
+  - 已开始：标量 `assert` 和 `assertEq` 的 statement 组装现在会在受支持的标量操作数上消费一条窄 `StmtPlan -> ToYul` helper。EVM 运行时错误 payload 的选择仍留在 `IR.lean` 兼容外观中，并以 revert-body callback 的形式传给 `ToYul`。尚不支持的聚合或字段断言操作数继续留在兼容路径上，直到更完整的 statement-plan 降级落地。
   - 已开始：标量 `return` 字降级现在也会对受支持的 `U32`/`U64`/`Bool`/`Hash` 返回表达式消费同一个 `ExprPlan -> ToYul` 表达式边界。聚合返回打平和聚合跨合约调用返回 helper 仍留在现有兼容路径上，直到对应迁移切片补齐计划级覆盖。
   - 已开始：直接标量赋值和复合赋值的 RHS 降级现在也会对受支持的标量表达式消费同一个 `ExprPlan -> ToYul` 表达式边界。整聚合赋值、动态聚合 helper 快照以及非标量 storage effect 写入仍留在现有兼容路径上，直到对应迁移切片补齐覆盖。
   - 已开始：标量 `storageScalarWrite` 和 `storageScalarAssignOp` 的 value 降级现在也会对受支持的标量 RHS 表达式消费同一个 `ExprPlan -> ToYul` 表达式边界。

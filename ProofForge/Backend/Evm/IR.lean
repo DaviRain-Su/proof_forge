@@ -559,9 +559,7 @@ def lowerAssertStmt (condition : Lean.Compiler.Yul.Expr) (errorRef? : Option Pro
   let revertStatements := match errorRef? with
     | none => #[revertStmt]
     | some ref => errorRefRevertStmts ref
-  Lean.Compiler.Yul.Statement.ifStmt
-    (Lean.Compiler.Yul.builtin "iszero" #[condition])
-    { statements := revertStatements }
+  ProofForge.Backend.Evm.ToYul.assertStatementFromCondition condition revertStatements
 
 def calldataWordExpr (paramIndex : Nat) : Lean.Compiler.Yul.Expr :=
   Lean.Compiler.Yul.builtin "calldataload" #[Lean.Compiler.Yul.Expr.num (4 + paramIndex * 32)]
@@ -3041,6 +3039,53 @@ partial def lowerScalarBindingStmtPlanOrFallback
         (some (← lowerExpr module env value))
     ]
 
+partial def lowerScalarAssertStmtPlanOrFallback
+    (module : Module)
+    (env : TypeEnv) :
+    ProofForge.IR.Statement → Except LowerError (Array Lean.Compiler.Yul.Statement)
+  | .assert condition message errorRef? => do
+      if exprSupportsPlanScalarYul condition then
+        let conditionPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) condition with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        ProofForge.Backend.Evm.ToYul.scalarAssertStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (fun
+            | none => #[revertStmt]
+            | some ref => errorRefRevertStmts ref)
+          (.assert conditionPlan message errorRef?)
+      else
+        .ok #[lowerAssertStmt (← lowerScalarPlanExprOrFallback module env condition) errorRef?]
+  | .assertEq lhs rhs message errorRef? => do
+      if exprSupportsPlanScalarYul lhs && exprSupportsPlanScalarYul rhs then
+        let lhsPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) lhs with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        let rhsPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) rhs with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        ProofForge.Backend.Evm.ToYul.scalarAssertStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (fun
+            | none => #[revertStmt]
+            | some ref => errorRefRevertStmts ref)
+          (.assertEq lhsPlan rhsPlan message errorRef?)
+      else
+        let condition := Lean.Compiler.Yul.builtin "eq" #[
+          ← lowerScalarPlanExprOrFallback module env lhs,
+          ← lowerScalarPlanExprOrFallback module env rhs
+        ]
+        .ok #[lowerAssertStmt condition errorRef?]
+  | _ =>
+      .error { message := "EVM StmtPlan-to-Yul scalar assertion lowering expected assert/assertEq" }
+
 partial def lowerEventStructDataWords
     (module : Module)
     (env : TypeEnv)
@@ -4740,14 +4785,10 @@ mutual
         .ok (← lowerAssignOpStmt module env target op value, env)
     | .effect effect => do
         .ok (#[← lowerEffectStmt module env effect], env)
-    | .assert condition _ errorRef? => do
-        .ok (#[lowerAssertStmt (← lowerScalarPlanExprOrFallback module env condition) errorRef?], env)
-    | .assertEq lhs rhs _ errorRef? => do
-        let condition := Lean.Compiler.Yul.builtin "eq" #[
-          ← lowerScalarPlanExprOrFallback module env lhs,
-          ← lowerScalarPlanExprOrFallback module env rhs
-        ]
-        .ok (#[lowerAssertStmt condition errorRef?], env)
+    | .assert condition message errorRef? => do
+        .ok (← lowerScalarAssertStmtPlanOrFallback module env (.assert condition message errorRef?), env)
+    | .assertEq lhs rhs message errorRef? => do
+        .ok (← lowerScalarAssertStmtPlanOrFallback module env (.assertEq lhs rhs message errorRef?), env)
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
     | .ifElse condition thenBody elseBody => do

@@ -17,6 +17,41 @@ Each entry should include:
 
 ## 2026-07-04
 
+### EVM Scalar Assert StmtPlan-To-Yul Slice
+
+Commit: this commit
+
+Summary:
+
+- Added `ToYul.scalarAssertStmtPlanStatements` for the narrow scalar
+  `StmtPlan.assert` / `StmtPlan.assertEq` assembly path.
+- Kept EVM runtime error payload selection in the `IR.lean` compatibility
+  facade and passed the chosen revert body into `ToYul`, so target-neutral
+  statement assembly does not learn EVM error ABI details.
+- Routed scalar `assert` and `assertEq` statements through the helper when their
+  operands are in the supported scalar plan subset; unsupported aggregate or
+  field shapes remain on the compatibility path.
+- Extended `Tests/EvmSemanticPlan.lean` to cover both direct helper output and
+  integrated `lowerStatement` output for `assert` and `assertEq`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+```
+
+Known limitations:
+
+- This slice moves scalar assertion statement assembly only. Assignment,
+  return, storage-effect, control-flow, and event statement assembly still need
+  broader `StmtPlan -> Yul` extraction.
+
+Next step:
+
+- Move the next statement assembly shape, likely scalar return assignment or
+  direct scalar assignment, behind a `StmtPlan -> Yul` helper.
+
 ### EVM Scalar Binding StmtPlan-To-Yul Slice
 
 Commit: this commit

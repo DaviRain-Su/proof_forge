@@ -238,44 +238,81 @@ def testScalarExprPlanToYul : IO Unit := do
 
 def testScalarAssertPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
-  let assertCond ← requireOk
-    (lowerScalarPlanExprOrFallback
+  let checkGuardBuiltin := fun (stmt : Lean.Compiler.Yul.Statement) (expected : String) (label : String) => do
+    match stmt with
+    | Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
+        require (name == "iszero") s!"{label} guard builtin"
+        require (args.size == 1) s!"{label} iszero arg count"
+        match args[0]! with
+        | Lean.Compiler.Yul.Expr.builtin name _ =>
+            require (name == expected) s!"{label} condition builtin"
+        | _ => throw <| IO.userError s!"{label} condition must be builtin"
+    | _ => throw <| IO.userError s!"{label} must lower to if iszero"
+  let directAssertStmts ← requireOk
+    (ProofForge.Backend.Evm.ToYul.scalarAssertStmtPlanStatements
+      toYulError
+      (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
+      (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
+      (fun _ => #[revertStmt])
+      (ProofForge.Backend.Evm.Plan.StmtPlan.assert
+        (.builtin "gt" #[.local "n", .literalWord 0])
+        "positive"
+        none))
+    "scalar assert StmtPlan-to-Yul helper"
+  require (directAssertStmts.size == 1) "scalar assert StmtPlan-to-Yul helper statement count"
+  checkGuardBuiltin directAssertStmts[0]! "gt" "scalar assert StmtPlan-to-Yul helper"
+  let directAssertEqStmts ← requireOk
+    (ProofForge.Backend.Evm.ToYul.scalarAssertStmtPlanStatements
+      toYulError
+      (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
+      (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
+      (fun _ => #[revertStmt])
+      (ProofForge.Backend.Evm.Plan.StmtPlan.assertEq
+        (.local "n")
+        (.literalWord 1)
+        "one"
+        none))
+    "scalar assertEq StmtPlan-to-Yul helper"
+  require (directAssertEqStmts.size == 1) "scalar assertEq StmtPlan-to-Yul helper statement count"
+  checkGuardBuiltin directAssertEqStmts[0]! "eq" "scalar assertEq StmtPlan-to-Yul helper"
+  let (assertStmts, _) ← requireOk
+    (lowerStatement
       ProofForge.IR.Examples.Counter.module
+      "scalar_assert"
+      .unit
       env
-      (.gt (.local "n") (.literal (.u64 0))))
-    "scalar assert condition plan-to-yul"
-  let assertStmt := lowerAssertStmt assertCond none
-  match assertStmt with
+      false
+      (.assert (.gt (.local "n") (.literal (.u64 0))) "positive" none))
+    "scalar assert statement plan-to-yul integration"
+  require (assertStmts.size == 1) "scalar assert statement plan-to-yul integration statement count"
+  match assertStmts[0]! with
   | Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
-      require (name == "iszero") "scalar assert plan-to-yul guard builtin"
-      require (args.size == 1) "scalar assert plan-to-yul iszero arg count"
+      require (name == "iszero") "scalar assert statement plan-to-yul integration guard builtin"
+      require (args.size == 1) "scalar assert statement plan-to-yul integration iszero arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.builtin name _ =>
-          require (name == "gt") "scalar assert plan-to-yul condition builtin"
-      | _ => throw <| IO.userError "scalar assert plan-to-yul condition must be builtin"
-  | _ => throw <| IO.userError "scalar assert plan-to-yul must lower to if iszero"
-  let lhs ← requireOk
-    (lowerScalarPlanExprOrFallback
+          require (name == "gt") "scalar assert statement plan-to-yul integration condition builtin"
+      | _ => throw <| IO.userError "scalar assert statement plan-to-yul integration condition must be builtin"
+  | _ => throw <| IO.userError "scalar assert statement plan-to-yul integration must lower to if iszero"
+  let (assertEqStmts, _) ← requireOk
+    (lowerStatement
       ProofForge.IR.Examples.Counter.module
+      "scalar_assert_eq"
+      .unit
       env
-      (.local "n"))
-    "scalar assertEq lhs plan-to-yul"
-  let rhs ← requireOk
-    (lowerScalarPlanExprOrFallback
-      ProofForge.IR.Examples.Counter.module
-      env
-      (.literal (.u64 1)))
-    "scalar assertEq rhs plan-to-yul"
-  let assertEqStmt := lowerAssertStmt (Lean.Compiler.Yul.builtin "eq" #[lhs, rhs]) none
-  match assertEqStmt with
+      false
+      (.assertEq (.local "n") (.literal (.u64 1)) "one" none))
+    "scalar assertEq statement plan-to-yul integration"
+  require (assertEqStmts.size == 1) "scalar assertEq statement plan-to-yul integration statement count"
+  match assertEqStmts[0]! with
   | Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
-      require (name == "iszero") "scalar assertEq plan-to-yul guard builtin"
-      require (args.size == 1) "scalar assertEq plan-to-yul iszero arg count"
+      require (name == "iszero") "scalar assertEq statement plan-to-yul integration guard builtin"
+      require (args.size == 1) "scalar assertEq statement plan-to-yul integration iszero arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.builtin name _ =>
-          require (name == "eq") "scalar assertEq plan-to-yul condition builtin"
-      | _ => throw <| IO.userError "scalar assertEq plan-to-yul condition must be builtin"
-  | _ => throw <| IO.userError "scalar assertEq plan-to-yul must lower to if iszero"
+          require (name == "eq") "scalar assertEq statement plan-to-yul integration condition builtin"
+      | _ => throw <| IO.userError "scalar assertEq statement plan-to-yul integration condition must be builtin"
+  | _ => throw <| IO.userError "scalar assertEq statement plan-to-yul integration must lower to if iszero"
 
 def testScalarReturnPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]

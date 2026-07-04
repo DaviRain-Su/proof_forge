@@ -280,11 +280,12 @@ Tasks:
     `StmtPlan.letBind`/`StmtPlan.letMutBind`. Unsupported aggregate or field
     initializer shapes still use the compatibility facade until broader
     `StmtPlan -> Yul` lowering exists.
-  - Started: scalar `assert` and `assertEq` guards now consume the same
-    `ExprPlan -> ToYul` expression boundary for supported scalar expressions.
-    `just evm-semantic-plan` now builds its imported example modules before
-    `lean --run`, so the semantic-plan gate is reliable from a clean checkout
-    instead of depending on stale `.olean` files.
+  - Started: scalar `assert` and `assertEq` statement assembly now consumes a
+    narrow `StmtPlan -> ToYul` helper for supported scalar operands. EVM runtime
+    error payload selection remains in the `IR.lean` compatibility facade and is
+    passed into `ToYul` as a revert-body callback. Unsupported aggregate or
+    field assertion operands stay on the compatibility path until broader
+    statement-plan lowering exists.
   - Started: scalar `return` word lowering now consumes the same
     `ExprPlan -> ToYul` expression boundary for supported `U32`/`U64`/`Bool`/
     `Hash` return expressions. Aggregate return flattening and aggregate
