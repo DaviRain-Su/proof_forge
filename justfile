@@ -131,6 +131,10 @@ portable-init-smoke:
 portable-foundry-workspace:
     scripts/portable/foundry-workspace-smoke.sh
 
+# Validate init project emits EVM TypeScript client beside build/evm artifacts.
+portable-evm-client:
+    scripts/portable/evm-client-smoke.sh
+
 # Run a live Solana Token-2022 transfer-fee plan smoke on Surfpool with Web3.js.
 solana-token-2022-transfer-fee-web3:
     scripts/solana/token-2022-transfer-fee-web3-smoke.sh

@@ -2001,7 +2001,8 @@ def writeEvmArtifactMetadata
     (events : Array String)
     (methods : Array String)
     (source? : Option FilePath)
-    (yulOutput bytecodeOutput : FilePath) : IO Unit := do
+    (yulOutput bytecodeOutput : FilePath)
+    (extraArtifacts : Array (String × String) := #[]) : IO Unit := do
   let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput bytecodeOutput)
   let deployOutput := defaultDeployManifestOutput metadataOutput
   let chainProfile? ← resolveEvmChainProfile? opts.evmChainProfile?
@@ -2035,6 +2036,8 @@ def writeEvmArtifactMetadata
   ]
   if let some sourceArtifact := sourceArtifact? then
     artifactFields := artifactFields.push ("source", sourceArtifact)
+  for (name, artifact) in extraArtifacts do
+    artifactFields := artifactFields.push (name, artifact)
   let solcVersionValue :=
     match (← solcVersion? opts.solc) with
     | some version => jsonString version
@@ -2078,7 +2081,8 @@ def writeEvmModuleArtifactMetadata
     (opts : CliOptions)
     (fixture sourceKind sourceModule : String)
     (module : ProofForge.IR.Module)
-    (yulOutput bytecodeOutput : FilePath) : IO Unit := do
+    (yulOutput bytecodeOutput : FilePath)
+    (extraArtifacts : Array (String × String) := #[]) : IO Unit := do
   let events ← eventAbisForModule opts.cast module
   let mut entrypoints := #[]
   for entrypoint in module.entrypoints do
@@ -2095,20 +2099,46 @@ def writeEvmModuleArtifactMetadata
     none
     yulOutput
     bytecodeOutput
+    extraArtifacts
+
+def writeEvmContractSdkClientArtifacts
+    (spec : ProofForge.Contract.ContractSpec)
+    (bytecodeOutput : FilePath)
+    (artifactBaseName : String) : IO (FilePath × FilePath × String × String) := do
+  let specOutput := siblingPath bytecodeOutput s!"{artifactBaseName}.contract-spec.json"
+  let clientOutput := siblingPath bytecodeOutput ProofForge.Contract.Client.evmAbiWrapperPath
+  if let some parent := specOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile specOutput (ProofForge.Contract.Spec.Json.render spec ++ "\n")
+  IO.println s!"wrote {specOutput}"
+  if let some parent := clientOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile clientOutput (ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName ++ "\n")
+  IO.println s!"wrote {clientOutput}"
+  let specArtifact ← artifactEntryJson specOutput
+  let clientArtifact ← artifactEntryJson clientOutput
+  return (specOutput, clientOutput, specArtifact, clientArtifact)
+
+def writeEvmContractSdkArtifactMetadata
+    (opts : CliOptions)
+    (fixture sourceModule : String)
+    (spec : ProofForge.Contract.ContractSpec)
+    (module : ProofForge.IR.Module)
+    (yulOutput bytecodeOutput : FilePath) : IO Unit := do
+  let (_, _, specArtifact, clientArtifact) ←
+    writeEvmContractSdkClientArtifacts spec bytecodeOutput fixture
+  writeEvmModuleArtifactMetadata opts fixture "contract-sdk" sourceModule module yulOutput bytecodeOutput #[
+    ("contractSpec", specArtifact),
+    ("client", clientArtifact)
+  ]
 
 def writeEvmIrArtifactMetadata
     (opts : CliOptions)
     (fixture sourceModule : String)
     (module : ProofForge.IR.Module)
-    (yulOutput bytecodeOutput : FilePath) : IO Unit :=
-  writeEvmModuleArtifactMetadata opts fixture "portable-ir" sourceModule module yulOutput bytecodeOutput
-
-def writeEvmContractSdkArtifactMetadata
-    (opts : CliOptions)
-    (fixture sourceModule : String)
-    (module : ProofForge.IR.Module)
-    (yulOutput bytecodeOutput : FilePath) : IO Unit :=
-  writeEvmModuleArtifactMetadata opts fixture "contract-sdk" sourceModule module yulOutput bytecodeOutput
+    (yulOutput bytecodeOutput : FilePath)
+    (extraArtifacts : Array (String × String) := #[]) : IO Unit :=
+  writeEvmModuleArtifactMetadata opts fixture "portable-ir" sourceModule module yulOutput bytecodeOutput extraArtifacts
 
 def writeEvmLearnArtifactMetadata
     (opts : CliOptions)
@@ -3037,17 +3067,13 @@ def compileErrorRefIrBytecode (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ErrorRefProbe.bin")
   writeTextFile output (bytecode ++ "\n")
   let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ErrorRefProbe.module
-  let specOutput := match output.parent with
-    | some parent => parent / "ErrorRefProbe.contract-spec.json"
-    | none => FilePath.mk "ErrorRefProbe.contract-spec.json"
-  writeTextFile specOutput (ProofForge.Contract.Spec.Json.render spec ++ "\n")
-  IO.println s!"wrote {specOutput}"
-  let evmClientOutput := match output.parent with
-    | some parent => parent / "proof-forge-evm-abi.ts"
-    | none => FilePath.mk "proof-forge-evm-abi.ts"
-  writeTextFile evmClientOutput (ProofForge.Contract.Client.renderEvmAbiWrapper spec ++ "\n")
-  IO.println s!"wrote {evmClientOutput}"
-  writeEvmIrArtifactMetadata opts "ErrorRefProbe" "ProofForge.IR.Examples.ErrorRefProbe" ProofForge.IR.Examples.ErrorRefProbe.module yulOutput output
+  let (_, _, specArtifact, clientArtifact) ←
+    writeEvmContractSdkClientArtifacts spec output "ErrorRefProbe"
+  writeEvmIrArtifactMetadata opts "ErrorRefProbe" "ProofForge.IR.Examples.ErrorRefProbe"
+    ProofForge.IR.Examples.ErrorRefProbe.module yulOutput output #[
+    ("contractSpec", specArtifact),
+    ("client", clientArtifact)
+  ]
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
@@ -3075,8 +3101,9 @@ def compileValueVaultIrBytecode (opts : CliOptions) : IO UInt32 := do
   let bytecode ← solcBytecode opts.solc yulOutput
   let output := opts.output?.getD (FilePath.mk "build/ir/ValueVault.bin")
   writeTextFile output (bytecode ++ "\n")
+  let spec := ProofForge.Contract.ContractSpec.fromIR module
   writeEvmContractSdkArtifactMetadata opts "ValueVault" "ProofForge.Contract.Examples.ValueVault"
-    module yulOutput output
+    spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
@@ -3352,7 +3379,7 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   let bytecode ← solcBytecode opts.solc yulOutput
   let output := opts.output?.getD (input.withExtension "bin")
   writeTextFile output (bytecode ++ "\n")
-  writeEvmContractSdkArtifactMetadata opts (leanBaseName input) spec.name module yulOutput output
+  writeEvmContractSdkArtifactMetadata opts (leanBaseName input) spec.name spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 

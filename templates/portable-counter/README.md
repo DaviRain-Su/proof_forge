@@ -95,5 +95,14 @@ just forge-test
 just forge-script
 ```
 
-The tests use `vm.readFile` against `../build/evm/*.bin`; the deploy script runs
-through `forge script` with the same stable init-code path.
+Generated EVM client artifacts (beside `build/evm/`):
+
+```text
+build/evm/Counter.bin
+build/evm/Counter.init.bin
+build/evm/Counter.contract-spec.json
+build/evm/proof-forge-evm-abi.ts
+```
+
+The TypeScript client exposes `connect`, typed entrypoint helpers, `deployInitCode`,
+and `deployFromArtifactDir` using the stable artifact paths above.

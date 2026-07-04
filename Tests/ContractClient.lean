@@ -23,7 +23,7 @@ def counterSpec : ContractSpec :=
   ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
 
 def testEvmWrapperErrors : IO Unit := do
-  let wrapper := ProofForge.Contract.Client.renderEvmAbiWrapper errorRefSpec
+  let wrapper := ProofForge.Contract.Client.renderEvmAbiWrapper errorRefSpec "ErrorRefProbe"
   require (contains wrapper "export const ERRORS = [{\"assertionId\": 1")
     "EVM wrapper missing embedded ProofForge error catalogue"
   require (contains wrapper "\"userCode\": \"Counter::Overflow\"")
@@ -47,17 +47,41 @@ def testNearWrapperErrors : IO Unit := do
     "NEAR wrapper missing ProofForge panic prefix parser"
 
 def testCounterWrapperEmptyErrors : IO Unit := do
-  let evmWrapper := ProofForge.Contract.Client.renderEvmAbiWrapper counterSpec
+  let evmWrapper := ProofForge.Contract.Client.renderEvmAbiWrapper counterSpec "Counter"
   let nearWrapper := ProofForge.Contract.Client.renderNearWrapper counterSpec
   require (contains evmWrapper "export const ERRORS = [] as const;")
     "EVM Counter wrapper should expose an empty errors catalogue"
   require (contains nearWrapper "export const ERRORS = [] as const;")
     "NEAR Counter wrapper should expose an empty errors catalogue"
 
+def testEvmDeployHelpers : IO Unit := do
+  let wrapper := ProofForge.Contract.Client.renderEvmAbiWrapper counterSpec "Counter"
+  require (contains wrapper "export const ARTIFACT_BASENAME = \"Counter\";")
+    "EVM wrapper missing artifact basename"
+  require (contains wrapper "runtimeBytecode: \"./Counter.bin\"")
+    "EVM wrapper missing runtime bytecode path"
+  require (contains wrapper "initCode: \"./Counter.init.bin\"")
+    "EVM wrapper missing init code path"
+  require (contains wrapper "deployFromArtifactDir")
+    "EVM wrapper missing deployFromArtifactDir helper"
+  require (contains wrapper "deployInitCode")
+    "EVM wrapper missing deployInitCode helper"
+
+def testEvmViewEntrypoints : IO Unit := do
+  let wrapper := ProofForge.Contract.Client.renderEvmAbiWrapper counterSpec "Counter"
+  require (contains wrapper "export async function get(): Promise<bigint>")
+    "EVM Counter wrapper should type get() as view call"
+  require (contains wrapper "staticCall()")
+    "EVM Counter wrapper should use staticCall for view entrypoints"
+  require (contains wrapper "export async function increment(): Promise<void>")
+    "EVM Counter wrapper should type increment() as mutating call"
+
 def main : IO UInt32 := do
   testEvmWrapperErrors
   testNearWrapperErrors
   testCounterWrapperEmptyErrors
+  testEvmDeployHelpers
+  testEvmViewEntrypoints
   IO.println "contract-client: ok"
   return 0
 

@@ -36,8 +36,13 @@ def abiInputJson (param : String × ValueType) : String :=
 
 def abiEntryJson (entrypoint : Entrypoint) : String :=
   let inputs := String.intercalate "," (entrypoint.params.map abiInputJson).toList
+  let outputs :=
+    if entrypoint.returns == .unit then
+      "[]"
+    else
+      "[{\"type\":\"" ++ solidityAbiType entrypoint.returns ++ "\"}]"
   let stateMutability := if entrypoint.returns == .unit then "nonpayable" else "view"
-  "{\"name\":\"" ++ entrypoint.name ++ "\",\"type\":\"function\",\"inputs\":[" ++ inputs ++ "],\"outputs\":[],\"stateMutability\":\"" ++ stateMutability ++ "\"}"
+  "{\"name\":\"" ++ entrypoint.name ++ "\",\"type\":\"function\",\"inputs\":[" ++ inputs ++ "],\"outputs\":" ++ outputs ++ ",\"stateMutability\":\"" ++ stateMutability ++ "\"}"
 
 def abiJson (module : Module) : String :=
   "[" ++ String.intercalate "," (module.entrypoints.map abiEntryJson).toList ++ "]"
@@ -94,15 +99,70 @@ def nearErrorHelpersTs (spec : ContractSpec) : String :=
 
 def evmEntrypointWrapper (entrypoint : Entrypoint) : String :=
   let params := String.intercalate ", " (entrypoint.params.map fun p => p.fst ++ ": " ++ typeToTs p.snd).toList
-  let argsArray := "[" ++ String.intercalate ", " (entrypoint.params.map fun p => p.fst).toList ++ "]"
-  let method := if entrypoint.returns == .unit then "sendTransaction" else "call"
-  "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<void> {\n" ++
-  "  const data = iface.encodeFunctionData(\"" ++ entrypoint.name ++ "\", " ++ argsArray ++ ");\n" ++
-  "  const tx = await contract." ++ method ++ "(data);\n" ++
-  "  await tx.wait();\n" ++
-  "}\n"
+  let argList := String.intercalate ", " (entrypoint.params.map fun p => p.fst).toList
+  if entrypoint.returns == .unit then
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<void> {\n" ++
+    "  const tx = await contract.getFunction(\"" ++ entrypoint.name ++ "\")(" ++ argList ++ ");\n" ++
+    "  await tx.wait();\n" ++
+    "}\n"
+  else
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "  return await contract.getFunction(\"" ++ entrypoint.name ++ "\").staticCall(" ++ argList ++ ");\n" ++
+    "}\n"
 
-def renderEvmAbiWrapper (spec : ContractSpec) : String :=
+def evmArtifactPathsTs (artifactBaseName : String) : String :=
+  String.intercalate "\n" [
+    "export const ARTIFACT_BASENAME = \"" ++ artifactBaseName ++ "\";",
+    "",
+    "export const ARTIFACT_PATHS = {",
+    "  runtimeBytecode: \"./" ++ artifactBaseName ++ ".bin\",",
+    "  initCode: \"./" ++ artifactBaseName ++ ".init.bin\",",
+    "  deployManifest: \"./" ++ artifactBaseName ++ ".proof-forge-deploy.json\",",
+    "  contractSpec: \"./" ++ artifactBaseName ++ ".contract-spec.json\",",
+    "  client: \"./" ++ evmAbiWrapperPath ++ "\",",
+    "} as const;"
+  ]
+
+def evmDeployHelpersTs : String :=
+  String.intercalate "\n" [
+    "export type DeployInitCodeResult = {",
+    "  address: string;",
+    "  contract: ethers.Contract;",
+    "  receipt: ethers.ContractTransactionReceipt | null;",
+    "};",
+    "",
+    "export function readArtifactHex(relativePath: string, baseDir: string): string {",
+    "  const fs = require(\"node:fs\") as typeof import(\"node:fs\");",
+    "  const path = require(\"node:path\") as typeof import(\"node:path\");",
+    "  return fs.readFileSync(path.join(baseDir, relativePath), \"utf8\").trim();",
+    "}",
+    "",
+    "export async function deployInitCode(",
+    "  runner: ethers.Signer,",
+    "  initCodeHex: string,",
+    "): Promise<DeployInitCodeResult> {",
+    "  const normalized = initCodeHex.startsWith(\"0x\") ? initCodeHex : `0x${initCodeHex}`;",
+    "  const tx = await runner.sendTransaction({ data: normalized });",
+    "  const receipt = await tx.wait();",
+    "  const address = receipt?.contractAddress;",
+    "  if (!address) {",
+    "    throw new Error(\"ProofForge deployInitCode: missing contractAddress\");",
+    "  }",
+    "  const deployed = connect(address, runner);",
+    "  return { address, contract: deployed, receipt };",
+    "}",
+    "",
+    "export async function deployFromArtifactDir(",
+    "  runner: ethers.Signer,",
+    "  artifactDir: string,",
+    "  basename: string = ARTIFACT_BASENAME,",
+    "): Promise<DeployInitCodeResult> {",
+    "  const initCode = readArtifactHex(`./${basename}.init.bin`, artifactDir);",
+    "  return deployInitCode(runner, initCode);",
+    "}"
+  ]
+
+def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec.name) : String :=
   let entrypointLines := String.intercalate "" (spec.module.entrypoints.map evmEntrypointWrapper).toList
   String.intercalate "\n" [
     "/* ProofForge generated EVM ABI wrapper. */",
@@ -111,7 +171,11 @@ def renderEvmAbiWrapper (spec : ContractSpec) : String :=
     "",
     "export const ABI = " ++ abiJson spec.module ++ " as const;",
     "",
+    evmArtifactPathsTs artifactBaseName,
+    "",
     evmErrorHelpersTs spec,
+    "",
+    evmDeployHelpersTs,
     "",
     "let contract: ethers.Contract;",
     "let iface: ethers.Interface;",
