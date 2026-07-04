@@ -229,7 +229,7 @@ mutual
     let type ← inferExprType module env arg
     discard <| crosscallArgWordTypes module context type
     match type with
-    | .u32 | .u64 | .bool | .hash | .address =>
+    | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
         .ok #[← buildExprPlan module env arg]
     | .fixedArray elementType length =>
         match arg with

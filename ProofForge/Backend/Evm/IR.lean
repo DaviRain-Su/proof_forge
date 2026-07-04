@@ -2342,7 +2342,7 @@ mutual
     | .structType typeName => do
         let fields ← lowerStructStorageReadFields module context typeName stateId
         .ok (fields.map fun field => field.snd)
-    | .u32 | .u64 | .bool | .hash | .address | .unit
+    | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit
     | .fixedArray _ _ | .bytes | .string =>
         .error {
           message := s!"{context} storage-backed crosscall word expansion supports struct scalar storage only, got `{expectedType.name}`"

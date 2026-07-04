@@ -816,7 +816,7 @@ partial def localAbiWordsAt
     (structFieldIds : String → Except ε (Array String))
     (context name : String)
     (path : Array Nat) : ValueType → Except ε (Array Lean.Compiler.Yul.Expr)
-  | .u32 | .u64 | .bool | .hash | .address =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       if path.isEmpty then
         .ok #[Lean.Compiler.Yul.Expr.id name]
       else
@@ -861,7 +861,7 @@ partial def localCrosscallWordsAt
     (structFieldIds : String → Except ε (Array String))
     (context name : String)
     (path : Array Nat) : ValueType → Except ε (Array Lean.Compiler.Yul.Expr)
-  | .u32 | .u64 | .bool | .hash | .address =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       if path.isEmpty then
         .ok #[Lean.Compiler.Yul.Expr.id name]
       else
