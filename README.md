@@ -18,7 +18,7 @@ Start here:
 - [Design decisions](docs/decisions.md) — settled choices (D-001…D-045).
 - [Formal verification roadmap](docs/formal-verification.md) — existing proof
   anchors and staged theorem targets.
-- [Demo recording](docs/demo/README.md) — terminal demo: author → compile → deploy → test.
+- [Demo recording](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — terminal demo: author → compile → deploy → test.
 
 中文文档：
 

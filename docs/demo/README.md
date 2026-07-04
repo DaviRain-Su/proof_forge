@@ -2,6 +2,8 @@
 
 ## EVM Complete Workflow Demo
 
+> **Watch online: https://asciinema.org/a/fn6o6kSxB5RpMXJl**
+
 A terminal recording demonstrating the full ProofForge EVM workflow:
 
 1. **Contract Authoring** — Lean 4 `contract_source` DSL
@@ -13,7 +15,9 @@ A terminal recording demonstrating the full ProofForge EVM workflow:
 
 **Option A: Online (recommended)**
 
-Upload the `.cast` file to [asciinema.org](https://asciinema.org) and share the link:
+Watch directly at **https://asciinema.org/a/fn6o6kSxB5RpMXJl**
+
+Or upload the `.cast` file yourself:
 
 ```sh
 asciinema upload proofforge-evm-demo.cast
