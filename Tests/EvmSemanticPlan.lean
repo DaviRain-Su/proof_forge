@@ -144,6 +144,82 @@ def testScalarExprPlanToYul : IO Unit := do
       require (args.size == 2) "counter checked add plan-to-yul arg count"
   | _ => throw <| IO.userError "counter checked add plan-to-yul must be helper call"
 
+def testScalarAssertPlanToYul : IO Unit := do
+  let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
+  let assertCond ← requireOk
+    (lowerScalarPlanExprOrFallback
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.gt (.local "n") (.literal (.u64 0))))
+    "scalar assert condition plan-to-yul"
+  let assertStmt := lowerAssertStmt assertCond none
+  match assertStmt with
+  | Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
+      require (name == "iszero") "scalar assert plan-to-yul guard builtin"
+      require (args.size == 1) "scalar assert plan-to-yul iszero arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.builtin name _ =>
+          require (name == "gt") "scalar assert plan-to-yul condition builtin"
+      | _ => throw <| IO.userError "scalar assert plan-to-yul condition must be builtin"
+  | _ => throw <| IO.userError "scalar assert plan-to-yul must lower to if iszero"
+  let lhs ← requireOk
+    (lowerScalarPlanExprOrFallback
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.local "n"))
+    "scalar assertEq lhs plan-to-yul"
+  let rhs ← requireOk
+    (lowerScalarPlanExprOrFallback
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.literal (.u64 1)))
+    "scalar assertEq rhs plan-to-yul"
+  let assertEqStmt := lowerAssertStmt (Lean.Compiler.Yul.builtin "eq" #[lhs, rhs]) none
+  match assertEqStmt with
+  | Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.Expr.builtin name args) _ => do
+      require (name == "iszero") "scalar assertEq plan-to-yul guard builtin"
+      require (args.size == 1) "scalar assertEq plan-to-yul iszero arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.builtin name _ =>
+          require (name == "eq") "scalar assertEq plan-to-yul condition builtin"
+      | _ => throw <| IO.userError "scalar assertEq plan-to-yul condition must be builtin"
+  | _ => throw <| IO.userError "scalar assertEq plan-to-yul must lower to if iszero"
+
+def testScalarReturnPlanToYul : IO Unit := do
+  let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
+  let returnStmts ← requireOk
+    (lowerReturnStmt
+      ProofForge.IR.Examples.Counter.module
+      env
+      "checked_return"
+      .u64
+      (.add (.local "n") (.literal (.u64 1)))
+      false)
+    "scalar return plan-to-yul"
+  require (returnStmts.size == 1) "scalar return plan-to-yul statement count"
+  match returnStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+      require (names == #["result"]) "scalar return plan-to-yul target"
+      require (name == "__pf_checked_add") "scalar return plan-to-yul helper"
+      require (args.size == 2) "scalar return plan-to-yul arg count"
+  | _ => throw <| IO.userError "scalar return plan-to-yul must assign helper result"
+  let storageReturnStmts ← requireOk
+    (lowerReturnStmt
+      ProofForge.IR.Examples.Counter.module
+      #[]
+      "storage_return"
+      .u64
+      (.effect (.storageScalarRead "count"))
+      false)
+    "storage scalar return plan-to-yul"
+  require (storageReturnStmts.size == 1) "storage scalar return plan-to-yul statement count"
+  match storageReturnStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin name args) => do
+      require (names == #["result"]) "storage scalar return plan-to-yul target"
+      require (name == "sload") "storage scalar return plan-to-yul opcode"
+      require (args.size == 1) "storage scalar return plan-to-yul arg count"
+  | _ => throw <| IO.userError "storage scalar return plan-to-yul must assign sload"
+
 def main : IO UInt32 := do
   testCounterSemanticPlan
   testEventSemanticPlan
@@ -151,6 +227,8 @@ def main : IO UInt32 := do
   testDeployMetadata
   testSemanticPlanRender
   testScalarExprPlanToYul
+  testScalarAssertPlanToYul
+  testScalarReturnPlanToYul
   IO.println "evm-semantic-plan: ok"
   return 0
 

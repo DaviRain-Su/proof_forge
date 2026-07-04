@@ -17,6 +17,78 @@ Each entry should include:
 
 ## 2026-07-04
 
+### EVM Scalar Return Plan-To-Yul Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Routed single-word EVM IR return expressions for `U32`, `U64`, `Bool`, and
+  `Hash` through the supported scalar `ExprPlan -> ToYul` expression boundary.
+- Kept aggregate return flattening and aggregate crosscall return helper
+  assignment on the existing compatibility paths for later plan-level slices.
+- Extended `Tests/EvmSemanticPlan.lean` to lock scalar return assignment Yul AST
+  shapes for checked arithmetic returns and scalar storage reads.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+just evm-semantic-plan
+scripts/evm/expression-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+```
+
+Known limitations:
+
+- This slice covers only single-word scalar return expressions. ABI aggregate
+  returns, dispatch return-data encoding, assignment RHS lowering, branch
+  conditions, event data, crosscalls, and create paths still move over in later
+  semantic-plan slices.
+
+Next step:
+
+- Move another scalar statement expression path, likely assignment RHS or
+  `ifElse` / `boundedFor` conditions, to consume `ExprPlan` directly.
+
+### EVM Scalar Assert Plan-To-Yul Assembly Slice
+
+Commit: this commit
+
+Summary:
+
+- Reused the supported scalar `ExprPlan -> ToYul` expression boundary for EVM
+  IR `assert` and `assertEq` guard expressions.
+- Renamed the scalar plan support predicate and lowering helper to reflect
+  their broader use beyond local-binding initializers.
+- Extended `Tests/EvmSemanticPlan.lean` to lock the Yul AST shape for scalar
+  assertion guards lowered through the plan-to-Yul path.
+- Fixed `just evm-semantic-plan` to build the imported Counter and EventProbe
+  example modules before `lean --run`, removing the gate's dependence on
+  preexisting `.olean` files.
+
+Validation run:
+
+```sh
+just evm-semantic-plan
+lake build ProofForge.Backend.Evm.IR
+```
+
+Known limitations:
+
+- This slice only moves scalar assertion guard expressions through
+  `ExprPlan -> ToYul`. Statement sequencing, returns, assignments, aggregate
+  expressions, crosscalls, creates, event emission, dispatch, ABI flattening,
+  and metadata layout still move over in later semantic-plan slices.
+- Unsupported aggregate/crosscall plan nodes continue to fail explicitly or use
+  the compatibility facade where their migration has not started.
+
+Next step:
+
+- Move the next narrow statement path, likely scalar `return` or assignment
+  RHS lowering, to consume `ExprPlan` directly with golden Yul and runtime
+  smoke coverage.
+
 ### EVM Scalar Let Plan-To-Yul Assembly Slice
 
 Commit: this commit

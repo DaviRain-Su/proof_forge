@@ -47,7 +47,7 @@ evm-plan:
 
 # Check the EVM semantic plan (entrypoints, events, metadata) smoke.
 evm-semantic-plan:
-    lake build ProofForge.Backend.Evm.IR
+    lake build ProofForge.Backend.Evm.IR ProofForge.IR.Examples.Counter ProofForge.IR.Examples.EventProbe
     lake env lean --run Tests/EvmSemanticPlan.lean
 
 # Check that executable scripts/testkit callers use target-first CLI commands.

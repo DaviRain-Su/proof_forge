@@ -181,6 +181,8 @@
   - 已完成：将 `StorageSlotPlan -> ToYul` 扩展到数组槽和结构体数组字段槽。`IR.lean` 现在通过 plan-to-Yul 边界路由存储数组和结构体数组字段槽降级，同时为现有调用方保留兼容性外观函数。
   - 已开始：`Lower.buildEntrypointPlan` 现在会用结构化 `ExprPlan`/`StmtPlan` 节点填充 `EntrypointPlan.body`，表示入口 IR 主体，同时 `IR.lean` 仍作为兼容性 Yul 组装外观保留。
   - 已开始：标量局部绑定初始化现在会在受支持的标量子集上消费语义计划路径：`IR Expr -> Lower.buildExprPlan -> ToYul.exprPlanExpr -> Yul.Expr`。Counter、expression 和 context 冒烟测试证明生成的字节码仍可运行；尚不支持的聚合/crosscall plan 节点继续留在兼容性外观路径上，直到对应迁移切片补齐验证覆盖。
+  - 已开始：标量 `assert` 和 `assertEq` 守卫现在也会在受支持的标量表达式上消费同一个 `ExprPlan -> ToYul` 表达式边界。`just evm-semantic-plan` 现在会在 `lean --run` 之前构建它导入的 example 模块，因此 semantic-plan 门禁可以在干净 checkout 中稳定运行，而不依赖旧的 `.olean` 文件。
+  - 已开始：标量 `return` 字降级现在也会对受支持的 `U32`/`U64`/`Bool`/`Hash` 返回表达式消费同一个 `ExprPlan -> ToYul` 表达式边界。聚合返回打平和聚合跨合约调用返回 helper 仍留在现有兼容路径上，直到对应迁移切片补齐计划级覆盖。
   - 为选择器分发、calldata 守卫、ABI 字打平、返回数据编码和制品元数据选择器布局添加 `EntrypointPlan`。
   - 为事件签名 topic、索引 topic 哈希、非索引数据打平以及制品元数据事件布局添加 `EventPlan`。
   - 为类型化的 `call`、带值的 `call`、`staticcall`、`delegatecall`、`create` 和 `create2` helper 添加 `CrosscallPlan`。

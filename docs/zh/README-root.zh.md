@@ -14,6 +14,7 @@ ProofForge 的目标是：一份经过验证的 Lean 合约代码库，可以在
   [RFC 0002](../rfcs/0002-target-implementation-design.md) — 目标实现设计。
 - [Design decisions](../decisions.md) — 已定决策（D-001…D-045）。
 - [形式化验证路线图](../formal-verification.md) — 现有证明锚点与分阶段定理目标。
+- [演示录屏](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — 终端演示：编写 → 编译 → 部署 → 测试。
 
 中文文档：
 
