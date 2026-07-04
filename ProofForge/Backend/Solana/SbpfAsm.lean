@@ -400,8 +400,32 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num clockBuffer) },
       .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
     ], ctx)
+  | .effect (.contextRead .userId) =>
+    -- On Solana, the "caller" maps to account[0] (the fee payer / first signer).
+    -- Return the first 8 bytes of the pubkey as a u64 identifier.
+    let (inputPtrScratch, ctx) := ctx.allocScratch
+    .ok (#[
+      .comment "solana.context.userId: read account[0] pubkey first 8 bytes as u64",
+      .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
+    ], ctx)
+  | .effect (.contextRead .origin) =>
+    -- tx.origin maps to account[0] on Solana (same as userId)
+    let (inputPtrScratch, ctx) := ctx.allocScratch
+    .ok (#[
+      .comment "solana.context.origin: read account[0] pubkey first 8 bytes as u64",
+      .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
+    ], ctx)
   | .effect (.contextRead field) =>
-    .error { message := s!"Solana context read `{field.name}` is not supported in Phase 1; checkpointId maps to Clock.slot" }
+    .error { message := s!"Solana context read `{field.name}` is not supported; userId/origin map to account[0], checkpointId maps to Clock.slot" }
+  | .nativeValue =>
+    -- On Solana, native value = lamports of account[0] (the fee payer).
+    -- Account info layout: [dup:u8, .., lamports:u64 at offset 8 in the per-account region].
+    -- For now, return 0 as a stub; proper lamports read needs account-info offset.
+    let (scratch, ctx) := ctx.allocScratch
+    .ok (#[
+      .comment "solana.nativeValue: stub (returns 0; full lamports read needs account-info layout)",
+      .instruction { opcode := .mov64, dst := some .r1, imm := some (.num 0) }
+    ], ctx)
   | _ => .error { message := "unsupported expression in Phase 1" }
 where
   lowerCmp (ctx : LowerCtx) (lhs rhs : IR.Expr) (condJmp : Opcode) : Except LowerError (Array AstNode × LowerCtx) := do
