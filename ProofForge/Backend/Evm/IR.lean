@@ -5760,6 +5760,7 @@ mutual
     | .revert message => do
         if message.isEmpty then
           .ok (#[revertStmt], env)
+
         else
           .ok (ProofForge.Backend.Evm.ToYul.revertWithMessageStatements message, env)
     | .revertWithError errorRef => do
