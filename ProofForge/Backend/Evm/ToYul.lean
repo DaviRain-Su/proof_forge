@@ -356,7 +356,7 @@ def crosscallReturnTypeSuffix {ε : Type} (mkError : String → ε) : ValueType 
   | .u8 => .ok "_u8"
   | .u128 => .ok "_u128"
   | .address => .ok "_address"
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error (mkError "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0")
 
 def crosscallFunctionName {ε : Type} (mkError : String → ε) (arity : Nat) (returnType : ValueType) :
@@ -390,7 +390,7 @@ def crosscallReturnWordTag {ε : Type} (mkError : String → ε) : ValueType →
   | .u8 => .ok "u8"
   | .u128 => .ok "u128"
   | .address => .ok "address"
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error (mkError "crosscall aggregate return words must be U32, U64, Bool, or Hash in IR EVM v0")
 
 def crosscallReturnWordTagsSuffix
@@ -436,7 +436,7 @@ def crosscallDelegateAggregateFunctionName
 
 def crosscallReturnIsScalarWord : ValueType → Bool
   | .u8 | .u64 | .u32 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def crosscallModeForwardsValue : CrosscallMode → Bool
   | .callValue => true
@@ -510,7 +510,7 @@ def crosscallReturnGuardStatementsForName
           { statements := #[revertStatement] }
       ]
   | .u8 | .u64 | .u128 | .hash | .address => .ok #[]
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error (mkError "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0")
 
 def crosscallHelperReturnNames (wordCount : Nat) : Array Lean.Compiler.Yul.TypedName :=
@@ -823,7 +823,7 @@ partial def localAbiWordsAt
         .ok #[Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path)]
   | .unit =>
       .error (mkError s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs")
-  | .bytes | .string =>
+  | .bytes | .string | .array _ =>
       if path.isEmpty then
         .ok #[Lean.Compiler.Yul.Expr.id (dynamicParamDataPtrName name)]
       else
@@ -866,7 +866,7 @@ partial def localCrosscallWordsAt
         .ok #[Lean.Compiler.Yul.Expr.id name]
       else
         .ok #[Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path)]
-  | .unit | .bytes | .string =>
+  | .unit | .bytes | .string | .array _ =>
       .error (mkError s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, fixed arrays, or structs")
   | .fixedArray elementType length => do
       if length == 0 then
@@ -926,7 +926,7 @@ def abiWordValidationStatement?
       some <| Lean.Compiler.Yul.Statement.ifStmt
         (Lean.Compiler.Yul.builtin "gt" #[word, Lean.Compiler.Yul.Expr.num 1])
         { statements := #[revertStatement] }
-  | .u8 | .u64 | .u128 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .u8 | .u64 | .u128 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       none
 
 def abiParamHeadValidationStatements (params : Array AbiParamPlan) :
@@ -1390,7 +1390,7 @@ def eventIndexedTopicStatements
             .error (mkError s!"EVM indexed scalar event field `{field.name}` expected one data word, got {words.size}")
       | none =>
           .error (mkError s!"EVM indexed scalar event field `{field.name}` expected one data word, got 0")
-  | .fixedArray _ _ | .structType _ =>
+  | .fixedArray _ _ | .structType _ | .array _ =>
       .ok <| eventDataStoreStatements words |>.push
         (.varDecl #[{ name := topicName }]
           (some (Lean.Compiler.Yul.builtin "keccak256" #[
@@ -1486,6 +1486,8 @@ def storageSlotExpr
         Lean.Compiler.Yul.Expr.num fieldOffset,
         ← lowerValuePlan lowerExpr index
       ])
+  | .dynamicArraySlot _ _ =>
+      .error (mkError "EVM dynamic array storage is not yet supported")
 
 partial def exprPlanExpr
     {ε : Type}

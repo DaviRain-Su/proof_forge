@@ -71,6 +71,7 @@ def scalarStateType (module : Module) (stateId : String) : Except LowerError Val
   | .scalar => .ok state.type
   | .map _ _ => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
   | .array _ => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is a dynamic array, not scalar storage" }
 
 def mapStateTypes (module : Module) (stateId : String) : Except LowerError (ValueType × ValueType) := do
   let state ← stateDeclOf module stateId "map"
@@ -78,6 +79,7 @@ def mapStateTypes (module : Module) (stateId : String) : Except LowerError (Valu
   | .map keyType _ => .ok (keyType, state.type)
   | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
   | .array _ => .error { message := s!"state `{stateId}` is array storage, not a map" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not a map" }
 
 def isMapState (module : Module) (stateId : String) : Bool :=
   match findState? module stateId with
@@ -175,7 +177,7 @@ def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit 
   match type with
   | .unit => .error { message := s!"{context} does not support Unit equality" }
   | .bool | .u8 | .u32 | .u64 | .hash | .address => .ok ()
-  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
       .error { message := s!"{context} does not support `{type.name}` equality in wasm-near IR v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -275,6 +277,8 @@ def validateState (module : Module) : Except LowerError Unit := do
           .error { message := s!"map state `{state.id}` has unsupported wasm-near IR v0 type `{mapShapeName keyType valueType capacity}`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported" }
     | .array _, _ =>
         .error { message := s!"state `{state.id}` is storage.array; wasm-near IR v0 does not lower portable array storage" }
+    | .dynamicArray, _ =>
+        .error { message := s!"state `{state.id}` is storage.dynamicArray; wasm-near IR v0 does not lower portable dynamic array storage" }
 
 mutual
   partial def validateStatementIdentifiers (entrypointName : String) : Statement → Except LowerError Unit
@@ -322,14 +326,14 @@ def validateIdentifiers (module : Module) : Except LowerError Unit := do
 def validateEntrypointParameters (entrypoint : Entrypoint) : Except LowerError Unit := do
   for param in entrypoint.params do
     match param.snd with
-    | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+    | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
         .error { message := s!"entrypoint `{entrypoint.name}` parameter `{param.fst}` uses `{param.snd.name}`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address" }
     | .u8 | .u32 | .u64 | .bool | .hash | .address => pure ()
 
 def validateEntrypointReturn (entrypoint : Entrypoint) : Except LowerError Unit :=
   match entrypoint.returns with
   | .unit | .u8 | .u32 | .u64 | .bool | .hash | .address => pure ()
-  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
       .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}`; wasm-near IR v0 supports only Unit, U32, U64, Bool, Hash, and Address" }
 
 mutual
@@ -482,6 +486,8 @@ mutual
         .error { message := "wasm-near IR v0 supports only single-segment mapKey storage paths" }
     | .array _, _ =>
         .error { message := "wasm-near IR v0 supports only single-segment mapKey storage paths" }
+    | .dynamicArray, _ =>
+        .error { message := "wasm-near IR v0 supports only single-segment mapKey storage paths" }
 end
 
 mutual
@@ -588,7 +594,7 @@ mutual
           let actual ← inferExprType module env field.snd
           match actual with
           | .u8 | .u32 | .u64 | .bool | .hash | .address => pure ()
-          | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+          | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
               .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type `{actual.name}`; event fields must be U32, U64, Bool, Hash, or Address" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
@@ -635,6 +641,8 @@ def valueTypeName : ValueType → Except LowerError String
       .error { message := s!"fixed array type `{element.name}`x{length} is not supported by wasm-near IR v0" }
   | .structType name =>
       .error { message := s!"struct type `{name}` is not supported by wasm-near IR v0" }
+  | .array _ =>
+      .error { message := "dynamic array type is not supported by wasm-near IR v0" }
 
 def literal : Literal → String
   | .u32 value => s!"{value}u32"
@@ -894,7 +902,7 @@ mutual
           let jsonValue ← match ← inferExprType module #[] field.snd with
             | .hash => .ok s!"[{value}[0], {value}[1], {value}[2], {value}[3]]"
             | .u8 | .u32 | .u64 | .bool | .address => .ok value
-            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
+            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
                 .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type; event fields must be U32, U64, Bool, Hash, or Address" }
           .ok s!"\"{field.fst}\":{jsonValue}"
         let jsonParts := #[s!"\"event\":\"{name}\""] ++ fieldJson

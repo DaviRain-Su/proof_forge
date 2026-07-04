@@ -70,6 +70,7 @@ def tsType : ValueType → Ty
   | .bytes => .string
   | .string => .string
   | .fixedArray elem _ => .named s!"Array<{printTypeName elem}>"
+  | .array elem => .named s!"Array<{printTypeName elem}>"
   | .structType name => .named name
 where
   printTypeName : ValueType → String
@@ -84,6 +85,7 @@ where
     | .bytes => "string"
     | .string => "string"
     | .fixedArray elem len => s!"Array<{printTypeName elem},{len}>"
+    | .array elem => s!"Array<{printTypeName elem}>"
     | .structType name => name
 
 -- ---------------------------------------------------------------------------

@@ -117,3 +117,5 @@ Statement	boundedFor	unsupported	wasm-near target profile rejects control.bounde
 Statement	return	lowered	lowerStatement emits return value;; validateModule requires non-Unit returns to end with return and return-type diagnostics guard mismatches.
 Statement	revert	lowered	lowerStatement emits panic!("message"); for revert with message and panic!("revertWithError"); for revertWithError.
 Statement	revertWithError	lowered	lowerStatement emits panic!("revertWithError"); for structured error reverts.
+ValueType	array	unsupported	wasm-near IR v0 rejects dynamic arrays with explicit diagnostics in validateEntrypointParameters, validateEntrypointReturn, validateStatementTypes event fields, validateValueType, and valueTypeName; ValueType.array is recognized but not lowered.
+StateKind	dynamicArray	unsupported	wasm-near IR v0 rejects storage.dynamicArray in validateState, scalarStateType, mapStateTypes, and inferStoragePathType with explicit diagnostics; StateKind.dynamicArray is recognized but not lowered.

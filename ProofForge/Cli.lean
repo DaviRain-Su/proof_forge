@@ -1155,7 +1155,8 @@ def storageLayoutJson (module : ProofForge.IR.Module) : String :=
       ("kind", jsonString (match s.kind with
         | .scalar => "scalar"
         | .map _ _ => "map"
-        | .array _ => "array")),
+        | .array _ => "array"
+        | .dynamicArray => "dynamicArray")),
       ("type", jsonString s.type.name),
       ("byteOffset", toString s.byteOffset),
       ("byteWidth", toString s.byteWidth)
@@ -1285,7 +1286,7 @@ def entrypointAbiScalarTypeName
       | .address => .ok "address"
       | .bytes => .ok "bytes"
       | .string => .ok "string"
-      | .unit | .fixedArray _ _ | .structType _ =>
+      | .unit | .fixedArray _ _ | .structType _ | .array _ =>
           .error s!"{context} has unsupported EVM ABI word type `{type.name}`; entrypoint ABI words support U32, U64, Bool, Hash, Address, Bytes, or String"
 
 partial def entrypointAbiType
@@ -1298,6 +1299,8 @@ partial def entrypointAbiType
       entrypointAbiScalarTypeName context type evmAbiWord?
   | .unit =>
       .error s!"{context} uses Unit; EVM entrypoint parameters and non-Unit returns must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
+  | .array _ =>
+      .error s!"{context} uses a dynamic array; EVM entrypoint ABI does not yet support dynamic arrays"
   | .fixedArray elementType length => do
       if length == 0 then
         .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"
@@ -1322,6 +1325,8 @@ partial def entrypointAbiWordTypes
       .ok #[← entrypointAbiScalarTypeName context type]
   | .unit =>
       .error s!"{context} uses Unit; EVM entrypoint ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
+  | .array _ =>
+      .error s!"{context} uses a dynamic array; EVM entrypoint ABI does not yet support dynamic arrays"
   | .fixedArray elementType length => do
       if length == 0 then
         .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"

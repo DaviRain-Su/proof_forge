@@ -31,6 +31,7 @@ def stateSlotSpan (module : Module) (state : StateDecl) : Nat :=
       | some decl => length * decl.fields.size
       | none => length
   | .array length, _ => length
+  | .dynamicArray, _ => 1
   | .scalar, _ | .map _ _, _ => 1
 
 structure StorageStatePlan where
@@ -121,6 +122,7 @@ inductive Helper where
   | mapAssign (op : AssignOp)
   | arraySlot
   | structArraySlot
+  | dynamicArraySlot
   | hashWord
   | hashPair
   deriving BEq, DecidableEq, Repr
@@ -145,6 +147,7 @@ def Helper.name : Helper → String
   | .mapAssign op => s!"__proof_forge_map_assign_{assignOpHelperSuffix op}"
   | .arraySlot => "__proof_forge_array_slot"
   | .structArraySlot => "__proof_forge_struct_array_slot"
+  | .dynamicArraySlot => "__proof_forge_dynamic_array_slot"
   | .hashWord => "__proof_forge_hash_word"
   | .hashPair => "__proof_forge_hash_pair"
 
@@ -177,6 +180,7 @@ inductive StorageSlotPlan where
   | mapPresenceSlot (rootSlot : Nat) (keys : Array ValuePlan)
   | arraySlot (rootSlot length : Nat) (index : ValuePlan)
   | structArrayFieldSlot (rootSlot length fieldCount fieldOffset : Nat) (index : ValuePlan)
+  | dynamicArraySlot (rootSlot : Nat) (index : ValuePlan)
   deriving Repr
 
 def StorageSlotPlan.keyCount : StorageSlotPlan → Nat
@@ -186,6 +190,7 @@ def StorageSlotPlan.keyCount : StorageSlotPlan → Nat
   | .mapPresenceSlot _ keys => keys.size
   | .arraySlot .. => 0
   | .structArrayFieldSlot .. => 0
+  | .dynamicArraySlot .. => 0
 
 def StorageSlotPlan.requiredHelpers : StorageSlotPlan → HelperSet
   | .scalarSlot _ => #[]
@@ -199,6 +204,7 @@ def StorageSlotPlan.requiredHelpers : StorageSlotPlan → HelperSet
         helpers
   | .arraySlot .. => #[Helper.arraySlot]
   | .structArrayFieldSlot .. => #[Helper.structArraySlot]
+  | .dynamicArraySlot .. => #[Helper.dynamicArraySlot]
 
 structure MapStatePlan where
   stateId : String
@@ -223,7 +229,7 @@ def requireMapState (module : Module) (stateId : String) : Except PlanError MapS
       valueType := state.type
       capacity
     }
-  | .scalar | .array _ =>
+  | .scalar | .array _ | .dynamicArray =>
       .error { message := s!"EVM storage state '{stateId}' is not a map" }
 
 def scalarSlotPlan (module : Module) (stateId : String) : Except PlanError StorageSlotPlan := do
@@ -233,7 +239,7 @@ def scalarSlotPlan (module : Module) (stateId : String) : Except PlanError Stora
     let (slot, state) ← requireState module stateId
     match state.kind with
     | .scalar => .ok (.scalarSlot slot)
-    | .map _ _ | .array _ =>
+    | .map _ _ | .array _ | .dynamicArray =>
         .error { message := s!"EVM storage state '{stateId}' is not a scalar slot" }
 
 def mapValueSlotPlan (module : Module) (stateId : String) (keys : Array Expr) : Except PlanError StorageSlotPlan := do
@@ -283,7 +289,7 @@ def storagePathMapPresenceSlotPlan
 
 def isStorageWordType : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def findStruct? (module : Module) (name : String) : Option StructDecl :=
   module.structs.find? (fun decl => decl.name == name)
@@ -308,8 +314,8 @@ def requireArrayState (module : Module) (stateId : String) : Except PlanError (N
         .ok (slot, length, elementType)
       else
         .error { message := s!"EVM array state '{stateId}' has unsupported slot element type '{elementType.name}'" }
-  | .scalar, _ | .map _ _, _ =>
-      .error { message := s!"EVM storage state '{stateId}' is not an array" }
+  | .scalar, _ | .map _ _, _ | .dynamicArray, _ =>
+      .error { message := s!"EVM storage state '{stateId}' is not a fixed array" }
 
 def requireStructArrayStateField
     (module : Module)
@@ -326,12 +332,29 @@ def requireStructArrayStateField
       .ok (slot, length, decl.fields.size, fieldOffset, field)
   | .array _, other =>
       .error { message := s!"EVM storage state '{stateId}' is array storage, but not a struct array; got '{other.name}'" }
+  | .dynamicArray, other =>
+      .error { message := s!"EVM storage state '{stateId}' is a dynamic array, not a fixed struct array; got '{other.name}'" }
   | .scalar, _ | .map _ _, _ =>
       .error { message := s!"EVM storage state '{stateId}' is not a struct array" }
 
 def arraySlotPlan (module : Module) (stateId : String) (index : Expr) : Except PlanError StorageSlotPlan := do
   let (slot, length, _) ← requireArrayState module stateId
   .ok (.arraySlot slot length (ValuePlan.fromExpr index))
+
+def requireDynamicArrayState (module : Module) (stateId : String) : Except PlanError (Nat × ValueType) := do
+  let (slot, state) ← requireState module stateId
+  match state.kind, state.type with
+  | .dynamicArray, elementType =>
+      if isStorageWordType elementType then
+        .ok (slot, elementType)
+      else
+        .error { message := s!"EVM dynamic array state '{stateId}' has unsupported element type '{elementType.name}'; only word types are supported" }
+  | .scalar, _ | .map _ _, _ | .array _, _ =>
+      .error { message := s!"EVM storage state '{stateId}' is not a dynamic array" }
+
+def dynamicArraySlotPlan (module : Module) (stateId : String) (index : Expr) : Except PlanError StorageSlotPlan := do
+  let (slot, _) ← requireDynamicArrayState module stateId
+  .ok (.dynamicArraySlot slot (ValuePlan.fromExpr index))
 
 def structArrayFieldSlotPlan
     (module : Module)
@@ -600,7 +623,7 @@ instance : Inhabited AbiParamPlan := ⟨{
 }⟩
 
 def abiTypeIsDynamic : ValueType → Bool
-  | .bytes | .string => true
+  | .bytes | .string | .array _ => true
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit | .fixedArray _ _ | .structType _ => false
 
 def dynamicParamLengthName (name : String) : String :=
@@ -638,7 +661,7 @@ def abiReturnName (index : Nat) : String :=
 def returnLocalNames (returnType : ValueType) (wordTypes : Array ValueType) : Array String :=
   match returnType with
   | .unit => #[]
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string => #["result"]
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string | .array _ => #["result"]
   | .fixedArray _ _ | .structType _ =>
       Id.run do
         let mut names : Array String := #[]

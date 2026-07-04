@@ -21,6 +21,7 @@ def valueType (t : ValueType) : Except AST.LowerError LeoType :=
   | .bytes => .error { message := "Leo emitter does not support Bytes" }
   | .string => .error { message := "Leo emitter does not support String" }
   | .fixedArray _ _ => .error { message := "Leo emitter does not support fixed arrays" }
+  | .array _ => .error { message := "Leo emitter does not support dynamic arrays" }
   | .structType name => .ok (.composite name)
 
 /-- Map a portable IR literal to a Leo literal. -/
@@ -188,6 +189,7 @@ def stateMapping (state : StateDecl) : Except AST.LowerError Mapping :=
       | other => .error { message := s!"Leo emitter scalar state only supports U64, got {other.name}" }
   | .map _ _ => .error { message := s!"Leo emitter does not support map state `{state.id}`" }
   | .array _ => .error { message := s!"Leo emitter does not support array state `{state.id}`" }
+  | .dynamicArray => .error { message := s!"Leo emitter does not support dynamic array state `{state.id}`" }
 
 /-- Build the @noupgrade constructor required by Leo 4.0.2. -/
 def constructor : Constructor :=

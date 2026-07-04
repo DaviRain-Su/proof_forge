@@ -51,6 +51,7 @@ where
         | none => length
     | .array length, _ => length
     | .scalar, _ | .map _ _, _ => 1
+    | .dynamicArray, _ => 1
 
   go (idx slot : Nat) (states : Array StateDecl) : Option (Nat × StateDecl) :=
     if h : idx < states.size then
@@ -167,7 +168,7 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
                 match field.type with
                 | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
                     parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
-                | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+                | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
                     .error {
                       message := s!"event `{eventName}` field `{fieldName}` struct `{typeName}` field `{field.id}` has unsupported EVM IR v0 event type `{field.type.name}`; event structs must be flat U32, U64, Bool, or Hash fields"
                     }
@@ -175,6 +176,8 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
           | _ => do
               let elementName ← eventSignatureFieldType module eventName fieldName elementType
               .ok (elementName ++ s!"[{length}]")
+      | .array _ =>
+          .error { message := s!"event `{eventName}` field `{fieldName}` has unsupported EVM IR v0 type `Array`; dynamic arrays are not supported in EVM event signatures" }
       | .unit =>
           .error { message := s!"event `{eventName}` field `{fieldName}` has unsupported EVM IR v0 type `Unit`; event fields must be U32, U64, Bool, Hash, Address, Bytes, String, flat structs, or fixed arrays" }
       | .structType typeName => do
@@ -187,7 +190,7 @@ partial def eventSignatureFieldType (module : Module) (eventName fieldName : Str
             match field.type with
             | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
                 parts := parts.push (← eventSignatureFieldType module eventName s!"{fieldName}.{field.id}" field.type)
-            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
                 .error {
                   message := s!"event `{eventName}` field `{fieldName}` struct `{typeName}` field `{field.id}` has unsupported EVM IR v0 event type `{field.type.name}`; event structs must be flat U32, U64, Bool, or Hash fields"
                 }
@@ -272,7 +275,7 @@ def structLocalFieldName (name fieldName : String) : String :=
 def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error {
         message := s!"{context} has unsupported EVM IR v0 ABI word type `{type.name}`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
       }
@@ -280,14 +283,14 @@ def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError 
 def ensureCrosscallWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error {
         message := s!"{context} has unsupported EVM IR v0 crosscall word type `{type.name}`; crosscall scalar words support U32, U64, Bool, Hash, or Address"
       }
 
 def isCrosscallWordType : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def abiStructWordTypes (module : Module) (context typeName : String) : Except LowerError (Array ValueType) := do
   let some decl := module.structs.find? fun decl => decl.name == typeName
@@ -319,7 +322,7 @@ partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : 
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
-  | .bytes | .string =>
+  | .bytes | .string | .array _ =>
       .error { message := s!"{context} uses a dynamic type; IR EVM v0 ABI nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 ABI nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
@@ -344,6 +347,8 @@ partial def abiValueWordTypes (module : Module) (context : String) : ValueType �
   | .address => .ok #[.address]
   | .bytes => .ok #[.bytes]
   | .string => .ok #[.string]
+  | .array _ =>
+      .error { message := s!"{context} uses a dynamic array; IR EVM v0 ABI values do not yet support dynamic arrays" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs" }
   | .fixedArray elementType length => do
@@ -373,7 +378,7 @@ partial def crosscallNestedFixedArrayWordTypes (module : Module) (context : Stri
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
-  | .bytes | .string =>
+  | .bytes | .string | .array _ =>
       .error { message := s!"{context} uses a dynamic type; IR EVM v0 crosscall nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 crosscall nested fixed arrays must have U32, U64, Bool, Hash, Address, or flat struct leaves" }
@@ -396,7 +401,7 @@ partial def crosscallValueWordTypes (module : Module) (context : String) : Value
   | .bool => .ok #[.bool]
   | .hash => .ok #[.hash]
   | .address => .ok #[.address]
-  | .bytes | .string =>
+  | .bytes | .string | .array _ =>
       .error { message := s!"{context} uses a dynamic type; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, Address, fixed arrays, or structs" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, Address, fixed arrays, or structs" }
@@ -437,6 +442,8 @@ partial def abiValueParamNamesAt
         .ok #[name]
       else
         .ok #[arrayLocalPathName name path]
+  | .array _ =>
+      .error { message := s!"{context} parameter `{name}` uses a dynamic array; IR EVM v0 ABI parameters do not yet support dynamic arrays" }
   | .unit => do
       discard <| abiValueWordTypes module context .unit
       .ok #[]
@@ -473,7 +480,7 @@ def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
 
 def isStorageWordType : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def requireStorageMapState (module : Module) (stateId : String) : Except LowerError (Nat × ValueType × ValueType) :=
   match stateInfo? module stateId with
@@ -489,6 +496,7 @@ def requireStorageMapState (module : Module) (stateId : String) : Except LowerEr
             }
       | .scalar, _ => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
       | .array _, _ => .error { message := s!"state `{stateId}` is array storage, not a map" }
+      | .dynamicArray, _ => .error { message := s!"state `{stateId}` is dynamic array storage, not a map" }
 
 def requireStorageArrayState (module : Module) (stateId : String) : Except LowerError (Nat × Nat × ValueType) :=
   match stateInfo? module stateId with
@@ -508,6 +516,7 @@ def requireStorageArrayState (module : Module) (stateId : String) : Except Lower
                 .error { message := s!"array state `{stateId}` has unsupported EVM IR v0 element type `{other.name}`; storage arrays support U32, U64, Bool, Hash, or flat struct arrays" }
       | .scalar, _ => .error { message := s!"state `{stateId}` is scalar storage, not an array" }
       | .map _ _, _ => .error { message := s!"state `{stateId}` is map storage, not an array" }
+      | .dynamicArray, _ => .error { message := s!"state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage" }
 
 structure LocalBinding where
   name : String
@@ -666,7 +675,7 @@ def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit 
   match type with
   | .bool | .u8 | .u32 | .u64 | .u128 | .hash | .address | .bytes | .string => .ok ()
   | .unit => .error { message := s!"{context} does not support Unit equality" }
-  | .fixedArray _ _ | .structType _ =>
+  | .fixedArray _ _ | .structType _ | .array _ =>
       .error { message := s!"{context} does not support `{type.name}` equality in IR EVM v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -694,6 +703,7 @@ def scalarStateType (module : Module) (stateId : String) : Except LowerError Val
   | .scalar => .ok state.type
   | .map _ _ => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
   | .array _ => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not scalar storage" }
 
 def mapStateTypes (module : Module) (stateId : String) : Except LowerError (ValueType × ValueType) := do
   let state ← stateDeclOf module stateId "map"
@@ -701,6 +711,7 @@ def mapStateTypes (module : Module) (stateId : String) : Except LowerError (Valu
   | .map keyType _ => .ok (keyType, state.type)
   | .scalar => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
   | .array _ => .error { message := s!"state `{stateId}` is array storage, not a map" }
+  | .dynamicArray => .error { message := s!"state `{stateId}` is dynamic array storage, not a map" }
 
 def findStruct? (module : Module) (name : String) : Option StructDecl :=
   module.structs.find? fun decl => decl.name == name
@@ -721,7 +732,7 @@ def findStructFieldWithOffset? (decl : StructDecl) (fieldName : String) : Option
 def ensureStructLocalFieldType (structName fieldName : String) (type : ValueType) : Except LowerError Unit :=
   match type with
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error {
         message := s!"field `{fieldName}` in struct `{structName}` has unsupported EVM IR v0 local struct field type `{type.name}`; local structs support U32, U64, Bool, Hash, or Address fields"
       }
@@ -739,6 +750,8 @@ partial def ensureLocalNestedFixedArrayValueType
     (module : Module)
     (context name : String) : ValueType → Except LowerError Unit
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => .ok ()
+  | .array _ =>
+      .error { message := s!"{context} `{name}` uses a dynamic array; local fixed arrays do not support dynamic array elements" }
   | .structType typeName => do
       discard <| ensureLocalFlatStructType module s!"{context} `{name}` nested fixed-array leaf" typeName
   | .fixedArray elementType length => do
@@ -794,6 +807,8 @@ def requireStructState
           .error { message := s!"state `{stateId}` is array storage, not scalar struct storage" }
       | .map _ _, _ =>
           .error { message := s!"state `{stateId}` is map storage, not scalar struct storage" }
+      | .dynamicArray, _ =>
+          .error { message := s!"state `{stateId}` is dynamic array storage, not scalar struct storage" }
 
 def requireStructStateField
     (module : Module)
@@ -826,6 +841,8 @@ def requireStructArrayStateField
           .error { message := s!"state `{stateId}` is scalar storage, not a struct array" }
       | .map _ _, _ =>
           .error { message := s!"state `{stateId}` is map storage, not a struct array" }
+      | .dynamicArray, _ =>
+          .error { message := s!"state `{stateId}` is dynamic array storage, not a struct array" }
 
 def validateStructLiteralFields
     (module : Module)
@@ -1045,6 +1062,8 @@ mutual
         .ok elementType
     | .array _, _, _ =>
         .error { message := "EVM IR v0 supports only single-segment index storage paths for arrays" }
+    | .dynamicArray, _, _ =>
+        .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
     | .storageScalarRead stateId =>
@@ -1243,6 +1262,8 @@ partial def validateFixedArrayIndexPathTarget
           | some indexValue => ensureFixedArrayIndexInBounds s!"{context} fixed-array index" indexValue length
           | none => pure ()
           validateFixedArrayIndexPathTarget module env context elementType rest.toArray
+      | .array _ =>
+          .error { message := s!"{context} target expected fixed `Array`, got dynamic `Array`" }
       | other =>
           .error { message := s!"{context} target expected `Array`, got `{other.name}`" }
 
@@ -1266,7 +1287,7 @@ def validateLocalFixedArrayTarget
           .error {
             message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
           }
-      | .unit | .fixedArray _ _ | .bytes | .string =>
+      | .unit | .fixedArray _ _ | .bytes | .string | .array _ =>
           .error {
             message := s!"{context} local `{name}` has unsupported EVM IR v0 element target type `{elementType.name}`; local fixed-array element targets must resolve to U32, U64, Bool, Hash, or Address leaves"
           }
@@ -1289,7 +1310,7 @@ def validateLocalFixedArrayStaticPathTarget
       .error {
         message := s!"{context} local `{name}` returns struct values; IR EVM v0 requires field assignment such as array[index].field"
       }
-  | .unit | .fixedArray _ _ | .bytes | .string =>
+  | .unit | .fixedArray _ _ | .bytes | .string | .array _ =>
       .error {
         message := s!"{context} local `{name}` has unsupported EVM IR v0 element target type `{targetType.name}`; local fixed-array element targets must resolve to U32, U64, Bool, Hash, or Address leaves"
       }
@@ -1363,7 +1384,7 @@ def validateAssignTarget
                 ensureLocalNestedFixedArrayValueType module "assignment target" name elementType
             | .structType typeName =>
                 discard <| ensureLocalFlatStructType module s!"assignment target `{name}` fixed-array element" typeName
-            | .unit | .bytes | .string =>
+            | .unit | .bytes | .string | .array _ =>
                 .error {
                   message := s!"assignment target `{name}` has unsupported EVM IR v0 fixed-array element type `{elementType.name}`; local fixed arrays support U32, U64, Bool, Hash, Address, flat struct elements, or nested fixed arrays with scalar or flat struct leaves"
                 }
@@ -1582,6 +1603,8 @@ def validateState (module : Module) : Except LowerError Unit := do
         validateStorageStructState s!"array state `{state.id}`" typeName module
     | .array _, other =>
         .error { message := s!"array state `{state.id}` has unsupported EVM IR v0 element type `{other.name}`; storage arrays support U32, U64, Bool, Hash, or flat struct arrays" }
+    | .dynamicArray, _ =>
+        .error { message := s!"state `{state.id}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage" }
 
 def validateCapabilities (module : Module) : Except LowerError Unit :=
   match resolveModule Target.evm module with

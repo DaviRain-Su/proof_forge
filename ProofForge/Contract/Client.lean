@@ -26,6 +26,7 @@ def typeToTs : ValueType → String
   | .unit => "void"
   | .fixedArray _ _ => "any[]"
   | .structType _ => "Record<string, any>"
+  | .array _ => "any[]"
 
 def solidityAbiType : ValueType → String
   | .u32 => "uint32"
@@ -40,6 +41,7 @@ def solidityAbiType : ValueType → String
   | .unit => ""
   | .fixedArray _ _ => "bytes"
   | .structType _ => "bytes"
+  | .array _ => "bytes"
 
 def abiInputJson (param : String × ValueType) : String :=
   "{\"name\":\"" ++ param.fst ++ "\",\"type\":\"" ++ solidityAbiType param.snd ++ "\"}"
