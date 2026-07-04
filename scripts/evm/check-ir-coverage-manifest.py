@@ -19,6 +19,7 @@ ALLOWED_INDUCTIVES = {
     "Effect",
     "StoragePathSegment",
     "Statement",
+    "EntrypointKind",
 }
 
 ALLOWED_STATUSES = {

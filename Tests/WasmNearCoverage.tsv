@@ -115,3 +115,5 @@ Statement	release	unsupported	wasm-near Rust sourcegen v0 rejects release statem
 Statement	ifElse	unsupported	wasm-near target profile rejects control.conditional in validateCapabilities; lowerStatement also rejects if/else statements.
 Statement	boundedFor	unsupported	wasm-near target profile rejects control.bounded_loop in validateCapabilities; lowerStatement also rejects bounded for loops.
 Statement	return	lowered	lowerStatement emits return value;; validateModule requires non-Unit returns to end with return and return-type diagnostics guard mismatches.
+Statement	revert	lowered	lowerStatement emits panic!("message"); for revert with message and panic!("revertWithError"); for revertWithError.
+Statement	revertWithError	lowered	lowerStatement emits panic!("revertWithError"); for structured error reverts.

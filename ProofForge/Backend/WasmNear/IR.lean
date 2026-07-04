@@ -288,7 +288,7 @@ mutual
     | .boundedFor indexName _ _ body => do
         validateRustIdentifier s!"loop index in entrypoint `{entrypointName}`" indexName
         validateBodyIdentifiers entrypointName body
-    | .assign _ _ | .assignOp _ _ _ | .effect _ | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .return _ =>
+    | .assign _ _ | .assignOp _ _ _ | .effect _ | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .revert _ | .revertWithError _ | .return _ =>
         pure ()
 
   partial def validateBodyIdentifiers (entrypointName : String) (body : Array Statement) : Except LowerError Unit := do
@@ -524,6 +524,8 @@ mutual
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by wasm-near Rust sourcegen v0" }
+    | .revert _ => .ok env
+    | .revertWithError _ => .ok env
     | .ifElse _ _ _ =>
         .error { message := "conditional branches are not supported by wasm-near IR v0" }
     | .boundedFor _ _ _ _ =>
@@ -935,6 +937,10 @@ mutual
         .ok #[s!"assert_eq!({← lowerExpr module lhs}, {← lowerExpr module rhs}, {stringLiteral message});"]
     | .release _ =>
         .error { message := "release statements are not supported by wasm-near Rust sourcegen v0" }
+    | .revert message =>
+        .ok #[s!"panic!({stringLiteral message});"]
+    | .revertWithError _ =>
+        .ok #["panic!(\"revertWithError\");"]
     | .ifElse _ _ _ =>
         .error { message := "if/else statements are not supported by wasm-near IR v0" }
     | .boundedFor _ _ _ _ =>

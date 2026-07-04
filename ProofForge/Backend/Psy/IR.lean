@@ -951,6 +951,8 @@ mutual
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by Psy IR v0" }
+    | .revert _ => .ok env
+    | .revertWithError _ => .ok env
     | .ifElse condition thenBody elseBody => do
         let conditionType ← inferExprType module env condition
         ensureType "if condition" .bool conditionType
@@ -1285,6 +1287,10 @@ mutual
         .ok #[s!"assert_eq({← lowerExpr module lhs}, {← lowerExpr module rhs}, {stringLiteral message});"]
     | .release _ =>
         .error { message := "release statements are not supported by Psy IR v0" }
+    | .revert message =>
+        .ok #[s!"abort(\"{message}\");"]
+    | .revertWithError _ =>
+        .ok #["abort(\"revertWithError\");"]
     | .ifElse condition thenBody elseBody => do
         let thenLines ← lowerBody module thenBody
         let elseLines ← lowerBody module elseBody
@@ -1345,6 +1351,8 @@ mutual
     | .assert _ _ _
     | .assertEq _ _ _ _
     | .release _
+    | .revert _
+    | .revertWithError _
     | .return _ =>
         pure ()
 

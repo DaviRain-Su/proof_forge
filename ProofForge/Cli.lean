@@ -51,6 +51,8 @@ import ProofForge.IR.Examples.EventProbe
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmDynamicAbiProbe
 import ProofForge.IR.Examples.EvmPackedStorageProbe
+import ProofForge.IR.Examples.EvmErrorsProbe
+import ProofForge.IR.Examples.EvmFallbackProbe
 import ProofForge.IR.Examples.EvmArrayValueProbe
 import ProofForge.IR.Examples.EvmAssignOpProbe
 import ProofForge.IR.Examples.EvmCrosscallProbe
@@ -177,6 +179,10 @@ inductive EmitMode where
   | evmDynamicAbiIrBytecode
   | evmPackedStorageIrYul
   | evmPackedStorageIrBytecode
+  | evmErrorsIrYul
+  | evmErrorsIrBytecode
+  | evmFallbackIrYul
+  | evmFallbackIrBytecode
   | counterIrPsy
   | eventIrPsy
   | crosscallIrPsy
@@ -275,6 +281,8 @@ def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
   | .evmAbiAggregateIrBytecode => true
   | .evmDynamicAbiIrBytecode => true
   | .evmPackedStorageIrBytecode => true
+  | .evmErrorsIrBytecode => true
+  | .evmFallbackIrBytecode => true
   | _ => false
 
 def EmitMode.hasBuiltInFixture : EmitMode → Bool
@@ -330,6 +338,10 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .evmDynamicAbiIrBytecode
   | .evmPackedStorageIrYul
   | .evmPackedStorageIrBytecode
+  | .evmErrorsIrYul
+  | .evmErrorsIrBytecode
+  | .evmFallbackIrYul
+  | .evmFallbackIrBytecode
   | .counterIrPsy
   | .eventIrPsy
   | .crosscallIrPsy
@@ -521,6 +533,10 @@ def usage : String :=
     "  proof-forge --emit-evm-dynamic-abi-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-packed-storage-ir-yul [-o output.yul]",
     "  proof-forge --emit-evm-packed-storage-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
+    "  proof-forge --emit-evm-errors-ir-yul [-o output.yul]",
+    "  proof-forge --emit-evm-errors-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
+    "  proof-forge --emit-evm-fallback-ir-yul [-o output.yul]",
+    "  proof-forge --emit-evm-fallback-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-counter-ir-psy [-o output.psy]",
     "  proof-forge --emit-event-ir-psy [-o output.psy]",
     "  proof-forge --emit-crosscall-ir-psy [-o output.psy]",
@@ -1419,7 +1435,11 @@ def entrypointJson (module : ProofForge.IR.Module) (entrypoint : ProofForge.IR.E
   let selectorValue :=
     match entrypoint.selector? with
     | some selector => jsonString selector
-    | none => "null"
+    | none =>
+      match entrypoint.kind with
+      | .fallback => jsonString "fallback"
+      | .receive => jsonString "receive"
+      | .function => "null"
   .ok <| jsonObject #[
     ("name", jsonString entrypoint.name),
     ("selector", selectorValue),
@@ -1591,7 +1611,7 @@ mutual
           ProofForge.Backend.Evm.IR.addLocal env name type true
         return (#[], nextEnv)
     | .assign _ _ | .assignOp _ _ _ | .assert _ _ _ | .assertEq _ _ _ _ | .return _
-    | .release _ =>
+    | .release _ | .revert _ | .revertWithError _ =>
         return (#[], env)
     | .effect (.eventEmit name fields) => do
         let event ← eventAbi cast module env name #[] fields
@@ -2196,6 +2216,9 @@ def writeEvmModuleArtifactMetadata
   let events ← eventAbisForModule opts.cast module
   let mut entrypoints := #[]
   for entrypoint in module.entrypoints do
+    -- Skip fallback/receive from metadata — they don't have ABI selectors
+    if entrypoint.kind == .fallback || entrypoint.kind == .receive then
+      continue
     entrypoints := entrypoints.push (← liftExceptString (entrypointJson module entrypoint))
   writeEvmArtifactMetadata
     opts
@@ -2457,6 +2480,14 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .evmPackedStorageIrYul }
   | "--emit-evm-packed-storage-ir-bytecode" :: rest, opts =>
       parseArgs rest { opts with mode := .evmPackedStorageIrBytecode }
+  | "--emit-evm-errors-ir-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmErrorsIrYul }
+  | "--emit-evm-errors-ir-bytecode" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmErrorsIrBytecode }
+  | "--emit-evm-fallback-ir-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmFallbackIrYul }
+  | "--emit-evm-fallback-ir-bytecode" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmFallbackIrBytecode }
   | "--emit-counter-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrPsy }
   | "--emit-event-ir-psy" :: rest, opts =>
@@ -4071,6 +4102,58 @@ def compileEvmPackedStorageIrBytecode (opts : CliOptions) : IO UInt32 := do
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
+def compileEvmErrorsIrYul (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmErrorsProbe.yul")
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  | .ok yul =>
+      writeTextFile output yul
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
+def renderEvmErrorsIrYul : IO String := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  | .ok yul => return yul
+  | .error err => throw <| IO.userError err.render
+
+def compileEvmErrorsIrBytecode (opts : CliOptions) : IO UInt32 := do
+  let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmErrorsProbe.yul")
+  let yul ← renderEvmErrorsIrYul
+  writeTextFile yulOutput yul
+  let bytecode ← solcBytecode opts.solc yulOutput
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmErrorsProbe.bin")
+  writeTextFile output (bytecode ++ "\n")
+  writeEvmIrArtifactMetadata opts "EvmErrorsProbe" "ProofForge.IR.Examples.EvmErrorsProbe" ProofForge.IR.Examples.EvmErrorsProbe.module yulOutput output
+  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  return 0
+
+def compileEvmFallbackIrYul (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmFallbackProbe.yul")
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmFallbackProbe.module with
+  | .ok yul =>
+      writeTextFile output yul
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
+def renderEvmFallbackIrYul : IO String := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmFallbackProbe.module with
+  | .ok yul => return yul
+  | .error err => throw <| IO.userError err.render
+
+def compileEvmFallbackIrBytecode (opts : CliOptions) : IO UInt32 := do
+  let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmFallbackProbe.yul")
+  let yul ← renderEvmFallbackIrYul
+  writeTextFile yulOutput yul
+  let bytecode ← solcBytecode opts.solc yulOutput
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmFallbackProbe.bin")
+  writeTextFile output (bytecode ++ "\n")
+  writeEvmIrArtifactMetadata opts "EvmFallbackProbe" "ProofForge.IR.Examples.EvmFallbackProbe" ProofForge.IR.Examples.EvmFallbackProbe.module yulOutput output
+  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  return 0
+
 def compileCounterIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/Counter.psy")
   match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.Counter.module with
@@ -5473,6 +5556,10 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .evmDynamicAbiIrBytecode => compileEvmDynamicAbiIrBytecode opts
   | .evmPackedStorageIrYul => compileEvmPackedStorageIrYul opts
   | .evmPackedStorageIrBytecode => compileEvmPackedStorageIrBytecode opts
+  | .evmErrorsIrYul => compileEvmErrorsIrYul opts
+  | .evmErrorsIrBytecode => compileEvmErrorsIrBytecode opts
+  | .evmFallbackIrYul => compileEvmFallbackIrYul opts
+  | .evmFallbackIrBytecode => compileEvmFallbackIrBytecode opts
   | .counterIrPsy => compileCounterIrPsy opts
   | .eventIrPsy => compileEventIrPsy opts
   | .crosscallIrPsy => compileCrosscallIrPsy opts

@@ -214,6 +214,30 @@ def revertStatement : Lean.Compiler.Yul.Statement :=
   Lean.Compiler.Yul.Statement.exprStmt
     (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
 
+/-- Revert with a string message using Solidity's Error(string) ABI encoding:
+   `revert(0, 100)` preceded by:
+   - offset (0x60 = 96 bytes to string data)
+   - length (message.length)
+   - padded message bytes
+   This matches Solidity's `revert("message")` encoding. -/
+def revertWithMessageStatements (message : String) : Array Lean.Compiler.Yul.Statement :=
+  let msgBytes := message.toUTF8
+  let msgLen := msgBytes.size
+  let paddedLen := ((msgLen + 31) / 32) * 32
+  let totalSize := 100 + paddedLen  -- 4 selector + 32 offset + 32 length + padded message
+  #[
+    -- mstore selector (Error(string) = 0x08c379a0)
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0x08c379a0]),
+    -- mstore offset = 0x20 (32 bytes from start of string data area)
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 4, Lean.Compiler.Yul.Expr.num 0x20]),
+    -- mstore string length
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 36, Lean.Compiler.Yul.Expr.num msgLen]),
+    -- store message bytes
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 68, Lean.Compiler.Yul.Expr.num 0]),
+    -- revert from offset 0 with total size
+    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
+  ]
+
 def isHexChar (c : Char) : Bool :=
   ('0' <= c && c <= '9') ||
   ('a' <= c && c <= 'f') ||
@@ -1023,6 +1047,20 @@ def entrypointFunctionDefinition
     (returnTypedNames entrypoint.returns)
     { statements := bodyStatements }
 
+/-- Build a fallback or receive function definition. These have no params,
+   no return value, and use a fixed name (`__pf_fallback` or `__pf_receive`). -/
+def fallbackReceiveFunctionDefinition
+    (funcName : String)
+    (bodyStatements : Array Lean.Compiler.Yul.Statement) : Lean.Compiler.Yul.Statement :=
+  .funcDef funcName #[] #[] { statements := bodyStatements }
+
+/-- Function name for a fallback or receive entrypoint. -/
+def fallbackReceiveFunctionName (kind : ProofForge.IR.EntrypointKind) : String :=
+  match kind with
+  | .fallback => "__pf_fallback"
+  | .receive => "__pf_receive"
+  | .function => "__pf_fallback"  -- shouldn't happen, but provide a default
+
 def dispatchSelectorExpr : Lean.Compiler.Yul.Expr :=
   Lean.Compiler.Yul.builtin "shr" #[
     Lean.Compiler.Yul.Expr.num 224,
@@ -1077,6 +1115,28 @@ def dispatchDefaultCase (defaultPlan : DispatchDefaultPlan) : Lean.Compiler.Yul.
   | .uupsProxy => {
       value := none
       body := { statements := uupsProxyFallbackBody }
+    }
+  | .fallback => {
+      value := none
+      body := { statements := #[
+        .ifStmt (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
+          { statements := #[
+            .exprStmt (Lean.Compiler.Yul.call "__pf_receive" #[]),
+            .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
+          ] },
+        .exprStmt (Lean.Compiler.Yul.call "__pf_fallback" #[])
+      ] }
+    }
+  | .receive => {
+      value := none
+      body := { statements := #[
+        .ifStmt (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
+          { statements := #[
+            .exprStmt (Lean.Compiler.Yul.call "__pf_receive" #[]),
+            .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
+          ] },
+        .exprStmt (Lean.Compiler.Yul.call "__pf_fallback" #[])
+      ] }
     }
 
 def entrypointDispatchCase

@@ -115,3 +115,5 @@ Statement	release	lowered	EmitWat lowers release of owned fixed-array and struct
 Statement	ifElse	lowered	EmitWat lowers if/else to wasm if with lowered branch bodies.
 Statement	boundedFor	lowered	EmitWat lowers boundedFor to wasm block/loop/br_if control flow.
 Statement	return	lowered	EmitWat lowers returns to value_return helpers for U32/U64/Bool/Hash values.
+Statement	revert	lowered	EmitWat lowers revert to unreachable trap (no message encoding in Wasm).
+Statement	revertWithError	lowered	EmitWat lowers revertWithError to unreachable trap (no ErrorRef encoding in Wasm).

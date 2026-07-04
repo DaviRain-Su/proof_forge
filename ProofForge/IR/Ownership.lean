@@ -250,6 +250,8 @@ mutual
         checkExpr entrypoint env rhs
         .ok env
     | .release name => releaseLocal entrypoint env name
+    | .revert _ => .ok env
+    | .revertWithError _ => .ok env
     | .ifElse condition thenBody elseBody => do
         checkExpr entrypoint env condition
         let thenEnv ← checkStatements entrypoint env thenBody

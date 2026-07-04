@@ -466,6 +466,8 @@ evm-ir-smokes:
       abi-aggregate
       dynamic-abi
       packed-storage
+      errors
+      fallback
     )
     for fixture in "${fixtures[@]}"; do
       just evm-smoke "$fixture"

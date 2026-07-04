@@ -387,7 +387,7 @@ The roadmap is split into **six phases**, each 2–10 engineering days, sequence
 
 ---
 
-### Phase 5: Revert reasons, custom errors, fallback, and receive (5–7 days)
+### Phase 5: Revert reasons, custom errors, fallback, and receive (5–7 days) ✅
 
 **Goals**
 

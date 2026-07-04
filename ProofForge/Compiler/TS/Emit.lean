@@ -279,6 +279,8 @@ mutual
           none)
     -- TS/JS is garbage-collected, so releasing an owned heap local is a no-op.
     | .release _ => pure ()
+    | .revert msg => emit (.throw (.new (.ident "Error") #[.str msg]))
+    | .revertWithError _ => emit (.throw (.new (.ident "Error") #[.str "revertWithError"]))
     | .return value => do
         let e ← emitExpr (inferType value) value
         emit (.return (stringifyForResponse (inferType value) e))

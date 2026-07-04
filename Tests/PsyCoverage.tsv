@@ -105,6 +105,8 @@ Statement	ifElse	lowered	lowerStatement emits Psy if/else statement; Conditional
 Statement	boundedFor	lowered	lowerStatement emits static Psy for loop; LoopProbe covers it.
 Statement	release	unsupported	Psy IR v0 rejects release statements with an explicit diagnostic; release is currently only lowered by EmitWat allocator-aware paths.
 Statement	return	lowered	lowerStatement emits return and validateEntrypointBodies requires non-Unit returns to end with return; all returning fixtures and diagnostics cover it.
+Statement	revert	lowered	lowerStatement emits abort("message"); for revert with message and abort("revertWithError"); for revertWithError.
+Statement	revertWithError	lowered	lowerStatement emits abort("revertWithError"); for structured error reverts.
 Expr	nativeValue	validated	inferExprType types nativeValue as U64; Psy IR v0 explicitly rejects native value inspection with a clear diagnostic.
 Expr	crosscallInvoke	lowered	lowerExpr emits __invoke_sync#<Felt>(target, methodId, [args]); CrosscallProbe covers it and Dargo compilation accepts the generated source.
 Expr	crosscallInvokeTyped	unsupported	Psy IR v0 rejects typed scalar crosscalls with an explicit diagnostic instead of silently lowering them to Felt-returning __invoke_sync calls.

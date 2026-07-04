@@ -1821,6 +1821,8 @@ mutual
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
+    | .revert _ => .ok env
+    | .revertWithError _ => .ok env
     | .ifElse condition thenBody elseBody => do
         ensureType "if condition" .bool (← inferExprType module env condition)
         discard <| validateStatements module entrypoint env thenBody
@@ -5101,6 +5103,13 @@ mutual
         .ok (← lowerScalarAssertStmtPlanOrFallback module env (.assertEq lhs rhs message errorRef?), env)
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
+    | .revert message => do
+        if message.isEmpty then
+          .ok (#[revertStmt], env)
+        else
+          .ok (ProofForge.Backend.Evm.ToYul.revertWithMessageStatements message, env)
+    | .revertWithError errorRef => do
+        .ok (errorRefRevertStmts errorRef, env)
     | .ifElse condition thenBody elseBody => do
         let thenStatements ← lowerStatements module entrypointName returnType env true thenBody
         let elseStatements ← lowerStatements module entrypointName returnType env true elseBody
@@ -5161,13 +5170,21 @@ def lowerEntrypointWithPlan
   match entrypoint.returns with
   | .unit => pure ()
   | _ =>
-      if statementsAlwaysReturn entrypoint.body then
+      if entrypoint.kind == .fallback || entrypoint.kind == .receive then
+        .error { message := s!"entrypoint `{entrypoint.name}` is a fallback/receive and must return unit" }
+      else if statementsAlwaysReturn entrypoint.body then
         pure ()
       else
         .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}` but does not return on every control-flow path" }
   validateEntrypointTypes module entrypoint
   let body ← lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
-  .ok (ProofForge.Backend.Evm.ToYul.entrypointFunctionDefinition module.name entrypointPlan body)
+  -- Fallback/receive functions use a fixed name and have no params/returns
+  if entrypoint.kind == .fallback || entrypoint.kind == .receive then
+    .ok (ProofForge.Backend.Evm.ToYul.fallbackReceiveFunctionDefinition
+           (ProofForge.Backend.Evm.ToYul.fallbackReceiveFunctionName entrypoint.kind)
+           body)
+  else
+    .ok (ProofForge.Backend.Evm.ToYul.entrypointFunctionDefinition module.name entrypointPlan body)
 
 def lowerEntrypoint (module : Module) (entrypoint : Entrypoint) : Except LowerError Lean.Compiler.Yul.Statement := do
   let entrypointPlan ←
@@ -5251,15 +5268,19 @@ def dispatchCasesWithPlan
     Except LowerError (Array Lean.Compiler.Yul.Case) := do
   let (idx, cases) ← module.entrypoints.foldlM (init := (0, #[])) fun acc entrypoint => do
     let (idx, cases) := acc
-    match dispatch.entrypoints[idx]? with
-    | some entrypointPlan => do
-        let dispatchCase ← dispatchCaseWithEntrypointPlan module entrypoint entrypointPlan
-        .ok (idx + 1, cases.push dispatchCase)
-    | none =>
-        .error {
-          message :=
-            s!"EVM dispatch plan has fewer entrypoints ({dispatch.entrypoints.size}) than module `{module.name}` ({module.entrypoints.size})"
-        }
+    -- Skip fallback/receive entrypoints — they are handled by the default case
+    if entrypoint.kind == .fallback || entrypoint.kind == .receive then
+      .ok (idx, cases)
+    else
+      match dispatch.entrypoints[idx]? with
+      | some entrypointPlan => do
+          let dispatchCase ← dispatchCaseWithEntrypointPlan module entrypoint entrypointPlan
+          .ok (idx + 1, cases.push dispatchCase)
+      | none =>
+          .error {
+            message :=
+              s!"EVM dispatch plan has fewer entrypoints ({dispatch.entrypoints.size}) than module `{module.name}` ({module.entrypoints.size})"
+          }
   if idx != dispatch.entrypoints.size then
     .error {
       message :=
@@ -5278,11 +5299,15 @@ def dispatchBlockWithPlan
 def dispatchPlanForModule (module : Module) :
     Except LowerError ProofForge.Backend.Evm.Plan.DispatchPlan := do
   let entrypointPlans ← module.entrypoints.foldlM (init := #[]) fun acc entrypoint => do
-    let entrypointPlan ←
-      match ProofForge.Backend.Evm.Lower.buildEntrypointSurfacePlan module entrypoint with
-      | .ok plan => .ok plan
-      | .error err => .error { message := err.message }
-    .ok (acc.push entrypointPlan)
+    -- Skip fallback/receive entrypoints — they don't have selectors
+    if entrypoint.kind == .fallback || entrypoint.kind == .receive then
+      .ok acc
+    else
+      let entrypointPlan ←
+        match ProofForge.Backend.Evm.Lower.buildEntrypointSurfacePlan module entrypoint with
+        | .ok plan => .ok plan
+        | .error err => .error { message := err.message }
+      .ok (acc.push entrypointPlan)
   .ok (ProofForge.Backend.Evm.Plan.moduleDispatchPlan module entrypointPlans)
 
 def dispatchBlock (module : Module) : Except LowerError Lean.Compiler.Yul.Statement := do
@@ -5833,6 +5858,8 @@ mutual
         let lhsSpecs ← crosscallHelperSpecsExpr module env lhs
         let rhsSpecs ← crosscallHelperSpecsExpr module env rhs
         .ok (mergeCrosscallHelperSpecs lhsSpecs rhsSpecs, env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
     | .release _ =>
         .ok (#[], env)
     | .ifElse condition thenBody elseBody => do
@@ -5988,6 +6015,8 @@ mutual
         mergeCreateHelperSpecs (createHelperSpecsExpr lhs) (createHelperSpecsExpr rhs)
     | .release _ =>
         #[]
+    | .revert _ => #[]
+    | .revertWithError _ => #[]
     | .ifElse condition thenBody elseBody =>
         mergeCreateHelperSpecs
           (createHelperSpecsExpr condition)
@@ -6164,6 +6193,8 @@ mutual
         .ok (mergeNatSets (localArrayGetLengthsExpr env lhs) (localArrayGetLengthsExpr env rhs), env)
     | .release _ =>
         .ok (#[], env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
     | .ifElse condition thenBody elseBody => do
         let (thenLengths, _) ← localArrayGetLengthsStatements module env thenBody
         let (elseLengths, _) ← localArrayGetLengthsStatements module env elseBody
@@ -6316,6 +6347,8 @@ mutual
         .ok (bodyShapes, env)
     | .release _ =>
         .ok (#[], env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
     | .return value =>
         .ok (nestedLocalArrayGetShapesExpr env value, env)
 
@@ -6477,7 +6510,7 @@ mutual
   partial def stmtUsesCheckedArithmetic : Statement → Bool
     | .letBind _ _ v | .letMutBind _ _ v | .assign _ v | .assignOp _ _ v | .return v =>
         exprUsesCheckedArithmetic v
-    | .assert _ _ _ | .assertEq _ _ _ _ | .release _ => false
+    | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .revert _ | .revertWithError _ => false
     | .effect e => effectUsesCheckedArithmetic e
     | .ifElse c thenBody elseBody =>
         exprUsesCheckedArithmetic c || thenBody.any stmtUsesCheckedArithmetic
@@ -6528,7 +6561,10 @@ def lowerEntrypointsWithPlan
 def entrypointPlanIsComplete
     (module : Module)
     (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) : Bool :=
-  entrypoints.size == module.entrypoints.size
+  -- Only function entrypoints (not fallback/receive) need dispatch plans
+  let functionCount := module.entrypoints.foldl (init := 0) fun acc ep =>
+    if ep.kind == .fallback || ep.kind == .receive then acc else acc + 1
+  entrypoints.size == functionCount
 
 def lowerEntrypointsBestEffort
     (module : Module)

@@ -176,6 +176,7 @@ mutual
     | .boundedFor _ _ _ body => hasEffect body
     | .return v => hasEffectExpr v
     | .release _ => false
+    | .revert _ | .revertWithError _ => true
 end
 
 /-- Build a Leo mapping from a scalar U64 state declaration. -/

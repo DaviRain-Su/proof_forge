@@ -574,6 +574,8 @@ inductive StmtPlan where
   | assert (condition : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
   | assertEq (lhs rhs : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
   | release (name : String)
+  | revert (message : String)
+  | revertWithError (errorRef : ProofForge.IR.ErrorRef)
   | ifElse (condition : ExprPlan) (thenBody elseBody : Array StmtPlan)
   | boundedFor (indexName : String) (start stopExclusive : Nat) (body : Array StmtPlan)
   | return (value : ExprPlan)
@@ -657,6 +659,10 @@ instance : Inhabited EntrypointPlan := ⟨{ name := "", selector := "", params :
 inductive DispatchDefaultPlan where
   | revert
   | uupsProxy
+  /-- User-defined fallback: runs on unknown selector with non-empty calldata. -/
+  | fallback
+  /-- User-defined receive: runs on empty calldata with ETH. -/
+  | receive
   deriving BEq, Repr
 
 structure DispatchPlan where
@@ -667,9 +673,15 @@ structure DispatchPlan where
 instance : Inhabited DispatchPlan := ⟨{ entrypoints := #[], default := .revert }⟩
 
 def moduleDispatchDefaultPlan (module : Module) : DispatchDefaultPlan :=
+  -- Check for user-defined fallback/receive entrypoints first
+  let hasFallback := module.entrypoints.any (fun ep => ep.kind == .fallback)
+  let hasReceive := module.entrypoints.any (fun ep => ep.kind == .receive)
   match module.evmProxyPattern? with
   | some "uups" => .uupsProxy
-  | _ => .revert
+  | _ =>
+    if hasReceive then .receive
+    else if hasFallback then .fallback
+    else .revert
 
 def moduleDispatchPlan (module : Module) (entrypoints : Array EntrypointPlan) : DispatchPlan := {
   entrypoints

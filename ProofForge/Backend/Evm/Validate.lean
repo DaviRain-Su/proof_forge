@@ -1472,6 +1472,8 @@ mutual
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
+    | .revert _ => .ok env
+    | .revertWithError _ => .ok env
     | .ifElse condition thenBody elseBody => do
         ensureType "if condition" .bool (← inferExprType module env condition)
         discard <| validateStatements module entrypoint env thenBody
@@ -1634,7 +1636,7 @@ mutual
   partial def stmtUsesCheckedArithmetic : Statement → Bool
     | .letBind _ _ v | .letMutBind _ _ v | .assign _ v | .assignOp _ _ v | .return v =>
         exprUsesCheckedArithmetic v
-    | .assert _ _ _ | .assertEq _ _ _ _ | .release _ => false
+    | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .revert _ | .revertWithError _ => false
     | .effect e => effectUsesCheckedArithmetic e
     | .ifElse c thenBody elseBody =>
         exprUsesCheckedArithmetic c || thenBody.any stmtUsesCheckedArithmetic
