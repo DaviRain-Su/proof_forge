@@ -763,26 +763,6 @@ def abiParamValidationStmts (module : Module) (entrypoint : Entrypoint) : Except
   let params ← entrypointParamPlansForModule module entrypoint
   .ok (ProofForge.Backend.Evm.ToYul.abiParamsMinSizeValidationStatements params)
 
--- Backward-compatible wrapper: only returns validation (no dynamic decode).
--- The full validation+decode is in abiParamValidationAndDecodeStmts.
-def abiParamValidationStmts (module : Module) (entrypoint : Entrypoint) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
-  let layouts ← entrypointParamLayouts module entrypoint
-  -- For backward compat, just run the size check + static word validation
-  -- (no dynamic decode). This is used by callers that don't need decode.
-  let headWordCount := layouts.foldl (init := 0) fun acc l =>
-    if l.isDynamic then acc + 1 else
-      Id.run <| match abiValueWordTypes module "" l.type with
-      | .ok ws => acc + ws.size
-      | _ => acc + 1
-  let minSize := 4 + headWordCount * 32
-  if headWordCount == 0 then
-    .ok #[]
-  else
-    .ok #[
-      Lean.Compiler.Yul.Statement.ifStmt
-        (Lean.Compiler.Yul.builtin "lt" #[Lean.Compiler.Yul.builtin "calldatasize" #[], Lean.Compiler.Yul.Expr.num minSize])
-        { statements := #[revertStmt] }
-    ]
 
 def contextExpr : ContextField → Lean.Compiler.Yul.Expr
   | .userId => Lean.Compiler.Yul.builtin "caller" #[]
@@ -3819,6 +3799,7 @@ partial def lowerScalarStorageEffectStmtPlanOrFallback
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
                 (lowerScalarStorageSlotExpr module env)
+                (scalarStatePacking module)
                 (.effect (.storageScalarWrite stateId valuePlan))
             match statements[0]? with
             | some statement =>
@@ -3847,6 +3828,7 @@ partial def lowerScalarStorageEffectStmtPlanOrFallback
             (fun expr => lowerExpr module env expr)
             (lowerPlanEffectExpr module env)
             (lowerScalarStorageSlotExpr module env)
+            (scalarStatePacking module)
             (.effect (.storageScalarAssignOp stateId op valuePlan))
         match statements[0]? with
         | some statement =>
@@ -5015,7 +4997,7 @@ def lowerReturnWords
       lowerStructReturnWords module env entrypointName typeName value
 
 def returnTypeSupportsScalarStmtPlan : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash | .address => true
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
   | .unit | .bytes | .string | .fixedArray _ _ | .structType _ => false
 
 def lowerAggregateCrosscallReturnAssignment?

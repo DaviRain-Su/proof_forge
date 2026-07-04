@@ -599,7 +599,7 @@ instance : Inhabited AbiParamPlan := ⟨{
 
 def abiTypeIsDynamic : ValueType → Bool
   | .bytes | .string => true
-  | .u32 | .u64 | .bool | .hash | .address | .unit | .fixedArray _ _ | .structType _ => false
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit | .fixedArray _ _ | .structType _ => false
 
 def dynamicParamLengthName (name : String) : String :=
   s!"{name}__length"
@@ -636,7 +636,7 @@ def abiReturnName (index : Nat) : String :=
 def returnLocalNames (returnType : ValueType) (wordTypes : Array ValueType) : Array String :=
   match returnType with
   | .unit => #[]
-  | .u32 | .u64 | .bool | .hash | .address | .bytes | .string => #["result"]
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string => #["result"]
   | .fixedArray _ _ | .structType _ =>
       Id.run do
         let mut names : Array String := #[]

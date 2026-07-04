@@ -329,6 +329,8 @@ def crosscallReturnTypeSuffix {ε : Type} (mkError : String → ε) : ValueType 
   | .u32 => .ok "_u32"
   | .bool => .ok "_bool"
   | .hash => .ok "_hash"
+  | .u8 => .ok "_u8"
+  | .u128 => .ok "_u128"
   | .address => .ok "_address"
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error (mkError "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0")
@@ -361,6 +363,8 @@ def crosscallReturnWordTag {ε : Type} (mkError : String → ε) : ValueType →
   | .u32 => .ok "u32"
   | .bool => .ok "bool"
   | .hash => .ok "hash"
+  | .u8 => .ok "u8"
+  | .u128 => .ok "u128"
   | .address => .ok "address"
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error (mkError "crosscall aggregate return words must be U32, U64, Bool, or Hash in IR EVM v0")
@@ -407,7 +411,7 @@ def crosscallDelegateAggregateFunctionName
   .ok s!"__proof_forge_crosscall_delegate_{arity}_abi{← crosscallReturnWordTagsSuffix mkError wordTypes}"
 
 def crosscallReturnIsScalarWord : ValueType → Bool
-  | .u64 | .u32 | .bool | .hash | .address => true
+  | .u8 | .u64 | .u32 | .u128 | .bool | .hash | .address => true
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 def crosscallModeForwardsValue : CrosscallMode → Bool
@@ -481,7 +485,7 @@ def crosscallReturnGuardStatementsForName
           (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num 1])
           { statements := #[revertStatement] }
       ]
-  | .u64 | .hash | .address => .ok #[]
+  | .u8 | .u64 | .u128 | .hash | .address => .ok #[]
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       .error (mkError "crosscall return type must be U32, U64, Bool, or Hash in IR EVM v0")
 
@@ -898,7 +902,7 @@ def abiWordValidationStatement?
       some <| Lean.Compiler.Yul.Statement.ifStmt
         (Lean.Compiler.Yul.builtin "gt" #[word, Lean.Compiler.Yul.Expr.num 1])
         { statements := #[revertStatement] }
-  | .u64 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
+  | .u8 | .u64 | .u128 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string =>
       none
 
 def abiParamHeadValidationStatements (params : Array AbiParamPlan) :
@@ -1911,25 +1915,83 @@ def scalarStorageEffectPlanStatements
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
-    (storageSlotFor : String → Except ε Lean.Compiler.Yul.Expr) :
+    (storageSlotFor : String → Except ε Lean.Compiler.Yul.Expr)
+    (packingFor : String → Except ε (Nat × Nat)) :
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .storageScalarWrite stateId value => do
-      .ok #[
-        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-          ← storageSlotFor stateId,
-          ← exprPlanExpr mkError lowerExpr lowerEffect value
-        ])
-      ]
+      let storageSlot ← storageSlotFor stateId
+      let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
+      let (byteOffset, byteWidth) ← packingFor stateId
+      if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
+        .ok #[
+          .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[storageSlot, valueExpr])
+        ]
+      else
+        let shiftBits := (32 - (byteOffset + byteWidth)) * 8
+        let mask := (2^(byteWidth * 8 : Nat)) - 1
+        let shiftedMask := Lean.Compiler.Yul.builtin "shl" #[
+          Lean.Compiler.Yul.Expr.num shiftBits,
+          Lean.Compiler.Yul.Expr.num mask
+        ]
+        .ok #[
+          .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
+            storageSlot,
+            Lean.Compiler.Yul.builtin "or" #[
+              Lean.Compiler.Yul.builtin "and" #[
+                Lean.Compiler.Yul.builtin "sload" #[storageSlot],
+                Lean.Compiler.Yul.builtin "not" #[shiftedMask]
+              ],
+              Lean.Compiler.Yul.builtin "shl" #[
+                Lean.Compiler.Yul.Expr.num shiftBits,
+                valueExpr
+              ]
+            ]
+          ])
+        ]
   | .storageScalarAssignOp stateId op value => do
       let storageSlot ← storageSlotFor stateId
-      .ok #[
-        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-          storageSlot,
-          checkedArithExpr op
-            (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
-            (← exprPlanExpr mkError lowerExpr lowerEffect value)
-        ])
-      ]
+      let (byteOffset, byteWidth) ← packingFor stateId
+      let packedRead ←
+        if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
+          .ok (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
+        else
+          let shiftBits := (32 - (byteOffset + byteWidth)) * 8
+          let mask := (2^(byteWidth * 8 : Nat)) - 1
+          .ok (Lean.Compiler.Yul.builtin "and" #[
+            Lean.Compiler.Yul.builtin "shr" #[
+              Lean.Compiler.Yul.Expr.num shiftBits,
+              Lean.Compiler.Yul.builtin "sload" #[storageSlot]
+            ],
+            Lean.Compiler.Yul.Expr.num mask
+          ])
+      let rhs ← exprPlanExpr mkError lowerExpr lowerEffect value
+      let computedValue := checkedArithExpr op packedRead rhs
+      if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
+        .ok #[
+          .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[storageSlot, computedValue])
+        ]
+      else
+        let shiftBits := (32 - (byteOffset + byteWidth)) * 8
+        let mask := (2^(byteWidth * 8 : Nat)) - 1
+        let shiftedMask := Lean.Compiler.Yul.builtin "shl" #[
+          Lean.Compiler.Yul.Expr.num shiftBits,
+          Lean.Compiler.Yul.Expr.num mask
+        ]
+        .ok #[
+          .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
+            storageSlot,
+            Lean.Compiler.Yul.builtin "or" #[
+              Lean.Compiler.Yul.builtin "and" #[
+                Lean.Compiler.Yul.builtin "sload" #[storageSlot],
+                Lean.Compiler.Yul.builtin "not" #[shiftedMask]
+              ],
+              Lean.Compiler.Yul.builtin "shl" #[
+                Lean.Compiler.Yul.Expr.num shiftBits,
+                computedValue
+              ]
+            ]
+          ])
+        ]
   | _ =>
       .error (mkError "EVM EffectPlan-to-Yul scalar storage effect lowering expected storageScalarWrite/storageScalarAssignOp")
 
@@ -1938,10 +2000,11 @@ def scalarStorageEffectStmtPlanStatements
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
-    (storageSlotFor : String → Except ε Lean.Compiler.Yul.Expr) :
+    (storageSlotFor : String → Except ε Lean.Compiler.Yul.Expr)
+    (packingFor : String → Except ε (Nat × Nat)) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      scalarStorageEffectPlanStatements mkError lowerExpr lowerEffect storageSlotFor effect
+      scalarStorageEffectPlanStatements mkError lowerExpr lowerEffect storageSlotFor packingFor effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul scalar storage effect lowering expected effect")
 

@@ -109,7 +109,7 @@ def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) : ExprPlan :=
   .checkedArith op lhs rhs
 
 def fixedArrayScalarLeafType? : ValueType → Bool
-  | .u32 | .u64 | .bool | .hash | .address => true
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string => false
 
 mutual
@@ -1115,7 +1115,7 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
             match fixedArrayPathShape "fixed array index" binding.type path with
             | .ok (lengths, leafType) =>
                 match leafType with
-                | .u32 | .u64 | .bool | .hash | .address | .structType _ => #[lengths]
+                | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .structType _ => #[lengths]
                 | .unit | .fixedArray _ _ | .bytes | .string => #[]
             | .error _ => #[]
         | none => #[]

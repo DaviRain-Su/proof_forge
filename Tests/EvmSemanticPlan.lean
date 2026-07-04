@@ -1655,9 +1655,10 @@ def testScalarReturnPlanToYul : IO Unit := do
   match directLeaveStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin name args) => do
       require (names == #["result"]) "scalar return StmtPlan-to-Yul helper leave target"
-      require (name == "sload") "scalar return StmtPlan-to-Yul helper leave storage read"
-      require (args.size == 1) "scalar return StmtPlan-to-Yul helper leave sload arg count"
-  | _ => throw <| IO.userError "scalar return StmtPlan-to-Yul helper leave must assign sload"
+      -- Packed read: and(shr(shift, sload(slot)), mask)
+      require (name == "and") "scalar return StmtPlan-to-Yul helper leave packed read (and)"
+      require (args.size == 2) "scalar return StmtPlan-to-Yul helper leave packed read arg count"
+  | _ => throw <| IO.userError "scalar return StmtPlan-to-Yul helper leave must assign packed read (and/shr/sload)"
   match directLeaveStmts[1]! with
   | Lean.Compiler.Yul.Statement.leave => pure ()
   | _ => throw <| IO.userError "scalar return StmtPlan-to-Yul helper leave must append leave"
@@ -1749,8 +1750,8 @@ def testScalarBindingStmtPlanToYul : IO Unit := do
       match vars[0]? with
       | some var => require (var.name == "m") "scalar let mut statement plan-to-yul integration var name"
       | none => throw <| IO.userError "scalar let mut statement plan-to-yul integration missing var"
-      require (name == "sload") "scalar let mut statement plan-to-yul integration storage read"
-      require (args.size == 1) "scalar let mut statement plan-to-yul integration sload arg count"
+      require (name == "and") "scalar let mut statement plan-to-yul integration packed read (and)"
+      require (args.size == 2) "scalar let mut statement plan-to-yul integration packed read arg count"
   | _ => throw <| IO.userError "scalar let mut statement plan-to-yul integration must lower to var decl"
 
 def testScalarAssignmentPlanToYul : IO Unit := do
@@ -1801,7 +1802,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
       require (args.size == 2) "scalar compound assignment StmtPlan-to-Yul helper checked add arg count"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin name _ =>
-          require (name == "sload") "scalar compound assignment StmtPlan-to-Yul helper rhs opcode"
+          require (name == "and") "scalar compound assignment StmtPlan-to-Yul helper rhs packed read (and)"
       | _ => throw <| IO.userError "scalar compound assignment StmtPlan-to-Yul helper rhs must be sload"
   | _ => throw <| IO.userError "scalar compound assignment StmtPlan-to-Yul helper must assign helper result"
   let directArrayAssignStmts ← requireOk
@@ -2158,6 +2159,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
       (fun _ => .ok (Lean.Compiler.Yul.Expr.num 0))
+      (fun _ => .ok (0, 8))
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
         (.storageScalarWrite
           "count"
@@ -2168,10 +2170,19 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
       require (args.size == 2) "scalar storage write StmtPlan-to-Yul helper arg count"
       match args[1]! with
-      | Lean.Compiler.Yul.Expr.call name addArgs => do
-          require (name == "__pf_checked_add") "scalar storage write StmtPlan-to-Yul helper checked add"
-          require (addArgs.size == 2) "scalar storage write StmtPlan-to-Yul helper checked add arg count"
-      | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper value must be helper call"
+      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
+          require (orName == "or") "scalar storage write StmtPlan-to-Yul helper packed write (or)"
+          require (orArgs.size == 2) "scalar storage write StmtPlan-to-Yul helper or arg count"
+          match orArgs[1]! with
+          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
+              require (shlName == "shl") "scalar storage write StmtPlan-to-Yul helper packed shift (shl)"
+              match shlArgs[1]! with
+              | Lean.Compiler.Yul.Expr.call name addArgs => do
+                  require (name == "__pf_checked_add") "scalar storage write StmtPlan-to-Yul helper checked add"
+                  require (addArgs.size == 2) "scalar storage write StmtPlan-to-Yul helper checked add arg count"
+              | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper packed value must be helper call"
+          | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper must have shl in packed write"
+      | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper must lower to sstore"
   let directAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
@@ -2179,6 +2190,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
       (fun _ => .ok (Lean.Compiler.Yul.Expr.num 0))
+      (fun _ => .ok (0, 8))
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
         (.storageScalarAssignOp
           "count"
@@ -2190,14 +2202,23 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
       require (args.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper arg count"
       match args[1]! with
-      | Lean.Compiler.Yul.Expr.call name addArgs => do
-          require (name == "__pf_checked_add") "scalar storage assign_op StmtPlan-to-Yul helper checked add"
-          require (addArgs.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper checked add arg count"
-          match addArgs[0]! with
-          | Lean.Compiler.Yul.Expr.builtin readName _ =>
-              require (readName == "sload") "scalar storage assign_op StmtPlan-to-Yul helper lhs must be sload"
-          | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper lhs must be sload"
-      | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper value must be helper call"
+      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
+          require (orName == "or") "scalar storage assign_op StmtPlan-to-Yul helper packed write (or)"
+          require (orArgs.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper or arg count"
+          match orArgs[1]! with
+          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
+              require (shlName == "shl") "scalar storage assign_op StmtPlan-to-Yul helper packed shift (shl)"
+              match shlArgs[1]! with
+              | Lean.Compiler.Yul.Expr.call name addArgs => do
+                  require (name == "__pf_checked_add") "scalar storage assign_op StmtPlan-to-Yul helper checked add"
+                  require (addArgs.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper checked add arg count"
+                  match addArgs[0]! with
+                  | Lean.Compiler.Yul.Expr.builtin readName _ =>
+                      require (readName == "and") "scalar storage assign_op StmtPlan-to-Yul helper packed read (and)"
+                  | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper checked add lhs must be packed read"
+              | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper packed value must be helper call"
+          | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper must have shl in packed write"
+      | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper must lower to sstore"
   let writeStmt ← requireOk
     (lowerEffectStmt
@@ -2285,8 +2306,8 @@ def testMapWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "map write StmtPlan-to-Yul helper key must be checked add"
       match args[2]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "map write StmtPlan-to-Yul helper value storage read"
-          require (readArgs.size == 1) "map write StmtPlan-to-Yul helper value sload arg count"
+          require (readName == "and") "map write StmtPlan-to-Yul helper value packed read (and)"
+          require (readArgs.size == 2) "map write StmtPlan-to-Yul helper value packed read arg count"
       | _ => throw <| IO.userError "map write StmtPlan-to-Yul helper value must be storage read"
   | _ => throw <| IO.userError "map write StmtPlan-to-Yul helper must lower to helper call"
   let directInsertStmts ← requireOk
@@ -2387,8 +2408,8 @@ def testArrayWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "array write StmtPlan-to-Yul helper slot must use array helper"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "array write StmtPlan-to-Yul helper value storage read"
-          require (readArgs.size == 1) "array write StmtPlan-to-Yul helper value sload arg count"
+          require (readName == "and") "array write StmtPlan-to-Yul helper value packed read (and)"
+          require (readArgs.size == 2) "array write StmtPlan-to-Yul helper value packed read arg count"
       | _ => throw <| IO.userError "array write StmtPlan-to-Yul helper value must be storage read"
   | _ => throw <| IO.userError "array write StmtPlan-to-Yul helper must lower to sstore"
   let writeStmt ← requireOk
@@ -2512,8 +2533,8 @@ def testStructFieldWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "struct array field write StmtPlan-to-Yul helper slot must use struct-array helper"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin readName readArgs => do
-          require (readName == "sload") "struct array field write StmtPlan-to-Yul helper value storage read"
-          require (readArgs.size == 1) "struct array field write StmtPlan-to-Yul helper value sload arg count"
+          require (readName == "and") "struct array field write StmtPlan-to-Yul helper value packed read (and)"
+          require (readArgs.size == 2) "struct array field write StmtPlan-to-Yul helper value packed read arg count"
       | _ => throw <| IO.userError "struct array field write StmtPlan-to-Yul helper value must be storage read"
   | _ => throw <| IO.userError "struct array field write StmtPlan-to-Yul helper must lower to sstore"
   let fieldStmt ← requireOk
@@ -2772,7 +2793,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
-                          (readName == "sload" && readArgs.size == 1)
+                          (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
               | _ => pure ()
         | _ => pure ()
