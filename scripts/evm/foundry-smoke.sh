@@ -72,6 +72,16 @@ contract ProofForgeSmokeTest {
         require(deployed != address(0), "create failed");
     }
 
+    function expectedCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) internal pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
+    }
+
+    function callRuntime42(address target) internal returns (uint256) {
+        (bool ok, bytes memory result) = target.call("");
+        require(ok, "runtime call failed");
+        return abi.decode(result, (uint256));
+    }
+
     function assertCounterLifecycle(address counter) internal {
         (bool initOk,) = counter.call(abi.encodeWithSignature("initialize()"));
         assertTrue(initOk);
@@ -358,6 +368,28 @@ contract ProofForgeSmokeTest {
 
         (bool burnedOwnerOk,) = probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(1)));
         assertFalse(burnedOwnerOk);
+    }
+
+    function testCreate2FactoryProbeLifecycle() public {
+        address probe = address(0xC2E2);
+        deployRuntime(hex"$(cat "$OUT_DIR/Create2FactoryProbe.bin")", probe);
+        bytes memory initCode = hex"69602a60005260206000f3600052600a6016f3";
+        bytes32 initCodeHash = keccak256(initCode);
+        bytes32 salt = keccak256("proof-forge-create2-factory-salt");
+
+        (bool hashOk, bytes memory hashResult) =
+            probe.call(abi.encodeWithSignature("templateInitCodeHash()"));
+        assertTrue(hashOk);
+        assertTrue(abi.decode(hashResult, (bytes32)) == initCodeHash);
+
+        address expected = expectedCreate2Address(probe, salt, initCodeHash);
+
+        (bool deployOk, bytes memory deployResult) =
+            probe.call(abi.encodeWithSignature("deploy(bytes32)", salt));
+        assertTrue(deployOk);
+        address deployed = address(uint160(abi.decode(deployResult, (uint256))));
+        assertEq(uint256(uint160(deployed)), uint256(uint160(expected)));
+        assertEq(callRuntime42(deployed), 42);
     }
 }
 SOL

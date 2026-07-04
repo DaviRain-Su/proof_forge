@@ -280,4 +280,11 @@ def nativeTransfer (recipient amount : ProofForge.IR.Expr) : EntryM Unit :=
   ProofForge.Contract.Builder.letBind "_sent" .u64
     (.crosscallInvokeValueTyped recipient (u64 0) amount #[] .u64)
 
+def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
+  .literal (.hash4 a b c d)
+
+/-- Deterministic CREATE2 deployment of fixed init-code hex; returns the deployed address word. -/
+def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
+  .crosscallCreate2 callValue salt initCodeHex
+
 end ProofForge.Contract.Surface

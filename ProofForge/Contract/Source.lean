@@ -255,6 +255,14 @@ private def mkParamLet (name : TSyntax `ident) (type : TSyntax `term)
     `(let $name : ProofForge.Contract.Surface.BindingRef :=
         ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "bytes4"
       $body)
+  | `(.hash) =>
+    `(let $name : ProofForge.Contract.Surface.BindingRef :=
+        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+      $body)
+  | `(.bytes32) =>
+    `(let $name : ProofForge.Contract.Surface.BindingRef :=
+        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+      $body)
   | _ =>
     `(let $name : ProofForge.Contract.Surface.BindingRef :=
         ProofForge.Contract.Surface.binding $nameLit $type
@@ -348,6 +356,14 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt)) :
           | `(.bytes4) =>
             `(let $name : ProofForge.Contract.Surface.BindingRef :=
                 ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "bytes4"
+              ProofForge.Contract.Source.bindValue $name $value *> $acc)
+          | `(.hash) =>
+            `(let $name : ProofForge.Contract.Surface.BindingRef :=
+                ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+              ProofForge.Contract.Source.bindValue $name $value *> $acc)
+          | `(.bytes32) =>
+            `(let $name : ProofForge.Contract.Surface.BindingRef :=
+                ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
               ProofForge.Contract.Source.bindValue $name $value *> $acc)
           | _ =>
             `(let $name : ProofForge.Contract.Surface.BindingRef :=
@@ -719,6 +735,12 @@ def caller : ProofForge.IR.Expr :=
 
 def nativeValue : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.nativeValue
+
+def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.hash4 a b c d
+
+def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.create2Deploy callValue salt initCodeHex
 
 macro "array_get " arr:ident idx:term : term => `(ProofForge.Contract.Source.arrayGet $arr $idx)
 
