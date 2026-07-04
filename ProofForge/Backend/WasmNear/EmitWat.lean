@@ -734,6 +734,8 @@ def stringPool (mod : ProofForge.IR.Module) : Array StringInfo :=
     ep.body.foldl (init := acc) fun acc' s =>
       match s with
       | .effect (.eventEmit name fields) => acc' ++ #[name] ++ fields.map (fun (n, _) => n)
+      | .effect (.eventEmitIndexed name indexedFields dataFields) =>
+          acc' ++ #[name] ++ indexedFields.map (fun (n, _) => n) ++ dataFields.map (fun (n, _) => n)
       | _ => acc'
   let unique : Array String := raw.foldl (init := #[]) fun acc s => if acc.contains s then acc else acc.push s
   let result : Array StringInfo × Nat :=
@@ -1460,6 +1462,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
               | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
         | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
   | .effect (.eventEmit name fields) => lowerEventEmit ctx env name fields
+  | .effect (.eventEmitIndexed name indexedFields dataFields) =>
+      -- NEAR events are log_utf8 strings; indexed/data distinction is EVM-specific.
+      -- Flatten all fields into a single JSON event log (same as non-indexed).
+      lowerEventEmit ctx env name (indexedFields ++ dataFields)
   | .assert cond _ errorRef? => do
     let (is, t) ← lowerExpr ctx env cond
     if t != .bool then err "EmitWat: assert condition must be Bool"
