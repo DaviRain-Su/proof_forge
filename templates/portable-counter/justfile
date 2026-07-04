@@ -26,6 +26,20 @@ forge-script: build-evm
 
 forge-all: forge-test forge-script
 
+deploy-evm-anvil: build-evm
+    {{proof_forge}} deploy --target evm --root . \
+      --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
+      --evm-chain-profile anvil-local \
+      --start-anvil \
+      --output build/evm/Counter.proof-forge-deploy-run.json
+
+deploy-evm-plan: build-evm
+    {{proof_forge}} deploy --target evm --root . \
+      --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
+      --evm-chain-profile robinhood-chain-testnet \
+      --plan-only \
+      --output build/evm/Counter.proof-forge-deploy-plan.json
+
 build-solana: build-cli check-source
     mkdir -p build/solana
     {{proof_forge}} build --target solana-sbpf-asm --root . \

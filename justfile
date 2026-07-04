@@ -20,6 +20,10 @@ contract-spec-json:
 contract-client:
     lake env lean --run Tests/ContractClient.lean
 
+# Check the proof-forge deploy command parser and defaults.
+cli-deploy:
+    lake env lean --run Tests/CliDeploy.lean
+
 # Check that shared contract_source examples match their legacy Learn fixtures.
 shared-contract-source:
     lake env lean --run Tests/SharedContractSource.lean
@@ -275,7 +279,7 @@ testkit-list:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
+check: build target-registry contract-spec-json contract-client cli-deploy evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
@@ -413,6 +417,10 @@ evm-mixin-compose:
 # Deploy generated Counter initcode to a local Anvil chain and validate a deploy-run artifact.
 evm-anvil-deploy:
     scripts/evm/anvil-deploy-smoke.sh
+
+# Record a deploy-plan artifact for a documented EVM testnet chain profile.
+evm-deploy-plan:
+    scripts/evm/deploy-plan-smoke.sh
 
 # Run all CI-tracked EVM IR smokes.
 evm-ir-smokes:

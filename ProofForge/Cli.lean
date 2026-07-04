@@ -26,6 +26,7 @@ import ProofForge.Backend.Move.Aptos
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
+import ProofForge.Cli.Deploy
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -5382,6 +5383,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   | "init" :: rest =>
     match ProofForge.Cli.Scaffold.parseInitOptions rest with
     | Except.ok opts => ProofForge.Cli.Scaffold.initCommand opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1
+  | "deploy" :: rest =>
+    match ProofForge.Cli.Deploy.parseDeployOptions rest with
+    | Except.ok opts => ProofForge.Cli.Deploy.deployCommand opts
     | Except.error msg =>
         IO.eprintln msg
         return 1
