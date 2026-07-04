@@ -459,6 +459,7 @@ evm-ir-smokes:
       struct-array-value
       struct-value
       abi-aggregate
+      dynamic-abi
     )
     for fixture in "${fixtures[@]}"; do
       just evm-smoke "$fixture"

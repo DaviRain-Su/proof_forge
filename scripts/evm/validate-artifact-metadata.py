@@ -14,7 +14,7 @@ SUPPORTED_CONSTRUCTOR_TYPES = {"uint256", "uint64", "uint32", "bool", "bytes32",
 STATIC_CONSTRUCTOR_TYPES = {"uint256", "uint64", "uint32", "bool", "bytes32", "address"}
 DYNAMIC_CONSTRUCTOR_TYPES = {"string", "bytes", "uint256[]"}
 SUPPORTED_CONSTRUCTOR_ARG_SOURCES = {"--evm-constructor-args-hex", "--evm-constructor-arg"}
-SUPPORTED_ENTRYPOINT_WORD_TYPES = {"uint256", "uint32", "bool", "bytes32"}
+SUPPORTED_ENTRYPOINT_WORD_TYPES = {"uint256", "uint32", "bool", "bytes32", "address", "bytes", "string"}
 SELECTOR_RE = re.compile(r"^[0-9a-fA-F]{8}$")
 TOPIC_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
 SIGNATURE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\((.*)\)$")
@@ -408,12 +408,14 @@ def validate_entrypoint_abi_value(value: dict, prefix: str, allow_none: bool) ->
         expect(type_name == "Unit", f"{prefix}.type must be Unit when encoding is none")
         expect(abi_type == "void", f"{prefix}.abiType must be void when encoding is none")
         expect(word_count == 0, f"{prefix}.wordCount must be 0 when encoding is none")
+    elif encoding == "abi-dynamic-bytes":
+        expect(abi_type in ("bytes", "string"), f"{prefix}.abiType must be bytes or string for dynamic-bytes encoding")
+        expect(word_count == 1, f"{prefix}.wordCount must be 1 for dynamic-bytes encoding (offset word)")
     else:
         expect(encoding == "abi-static-words", f"{prefix}.encoding mismatch")
         expect(abi_type != "void", f"{prefix}.abiType must not be void for static ABI words")
         expect(word_count > 0, f"{prefix}.wordCount must be positive for static ABI words")
     return word_count
-
 
 def validate_entrypoints(
     abi: dict,

@@ -49,6 +49,7 @@ import ProofForge.IR.Examples.ErrorRefProbe
 import ProofForge.IR.Examples.PureMath
 import ProofForge.IR.Examples.EventProbe
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
+import ProofForge.IR.Examples.EvmDynamicAbiProbe
 import ProofForge.IR.Examples.EvmArrayValueProbe
 import ProofForge.IR.Examples.EvmAssignOpProbe
 import ProofForge.IR.Examples.EvmCrosscallProbe
@@ -171,6 +172,8 @@ inductive EmitMode where
   | evmStructValueIrBytecode
   | evmAbiAggregateIrYul
   | evmAbiAggregateIrBytecode
+  | evmDynamicAbiIrYul
+  | evmDynamicAbiIrBytecode
   | counterIrPsy
   | eventIrPsy
   | crosscallIrPsy
@@ -267,6 +270,7 @@ def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
   | .evmStructArrayValueIrBytecode
   | .evmStructValueIrBytecode
   | .evmAbiAggregateIrBytecode => true
+  | .evmDynamicAbiIrBytecode => true
   | _ => false
 
 def EmitMode.hasBuiltInFixture : EmitMode → Bool
@@ -318,6 +322,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .evmStructValueIrBytecode
   | .evmAbiAggregateIrYul
   | .evmAbiAggregateIrBytecode
+  | .evmDynamicAbiIrYul
+  | .evmDynamicAbiIrBytecode
   | .counterIrPsy
   | .eventIrPsy
   | .crosscallIrPsy
@@ -505,6 +511,8 @@ def usage : String :=
     "  proof-forge --emit-evm-struct-value-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-abi-aggregate-ir-yul [-o output.yul]",
     "  proof-forge --emit-evm-abi-aggregate-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
+    "  proof-forge --emit-evm-dynamic-abi-ir-yul [-o output.yul]",
+    "  proof-forge --emit-evm-dynamic-abi-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-counter-ir-psy [-o output.psy]",
     "  proof-forge --emit-event-ir-psy [-o output.psy]",
     "  proof-forge --emit-crosscall-ir-psy [-o output.psy]",
@@ -2346,6 +2354,10 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .evmAbiAggregateIrYul }
   | "--emit-evm-abi-aggregate-ir-bytecode" :: rest, opts =>
       parseArgs rest { opts with mode := .evmAbiAggregateIrBytecode }
+  | "--emit-evm-dynamic-abi-ir-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmDynamicAbiIrYul }
+  | "--emit-evm-dynamic-abi-ir-bytecode" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmDynamicAbiIrBytecode }
   | "--emit-counter-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrPsy }
   | "--emit-event-ir-psy" :: rest, opts =>
@@ -3908,6 +3920,32 @@ def compileEvmAbiAggregateIrBytecode (opts : CliOptions) : IO UInt32 := do
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
+def compileEvmDynamicAbiIrYul (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmDynamicAbiProbe.yul")
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
+  | .ok yul =>
+      writeTextFile output yul
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
+def renderEvmDynamicAbiIrYul : IO String := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
+  | .ok yul => return yul
+  | .error err => throw <| IO.userError err.render
+
+def compileEvmDynamicAbiIrBytecode (opts : CliOptions) : IO UInt32 := do
+  let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmDynamicAbiProbe.yul")
+  let yul ← renderEvmDynamicAbiIrYul
+  writeTextFile yulOutput yul
+  let bytecode ← solcBytecode opts.solc yulOutput
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmDynamicAbiProbe.bin")
+  writeTextFile output (bytecode ++ "\n")
+  writeEvmIrArtifactMetadata opts "EvmDynamicAbiProbe" "ProofForge.IR.Examples.EvmDynamicAbiProbe" ProofForge.IR.Examples.EvmDynamicAbiProbe.module yulOutput output
+  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  return 0
+
 def compileCounterIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/Counter.psy")
   match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.Counter.module with
@@ -5306,6 +5344,8 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .evmStructValueIrBytecode => compileEvmStructValueIrBytecode opts
   | .evmAbiAggregateIrYul => compileEvmAbiAggregateIrYul opts
   | .evmAbiAggregateIrBytecode => compileEvmAbiAggregateIrBytecode opts
+  | .evmDynamicAbiIrYul => compileEvmDynamicAbiIrYul opts
+  | .evmDynamicAbiIrBytecode => compileEvmDynamicAbiIrBytecode opts
   | .counterIrPsy => compileCounterIrPsy opts
   | .eventIrPsy => compileEventIrPsy opts
   | .crosscallIrPsy => compileCrosscallIrPsy opts

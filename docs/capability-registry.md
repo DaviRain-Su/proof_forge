@@ -50,6 +50,7 @@ remain uniform.
 | `control.conditional` | Statement-level conditional branches with target-supported boolean predicates | P | N | N | Y | N | N | P | Y |
 | `control.bounded_loop` | Static bounded loops that can be flattened or unrolled by the target | N | N | N | P | N | N | P | Y |
 | `data.fixed_array` | Fixed-size array value type, literals, and index expressions | P | N | N | Y | N | N | P | Y |
+| `data.dynamic_bytes` | Dynamic-length bytes/string value type with head-tail ABI encoding | Y | N | N | Y | N | N | N | N |
 | `data.struct` | Struct value type, literals, and field access | P | N | N | Y | N | N | P | Y |
 | `crypto.hash` | Host or library hashing | Y | Y | Y | Y | Y | Y | Y | Y |
 | `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | N | P | Y |

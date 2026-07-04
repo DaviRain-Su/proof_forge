@@ -214,6 +214,7 @@ Mapped to [capability-registry](../capability-registry.md) ids:
 | `control.conditional` | Portable IR `if/else` lowers to Yul `switch` blocks |
 | `control.bounded_loop` | Portable IR `boundedFor` lowers to Yul `for` loops with static bounds |
 | `crypto.hash` | Portable IR `Hash` values lower to one-word EVM `bytes32`; `hash` / `hash_two_to_one` lower to Yul `keccak256` helpers |
+| `data.dynamic_bytes` | Partial: portable IR `bytes` and `string` value types lower as dynamic ABI types with head-tail encoding for entrypoint parameters and returns; `address` is a static single-word type (like `Hash`); `EvmDynamicAbiProbe` validates ABI round-trip for `echo_bytes(bytes)`, `echo_string(string)`, and `transfer(address,uint256)` |
 | `account.explicit` | Partial: portable IR `contractId` context reads lower to Yul `address()` |
 
 ### Arithmetic semantics
@@ -297,7 +298,14 @@ See [Examples/Evm/README.md](../../Examples/Evm/README.md):
   `crosscallCreate` and `crosscallCreate2`, static bounded loops, and
   branch/loop-local early returns through Yul `leave`. It rejects wider
   portable IR nodes with explicit diagnostics.
-- Portable IR EVM currently lacks dynamic ABI values, nested local arrays with
+- Portable IR EVM `address`, `bytes`, and `string` types are now supported for
+  ABI parameters and returns with head-tail encoding. `address` is a static
+  single-word type (like `Hash`); `bytes` and `string` are dynamic types requiring
+  head-tail ABI encoding. `EvmDynamicAbiProbe` validates round-trip ABI encoding
+  for `echo_bytes(bytes)`, `echo_string(string)`, and `transfer(address,uint256)`
+  through Foundry tests including empty, short, multi-word, and special-character
+  data, plus malformed calldata and unknown-selector reverts.
+- Portable IR EVM still lacks nested local arrays with
   unsupported aggregate or non-flat leaves, nested crosscall fixed
   arrays with non-flat struct or unsupported leaves,
   non-word or aggregate map shapes, nested
@@ -334,6 +342,7 @@ scripts/evm/array-value-ir-smoke.sh
 scripts/evm/struct-value-ir-smoke.sh
 scripts/evm/abi-aggregate-ir-smoke.sh
 scripts/evm/ir-counter-smoke.sh
+scripts/evm/dynamic-abi-ir-smoke.sh
 ```
 
 `Tests/EvmCoverage.tsv` records every portable IR constructor as `lowered`,
@@ -661,6 +670,23 @@ fields, mutable field writes, whole-local assignment, golden Yul
 reproducibility, `solc --strict-assembly`, artifact metadata capability
 `data.struct`, Foundry runtime calls, and unknown-selector revert behavior.
 Nested struct fields remain explicit diagnostics.
+
+`EvmDynamicAbiProbe` validates portable IR dynamic ABI types `address`, `bytes`,
+and `string` for entrypoint parameters and returns. `address` is a static
+single-word type (like `Hash`) that participates in ABI parameters with standard
+Solidity `address` encoding. `bytes` and `string` are dynamic types requiring
+head-tail ABI encoding: the dispatcher decodes calldata by reading the offset
+from the head, loading the length from the tail, allocating memory via the free
+memory pointer, and copying data from calldata to memory. Dynamic returns encode
+as head-tail: the head stores the offset (32), the tail stores the length followed
+by data words. The probe has three entrypoints: `echo_bytes(bytes)` returns the
+input bytes unchanged, `echo_string(string)` returns the input string unchanged,
+and `transfer(address,uint256)` returns `true` to validate address ABI round-trip.
+The smoke checks golden Yul reproducibility, `solc --strict-assembly` bytecode
+generation, metadata capability `data.dynamic_bytes`, structured `abi.entrypoints`
+with `abi-dynamic-bytes` encoding for bytes/string params and returns, Foundry
+round-trip tests for empty, short, multi-word, and padded data, malformed
+calldata reverts, and unknown-selector reverts.
 
 ## Metadata
 
