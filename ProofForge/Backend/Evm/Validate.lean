@@ -534,8 +534,10 @@ def ensureType (context : String) (expected actual : ValueType) : Except LowerEr
 
 def ensureNumericType (context : String) (lhs rhs : ValueType) : Except LowerError ValueType :=
   match lhs, rhs with
+  | .u8, .u8 => .ok .u8
   | .u32, .u32 => .ok .u32
   | .u64, .u64 => .ok .u64
+  | .u128, .u128 => .ok .u128
   | _, _ => .error { message := s!"{context} expects matching numeric operands, got `{lhs.name}` and `{rhs.name}`" }
 
 def ensureArrayIndexType (context : String) (type : ValueType) : Except LowerError Unit :=
@@ -1547,8 +1549,10 @@ def validateStorageStructState (context typeName : String) (module : Module) : E
 def validateState (module : Module) : Except LowerError Unit := do
   for state in module.state do
     match state.kind, state.type with
+    | .scalar, .u8 => pure ()
     | .scalar, .u32 => pure ()
     | .scalar, .u64 => pure ()
+    | .scalar, .u128 => pure ()
     | .scalar, .bool => pure ()
     | .scalar, .hash => pure ()
     | .scalar, .address => pure ()
@@ -1565,8 +1569,10 @@ def validateState (module : Module) : Except LowerError Unit := do
           }
     | .array 0, _ =>
         .error { message := s!"array state `{state.id}` must have non-zero length" }
+    | .array _, .u8 => pure ()
     | .array _, .u32 => pure ()
     | .array _, .u64 => pure ()
+    | .array _, .u128 => pure ()
     | .array _, .bool => pure ()
     | .array _, .hash => pure ()
     | .array _, .address => pure ()

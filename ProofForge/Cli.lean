@@ -50,6 +50,7 @@ import ProofForge.IR.Examples.PureMath
 import ProofForge.IR.Examples.EventProbe
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmDynamicAbiProbe
+import ProofForge.IR.Examples.EvmPackedStorageProbe
 import ProofForge.IR.Examples.EvmArrayValueProbe
 import ProofForge.IR.Examples.EvmAssignOpProbe
 import ProofForge.IR.Examples.EvmCrosscallProbe
@@ -174,6 +175,8 @@ inductive EmitMode where
   | evmAbiAggregateIrBytecode
   | evmDynamicAbiIrYul
   | evmDynamicAbiIrBytecode
+  | evmPackedStorageIrYul
+  | evmPackedStorageIrBytecode
   | counterIrPsy
   | eventIrPsy
   | crosscallIrPsy
@@ -271,6 +274,7 @@ def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
   | .evmStructValueIrBytecode
   | .evmAbiAggregateIrBytecode => true
   | .evmDynamicAbiIrBytecode => true
+  | .evmPackedStorageIrBytecode => true
   | _ => false
 
 def EmitMode.hasBuiltInFixture : EmitMode → Bool
@@ -324,6 +328,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .evmAbiAggregateIrBytecode
   | .evmDynamicAbiIrYul
   | .evmDynamicAbiIrBytecode
+  | .evmPackedStorageIrYul
+  | .evmPackedStorageIrBytecode
   | .counterIrPsy
   | .eventIrPsy
   | .crosscallIrPsy
@@ -513,6 +519,8 @@ def usage : String :=
     "  proof-forge --emit-evm-abi-aggregate-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-dynamic-abi-ir-yul [-o output.yul]",
     "  proof-forge --emit-evm-dynamic-abi-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
+    "  proof-forge --emit-evm-packed-storage-ir-yul [-o output.yul]",
+    "  proof-forge --emit-evm-packed-storage-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-counter-ir-psy [-o output.psy]",
     "  proof-forge --emit-event-ir-psy [-o output.psy]",
     "  proof-forge --emit-crosscall-ir-psy [-o output.psy]",
@@ -1011,19 +1019,66 @@ def selectorFor (cast : String) (sig : String) : IO String := do
     throw <| IO.userError s!"cast returned invalid selector for {sig}: {trimAsciiString stdout}"
   return selector
 
+def solcVersion? (solc : String) : IO (Option String) := do
+  try
+    let stdout ← runProcess solc #["--version"]
+    for line in stdout.splitOn "\n" do
+      let line := trimAsciiString line
+      if line.startsWith "Version: " then
+        return some (line.splitOn "Version: ")[1]!
+    return none
+  catch _ =>
+    return none
+
+/-- Parse `solc --version` output (e.g. "0.8.34+commit.80d5c536.Darwin.appleclang") into (major, minor, patch). -/
+def parseSolcVersion (versionStr : String) : Option (Nat × Nat × Nat) :=
+  match versionStr.splitOn "+" with
+  | head :: _ =>
+    match head.splitOn "." with
+    | [maj, min, pat] =>
+      match (maj.toNat?, min.toNat?, pat.toNat?) with
+      | (some m, some n, some p) => some (m, n, p)
+      | _ => none
+    | _ => none
+  | _ => none
+
+/-- Construct the CBOR metadata tail appended to EVM bytecode.
+    Format: `a1` (map 1) `64 73 6f 6c 63` (text "solc") `43 <major> <minor> <patch>` (bytes 3)
+    followed by a 2-byte big-endian length of the CBOR portion. -/
+def metadataCborTail (major minor patch : Nat) : String :=
+  let cborLen := 10
+  let hexByte (n : Nat) : String :=
+    let h := Nat.toDigits 16 n
+    match h with
+    | [d] => "0" ++ d.toString
+    | [d1, d2] => d1.toString ++ d2.toString
+    | _ => "00"
+  "a1" ++ "64736f6c63" ++ "43"
+    ++ hexByte major ++ hexByte minor ++ hexByte patch
+    ++ hexByte (cborLen / 256) ++ hexByte (cborLen % 256)
+
+/-- Append solc CBOR metadata tail to bytecode hex string. -/
+def appendSolcMetadata (solc : String) (bytecode : String) : IO String := do
+  match (← solcVersion? solc) with
+  | some versionStr =>
+    match parseSolcVersion versionStr with
+    | some (maj, min, pat) =>
+      return bytecode ++ metadataCborTail maj min pat
+    | none =>
+      return bytecode
+  | none =>
+    return bytecode
+
 def solcBytecode (solc : String) (yulFile : FilePath) : IO String := do
   let stdout ← runProcess solc #["--strict-assembly", yulFile.toString, "--bin"]
+  let mut bytecode := ""
   for line in stdout.splitOn "\n" do
     let line := trimAsciiString line
     if isHexString line then
-      return line
-  throw <| IO.userError s!"solc did not emit bytecode for {yulFile}"
-
-def solcVersion? (solc : String) : IO (Option String) := do
-  try
-    return some (trimAsciiString (← runProcess solc #["--version"]))
-  catch _ =>
-    return none
+      bytecode := line
+  if bytecode.isEmpty then
+    throw <| IO.userError s!"solc did not emit bytecode for {yulFile}"
+  appendSolcMetadata solc bytecode
 
 def fileDigestAndBytes (path : FilePath) : IO (String × Nat) := do
   let script := "import hashlib, pathlib, sys; data = pathlib.Path(sys.argv[1]).read_bytes(); print(hashlib.sha256(data).hexdigest(), len(data))"
@@ -1073,6 +1128,25 @@ def jsonStringOption : Option String → String
 def jsonNatOption : Option Nat → String
   | some value => toString value
   | none => "null"
+
+def storageLayoutJson (module : ProofForge.IR.Module) : String :=
+  let layout := ProofForge.Backend.Evm.Plan.storageLayout module
+  let stateJson (s : ProofForge.Backend.Evm.Plan.StorageStatePlan) : String :=
+    jsonObject #[
+      ("id", jsonString s.id),
+      ("slot", toString s.slot),
+      ("span", toString s.span),
+      ("kind", jsonString (match s.kind with
+        | .scalar => "scalar"
+        | .map _ _ => "map"
+        | .array _ => "array")),
+      ("type", jsonString s.type.name),
+      ("byteOffset", toString s.byteOffset),
+      ("byteWidth", toString s.byteWidth)
+    ]
+  jsonObject #[
+    ("states", jsonArray (layout.states.map stateJson))
+  ]
 
 def defaultArtifactOutput (bytecodeOutput : FilePath) : FilePath :=
   let fileName := FilePath.mk "proof-forge-artifact.json"
@@ -2022,7 +2096,8 @@ def writeEvmArtifactMetadata
     (methods : Array String)
     (source? : Option FilePath)
     (yulOutput bytecodeOutput : FilePath)
-    (extraArtifacts : Array (String × String) := #[]) : IO Unit := do
+    (extraArtifacts : Array (String × String) := #[])
+    (storageLayout? : Option String := none) : IO Unit := do
   let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput bytecodeOutput)
   let deployOutput := defaultDeployManifestOutput metadataOutput
   let chainProfile? ← resolveEvmChainProfile? opts.evmChainProfile?
@@ -2062,6 +2137,13 @@ def writeEvmArtifactMetadata
     match (← solcVersion? opts.solc) with
     | some version => jsonString version
     | none => "null"
+  -- EIP-170 contract code size limit: 24,576 bytes
+  let contractSizeLimit := 24576
+  let bytecodeContent ← IO.FS.readFile bytecodeOutput
+  let bytecodeBytes := (trimAsciiString bytecodeContent).length / 2
+  let contractSizeStatus :=
+    if bytecodeBytes > contractSizeLimit then "exceeded"
+    else "passed"
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString "evm"),
@@ -2089,8 +2171,16 @@ def writeEvmArtifactMetadata
       ("solcStrictAssembly", jsonString "passed"),
       ("bytecodeGeneration", jsonString "passed"),
       ("initCodeGeneration", jsonString "passed"),
-      ("deployManifest", jsonString "passed")
-    ])
+      ("deployManifest", jsonString "passed"),
+      ("contractSizeCheck", jsonObject #[
+        ("status", jsonString contractSizeStatus),
+        ("bytecodeBytes", toString bytecodeBytes),
+        ("limit", toString contractSizeLimit)
+      ])
+    ]),
+    ("storageLayout", match storageLayout? with
+      | some json => json
+      | none => "null")
   ]
   if let some parent := metadataOutput.parent then
     IO.FS.createDirAll parent
@@ -2120,6 +2210,7 @@ def writeEvmModuleArtifactMetadata
     yulOutput
     bytecodeOutput
     extraArtifacts
+    (some (storageLayoutJson module))
 
 def writeEvmContractSdkClientArtifacts
     (spec : ProofForge.Contract.ContractSpec)
@@ -2362,6 +2453,10 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .evmDynamicAbiIrYul }
   | "--emit-evm-dynamic-abi-ir-bytecode" :: rest, opts =>
       parseArgs rest { opts with mode := .evmDynamicAbiIrBytecode }
+  | "--emit-evm-packed-storage-ir-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmPackedStorageIrYul }
+  | "--emit-evm-packed-storage-ir-bytecode" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmPackedStorageIrBytecode }
   | "--emit-counter-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrPsy }
   | "--emit-event-ir-psy" :: rest, opts =>
@@ -3950,6 +4045,32 @@ def compileEvmDynamicAbiIrBytecode (opts : CliOptions) : IO UInt32 := do
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
+def compileEvmPackedStorageIrYul (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmPackedStorageProbe.yul")
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmPackedStorageProbe.module with
+  | .ok yul =>
+      writeTextFile output yul
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
+def renderEvmPackedStorageIrYul : IO String := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmPackedStorageProbe.module with
+  | .ok yul => return yul
+  | .error err => throw <| IO.userError err.render
+
+def compileEvmPackedStorageIrBytecode (opts : CliOptions) : IO UInt32 := do
+  let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmPackedStorageProbe.yul")
+  let yul ← renderEvmPackedStorageIrYul
+  writeTextFile yulOutput yul
+  let bytecode ← solcBytecode opts.solc yulOutput
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmPackedStorageProbe.bin")
+  writeTextFile output (bytecode ++ "\n")
+  writeEvmIrArtifactMetadata opts "EvmPackedStorageProbe" "ProofForge.IR.Examples.EvmPackedStorageProbe" ProofForge.IR.Examples.EvmPackedStorageProbe.module yulOutput output
+  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  return 0
+
 def compileCounterIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/Counter.psy")
   match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.Counter.module with
@@ -5350,6 +5471,8 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .evmAbiAggregateIrBytecode => compileEvmAbiAggregateIrBytecode opts
   | .evmDynamicAbiIrYul => compileEvmDynamicAbiIrYul opts
   | .evmDynamicAbiIrBytecode => compileEvmDynamicAbiIrBytecode opts
+  | .evmPackedStorageIrYul => compileEvmPackedStorageIrYul opts
+  | .evmPackedStorageIrBytecode => compileEvmPackedStorageIrBytecode opts
   | .counterIrPsy => compileCounterIrPsy opts
   | .eventIrPsy => compileEventIrPsy opts
   | .crosscallIrPsy => compileCrosscallIrPsy opts

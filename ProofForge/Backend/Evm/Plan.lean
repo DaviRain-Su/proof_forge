@@ -70,10 +70,22 @@ where
           byteOffset := usedBytes
           byteWidth := w
         })
-      else
-        -- Start a new slot
+      else if canPack then
+        -- Packed scalar that doesn't fit current slot: start a new slot, span 0
         let nextSlot := if usedBytes > 0 then slot + 1 else slot
-        go (idx + 1) (nextSlot + span) (if span > 0 then 0 else w) states (acc.push {
+        go (idx + 1) nextSlot w states (acc.push {
+          id := state.id
+          slot := nextSlot
+          span := 0
+          kind := state.kind
+          type := state.type
+          byteOffset := 0
+          byteWidth := w
+        })
+      else
+        -- Non-packable state: start a new slot with its span
+        let nextSlot := if usedBytes > 0 then slot + 1 else slot
+        go (idx + 1) (nextSlot + span) 0 states (acc.push {
           id := state.id
           slot := nextSlot
           span

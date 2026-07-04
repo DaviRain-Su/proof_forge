@@ -308,7 +308,7 @@ The roadmap is split into **six phases**, each 2–10 engineering days, sequence
 
 ---
 
-### Phase 3: Storage packing, small types, and metadata hash (7–10 days)
+### Phase 3: Storage packing, small types, and metadata hash (7–10 days) ✅
 
 **Goals**
 

@@ -80,6 +80,7 @@ def capabilityDescriptor (cap : Capability) : String :=
 def capabilityDescriptors (plan : ModulePlan) : Array String :=
   plan.capabilities.map capabilityDescriptor
 
+
 /-! ## Artifact metadata summary -/
 
 structure ArtifactMetadata where
