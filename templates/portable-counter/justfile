@@ -18,6 +18,14 @@ build-evm: build-cli check-source
       --artifact-output build/evm/Counter.proof-forge-artifact.json \
       {{source}}
 
+forge-test: build-evm
+    (cd foundry && forge test -vv)
+
+forge-script: build-evm
+    (cd foundry && forge script script/DeployCounter.s.sol:DeployCounter -vv)
+
+forge-all: forge-test forge-script
+
 build-solana: build-cli check-source
     mkdir -p build/solana
     {{proof_forge}} build --target solana-sbpf-asm --root . \

@@ -40,5 +40,6 @@ echo "init-smoke: Solana"
 
 test -f "$OUT/build/evm/Counter.bin"
 test -f "$OUT/build/solana/Counter.s"
+test -d "$OUT/foundry/test"
 
 echo "init-smoke: ok"

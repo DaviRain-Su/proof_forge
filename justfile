@@ -127,6 +127,10 @@ portable-counter-multi-target:
 portable-init-smoke:
     scripts/portable/init-smoke.sh
 
+# Validate init + Foundry workspace (forge test/script on stable build/evm paths).
+portable-foundry-workspace:
+    scripts/portable/foundry-workspace-smoke.sh
+
 # Run a live Solana Token-2022 transfer-fee plan smoke on Surfpool with Web3.js.
 solana-token-2022-transfer-fee-web3:
     scripts/solana/token-2022-transfer-fee-web3-smoke.sh

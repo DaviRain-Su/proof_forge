@@ -64,6 +64,9 @@ just build-evm
 just build-solana
 just build-near
 just build-all
+just forge-test
+just forge-script
+just forge-all
 ```
 
 Or invoke the CLI directly:
@@ -182,6 +185,11 @@ def copyTemplateTextFile (templateDir targetDir fileName packageName gitUrl : St
   let contents ← readTextFile sourcePath
   writeTextFile (joinPath targetDir fileName) (renderTemplateFile contents packageName gitUrl)
 
+def copyTemplateDirectory (src dest : String) : IO Unit := do
+  let r ← IO.Process.output { cmd := "cp", args := #["-a", src, dest] }
+  if r.exitCode != 0 then
+    throw <| IO.userError s!"failed to copy template directory {src} -> {dest}: {r.stderr}"
+
 def initCommand (opts : ScaffoldOptions) : IO UInt32 := do
   let root ← findProofForgeRoot
   let root ← match root with
@@ -206,11 +214,15 @@ def initCommand (opts : ScaffoldOptions) : IO UInt32 := do
   writeTextFile (joinPath targetDir "README.md") (renderReadme packageName)
   for fileName in ["lakefile.lean", "justfile", ".gitignore"] do
     copyTemplateTextFile templateDir targetDir fileName packageName gitUrl
+  let foundryTemplate := joinPath templateDir "foundry"
+  if ← pathExists foundryTemplate then
+    copyTemplateDirectory foundryTemplate (joinPath targetDir "foundry")
   IO.println s!"init: wrote portable Counter starter to {targetDir}"
   IO.println "next steps:"
   IO.println s!"  cd {targetDir}"
   IO.println "  lake update"
   IO.println "  just build-evm"
+  IO.println "  just forge-test"
   IO.println "  just build-solana"
   return 0
 
