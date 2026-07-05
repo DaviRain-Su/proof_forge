@@ -1015,11 +1015,11 @@ mutual
           | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
     | .crosscallInvokeTyped _ _ _ _ | .crosscallInvoke _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
-    | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ =>
-      -- Cross-contract call via NEAR Promise API.
-      -- Call promise_create with current_account_id as placeholder target.
-      -- Returns promise index. Full cross-contract call with real account-id
-      -- string passing is future work (P1).
+    | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _
+    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
+      -- Cross-contract call / contract creation via NEAR Promise API.
+      -- For create/create2: NEAR has no CREATE opcode equivalent; log and
+      -- return 0 as a promise index placeholder.
       .ok (#[
         .i32Const 4, .i32Const EVT_KEY_PTR, .call "log_utf8",
         .i64Const 0, .call "current_account_id",
