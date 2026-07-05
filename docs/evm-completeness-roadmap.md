@@ -349,7 +349,7 @@ The roadmap is split into **six phases**, each 2–10 engineering days, sequence
 
 ---
 
-### Phase 4: Dynamic arrays, memory, and calldata slices (8–10 days)
+### Phase 4: Dynamic arrays, memory, and calldata slices (8–10 days) ✅
 
 **Goals**
 
@@ -440,8 +440,8 @@ The roadmap is split into **six phases**, each 2–10 engineering days, sequence
 3. Integrate Blockscout / Etherscan verification API:
    - Submit Yul source + metadata + constructor args.
    - Poll verification status.
-4. Add `--evm-gas-limit`, `--evm-gas-price`, `--evm-max-fee-per-gas`, `--evm-max-priority-fee-per-gas` flags.
-5. Add a live `scripts/evm/broadcast-smoke.sh` that deploys Counter to a local Anvil with a funded key and verifies the manifest.
+4. ✅ Add `--gas-limit`, `--gas-price`, `--max-fee-per-gas`, `--max-priority-fee-per-gas` flags (mapped to `cast send` flags; `--gas-price` and `--max-fee-per-gas` are mutually exclusive).
+5. ✅ Add a live `scripts/evm/broadcast-smoke.sh` that deploys Counter to a local Anvil with explicit gas flags and verifies the deploy-run manifest.
 
 **Success criteria / new or modified CI gates**
 
