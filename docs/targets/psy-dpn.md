@@ -1401,10 +1401,43 @@ EVM `Lower.lean` → `Plan.lean` split.
 
 ### Phase C: Metadata and Scenario Parity
 
-- Compare the Psy Counter behavior with the EVM shared Counter scenario.
-- Decide whether `psy-wasm` adds useful in-memory coverage beyond
-  `dargo execute`.
-- Add a target-specific Counter acceptance note.
+- Done: compare the Psy Counter behavior with the EVM shared Counter scenario.
+  The same portable `Counter` IR (`ProofForge.IR.Examples.Counter`) lowers to
+  both targets with identical lifecycle semantics:
+
+  | Aspect | EVM (`evm`) | Psy (`psy-dpn`) |
+  |---|---|---|
+  | State | single storage slot at keccak-derived key | `#[derive(Storage)] pub struct Counter { pub count: Felt }` field |
+  | `initialize` | writes `0` to slot | `c.count = 0` |
+  | `increment` | reads slot, adds 1, writes back | `let n: Felt = c.count.get(); c.count = n + 1` |
+  | `get` | returns slot value | `return c.count.get()` |
+  | Smoke result | Foundry `vm.etch` in-memory execution | `dargo execute` in-memory session |
+  | Expected final count | `2` (after `initialize`, `increment`, `increment`, `get`) | `result_vm: [2]` (same sequence) |
+  | Artifact metadata | `target: evm`, `storage.scalar` capability, 4-byte selectors | `target: psy-dpn`, `planCapabilities` includes `storage.scalar`, entrypoint names (no selectors) |
+
+  The lifecycle is behaviorally equivalent: both targets prove the counter
+  reaches `2` after the same method sequence. The only divergence is the
+  storage mechanics (EVM 32-byte word vs Psy Felt-backed field) and ABI
+  addressing (EVM selectors vs Psy method names).
+- Done: decide whether `psy-wasm` adds useful in-memory coverage beyond
+  `dargo execute`. Decision: **not for v0**. `dargo execute` already provides
+  a complete in-memory execution session with a registered user, deployed
+  contract, and method-sequence circuit generation. `psy-wasm` (a browser/Node
+  wrapper around the compiler and VM demo) would add browser-based interactive
+  testing, but ProofForge's CI gate is headless and artifact-focused; a browser
+  wrapper adds no coverage that `dargo execute` + `dargo compile` +
+  `dargo generate-abi` do not already provide. Revisit if ProofForge adds a
+  browser-facing playground target.
+- Done: add a target-specific Counter acceptance note. The Psy Counter
+  acceptance is: the portable `Counter` IR lowers to `build/psy/Counter.psy`,
+  matches `Examples/Psy/Counter.golden.psy` byte-for-byte, passes
+  `dargo test --file`, compiles via `dargo compile` to non-empty DPN circuit
+  JSON, executes `initialize → increment → increment → get` via
+  `dargo execute` returning `result_vm: [2]`, emits a non-empty ABI via
+  `dargo generate-abi`, writes `proof-forge-deploy.json`, and records all
+  artifacts in `proof-forge-artifact.json` with plan-driven metadata
+  (`moduleName: Counter`, `abi.entrypoints`, `capabilities` including
+  `storage.scalar`). `just psy-smoke counter` runs the full gate.
 
 ### Phase D: Deployment Research
 
