@@ -1,0 +1,121 @@
+/-
+Copyright (c) 2026 DaviRain. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+
+Psy plan-driven metadata — the `psy-dpn` counterpart of
+`ProofForge.Backend.Evm.Metadata`.
+
+Consumes `ProofForge.Backend.Psy.Plan.PsyModulePlan` rather than re-discovering
+facts from rendered `.psy` source. Produces the inputs needed by
+`proof-forge-artifact.json` and deploy manifests: the entrypoint surface, event
+surface, context ops, crosscall targets, and capability lists. Psy entrypoints
+are addressed by method name (no selector), so the ABI surface is simpler than
+EVM's.
+-/
+
+import Init.Data.Array.Basic
+import Init.Data.String.Basic
+import ProofForge.Backend.Psy.Plan
+import ProofForge.IR.Contract
+
+namespace ProofForge.Backend.Psy.Metadata
+
+open ProofForge.IR
+open ProofForge.Backend.Psy.Plan
+
+/-! ## ABI entrypoint metadata -/
+
+structure AbiParamDescriptor where
+  name : String
+  type : String
+  deriving Repr, Inhabited
+
+structure AbiEntrypointDescriptor where
+  name : String
+  params : Array AbiParamDescriptor
+  returnType : String
+  deriving Repr, Inhabited
+
+def abiParamDescriptor (param : String × ValueType) : AbiParamDescriptor :=
+  { name := param.fst, type := param.snd.name }
+
+def abiEntrypointDescriptor (entrypoint : Entrypoint) : AbiEntrypointDescriptor :=
+  {
+    name := entrypoint.name
+    params := entrypoint.params.map abiParamDescriptor
+    returnType := entrypoint.returns.name
+  }
+
+def abiEntrypointDescriptors (module : Module) : Array AbiEntrypointDescriptor :=
+  module.entrypoints.map abiEntrypointDescriptor
+
+/-! ## ABI event metadata -/
+
+structure AbiEventFieldDescriptor where
+  name : String
+  type : String
+  deriving Repr, Inhabited
+
+structure AbiEventDescriptor where
+  name : String
+  fields : Array AbiEventFieldDescriptor
+  deriving Repr, Inhabited
+
+def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
+  {
+    name := event.name
+    fields := event.dataFields.map (fun fieldName => { name := fieldName, type := "Felt" })
+  }
+
+def abiEventDescriptors (plan : PsyModulePlan) : Array AbiEventDescriptor :=
+  plan.events.map abiEventDescriptor
+
+/-! ## Context and crosscall metadata -/
+
+structure ContextOpDescriptor where
+  name : String
+  deriving Repr, Inhabited
+
+def contextOpDescriptor (op : ContextOp) : ContextOpDescriptor :=
+  { name := op.name }
+
+def contextOpDescriptors (plan : PsyModulePlan) : Array ContextOpDescriptor :=
+  plan.contextOps.map contextOpDescriptor
+
+structure CrosscallDescriptor where
+  targetContractId : String
+  deriving Repr, Inhabited
+
+def crosscallDescriptors (plan : PsyModulePlan) : Array CrosscallDescriptor :=
+  plan.crosscalls.targets.map (fun target => { targetContractId := target })
+
+/-! ## Artifact metadata -/
+
+structure ArtifactMetadata where
+  targetId : String
+  moduleName : String
+  entrypoints : Array AbiEntrypointDescriptor
+  events : Array AbiEventDescriptor
+  contextOps : Array ContextOpDescriptor
+  crosscalls : Array CrosscallDescriptor
+  capabilities : Array String
+  deriving Repr, Inhabited
+
+/-- Build artifact metadata from the semantic plan (Phase B3 metadata pass). -/
+def buildArtifactMetadata (module : Module) (plan : PsyModulePlan) : ArtifactMetadata :=
+  {
+    targetId := "psy-dpn"
+    moduleName := plan.name
+    entrypoints := abiEntrypointDescriptors module
+    events := abiEventDescriptors plan
+    contextOps := contextOpDescriptors plan
+    crosscalls := crosscallDescriptors plan
+    capabilities := plan.capabilities.map (·.id)
+  }
+
+/-- Build artifact metadata from a portable IR module (plan-first). -/
+def buildPlanArtifactMetadata (module : Module) : Except PlanError ArtifactMetadata := do
+  let plan ← buildModulePlan module
+  .ok (buildArtifactMetadata module plan)
+
+end ProofForge.Backend.Psy.Metadata
