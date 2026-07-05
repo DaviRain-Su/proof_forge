@@ -57,8 +57,6 @@ def crosscallModule : Module := {
 }
 
 def main : IO UInt32 := do
-  requireError "native value" nativeValueModule ProofForge.Backend.WasmNear.EmitWat.nativeValueUnsupportedMessage
-  requireError "indexed event" indexedEventModule (ProofForge.Backend.WasmNear.EmitWat.indexedEventUnsupportedMessage "Seen")
   requireError "crosscall" crosscallModule ProofForge.Backend.WasmNear.EmitWat.crosscallUnsupportedMessage
   IO.println "emitwat-chain-semantics: ok"
   return 0

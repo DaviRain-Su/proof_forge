@@ -6,8 +6,8 @@ open ProofForge.IR ProofForge.Backend.WasmNear.EmitWat
 /-! Context probe: predecessor/contract id determinism (sha256 of account id),
     block_height (checkpoint), and signer (origin).
 
-`nativeValue` / NEAR attached deposit remains an explicit unsupported EmitWat
-diagnostic until the portable IR has an exact U128 projection. -/
+`nativeValue` / NEAR attached deposit is now lowered via `attached_deposit`
+(low 64 bits) by EmitWat v0. -/
 
 def callerStable : Entrypoint := {
   name := "callerStable", returns := .u64,
@@ -43,18 +43,14 @@ def depositModule : Module := {
   name := "DepositProbe", state := #[],
   entrypoints := #[depositProbe] }
 
-def requireNativeValueUnsupported : IO Unit :=
+def requireNativeValueLowered : IO Unit :=
   match renderModule depositModule with
+  | .ok _ => pure ()
   | .error e =>
-      if e.message == nativeValueUnsupportedMessage then
-        pure ()
-      else
-        IO.eprintln s!"EmitWat nativeValue diagnostic mismatch: {e.message}" *> IO.Process.exit 1
-  | .ok _ =>
-      IO.eprintln "EmitWat unexpectedly lowered nativeValue for wasm-near" *> IO.Process.exit 1
+    IO.eprintln s!"EmitWat nativeValue lower failed: {e.message}" *> IO.Process.exit 1
 
 def main : IO UInt32 := do
-  requireNativeValueUnsupported
+  requireNativeValueLowered
   match renderModule contextModule with
   | .ok wat =>
     IO.FS.createDirAll "build/wasm-near"
