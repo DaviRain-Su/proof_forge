@@ -142,13 +142,27 @@ partial def resolvePathSegments (module : Module) : ValueType → List StoragePa
 /-- Resolve the type of a storage path from the layout + module struct graph. -/
 partial def resolveStoragePathTypeCtx (ctx : BuildContext) (stateId : String) (path : Array StoragePathSegment) : Except LowerError ValueType := do
   if path.isEmpty then .error { message := s!"storage path for state `{stateId}` must contain at least one segment" }
-  let startType ← match lookupState? ctx stateId with
-    | some { shape := .scalar type, .. } => .ok type
-    | some { shape := .structRef type, .. } => .ok type
-    | some { shape := .map _ valueType _, .. } => .ok valueType
-    | some { shape := .array elementType _ _, .. } => .ok elementType
-    | none => .error { message := s!"unknown storage path state `{stateId}`" }
-  resolvePathSegments ctx.module startType path.toList
+  match lookupState? ctx stateId with
+  | some { shape := .scalar type, .. } =>
+      if path.toList matches .mapKey _ :: _ then
+        .error { message := s!"storage path state `{stateId}` is scalar storage, not map storage" }
+      else
+        resolvePathSegments ctx.module type path.toList
+  | some { shape := .structRef type, .. } =>
+      if path.toList matches .mapKey _ :: _ then
+        .error { message := s!"storage path state `{stateId}` is struct ref storage, not map storage" }
+      else
+        resolvePathSegments ctx.module type path.toList
+  | some { shape := .map _ valueType _, .. } =>
+      match path.toList with
+      | .mapKey _ :: rest => resolvePathSegments ctx.module valueType rest
+      | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
+  | some { shape := .array elementType length _, .. } =>
+      if path.toList matches .mapKey _ :: _ then
+        .error { message := s!"storage path state `{stateId}` is array storage, not map storage" }
+      else
+        resolvePathSegments ctx.module (.fixedArray elementType length) path.toList
+  | none => .error { message := s!"unknown storage path state `{stateId}`" }
 
 def indent (level : Nat) (line : String) : String :=
   String.ofList (List.replicate (level * 4) ' ') ++ line

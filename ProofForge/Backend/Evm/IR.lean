@@ -15,6 +15,10 @@ namespace ProofForge.Backend.Evm.IR
 
 open ProofForge.IR
 open ProofForge.Target
+open ProofForge.Backend.Evm.Validate
+open ProofForge.Backend.Evm.ToYul
+open ProofForge.Backend.Evm.Lower
+open ProofForge.Backend.Evm.Plan
 
 structure LowerError where
   message : String
@@ -6095,7 +6099,7 @@ def crosscallReturnGuardStatementsForName (resultName : String) (returnType : Va
   | .u32 =>
       .ok #[
         .ifStmt
-          (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num maxU32])
+          (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num ProofForge.Backend.Evm.Validate.maxU32])
           { statements := #[revertStmt] }
       ]
   | .bool =>
@@ -6550,7 +6554,7 @@ def moduleCreateHelperSpecs (module : Module) : Array CreateHelperSpec :=
     mergeCreateHelperSpecs acc (createHelperSpecsStatements entrypoint.body)
 
 def createHelperFunctions (specs : Array CreateHelperSpec) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
-  specs.mapM createHelperFunction
+  specs.mapM (fun spec => createHelperFunction (fun msg => { message := msg : LowerError }) spec)
 
 def localArrayGetLengthsForDynamicExprTarget
     (env : TypeEnv)
