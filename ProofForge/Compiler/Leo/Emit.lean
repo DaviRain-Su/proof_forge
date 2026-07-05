@@ -97,6 +97,8 @@ mutual
     | .boundedFor name start stop body => do
         let bodyStmts ← statements body
         .ok #[.iteration name (some (.integer .u64)) (.literal (.integer .u64 start)) (.literal (.integer .u64 stop)) false { statements := bodyStmts }]
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by Leo IR v0; use bounded for" }
     | .assign (.local name) value => do
         let v ← expr value
         .ok #[.assign (.identifier name) v]
@@ -175,6 +177,7 @@ mutual
     | .assertEq l r _ _ => hasEffectExpr l || hasEffectExpr r
     | .ifElse c thenBody elseBody => hasEffectExpr c || hasEffect thenBody || hasEffect elseBody
     | .boundedFor _ _ _ body => hasEffect body
+    | .whileLoop c body => hasEffectExpr c || hasEffect body
     | .return v => hasEffectExpr v
     | .release _ => false
     | .revert _ | .revertWithError _ => true

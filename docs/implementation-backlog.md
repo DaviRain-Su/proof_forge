@@ -595,6 +595,11 @@ Tasks:
     `ToYul.mapWriteTargetEffectStmtPlanStatements`, so map root-slot target
     decisions and key/value expression planning no longer come from IR-local
     target reconstruction.
+    Statement-position fixed-array storage write effects now also consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.arrayWriteTargetEffectStmtPlanStatements`, so array root-slot,
+    length, index, and value planning no longer come from IR-local target
+    reconstruction.
   - Started: expression-position local fixed-array getter, local struct-field
     getter, and scalar array-literal indexing assembly now live behind
     `ExprPlan -> ToYul` for local scalar leaves. `Lower` records local

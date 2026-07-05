@@ -1355,6 +1355,7 @@ mutual
     | .ifElse condition thenBody elseBody =>
         contextOpsFromExpr condition ++ contextOpsFromStatements thenBody ++ contextOpsFromStatements elseBody
     | .boundedFor _ _ _ body => contextOpsFromStatements body
+    | .whileLoop condition body => contextOpsFromExpr condition ++ contextOpsFromStatements body
     | .return value => contextOpsFromExpr value
 
   partial def contextOpsFromStatements (statements : Array Statement) : Array ContextPlan :=

@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/hash-execute.log"
 ABI_FILE="$PROJECT_DIR/target/HashProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 HASH_RESULT="result_vm: [16490263548047147048, 1812405431586978162, 16859324901997577793, 7123796541406703579]"
 PAIR_HASH_RESULT="result_vm: [15064728126975588673, 10314245681893968020, 11300930272442645327, 2830815762300183090]"
 
@@ -31,7 +32,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture hash -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" HashProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -110,7 +113,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --dargo "$DARGO_BIN" \
   --execute-result "$HASH_RESULT; $PAIR_HASH_RESULT" \
   --capability crypto.hash \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

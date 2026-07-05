@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/abi-aggregate-execute.log"
 ABI_FILE="$PROJECT_DIR/target/AbiAggregateProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 ABI_STRUCT_PARAM_RESULT="result_vm: [15]"
 ABI_ARRAY_PARAM_RESULT="result_vm: [6]"
 ABI_STRUCT_RETURN_RESULT="result_vm: [9, 4]"
@@ -32,7 +33,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture abi-aggregate -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" AbiAggregateProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -119,7 +122,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --execute-result "$ABI_STRUCT_PARAM_RESULT; $ABI_ARRAY_PARAM_RESULT; $ABI_STRUCT_RETURN_RESULT" \
   --capability data.struct \
   --capability data.fixed_array \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

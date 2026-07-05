@@ -19,7 +19,9 @@ lean_lib ProofForge where
     `ProofForge.Compiler.Wasm.Printer,
     `ProofForge.Compiler.TS.AST,
     `ProofForge.Compiler.TS.Printer,
-    `ProofForge.Compiler.TS.Emit
+    `ProofForge.Compiler.TS.Emit,
+    `ProofForge.Compiler.Psy.AST,
+    `ProofForge.Compiler.Psy.Printer
   ]
 
 @[default_target]

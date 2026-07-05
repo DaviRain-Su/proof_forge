@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/assert-execute.log"
 ABI_FILE="$PROJECT_DIR/target/AssertProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 ASSERT_RESULT="result_vm: [12]"
 
 if [[ -z "${DARGO_STD_PATH:-}" && -f "$PSY_HOME/env" ]]; then
@@ -30,7 +31,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture assert -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" AssertProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -101,7 +104,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --dargo "$DARGO_BIN" \
   --execute-result "$ASSERT_RESULT" \
   --capability assertions.check \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

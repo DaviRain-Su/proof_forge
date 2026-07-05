@@ -16,6 +16,7 @@ EXEC_LOG="$PROJECT_DIR/target/hash-storage-execute.log"
 ABI_FILE="$PROJECT_DIR/target/HashStorageProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 SCALAR_RESULT="result_vm: [5, 6, 7, 8]"
 ARRAY_RESULT="result_vm: [55, 66, 77, 88]"
 
@@ -32,7 +33,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture hash-storage -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" HashStorageProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -112,7 +115,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --execute-result "$SCALAR_RESULT; $ARRAY_RESULT" \
   --capability storage.scalar \
   --capability storage.array \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

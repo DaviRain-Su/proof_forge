@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/array-execute.log"
 ABI_FILE="$PROJECT_DIR/target/ArrayProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 ARRAY_LITERAL_RESULT="result_vm: [60]"
 ARRAY_STORAGE_RESULT="result_vm: [31]"
 ARRAY_PREDICATES_RESULT="result_vm: [1]"
@@ -32,7 +33,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture array -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" ArrayProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -119,7 +122,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --execute-result "$ARRAY_LITERAL_RESULT; $ARRAY_STORAGE_RESULT; $ARRAY_PREDICATES_RESULT" \
   --capability data.fixed_array \
   --capability storage.array \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

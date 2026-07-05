@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/map-execute.log"
 ABI_FILE="$PROJECT_DIR/target/MapProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 MAP_RESULT="result_vm: [55, 66, 77, 88]"
 MAP_PATH_RESULT="result_vm: [77, 88, 99, 111]"
 MAP_SET_RETURN_RESULT="result_vm: [31, 32, 33, 34]"
@@ -33,7 +34,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture map -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" MapProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -126,7 +129,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --dargo "$DARGO_BIN" \
   --execute-result "$MAP_RESULT; $MAP_PATH_RESULT; $MAP_SET_RETURN_RESULT; $MAP_INSERT_RETURN_RESULT" \
   --capability storage.map \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

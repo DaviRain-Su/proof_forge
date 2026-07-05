@@ -205,6 +205,7 @@ def solanaSbpfAsm : TargetProfile := {
     .controlConditional,
     .controlBoundedLoop,
     .dataFixedArray,
+    .dataDynamicArray,
     .dataStruct,
     .cryptoHash,
     .assertions,

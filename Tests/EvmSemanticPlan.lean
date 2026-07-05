@@ -6058,7 +6058,7 @@ def testArrayWritePlanToYul : IO Unit := do
       env
       (.storageArrayWrite
         "values"
-        (.literal (.u64 1))
+        (.add (.literal (.u64 1)) (.literal (.u64 1)))
         (.add (.local "value") (.literal (.u64 3)))))
     "array write value plan-to-yul"
   match writeStmt with
@@ -6068,6 +6068,11 @@ def testArrayWritePlanToYul : IO Unit := do
       | Lean.Compiler.Yul.Expr.call slotName slotArgs => do
           require (slotName == (Helper.arraySlot).name) "array write plan-to-yul slot call"
           require (slotArgs.size == 3) "array write plan-to-yul slot arg count"
+          match slotArgs[2]! with
+          | Lean.Compiler.Yul.Expr.call addName addArgs => do
+              require (addName == "__pf_checked_add") "array write index must lower through checked add plan"
+              require (addArgs.size == 2) "array write index checked add arg count"
+          | _ => throw <| IO.userError "array write index must be plan-lowered checked add"
       | _ => throw <| IO.userError "array write plan-to-yul slot must use array helper"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.call addName addArgs => do

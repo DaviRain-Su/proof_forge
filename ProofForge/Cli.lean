@@ -6,6 +6,7 @@ import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Psy.IR
+import ProofForge.Backend.Psy.Metadata
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
@@ -46,6 +47,7 @@ import ProofForge.IR.Examples.BoolStorageArrayProbe
 import ProofForge.IR.Examples.BoolStorageScalarProbe
 import ProofForge.IR.Examples.ContextProbe
 import ProofForge.IR.Examples.ConditionalProbe
+import ProofForge.IR.Examples.ElseIfProbe
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.CrosscallProbe
@@ -206,6 +208,7 @@ inductive EmitMode where
   | boolStorageArrayIrPsy
   | boolStorageScalarIrPsy
   | conditionalIrPsy
+  | elseIfIrPsy
   | contextIrPsy
   | hashIrPsy
   | hashStorageIrPsy
@@ -375,6 +378,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .boolStorageArrayIrPsy
   | .boolStorageScalarIrPsy
   | .conditionalIrPsy
+  | .elseIfIrPsy
   | .contextIrPsy
   | .hashIrPsy
   | .hashStorageIrPsy
@@ -453,6 +457,7 @@ inductive Command where
   | emit
   | check
   | init
+  | metadata
   | listTargets
   | listFixtures
   deriving BEq, Inhabited, Repr
@@ -1703,6 +1708,9 @@ mutual
           ProofForge.Backend.Evm.IR.addLocal env indexName .u32 false
         let (events, _) ← eventAbisInStatements cast module loopEnv body
         return (events, env)
+    | .whileLoop cond body => do
+        let (events, _) ← eventAbisInStatements cast module env body
+        return (events, env)
 end
 
 def eventAbisForModule (cast : String) (module : ProofForge.IR.Module) : IO (Array EventAbi) := do
@@ -2597,6 +2605,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .boolStorageScalarIrPsy }
   | "--emit-conditional-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .conditionalIrPsy }
+  | "--emit-else-if-ir-psy" :: rest, opts =>
+      parseArgs rest { opts with mode := .elseIfIrPsy }
   | "--emit-context-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .contextIrPsy }
   | "--emit-hash-ir-psy" :: rest, opts =>
@@ -3013,6 +3023,115 @@ def newCommandArgsToLegacy (args : List String) : Except String (List String) :=
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
+
+/-! ### Metadata command (plan-driven artifact metadata JSON) -/
+
+/-- Map a fixture id to its portable IR module for plan-driven metadata
+    export. Covers all Psy-compatible fixtures. -/
+def metadataFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
+  match fixtureId with
+  | "counter" => some ProofForge.IR.Examples.Counter.module
+  | "map" => some ProofForge.IR.Examples.MapProbe.module
+  | "event" => some ProofForge.IR.Examples.EventProbe.module
+  | "context" => some ProofForge.IR.Examples.ContextProbe.module
+  | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module
+  | "struct" => some ProofForge.IR.Examples.StructProbe.module
+  | "struct-array" => some ProofForge.IR.Examples.StructArrayProbe.module
+  | "array" => some ProofForge.IR.Examples.ArrayProbe.module
+  | "assert" => some ProofForge.IR.Examples.AssertProbe.module
+  | "hash" => some ProofForge.IR.Examples.HashProbe.module
+  | "hash-storage" => some ProofForge.IR.Examples.HashStorageProbe.module
+  | "loop" => some ProofForge.IR.Examples.LoopProbe.module
+  | "arithmetic" => some ProofForge.IR.Examples.ArithmeticProbe.module
+  | "bitwise" => some ProofForge.IR.Examples.BitwiseProbe.module
+  | "conditional" => some ProofForge.IR.Examples.ConditionalProbe.module
+  | "else-if" => some ProofForge.IR.Examples.ElseIfProbe.module
+  | "expression-predicate" => some ProofForge.IR.Examples.ExpressionPredicateProbe.module
+  | "generic-entrypoint" => some ProofForge.IR.Examples.GenericEntrypointProbe.module
+  | "abi-aggregate" => some ProofForge.IR.Examples.AbiAggregateProbe.module
+  | "nested-aggregate" => some ProofForge.IR.Examples.NestedAggregateProbe.module
+  | "storage-nested-aggregate" => some ProofForge.IR.Examples.StorageNestedAggregateProbe.module
+  | "u32-arithmetic" => some ProofForge.IR.Examples.U32ArithmeticProbe.module
+  | "u32-hash-packing" => some ProofForge.IR.Examples.U32HashPackingProbe.module
+  | "u32-storage-array" => some ProofForge.IR.Examples.U32StorageArrayProbe.module
+  | "u32-storage-scalar" => some ProofForge.IR.Examples.U32StorageScalarProbe.module
+  | "bool-storage-array" => some ProofForge.IR.Examples.BoolStorageArrayProbe.module
+  | "bool-storage-scalar" => some ProofForge.IR.Examples.BoolStorageScalarProbe.module
+  | _ => none
+
+def metadataQuoteString (s : String) : String :=
+  "\"" ++ (s.toList.map (fun c => match c with
+    | '\\' => "\\\\"
+    | '"' => "\\\""
+    | '\n' => "\\n"
+    | '\r' => "\\r"
+    | '\t' => "\\t"
+    | c => c.toString)).foldl (· ++ ·) "" ++ "\""
+
+def metadataJsonArray (items : List String) : String :=
+  "[" ++ ", ".intercalate items ++ "]"
+
+def metadataJsonObject (fields : List (String × String)) : String :=
+  "{" ++ ", ".intercalate (fields.map (fun (k, v) => metadataQuoteString k ++ ": " ++ v)) ++ "}"
+
+def metadataRenderAbiParam (p : ProofForge.Backend.Psy.Metadata.AbiParamDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString p.name), ("type", metadataQuoteString p.type)]
+
+def metadataRenderAbiEntrypoint (e : ProofForge.Backend.Psy.Metadata.AbiEntrypointDescriptor) : String :=
+  metadataJsonObject [
+    ("name", metadataQuoteString e.name),
+    ("params", metadataJsonArray (e.params.toList.map metadataRenderAbiParam)),
+    ("returnType", metadataQuoteString e.returnType)
+  ]
+
+def metadataRenderAbiEventField (f : ProofForge.Backend.Psy.Metadata.AbiEventFieldDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString f.name), ("type", metadataQuoteString f.type)]
+
+def metadataRenderAbiEvent (e : ProofForge.Backend.Psy.Metadata.AbiEventDescriptor) : String :=
+  metadataJsonObject [
+    ("name", metadataQuoteString e.name),
+    ("fields", metadataJsonArray (e.fields.toList.map metadataRenderAbiEventField))
+  ]
+
+def metadataRenderContextOp (o : ProofForge.Backend.Psy.Metadata.ContextOpDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString o.name)]
+
+def metadataRenderCrosscall (c : ProofForge.Backend.Psy.Metadata.CrosscallDescriptor) : String :=
+  metadataJsonObject [("targetContractId", metadataQuoteString c.targetContractId)]
+
+def metadataRenderArtifactMetadata (m : ProofForge.Backend.Psy.Metadata.ArtifactMetadata) : String :=
+  metadataJsonObject [
+    ("targetId", metadataQuoteString m.targetId),
+    ("moduleName", metadataQuoteString m.moduleName),
+    ("entrypoints", metadataJsonArray (m.entrypoints.toList.map metadataRenderAbiEntrypoint)),
+    ("events", metadataJsonArray (m.events.toList.map metadataRenderAbiEvent)),
+    ("contextOps", metadataJsonArray (m.contextOps.toList.map metadataRenderContextOp)),
+    ("crosscalls", metadataJsonArray (m.crosscalls.toList.map metadataRenderCrosscall)),
+    ("capabilities", metadataJsonArray (m.capabilities.toList.map metadataQuoteString))
+  ]
+
+/-- Run the `proof-forge metadata` command: build plan-driven artifact
+    metadata from a fixture and print it as JSON to stdout or --output. -/
+def metadataCommand (opts : CliOptions) : IO UInt32 := do
+  let fixtureId ← match opts.fixture? with
+    | some f => pure f
+    | none => throw <| IO.userError "metadata requires --fixture <id>"
+  let module ← match metadataFixtureModule? fixtureId with
+    | some m => pure m
+    | none => throw <| IO.userError s!"metadata: unknown fixture '{fixtureId}'"
+  let artifactMeta ← match ProofForge.Backend.Psy.Metadata.buildPlanArtifactMetadata module with
+    | .ok m => pure m
+    | .error e => throw <| IO.userError s!"metadata: failed to build plan: {e.message}"
+  let json := metadataRenderArtifactMetadata artifactMeta
+  match opts.output? with
+  | some path =>
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path (json ++ "\n")
+      IO.eprintln s!"metadata: wrote {path}"
+  | none =>
+      IO.println json
+  pure 0
 
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
@@ -4432,6 +4551,16 @@ def compileConditionalIrPsy (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.render
 
+def compileElseIfIrPsy (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/psy/ElseIfProbe.psy")
+  match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.ElseIfProbe.module with
+  | .ok source =>
+      writeTextFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
 def compileContextIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/ContextProbe.psy")
   match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.ContextProbe.module with
@@ -5768,6 +5897,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .boolStorageArrayIrPsy => compileBoolStorageArrayIrPsy opts
   | .boolStorageScalarIrPsy => compileBoolStorageScalarIrPsy opts
   | .conditionalIrPsy => compileConditionalIrPsy opts
+  | .elseIfIrPsy => compileElseIfIrPsy opts
   | .contextIrPsy => compileContextIrPsy opts
   | .hashIrPsy => compileHashIrPsy opts
   | .hashStorageIrPsy => compileHashStorageIrPsy opts
@@ -5876,6 +6006,17 @@ unsafe def main (args : List String) : IO UInt32 := do
             fromNewSurface := true
             : ProofForge.Cli.CliOptions }
         | Except.error msg => Except.error msg
+      | "metadata" :: rest =>
+        match ProofForge.Cli.parseNewOptions rest {} with
+        | Except.ok state =>
+          Except.ok {
+            cmd := ProofForge.Cli.Command.metadata,
+            fixture? := state.fixture?,
+            output? := state.out?.map FilePath.mk,
+            root? := state.root?.map FilePath.mk,
+            fromNewSurface := true
+            : ProofForge.Cli.CliOptions }
+        | Except.error msg => Except.error msg
       | _ => ProofForge.Cli.parseArgs args {}
     match parseResult with
     | Except.ok opts => do
@@ -5888,6 +6029,8 @@ unsafe def main (args : List String) : IO UInt32 := do
           return 0
         | ProofForge.Cli.Command.check =>
           ProofForge.Cli.checkCommand opts
+        | ProofForge.Cli.Command.metadata =>
+          ProofForge.Cli.metadataCommand opts
         | _ =>
           if !opts.fromNewSurface then
             if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then

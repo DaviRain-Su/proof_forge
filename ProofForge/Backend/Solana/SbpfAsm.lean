@@ -71,10 +71,14 @@ def validateCapabilities (module : IR.Module) : Except LowerError Unit := do
 structure LocalSlot where
   name : String
   offset : Nat
+  byteSize : Nat := 8
+  type? : Option ValueType := none
   deriving Inhabited
 
 structure LowerCtx where
   stateFieldOffsets : Array (String × Nat)
+  structs : Array StructDecl
+  stateDecls : Array StateDecl
   locals : Array LocalSlot
   nextLocalOffset : Nat
   scratchOffset : Nat
@@ -85,12 +89,91 @@ structure LowerCtx where
 def LowerCtx.localOffset? (ctx : LowerCtx) (name : String) : Option Nat :=
   ctx.locals.find? (fun slot => slot.name == name) |>.map fun slot => slot.offset
 
-def LowerCtx.addLocal (ctx : LowerCtx) (name : String) : LowerCtx :=
+def LowerCtx.localInfo? (ctx : LowerCtx) (name : String) : Option LocalSlot :=
+  ctx.locals.find? (fun slot => slot.name == name)
+
+/-- Byte size of a `ValueType` for stack-local allocation. Returns 0 for
+    dynamic or unsupported types. -/
+def valueTypeByteSize (ty : ValueType) : Nat :=
+  match ty with
+  | .unit => 0
+  | .bool | .u8 => 1
+  | .u32 => 4
+  | .u64 => 8
+  | .u128 => 16
+  | .address => 20
+  | .hash => 32
+  | .fixedArray element length => valueTypeByteSize element * length
+  | _ => 0
+
+/-- Compute the byte offset of a struct field within its struct layout. -/
+def structFieldOffset (structs : Array StructDecl) (typeName fieldName : String) : Option Nat :=
+  match structs.find? (fun s => s.name == typeName) with
+  | none => none
+  | some struct => Id.run do
+      let mut off := 0
+      for field in struct.fields do
+        if field.id == fieldName then
+          return some off
+        off := off + valueTypeByteSize field.type
+      return none
+
+/-- Total byte size of a struct type. -/
+def structByteSize (structs : Array StructDecl) (typeName : String) : Nat :=
+  match structs.find? (fun s => s.name == typeName) with
+  | none => 0
+  | some struct =>
+      struct.fields.foldl (fun acc field => acc + valueTypeByteSize field.type) 0
+
+/-- Whether a type is backed by owned heap memory (fixed array or struct). -/
+def isOwnedHeapBacked (ty : ValueType) : Bool :=
+  match ty with
+  | .fixedArray _ _ | .structType _ | .array _ => true
+  | _ => false
+
+/-- Extract the element type of a state declared as an array. -/
+def arrayStateElementType? (stateDecls : Array StateDecl) (stateId : String) : Option ValueType :=
+  match stateDecls.find? (fun s => s.id == stateId) with
+  | none => none
+  | some decl =>
+      match decl.type with
+      | .fixedArray element _ => some element
+      | .array element => some element
+      | _ => none
+
+/-- Compute the byte offset of a field inside an array-of-struct element. -/
+def arrayStructFieldInfo? (ctx : LowerCtx) (stateId fieldName : String) : Option (Nat × Nat) :=
+  match arrayStateElementType? ctx.stateDecls stateId with
+  | none => none
+  | some (.structType typeName) =>
+      match structFieldOffset ctx.structs typeName fieldName with
+      | none => none
+      | some fieldOff => some (structByteSize ctx.structs typeName, fieldOff)
+  | some element =>
+      -- Treat a scalar array as a single-field struct for uniform lowering.
+      some (valueTypeByteSize element, 0)
+
+/-- Compute the byte offset of a field inside a scalar struct state. -/
+def scalarStructFieldInfo? (ctx : LowerCtx) (stateId fieldName : String) : Option Nat :=
+  match ctx.stateDecls.find? (fun s => s.id == stateId) with
+  | none => none
+  | some decl =>
+      match decl.type with
+      | .structType typeName => structFieldOffset ctx.structs typeName fieldName
+      | _ => none
+
+def LowerCtx.addLocal (ctx : LowerCtx) (name : String) (ty : ValueType) : LowerCtx :=
+  let byteSize := valueTypeByteSize ty
+  let alignedSize := max 8 (byteSize + alignTo8 byteSize)
   let offset := ctx.nextLocalOffset
-  let scratchOffset := max ctx.scratchOffset (offset + 16)
+  let scratchOffset :=
+    if byteSize <= 8 then
+      max ctx.scratchOffset (offset + 16)
+    else
+      max ctx.scratchOffset (offset + alignedSize + 16)
   { ctx with
-    locals := ctx.locals.push { name, offset }
-    nextLocalOffset := offset + 8
+    locals := ctx.locals.push { name, offset, byteSize, type? := some ty }
+    nextLocalOffset := offset + alignedSize
     scratchOffset := scratchOffset }
 
 /-- Reserve a stack word for a temporary value. The allocation is monotonic
@@ -138,7 +221,7 @@ def LowerCtx.resetLocals (ctx : LowerCtx) : LowerCtx :=
 
 def buildCtx (module : Module) (stateDataOff : Nat) : Except LowerError LowerCtx := do
   let offsets := buildStateOffsetsAtBase module stateDataOff
-  return { stateFieldOffsets := offsets.map (fun f => (f.id, f.absOff)), locals := #[], nextLocalOffset := 8, scratchOffset := 8, nextLabel := 0, allocator := Allocator.new }
+  return { stateFieldOffsets := offsets.map (fun f => (f.id, f.absOff)), structs := module.structs, stateDecls := module.state, locals := #[], nextLocalOffset := 8, scratchOffset := 8, nextLabel := 0, allocator := Allocator.new }
 
 def SPL_TOKEN_ACCOUNT_DATA_SIZE : Nat := 165
 def SPL_TOKEN_MINT_DATA_SIZE : Nat := 82
@@ -329,9 +412,61 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     .ok (#[ .instruction (res .mov64 (imm := some (.num 0))) ], ctx)
   | .literal _ => .error { message := "unsupported literal type in Phase 1" }
   | .local name =>
-    match ctx.localOffset? name with
-    | some off => .ok (#[ .instruction (res .ldxdw (src := some .r10) (off := some (.num off))) ], ctx)
+    match ctx.localInfo? name with
+    | some slot =>
+      if slot.byteSize <= 8 then
+        .ok (#[ .instruction (res .ldxdw (src := some .r10) (off := some (.num slot.offset))) ], ctx)
+      else
+        -- Composite local (fixed array / struct): return its stack address.
+        .ok (#[
+          .comment s!"local address {name}: composite {slot.byteSize} bytes",
+          .instruction { opcode := .mov64, dst := some .r2, src := some .r10 },
+          .instruction { opcode := .sub64, dst := some .r2, imm := some (.num slot.offset) }
+        ], ctx)
     | none => .error { message := s!"unknown local: {name}" }
+  | .arrayLit _ _ =>
+    .error { message := "array literal must be bound directly to a local (Phase 2)" }
+  | .structLit _ _ =>
+    .error { message := "struct literal must be bound directly to a local (Phase 2)" }
+  | .arrayGet array index => do
+    let arrayName := match array with | .local name => name | _ => ""
+    let elementType? := match ctx.localInfo? arrayName with
+      | some { type? := some (.fixedArray element _), .. } => some element
+      | _ => none
+    match elementType? with
+    | none => .error { message := s!"array index requires a fixed-array local; got `{arrayName}`" }
+    | some elementType => do
+      let elementSize := valueTypeByteSize elementType
+      let (baseNodes, ctx') ← lowerExpr ctx array
+      let (baseScratch, ctx') := ctx'.allocScratch
+      let (idxNodes, ctx') ← lowerExpr ctx' index
+      .ok (baseNodes ++ #[
+        AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num baseScratch), src := some .r2 }
+      ] ++ idxNodes ++ #[
+        AstNode.comment "array.get: compute element address",
+        AstNode.instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+        AstNode.instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+        AstNode.instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num baseScratch) },
+        AstNode.instruction { opcode := .sub64, dst := some .r3, src := some .r2 },
+        AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r3, off := some (.num 0) }
+      ], ctx')
+  | .field base fieldName => do
+    let baseName := match base with | .local name => name | _ => ""
+    let typeName? := match ctx.localInfo? baseName with
+      | some { type? := some (.structType name), .. } => some name
+      | _ => none
+    match typeName? with
+    | none => .error { message := s!"field access requires a struct local; got `{baseName}`" }
+    | some typeName => do
+      match structFieldOffset ctx.structs typeName fieldName with
+      | none => .error { message := s!"field `{fieldName}` not found in struct `{typeName}`" }
+      | some fieldOff => do
+        let (baseNodes, ctx') ← lowerExpr ctx base
+        .ok (baseNodes ++ #[
+          AstNode.comment s!"struct.field {typeName}.{fieldName}",
+          AstNode.instruction { opcode := .sub64, dst := some .r2, imm := some (.num fieldOff) },
+          AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+        ], ctx')
   | .add lhs rhs => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratch, ctx) := ctx.allocScratch
@@ -428,6 +563,53 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
         .instruction { opcode := .stxdw, dst := some .r10, off := some (.num idxScratch), src := some .r1 },
         .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num idxScratch) }
       ], ctx')
+  | .effect (.storageArrayRead stateId index) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown array state: {stateId}" }
+    | some base =>
+      let elementSize :=
+        match arrayStateElementType? ctx.stateDecls stateId with
+        | some ty => valueTypeByteSize ty
+        | none => 8
+      let (idxNodes, ctx') ← lowerExpr ctx index
+      .ok (idxNodes ++ #[
+        .comment s!"solana.storage.array_read {stateId}",
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+        .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+        .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
+        .instruction { opcode := .add64, dst := some .r2, src := some .r1 },
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+      ], ctx')
+  | .effect (.storageArrayStructFieldRead stateId index fieldName) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown array state: {stateId}" }
+    | some base =>
+      match arrayStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for array state `{stateId}`" }
+      | some (elementSize, fieldOff) =>
+        let (idxNodes, ctx') ← lowerExpr ctx index
+        .ok (idxNodes ++ #[
+          .comment s!"solana.storage.array_struct_field_read {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+          .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
+          .instruction { opcode := .add64, dst := some .r2, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num fieldOff) },
+          .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+        ], ctx')
+  | .effect (.storageStructFieldRead stateId fieldName) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown struct state: {stateId}" }
+    | some base =>
+      match scalarStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for struct state `{stateId}`" }
+      | some fieldOff =>
+        .ok (#[
+          .comment s!"solana.storage.struct_field_read {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r2, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num (base + fieldOff)) },
+          .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+        ], ctx)
   | .effect (.storagePathRead stateId path) =>
     if path.isEmpty then
       match ctx.stateAbsOff? stateId with
@@ -468,14 +650,179 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     ], ctx)
   | .effect (.contextRead field) =>
     .error { message := s!"Solana context read `{field.name}` is not supported; userId/origin map to account[0], checkpointId maps to Clock.slot" }
+  | .hashValue a b c d => do
+    let (an, ctx) ← lowerExpr ctx a
+    let (scratchA, ctx) := ctx.allocScratch
+    let (bn, ctx) ← lowerExpr ctx b
+    let (scratchB, ctx) := ctx.allocScratch
+    let (cn, ctx) ← lowerExpr ctx c
+    let (scratchC, ctx) := ctx.allocScratch
+    let (dn, ctx) ← lowerExpr ctx d
+    let (digestBuf, ctx) := ctx.allocScratchBytes 32
+    let (sliceTable, ctx) := ctx.allocScratchBytes 16
+    let (inputBuf, ctx) := ctx.allocScratchBytes 32
+    .ok (an ++ #[
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num scratchA), src := some .r2 }
+    ] ++ bn ++ #[
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num scratchB), src := some .r2 }
+    ] ++ cn ++ #[
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num scratchC), src := some .r2 }
+    ] ++ dn ++ #[
+      AstNode.comment "hashValue: pack four u64 words into input buffer",
+      AstNode.instruction { opcode := .mov64, dst := some .r4, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r4, imm := some (.num inputBuf) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 0), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num scratchC) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 8), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num scratchB) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 16), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num scratchA) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 24), src := some .r2 },
+      AstNode.comment "hashValue: build SolSlice table",
+      AstNode.instruction { opcode := .mov64, dst := some .r5, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r5, imm := some (.num sliceTable) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 0), src := some .r4 },
+      AstNode.instruction { opcode := .mov64, dst := some .r6, imm := some (.num 32) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 8), src := some .r6 },
+      AstNode.comment "hashValue: call sol_sha256",
+      AstNode.instruction { opcode := .mov64, dst := some .r1, src := some .r5 },
+      AstNode.instruction { opcode := .mov64, dst := some .r2, imm := some (.num 1) },
+      AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num digestBuf) },
+      AstNode.instruction { opcode := .call, imm := some (.sym sol_sha256) },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num digestBuf) }
+    ], ctx)
+  | .hash preimage => do
+    let (preNodes, ctx) ← lowerExpr ctx preimage
+    let (inputBuf, ctx) := ctx.allocScratchBytes 32
+    let (digestBuf, ctx) := ctx.allocScratchBytes 32
+    let (sliceTable, ctx) := ctx.allocScratchBytes 16
+    .ok (preNodes ++ #[
+      AstNode.comment "hash: copy 32-byte preimage into input buffer",
+      AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num inputBuf) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r4, src := some .r10, off := some (.num (inputBuf - 8)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 8), src := some .r4 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r4, src := some .r10, off := some (.num (inputBuf - 16)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 16), src := some .r4 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r4, src := some .r10, off := some (.num (inputBuf - 24)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 24), src := some .r4 },
+      AstNode.comment "hash: build SolSlice table",
+      AstNode.instruction { opcode := .mov64, dst := some .r5, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r5, imm := some (.num sliceTable) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 0), src := some .r3 },
+      AstNode.instruction { opcode := .mov64, dst := some .r6, imm := some (.num 32) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 8), src := some .r6 },
+      AstNode.comment "hash: call sol_sha256",
+      AstNode.instruction { opcode := .mov64, dst := some .r1, src := some .r5 },
+      AstNode.instruction { opcode := .mov64, dst := some .r2, imm := some (.num 1) },
+      AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num digestBuf) },
+      AstNode.instruction { opcode := .call, imm := some (.sym sol_sha256) },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num digestBuf) }
+    ], ctx)
+  | .hashTwoToOne lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratchL, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    let (inputBuf, ctx) := ctx.allocScratchBytes 64
+    let (digestBuf, ctx) := ctx.allocScratchBytes 32
+    let (sliceTable, ctx) := ctx.allocScratchBytes 16
+    .ok (ln ++ #[
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num scratchL), src := some .r2 }
+    ] ++ rn ++ #[
+      AstNode.comment "hashTwoToOne: pack right hash into input buffer+32",
+      AstNode.instruction { opcode := .mov64, dst := some .r4, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r4, imm := some (.num (inputBuf - 32)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 0), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 40)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 8), src := some .r5 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 48)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 16), src := some .r5 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 56)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 24), src := some .r5 },
+      AstNode.comment "hashTwoToOne: pack left hash into input buffer",
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num scratchL) },
+      AstNode.instruction { opcode := .mov64, dst := some .r4, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r4, imm := some (.num inputBuf) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 0), src := some .r2 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 8)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 8), src := some .r5 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 16)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 16), src := some .r5 },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num (inputBuf - 24)) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r4, off := some (.num 24), src := some .r5 },
+      AstNode.comment "hashTwoToOne: build SolSlice table",
+      AstNode.instruction { opcode := .mov64, dst := some .r5, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r5, imm := some (.num sliceTable) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 0), src := some .r4 },
+      AstNode.instruction { opcode := .mov64, dst := some .r6, imm := some (.num 64) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r5, off := some (.num 8), src := some .r6 },
+      AstNode.comment "hashTwoToOne: call sol_sha256",
+      AstNode.instruction { opcode := .mov64, dst := some .r1, src := some .r5 },
+      AstNode.instruction { opcode := .mov64, dst := some .r2, imm := some (.num 1) },
+      AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num digestBuf) },
+      AstNode.instruction { opcode := .call, imm := some (.sym sol_sha256) },
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num digestBuf) }
+    ], ctx)
   | .nativeValue =>
     -- On Solana, native value = lamports of account[0] (the fee payer).
     -- Account info layout: accountStart(8) + header(8) + pubkey(32) + owner_pubkey(32) + lamports(8)
     -- lamports offset for account[0] = 8 + 8 + 32 + 32 = 80
-    let (scratch, ctx) := ctx.allocScratch
     .ok (#[
       .comment "solana.nativeValue: read account[0] lamports",
       .instruction { opcode := .ldxdw, dst := some .r1, src := some .r1, off := some (.num 80) }
+    ], ctx)
+  | .memoryArrayNew elementType length => do
+    let elementSize := valueTypeByteSize elementType
+    if elementSize == 0 then
+      .error { message := s!"memoryArrayNew element type `{elementType.name}` has zero byte size" }
+    let (lenNodes, ctx) ← lowerExpr ctx length
+    let (lenScratch, ctx) := ctx.allocScratch
+    .ok (lenNodes ++ #[
+      .comment s!"memory.array.new: allocate heap array of {elementSize}-byte elements",
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num lenScratch), src := some .r2 },
+      .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+      .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+      .instruction { opcode := .add64, dst := some .r2, imm := some (.num 8) },
+      .instruction { opcode := .mov64, dst := some .r1, src := some .r2 },
+      .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 0) },
+      .instruction { opcode := .call, imm := some (.sym sol_alloc_free_) },
+      .instruction { opcode := .mov64, dst := some .r3, src := some .r0 },
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num lenScratch) },
+      .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 },
+      .instruction { opcode := .mov64, dst := some .r2, src := some .r3 },
+      .instruction { opcode := .add64, dst := some .r2, imm := some (.num 8) }
+    ], ctx)
+  | .memoryArrayLength array => do
+    let (arrNodes, ctx) ← lowerExpr ctx array
+    .ok (arrNodes ++ #[
+      .comment "memory.array.length: load length from header",
+      .instruction { opcode := .sub64, dst := some .r2, imm := some (.num 8) },
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+    ], ctx)
+  | .memoryArrayGet array index => do
+    let elementSize :=
+      match array with
+      | .local name =>
+        match ctx.localInfo? name with
+        | some { type? := some (.array element), .. } => valueTypeByteSize element
+        | _ => 8
+      | _ => 8
+    let (arrNodes, ctx) ← lowerExpr ctx array
+    let (arrScratch, ctx) := ctx.allocScratch
+    let (idxNodes, ctx) ← lowerExpr ctx index
+    .ok (arrNodes ++ #[
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num arrScratch), src := some .r2 }
+    ] ++ idxNodes ++ #[
+      .comment "memory.array.get",
+      .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+      .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+      .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num arrScratch) },
+      .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r3, off := some (.num 0) }
     ], ctx)
   | _ => .error { message := "unsupported expression in Phase 1" }
 where
@@ -490,22 +837,90 @@ where
     let ctx := ctx.freeLoc boolLoc
     .ok (nodes, ctx)
 
+/-- Emit nodes that store an array literal into a stack buffer starting at
+`baseOff` (rendered as `[r10 - baseOff]`). Each element is evaluated and stored
+at its fixed offset. Returns the updated context. -/
+partial def lowerArrayLiteral (ctx : LowerCtx) (elementType : ValueType) (values : Array Expr) (baseOff : Nat) :
+    Except LowerError (Array AstNode × LowerCtx) := do
+  let elementSize := valueTypeByteSize elementType
+  if elementSize == 0 then
+    .error { message := s!"array literal element type `{elementType.name}` has zero byte size" }
+  let mut nodes := #[AstNode.comment s!"array literal: {values.size} x {elementType.name} ({elementSize} bytes each)"]
+  let mut ctx := ctx
+  for value in values, i in [0:values.size] do
+    let (vn, ctx') ← lowerExpr ctx value
+    let elemOff := baseOff + i * elementSize
+    nodes := nodes ++ vn ++ #[
+      AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+      AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num elemOff) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
+    ]
+    ctx := ctx'
+  .ok (nodes, ctx)
+
+/-- Emit nodes that store a struct literal into a stack buffer starting at
+`baseOff`. Field order and size come from `ctx.structs`. -/
+partial def lowerStructLiteral (ctx : LowerCtx) (typeName : String) (fields : Array (String × Expr)) (baseOff : Nat) :
+    Except LowerError (Array AstNode × LowerCtx) := do
+  match ctx.structs.find? (fun s => s.name == typeName) with
+  | none => .error { message := s!"unknown struct type: {typeName}" }
+  | some _ => do
+    let mut nodes := #[AstNode.comment s!"struct literal: {typeName}"]
+    let mut ctx := ctx
+    for (fieldName, value) in fields do
+      match structFieldOffset ctx.structs typeName fieldName with
+      | none => .error { message := s!"field `{fieldName}` not found in struct `{typeName}`" }
+      | some fieldOff => do
+        let (vn, ctx') ← lowerExpr ctx value
+        let elemOff := baseOff + fieldOff
+        nodes := nodes ++ vn ++ #[
+          AstNode.instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+          AstNode.instruction { opcode := .sub64, dst := some .r3, imm := some (.num elemOff) },
+          AstNode.instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
+        ]
+        ctx := ctx'
+    .ok (nodes, ctx)
+
 -- ============================================================================
 -- IR statement → AST nodes
 -- ============================================================================
 
 partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError (Array AstNode × LowerCtx) :=
   match stmt with
-  | .letBind name _ value => do
-    let (vn, ctx) ← lowerExpr ctx value
-    let off := ctx.nextLocalOffset
-    let ctx' := ctx.addLocal name
-    .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r10, off := some (.num off), src := some .r2 } ], ctx')
-  | .letMutBind name _ value => do
-    let (vn, ctx) ← lowerExpr ctx value
-    let off := ctx.nextLocalOffset
-    let ctx' := ctx.addLocal name
-    .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r10, off := some (.num off), src := some .r2 } ], ctx')
+  | .letBind name ty value => do
+    match value with
+    | .arrayLit elementType values => do
+      let off := ctx.nextLocalOffset
+      let ctx' := ctx.addLocal name ty
+      let (nodes, ctx'') ← lowerArrayLiteral ctx' elementType values off
+      .ok (nodes, ctx'')
+    | .structLit typeName fields => do
+      let off := ctx.nextLocalOffset
+      let ctx' := ctx.addLocal name ty
+      let (nodes, ctx'') ← lowerStructLiteral ctx' typeName fields off
+      .ok (nodes, ctx'')
+    | _ => do
+      let (vn, ctxAfterValue) ← lowerExpr ctx value
+      let off := ctxAfterValue.nextLocalOffset
+      let ctx' := ctxAfterValue.addLocal name ty
+      .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r10, off := some (.num off), src := some .r2 } ], ctx')
+  | .letMutBind name ty value => do
+    match value with
+    | .arrayLit elementType values => do
+      let off := ctx.nextLocalOffset
+      let ctx' := ctx.addLocal name ty
+      let (nodes, ctx'') ← lowerArrayLiteral ctx' elementType values off
+      .ok (nodes, ctx'')
+    | .structLit typeName fields => do
+      let off := ctx.nextLocalOffset
+      let ctx' := ctx.addLocal name ty
+      let (nodes, ctx'') ← lowerStructLiteral ctx' typeName fields off
+      .ok (nodes, ctx'')
+    | _ => do
+      let (vn, ctxAfterValue) ← lowerExpr ctx value
+      let off := ctxAfterValue.nextLocalOffset
+      let ctx' := ctxAfterValue.addLocal name ty
+      .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r10, off := some (.num off), src := some .r2 } ], ctx')
   | .assign target value =>
     match target with
     | .local name =>
@@ -533,6 +948,66 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
         ], ctx')
       | none => .error { message := s!"assignOp to unknown local: {name}" }
     | _ => .error { message := "assignOp to non-local not supported in Phase 1" }
+  | .effect (.storageArrayWrite stateId index value) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown array state: {stateId}" }
+    | some base => do
+      let elementSize :=
+        match arrayStateElementType? ctx.stateDecls stateId with
+        | some ty => valueTypeByteSize ty
+        | none => 8
+      let (valNodes, ctx') ← lowerExpr ctx value
+      let (valScratch, ctx') := ctx'.allocScratch
+      let (idxNodes, ctx') ← lowerExpr ctx' index
+      .ok (valNodes ++ #[
+        .comment s!"solana.storage.array_write {stateId}: save value",
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num valScratch), src := some .r2 }
+      ] ++ idxNodes ++ #[
+        .comment s!"solana.storage.array_write {stateId}: compute address and store",
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+        .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+        .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
+        .instruction { opcode := .add64, dst := some .r2, src := some .r1 },
+        .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num valScratch) },
+        .instruction { opcode := .stxdw, dst := some .r2, off := some (.num 0), src := some .r3 }
+      ], ctx')
+  | .effect (.storageArrayStructFieldWrite stateId index fieldName value) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown array state: {stateId}" }
+    | some base => do
+      match arrayStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for array state `{stateId}`" }
+      | some (elementSize, fieldOff) =>
+        let (valNodes, ctx') ← lowerExpr ctx value
+        let (valScratch, ctx') := ctx'.allocScratch
+        let (idxNodes, ctx') ← lowerExpr ctx' index
+        .ok (valNodes ++ #[
+          .comment s!"solana.storage.array_struct_field_write {stateId}.{fieldName}: save value",
+          .instruction { opcode := .stxdw, dst := some .r10, off := some (.num valScratch), src := some .r2 }
+        ] ++ idxNodes ++ #[
+          .comment s!"solana.storage.array_struct_field_write {stateId}.{fieldName}: compute address and store",
+          .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+          .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
+          .instruction { opcode := .add64, dst := some .r2, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num fieldOff) },
+          .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num valScratch) },
+          .instruction { opcode := .stxdw, dst := some .r2, off := some (.num 0), src := some .r3 }
+        ], ctx')
+  | .effect (.storageStructFieldWrite stateId fieldName value) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown struct state: {stateId}" }
+    | some base => do
+      match scalarStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for struct state `{stateId}`" }
+      | some fieldOff => do
+        let (vn, ctx') ← lowerExpr ctx value
+        .ok (vn ++ #[
+          .comment s!"solana.storage.struct_field_write {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r3, imm := some (.num (base + fieldOff)) },
+          .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
+        ], ctx')
   | .effect (.storageScalarWrite stateId value) => do
     match ctx.stateAbsOff? stateId with
     | some absOff => do
@@ -546,7 +1021,6 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
     | some mapBase => do
       let (kn, ctx') ← lowerExpr ctx key
       let (keyScratch, ctx') := ctx'.allocScratch
-      let (valScratch, ctx') := ctx'.allocScratch
       let (loopLabel, ctx') := ctx'.freshLabel
       let (writeLabel, ctx') := ctx'.freshLabel
       let (endLabel, ctx') := ctx'.freshLabel
@@ -720,6 +1194,76 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       ctx := ctx'
     nodes := nodes.push (.label endLabel)
     .ok (nodes, ctx)
+  | .boundedFor indexName start stopExclusive body => do
+    let indexOff := ctx.nextLocalOffset
+    let ctx := ctx.addLocal indexName .u64
+    let (loopStart, ctx) := ctx.freshLabel
+    let (loopEnd, ctx) := ctx.freshLabel
+    let mut nodes : Array AstNode := #[
+      AstNode.comment s!"control.boundedFor {indexName} {start}..{stopExclusive}",
+      AstNode.instruction { opcode := .mov64, dst := some .r2, imm := some (.num start) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num indexOff), src := some .r2 },
+      AstNode.label loopStart,
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num indexOff) },
+      AstNode.instruction { opcode := .mov64, dst := some .r3, imm := some (.num stopExclusive) },
+      AstNode.instruction { opcode := .jge, dst := some .r2, src := some .r3, off := some (.sym loopEnd) }
+    ]
+    let mut ctx := ctx
+    for stmt in body do
+      let (sn, ctx') ← lowerStmt ctx stmt
+      nodes := nodes.append sn
+      ctx := ctx'
+    nodes := nodes ++ #[
+      AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num indexOff) },
+      AstNode.instruction { opcode := .add64, dst := some .r2, imm := some (.num 1) },
+      AstNode.instruction { opcode := .stxdw, dst := some .r10, off := some (.num indexOff), src := some .r2 },
+      AstNode.instruction { opcode := .ja, off := some (.sym loopStart) },
+      AstNode.label loopEnd
+    ]
+    .ok (nodes, ctx)
+  | .effect (.memoryArraySet array index value) => do
+    let elementSize :=
+      match array with
+      | .local name =>
+        match ctx.localInfo? name with
+        | some { type? := some (.array element), .. } => valueTypeByteSize element
+        | _ => 8
+      | _ => 8
+    let (arrNodes, ctx) ← lowerExpr ctx array
+    let (arrScratch, ctx) := ctx.allocScratch
+    let (idxNodes, ctx) ← lowerExpr ctx index
+    let (idxScratch, ctx) := ctx.allocScratch
+    let (valNodes, ctx) ← lowerExpr ctx value
+    .ok (arrNodes ++ #[
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num arrScratch), src := some .r2 }
+    ] ++ idxNodes ++ #[
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num idxScratch), src := some .r2 }
+    ] ++ valNodes ++ #[
+      .comment "memory.array.set",
+      .instruction { opcode := .ldxdw, dst := some .r4, src := some .r10, off := some (.num idxScratch) },
+      .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
+      .instruction { opcode := .mul64, dst := some .r4, src := some .r3 },
+      .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num arrScratch) },
+      .instruction { opcode := .add64, dst := some .r3, src := some .r4 },
+      .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
+    ], ctx)
+  | .release name =>
+    match ctx.localInfo? name with
+    | none => .error { message := s!"release of unknown local: {name}" }
+    | some slot =>
+      match slot.type? with
+      | some ty =>
+        if isOwnedHeapBacked ty then
+          .ok (#[
+            .comment s!"memory.release {name}: free heap array",
+            .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num slot.offset) },
+            .instruction { opcode := .sub64, dst := some .r2, imm := some (.num 8) },
+            .instruction { opcode := .mov64, dst := some .r1, imm := some (.num 0) },
+            .instruction { opcode := .call, imm := some (.sym sol_alloc_free_) }
+          ], ctx)
+        else
+          .error { message := s!"release expects an owned heap-backed local, got `{name}: {ty.name}`" }
+      | none => .error { message := s!"release of local `{name}` with unknown type" }
   | .return value => do
     let (vn, ctx') ← lowerExpr ctx value
     .ok (vn ++ #[
@@ -893,7 +1437,7 @@ def lowerEntrypointParamDecoding (ctx : LowerCtx) (ep : IR.Entrypoint) :
     let some opcode := scalarParamLoadOpcode? ty
       | .error { message := s!"unsupported Solana entrypoint parameter load for `{name}`: {ty.name}" }
     let localOff := ctx.nextLocalOffset
-    ctx := ctx.addLocal name
+    ctx := ctx.addLocal name ty
     nodes := nodes ++ #[
       .comment s!"entrypoint.param[{ep.name}.{name}]: {ty.name} @ instruction_data+{payloadOff}"
     ] ++ loadSavedInstructionDataPtr .r3 ++ #[

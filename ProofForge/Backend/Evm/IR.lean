@@ -20,6 +20,10 @@ open ProofForge.Backend.Evm.Validate (needsCheckedArithmetic exprUsesCheckedArit
 
 open ProofForge.IR
 open ProofForge.Target
+open ProofForge.Backend.Evm.Validate
+open ProofForge.Backend.Evm.ToYul
+open ProofForge.Backend.Evm.Lower
+open ProofForge.Backend.Evm.Plan
 
 structure LowerError where
   message : String
@@ -1560,6 +1564,8 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         discard <| validateStatements module entrypoint loopEnv body
         .ok env
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by EVM IR v0; use boundedFor" }
     | .return value => do
         ensureType "return value" entrypoint.returns (← inferExprType module env value)
         .ok env
@@ -2969,22 +2975,21 @@ partial def lowerArrayWriteStmtPlanOrFallback
     (stateId : String)
     (index value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
   if exprSupportsPlanScalarYul index && exprSupportsPlanScalarYul value then
-    let indexPlan ←
-      match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) index with
+    let effectPlan ←
+      match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+          (.storageArrayWrite stateId index value) with
       | .ok plan => .ok plan
       | .error err => .error { message := err.message }
-    let valuePlan ←
-      match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) value with
-      | .ok plan => .ok plan
-      | .error err => .error { message := err.message }
-    let targetPlan ← lowerPlan <|
-      ProofForge.Backend.Evm.Plan.arrayWriteTargetPlan module stateId
     let statements ←
-      ProofForge.Backend.Evm.ToYul.arrayWriteTargetEffectStmtPlanStatements
-        toYulError
-        (fun expr => lowerExpr module env expr)
-        (lowerPlanEffectExpr module env)
-        (.effect (.storageArrayWriteTarget targetPlan indexPlan valuePlan))
+      match effectPlan with
+      | .storageArrayWriteTarget .. =>
+          ProofForge.Backend.Evm.ToYul.arrayWriteTargetEffectStmtPlanStatements
+            toYulError
+            (fun expr => lowerExpr module env expr)
+            (lowerPlanEffectExpr module env)
+            (.effect effectPlan)
+      | _ =>
+          .error { message := "EVM Lower.buildEffectPlan array write did not produce storageArrayWriteTarget" }
     match statements[0]? with
     | some statement =>
         if statements.size == 1 then
@@ -5577,6 +5582,8 @@ mutual
             | .error _ => fallback
         | none =>
             fallback
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by EVM IR v0; use boundedFor" }
     | .return value => do
         .ok (← lowerReturnStmt module env entrypointName returnType value leaveAfterReturn, env)
 end
@@ -5974,6 +5981,7 @@ mutual
         exprUsesCheckedArithmetic c || thenBody.any stmtUsesCheckedArithmetic
           || elseBody.any stmtUsesCheckedArithmetic
     | .boundedFor _ _ _ body => body.any stmtUsesCheckedArithmetic
+    | .whileLoop c body => exprUsesCheckedArithmetic c || body.any stmtUsesCheckedArithmetic
 end
 
 def moduleUsesCheckedArithmetic (module : Module) : Bool :=

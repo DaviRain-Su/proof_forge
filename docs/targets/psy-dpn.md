@@ -41,11 +41,32 @@ source-generation target**:
 Lean portable contract
   -> Lean checks and proofs
   -> Psy-compatible portable IR subset
-  -> generated .psy package
+  -> Psy semantic plan (ProofForge.Backend.Psy.Plan)
+  -> Psy AST (ProofForge.Compiler.Psy.AST)
+  -> generated .psy package (ProofForge.Compiler.Psy.Printer)
   -> dargo compile
   -> DPNFunctionCircuitDefinition JSON + ABI
   -> Psy deploy/test tooling
 ```
+
+The lowering is now three-stage, mirroring the EVM
+(`Lower.lean` → `Plan.lean` → `IR.lean` → `Compiler/Yul/AST.lean` + `Printer.lean`)
+and Wasm-family backend pattern:
+
+1. **Plan** (`ProofForge.Backend.Psy.Plan.buildModulePlan`): resolves Psy-specific
+   shapes from the portable IR — storage layout (scalar/structRef/map/array +
+   feltBackedU32 flags), context fields used, event plans, crosscall targets,
+   and the fixture-shape-detected test body. This is the counterpart of EVM
+   `Lower.lean` → `Plan.lean`.
+2. **AST** (`buildModuleWithPlan`): folds the IR + plan into a target-side
+   `Psy.Module` AST. This is the counterpart of EVM `IR.lean lowerModuleWithPlan`.
+3. **Printer** (`ProofForge.Compiler.Psy.Printer.module`): renders the AST to
+   `.psy` source text. Pure structural, no IR resolution.
+
+The AST is a surface AST that captures exactly the `.psy` forms the printer
+emits; it does not model the upstream `psy-ast::Program` interner/arena/checker
+layers. The plan decouples shape resolution from source formatting and gives a
+stable inspection point for artifact/deploy metadata.
 
 Do not start by directly emitting Psy DPN internals. The public repo does not
 expose a stable Yul-like textual intermediate language.
@@ -170,15 +191,34 @@ for ProofForge's purposes.
 
 | Layer | Public? | Stable integration boundary? | Notes |
 |---|---:|---:|---|
-| `.psy` source | Yes | Yes | Best first target for source generation |
-| `psy-ast` / checked AST | Yes | Maybe | Useful for understanding syntax and ABI, but tied to Psy compiler internals |
+| `.psy` source | Yes | Yes | Source text boundary; rendered by `ProofForge.Compiler.Psy.Printer` |
+| `psy-ast` / checked AST | Yes | Yes (surface mirror) | ProofForge maintains a target-side surface AST (`ProofForge.Compiler.Psy.AST`) mirroring the `.psy` source forms, **not** the upstream `psy-ast::Program` interner/arena/checker layers |
 | `QExecContext` / DPN ops | Partly | No | Symbolic execution/circuit lowering layer; core types come from `psy-node` |
 | `DPNFunctionCircuitDefinition` JSON | Yes | Artifact, not IR | Good output artifact, too target-specific and opaque for ProofForge IR |
 | ABI / contract code JSON | Yes | Output metadata | Useful for deployment and cloud metadata |
 
-Conclusion: **there is no Yul-equivalent public IR to target today**.
-ProofForge should use its own portable contract IR as the stable middle layer,
-then generate `.psy` source.
+The upstream `psy-ast` crate (`psy-compiler/psy-ast/src`) defines a full
+compiler AST with interners, arenas, def-ids, locations, and a checked
+`Program<F>` tree. ProofForge does not target that internal representation
+directly — it is tied to Psy compiler internals and carries type-checking
+state that belongs upstream. Instead, ProofForge defines its own
+`ProofForge.Compiler.Psy.AST` module-side AST that captures exactly the
+`.psy` surface forms the printer emits (modules, structs, state, methods,
+statements, expressions, effects, storage targets, operators, literals, and
+context fields). This mirrors the in-repo pattern used by the EVM backend
+(`Compiler/Yul/AST.lean` + `Printer.lean`) and the Wasm-family backends
+(`Compiler/Wasm/AST.lean` + `Printer.lean`): a small target AST plus a pure
+structural printer.
+
+Conclusion: **ProofForge uses its own portable contract IR as the stable
+middle layer, resolves Psy-specific shapes into a semantic plan, lowers the
+IR + plan to a target-side `Psy.Module` AST, and renders that AST to `.psy`
+source**. The three-stage lowering (IR → Plan → AST → source) decouples shape
+resolution (plan) from AST construction from source formatting (printer),
+mirroring the EVM `Lower → Plan → ToYul → Printer` split, and leaves clear
+extension points for future Psy plan-level passes (artifact metadata,
+canonicalization) and AST-level passes (formatting control, upstream-AST
+emission if the compiler internals stabilize).
 
 ## Proposed Target Profile
 
@@ -374,8 +414,9 @@ impl CounterRef {
 }
 ```
 
-This is intentionally source-like and reviewable. The current implementation is
-`ProofForge.Backend.Psy.IR.renderModule`, exposed through:
+This is intentionally source-like and reviewable. The current implementation
+lowers the portable IR to a `ProofForge.Compiler.Psy.Module` AST and renders
+it through `ProofForge.Compiler.Psy.Printer.module`, exposed through:
 
 ```sh
 lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
@@ -1276,12 +1317,127 @@ Deployment smoke:
   `scripts/psy/generic-entrypoint-smoke.sh` to prove the fallback with Dargo.
 - Remaining: move to upstream genesis deploy JSON/live node research.
 
+### Phase B2: Two-Stage Lowering via Psy AST
+
+The initial spike lowered portable IR directly to `.psy` source strings inside
+`Backend.Psy.IR.renderModule`. This worked but mixed IR validation, shape
+resolution, and source formatting in one pass, and left no extension point for
+target-side AST-level passes. Phase B2 introduces the two-stage lowering that
+the EVM and Wasm-family backends already use.
+
+- Done: add `ProofForge.Compiler.Psy.AST` — a target-side surface AST
+  (`Module`, `StructDecl`, `StateDecl`, `Method`, `Stmt`, `Expr`, `Effect`,
+  `StorageTarget`, `StoragePathSegment`, `BinaryOp`, `UnaryOp`, `AssignOp`,
+  `Literal`, `TypeName`, `ContextField`, `Visibility`) mirroring the `.psy`
+  source forms at the granularity the printer needs. It does not model the
+  upstream `psy-ast::Program` interner/arena/checker layers.
+- Done: add `ProofForge.Compiler.Psy.Printer` — a pure structural renderer
+  (`module : Psy.Module → String`) that emits valid `.psy` source text with no
+  IR resolution or validation logic.
+- Done: refactor `Backend.Psy.IR.renderModule` to lower portable IR →
+  `Psy.Module` AST (`buildModule`) and render via `Printer.module`. All
+  validation (capabilities, identifiers, structs, entrypoints, state, bodies)
+  and shape resolution (storage targets, felt-backed U32 rewrites, map-key
+  special cases, path-type-aware casts) stay on the IR-lowering side; the
+  printer is self-describing.
+- Done: register `ProofForge.Compiler.Psy.AST` and
+  `ProofForge.Compiler.Psy.Printer` as `lean_lib` roots in `lakefile.lean`,
+  matching the `Compiler.Yul.*` and `Compiler.Wasm.*` registration pattern.
+- Done: verify all Psy golden sources are byte-identical after the refactor
+  (`just psy-golden-sources`), all 55 diagnostic cases pass
+  (`just psy-diagnostics`), and the IR coverage manifest is unchanged
+  (`just psy-coverage`).
+- Remaining: consider upstream `psy-ast` emission if the compiler internals
+  stabilize, and use the AST boundary for formatting control or
+  canonicalization passes.
+
+### Phase B3: Semantic Plan Layer
+
+Phase B2 left shape resolution (storage target lookup, felt-backed U32
+detection, map-key special cases, test body generation) inline in the AST
+builder. Phase B3 extracts that into a semantic plan module, mirroring the
+EVM `Lower.lean` → `Plan.lean` split.
+
+- Done: add `ProofForge.Backend.Psy.Plan` — the psy-dpn counterpart of
+  `ProofForge.Backend.Evm.Plan`. Captures:
+  - `StorageLayout`: per-state resolved shape (scalar/structRef/map/array +
+    feltBackedU32 flag).
+  - `contextOps : Array ContextOp`: context fields actually used (userId/
+    contractId/checkpointId), for artifact metadata.
+  - `EventPlan`: event name + ordered data field names.
+  - `CrosscallPlan`: crosscall target contract ids.
+  - `TestPlan`: fixture-shape-detected test function name + body lines
+    (moved from `IR.lean testBody/testFunctionName`).
+  - `buildModulePlan`: constructs the full `PsyModulePlan` from a portable
+    IR `Module` (mirrors EVM `Lower.buildFullModulePlan`).
+- Done: refactor `IR.lean buildModule` into `buildModuleWithPlan(module,
+  plan)` + `buildModule(module)` wrapper, and `renderModule` to build the
+  plan first then lower IR+plan to the AST. Matches EVM
+  `IR.lean lowerModuleWithPlan` pattern.
+- Done: add 4 `memoryArray*` diagnostic cases (`memoryArrayNew/Length/Get/Set`)
+  to `Tests/PsyDiagnostics.lean` (55 → 59 cases), covering the constructors
+  introduced in the main merge.
+- Done: verify all Psy golden sources are byte-identical, 59 diagnostic cases
+  pass, and the IR coverage manifest is unchanged.
+- Done: introduce `BuildContext` (module + `StorageLayout`) and context-based
+  lookup helpers (`lookupState?`, `requireScalarStateCtx`, `requireMapStateCtx`,
+  `requireArrayStateCtx`, `requireStructScalarStateCtx`, `requireStructArrayStateCtx`,
+  `isFeltBackedU32ArrayCtx`, `resolveStoragePathTypeCtx`). All AST builder
+  functions now accept `BuildContext` and look up storage shapes from the
+  pre-resolved `StorageLayout` rather than re-resolving `findState?` inline.
+  Validation functions continue to use the raw `Module` since they run before
+  plan construction.
+- Done: add `ProofForge.Backend.Psy.Metadata` — plan-driven artifact metadata
+  (`ArtifactMetadata` with entrypoints, events, context ops, crosscalls,
+  capabilities; `buildPlanArtifactMetadata` plan-first construction). Mirrors
+  EVM `Metadata.lean`.
+- Done: integrate `Metadata.buildPlanArtifactMetadata` into Psy smoke
+  scripts so `proof-forge-artifact.json` records the plan-driven metadata.
+  `Tests/PsyMetadataExport.lean` renders `ArtifactMetadata` as JSON for each
+  fixture; `scripts/psy/write-artifact-metadata.py` accepts `--plan-metadata`
+  and merges `moduleName`, `abi.entrypoints`, `events`, `contextOps`,
+  `crosscalls`, and `planCapabilities` into the artifact.
+- Remaining: consider upstream `psy-ast` emission if the compiler internals stabilize.
+
 ### Phase C: Metadata and Scenario Parity
 
-- Compare the Psy Counter behavior with the EVM shared Counter scenario.
-- Decide whether `psy-wasm` adds useful in-memory coverage beyond
-  `dargo execute`.
-- Add a target-specific Counter acceptance note.
+- Done: compare the Psy Counter behavior with the EVM shared Counter scenario.
+  The same portable `Counter` IR (`ProofForge.IR.Examples.Counter`) lowers to
+  both targets with identical lifecycle semantics:
+
+  | Aspect | EVM (`evm`) | Psy (`psy-dpn`) |
+  |---|---|---|
+  | State | single storage slot at keccak-derived key | `#[derive(Storage)] pub struct Counter { pub count: Felt }` field |
+  | `initialize` | writes `0` to slot | `c.count = 0` |
+  | `increment` | reads slot, adds 1, writes back | `let n: Felt = c.count.get(); c.count = n + 1` |
+  | `get` | returns slot value | `return c.count.get()` |
+  | Smoke result | Foundry `vm.etch` in-memory execution | `dargo execute` in-memory session |
+  | Expected final count | `2` (after `initialize`, `increment`, `increment`, `get`) | `result_vm: [2]` (same sequence) |
+  | Artifact metadata | `target: evm`, `storage.scalar` capability, 4-byte selectors | `target: psy-dpn`, `planCapabilities` includes `storage.scalar`, entrypoint names (no selectors) |
+
+  The lifecycle is behaviorally equivalent: both targets prove the counter
+  reaches `2` after the same method sequence. The only divergence is the
+  storage mechanics (EVM 32-byte word vs Psy Felt-backed field) and ABI
+  addressing (EVM selectors vs Psy method names).
+- Done: decide whether `psy-wasm` adds useful in-memory coverage beyond
+  `dargo execute`. Decision: **not for v0**. `dargo execute` already provides
+  a complete in-memory execution session with a registered user, deployed
+  contract, and method-sequence circuit generation. `psy-wasm` (a browser/Node
+  wrapper around the compiler and VM demo) would add browser-based interactive
+  testing, but ProofForge's CI gate is headless and artifact-focused; a browser
+  wrapper adds no coverage that `dargo execute` + `dargo compile` +
+  `dargo generate-abi` do not already provide. Revisit if ProofForge adds a
+  browser-facing playground target.
+- Done: add a target-specific Counter acceptance note. The Psy Counter
+  acceptance is: the portable `Counter` IR lowers to `build/psy/Counter.psy`,
+  matches `Examples/Psy/Counter.golden.psy` byte-for-byte, passes
+  `dargo test --file`, compiles via `dargo compile` to non-empty DPN circuit
+  JSON, executes `initialize → increment → increment → get` via
+  `dargo execute` returning `result_vm: [2]`, emits a non-empty ABI via
+  `dargo generate-abi`, writes `proof-forge-deploy.json`, and records all
+  artifacts in `proof-forge-artifact.json` with plan-driven metadata
+  (`moduleName: Counter`, `abi.entrypoints`, `capabilities` including
+  `storage.scalar`). `just psy-smoke counter` runs the full gate.
 
 ### Phase D: Deployment Research
 

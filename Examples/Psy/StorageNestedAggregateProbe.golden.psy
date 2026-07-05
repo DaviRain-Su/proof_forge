@@ -52,8 +52,8 @@ impl StorageNestedAggregateProbeRef {
         c.people[1].profile.rank -= 2u32;
         c.people[1].score = 109;
         c.people[1].score -= 9;
-        let person_rank: u32 = c.person.profile.rank.get() as u32;
-        let people_rank: u32 = c.people[1].profile.rank.get() as u32;
+        let person_rank: u32 = c.person.profile.rank.get();
+        let people_rank: u32 = c.people[1].profile.rank.get();
         let base_sum: Felt = c.person.profile.age.get() + c.person.profile.level.get() + c.person.score.get() + c.people[1].profile.age.get() + c.people[1].score.get() + c.total.get();
         let rank_sum: Felt = person_rank as Felt + people_rank as Felt;
         return base_sum + rank_sum;

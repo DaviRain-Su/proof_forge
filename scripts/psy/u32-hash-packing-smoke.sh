@@ -15,6 +15,7 @@ EXEC_LOG="$PROJECT_DIR/target/u32-hash-packing-execute.log"
 ABI_FILE="$PROJECT_DIR/target/U32HashPackingProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 LITERAL_RESULT="result_vm: [8589934593, 17179869187, 25769803781, 34359738375]"
 PARAM_RESULT="result_vm: [42949672969, 51539607563, 60129542157, 68719476751]"
 
@@ -31,7 +32,9 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture u32-hash-packing -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" U32HashPackingProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -110,7 +113,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --dargo "$DARGO_BIN" \
   --execute-result "$LITERAL_RESULT; $PARAM_RESULT" \
   --capability data.fixed_array \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

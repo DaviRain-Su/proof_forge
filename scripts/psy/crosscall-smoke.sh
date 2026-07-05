@@ -17,6 +17,7 @@ TEST_LOG="$OUT_DIR/crosscall-test.log"
 ABI_FILE="$PROJECT_DIR/target/CrosscallProbe.json"
 DEPLOY_JSON_FILE="$PROJECT_DIR/target/proof-forge-deploy.json"
 METADATA_FILE="$PROJECT_DIR/target/proof-forge-artifact.json"
+PLAN_METADATA_FILE="$PROJECT_DIR/target/plan-metadata.json"
 
 if [[ -z "${DARGO_STD_PATH:-}" && -f "$PSY_HOME/env" ]]; then
   # shellcheck source=/dev/null
@@ -30,7 +31,9 @@ fi
 mkdir -p "$OUT_DIR" "$PROJECT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture crosscall -o "$PSY_FILE"
+lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" CrosscallProbe > "$PLAN_METADATA_FILE"
 
 if [[ -f "$GOLDEN_FILE" ]]; then
   diff -u "$GOLDEN_FILE" "$PSY_FILE"
@@ -91,7 +94,8 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --dargo "$DARGO_BIN" \
   --execute-result "result_vm: []" \
   --capability crosscall.invoke \
-  --capability zk.circuit
+  --capability zk.circuit \
+  --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \
   --root "$ROOT" \

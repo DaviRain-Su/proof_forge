@@ -109,6 +109,7 @@ Statement	assert	lowered	lowerStatement emits assert; AssertProbe and Expression
 Statement	assertEq	lowered	lowerStatement emits assert_eq; AssertProbe, ArrayProbe fixed-array equality, and most executable fixtures cover it.
 Statement	ifElse	lowered	lowerStatement emits Psy if/else statement; ConditionalProbe covers it.
 Statement	boundedFor	lowered	lowerStatement emits static Psy for loop; LoopProbe covers it.
+Statement	whileLoop	unsupported	Psy IR v0 rejects unbounded while loops with an explicit diagnostic; DPN proof backends require statically bounded iteration. Use boundedFor instead.
 Statement	release	unsupported	Psy IR v0 rejects release statements with an explicit diagnostic; release is currently only lowered by EmitWat allocator-aware paths.
 Statement	return	lowered	lowerStatement emits return and validateEntrypointBodies requires non-Unit returns to end with return; all returning fixtures and diagnostics cover it.
 Statement	revert	lowered	lowerStatement emits abort("message"); for revert with message and abort("revertWithError"); for revertWithError.

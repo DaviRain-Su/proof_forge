@@ -121,6 +121,7 @@ Statement	assert	validated	AssertProbe and EvmExpressionProbe validate Yul if is
 Statement	assertEq	validated	AssertProbe and EvmExpressionProbe validate Yul if iszero(eq(lhs, rhs)) revert guards through passing paths and Foundry runtime results.
 Statement	ifElse	validated	ConditionalProbe validates Yul switch/case/default lowering for if/else through then/else storage updates; EvmLoopProbe validates branch-local early returns through Yul leave.
 Statement	boundedFor	validated	EvmLoopProbe validates boundedFor lowering to Yul for loops with scalar storage updates and loop-local early returns through Yul leave; diagnostics reject invalid loop ranges.
+Statement	whileLoop	unsupported	IR EVM v0 rejects unbounded while loops with an explicit diagnostic because EVM gas bounds require statically bounded iteration; use boundedFor instead.
 Statement	release	unsupported	IR EVM v0 rejects release statements with an explicit diagnostic; release is currently only lowered by EmitWat allocator-aware paths.
 Statement	revert	lowered	EvmErrorsProbe validates unconditional revert with empty revert(0,0) and revert with Error(string) ABI encoding; golden Yul confirms correct selector and message encoding.
 Statement	revertWithError	lowered	EvmErrorsProbe validates revertWithError lowering with ErrorRef encoding (assertionId + userCode); golden Yul confirms structured error data is stored and reverted.

@@ -26,6 +26,9 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 
+def nativeValueUnsupportedMessage : String :=
+  "EmitWat: NEAR native value (attached deposit) requires an exact U128 projection; IR v0 cannot lower nativeValue yet"
+
 def indexedEventUnsupportedMessage (name : String) : String :=
   s!"EmitWat: event `{name}` uses indexed fields, but NEAR logs do not support EVM-style topic indexing"
 
@@ -1565,6 +1568,7 @@ partial def collectArrayLitsStmt (s : Statement) : Array (ValueType × Nat) :=
   | .assertEq a b _ _ => collectArrayLitsExpr a ++ collectArrayLitsExpr b
   | .ifElse c t e => collectArrayLitsExpr c ++ t.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[] ++ e.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
   | .boundedFor _ _ _ body => body.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
+  | .whileLoop c body => collectArrayLitsExpr c ++ body.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
   | .release _ | .revert _ | .revertWithError _ => #[]
   | .return v => collectArrayLitsExpr v
 def dedupArrayLits (xs : Array (ValueType × Nat)) : Array (ValueType × Nat) :=
@@ -1632,6 +1636,7 @@ partial def collectStructLitsStmt (s : Statement) : Array String :=
   | .assertEq a b _ _ => collectStructLitsExpr a ++ collectStructLitsExpr b
   | .ifElse c t e => collectStructLitsExpr c ++ t.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[] ++ e.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
   | .boundedFor _ _ _ body => body.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
+  | .whileLoop c body => collectStructLitsExpr c ++ body.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
   | .release _ | .revert _ | .revertWithError _ => #[]
   | .return v => collectStructLitsExpr v
 def dedupStrings (xs : Array String) : Array String :=

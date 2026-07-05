@@ -637,6 +637,50 @@ def indexedEventModule : Module := {
   ]]
 }
 
+def memoryArrayNewModule : Module := {
+  name := "BadMemoryArrayNew"
+  state := #[markerState]
+  entrypoints := #[{
+    name := "bad"
+    returns := .u64
+    body := #[
+      .return (.memoryArrayNew .u64 (.literal (.u64 4)))
+    ]
+  }]
+}
+
+def memoryArrayLengthModule : Module := {
+  name := "BadMemoryArrayLength"
+  state := #[markerState]
+  entrypoints := #[{
+    name := "bad"
+    returns := .u64
+    body := #[
+      .return (.memoryArrayLength (.memoryArrayNew .u64 (.literal (.u64 4))))
+    ]
+  }]
+}
+
+def memoryArrayGetModule : Module := {
+  name := "BadMemoryArrayGet"
+  state := #[markerState]
+  entrypoints := #[{
+    name := "bad"
+    returns := .u64
+    body := #[
+      .return (.memoryArrayGet (.memoryArrayNew .u64 (.literal (.u64 4))) (.literal (.u64 0)))
+    ]
+  }]
+}
+
+def memoryArraySetModule : Module := {
+  name := "BadMemoryArraySet"
+  state := #[markerState]
+  entrypoints := #[unitEntrypoint "bad" #[
+    .effect (.memoryArraySet (.memoryArrayNew .u64 (.literal (.u64 4))) (.literal (.u64 0)) (.literal (.u64 7)))
+  ]]
+}
+
 def renderError? (module : Module) : Option String :=
   match ProofForge.Backend.Psy.IR.renderModule module with
   | .ok _ => none
@@ -917,6 +961,26 @@ def cases : Array (String × Module × String) := #[
     "indexed event unsupported",
     indexedEventModule,
     "event `Seen` uses indexed fields, which are not supported by Psy IR v0"
+  ),
+  (
+    "memory array new unsupported",
+    memoryArrayNewModule,
+    "target `psy-dpn` does not support capability `data.dynamic_array`: capability is not present in the target profile"
+  ),
+  (
+    "memory array length unsupported",
+    memoryArrayLengthModule,
+    "target `psy-dpn` does not support capability `data.dynamic_array`: capability is not present in the target profile"
+  ),
+  (
+    "memory array get unsupported",
+    memoryArrayGetModule,
+    "target `psy-dpn` does not support capability `data.dynamic_array`: capability is not present in the target profile"
+  ),
+  (
+    "memory array set unsupported",
+    memoryArraySetModule,
+    "target `psy-dpn` does not support capability `data.dynamic_array`: capability is not present in the target profile"
   )
 ]
 

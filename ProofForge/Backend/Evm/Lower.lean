@@ -1325,6 +1325,8 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         let (bodyPlans, _) ← buildStatementPlans module entrypoint loopEnv body
         .ok (.boundedFor indexName start stopExclusive bodyPlans, env)
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by EVM IR v0; use boundedFor" }
     | .return value => do
         ensureType "return value" entrypoint.returns (← inferExprType module env value)
         .ok (.return (← buildExprPlan module env value), env)
@@ -1641,6 +1643,7 @@ mutual
         | .boundedFor indexName _ _ body => do
             let loopEnv ← addLocal current indexName .u32 false
             acc ← collectEventPlansFromStatements module loopEnv acc body
+        | .whileLoop _ _ => pure ()
         | .return value => do
             acc ← collectEventPlansFromExpr module current acc value
       pure acc
@@ -1891,6 +1894,7 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         let (bodySpecs, _) ← crosscallHelperSpecsFromStatements module loopEnv body
         .ok (bodySpecs, env)
+    | .whileLoop _ _ => .ok (#[], env)
     | .return value => do
         .ok (← crosscallHelperSpecsFromExpr module env value, env)
 
@@ -2038,6 +2042,7 @@ mutual
           (mergeCreateHelperSpecs (createHelperSpecsFromStatements thenBody) (createHelperSpecsFromStatements elseBody))
     | .boundedFor _ _ _ body =>
         createHelperSpecsFromStatements body
+    | .whileLoop _ _ => #[]
     | .return value =>
         createHelperSpecsFromExpr value
 
@@ -2231,6 +2236,7 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         let (bodyLengths, _) ← localArrayGetLengthsStatements loopEnv body
         .ok (bodyLengths, env)
+    | .whileLoop _ _ => .ok (#[], env)
     | .return value =>
         .ok (localArrayGetLengthsExpr env value, env)
 
@@ -2397,6 +2403,7 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         let (bodyShapes, _) ← nestedLocalArrayGetShapesStatements loopEnv body
         .ok (bodyShapes, env)
+    | .whileLoop _ _ => .ok (#[], env)
     | .return value =>
         .ok (nestedLocalArrayGetShapesExpr env value, env)
 

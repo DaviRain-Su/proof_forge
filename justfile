@@ -86,6 +86,13 @@ solana-lean:
     lake env lean --run Tests/SolanaReturnDataCompute.lean
     lake env lean --run Tests/SolanaComputeBudgetInstruction.lean
     lake env lean --run Tests/SolanaPdaSeeds.lean
+    lake env lean --run Tests/SolanaLoop.lean
+    lake env lean --run Tests/SolanaStorageArray.lean
+    lake env lean --run Tests/SolanaStorageArrayStruct.lean
+    lake env lean --run Tests/SolanaStorageStructField.lean
+    lake env lean --run Tests/SolanaFixedArrayStruct.lean
+    lake env lean --run Tests/SolanaHash.lean
+    lake env lean --run Tests/SolanaMemoryArray.lean
     lake env lean --run Tests/LearnSource.lean
     lake env lean --run Tests/SharedContractSource.lean
     lake env lean --run Tests/LearnDiagnostics.lean
@@ -312,7 +319,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
+check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
@@ -328,6 +335,7 @@ psy-golden-sources:
       "arithmetic:ArithmeticProbe"
       "bitwise:BitwiseProbe"
       "conditional:ConditionalProbe"
+      "else-if:ElseIfProbe"
       "u32-arithmetic:U32ArithmeticProbe"
       "u32-hash-packing:U32HashPackingProbe"
       "u32-storage-scalar:U32StorageScalarProbe"
@@ -360,6 +368,21 @@ psy-diagnostics:
 # Check the Psy portable IR coverage manifest.
 psy-coverage:
     scripts/psy/check-ir-coverage-manifest.py
+
+# Run Psy plan-driven metadata unit tests.
+psy-metadata:
+    lake build ProofForge.Backend.Psy.Metadata
+    lake env lean --run Tests/PsyMetadata.lean
+
+# Run Psy metadata validation unit tests (Python).
+psy-metadata-validation:
+    python3 scripts/psy/test-metadata-validation.py
+
+# Run Psy metadata CLI smoke test.
+psy-metadata-cli:
+    lake build proof-forge
+    diff <(lake env lean --run Tests/PsyMetadataExport.lean Counter) \
+      <(lake env proof-forge metadata --fixture counter)
 
 # List available Psy smoke fixture names for `just psy-smoke <name>`.
 psy-smokes-list:
