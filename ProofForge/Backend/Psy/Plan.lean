@@ -110,10 +110,6 @@ def ContextOp.name : ContextOp → String
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
 
-structure ContextPlan where
-  ops : Array ContextOp
-  deriving Repr
-
 /-! ## Event plan -/
 
 structure EventPlan where
