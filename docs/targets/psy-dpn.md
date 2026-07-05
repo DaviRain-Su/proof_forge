@@ -1362,8 +1362,8 @@ EVM `Lower.lean` → `Plan.lean` split.
   `ProofForge.Backend.Evm.Plan`. Captures:
   - `StorageLayout`: per-state resolved shape (scalar/structRef/map/array +
     feltBackedU32 flag).
-  - `ContextPlan`: context fields actually used (userId/contractId/
-    checkpointId), for artifact metadata.
+  - `contextOps : Array ContextOp`: context fields actually used (userId/
+    contractId/checkpointId), for artifact metadata.
   - `EventPlan`: event name + ordered data field names.
   - `CrosscallPlan`: crosscall target contract ids.
   - `TestPlan`: fixture-shape-detected test function name + body lines
