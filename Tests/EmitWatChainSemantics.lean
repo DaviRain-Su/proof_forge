@@ -20,15 +20,17 @@ def requireError (name : String) (module : Module) (expected : String) : IO Unit
       IO.eprintln s!"{name}: expected EmitWat to reject the module"
       throw <| IO.userError s!"{name}: EmitWat unexpectedly accepted module"
 
-def nativeValueModule : Module := {
-  name := "NativeValueProbe"
-  state := #[]
-  entrypoints := #[{
-    name := "native_value"
-    returns := .u64
-    body := #[.return .nativeValue]
-  }]
-}
+def requireRenderedContains (name : String) (module : Module) (needles : Array String) : IO Unit :=
+  match renderModule module with
+  | .ok wat => do
+      for needle in needles do
+        if !wat.contains needle then do
+          IO.eprintln s!"{name}: rendered WAT missing `{needle}`"
+          throw <| IO.userError s!"{name}: EmitWat rendered output mismatch"
+  | .error error => do
+      IO.eprintln s!"{name}: expected EmitWat to render the module"
+      IO.eprintln s!"  actual error: {error.message}"
+      throw <| IO.userError s!"{name}: EmitWat unexpectedly rejected module"
 
 def indexedEventModule : Module := {
   name := "IndexedEventProbe"
@@ -57,8 +59,7 @@ def crosscallModule : Module := {
 }
 
 def main : IO UInt32 := do
-  requireError "native value" nativeValueModule ProofForge.Backend.WasmNear.EmitWat.nativeValueUnsupportedMessage
-  requireError "indexed event" indexedEventModule (ProofForge.Backend.WasmNear.EmitWat.indexedEventUnsupportedMessage "Seen")
+  requireRenderedContains "indexed event" indexedEventModule #["Seen", "account", "value", "log_utf8"]
   requireError "crosscall" crosscallModule ProofForge.Backend.WasmNear.EmitWat.crosscallUnsupportedMessage
   IO.println "emitwat-chain-semantics: ok"
   return 0

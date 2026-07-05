@@ -4,10 +4,7 @@ import ProofForge.IR.Contract
 open ProofForge.IR ProofForge.Backend.WasmNear.EmitWat
 
 /-! Context probe: predecessor/contract id determinism (sha256 of account id),
-    block_height (checkpoint), and signer (origin).
-
-`nativeValue` / NEAR attached deposit remains an explicit unsupported EmitWat
-diagnostic until the portable IR has an exact U128 projection. -/
+    block_height (checkpoint), signer (origin), and attached deposit (`nativeValue`). -/
 
 def callerStable : Entrypoint := {
   name := "callerStable", returns := .u64,
@@ -43,24 +40,20 @@ def depositModule : Module := {
   name := "DepositProbe", state := #[],
   entrypoints := #[depositProbe] }
 
-def requireNativeValueUnsupported : IO Unit :=
-  match renderModule depositModule with
-  | .error e =>
-      if e.message == nativeValueUnsupportedMessage then
-        pure ()
-      else
-        IO.eprintln s!"EmitWat nativeValue diagnostic mismatch: {e.message}" *> IO.Process.exit 1
-  | .ok _ =>
-      IO.eprintln "EmitWat unexpectedly lowered nativeValue for wasm-near" *> IO.Process.exit 1
-
-def main : IO UInt32 := do
-  requireNativeValueUnsupported
-  match renderModule contextModule with
+def writeModule (path : String) (module : Module) : IO UInt32 := do
+  match renderModule module with
   | .ok wat =>
-    IO.FS.createDirAll "build/wasm-near"
-    IO.FS.writeFile "build/wasm-near/emitwat-context.wat" wat
-    IO.println s!"wrote build/wasm-near/emitwat-context.wat ({wat.length} bytes)"
+    IO.FS.writeFile path wat
+    IO.println s!"wrote {path} ({wat.length} bytes)"
     pure 0
   | .error e =>
-    IO.eprintln s!"EmitWat failed: {e.message}"
+    IO.eprintln s!"EmitWat failed for {module.name}: {e.message}"
     pure 1
+
+def main : IO UInt32 := do
+  IO.FS.createDirAll "build/wasm-near"
+  let contextCode ← writeModule "build/wasm-near/emitwat-context.wat" contextModule
+  if contextCode != 0 then
+    pure contextCode
+  else
+    writeModule "build/wasm-near/emitwat-deposit.wat" depositModule
