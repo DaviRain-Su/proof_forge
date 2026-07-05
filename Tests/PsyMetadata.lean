@@ -7,8 +7,8 @@ import ProofForge.IR.Examples.ContextProbe
 namespace ProofForge.Tests.PsyMetadata
 
 open ProofForge.Backend.Psy.Metadata
-open ProofForge.IR
 open ProofForge.Backend.Psy.Plan (PlanError)
+open ProofForge.IR
 
 def requireOk (x : Except PlanError α) (msg : String) : IO α :=
   match x with
@@ -20,6 +20,27 @@ def assertEq [Repr α] [BEq α] (name : String) (expected actual : α) : IO Unit
     IO.println s!"ok: {name}"
   else
     throw <| IO.userError s!"fail: {name}\n  expected: {repr expected}\n  actual:   {repr actual}"
+
+def typedEventModule : Module := {
+  name := "TypedEventTest"
+  state := #[]
+  entrypoints := #[
+    {
+      name := "emit_typed"
+      returns := .unit
+      body := #[
+        .effect (.eventEmit "TypedEvent" #[
+          ("count", .literal (.u64 42)),
+          ("flag", .literal (.bool true)),
+          ("pair", .structLit "Pair" #[
+            ("left", .literal (.u64 1)),
+            ("right", .literal (.u64 2))
+          ])
+        ])
+      ]
+    }
+  ]
+}
 
 def main : IO Unit := do
   let counterMeta ← requireOk (buildPlanArtifactMetadata Examples.Counter.module) "counter metadata"
@@ -33,14 +54,19 @@ def main : IO Unit := do
   let mapMeta ← requireOk (buildPlanArtifactMetadata Examples.MapProbe.module) "map metadata"
   assertEq "map has capabilities" false mapMeta.capabilities.isEmpty
 
-  let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata"
+  let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata")
   assertEq "event has events" false eventMeta.events.isEmpty
   assertEq "event has fields" false eventMeta.events[0]!.fields.isEmpty
-  -- EventProbe fields are all .local expressions, so type inference falls
-  -- back to feltBackedTypeName ("Felt"). Verify the fallback works.
-  assertEq "event field type" "Felt" (eventMeta.events[0]!.fields[0]!.type)
+  -- EventProbe's only Psy entrypoint emits a .local value, so type inference falls
+  -- back to "Felt". Verify the fallback works.
+  assertEq "event field fallback type" "Felt" (eventMeta.events[0]!.fields[0]!.type)
 
-  let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata"
+  let typedEventMeta ← requireOk (buildPlanArtifactMetadata typedEventModule) "typed event metadata")
+  assertEq "typed event count field type" "U64" typedEventMeta.events[0]!.fields[0]!.type
+  assertEq "typed event flag field type" "Bool" typedEventMeta.events[0]!.fields[1]!.type
+  assertEq "typed event pair field type" "Pair" typedEventMeta.events[0]!.fields[2]!.type
+
+  let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata")
   assertEq "context has contextOps" false ctxMeta.contextOps.isEmpty
   -- ContextProbe uses userId, contractId, and checkpointId.
   assertEq "context op names" #["userId", "contractId", "checkpointId"]
