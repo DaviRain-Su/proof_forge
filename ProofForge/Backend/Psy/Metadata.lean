@@ -30,13 +30,13 @@ open ProofForge.Backend.Psy.Plan
 structure AbiParamDescriptor where
   name : String
   type : String
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 structure AbiEntrypointDescriptor where
   name : String
   params : Array AbiParamDescriptor
   returnType : String
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 def abiParamDescriptor (param : String × ValueType) : AbiParamDescriptor :=
   { name := param.fst, type := param.snd.name }
@@ -56,12 +56,12 @@ def abiEntrypointDescriptors (module : Module) : Array AbiEntrypointDescriptor :
 structure AbiEventFieldDescriptor where
   name : String
   type : String
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 structure AbiEventDescriptor where
   name : String
   fields : Array AbiEventFieldDescriptor
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
   {
@@ -69,27 +69,40 @@ def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
     fields := event.dataFields.map (fun fieldName => { name := fieldName, type := psyFeltTypeName })
   }
 
+def pushUniqueEvent (events : Array AbiEventDescriptor) (event : AbiEventDescriptor) : Array AbiEventDescriptor :=
+  if events.any (fun e => e.name == event.name && e.fields == event.fields) then events else events.push event
+
+def dedupEvents (events : Array AbiEventDescriptor) : Array AbiEventDescriptor :=
+  events.foldl pushUniqueEvent #[]
+
 def abiEventDescriptors (plan : PsyModulePlan) : Array AbiEventDescriptor :=
-  plan.events.map abiEventDescriptor
+  dedupEvents (plan.events.map abiEventDescriptor)
 
 /-! ## Context and crosscall metadata -/
 
 structure ContextOpDescriptor where
   name : String
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 def contextOpDescriptor (op : ContextOp) : ContextOpDescriptor :=
   { name := op.name }
 
+def pushUniqueContextOp (ops : Array ContextOpDescriptor) (op : ContextOpDescriptor) : Array ContextOpDescriptor :=
+  if ops.any (fun o => o.name == op.name) then ops else ops.push op
+
+def dedupContextOps (ops : Array ContextOpDescriptor) : Array ContextOpDescriptor :=
+  ops.foldl pushUniqueContextOp #[]
+
 def contextOpDescriptors (plan : PsyModulePlan) : Array ContextOpDescriptor :=
-  plan.contextOps.map contextOpDescriptor
+  dedupContextOps (plan.contextOps.map contextOpDescriptor)
 
 structure CrosscallDescriptor where
   targetContractId : String
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
 def crosscallDescriptors (plan : PsyModulePlan) : Array CrosscallDescriptor :=
-  plan.crosscalls.targets.map (fun target => { targetContractId := target })
+  let targets := plan.crosscalls.targets.map (fun target => { targetContractId := target })
+  targets.foldl (fun acc c => if acc.any (fun existing => existing.targetContractId == c.targetContractId) then acc else acc.push c) #[]
 
 /-! ## Artifact metadata -/
 
