@@ -1,0 +1,76 @@
+[scenario]
+name = "staking-vault"
+fixture = "staking-vault"
+source = "Examples/Shared/StakingVault.lean"
+targets = ["evm"]
+capabilities = ["storage.scalar", "storage.map", "entrypoint.external", "events.emit", "caller.sender", "value.native"]
+
+[scenario.reference.toolchain]
+revm = "41.0.0"
+
+[[artifact]]
+target = "evm"
+name = "yul"
+contains = [
+  'object "StakingVault"',
+  'case 0x',
+  'function f_StakingVault_',
+]
+
+[[artifact]]
+target = "evm"
+name = "bytecode"
+contains = ["60e0"]
+
+[[artifact]]
+target = "evm"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "evm"
+
+[[artifact.json]]
+path = "targetFamily"
+kind = "string"
+equals = "evm"
+
+[[artifact.json]]
+path = "artifactKind"
+kind = "string"
+equals = "evm-bytecode"
+
+[[artifact.json]]
+path = "fixture"
+kind = "string"
+equals = "StakingVault"
+
+[[artifact.json]]
+path = "sourceKind"
+kind = "string"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+# Scenario steps
+[[step]]
+call = "init"
+
+[[step]]
+call = "totalDeposits"
+[step.expect.return]
+u64 = 0
+
+[[step]]
+call = "totalShares"
+[step.expect.return]
+u64 = 0

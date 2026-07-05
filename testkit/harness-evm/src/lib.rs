@@ -168,6 +168,8 @@ fn build_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFixtureArti
         "counter" => build_counter_fixture(case, repo_root),
         "value-vault" => build_value_vault_fixture(case, repo_root),
         "error-ref" => build_error_ref_fixture(repo_root),
+        "role-gated-token" => build_contract_source_fixture_by_name(case, repo_root, "RoleGatedToken"),
+        "staking-vault" => build_contract_source_fixture_by_name(case, repo_root, "StakingVault"),
         fixture => bail!("EVM testkit harness does not support fixture `{fixture}` yet"),
     }
 }
@@ -448,6 +450,64 @@ fn ensure_evm_outputs(
         deploy_manifest_path.display()
     );
     Ok(())
+}
+
+fn build_contract_source_fixture_by_name(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    contract_name: &str,
+) -> Result<EvmFixtureArtifact> {
+    let out_dir = repo_root.join("build/testkit/evm");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create `{}`", out_dir.display()))?;
+
+    let build = Command::new("lake")
+        .current_dir(repo_root)
+        .args(["build", "proof-forge"])
+        .output()
+        .context("failed to build proof-forge executable")?;
+    if !build.status.success() {
+        bail!(
+            "lake build proof-forge failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+    }
+
+    let bytecode_path = out_dir.join(format!("{}.bin", contract_name));
+    let yul_path = out_dir.join(format!("{}.yul", contract_name));
+    let metadata_path = out_dir.join(format!("{}.proof-forge-artifact.json", contract_name));
+    let init_code_path = out_dir.join(format!("{}.init.bin", contract_name));
+    let deploy_manifest_path = out_dir.join(format!("{}.proof-forge-deploy.json", contract_name));
+
+    if let Some(source_path) = scenario_source(case, repo_root)? {
+        build_contract_source_fixture(
+            case,
+            repo_root,
+            &source_path,
+            &bytecode_path,
+            &yul_path,
+            &metadata_path,
+        )?;
+        ensure_evm_outputs(
+            contract_name,
+            &bytecode_path,
+            &metadata_path,
+            &init_code_path,
+            &deploy_manifest_path,
+        )?;
+        return Ok(EvmFixtureArtifact {
+            bytecode_path,
+            metadata_path,
+            yul_path,
+            init_code_path,
+            deploy_manifest_path,
+            contract_spec_path: None,
+            evm_abi_path: None,
+        });
+    }
+
+    bail!("{contract_name} testkit fixture requires a contract source path");
 }
 
 fn build_error_ref_fixture(repo_root: &Path) -> Result<EvmFixtureArtifact> {
