@@ -117,6 +117,12 @@ def isFeltBackedU32ArrayCtx (ctx : BuildContext) (stateId : String) : Bool :=
   | some { shape := .array _ _ true, .. } => true
   | _ => false
 
+/-- Decide whether a resolved storage path should use the Felt-backed U32 rewrite.
+    True only when the root state is a felt-backed U32 array and the path is a
+    valid index/field path into that array. -/
+def storagePathFeltBacked (ctx : BuildContext) (stateId : String) (pathType : ValueType) (_path : Array IR.StoragePathSegment) : Bool :=
+  isFeltBackedU32ArrayCtx ctx stateId && pathType == .u32
+
 /-- Recursively resolve storage path segments against the module struct graph. -/
 partial def resolvePathSegments (module : Module) : ValueType → List StoragePathSegment → Except LowerError ValueType
   | type, [] => .ok type
@@ -1326,7 +1332,7 @@ mutual
             | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
         | some _ =>
             let pathType ← resolveStoragePathTypeCtx ctx stateId path
-            let feltBacked := pathType == .u32
+            let feltBacked := storagePathFeltBacked ctx stateId pathType path
             .ok <| .storagePathRead stateId (← buildStoragePath ctx path) feltBacked
         | none => .error { message := s!"unknown storage path state `{stateId}`" }
     | .storagePathWrite _ _ _ =>
@@ -1433,7 +1439,7 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
           | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
       | some _ =>
           let pathType ← resolveStoragePathTypeCtx ctx stateId path
-          let feltBacked := isFeltBackedU32ArrayCtx ctx stateId
+          let feltBacked := storagePathFeltBacked ctx stateId pathType path
           .ok <| .effect (.storagePathWrite stateId (← buildStoragePath ctx path) (← buildExpr ctx value) feltBacked)
       | none => .error { message := s!"unknown storage path state `{stateId}`" }
   | .storagePathAssignOp stateId path op value => do
@@ -1442,7 +1448,7 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
       match lookupState? ctx stateId with
       | some { shape := .map _ _ _, .. } => .error { message := s!"storage path state `{stateId}` map values do not support compound assignment" }
       | some { shape := .array .u32 _ _, .. } =>
-          if pathType == .u32 then
+          if storagePathFeltBacked ctx stateId pathType path then
             let segs ← buildStoragePath ctx path
             let target := Lean.Compiler.Psy.StorageTarget.path stateId segs false
             let read := Lean.Compiler.Psy.Expr.storagePathRead stateId segs true
