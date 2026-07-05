@@ -62,6 +62,7 @@ def mapWriteFunctionName : String := "__proof_forge_map_write"
 def mapSetReturnFunctionName : String := "__proof_forge_map_set_return"
 def arraySlotFunctionName : String := "__proof_forge_array_slot"
 def structArraySlotFunctionName : String := "__proof_forge_struct_array_slot"
+def dynamicArraySlotFunctionName : String := "__proof_forge_dynamic_array_slot"
 def hashWordFunctionName : String := "__proof_forge_hash_word"
 def hashPairFunctionName : String := "__proof_forge_hash_pair"
 def crosscallReturnTypeSuffix : ValueType → Except LowerError String
@@ -1385,8 +1386,14 @@ mutual
         .ok elementType
     | .array _, _, _ =>
         .error { message := "EVM IR v0 supports only single-segment index storage paths for arrays" }
+    | .dynamicArray, _, [] =>
+        .error { message := s!"storage path state `{stateId}` is dynamic array storage; first segment must be an index" }
+    | .dynamicArray, _, [StoragePathSegment.index index] => do
+        let (_, elementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+        ensureArrayIndexType s!"dynamic array state `{stateId}` index" (← inferExprType module env index)
+        .ok elementType
     | .dynamicArray, _, _ =>
-        .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
+        .error { message := "EVM IR v0 supports only single-segment index storage paths for dynamic arrays" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
     | .storageScalarRead stateId =>
@@ -2022,6 +2029,15 @@ mutual
     let plan ← lowerPlan <| ProofForge.Backend.Evm.Plan.arraySlotPlan module stateId index
     lowerStorageSlotPlanExpr module env plan
 
+  partial def lowerDynamicArraySlotExpr
+      (module : Module)
+      (env : TypeEnv)
+      (stateId : String)
+      (index : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Expr := do
+    discard <| lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+    let plan ← lowerPlan <| ProofForge.Backend.Evm.Plan.dynamicArraySlotPlan module stateId index
+    lowerStorageSlotPlanExpr module env plan
+
   partial def lowerArrayReadExprFallback
       (module : Module)
       (env : TypeEnv)
@@ -2044,6 +2060,13 @@ mutual
           indexPlan
     | .ok _ | .error _ =>
         lowerArrayReadExprFallback module env stateId index
+
+  partial def lowerDynamicArrayReadExpr
+      (module : Module)
+      (env : TypeEnv)
+      (stateId : String)
+      (index : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Expr := do
+    .ok (Lean.Compiler.Yul.builtin "sload" #[← lowerDynamicArraySlotExpr module env stateId index])
 
   partial def lowerStructFieldSlotExpr
       (module : Module)
@@ -3392,6 +3415,16 @@ def lowerArrayWriteStmt
     ← lowerScalarPlanExprOrFallback module env value
   ]))
 
+def lowerDynamicArrayWriteStmt
+    (module : Module)
+    (env : TypeEnv)
+    (stateId : String)
+    (index value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+  .ok (.exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
+    ← lowerDynamicArraySlotExpr module env stateId index,
+    ← lowerScalarPlanExprOrFallback module env value
+  ]))
+
 partial def lowerArrayWriteStmtPlanOrFallback
     (module : Module)
     (env : TypeEnv)
@@ -3677,7 +3710,12 @@ def lowerStoragePathWriteStmt
     (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement :=
   match path.toList with
   | [StoragePathSegment.mapKey key] => lowerMapWriteStmt module env stateId key value
-  | [StoragePathSegment.index index] => lowerArrayWriteStmt module env stateId index value
+  | [StoragePathSegment.index index] => do
+      let state ← stateDeclOf module stateId "storage path"
+      match state.kind with
+      | .array _ => lowerArrayWriteStmt module env stateId index value
+      | .dynamicArray => lowerDynamicArrayWriteStmt module env stateId index value
+      | _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
   | [StoragePathSegment.field fieldName] => lowerStructFieldWriteStmt module env stateId fieldName value
   | [StoragePathSegment.index index, StoragePathSegment.field fieldName] =>
       lowerStructArrayFieldWriteStmt module env stateId index fieldName value
@@ -3752,7 +3790,11 @@ def lowerStoragePathAssignOpStmt
         ← lowerMapScalarPlanExprOrFallback module env value
       ]))
   | [StoragePathSegment.index index] => do
-      let storageSlot ← lowerArraySlotExpr module env stateId index
+      let state ← stateDeclOf module stateId "storage path"
+      let storageSlot ← match state.kind with
+        | .array _ => lowerArraySlotExpr module env stateId index
+        | .dynamicArray => lowerDynamicArraySlotExpr module env stateId index
+        | _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
       .ok (.block { statements := #[
         .varDecl #[{ name := "_slot" }] (some storageSlot),
         .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
@@ -6112,6 +6154,22 @@ def arrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
     }
 ]
 
+def dynamicArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+  .funcDef dynamicArraySlotFunctionName
+    #[{ name := "slot" }, { name := "index" }]
+    #[{ name := "result" }]
+    {
+      statements := #[
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.id "slot"]),
+        .assignment #["result"]
+          (Lean.Compiler.Yul.builtin "add" #[
+            Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 32],
+            Lean.Compiler.Yul.Expr.id "index"
+          ])
+      ]
+    }
+]
+
 def localArrayGetFunctionParams (length : Nat) : Array Lean.Compiler.Yul.TypedName :=
   Id.run do
     let mut params : Array Lean.Compiler.Yul.TypedName := #[{ name := "index" }]
@@ -7124,8 +7182,15 @@ def validateState (module : Module) : Except LowerError Unit := do
         validateStorageStructState s!"array state `{state.id}`" typeName module
     | .array _, other =>
         .error { message := s!"array state `{state.id}` has unsupported EVM IR v0 element type `{other.name}`; storage arrays support U32, U64, Bool, Hash, or flat struct arrays" }
-    | .dynamicArray, _ =>
-        .error { message := s!"state `{state.id}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage" }
+    | .dynamicArray, elementType =>
+        if isStorageWordType elementType then
+          pure ()
+        else
+          .error {
+            message :=
+              s!"dynamic array state `{state.id}` has unsupported EVM IR v0 element type `{elementType.name}`; " ++
+              "dynamic storage arrays support U8, U32, U64, U128, Bool, Hash, or Address"
+          }
 
 def validateCapabilities (module : Module) : Except LowerError Unit :=
   match resolveModule Target.evm module with
@@ -7142,6 +7207,10 @@ def plannedMapHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
 def plannedArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
   if plan.hasHelper .arraySlot then arrayHelperFunctions else #[]
+
+def plannedDynamicArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    Array Lean.Compiler.Yul.Statement :=
+  if plan.hasHelper .dynamicArraySlot then dynamicArrayHelperFunctions else #[]
 
 def plannedStructArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
@@ -7279,6 +7348,7 @@ def lowerModuleWithPlan
       dispatchBlock module
   let helpers := plannedMapHelperFunctions plan
   let helpers := helpers ++ plannedArrayHelperFunctions plan
+  let helpers := helpers ++ plannedDynamicArrayHelperFunctions plan
   let helpers := helpers ++ plannedStructArrayHelperFunctions plan
   let helpers := helpers ++ plannedHashHelperFunctions plan
   let completePlan := entrypointPlanIsComplete module plan.entrypoints

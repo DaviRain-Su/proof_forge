@@ -1514,8 +1514,11 @@ def storageSlotExpr
         Lean.Compiler.Yul.Expr.num fieldOffset,
         ← lowerValuePlan lowerExpr index
       ])
-  | .dynamicArraySlot _ _ =>
-      .error (mkError "EVM dynamic array storage is not yet supported")
+  | .dynamicArraySlot rootSlot index => do
+      .ok (helperCall Helper.dynamicArraySlot #[
+        slotExpr rootSlot,
+        ← lowerValuePlan lowerExpr index
+      ])
 
 def storagePathReadExprFromPlan
     {ε : Type}

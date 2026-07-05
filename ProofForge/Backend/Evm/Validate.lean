@@ -1038,8 +1038,14 @@ mutual
         .ok elementType
     | .array _, _, _ =>
         .error { message := "EVM IR v0 supports only single-segment index storage paths for arrays" }
+    | .dynamicArray, _, [StoragePathSegment.index index] => do
+        let (_, elementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+        ensureArrayIndexType s!"dynamic array state `{stateId}` index" (← inferExprType module env index)
+        .ok elementType
+    | .dynamicArray, _, [] =>
+        .error { message := s!"storage path state `{stateId}` is dynamic array storage; first segment must be an index" }
     | .dynamicArray, _, _ =>
-        .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
+        .error { message := "EVM IR v0 supports only single-segment index storage paths for dynamic arrays" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
     | .storageScalarRead stateId =>

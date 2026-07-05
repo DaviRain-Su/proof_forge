@@ -469,6 +469,7 @@ evm-ir-smokes:
       struct-value
       abi-aggregate
       dynamic-abi
+      dynamic-array
       packed-storage
       errors
       fallback

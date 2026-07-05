@@ -17,6 +17,7 @@ import ProofForge.IR.Examples.EvmArrayValueProbe
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmAssignOpProbe
 import ProofForge.IR.Examples.EvmCrosscallProbe
+import ProofForge.IR.Examples.EvmDynamicArrayProbe
 import ProofForge.IR.Examples.EvmContextProbe
 import ProofForge.IR.Examples.EvmExpressionProbe
 import ProofForge.IR.Examples.EvmHashProbe

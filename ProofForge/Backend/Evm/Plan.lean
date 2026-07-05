@@ -528,7 +528,11 @@ def storagePathWriteTargetPlan
       let mapState ← requireMapState module stateId
       .ok (.mapWrite mapState.rootSlot (ValuePlan.fromExpr key))
   | [StoragePathSegment.index index] => do
-      .ok (.singleSlot (← arraySlotPlan module stateId index))
+      let (_, state) ← requireState module stateId
+      match state.kind with
+      | .array _ => .ok (.singleSlot (← arraySlotPlan module stateId index))
+      | .dynamicArray => .ok (.singleSlot (← dynamicArraySlotPlan module stateId index))
+      | .scalar | .map _ _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
   | [StoragePathSegment.field fieldName] => do
       .ok (.singleSlot (← structFieldSlotPlan module stateId fieldName))
   | [StoragePathSegment.index index, StoragePathSegment.field fieldName] => do
@@ -555,8 +559,12 @@ def storagePathReadSlotPlan
   match path.toList with
   | [StoragePathSegment.mapKey key] =>
       mapValueSlotPlan module stateId #[key]
-  | [StoragePathSegment.index index] =>
-      arraySlotPlan module stateId index
+  | [StoragePathSegment.index index] => do
+      let (_, state) ← requireState module stateId
+      match state.kind with
+      | .array _ => arraySlotPlan module stateId index
+      | .dynamicArray => dynamicArraySlotPlan module stateId index
+      | .scalar | .map _ _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
   | [StoragePathSegment.field fieldName] =>
       structFieldSlotPlan module stateId fieldName
   | [StoragePathSegment.index index, StoragePathSegment.field fieldName] =>
@@ -589,6 +597,14 @@ def isSupportedArrayState (state : StateDecl) : Bool :=
 
 def moduleUsesSupportedArray (module : Module) : Bool :=
   module.state.any isSupportedArrayState
+
+def isSupportedDynamicArrayState (state : StateDecl) : Bool :=
+  match state.kind, state.type with
+  | .dynamicArray, elementType => isStorageWordType elementType
+  | _, _ => false
+
+def moduleUsesSupportedDynamicArray (module : Module) : Bool :=
+  module.state.any isSupportedDynamicArrayState
 
 def moduleUsesSupportedStructArray (module : Module) : Bool :=
   module.state.any fun state =>
@@ -651,6 +667,11 @@ def moduleHelpers (module : Module) : HelperSet :=
   let helpers :=
     if moduleUsesSupportedStructArray module then
       HelperSet.insert helpers .structArraySlot
+    else
+      helpers
+  let helpers :=
+    if moduleUsesSupportedDynamicArray module then
+      HelperSet.insert helpers .dynamicArraySlot
     else
       helpers
   if moduleUsesHash module then
