@@ -502,6 +502,10 @@ mutual
         match structArrayFieldWriteTargetPlan? module stateId fieldName with
         | some target => .ok (.storageArrayStructFieldWriteTarget target indexPlan valuePlan)
         | none => .ok (.storageArrayStructFieldWrite stateId indexPlan fieldName valuePlan)
+    | .storageDynamicArrayPush stateId value => do
+        .ok (.storageDynamicArrayPush stateId (← buildExprPlan module env value))
+    | .storageDynamicArrayPop stateId =>
+        .ok (.storageDynamicArrayPop stateId)
     | .storageStructFieldRead stateId fieldName =>
         match structFieldReadTargetPlan? module stateId fieldName with
         | some target => .ok (.storageStructFieldReadTarget target)
@@ -770,6 +774,8 @@ mutual
         let collector ← collectEventPlansFromExpr module env collector index
         collectEventPlansFromExpr module env collector value
     | .storageArrayStructFieldRead _ index _ => collectEventPlansFromExpr module env collector index
+    | .storageDynamicArrayPush _ value => collectEventPlansFromExpr module env collector value
+    | .storageDynamicArrayPop _ => pure collector
     | .storageStructFieldRead _ _ => pure collector
     | .storageStructFieldWrite _ _ value => collectEventPlansFromExpr module env collector value
     | .storagePathRead _ path =>
@@ -1016,6 +1022,10 @@ mutual
         let keySpecs ← crosscallHelperSpecsFromExpr module env key
         let valueSpecs ← crosscallHelperSpecsFromExpr module env value
         .ok (mergeCrosscallHelperSpecs keySpecs valueSpecs)
+    | .storageDynamicArrayPush _ value =>
+        crosscallHelperSpecsFromExpr module env value
+    | .storageDynamicArrayPop _ =>
+        .ok #[]
     | .storagePathRead _ path =>
         path.foldlM (init := #[]) fun acc segment => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromStoragePathSegment module env segment))
@@ -1166,6 +1176,10 @@ mutual
     | .storageArrayWrite _ key value
     | .storageArrayStructFieldWrite _ key _ value =>
         mergeCreateHelperSpecs (createHelperSpecsFromExpr key) (createHelperSpecsFromExpr value)
+    | .storageDynamicArrayPush _ value =>
+        createHelperSpecsFromExpr value
+    | .storageDynamicArrayPop _ =>
+        #[]
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromStoragePathSegment segment)
@@ -1329,6 +1343,10 @@ mutual
     | .storageArrayWrite _ key value
     | .storageArrayStructFieldWrite _ key _ value =>
         mergeNatSets (localArrayGetLengthsExpr env key) (localArrayGetLengthsExpr env value)
+    | .storageDynamicArrayPush _ value =>
+        localArrayGetLengthsExpr env value
+    | .storageDynamicArrayPop _ =>
+        #[]
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeNatSets acc (localArrayGetLengthsStoragePathSegment env segment)
@@ -1470,6 +1488,10 @@ mutual
     | .storageArrayWrite _ key value
     | .storageArrayStructFieldWrite _ key _ value =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env key) (nestedLocalArrayGetShapesExpr env value)
+    | .storageDynamicArrayPush _ value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .storageDynamicArrayPop _ =>
+        #[]
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesStoragePathSegment env segment)

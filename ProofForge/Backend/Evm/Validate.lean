@@ -1084,6 +1084,10 @@ mutual
         .ok field.type
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         let (_, field) ← requireStructStateField module stateId fieldName
         .ok field.type
@@ -1200,6 +1204,12 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       let (_, _, _, _, field) ← requireStructArrayStateField module stateId fieldName
       ensureArrayIndexType s!"struct array state `{stateId}` index" (← inferExprType module env index)
       ensureType s!"struct array state `{stateId}` field `{fieldName}` write" field.type (← inferExprType module env value)
+  | .storageDynamicArrayPush stateId value => do
+      let (_, elementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+      ensureType s!"dynamic array state `{stateId}` push" elementType (← inferExprType module env value)
+  | .storageDynamicArrayPop stateId => do
+      let _ ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+      .ok ()
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
@@ -1604,6 +1614,8 @@ mutual
     | .storageMapSet _ _ v => exprUsesCheckedArithmetic v
     | .storageArrayWrite _ _ v => exprUsesCheckedArithmetic v
     | .storageArrayStructFieldWrite _ _ _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPush _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPop _ => false
     | .storageStructFieldWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathAssignOp _ _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v

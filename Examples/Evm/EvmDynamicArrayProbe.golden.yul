@@ -26,6 +26,17 @@ object "EvmDynamicArrayProbe" {
       mstore(0, _r)
       return(0, 32)
     }
+    case 0xb408dd47 {
+      if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      f_EvmDynamicArrayProbe_push_value(calldataload(4))
+      return(0, 0)
+    }
+    case 0x12c62f71 {
+      f_EvmDynamicArrayProbe_pop_value()
+      return(0, 0)
+    }
     default {
       revert(0, 0)
     }
@@ -48,6 +59,24 @@ object "EvmDynamicArrayProbe" {
         sstore(_slot, __pf_checked_add(sload(_slot), 5))
       }
       result := sload(__proof_forge_dynamic_array_slot(0, 2))
+    }
+    function f_EvmDynamicArrayProbe_push_value(value) {
+      {
+        let __proof_forge_dyn_array_len := sload(0)
+        let __proof_forge_dyn_array_new_len := add(__proof_forge_dyn_array_len, 1)
+        sstore(__proof_forge_dynamic_array_slot(0, __proof_forge_dyn_array_len), value)
+        sstore(0, __proof_forge_dyn_array_new_len)
+      }
+    }
+    function f_EvmDynamicArrayProbe_pop_value() {
+      {
+        let __proof_forge_dyn_array_len := sload(0)
+        if iszero(__proof_forge_dyn_array_len) {
+          revert(0, 0)
+        }
+        let __proof_forge_dyn_array_new_len := sub(__proof_forge_dyn_array_len, 1)
+        sstore(0, __proof_forge_dyn_array_new_len)
+      }
     }
     function __proof_forge_dynamic_array_slot(slot, index) -> result {
       mstore(0, slot)

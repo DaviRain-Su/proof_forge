@@ -761,6 +761,8 @@ mutual
     | storageArrayStructFieldReadTarget (target : StructArrayFieldReadTargetPlan) (index : ExprPlan)
     | storageArrayStructFieldWrite (stateId : String) (index : ExprPlan) (fieldName : String) (value : ExprPlan)
     | storageArrayStructFieldWriteTarget (target : StructArrayFieldWriteTargetPlan) (index value : ExprPlan)
+    | storageDynamicArrayPush (stateId : String) (value : ExprPlan)
+    | storageDynamicArrayPop (stateId : String)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldReadTarget (target : StructFieldReadTargetPlan)
     | storageStructFieldWrite (stateId fieldName : String) (value : ExprPlan)
@@ -1053,6 +1055,8 @@ mutual
     | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
         contextOpsFromExpr index ++ contextOpsFromExpr value
     | .storageArrayStructFieldRead _ index _ => contextOpsFromExpr index
+    | .storageDynamicArrayPush _ value => contextOpsFromExpr value
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ value => contextOpsFromExpr value
     | .storagePathRead _ path =>

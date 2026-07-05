@@ -42,6 +42,8 @@ python3 "$ROOT/scripts/evm/validate-artifact-metadata.py" \
   --expect-entrypoint read_value:ac35feee \
   --expect-entrypoint write_value:5a6fd3b0 \
   --expect-entrypoint path_assign_lifecycle:bce9e77b \
+  --expect-entrypoint push_value:b408dd47 \
+  --expect-entrypoint pop_value:12c62f71 \
   "$METADATA_FILE"
 
 probe_hex="$(tr -d '\n' < "$OUT_DIR/EvmDynamicArrayProbe.bin")"
@@ -130,6 +132,31 @@ contract ProofForgeIRDynamicArraySmokeTest {
         // path_assign_lifecycle: write index 2 = 10, += 5, return
         assertEq(callU256(probe, abi.encodeWithSignature("path_assign_lifecycle()")), 15);
         assertEq(uint256(vm.load(probe, dynamicArraySlot(0, 2))), 15);
+    }
+
+    function testIRDynamicArrayPushAndPop() public {
+        address probe = address(uint160(0xB204));
+        deployRuntime(hex"$probe_hex", probe);
+
+        // push 7, 11, 13
+        callVoid(probe, abi.encodeWithSignature("push_value(uint256)", 7));
+        callVoid(probe, abi.encodeWithSignature("push_value(uint256)", 11));
+        callVoid(probe, abi.encodeWithSignature("push_value(uint256)", 13));
+
+        assertEq(uint256(vm.load(probe, bytes32(0))), 3);
+        assertEq(uint256(vm.load(probe, dynamicArraySlot(0, 0))), 7);
+        assertEq(uint256(vm.load(probe, dynamicArraySlot(0, 1))), 11);
+        assertEq(uint256(vm.load(probe, dynamicArraySlot(0, 2))), 13);
+
+        // pop removes the last element and decrements length
+        callVoid(probe, abi.encodeWithSignature("pop_value()"));
+        assertEq(uint256(vm.load(probe, bytes32(0))), 2);
+
+        // pop on empty array reverts
+        address emptyProbe = address(uint160(0xB205));
+        deployRuntime(hex"$probe_hex", emptyProbe);
+        (bool ok,) = emptyProbe.call(abi.encodeWithSignature("pop_value()"));
+        assertFalse(ok);
     }
 
     function testIRDynamicArrayRejectsUnknownSelector() public {

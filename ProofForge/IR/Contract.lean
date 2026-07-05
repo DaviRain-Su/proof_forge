@@ -187,6 +187,8 @@ mutual
     | storageArrayWrite (stateId : String) (index value : Expr)
     | storageArrayStructFieldRead (stateId : String) (index : Expr) (fieldName : String)
     | storageArrayStructFieldWrite (stateId : String) (index : Expr) (fieldName : String) (value : Expr)
+    | storageDynamicArrayPush (stateId : String) (value : Expr)
+    | storageDynamicArrayPop (stateId : String)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldWrite (stateId fieldName : String) (value : Expr)
     | storagePathRead (stateId : String) (path : Array StoragePathSegment)
@@ -291,6 +293,8 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .storageArrayWrite _ _ _ => .storageArray
   | .storageArrayStructFieldRead _ _ _ => .storageArray
   | .storageArrayStructFieldWrite _ _ _ _ => .storageArray
+  | .storageDynamicArrayPush _ _ => .storageArray
+  | .storageDynamicArrayPop _ => .storageArray
   | .storageStructFieldRead _ _ => .storageScalar
   | .storageStructFieldWrite _ _ _ => .storageScalar
   | .storagePathRead _ path =>
@@ -382,6 +386,8 @@ mutual
     | .storageArrayWrite _ index value => index.capabilities ++ value.capabilities
     | .storageArrayStructFieldRead _ index _ => #[.dataStruct] ++ index.capabilities
     | .storageArrayStructFieldWrite _ index _ value => #[.dataStruct] ++ index.capabilities ++ value.capabilities
+    | .storageDynamicArrayPush _ value => value.capabilities
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[.dataStruct]
     | .storageStructFieldWrite _ _ value => #[.dataStruct] ++ value.capabilities
     | .storagePathRead _ path => path.foldl (fun acc segment => acc ++ segment.capabilities) #[]

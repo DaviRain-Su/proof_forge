@@ -1432,6 +1432,10 @@ mutual
         .ok field.type
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         let (_, field) ← requireStructStateField module stateId fieldName
         .ok field.type
@@ -1550,6 +1554,12 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       let (_, _, _, _, field) ← requireStructArrayStateField module stateId fieldName
       ensureArrayIndexType s!"struct array state `{stateId}` index" (← inferExprType module env index)
       ensureType s!"struct array state `{stateId}` field `{fieldName}` write" field.type (← inferExprType module env value)
+  | .storageDynamicArrayPush stateId value => do
+      let (_, elementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+      ensureType s!"dynamic array state `{stateId}` push" elementType (← inferExprType module env value)
+  | .storageDynamicArrayPop stateId => do
+      let _ ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+      .ok ()
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
@@ -2732,6 +2742,10 @@ mutual
         lowerStructArrayFieldReadExpr module env stateId index fieldName
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName =>
         lowerStructFieldReadExpr module stateId fieldName
     | .storageStructFieldWrite _ _ _ =>
@@ -3702,6 +3716,71 @@ partial def lowerStructArrayFieldWriteStmtPlanOrFallback
   else
     lowerStructArrayFieldWriteStmt module env stateId index fieldName value
 
+def lowerDynamicArrayPushStmt
+    (_module : Module)
+    (_env : TypeEnv)
+    (_stateId : String)
+    (_value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement :=
+  .error { message := "EVM IR v0 dynamic-array push fallback lowering is not yet implemented" }
+
+def lowerDynamicArrayPopStmt
+    (_module : Module)
+    (_env : TypeEnv)
+    (_stateId : String) : Except LowerError Lean.Compiler.Yul.Statement :=
+  .error { message := "EVM IR v0 dynamic-array pop fallback lowering is not yet implemented" }
+
+partial def lowerDynamicArrayPushStmtPlanOrFallback
+    (module : Module)
+    (env : TypeEnv)
+    (stateId : String)
+    (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+  if exprSupportsPlanScalarYul value then
+    let valuePlan ←
+      match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) value with
+      | .ok plan => .ok plan
+      | .error err => .error { message := err.message }
+    let statements ←
+      ProofForge.Backend.Evm.ToYul.dynamicArrayPushEffectStmtPlanStatements
+        toYulError
+        (fun expr => lowerExpr module env expr)
+        (lowerPlanEffectExpr module env)
+        (fun stateId => do
+          let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+          .ok (slotExpr slot))
+        (fun stateId indexExpr => do
+          let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+          .ok (ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.dynamicArraySlot #[slotExpr slot, indexExpr]))
+        (.effect (.storageDynamicArrayPush stateId valuePlan))
+    if statements.isEmpty then
+      .error { message := "EVM StmtPlan-to-Yul dynamic-array push lowering produced no statements" }
+    else if statements.size == 1 then
+      .ok statements[0]!
+    else
+      .ok (.block { statements := statements })
+  else
+    lowerDynamicArrayPushStmt module env stateId value
+
+partial def lowerDynamicArrayPopStmtPlanOrFallback
+    (module : Module)
+    (_env : TypeEnv)
+    (stateId : String) : Except LowerError Lean.Compiler.Yul.Statement := do
+  let statements ←
+    ProofForge.Backend.Evm.ToYul.dynamicArrayPopEffectStmtPlanStatements
+      toYulError
+      (fun stateId => do
+        let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+        .ok (slotExpr slot))
+      (fun stateId indexExpr => do
+        let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
+        .ok (ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.dynamicArraySlot #[slotExpr slot, indexExpr]))
+      (.effect (.storageDynamicArrayPop stateId))
+  if statements.isEmpty then
+    .error { message := "EVM StmtPlan-to-Yul dynamic-array pop lowering produced no statements" }
+  else if statements.size == 1 then
+    .ok statements[0]!
+  else
+    .ok (.block { statements := statements })
+
 def lowerStoragePathWriteStmt
     (module : Module)
     (env : TypeEnv)
@@ -3969,6 +4048,10 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
       .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageArrayStructFieldWrite stateId index fieldName value =>
       lowerStructArrayFieldWriteStmtPlanOrFallback module env stateId index fieldName value
+  | .storageDynamicArrayPush stateId value =>
+      lowerDynamicArrayPushStmtPlanOrFallback module env stateId value
+  | .storageDynamicArrayPop stateId =>
+      lowerDynamicArrayPopStmtPlanOrFallback module env stateId
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value =>
@@ -5328,6 +5411,10 @@ def effectPlanSupportsScalarBodyStmt :
       exprPlanSupportsScalarBody index && exprPlanSupportsScalarBody value
   | .storageArrayStructFieldWriteTarget _ index value =>
       exprPlanSupportsScalarBody index && exprPlanSupportsScalarBody value
+  | .storageDynamicArrayPush _ value =>
+      exprPlanSupportsScalarBody value
+  | .storageDynamicArrayPop _ =>
+      true
   | .storageStructFieldWrite _ _ value =>
       exprPlanSupportsScalarBody value
   | .storageStructFieldWriteTarget _ value =>
@@ -6545,6 +6632,9 @@ mutual
         .ok (mergeCrosscallHelperSpecs indexSpecs valueSpecs)
     | .storageArrayStructFieldRead _ index _ =>
         crosscallHelperSpecsExpr module env index
+    | .storageDynamicArrayPush _ value =>
+        crosscallHelperSpecsExpr module env value
+    | .storageDynamicArrayPop _ => .ok #[]
     | .storageStructFieldRead _ _ => .ok #[]
     | .storageStructFieldWrite _ _ value =>
         crosscallHelperSpecsExpr module env value
@@ -6716,6 +6806,9 @@ mutual
         mergeCreateHelperSpecs (createHelperSpecsExpr index) (createHelperSpecsExpr value)
     | .storageArrayStructFieldRead _ index _ =>
         createHelperSpecsExpr index
+    | .storageDynamicArrayPush _ value =>
+        createHelperSpecsExpr value
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ value =>
         createHelperSpecsExpr value
@@ -6882,6 +6975,9 @@ mutual
         localArrayGetLengthsExpr env index
     | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
         mergeNatSets (localArrayGetLengthsExpr env index) (localArrayGetLengthsExpr env value)
+    | .storageDynamicArrayPush _ value =>
+        localArrayGetLengthsExpr env value
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ value =>
         localArrayGetLengthsExpr env value
@@ -7027,6 +7123,9 @@ mutual
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env index) (nestedLocalArrayGetShapesExpr env value)
     | .storageArrayStructFieldRead _ index _ =>
         nestedLocalArrayGetShapesExpr env index
+    | .storageDynamicArrayPush _ value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ value =>
         nestedLocalArrayGetShapesExpr env value
@@ -7231,6 +7330,8 @@ mutual
     | .storageMapSet _ _ v => exprUsesCheckedArithmetic v
     | .storageArrayWrite _ _ v => exprUsesCheckedArithmetic v
     | .storageArrayStructFieldWrite _ _ _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPush _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPop _ => false
     | .storageStructFieldWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathAssignOp _ _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v

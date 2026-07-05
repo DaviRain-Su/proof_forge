@@ -555,6 +555,24 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       let index ← indexValue rawIndex
       let (stateAfterValue, value) ← evalExpr stateAfterIndex frame valueExpr
       .ok (stateAfterValue.write (arrayFieldKey name index fieldName) value, .unit)
+  | .storageDynamicArrayPush name valueExpr => do
+      let (stateAfterValue, value) ← evalExpr state frame valueExpr
+      let length ←
+        match stateAfterValue.read (s!"{name}.length") with
+        | some lengthValue => indexValue lengthValue
+        | none => .ok 0
+      let nextState := stateAfterValue.write (s!"{name}.[{length}]") value
+      let nextState := nextState.write (s!"{name}.length") (.u64 (length + 1))
+      .ok (nextState, .unit)
+  | .storageDynamicArrayPop name => do
+      let length ←
+        match state.read (s!"{name}.length") with
+        | some lengthValue => indexValue lengthValue
+        | none => .ok 0
+      if length == 0 then
+        .error s!"pop from empty dynamic array `{name}`"
+      else
+        .ok (state.write (s!"{name}.length") (.u64 (length - 1)), .unit)
   | .storageStructFieldRead name fieldName =>
       match state.readStructField name fieldName with
       | some value => .ok (state, value)

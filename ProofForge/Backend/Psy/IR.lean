@@ -799,6 +799,10 @@ mutual
         | other => .error { message := s!"array state `{stateId}` has element type `{other.name}`, not struct storage" }
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         match ← scalarStateType module stateId with
         | .structType typeName => structFieldType module typeName fieldName
@@ -899,6 +903,10 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
         | other => .error { message := s!"array state `{stateId}` has element type `{other.name}`, not struct storage" }
       let actualValue ← inferExprType module env value
       ensureType s!"array state `{stateId}` field `{fieldName}` write" expected actualValue
+  | .storageDynamicArrayPush _ _ =>
+      .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
+  | .storageDynamicArrayPop _ =>
+      .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
@@ -1129,6 +1137,10 @@ mutual
         .ok s!"c.{stateId}[{← lowerExpr module index}].{fieldName}.get()"
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         requireStructScalarState module stateId fieldName
         .ok s!"c.{stateId}.{fieldName}.get()"
@@ -1258,8 +1270,12 @@ def lowerEffectStmt (module : Module) : Effect → Except LowerError (Array Stri
   | .storageArrayStructFieldWrite stateId index fieldName value => do
       requireStructArrayState module stateId fieldName
       .ok #[s!"c.{stateId}[{← lowerExpr module index}].{fieldName} = {← lowerExpr module value};"]
+  | .storageDynamicArrayPush _ _ =>
+      .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
+  | .storageDynamicArrayPop _ =>
+      .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
   | .storageStructFieldRead _ _ =>
-      .error { message := "storage.struct.field.read must be used as an expression" }
+      .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
       requireStructScalarState module stateId fieldName
       .ok #[s!"c.{stateId}.{fieldName} = {← lowerExpr module value};"]

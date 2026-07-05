@@ -449,6 +449,10 @@ mutual
         .error { message := "storage.array.struct.field.read is not supported by wasm-near IR v0" }
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read is not supported by wasm-near IR v0" }
     | .storageStructFieldWrite _ _ _ =>
@@ -568,6 +572,10 @@ mutual
         .error { message := "storage.array.struct.field.read must be used as an expression" }
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
     | .storageStructFieldWrite _ _ _ =>
@@ -788,6 +796,10 @@ mutual
         .error { message := "storage.array.struct.field.read is not supported by wasm-near IR v0" }
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read is not supported by wasm-near IR v0" }
     | .storageStructFieldWrite _ _ _ =>
@@ -880,6 +892,10 @@ mutual
         .error { message := "storage.array.struct.field.read must be used as an expression" }
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPush _ _ =>
+        .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
+    | .storageDynamicArrayPop _ =>
+        .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
     | .storageStructFieldWrite _ _ _ =>

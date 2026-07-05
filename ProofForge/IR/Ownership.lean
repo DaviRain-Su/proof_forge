@@ -163,6 +163,8 @@ mutual
     | .storageArrayStructFieldWrite _ key _ value => do
         checkExpr entrypoint env key
         checkExpr entrypoint env value
+    | .storageDynamicArrayPush _ value => checkExpr entrypoint env value
+    | .storageDynamicArrayPop _ => .ok ()
     | .storageStructFieldRead _ _ => .ok ()
     | .storagePathRead _ path =>
         path.foldlM (init := ()) fun _ segment => checkStoragePathSegment entrypoint env segment

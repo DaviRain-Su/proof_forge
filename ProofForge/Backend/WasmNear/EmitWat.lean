@@ -1421,6 +1421,8 @@ mutual
     | .storageArrayWrite _ i v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
     | .storageArrayStructFieldRead _ i _ => collectArrayLitsExpr i
     | .storageArrayStructFieldWrite _ i _ v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
+    | .storageDynamicArrayPush _ v => collectArrayLitsExpr v
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectArrayLitsExpr v
     | .storagePathRead _ path => collectArrayLitsPath path
@@ -1473,6 +1475,8 @@ mutual
     | .storageArrayWrite _ i v => collectStructLitsExpr i ++ collectStructLitsExpr v
     | .storageArrayStructFieldRead _ i _ => collectStructLitsExpr i
     | .storageArrayStructFieldWrite _ i _ v => collectStructLitsExpr i ++ collectStructLitsExpr v
+    | .storageDynamicArrayPush _ v => collectStructLitsExpr v
+    | .storageDynamicArrayPop _ => #[]
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectStructLitsExpr v
     | .storagePathRead _ path => collectStructLitsPath path

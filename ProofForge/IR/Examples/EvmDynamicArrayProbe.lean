@@ -63,10 +63,29 @@ def pathAssignLifecycle : Entrypoint := {
   ]
 }
 
+def pushValue : Entrypoint := {
+  name := "push_value"
+  selector? := some "b408dd47"
+  params := #[("value", .u64)]
+  returns := .unit
+  body := #[
+    .effect (.storageDynamicArrayPush "values" (.local "value"))
+  ]
+}
+
+def popValue : Entrypoint := {
+  name := "pop_value"
+  selector? := some "12c62f71"
+  returns := .unit
+  body := #[
+    .effect (.storageDynamicArrayPop "values")
+  ]
+}
+
 def module : Module := {
   name := "EvmDynamicArrayProbe"
   state := #[stateValues]
-  entrypoints := #[storageLifecycle, readValue, writeValue, pathAssignLifecycle]
+  entrypoints := #[storageLifecycle, readValue, writeValue, pathAssignLifecycle, pushValue, popValue]
 }
 
 end ProofForge.IR.Examples.EvmDynamicArrayProbe
