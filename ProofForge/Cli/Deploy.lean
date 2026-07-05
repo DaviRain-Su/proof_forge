@@ -36,7 +36,11 @@ def deployUsage : String :=
     "  --anvil-port PORT       Anvil port when --start-anvil is used",
     "  --broadcast             allow live broadcast on non-anvil chain profiles",
     "  --plan-only             emit deploy-plan only; skip transaction broadcast",
-    "  --root DIR              project root for relative artifact paths"
+    "  --gas-limit GAS         maximum gas units for deploy/init/interaction transactions",
+    "  --gas-price WEI         legacy gas price in wei",
+    "  --max-fee-per-gas WEI   EIP-1559 max fee per gas in wei",
+    "  --max-priority-fee-per-gas WEI  EIP-1559 max priority fee per gas in wei",
+    "  --root DIR              project root for relative artifact paths",
   ]
 
 structure DeployOptions where
@@ -53,6 +57,10 @@ structure DeployOptions where
   anvilPort? : Option Nat := none
   broadcast : Bool := false
   planOnly : Bool := false
+  gasLimit? : Option Nat := none
+  gasPrice? : Option Nat := none
+  maxFeePerGas? : Option Nat := none
+  maxPriorityFeePerGas? : Option Nat := none
   root : String := "."
   deriving Inhabited
 
@@ -357,6 +365,19 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
   let rpcUrl ← resolveBroadcastRpcUrl opts profile profileRpcUrl
   let _ ← expectChainId opts.castPath rpcUrl profile.chainId
 
+  if opts.gasPrice?.isSome && opts.maxFeePerGas?.isSome then
+    throw <| IO.userError "--gas-price and --max-fee-per-gas are mutually exclusive; pass one or the other"
+
+  let gasArgs : Array String := #[]
+    ++ (match opts.gasLimit? with | some g => #["--gas-limit", toString g] | none => #[])
+    ++ (match opts.maxFeePerGas? with
+        | some fee => #["--gas-price", toString fee]
+        | none =>
+          match opts.gasPrice? with
+          | some price => #["--gas-price", toString price]
+          | none => #[])
+    ++ (match opts.maxPriorityFeePerGas? with | some f => #["--priority-gas-price", toString f] | none => #[])
+
   let initHex ← readInitCodeHex initCodePath
   let runDir := joinPath opts.root "build/evm-deploy"
   IO.FS.createDirAll runDir
@@ -364,13 +385,14 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
   let creationTx := joinPath runDir s!"{info.contractName}.creation-transaction.json"
   let initializeReceipt := joinPath runDir s!"{info.contractName}.initialize-receipt.json"
 
-  let receiptStdout ← runProcess opts.castPath #[
+  let receiptStdout ← runProcess opts.castPath (#[
     "send",
     "--rpc-url", rpcUrl,
-    "--private-key", privateKey,
+    "--private-key", privateKey
+  ] ++ gasArgs ++ #[
     "--create", s!"0x{initHex}",
     "--json"
-  ]
+  ])
   IO.FS.writeFile deployReceipt receiptStdout
 
   let txHash ← extractJsonField deployReceipt "transactionHash"
@@ -379,19 +401,20 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
   IO.FS.writeFile creationTx creationStdout
 
   let initialGet ← runProcess opts.castPath #["call", "--rpc-url", rpcUrl, contractAddress, "get()(uint256)"]
-  let initializeStdout ← runProcess opts.castPath #[
+  let initializeStdout ← runProcess opts.castPath (#[
     "send",
     "--rpc-url", rpcUrl,
-    "--private-key", privateKey,
+    "--private-key", privateKey
+  ] ++ gasArgs ++ #[
     contractAddress,
     "initialize()",
     "--json"
-  ]
+  ])
   IO.FS.writeFile initializeReceipt initializeStdout
   let afterInitializeGet ← runProcess opts.castPath #["call", "--rpc-url", rpcUrl, contractAddress, "get()(uint256)"]
-  let _ ← runProcess opts.castPath #["send", "--rpc-url", rpcUrl, "--private-key", privateKey, contractAddress, "increment()", "--json"]
+  let _ ← runProcess opts.castPath (#["send", "--rpc-url", rpcUrl, "--private-key", privateKey] ++ gasArgs ++ #[contractAddress, "increment()", "--json"])
   let afterIncrementGet ← runProcess opts.castPath #["call", "--rpc-url", rpcUrl, contractAddress, "get()(uint256)"]
-  let _ ← runProcess opts.castPath #["send", "--rpc-url", rpcUrl, "--private-key", privateKey, contractAddress, "increment()", "--json"]
+  let _ ← runProcess opts.castPath (#["send", "--rpc-url", rpcUrl, "--private-key", privateKey] ++ gasArgs ++ #[contractAddress, "increment()", "--json"])
   let afterSecondIncrementGet ← runProcess opts.castPath #["call", "--rpc-url", rpcUrl, contractAddress, "get()(uint256)"]
 
   let deployedCode ← runProcess opts.castPath #["code", "--rpc-url", rpcUrl, contractAddress]
@@ -483,6 +506,26 @@ partial def parseDeployOptions (args : List String) (opts : DeployOptions := {})
   | "--anvil-port" :: [] => .error "missing value for --anvil-port"
   | "--broadcast" :: rest => parseDeployOptions rest { opts with broadcast := true }
   | "--plan-only" :: rest => parseDeployOptions rest { opts with planOnly := true }
+  | "--gas-limit" :: gasText :: rest =>
+      match gasText.toNat? with
+      | some gas => parseDeployOptions rest { opts with gasLimit? := some gas }
+      | none => .error s!"invalid --gas-limit value: {gasText}"
+  | "--gas-limit" :: [] => .error "missing value for --gas-limit"
+  | "--gas-price" :: priceText :: rest =>
+      match priceText.toNat? with
+      | some price => parseDeployOptions rest { opts with gasPrice? := some price }
+      | none => .error s!"invalid --gas-price value: {priceText}"
+  | "--gas-price" :: [] => .error "missing value for --gas-price"
+  | "--max-fee-per-gas" :: feeText :: rest =>
+      match feeText.toNat? with
+      | some fee => parseDeployOptions rest { opts with maxFeePerGas? := some fee }
+      | none => .error s!"invalid --max-fee-per-gas value: {feeText}"
+  | "--max-fee-per-gas" :: [] => .error "missing value for --max-fee-per-gas"
+  | "--max-priority-fee-per-gas" :: feeText :: rest =>
+      match feeText.toNat? with
+      | some fee => parseDeployOptions rest { opts with maxPriorityFeePerGas? := some fee }
+      | none => .error s!"invalid --max-priority-fee-per-gas value: {feeText}"
+  | "--max-priority-fee-per-gas" :: [] => .error "missing value for --max-priority-fee-per-gas"
   | "--root" :: root :: rest => parseDeployOptions rest { opts with root := root }
   | "--root" :: [] => .error "missing value for --root"
   | unknown :: _ => .error s!"unknown deploy option: {unknown}"

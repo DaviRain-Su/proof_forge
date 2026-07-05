@@ -100,6 +100,10 @@ Effect	storagePathWrite	lowered	lowerStoragePathWrite emits a single-segment map
 Effect	storagePathAssignOp	unsupported	validateEffectStmtTypes and lowerEffectStmt both reject storage.path.assign_op in wasm-near IR v0.
 Effect	storageDynamicArrayPush	unsupported	wasm-near IR v0 rejects storage.dynamic.array.push in validateEffectStmtTypes and lowerEffectStmt because dynamic array storage is not lowered.
 Effect	storageDynamicArrayPop	unsupported	wasm-near IR v0 rejects storage.dynamic.array.pop in validateEffectStmtTypes and lowerEffectStmt because dynamic array storage is not lowered.
+Effect	memoryArraySet	unsupported	wasm-near IR v0 rejects memory.array.set in validateEffectStmtTypes and lowerEffectStmt because memory arrays are not lowered.
+Expr	memoryArrayNew	unsupported	wasm-near IR v0 rejects memory.array.new in inferExprType and lowerExpr because memory arrays are not lowered.
+Expr	memoryArrayLength	unsupported	wasm-near IR v0 rejects memory.array.length in inferExprType and lowerExpr because memory arrays are not lowered.
+Expr	memoryArrayGet	unsupported	wasm-near IR v0 rejects memory.array.get in inferExprType and lowerExpr because memory arrays are not lowered.
 Effect	contextRead	lowered	lowerEffectExpr emits predecessor/current account-id or block-height reads; Hasher fixture covers userId and the context-as-statement diagnostic guards misuse.
 Effect	eventEmit	lowered	lowerEffectStmt emits near_sdk::log! with a JSON object after field-type validation; empty-name and event-as-expression diagnostics guard misuse.
 Effect	eventEmitIndexed	unsupported	wasm-near Rust sourcegen v0 rejects indexed events in lowerEffectStmt; the target profile carries eventsEmit for non-indexed events only.

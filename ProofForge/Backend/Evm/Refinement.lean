@@ -147,7 +147,7 @@ def pseudoKeccakMemoryWords (words : Array Nat) (size : Nat) : Nat :=
     ((0 + 1) * 16777619 + (size + 1) * 1099511628211)
 
 def eventSignatureTopic (signature : String) : Nat :=
-  let (words, length) := ProofForge.Backend.Evm.IR.packedUtf8Words signature
+  let (words, length) := ProofForge.Backend.Evm.ToYul.packedUtf8Words signature
   pseudoKeccakMemoryWords words length
 
 def eventSignatureFromValues (name : String) (indexed data : Array ProofForge.IR.Semantics.Value) :

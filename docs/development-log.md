@@ -17,6 +17,331 @@ Each entry should include:
 
 ## 2026-07-05
 
+### EVM IR Indexed Event Topic Assembly Cleanup
+
+Commit: bf98fcb
+
+Summary:
+
+- Removed the remaining `IR.lean` wrapper for event data-store statements.
+- Routed entrypoint-level indexed event topic statements through
+  `ToYul.eventIndexedTopicStatements` for both scalar topics and aggregate topic
+  hashing.
+- Preserved the `IR.lean` compatibility facade's explicit unsupported indexed
+  field diagnostic before field value flattening.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns event field value evaluation and aggregate data-word
+  flattening before it hands words to `ToYul`.
+
+Next step:
+
+- Move aggregate event field value/data-word planning behind an explicit
+  `EventFieldPlan`-owned boundary.
+
+### EVM ToYul Planned Event Field Lowering
+
+Commit: cd35c6c
+
+Summary:
+
+- Added `ToYul.eventFieldsDataWordsFromPlan` and
+  `ToYul.eventIndexedTopicStatementsFromPlans` so planned scalar event field
+  data words and indexed topics are assembled on the `ToYul` side.
+- Removed the duplicate planned scalar event field helper implementations from
+  `IR.lean`; the compatibility facade now only supplies the `ExprPlan` lowering
+  callback.
+- Extended `Tests/EvmSemanticPlan.lean` with direct coverage for the new
+  `EventFieldPlan -> ToYul` helpers and kept the existing scalar event
+  integration checks.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Entrypoint-level aggregate event data-word flattening and indexed aggregate
+  topic hashing still live in `IR.lean`.
+
+Next step:
+
+- Extract aggregate event data-word planning or indexed aggregate topic hashing
+  behind an explicit event-field plan boundary.
+
+### EVM IR Event Signature Validation Cleanup
+
+Commit: e00e657
+
+Summary:
+
+- Removed duplicate event-name and event signature field typing validation from
+  `IR.lean`.
+- Routed `IR.eventSignature`, indexed-event field validation, aggregate event
+  data-word guards, and CLI event ABI metadata through
+  `Validate.validateEventName` and `Validate.eventSignatureFieldType`.
+- Kept event aggregate data-word lowering and indexed aggregate topic hashing
+  in the `IR.lean` compatibility facade until the full event field planning path
+  moves behind `EventPlan -> ToYul`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Validate ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Cli
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns aggregate event data-word lowering and indexed aggregate
+  topic hashing. Those should move after event field value planning is complete.
+
+Next step:
+
+- Continue the event migration by extracting event field value/data-word and
+  indexed aggregate topic hashing behind explicit `EventPlan -> ToYul` helpers.
+
+### EVM IR Event Validation Facade Cleanup
+
+Commit: 8352240
+
+Summary:
+
+- Removed duplicate event field-name and duplicate-field validation wrappers
+  from `IR.lean`.
+- Removed the duplicate indexed-event field-count validator from `IR.lean`.
+- Routed the remaining compatibility event-signature and indexed-event type
+  checks through `Validate.validateDistinctEventFieldName` and
+  `Validate.validateIndexedEventFieldCount`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Validate ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns `eventSignatureFieldType`, aggregate event data-word
+  lowering, and indexed aggregate topic hashing. Those remain compatibility
+  facade work until event field planning is fully expressed behind
+  `EventPlan -> ToYul`.
+
+Next step:
+
+- Move the next event boundary: either route event signature field typing
+  through `Validate` after confirming diagnostic compatibility, or extract
+  aggregate topic/data word lowering into explicit plan-owned helpers.
+
+### EVM IR Event Helper Facade Cleanup
+
+Commit: 51cd4ba
+
+Summary:
+
+- Removed pure `ToYul` forwarding wrappers for UTF-8 word packing, event
+  signature topic statements, indexed event topic names, and event log builtin
+  names from `IR.lean`.
+- Routed the remaining indexed-event topic local-name use directly through
+  `ToYul.eventIndexedTopicName`.
+- Updated the EVM refinement scaffold to compute event signature topics through
+  `ToYul.packedUtf8Words` instead of the IR compatibility facade.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Refinement
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Event signature field typing and indexed aggregate topic lowering still live
+  in `IR.lean`; this slice only removes wrappers that were already pure ToYul
+  forwarding surface.
+
+Next step:
+
+- Continue extracting event lowering by moving field typing, topic planning, or
+  aggregate topic hashing behind explicit event semantic-plan nodes.
+
+### EVM IR Hash Packing Facade Cleanup
+
+Commit: 7730f6a
+
+Summary:
+
+- Removed duplicate hash literal packing constants and validation helpers from
+  `IR.lean`.
+- Routed hash literal packing through `Validate.packedHashLiteral`, so fallback
+  lowering uses the same validation source as the semantic-plan path.
+- Routed `hashValue` Yul expression packing through `ToYul.hashPackExpr`,
+  keeping the final expression frame on the ToYul-owned side.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns broad scalar fallback expression lowering. Hash packing
+  now delegates validation and final expression construction, but surrounding
+  fallback expression dispatch remains in the compatibility facade.
+
+Next step:
+
+- Continue shrinking scalar fallback ownership by moving another narrow helper
+  frame or ABI/calldata helper boundary behind `Lower -> Plan -> ToYul`.
+
+### EVM IR Crosscall Facade Cleanup
+
+Commit: 8bc8a87
+
+Summary:
+
+- Removed the dead `IR.lean` crosscall helper naming facade for scalar and
+  aggregate call/value/static/delegate helper names.
+- Removed the duplicate IR-local plain native-transfer detector.
+- Routed scalar fallback's plain native-transfer check through
+  `Lower.plainValueTransferCall?`, matching the helper discovery source used by
+  semantic-plan construction.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns broad scalar fallback lowering and validation facade
+  logic. The next semantic-plan slice should inspect whether any remaining
+  helper wrappers can be deleted, or whether the next useful boundary is moving
+  more scalar fallback lowering behind `StmtPlan -> ToYul`.
+
+Next step:
+
+- Search remaining `IR.lean` wrappers around hash literal validation,
+  entrypoint calldata/ABI helpers, and scalar fallback body assembly, then pick
+  another narrow cleanup or plan-owned lowering slice.
+
+### EVM IR Create Facade Cleanup
+
+Commit: f91e22e
+
+Summary:
+
+- Removed the dead `IR.lean` create helper compatibility facade, including the
+  IR-local `CreateMode`, `CreateHelperSpec`, helper name, helper parameter, and
+  init-code store wrappers.
+- Routed the remaining create/create2 type-checking validation points directly
+  through `Validate.normalizeInitCodeHex`.
+- Routed assertion error payload hex chunking directly through `ToYul` instead
+  of keeping duplicate IR-local hex helper aliases.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Crosscall naming compatibility wrappers still remain in `IR.lean`; the next
+  cleanup should verify which are still used by scalar fallback lowering before
+  deleting or narrowing them.
+
+Next step:
+
+- Continue reducing compatibility-only wrapper surface in `IR.lean`, starting
+  with crosscall naming wrappers and scalar helper-call fallback ownership.
+
+### EVM IR Local Array Discovery Cleanup
+
+Commit: 1e54791
+
+Summary:
+
+- Removed the legacy local fixed-array helper discovery scanners from
+  `IR.lean` after incomplete-plan fallback routing moved to
+  `Lower.buildLocalArrayGetLengths`.
+- Removed the legacy nested local-array helper discovery scanners from
+  `IR.lean` after fallback routing moved to
+  `Lower.buildNestedLocalArrayGetShapes`.
+- Removed the duplicate IR-local checked-arithmetic scanner because fallback
+  and full-plan lowering now both use `Validate.moduleUsesCheckedArithmetic`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Several compatibility wrappers and type aliases still remain in `IR.lean`.
+  They should be reviewed case-by-case so the public facade stays stable while
+  final lowering ownership continues moving to `Lower -> Plan -> ToYul`.
+
+Next step:
+
+- Inspect the remaining compatibility-only wrappers in `IR.lean` and either
+  delete dead surface area or keep narrow facade aliases for downstream callers.
+
 ### EVM IR Crosscall/Create Discovery Cleanup
 
 Commit: 21893a0

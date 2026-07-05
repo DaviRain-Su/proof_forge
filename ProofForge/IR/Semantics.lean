@@ -573,7 +573,9 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
         .error s!"pop from empty dynamic array `{name}`"
       else
         .ok (state.write (s!"{name}.length") (.u64 (length - 1)), .unit)
-  | .storageStructFieldRead name fieldName =>
+  | .memoryArraySet _ _ _ =>
+      .error "memory arrays are not supported by the IR semantics interpreter"
+  | .storageStructFieldRead name fieldName => do
       match state.readStructField name fieldName with
       | some value => .ok (state, value)
       | none => .error s!"unknown struct field state `{name}.{fieldName}`"

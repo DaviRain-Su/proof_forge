@@ -351,6 +351,9 @@ mutual
         | none => .error { message := s!"unknown local `{name}`" }
     | .arrayLit _ _ => .ok (.fixedArray .unit 0)
     | .arrayGet _ _ => .error { message := "fixed array indexing is not supported by wasm-near IR v0" }
+    | .memoryArrayNew _ _ => .error { message := "memory arrays are not supported by wasm-near IR v0" }
+    | .memoryArrayLength _ => .error { message := "memory arrays are not supported by wasm-near IR v0" }
+    | .memoryArrayGet _ _ => .error { message := "memory arrays are not supported by wasm-near IR v0" }
     | .structLit typeName _ => .ok (.structType typeName)
     | .field _ _ => .error { message := "struct field access is not supported by wasm-near IR v0" }
     | .add lhs rhs => do ensureSameNumericType "addition" (← inferExprType module env lhs) (← inferExprType module env rhs)
@@ -453,6 +456,8 @@ mutual
         .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read is not supported by wasm-near IR v0" }
     | .storageStructFieldWrite _ _ _ =>
@@ -576,6 +581,8 @@ mutual
         .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory arrays are not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
     | .storageStructFieldWrite _ _ _ =>
@@ -708,6 +715,12 @@ mutual
         .error { message := "fixed array literals are not supported by wasm-near IR v0" }
     | .arrayGet _ _ =>
         .error { message := "fixed array indexing is not supported by wasm-near IR v0" }
+    | .memoryArrayNew _ _ =>
+        .error { message := "memory arrays are not supported by wasm-near IR v0" }
+    | .memoryArrayLength _ =>
+        .error { message := "memory arrays are not supported by wasm-near IR v0" }
+    | .memoryArrayGet _ _ =>
+        .error { message := "memory arrays are not supported by wasm-near IR v0" }
     | .structLit _ _ =>
         .error { message := "struct literals are not supported by wasm-near IR v0" }
     | .field _ _ =>
@@ -800,6 +813,8 @@ mutual
         .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read is not supported by wasm-near IR v0" }
     | .storageStructFieldWrite _ _ _ =>
@@ -896,6 +911,8 @@ mutual
         .error { message := "storage.dynamic.array.push is not supported by wasm-near IR v0" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is not supported by wasm-near IR v0" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory arrays are not supported by wasm-near IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
     | .storageStructFieldWrite _ _ _ =>

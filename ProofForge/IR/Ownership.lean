@@ -92,6 +92,13 @@ mutual
     | .arrayGet array index => do
         checkExpr entrypoint env array
         checkExpr entrypoint env index
+    | .memoryArrayNew _ length =>
+        checkExpr entrypoint env length
+    | .memoryArrayLength array =>
+        checkExpr entrypoint env array
+    | .memoryArrayGet array index => do
+        checkExpr entrypoint env array
+        checkExpr entrypoint env index
     | .structLit _ fields =>
         fields.foldlM (init := ()) fun _ field => checkExpr entrypoint env field.snd
     | .field base _ => checkExpr entrypoint env base
@@ -165,6 +172,9 @@ mutual
         checkExpr entrypoint env value
     | .storageDynamicArrayPush _ value => checkExpr entrypoint env value
     | .storageDynamicArrayPop _ => .ok ()
+    | .memoryArraySet _ index value => do
+        checkExpr entrypoint env index
+        checkExpr entrypoint env value
     | .storageStructFieldRead _ _ => .ok ()
     | .storagePathRead _ path =>
         path.foldlM (init := ()) fun _ segment => checkStoragePathSegment entrypoint env segment

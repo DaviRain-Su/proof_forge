@@ -163,6 +163,7 @@ mutual
     | .shiftRight lhs rhs => emitShiftOp false lhs rhs
     | .pow _ _ => throw "EmitTS: pow is not supported by the TS backend"
     | .arrayLit _ _ | .arrayGet _ _ | .structLit _ _ | .field _ _
+    | .memoryArrayNew _ _ | .memoryArrayLength _ | .memoryArrayGet _ _
     | .hashValue _ _ _ _ | .hash _ | .hashTwoToOne _ _ | .nativeValue
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _

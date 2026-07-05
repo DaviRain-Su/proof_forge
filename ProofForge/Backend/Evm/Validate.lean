@@ -313,6 +313,10 @@ partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : 
   | .structType typeName =>
       abiStructWordTypes module context typeName
 
+def isStorageWordType : ValueType → Bool
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
+
 partial def abiValueWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
   | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
@@ -323,8 +327,11 @@ partial def abiValueWordTypes (module : Module) (context : String) : ValueType �
   | .address => .ok #[.address]
   | .bytes => .ok #[.bytes]
   | .string => .ok #[.string]
-  | .array _ =>
-      .error { message := s!"{context} uses a dynamic array; IR EVM v0 ABI values do not yet support dynamic arrays" }
+  | .array elementType =>
+      if isStorageWordType elementType then
+        .ok #[.array elementType]
+      else
+        .error { message := s!"{context} uses a dynamic array of `{elementType.name}`; IR EVM v0 ABI dynamic arrays support word-sized elements only" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs" }
   | .fixedArray elementType length => do
@@ -413,13 +420,16 @@ partial def abiValueParamNamesAt
     (module : Module)
     (context name : String)
     (path : Array Nat) : ValueType → Except LowerError (Array String)
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       if path.isEmpty then
         .ok #[name]
       else
         .ok #[arrayLocalPathName name path]
-  | .array _ =>
-      .error { message := s!"{context} parameter `{name}` uses a dynamic array; IR EVM v0 ABI parameters do not yet support dynamic arrays" }
+  | .bytes | .string | .array _ =>
+      if path.isEmpty then
+        .ok #[name]
+      else
+        .error { message := s!"{context} parameter `{name}` uses a dynamic type nested in a fixed array; IR EVM v0 ABI parameters do not support nested dynamic arrays" }
   | .unit => do
       discard <| abiValueWordTypes module context .unit
       .ok #[]
@@ -453,10 +463,6 @@ def entrypointParamWordTypes (module : Module) (entrypoint : Entrypoint) : Excep
 
 def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"
-
-def isStorageWordType : ValueType → Bool
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def requireStorageMapState (module : Module) (stateId : String) : Except LowerError (Nat × ValueType × ValueType) :=
   match stateInfo? module stateId with
@@ -867,6 +873,23 @@ mutual
             | none => pure ()
             .ok elementType
         | other => .error { message := s!"fixed array indexing target expected `Array`, got `{other.name}`" }
+    | .memoryArrayNew elementType length => do
+        if !isStorageWordType elementType then
+          .error { message := s!"memory array element type `{elementType.name}` must be a word-sized type" }
+        ensureType "memory array length" .u64 (← inferExprType module env length)
+        .ok (.array elementType)
+    | .memoryArrayLength array => do
+        match ← inferExprType module env array with
+        | .array _ => .ok .u64
+        | other => .error { message := s!"memory array length expected `Array`, got `{other.name}`" }
+    | .memoryArrayGet array index => do
+        ensureArrayIndexType "memory array index" (← inferExprType module env index)
+        match ← inferExprType module env array with
+        | .array elementType =>
+            if !isStorageWordType elementType then
+              .error { message := s!"memory array element type `{elementType.name}` must be a word-sized type" }
+            .ok elementType
+        | other => .error { message := s!"memory array get expected `Array`, got `{other.name}`" }
     | .structLit typeName fields => do
         validateStructLiteralFields module typeName fields (inferExprType module env)
         .ok (.structType typeName)
@@ -1052,6 +1075,8 @@ mutual
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageScalarAssignOp _ _ _ =>
         .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
     | .storageMapContains stateId key => do
@@ -1204,13 +1229,22 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       let (_, _, _, _, field) ← requireStructArrayStateField module stateId fieldName
       ensureArrayIndexType s!"struct array state `{stateId}` index" (← inferExprType module env index)
       ensureType s!"struct array state `{stateId}` field `{fieldName}` write" field.type (← inferExprType module env value)
-  | .storageDynamicArrayPush stateId value => do
+    | .storageDynamicArrayPush stateId value => do
       let (_, elementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
       ensureType s!"dynamic array state `{stateId}` push" elementType (← inferExprType module env value)
-  | .storageDynamicArrayPop stateId => do
+    | .storageDynamicArrayPop stateId => do
       let _ ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
       .ok ()
-  | .storageStructFieldRead _ _ =>
+    | .memoryArraySet array index value => do
+      match ← inferExprType module env array with
+      | .array elementType => do
+          if !isStorageWordType elementType then
+            .error { message := s!"memory array element type `{elementType.name}` must be a word-sized type" }
+          ensureArrayIndexType "memory array set index" (← inferExprType module env index)
+          ensureType "memory array set value" elementType (← inferExprType module env value)
+          .ok ()
+      | other => .error { message := s!"memory array set expected `Array`, got `{other.name}`" }
+    | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
       let (_, field) ← requireStructStateField module stateId fieldName
@@ -1616,6 +1650,7 @@ mutual
     | .storageArrayStructFieldWrite _ _ _ v => exprUsesCheckedArithmetic v
     | .storageDynamicArrayPush _ v => exprUsesCheckedArithmetic v
     | .storageDynamicArrayPop _ => false
+    | .memoryArraySet _ i v => exprUsesCheckedArithmetic i || exprUsesCheckedArithmetic v
     | .storageStructFieldWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathWrite _ _ v => exprUsesCheckedArithmetic v
     | .storagePathAssignOp _ _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v
@@ -1629,6 +1664,9 @@ mutual
     | .literal _ | .local _ | .nativeValue => false
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
+    | .memoryArrayNew _ l => exprUsesCheckedArithmetic l
+    | .memoryArrayLength a => exprUsesCheckedArithmetic a
+    | .memoryArrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
     | .structLit _ fs => fs.any (fun (_, v) => exprUsesCheckedArithmetic v)
     | .field b _ => exprUsesCheckedArithmetic b
     | .div l r | .mod l r | .pow l r

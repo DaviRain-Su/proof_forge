@@ -443,6 +443,10 @@ evm-mixin-compose:
 evm-anvil-deploy:
     scripts/evm/anvil-deploy-smoke.sh
 
+# Broadcast Counter deploy with explicit gas flags on a local Anvil chain.
+evm-broadcast-smoke:
+    scripts/evm/broadcast-smoke.sh
+
 # Deploy DynamicConstructorProbe with dynamic constructor args on Anvil and assert getters.
 evm-dynamic-constructor-anvil:
     scripts/evm/dynamic-constructor-anvil-smoke.sh
@@ -477,7 +481,9 @@ evm-ir-smokes:
       struct-value
       abi-aggregate
       dynamic-abi
+      array-abi
       dynamic-array
+      memory-array
       packed-storage
       errors
       fallback
@@ -487,10 +493,10 @@ evm-ir-smokes:
     done
 
 # Run all EVM gates that CI tracks locally.
-evm-all: evm-diagnostics evm-coverage evm-semantic-plan evm-ir-smokes evm-build-examples evm-mixin-compose evm-foundry evm-anvil-deploy evm-dynamic-constructor-anvil
+evm-all: evm-diagnostics evm-coverage evm-semantic-plan evm-ir-smokes evm-build-examples evm-mixin-compose evm-foundry evm-anvil-deploy evm-broadcast-smoke evm-dynamic-constructor-anvil
 
 # Run the current GitHub CI build-test sequence locally.
-ci: build target-registry evm-plan evm-semantic-plan solana-light portable-counter-multi-target docs-check testkit psy-golden-sources psy-diagnostics psy-coverage evm-all
+ci: build target-registry evm-plan evm-semantic-plan solana-light portable-counter-multi-target portable-role-gated-token-multi-target portable-staking-vault-multi-target docs-check testkit psy-golden-sources psy-diagnostics psy-coverage evm-all
 
 # Check for whitespace errors before committing.
 diff-check:

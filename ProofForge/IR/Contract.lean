@@ -138,6 +138,9 @@ mutual
     | local (name : String)
     | arrayLit (elementType : ValueType) (values : Array Expr)
     | arrayGet (array index : Expr)
+    | memoryArrayNew (elementType : ValueType) (length : Expr)
+    | memoryArrayLength (array : Expr)
+    | memoryArrayGet (array index : Expr)
     | structLit (typeName : String) (fields : Array (String × Expr))
     | field (base : Expr) (fieldName : String)
     | add (lhs rhs : Expr)
@@ -189,6 +192,7 @@ mutual
     | storageArrayStructFieldWrite (stateId : String) (index : Expr) (fieldName : String) (value : Expr)
     | storageDynamicArrayPush (stateId : String) (value : Expr)
     | storageDynamicArrayPop (stateId : String)
+    | memoryArraySet (array index value : Expr)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldWrite (stateId fieldName : String) (value : Expr)
     | storagePathRead (stateId : String) (path : Array StoragePathSegment)
@@ -295,6 +299,7 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .storageArrayStructFieldWrite _ _ _ _ => .storageArray
   | .storageDynamicArrayPush _ _ => .storageArray
   | .storageDynamicArrayPop _ => .storageArray
+  | .memoryArraySet _ _ _ => .dataDynamicArray
   | .storageStructFieldRead _ _ => .storageScalar
   | .storageStructFieldWrite _ _ _ => .storageScalar
   | .storagePathRead _ path =>
@@ -324,6 +329,12 @@ mutual
         elementType.capabilities ++ values.foldl (fun acc value => acc ++ value.capabilities) #[.dataFixedArray]
     | .arrayGet array index =>
         #[.dataFixedArray] ++ array.capabilities ++ index.capabilities
+    | .memoryArrayNew elementType length =>
+        elementType.capabilities ++ length.capabilities ++ #[.dataDynamicArray]
+    | .memoryArrayLength array =>
+        #[.dataDynamicArray] ++ array.capabilities
+    | .memoryArrayGet array index =>
+        #[.dataDynamicArray] ++ array.capabilities ++ index.capabilities
     | .structLit _ fields =>
         fields.foldl (fun acc field => acc ++ field.snd.capabilities) #[.dataStruct]
     | .field base _ =>
@@ -388,6 +399,8 @@ mutual
     | .storageArrayStructFieldWrite _ index _ value => #[.dataStruct] ++ index.capabilities ++ value.capabilities
     | .storageDynamicArrayPush _ value => value.capabilities
     | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet array index value =>
+        array.capabilities ++ index.capabilities ++ value.capabilities
     | .storageStructFieldRead _ _ => #[.dataStruct]
     | .storageStructFieldWrite _ _ value => #[.dataStruct] ++ value.capabilities
     | .storagePathRead _ path => path.foldl (fun acc segment => acc ++ segment.capabilities) #[]

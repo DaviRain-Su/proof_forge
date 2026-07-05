@@ -429,8 +429,10 @@ Tasks:
     complete plan-driven module lowering. `lowerModuleWithPlan` emits checked
     arithmetic helpers, crosscall helpers (including planned plain native
     transfers), create/create2 helpers, and local-array getter helpers from the
-    semantic plan fields. Incomplete best-effort diagnostic plans still fall
-    back to compatibility rediscovery so validation diagnostics are not masked.
+    semantic plan fields. Incomplete best-effort diagnostic plans now use the
+    same `Lower`/`Validate` helper-discovery sources rather than IR-local
+    rediscovery, so diagnostics are not masked by plan-shape errors while final
+    helper ownership stays outside `IR.lean`.
   - Started: crosscall helper naming and body construction now live behind the
     `CrosscallHelperSpec -> ToYul` boundary. `CrosscallHelperSpec.wordTypes`
     carries the planned return ABI word layout, so scalar helpers, aggregate
@@ -439,23 +441,28 @@ Tasks:
     complete plan-driven lowering. Complete `ModulePlan` construction now
     discovers crosscall helper specs, including the planned return word layout,
     in `Lower.buildFullModulePlan`; `IR.buildSemanticPlan` preserves those
-    Lower-discovered specs instead of re-scanning the module. `IR.lean` still
-    keeps compatibility wrappers for incomplete/best-effort fallback paths.
+    Lower-discovered specs instead of re-scanning the module. The old IR-local
+    fallback discovery scanner has been removed; fallback helper discovery now
+    calls `Lower.buildCrosscallHelperPlans` directly.
   - Started: create/create2 helper naming and body construction now live behind
     the `CreateHelperSpec -> ToYul` boundary. Planned create specs can emit
     deterministic init-code `mstore` frames, `create`/`create2` opcode calls,
     zero-address revert guards, and helper function names without converting
     back to the `IR.lean` compatibility helper spec. Complete `ModulePlan`
     construction now discovers create/create2 helper specs in
-    `Lower.buildFullModulePlan`; `IR.lean` keeps the old discovery only for
-    incomplete/best-effort fallback paths.
+    `Lower.buildFullModulePlan`. The old IR-local discovery scanner and
+    compatibility helper spec facade have been removed; fallback helper
+    discovery now calls `Lower.buildCreateHelperPlans` and emits through
+    `ToYul.createHelperFunction`.
   - Started: checked-arithmetic and local fixed-array getter helper
     requirements are now discovered by complete `ModulePlan` construction in
     `Lower.buildFullModulePlan`. `IR.buildSemanticPlan` preserves the
     Lower-owned `usesCheckedArithmetic`, `localArrayGetLengths`, and
     `nestedLocalArrayGetShapes` fields instead of re-scanning the module after
-    plan construction; `IR.lean` keeps compatibility rediscovery only for
-    incomplete/best-effort fallback lowering.
+    plan construction. Incomplete-plan fallback lowering now calls
+    `Validate.moduleUsesCheckedArithmetic`, `Lower.buildLocalArrayGetLengths`,
+    and `Lower.buildNestedLocalArrayGetShapes` directly; the IR-local
+    rediscovery scanners have been removed.
   - Started: scalar expression-position crosscall helper-call assembly and
     create/create2 helper-call assembly now live behind `ToYul`. `ExprPlan`
     nodes for scalar `call`, value-bearing `call`, native value transfer,

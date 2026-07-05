@@ -3251,6 +3251,39 @@ def testScalarEventPlanToYul : IO Unit := do
           require (args.size == 4) "event EventPlan-to-Yul core helper log arg count"
       | _ => throw <| IO.userError "event EventPlan-to-Yul core helper must end with log statement"
   | _ => throw <| IO.userError "event EventPlan-to-Yul core helper must lower to block"
+  let simplePlanExpr : ExprPlan → Except LowerError Lean.Compiler.Yul.Expr := fun plan =>
+    match plan with
+    | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
+    | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
+    | _ => .error (toYulError "unexpected event plan test expression")
+  let directDataWords ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
+      toYulError
+      simplePlanExpr
+      directEvent.name
+      directEvent.dataFields
+      #[.literalWord 11])
+    "event field plan-to-yul data words"
+  require (directDataWords.size == 1) "event field plan-to-yul data word count"
+  match directDataWords[0]! with
+  | Lean.Compiler.Yul.Expr.lit literal =>
+      require (literal.value == "11") "event field plan-to-yul data word value"
+  | _ => throw <| IO.userError "event field plan-to-yul data word must be numeric"
+  let directIndexedTopics ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventIndexedTopicStatementsFromPlans
+      toYulError
+      simplePlanExpr
+      directEvent
+      #[.literalWord 7])
+    "event indexed field plan-to-yul topic statements"
+  require (directIndexedTopics.size == 1) "event indexed field plan-to-yul topic statement count"
+  match directIndexedTopics[0]! with
+  | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.lit literal)) => do
+      require (literal.value == "7") "event indexed field plan-to-yul topic value"
+      match vars[0]? with
+      | some var => require (vars.size == 1 && var.name == "_indexed_topic0") "event indexed field plan-to-yul topic var"
+      | none => throw <| IO.userError "event indexed field plan-to-yul topic missing var"
+  | _ => throw <| IO.userError "event indexed field plan-to-yul topic must be var decl"
   let dataStmt ← requireOk
     (lowerEventEmitCoreStmt
       ProofForge.IR.Examples.EventProbe.evmModule

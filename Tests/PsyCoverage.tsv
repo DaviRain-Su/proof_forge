@@ -92,6 +92,10 @@ Effect	storagePathWrite	lowered	lowerStoragePathWrite emits generic scalar, arra
 Effect	storagePathAssignOp	validated	lowerStoragePathAssignOp emits supported scalar/array storage compound assignment, uses native Psy assignment for U32 struct paths, rewrites Felt-backed U32 storage-array paths as read/update/write casts, and rejects map value compound assignment; StorageNestedAggregateProbe, U32StorageArrayProbe, and diagnostics cover the boundary.
 Effect	storageDynamicArrayPush	unsupported	Psy IR v0 rejects storage.dynamic.array.push with an explicit diagnostic because DPN does not expose dynamic array storage semantics.
 Effect	storageDynamicArrayPop	unsupported	Psy IR v0 rejects storage.dynamic.array.pop with an explicit diagnostic because DPN does not expose dynamic array storage semantics.
+Effect	memoryArraySet	unsupported	Psy IR v0 rejects memory.array.set with an explicit diagnostic because memory arrays are not lowered.
+Expr	memoryArrayNew	unsupported	Psy IR v0 rejects memory.array.new with an explicit diagnostic because memory arrays are not lowered.
+Expr	memoryArrayLength	unsupported	Psy IR v0 rejects memory.array.length with an explicit diagnostic because memory arrays are not lowered.
+Expr	memoryArrayGet	unsupported	Psy IR v0 rejects memory.array.get with an explicit diagnostic because memory arrays are not lowered.
 Effect	contextRead	lowered	lowerEffectExpr emits context functions; ContextProbe covers it.
 StoragePathSegment	field	lowered	lowerStoragePathSegment emits field access; StorageNestedAggregateProbe covers it.
 StoragePathSegment	index	lowered	lowerStoragePathSegment emits index access; BoolStorageArrayProbe, HashStorageProbe, StorageNestedAggregateProbe, and U32StorageArrayProbe cover it.

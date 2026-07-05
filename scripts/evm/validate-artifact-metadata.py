@@ -428,7 +428,10 @@ def validate_entrypoint_abi_value(value: dict, prefix: str, allow_none: bool) ->
     word_types = expect_array(value.get("wordTypes"), f"{prefix}.wordTypes")
     for idx, word_type in enumerate(word_types):
         word_type = expect_string(word_type, f"{prefix}.wordTypes[{idx}]")
-        expect(word_type in SUPPORTED_ENTRYPOINT_WORD_TYPES, f"{prefix}.wordTypes[{idx}] unsupported")
+        if encoding == "abi-dynamic-array":
+            expect(word_type == abi_type, f"{prefix}.wordTypes[{idx}] must match abiType for dynamic-array encoding")
+        else:
+            expect(word_type in SUPPORTED_ENTRYPOINT_WORD_TYPES, f"{prefix}.wordTypes[{idx}] unsupported")
     word_count = value.get("wordCount")
     expect(isinstance(word_count, int) and word_count == len(word_types), f"{prefix}.wordCount mismatch")
     if encoding == "none":
@@ -439,6 +442,9 @@ def validate_entrypoint_abi_value(value: dict, prefix: str, allow_none: bool) ->
     elif encoding == "abi-dynamic-bytes":
         expect(abi_type in ("bytes", "string"), f"{prefix}.abiType must be bytes or string for dynamic-bytes encoding")
         expect(word_count == 1, f"{prefix}.wordCount must be 1 for dynamic-bytes encoding (offset word)")
+    elif encoding == "abi-dynamic-array":
+        expect(abi_type.endswith("[]"), f"{prefix}.abiType must end with [] for dynamic-array encoding")
+        expect(word_count == 1, f"{prefix}.wordCount must be 1 for dynamic-array encoding (offset word)")
     else:
         expect(encoding == "abi-static-words", f"{prefix}.encoding mismatch")
         expect(abi_type != "void", f"{prefix}.abiType must not be void for static ABI words")
