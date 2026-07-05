@@ -7,7 +7,6 @@ import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Psy.IR
 import ProofForge.Backend.Psy.Metadata
-import ProofForge.Backend.Psy.MetadataJson
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
@@ -32,6 +31,7 @@ import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
 import ProofForge.Cli.Deploy
 import ProofForge.Cli.Check
+import ProofForge.Cli.Metadata
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -454,7 +454,6 @@ inductive Command where
   | emit
   | check
   | init
-  | metadata
   | listTargets
   | listFixtures
   deriving BEq, Inhabited, Repr
@@ -3016,64 +3015,6 @@ def newCommandArgsToLegacy (args : List String) : Except String (List String) :=
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
-
-/-! ### Metadata command (plan-driven artifact metadata JSON) -/
-
-/-- Map a fixture id to its portable IR module for plan-driven metadata
-    export. Covers all Psy-compatible fixtures. -/
-def metadataFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
-  match fixtureId with
-  | "counter" => some ProofForge.IR.Examples.Counter.module
-  | "map" => some ProofForge.IR.Examples.MapProbe.module
-  | "event" => some ProofForge.IR.Examples.EventProbe.module
-  | "context" => some ProofForge.IR.Examples.ContextProbe.module
-  | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module
-  | "struct" => some ProofForge.IR.Examples.StructProbe.module
-  | "struct-array" => some ProofForge.IR.Examples.StructArrayProbe.module
-  | "array" => some ProofForge.IR.Examples.ArrayProbe.module
-  | "assert" => some ProofForge.IR.Examples.AssertProbe.module
-  | "hash" => some ProofForge.IR.Examples.HashProbe.module
-  | "hash-storage" => some ProofForge.IR.Examples.HashStorageProbe.module
-  | "loop" => some ProofForge.IR.Examples.LoopProbe.module
-  | "arithmetic" => some ProofForge.IR.Examples.ArithmeticProbe.module
-  | "bitwise" => some ProofForge.IR.Examples.BitwiseProbe.module
-  | "conditional" => some ProofForge.IR.Examples.ConditionalProbe.module
-  | "else-if" => some ProofForge.IR.Examples.ElseIfProbe.module
-  | "expression-predicate" => some ProofForge.IR.Examples.ExpressionPredicateProbe.module
-  | "generic-entrypoint" => some ProofForge.IR.Examples.GenericEntrypointProbe.module
-  | "abi-aggregate" => some ProofForge.IR.Examples.AbiAggregateProbe.module
-  | "nested-aggregate" => some ProofForge.IR.Examples.NestedAggregateProbe.module
-  | "storage-nested-aggregate" => some ProofForge.IR.Examples.StorageNestedAggregateProbe.module
-  | "u32-arithmetic" => some ProofForge.IR.Examples.U32ArithmeticProbe.module
-  | "u32-hash-packing" => some ProofForge.IR.Examples.U32HashPackingProbe.module
-  | "u32-storage-array" => some ProofForge.IR.Examples.U32StorageArrayProbe.module
-  | "u32-storage-scalar" => some ProofForge.IR.Examples.U32StorageScalarProbe.module
-  | "bool-storage-array" => some ProofForge.IR.Examples.BoolStorageArrayProbe.module
-  | "bool-storage-scalar" => some ProofForge.IR.Examples.BoolStorageScalarProbe.module
-  | _ => none
-
-/-- Run the `proof-forge metadata` command: build plan-driven artifact
-    metadata from a fixture and print it as JSON to stdout or --output. -/
-def metadataCommand (opts : CliOptions) : IO UInt32 := do
-  let fixtureId ← match opts.fixture? with
-    | some f => pure f
-    | none => throw <| IO.userError "metadata requires --fixture <id>"
-  let module ← match metadataFixtureModule? fixtureId with
-    | some m => pure m
-    | none => throw <| IO.userError s!"metadata: unknown fixture '{fixtureId}'"
-  let artifactMeta ← match ProofForge.Backend.Psy.Metadata.buildPlanArtifactMetadata module with
-    | .ok m => pure m
-    | .error e => throw <| IO.userError s!"metadata: failed to build plan: {e.message}"
-  let json := ProofForge.Backend.Psy.MetadataJson.renderArtifactMetadata artifactMeta
-  match opts.output? with
-  | some path =>
-      if let some parent := path.parent then
-        IO.FS.createDirAll parent
-      IO.FS.writeFile path (json ++ "\n")
-      IO.eprintln s!"metadata: wrote {path}"
-  | none =>
-      IO.println json
-  pure 0
 
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
@@ -5901,6 +5842,12 @@ unsafe def main (args : List String) : IO UInt32 := do
     | Except.error msg =>
         IO.eprintln msg
         return 1
+  | "metadata" :: rest =>
+    match ProofForge.Cli.Metadata.parseMetadataOptions rest with
+    | Except.ok opts => ProofForge.Cli.Metadata.metadataCommand opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1
   | _ =>
     let parseResult : Except String ProofForge.Cli.CliOptions :=
       match args with
@@ -5933,17 +5880,6 @@ unsafe def main (args : List String) : IO UInt32 := do
             fromNewSurface := true
             : ProofForge.Cli.CliOptions }
         | Except.error msg => Except.error msg
-      | "metadata" :: rest =>
-        match ProofForge.Cli.parseNewOptions rest {} with
-        | Except.ok state =>
-          Except.ok {
-            cmd := ProofForge.Cli.Command.metadata,
-            fixture? := state.fixture?,
-            output? := state.out?.map FilePath.mk,
-            root? := state.root?.map FilePath.mk,
-            fromNewSurface := true
-            : ProofForge.Cli.CliOptions }
-        | Except.error msg => Except.error msg
       | _ => ProofForge.Cli.parseArgs args {}
     match parseResult with
     | Except.ok opts => do
@@ -5956,8 +5892,6 @@ unsafe def main (args : List String) : IO UInt32 := do
           return 0
         | ProofForge.Cli.Command.check =>
           ProofForge.Cli.checkCommand opts
-        | ProofForge.Cli.Command.metadata =>
-          ProofForge.Cli.metadataCommand opts
         | _ =>
           if !opts.fromNewSurface then
             if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then
