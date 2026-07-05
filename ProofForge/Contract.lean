@@ -6,6 +6,7 @@ import ProofForge.Contract.Learn
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
 import ProofForge.Contract.Source
+import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Stdlib.ERC20
 import ProofForge.Contract.Stdlib.Ownable
 import ProofForge.Contract.Stdlib.Pausable

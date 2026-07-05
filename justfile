@@ -20,6 +20,15 @@ contract-spec-json:
 contract-client:
     lake env lean --run Tests/ContractClient.lean
 
+# Check unified SDK schema generation, target extensions, diagnostics, and refs.
+sdk-schema:
+    lake env lean --run Tests/SdkSchema.lean
+    lake env lean --run Tests/SdkSchemaExtensions.lean
+    lake env lean --run Tests/SdkSchemaDiagnostics.lean
+    python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
+    python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
+    scripts/sdk/schema-determinism-smoke.sh
+
 # Check the proof-forge deploy command parser and defaults.
 cli-deploy:
     lake env lean --run Tests/CliDeploy.lean
@@ -319,7 +328,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
+check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
