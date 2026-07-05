@@ -131,6 +131,14 @@ near-target-first:
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
 
+# Build the shared RoleGatedToken to EVM, Solana sBPF, and NEAR/Wasm from one source file.
+portable-role-gated-token-multi-target:
+    scripts/portable/role-gated-token-multi-target.sh
+
+# Build the shared StakingVault to EVM, Solana sBPF, and NEAR/Wasm from one source file.
+portable-staking-vault-multi-target:
+    scripts/portable/staking-vault-multi-target.sh
+
 # Scaffold a portable Counter project with `proof-forge init` and build EVM + Solana.
 portable-init-smoke:
     scripts/portable/init-smoke.sh
@@ -296,7 +304,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
+check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
