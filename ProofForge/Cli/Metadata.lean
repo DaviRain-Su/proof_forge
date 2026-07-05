@@ -39,6 +39,7 @@ structure MetadataOptions where
   targetId : String
   fixture : String
   output? : Option System.FilePath
+  pretty : Bool
   deriving Repr
 
 private def fixtureModule? (fixtureId : String) : Option Module :=
@@ -83,8 +84,9 @@ def parseMetadataOptions (args : List String) : Except String MetadataOptions :=
     | "--target" :: target :: rest => loop rest { acc with targetId := target }
     | "--fixture" :: fixture :: rest => loop rest { acc with fixture := fixture }
     | "-o" :: out :: rest | "--output" :: out :: rest => loop rest { acc with output? := some out }
+    | "--pretty" :: rest => loop rest { acc with pretty := true }
     | flag :: _ => .error s!"unknown metadata flag: {flag}"
-  loop args { targetId := "psy-dpn", fixture := "", output? := none }
+  loop args { targetId := "psy-dpn", fixture := "", output? := none, pretty := false }
 
 def metadataCommand (opts : MetadataOptions) : IO UInt32 := do
   if opts.targetId != "psy-dpn" then
@@ -96,7 +98,11 @@ def metadataCommand (opts : MetadataOptions) : IO UInt32 := do
   let artifactMeta ← match buildPlanArtifactMetadata module with
     | .ok m => pure m
     | .error e => throw <| IO.userError s!"metadata: failed to build plan: {PlanError.render e}"
-  let json := ProofForge.Backend.Psy.MetadataJson.renderArtifactMetadata artifactMeta
+  let json :=
+    if opts.pretty then
+      ProofForge.Backend.Psy.MetadataJson.renderArtifactMetadataPretty artifactMeta
+    else
+      ProofForge.Backend.Psy.MetadataJson.renderArtifactMetadata artifactMeta
   match opts.output? with
   | some path =>
       if let some parent := path.parent then
