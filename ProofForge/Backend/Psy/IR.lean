@@ -23,6 +23,133 @@ def diagnosticError (err : Diagnostic) : LowerError := {
   message := err.render
 }
 
+/-- Look up a struct declaration by name. -/
+def findStruct? (module : Module) (name : String) : Option StructDecl :=
+  module.structs.find? fun decl => decl.name == name
+
+/-- Look up a struct field by name within a struct declaration. -/
+def findStructField? (decl : StructDecl) (fieldName : String) : Option StructField :=
+  decl.fields.find? fun field => field.id == fieldName
+
+open ProofForge.Backend.Psy.Plan (StorageLayout StorageShape StorageStatePlan)
+
+/-- Build context: carries the portable IR module plus the pre-resolved
+storage layout from the semantic plan. Builder functions look up storage
+shapes from `layout` instead of re-resolving `findState?` inline. Struct
+field lookups still use `module` since structs are not part of the storage
+layout plan. -/
+structure BuildContext where
+  module : Module
+  layout : StorageLayout
+
+/-- Look up a storage state plan from the context's layout. -/
+def lookupState? (ctx : BuildContext) (stateId : String) : Option StorageStatePlan :=
+  ProofForge.Backend.Psy.Plan.findState? ctx.layout stateId
+
+/-- Require that a state is scalar storage. -/
+def requireScalarStateCtx (ctx : BuildContext) (stateId : String) : Except LowerError Unit :=
+  match lookupState? ctx stateId with
+  | some { shape := .scalar _, .. } => .ok ()
+  | some { shape := .map _ _ _, .. } => .error { message := s!"state `{stateId}` is a map, not scalar storage" }
+  | some { shape := .array _ _ _, .. } => .error { message := s!"state `{stateId}` is an array, not scalar storage" }
+  | some { shape := .structRef _, .. } => .ok ()
+  | none => .error { message := s!"unknown scalar state `{stateId}`" }
+
+/-- Require that a state is map storage. -/
+def requireMapStateCtx (ctx : BuildContext) (stateId : String) : Except LowerError Unit :=
+  match lookupState? ctx stateId with
+  | some { shape := .map _ _ _, .. } => .ok ()
+  | some { shape := .scalar _, .. } => .error { message := s!"state `{stateId}` is scalar storage, not a map" }
+  | some { shape := .array _ _ _, .. } => .error { message := s!"state `{stateId}` is array storage, not a map" }
+  | some { shape := .structRef _, .. } => .error { message := s!"state `{stateId}` is struct ref storage, not a map" }
+  | none => .error { message := s!"unknown map state `{stateId}`" }
+
+/-- Require that a state is array storage. -/
+def requireArrayStateCtx (ctx : BuildContext) (stateId : String) : Except LowerError Unit :=
+  match lookupState? ctx stateId with
+  | some { shape := .array _ _ _, .. } => .ok ()
+  | some { shape := .scalar _, .. } => .error { message := s!"state `{stateId}` is scalar storage, not an array" }
+  | some { shape := .map _ _ _, .. } => .error { message := s!"state `{stateId}` is map storage, not an array" }
+  | some { shape := .structRef _, .. } => .error { message := s!"state `{stateId}` is struct ref storage, not an array" }
+  | none => .error { message := s!"unknown array state `{stateId}`" }
+
+/-- Require that a state is struct scalar storage referencing a struct with
+the given field. -/
+def requireStructScalarStateCtx (ctx : BuildContext) (stateId fieldName : String) : Except LowerError Unit :=
+  match lookupState? ctx stateId with
+  | some { shape := .structRef type, .. } =>
+      match type with
+      | .structType typeName =>
+          match findStruct? ctx.module typeName with
+          | some decl =>
+              if decl.fields.any (fun field => field.id == fieldName) then .ok ()
+              else .error { message := s!"struct `{typeName}` has no field `{fieldName}`" }
+          | none => .error { message := s!"state `{stateId}` references unknown struct `{typeName}`" }
+      | other => .error { message := s!"state `{stateId}` has scalar type `{other.name}`, not struct storage" }
+  | some { shape := .scalar _, .. } => .error { message := s!"state `{stateId}` has scalar type, not struct storage" }
+  | some { shape := .map _ _ _, .. } => .error { message := s!"state `{stateId}` is map storage, not struct scalar storage" }
+  | some { shape := .array _ _ _, .. } => .error { message := s!"state `{stateId}` is array storage, not struct scalar storage" }
+  | none => .error { message := s!"unknown struct state `{stateId}`" }
+
+/-- Require that a state is struct array storage referencing a deriveStorage
+struct with the given field. -/
+def requireStructArrayStateCtx (ctx : BuildContext) (stateId fieldName : String) : Except LowerError Unit :=
+  match lookupState? ctx stateId with
+  | some { shape := .array elementType _ _, .. } =>
+      match elementType with
+      | .structType typeName =>
+          match findStruct? ctx.module typeName with
+          | some decl =>
+              if !decl.deriveStorage then
+                .error { message := s!"array state `{stateId}` uses struct `{typeName}`, but the struct is not marked deriveStorage" }
+              else if decl.fields.any (fun field => field.id == fieldName) then .ok ()
+              else .error { message := s!"struct `{typeName}` has no field `{fieldName}`" }
+          | none => .error { message := s!"array state `{stateId}` references unknown struct `{typeName}`" }
+      | other => .error { message := s!"array state `{stateId}` has element type `{other.name}`, not struct array storage" }
+  | some { shape := .scalar _, .. } => .error { message := s!"state `{stateId}` is scalar storage, not struct array storage" }
+  | some { shape := .map _ _ _, .. } => .error { message := s!"state `{stateId}` is map storage, not struct array storage" }
+  | some { shape := .structRef _, .. } => .error { message := s!"state `{stateId}` is struct ref storage, not struct array storage" }
+  | none => .error { message := s!"unknown struct array state `{stateId}`" }
+
+/-- Check whether a storage state is a felt-backed U32 array. -/
+def isFeltBackedU32ArrayCtx (ctx : BuildContext) (stateId : String) : Bool :=
+  match lookupState? ctx stateId with
+  | some { shape := .array _ _ true, .. } => true
+  | _ => false
+
+/-- Recursively resolve storage path segments against the module struct graph. -/
+partial def resolvePathSegments (module : Module) : ValueType → List StoragePathSegment → Except LowerError ValueType
+  | type, [] => .ok type
+  | type, .field fieldName :: rest => do
+      match type with
+      | .structType typeName =>
+          match findStruct? module typeName with
+          | some decl =>
+              match findStructField? decl fieldName with
+              | some field => resolvePathSegments module field.type rest
+              | none => .error { message := s!"struct `{typeName}` has no field `{fieldName}`" }
+          | none => .error { message := s!"unknown struct `{typeName}` in storage path" }
+      | other => .error { message := s!"storage path field `{fieldName}` requires struct, got `{other.name}`" }
+  | type, .index _ :: rest => do
+      match type with
+      | .fixedArray element _ => resolvePathSegments module element rest
+      | other => .error { message := s!"storage path index requires fixed array, got `{other.name}`" }
+  | type, .mapKey _ :: rest => do
+      match type with
+      | .structType _ => resolvePathSegments module type rest
+      | other => .error { message := s!"storage path map key requires struct/map value, got `{other.name}`" }
+
+/-- Resolve the type of a storage path from the layout + module struct graph. -/
+partial def resolveStoragePathTypeCtx (ctx : BuildContext) (stateId : String) (path : Array StoragePathSegment) : Except LowerError ValueType := do
+  if path.isEmpty then .error { message := s!"storage path for state `{stateId}` must contain at least one segment" }
+  let startType ← match lookupState? ctx stateId with
+    | some { shape := .scalar type, .. } => .ok type
+    | some { shape := .structRef type, .. } => .ok type
+    | some { shape := .map _ valueType _, .. } => .ok valueType
+    | some { shape := .array elementType _ _, .. } => .ok elementType
+    | none => .error { message := s!"unknown storage path state `{stateId}`" }
+  resolvePathSegments ctx.module startType path.toList
+
 def indent (level : Nat) (line : String) : String :=
   String.ofList (List.replicate (level * 4) ' ') ++ line
 
@@ -212,12 +339,6 @@ def stateDecl (state : StateDecl) : Except LowerError (Array String) := do
 
 def findState? (module : Module) (stateId : String) : Option StateDecl :=
   module.state.find? fun state => state.id == stateId
-
-def findStruct? (module : Module) (name : String) : Option StructDecl :=
-  module.structs.find? fun decl => decl.name == name
-
-def findStructField? (decl : StructDecl) (fieldName : String) : Option StructField :=
-  decl.fields.find? fun field => field.id == fieldName
 
 def requireScalarState (module : Module) (stateId : String) : Except LowerError Unit :=
   match findState? module stateId with
@@ -1064,17 +1185,17 @@ mutual
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Expr`. Storage/state validation is
   performed by the type-checking pass before this runs; the builder only folds
   the validated shape into the AST. -/
-  partial def buildExpr (module : Module) : IR.Expr → Except LowerError Lean.Compiler.Psy.Expr
+  partial def buildExpr (ctx : BuildContext) : IR.Expr → Except LowerError Lean.Compiler.Psy.Expr
     | .literal value => .ok <| .literal (buildLiteral value)
     | .local name => .ok <| .local name
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Psy IR v0 for `{← valueTypeName elementType}`" }
         let elementTypeName ← typeName elementType
-        let items ← values.mapM (buildExpr module)
+        let items ← values.mapM (buildExpr ctx)
         .ok <| .arrayLit elementTypeName items
     | .arrayGet array index => do
-        .ok <| .arrayGet (← buildExpr module array) (← buildExpr module index)
+        .ok <| .arrayGet (← buildExpr ctx array) (← buildExpr ctx index)
     | .memoryArrayNew _ _ =>
         .error { message := "memory arrays are not supported by Psy IR v0" }
     | .memoryArrayLength _ =>
@@ -1085,40 +1206,40 @@ mutual
         if fields.isEmpty then
           .error { message := s!"struct literal `{structName}` must have at least one field" }
         let items ← fields.mapM fun (n, v) => do
-          .ok (n, ← buildExpr module v)
+          .ok (n, ← buildExpr ctx v)
         .ok <| .structLit structName items
     | .field base fieldName => do
-        .ok <| .field (← buildExpr module base) fieldName
-    | .add lhs rhs => do .ok <| .binary (← buildExpr module lhs) .add (← buildExpr module rhs)
-    | .sub lhs rhs => do .ok <| .binary (← buildExpr module lhs) .sub (← buildExpr module rhs)
-    | .mul lhs rhs => do .ok <| .binary (← buildExpr module lhs) .mul (← buildExpr module rhs)
-    | .div lhs rhs => do .ok <| .binary (← buildExpr module lhs) .div (← buildExpr module rhs)
-    | .mod lhs rhs => do .ok <| .binary (← buildExpr module lhs) .mod (← buildExpr module rhs)
-    | .pow lhs rhs => do .ok <| .binary (← buildExpr module lhs) .pow (← buildExpr module rhs)
-    | .bitAnd lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitAnd (← buildExpr module rhs)
-    | .bitOr lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitOr (← buildExpr module rhs)
-    | .bitXor lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitXor (← buildExpr module rhs)
-    | .shiftLeft lhs rhs => do .ok <| .binary (← buildExpr module lhs) .shiftLeft (← buildExpr module rhs)
-    | .shiftRight lhs rhs => do .ok <| .binary (← buildExpr module lhs) .shiftRight (← buildExpr module rhs)
+        .ok <| .field (← buildExpr ctx base) fieldName
+    | .add lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .add (← buildExpr ctx rhs)
+    | .sub lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .sub (← buildExpr ctx rhs)
+    | .mul lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .mul (← buildExpr ctx rhs)
+    | .div lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .div (← buildExpr ctx rhs)
+    | .mod lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .mod (← buildExpr ctx rhs)
+    | .pow lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .pow (← buildExpr ctx rhs)
+    | .bitAnd lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .bitAnd (← buildExpr ctx rhs)
+    | .bitOr lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .bitOr (← buildExpr ctx rhs)
+    | .bitXor lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .bitXor (← buildExpr ctx rhs)
+    | .shiftLeft lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .shiftLeft (← buildExpr ctx rhs)
+    | .shiftRight lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .shiftRight (← buildExpr ctx rhs)
     | .cast value targetType => do
         let targetTypeName ← typeName targetType
-        .ok <| .cast (← buildExpr module value) targetTypeName
-    | .eq lhs rhs => do .ok <| .binary (← buildExpr module lhs) .eq (← buildExpr module rhs)
-    | .ne lhs rhs => do .ok <| .binary (← buildExpr module lhs) .ne (← buildExpr module rhs)
-    | .lt lhs rhs => do .ok <| .binary (← buildExpr module lhs) .lt (← buildExpr module rhs)
-    | .le lhs rhs => do .ok <| .binary (← buildExpr module lhs) .le (← buildExpr module rhs)
-    | .gt lhs rhs => do .ok <| .binary (← buildExpr module lhs) .gt (← buildExpr module rhs)
-    | .ge lhs rhs => do .ok <| .binary (← buildExpr module lhs) .ge (← buildExpr module rhs)
-    | .boolAnd lhs rhs => do .ok <| .binary (← buildExpr module lhs) .boolAnd (← buildExpr module rhs)
-    | .boolOr lhs rhs => do .ok <| .binary (← buildExpr module lhs) .boolOr (← buildExpr module rhs)
-    | .boolNot value => do .ok <| .unary .not (← buildExpr module value)
-    | .hashValue a b c d => do .ok <| .hashValue (← buildExpr module a) (← buildExpr module b) (← buildExpr module c) (← buildExpr module d)
-    | .hash preimage => do .ok <| .hash (← buildExpr module preimage)
-    | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr module lhs) (← buildExpr module rhs)
+        .ok <| .cast (← buildExpr ctx value) targetTypeName
+    | .eq lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .eq (← buildExpr ctx rhs)
+    | .ne lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .ne (← buildExpr ctx rhs)
+    | .lt lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .lt (← buildExpr ctx rhs)
+    | .le lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .le (← buildExpr ctx rhs)
+    | .gt lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .gt (← buildExpr ctx rhs)
+    | .ge lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .ge (← buildExpr ctx rhs)
+    | .boolAnd lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .boolAnd (← buildExpr ctx rhs)
+    | .boolOr lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .boolOr (← buildExpr ctx rhs)
+    | .boolNot value => do .ok <| .unary .not (← buildExpr ctx value)
+    | .hashValue a b c d => do .ok <| .hashValue (← buildExpr ctx a) (← buildExpr ctx b) (← buildExpr ctx c) (← buildExpr ctx d)
+    | .hash preimage => do .ok <| .hash (← buildExpr ctx preimage)
+    | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr ctx lhs) (← buildExpr ctx rhs)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
-        .ok <| .crosscallInvoke (← buildExpr module target) (← buildExpr module methodId) (← args.mapM (buildExpr module))
+        .ok <| .crosscallInvoke (← buildExpr ctx target) (← buildExpr ctx methodId) (← args.mapM (buildExpr ctx))
     | .crosscallInvokeTyped _ _ _ returnType =>
         .error { message := s!"typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
     | .crosscallInvokeValueTyped _ _ _ _ returnType =>
@@ -1131,40 +1252,38 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
-    | .effect effect => buildEffectExpr module effect
+    | .effect effect => buildEffectExpr ctx effect
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/
-  partial def buildEffectExpr (module : Module) : IR.Effect → Except LowerError Lean.Compiler.Psy.Expr
+  partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Expr
     | .storageScalarRead stateId => do
-        requireScalarState module stateId
+        requireScalarStateCtx ctx stateId
         .ok <| .storageScalarRead stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
     | .storageScalarAssignOp _ _ _ =>
         .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
     | .storageMapContains stateId key => do
-        requireMapState module stateId
-        .ok <| .storageMapContains stateId (← buildExpr module key)
+        requireMapStateCtx ctx stateId
+        .ok <| .storageMapContains stateId (← buildExpr ctx key)
     | .storageMapGet stateId key => do
-        requireMapState module stateId
-        .ok <| .storageMapGet stateId (← buildExpr module key)
+        requireMapStateCtx ctx stateId
+        .ok <| .storageMapGet stateId (← buildExpr ctx key)
     | .storageMapInsert stateId key value => do
-        requireMapState module stateId
-        .ok <| .storageMapInsert stateId (← buildExpr module key) (← buildExpr module value)
+        requireMapStateCtx ctx stateId
+        .ok <| .storageMapInsert stateId (← buildExpr ctx key) (← buildExpr ctx value)
     | .storageMapSet stateId key value => do
-        requireMapState module stateId
-        .ok <| .storageMapSet stateId (← buildExpr module key) (← buildExpr module value)
+        requireMapStateCtx ctx stateId
+        .ok <| .storageMapSet stateId (← buildExpr ctx key) (← buildExpr ctx value)
     | .storageArrayRead stateId index => do
-        requireArrayState module stateId
-        let feltBacked := match findState? module stateId with
-          | some { type := .u32, .. } => true
-          | _ => false
-        .ok <| .storageArrayRead stateId (← buildExpr module index) feltBacked
+        requireArrayStateCtx ctx stateId
+        let feltBacked := isFeltBackedU32ArrayCtx ctx stateId
+        .ok <| .storageArrayRead stateId (← buildExpr ctx index) feltBacked
     | .storageArrayWrite _ _ _ =>
         .error { message := "storage.array.write is a statement effect, not an expression" }
     | .storageArrayStructFieldRead stateId index fieldName => do
-        requireStructArrayState module stateId fieldName
-        .ok <| .storageArrayStructFieldRead stateId (← buildExpr module index) fieldName
+        requireStructArrayStateCtx ctx stateId fieldName
+        .ok <| .storageArrayStructFieldRead stateId (← buildExpr ctx index) fieldName
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
     | .storageDynamicArrayPush _ _ =>
@@ -1174,22 +1293,22 @@ mutual
     | .memoryArraySet _ _ _ =>
         .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
-        requireStructScalarState module stateId fieldName
+        requireStructScalarStateCtx ctx stateId fieldName
         .ok <| .storageStructFieldRead stateId fieldName
     | .storageStructFieldWrite _ _ _ =>
         .error { message := "storage.struct.field.write is a statement effect, not an expression" }
     | .storagePathRead stateId path => do
-        discard <| resolveStoragePathType module stateId path
-        match findState? module stateId with
-        | some { kind := .map _ _, .. } =>
+        discard <| resolveStoragePathTypeCtx ctx stateId path
+        match lookupState? ctx stateId with
+        | some { shape := .map _ _ _, .. } =>
             match path.toList with
-            | .mapKey key :: [] => .ok <| .storageMapGet stateId (← buildExpr module key)
+            | .mapKey key :: [] => .ok <| .storageMapGet stateId (← buildExpr ctx key)
             | .mapKey _ :: _ => .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
             | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
         | some _ =>
-            let pathType ← resolveStoragePathType module stateId path
+            let pathType ← resolveStoragePathTypeCtx ctx stateId path
             let feltBacked := pathType == .u32
-            .ok <| .storagePathRead stateId (← buildStoragePath module path) feltBacked
+            .ok <| .storagePathRead stateId (← buildStoragePath ctx path) feltBacked
         | none => .error { message := s!"unknown storage path state `{stateId}`" }
     | .storagePathWrite _ _ _ =>
         .error { message := "storage.path.write is a statement effect, not an expression" }
@@ -1203,169 +1322,169 @@ mutual
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
 
   /-- Build `Lean.Compiler.Psy.StoragePathSegment` array from portable IR path segments. -/
-  partial def buildStoragePath (module : Module) : Array IR.StoragePathSegment → Except LowerError (Array Lean.Compiler.Psy.StoragePathSegment)
+  partial def buildStoragePath (ctx : BuildContext) : Array IR.StoragePathSegment → Except LowerError (Array Lean.Compiler.Psy.StoragePathSegment)
     | #[] => .ok #[]
     | arr => arr.mapM fun
       | .field fieldName => .ok <| .field fieldName
-      | .index index => do .ok <| .index (← buildExpr module index)
+      | .index index => do .ok <| .index (← buildExpr ctx index)
       | .mapKey _ => .error { message := "storage path map key lowering is handled at the map state boundary" }
 
   /-- Check whether an assignment target's root is a storage state (vs a local). -/
-  partial def isStorageTargetRoot (module : Module) : IR.Expr → Bool
-    | .local name => findState? module name |>.isSome
-    | .field base _ => isStorageTargetRoot module base
-    | .arrayGet base _ => isStorageTargetRoot module base
+  partial def isStorageTargetRoot (ctx : BuildContext) : IR.Expr → Bool
+    | .local name => lookupState? ctx name |>.isSome
+    | .field base _ => isStorageTargetRoot ctx base
+    | .arrayGet base _ => isStorageTargetRoot ctx base
     | _ => false
 
   /-- Resolve the root storage form of an assignment target expression. -/
-  partial def resolveStorageTargetRoot (module : Module) : IR.Expr → Except LowerError Lean.Compiler.Psy.StorageTarget
+  partial def resolveStorageTargetRoot (ctx : BuildContext) : IR.Expr → Except LowerError Lean.Compiler.Psy.StorageTarget
     | .local stateId =>
-        match findState? module stateId with
+        match lookupState? ctx stateId with
         | some _ => .ok <| .scalar stateId
         | none => .error { message := s!"unknown storage target `{stateId}`" }
     | .field base fieldName => do
-        match ← resolveStorageTargetRoot module base with
+        match ← resolveStorageTargetRoot ctx base with
         | .scalar stateId => .ok <| .structField stateId fieldName
         | .arrayIndex stateId index _ => .ok <| .arrayStructField stateId index fieldName
         | .path stateId segs feltBacked => .ok <| .path stateId (segs.push (.field fieldName)) feltBacked
         | .structField _ _ => .error { message := "nested struct field assignment target is not a direct storage target" }
         | .arrayStructField _ _ _ => .error { message := "nested array struct field assignment target is not a direct storage target" }
     | .arrayGet base index => do
-        match ← resolveStorageTargetRoot module base with
+        match ← resolveStorageTargetRoot ctx base with
         | .scalar stateId =>
-            let feltBacked := match findState? module stateId with
-              | some { type := .u32, .. } => true
+            let feltBacked := match lookupState? ctx stateId with
+              | some { shape := .array .u32 _ true, .. } => true
               | _ => false
-            .ok <| .arrayIndex stateId (← buildExpr module index) feltBacked
+            .ok <| .arrayIndex stateId (← buildExpr ctx index) feltBacked
         | .arrayIndex stateId baseIndex feltBacked =>
-            .ok <| .path stateId #[.index baseIndex, .index (← buildExpr module index)] feltBacked
+            .ok <| .path stateId #[.index baseIndex, .index (← buildExpr ctx index)] feltBacked
         | .path stateId segs feltBacked =>
-            .ok <| .path stateId (segs.push (.index (← buildExpr module index))) feltBacked
+            .ok <| .path stateId (segs.push (.index (← buildExpr ctx index))) feltBacked
         | .structField _ _ => .error { message := "struct field is not an array assignment target" }
         | .arrayStructField _ _ _ => .error { message := "array struct field is not an array assignment target" }
     | _ => .error { message := "assignment target must be a local, array index, or field path" }
 end
 
 /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Effect` in statement position. -/
-def buildEffectStmt (module : Module) : IR.Effect → Except LowerError Lean.Compiler.Psy.Stmt
+def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Stmt
   | .storageScalarRead _ => .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
-      requireScalarState module stateId
-      .ok <| .effect (.storageScalarWrite stateId (← buildExpr module value))
+      requireScalarStateCtx ctx stateId
+      .ok <| .effect (.storageScalarWrite stateId (← buildExpr ctx value))
   | .storageScalarAssignOp stateId op value => do
-      requireScalarState module stateId
-      .ok <| .effect (.storageScalarAssignOp stateId (mapAssignOp op) (← buildExpr module value))
+      requireScalarStateCtx ctx stateId
+      .ok <| .effect (.storageScalarAssignOp stateId (mapAssignOp op) (← buildExpr ctx value))
   | .storageMapContains _ _ => .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ => .error { message := "storage.map.get must be used as an expression" }
   | .storageMapInsert stateId key value => do
-      requireMapState module stateId
-      .ok <| .effect (.storageMapInsert stateId (← buildExpr module key) (← buildExpr module value))
+      requireMapStateCtx ctx stateId
+      .ok <| .effect (.storageMapInsert stateId (← buildExpr ctx key) (← buildExpr ctx value))
   | .storageMapSet stateId key value => do
-      requireMapState module stateId
-      .ok <| .effect (.storageMapSet stateId (← buildExpr module key) (← buildExpr module value))
+      requireMapStateCtx ctx stateId
+      .ok <| .effect (.storageMapSet stateId (← buildExpr ctx key) (← buildExpr ctx value))
   | .storageArrayRead _ _ => .error { message := "storage.array.read must be used as an expression" }
   | .storageArrayWrite stateId index value => do
-      requireArrayState module stateId
-      let feltBacked := match findState? module stateId with
-        | some { type := .u32, .. } => true
+      requireArrayStateCtx ctx stateId
+      let feltBacked := match lookupState? ctx stateId with
+        | some { shape := .array .u32 _ true, .. } => true
         | _ => false
-      .ok <| .effect (.storageArrayWrite stateId (← buildExpr module index) (← buildExpr module value) feltBacked)
+      .ok <| .effect (.storageArrayWrite stateId (← buildExpr ctx index) (← buildExpr ctx value) feltBacked)
   | .storageArrayStructFieldRead _ _ _ => .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageArrayStructFieldWrite stateId index fieldName value => do
-      requireStructArrayState module stateId fieldName
-      .ok <| .effect (.storageArrayStructFieldWrite stateId (← buildExpr module index) fieldName (← buildExpr module value))
+      requireStructArrayStateCtx ctx stateId fieldName
+      .ok <| .effect (.storageArrayStructFieldWrite stateId (← buildExpr ctx index) fieldName (← buildExpr ctx value))
   | .storageDynamicArrayPush _ _ => .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
   | .storageDynamicArrayPop _ => .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
   | .memoryArraySet _ _ _ =>
       .error { message := "memory arrays are not supported by Psy IR v0" }
   | .storageStructFieldRead _ _ => .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
-      requireStructScalarState module stateId fieldName
-      .ok <| .effect (.storageStructFieldWrite stateId fieldName (← buildExpr module value))
+      requireStructScalarStateCtx ctx stateId fieldName
+      .ok <| .effect (.storageStructFieldWrite stateId fieldName (← buildExpr ctx value))
   | .storagePathRead _ _ => .error { message := "storage.path.read must be used as an expression" }
   | .storagePathWrite stateId path value => do
-      discard <| resolveStoragePathType module stateId path
-      match findState? module stateId with
-      | some { kind := .map _ _, .. } =>
+      discard <| resolveStoragePathTypeCtx ctx stateId path
+      match lookupState? ctx stateId with
+      | some { shape := .map _ _ _, .. } =>
           match path.toList with
-          | .mapKey key :: [] => do .ok <| .effect (.storageMapSet stateId (← buildExpr module key) (← buildExpr module value))
+          | .mapKey key :: [] => do .ok <| .effect (.storageMapSet stateId (← buildExpr ctx key) (← buildExpr ctx value))
           | .mapKey _ :: _ => .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
           | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
       | some _ =>
-          let pathType ← resolveStoragePathType module stateId path
-          let feltBacked := isFeltBackedU32StorageArrayPath module stateId pathType
-          .ok <| .effect (.storagePathWrite stateId (← buildStoragePath module path) (← buildExpr module value) feltBacked)
+          let pathType ← resolveStoragePathTypeCtx ctx stateId path
+          let feltBacked := isFeltBackedU32ArrayCtx ctx stateId
+          .ok <| .effect (.storagePathWrite stateId (← buildStoragePath ctx path) (← buildExpr ctx value) feltBacked)
       | none => .error { message := s!"unknown storage path state `{stateId}`" }
   | .storagePathAssignOp stateId path op value => do
-      discard <| resolveStoragePathType module stateId path
-      let pathType ← resolveStoragePathType module stateId path
-      match findState? module stateId with
-      | some { kind := .map _ _, .. } => .error { message := s!"storage path state `{stateId}` map values do not support compound assignment" }
-      | some { kind := .array _, type := .u32, .. } =>
+      discard <| resolveStoragePathTypeCtx ctx stateId path
+      let pathType ← resolveStoragePathTypeCtx ctx stateId path
+      match lookupState? ctx stateId with
+      | some { shape := .map _ _ _, .. } => .error { message := s!"storage path state `{stateId}` map values do not support compound assignment" }
+      | some { shape := .array .u32 _ _, .. } =>
           if pathType == .u32 then
-            let segs ← buildStoragePath module path
+            let segs ← buildStoragePath ctx path
             let target := Lean.Compiler.Psy.StorageTarget.path stateId segs false
             let read := Lean.Compiler.Psy.Expr.storagePathRead stateId segs true
             let rhs := Lean.Compiler.Psy.Expr.cast
-              (Lean.Compiler.Psy.Expr.binary read ((mapAssignOp op).toBinaryOp) (← buildExpr module value))
+              (Lean.Compiler.Psy.Expr.binary read ((mapAssignOp op).toBinaryOp) (← buildExpr ctx value))
               { text := "Felt" }
             .ok <| .assign target rhs
           else
-            .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath module path) (mapAssignOp op) (← buildExpr module value))
-      | some _ => do .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath module path) (mapAssignOp op) (← buildExpr module value))
+            .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath ctx path) (mapAssignOp op) (← buildExpr ctx value))
+      | some _ => do .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath ctx path) (mapAssignOp op) (← buildExpr ctx value))
       | none => .error { message := s!"unknown storage path state `{stateId}`" }
   | .contextRead _ => .error { message := "context.read must be used as an expression" }
   | .eventEmit name fields => do
-      let fieldExprs ← fields.mapM fun (n, v) => do .ok (n, ← buildExpr module v)
+      let fieldExprs ← fields.mapM fun (n, v) => do .ok (n, ← buildExpr ctx v)
       .ok <| .effect (.eventEmit name fieldExprs)
   | .eventEmitIndexed name _ _ => .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
 
 mutual
   /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Statement`. -/
-  partial def buildStmt (module : Module) : IR.Statement → Except LowerError Lean.Compiler.Psy.Stmt
+  partial def buildStmt (ctx : BuildContext) : IR.Statement → Except LowerError Lean.Compiler.Psy.Stmt
     | .letBind name type value => do
-        .ok <| .letBind name (← typeName type) (← buildExpr module value)
+        .ok <| .letBind name (← typeName type) (← buildExpr ctx value)
     | .letMutBind name type value => do
-        .ok <| .letMutBind name (← typeName type) (← buildExpr module value)
+        .ok <| .letMutBind name (← typeName type) (← buildExpr ctx value)
     | .assign target value => do
-        if isStorageTargetRoot module target then
-          do .ok <| .assign (← resolveStorageTargetRoot module target) (← buildExpr module value)
+        if isStorageTargetRoot ctx target then
+          do .ok <| .assign (← resolveStorageTargetRoot ctx target) (← buildExpr ctx value)
         else
-          do .ok <| .localAssign (← buildExpr module target) (← buildExpr module value)
+          do .ok <| .localAssign (← buildExpr ctx target) (← buildExpr ctx value)
     | .assignOp target op value => do
-        if isStorageTargetRoot module target then
-          do .ok <| .assignOp (← resolveStorageTargetRoot module target) (mapAssignOp op) (← buildExpr module value)
+        if isStorageTargetRoot ctx target then
+          do .ok <| .assignOp (← resolveStorageTargetRoot ctx target) (mapAssignOp op) (← buildExpr ctx value)
         else
-          do .ok <| .localAssignOp (← buildExpr module target) (mapAssignOp op) (← buildExpr module value)
-    | .effect effect => buildEffectStmt module effect
-    | .assert condition message _ => do .ok <| .assert (← buildExpr module condition) message
-    | .assertEq lhs rhs message _ => do .ok <| .assertEq (← buildExpr module lhs) (← buildExpr module rhs) message
+          do .ok <| .localAssignOp (← buildExpr ctx target) (mapAssignOp op) (← buildExpr ctx value)
+    | .effect effect => buildEffectStmt ctx effect
+    | .assert condition message _ => do .ok <| .assert (← buildExpr ctx condition) message
+    | .assertEq lhs rhs message _ => do .ok <| .assertEq (← buildExpr ctx lhs) (← buildExpr ctx rhs) message
     | .release _ => .error { message := "release statements are not supported by Psy IR v0" }
     | .revert message => .ok <| .revert message
     | .revertWithError _ => .ok <| .revert "revertWithError"
     | .ifElse condition thenBody elseBody => do
-        .ok <| .ifElse (← buildExpr module condition) (← buildBody module thenBody) (← buildBody module elseBody)
+        .ok <| .ifElse (← buildExpr ctx condition) (← buildBody ctx thenBody) (← buildBody ctx elseBody)
     | .boundedFor indexName start stopExclusive body => do
         if stopExclusive <= start then
           .error { message := s!"bounded loop `{indexName}` must have stop greater than start" }
-        .ok <| .boundedFor indexName start stopExclusive (← buildBody module body)
-    | .return value => do .ok <| .returnExpr (← buildExpr module value)
+        .ok <| .boundedFor indexName start stopExclusive (← buildBody ctx body)
+    | .return value => do .ok <| .returnExpr (← buildExpr ctx value)
 
   /-- Build an array of `Lean.Compiler.Psy.Stmt` from a portable IR body. -/
-  partial def buildBody (module : Module) : Array IR.Statement → Except LowerError (Array Lean.Compiler.Psy.Stmt)
+  partial def buildBody (ctx : BuildContext) : Array IR.Statement → Except LowerError (Array Lean.Compiler.Psy.Stmt)
     | #[] => .ok #[]
-    | arr => arr.mapM (buildStmt module)
+    | arr => arr.mapM (buildStmt ctx)
 end
 
 /-- Build a `Lean.Compiler.Psy.Method` from a portable IR `Entrypoint`. -/
-def buildMethod (module : Module) (entrypoint : Entrypoint) : Except LowerError Lean.Compiler.Psy.Method := do
+def buildMethod (ctx : BuildContext) (entrypoint : Entrypoint) : Except LowerError Lean.Compiler.Psy.Method := do
   let params ← entrypoint.params.mapM fun (n, t) => do
     let tn ← typeName t
     .ok (n, tn)
   let returns ← match entrypoint.returns with
     | .unit => .ok none
     | other => do .ok (some (← typeName other))
-  let body ← buildBody module entrypoint.body
+  let body ← buildBody ctx entrypoint.body
   .ok { name := entrypoint.name, params, returns, body }
 
 /-- Build a `Lean.Compiler.Psy.StructDecl` from a portable IR struct declaration. -/
@@ -1750,9 +1869,10 @@ def testBody (module : Module) : Except LowerError (Array String) := do
 semantic plan. The plan carries the test body, storage layout, and other
 resolved shapes; the builder only folds IR into the AST. -/
 def buildModuleWithPlan (module : Module) (plan : ProofForge.Backend.Psy.Plan.PsyModulePlan) : Except LowerError Lean.Compiler.Psy.Module := do
+  let ctx := { module, layout := plan.storage }
   let structs ← module.structs.mapM buildStructDecl
   let state ← module.state.mapM buildStateDecl
-  let methods ← module.entrypoints.mapM (buildMethod module)
+  let methods ← module.entrypoints.mapM (buildMethod ctx)
   let headerComment := s!"// Generated by ProofForge from the portable {module.name} IR.\n// This is Psy source intended for the official Dargo/Psy compiler toolchain."
   .ok {
     name := module.name,
