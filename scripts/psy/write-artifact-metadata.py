@@ -95,6 +95,7 @@ def main() -> int:
     if args.plan_metadata:
         plan_meta = json.loads(Path(args.plan_metadata).read_text())
         metadata["moduleName"] = plan_meta.get("moduleName")
+        metadata["target"] = plan_meta.get("targetId", metadata.get("target"))
         metadata["abi"] = {"entrypoints": plan_meta.get("entrypoints", [])}
         metadata["events"] = plan_meta.get("events", [])
         metadata["contextOps"] = plan_meta.get("contextOps", [])
