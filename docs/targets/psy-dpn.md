@@ -41,6 +41,7 @@ source-generation target**:
 Lean portable contract
   -> Lean checks and proofs
   -> Psy-compatible portable IR subset
+  -> Psy semantic plan (ProofForge.Backend.Psy.Plan)
   -> Psy AST (ProofForge.Compiler.Psy.AST)
   -> generated .psy package (ProofForge.Compiler.Psy.Printer)
   -> dargo compile
@@ -48,12 +49,24 @@ Lean portable contract
   -> Psy deploy/test tooling
 ```
 
-The lowering is now two-stage, mirroring the EVM (`Compiler/Yul/AST.lean` +
-`Printer.lean`) and Wasm (`Compiler/Wasm/AST.lean` + `Printer.lean`) backends:
-the portable IR is first lowered to a target-side `Psy.Module` AST, then the
-printer renders that AST to `.psy` source text. The AST is a surface AST that
-captures exactly the `.psy` forms the printer emits; it does not model the
-upstream `psy-ast::Program` interner/arena/checker layers.
+The lowering is now three-stage, mirroring the EVM
+(`Lower.lean` → `Plan.lean` → `IR.lean` → `Compiler/Yul/AST.lean` + `Printer.lean`)
+and Wasm-family backend pattern:
+
+1. **Plan** (`ProofForge.Backend.Psy.Plan.buildModulePlan`): resolves Psy-specific
+   shapes from the portable IR — storage layout (scalar/structRef/map/array +
+   feltBackedU32 flags), context fields used, event plans, crosscall targets,
+   and the fixture-shape-detected test body. This is the counterpart of EVM
+   `Lower.lean` → `Plan.lean`.
+2. **AST** (`buildModuleWithPlan`): folds the IR + plan into a target-side
+   `Psy.Module` AST. This is the counterpart of EVM `IR.lean lowerModuleWithPlan`.
+3. **Printer** (`ProofForge.Compiler.Psy.Printer.module`): renders the AST to
+   `.psy` source text. Pure structural, no IR resolution.
+
+The AST is a surface AST that captures exactly the `.psy` forms the printer
+emits; it does not model the upstream `psy-ast::Program` interner/arena/checker
+layers. The plan decouples shape resolution from source formatting and gives a
+stable inspection point for artifact/deploy metadata.
 
 Do not start by directly emitting Psy DPN internals. The public repo does not
 expose a stable Yul-like textual intermediate language.
@@ -198,11 +211,13 @@ context fields). This mirrors the in-repo pattern used by the EVM backend
 structural printer.
 
 Conclusion: **ProofForge uses its own portable contract IR as the stable
-middle layer, lowers it to a target-side `Psy.Module` AST, and renders that
-AST to `.psy` source**. The two-stage lowering (IR → AST → source) decouples
-validation and shape resolution (done on the IR side) from source formatting
-(done by the printer), and leaves a clear extension point for future Psy
-AST-level passes (canonicalization, formatting control, or upstream-AST
+middle layer, resolves Psy-specific shapes into a semantic plan, lowers the
+IR + plan to a target-side `Psy.Module` AST, and renders that AST to `.psy`
+source**. The three-stage lowering (IR → Plan → AST → source) decouples shape
+resolution (plan) from AST construction from source formatting (printer),
+mirroring the EVM `Lower → Plan → ToYul → Printer` split, and leaves clear
+extension points for future Psy plan-level passes (artifact metadata,
+canonicalization) and AST-level passes (formatting control, upstream-AST
 emission if the compiler internals stabilize).
 
 ## Proposed Target Profile
@@ -1335,6 +1350,40 @@ the EVM and Wasm-family backends already use.
 - Remaining: consider upstream `psy-ast` emission if the compiler internals
   stabilize, and use the AST boundary for formatting control or
   canonicalization passes.
+
+### Phase B3: Semantic Plan Layer
+
+Phase B2 left shape resolution (storage target lookup, felt-backed U32
+detection, map-key special cases, test body generation) inline in the AST
+builder. Phase B3 extracts that into a semantic plan module, mirroring the
+EVM `Lower.lean` → `Plan.lean` split.
+
+- Done: add `ProofForge.Backend.Psy.Plan` — the psy-dpn counterpart of
+  `ProofForge.Backend.Evm.Plan`. Captures:
+  - `StorageLayout`: per-state resolved shape (scalar/structRef/map/array +
+    feltBackedU32 flag).
+  - `ContextPlan`: context fields actually used (userId/contractId/
+    checkpointId), for artifact metadata.
+  - `EventPlan`: event name + ordered data field names.
+  - `CrosscallPlan`: crosscall target contract ids.
+  - `TestPlan`: fixture-shape-detected test function name + body lines
+    (moved from `IR.lean testBody/testFunctionName`).
+  - `buildModulePlan`: constructs the full `PsyModulePlan` from a portable
+    IR `Module` (mirrors EVM `Lower.buildFullModulePlan`).
+- Done: refactor `IR.lean buildModule` into `buildModuleWithPlan(module,
+  plan)` + `buildModule(module)` wrapper, and `renderModule` to build the
+  plan first then lower IR+plan to the AST. Matches EVM
+  `IR.lean lowerModuleWithPlan` pattern.
+- Done: add 4 `memoryArray*` diagnostic cases (`memoryArrayNew/Length/Get/Set`)
+  to `Tests/PsyDiagnostics.lean` (55 → 59 cases), covering the constructors
+  introduced in the main merge.
+- Done: verify all Psy golden sources are byte-identical, 59 diagnostic cases
+  pass, and the IR coverage manifest is unchanged.
+- Remaining: move remaining inline `requireScalarState`/`requireMapState`/
+  `requireArrayState`/`resolveStoragePathType` calls from `buildExpr`/
+  `buildEffectExpr`/`buildEffectStmt` to plan-time lookups against
+  `StorageLayout`, and wire plan fields (context ops, events, crosscalls)
+  into artifact metadata.
 
 ### Phase C: Metadata and Scenario Parity
 
