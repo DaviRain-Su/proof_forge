@@ -133,6 +133,8 @@ mutual
         .error { message := "if/else not supported in Quint lowering v1" }
     | .boundedFor _ _ _ _ =>
         .error { message := "boundedFor not supported in Quint lowering v1" }
+    | .whileLoop _ _ =>
+        .error { message := "whileLoop not supported in Quint lowering v1" }
     | .return _ =>
         .ok (env, none)
     | .release _ =>
