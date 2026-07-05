@@ -1146,6 +1146,8 @@ mutual
         let loopEnv ← addLocal env indexName .u32 false
         discard <| validateBody module entrypoint loopEnv body
         .ok env
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by Psy IR v0" }
     | .return value => do
         let actual ← inferExprType module env value
         ensureType s!"entrypoint `{entrypoint.name}` return" entrypoint.returns actual
@@ -1501,6 +1503,8 @@ mutual
         if stopExclusive <= start then
           .error { message := s!"bounded loop `{indexName}` must have stop greater than start" }
         .ok <| .boundedFor indexName start stopExclusive (← buildBody ctx body)
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by Psy IR v0" }
     | .return value => do .ok <| .returnExpr (← buildExpr ctx value)
 
   /-- Build an array of `Lean.Compiler.Psy.Stmt` from a portable IR body. -/
@@ -1554,6 +1558,7 @@ mutual
     | .boundedFor indexName _ _ body => do
         validatePsyIdentifier s!"loop index in entrypoint `{entrypointName}`" indexName
         validateBodyIdentifiers entrypointName body
+    | .whileLoop _ body => validateBodyIdentifiers entrypointName body
     | .assign _ _
     | .assignOp _ _ _
     | .effect _
