@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -101,6 +102,15 @@ def main() -> int:
         metadata["contextOps"] = plan_meta.get("contextOps", [])
         metadata["crosscalls"] = plan_meta.get("crosscalls", [])
         metadata["planCapabilities"] = plan_meta.get("capabilities", [])
+        plan_caps = set(metadata["planCapabilities"])
+        smoke_caps = set(args.capability)
+        if plan_caps != smoke_caps:
+            print(
+                f"Error: --capability list {sorted(smoke_caps)} does not match "
+                f"plan capabilities {sorted(plan_caps)}",
+                file=sys.stderr,
+            )
+            return 1
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
