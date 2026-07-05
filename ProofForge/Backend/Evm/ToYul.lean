@@ -1433,6 +1433,36 @@ partial def crosscallArgWordPlanExprs
         words := words.push (← lowerPlanExpr exprPlan)
   .ok words
 
+partial def crosscallExprPlanExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (localWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
+    (storageWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
+    (mode : CrosscallMode)
+    (target methodId : ExprPlan)
+    (callValue? : Option ExprPlan)
+    (args : Array CrosscallArgWordPlan)
+    (returnType : ValueType) : Except ε Lean.Compiler.Yul.Expr := do
+  let targetExpr ← lowerPlanExpr target
+  let methodIdExpr ← lowerPlanExpr methodId
+  let callValueExpr? ← callValue?.mapM lowerPlanExpr
+  let argExprs ← crosscallArgWordPlanExprs lowerPlanExpr localWords storageWords args
+  let plainTransfer :=
+    mode == .callValue && argExprs.isEmpty &&
+      match methodId with
+      | .literalWord 0 => true
+      | _ => false
+  crosscallScalarHelperCallExpr
+    mkError
+    mode
+    targetExpr
+    methodIdExpr
+    callValueExpr?
+    argExprs
+    returnType
+    plainTransfer
+
 def abiParamsHeadWordCount (params : Array AbiParamPlan) : Nat :=
   params.foldl (fun acc param => acc + param.headWordCount) 0
 
@@ -2322,28 +2352,20 @@ partial def exprPlanExpr
         (← exprPlanExpr mkError lowerExpr lowerEffect d))
   | .context field =>
       contextExprPlan (exprPlanExpr mkError lowerExpr lowerEffect) field
-  | .crosscall mode target methodId callValue? args returnType => do
-      let targetExpr ← exprPlanExpr mkError lowerExpr lowerEffect target
-      let methodIdExpr ← exprPlanExpr mkError lowerExpr lowerEffect methodId
-      let callValueExpr? ← callValue?.mapM (exprPlanExpr mkError lowerExpr lowerEffect)
-      let argExprs ← args.mapM fun
-        | .expr plan => exprPlanExpr mkError lowerExpr lowerEffect plan
-        | .local .. | .storage .. =>
-            .error (mkError "generic ExprPlan-to-Yul crosscall lowering requires pre-expanded argument word plans")
-      let plainTransfer :=
-        mode == .callValue && args.isEmpty &&
-          match methodId with
-          | .literalWord 0 => true
-          | _ => false
-      crosscallScalarHelperCallExpr
+  | .crosscall mode target methodId callValue? args returnType =>
+      crosscallExprPlanExpr
         mkError
+        (exprPlanExpr mkError lowerExpr lowerEffect)
+        (fun _ _ =>
+          .error (mkError "generic ExprPlan-to-Yul crosscall lowering requires pre-expanded argument word plans"))
+        (fun _ _ =>
+          .error (mkError "generic ExprPlan-to-Yul crosscall lowering requires pre-expanded argument word plans"))
         mode
-        targetExpr
-        methodIdExpr
-        callValueExpr?
-        argExprs
+        target
+        methodId
+        callValue?
+        args
         returnType
-        plainTransfer
   | .create mode callValue salt? initCodeHex => do
       createHelperCallExpr
         mkError

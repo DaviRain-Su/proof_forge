@@ -206,6 +206,30 @@ def exprsHaveIdentSuffix
             ok := false
       ok
 
+def exprIsSloadSlot (expr : Lean.Compiler.Yul.Expr) (expectedSlot : Nat) : Bool :=
+  match expr with
+  | Lean.Compiler.Yul.Expr.builtin "sload" args =>
+      match args[0]? with
+      | some slot => exprIsNatLiteral slot expectedSlot
+      | none => false
+  | _ => false
+
+def exprsHaveSloadSlotSuffix
+    (args : Array Lean.Compiler.Yul.Expr)
+    (expectedSlots : Array Nat) : Bool :=
+  expectedSlots.size <= args.size &&
+    Id.run do
+      let start := args.size - expectedSlots.size
+      let mut ok := true
+      for _h : idx in [0:expectedSlots.size] do
+        match expectedSlots[idx]? with
+        | some slot =>
+            if ok && !exprIsSloadSlot args[start + idx]! slot then
+              ok := false
+        | none =>
+            ok := false
+      ok
+
 def blockHasAssignmentCallNatArgs
     (block : Lean.Compiler.Yul.Block)
     (targetNames : Array String)
@@ -233,6 +257,22 @@ def blockHasAssignmentCallNatPrefixIdentSuffix
           args.size == expectedNatPrefix.size + expectedIdentSuffix.size &&
           exprsHaveNatPrefix args expectedNatPrefix &&
           exprsHaveIdentSuffix args expectedIdentSuffix
+    | _ => false
+
+def blockHasAssignmentCallNatPrefixSloadSuffix
+    (block : Lean.Compiler.Yul.Block)
+    (targetNames : Array String)
+    (functionName : String)
+    (expectedNatPrefix : Array Nat)
+    (expectedSlots : Array Nat) : Bool :=
+  block.statements.any fun stmt =>
+    match stmt with
+    | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) =>
+        names == targetNames &&
+          name == functionName &&
+          args.size == expectedNatPrefix.size + expectedSlots.size &&
+          exprsHaveNatPrefix args expectedNatPrefix &&
+          exprsHaveSloadSlotSuffix args expectedSlots
     | _ => false
 
 mutual
@@ -1512,6 +1552,93 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
       #[111, 222]
       #["__proof_forge_struct_pair_flag", "__proof_forge_struct_pair_small"])
     "plan-driven entrypoint lowering must consume local aggregate crosscall argument ModulePlan body"
+  let storageAggregateCrosscallArgEntrypoint : Entrypoint := {
+    name := "planned_storage_pair_arg"
+    selector? := some "12345679"
+    params := #[
+      ("target", .u64),
+      ("method", .u64)
+    ]
+    returns := .bool
+    body := #[
+      .return (.crosscallInvokeTyped
+        (.local "target")
+        (.local "method")
+        #[.effect (.storageScalarRead "current")]
+        .bool)
+    ]
+  }
+  let storageAggregateCrosscallArgModule :=
+    { ProofForge.IR.Examples.EvmStorageStructProbe.module with
+      entrypoints :=
+        ProofForge.IR.Examples.EvmStorageStructProbe.module.entrypoints.push
+          storageAggregateCrosscallArgEntrypoint }
+  let storageAggregateCrosscallArgPlan ← requireOk
+    (buildSemanticPlan storageAggregateCrosscallArgModule)
+    "storage aggregate crosscall argument plan"
+  let plannedStoragePairArgEntrypoint ← requireSome
+    (storageAggregateCrosscallArgPlan.entrypoints.find? (fun entrypoint =>
+      entrypoint.name == "planned_storage_pair_arg"))
+    "storage aggregate crosscall argument plan missing entrypoint"
+  require
+    (stmtPlansSupportPlannedBody plannedStoragePairArgEntrypoint.returns.returnType plannedStoragePairArgEntrypoint.body)
+    "storage aggregate crosscall argument body must be accepted by planned-body gate"
+  match plannedStoragePairArgEntrypoint.body[0]? with
+  | some (StmtPlan.return (ExprPlan.crosscall .call _ _ none args .bool)) => do
+      require (args.size == 1)
+        "storage aggregate crosscall argument plan arg count"
+      let arg ← requireAt args 0 "storage aggregate crosscall argument plan missing arg"
+      match arg with
+      | CrosscallArgWordPlan.storage stateId type => do
+          require (stateId == "current")
+            "storage aggregate crosscall argument plan state id"
+          require (type == .structType "Point")
+            "storage aggregate crosscall argument plan storage type"
+      | _ => throw <| IO.userError "storage aggregate crosscall argument plan must keep storage source"
+  | _ => throw <| IO.userError "storage aggregate crosscall argument plan must return crosscall"
+  let alteredStorageAggregateCrosscallArgEntrypoints :=
+    storageAggregateCrosscallArgPlan.entrypoints.map fun entrypoint =>
+      if entrypoint.name == "planned_storage_pair_arg" then
+        { entrypoint with
+          body := #[
+            StmtPlan.return
+              (ExprPlan.crosscall
+                ProofForge.Backend.Evm.Plan.CrosscallMode.call
+                (ExprPlan.literalWord 333)
+                (ExprPlan.literalWord 444)
+                none
+                #[CrosscallArgWordPlan.storage "current" (.structType "Point")]
+                .bool)
+          ]
+        }
+      else
+        entrypoint
+  let alteredStorageAggregateCrosscallArgPlan :=
+    { storageAggregateCrosscallArgPlan with entrypoints := alteredStorageAggregateCrosscallArgEntrypoints }
+  let alteredStorageAggregateCrosscallArgObject ← requireOk
+    (lowerModuleWithPlan
+      storageAggregateCrosscallArgModule
+      alteredStorageAggregateCrosscallArgPlan)
+    "storage aggregate crosscall argument altered plan-driven module lowering"
+  let alteredPlannedStoragePairArgEntrypoint ← requireSome
+    (alteredStorageAggregateCrosscallArgPlan.entrypoints.find? (fun entrypoint =>
+      entrypoint.name == "planned_storage_pair_arg"))
+    "storage aggregate crosscall argument altered plan missing entrypoint"
+  let alteredPlannedStoragePairArgFunctionName :=
+    ProofForge.Backend.Evm.ToYul.entrypointPlanFunctionName
+      storageAggregateCrosscallArgModule.name
+      alteredPlannedStoragePairArgEntrypoint
+  let alteredPlannedStoragePairArgBody ← requireSome
+    (functionBody? alteredStorageAggregateCrosscallArgObject.code.statements alteredPlannedStoragePairArgFunctionName)
+    "storage aggregate crosscall argument altered plan function body missing"
+  require
+    (blockHasAssignmentCallNatPrefixSloadSuffix
+      alteredPlannedStoragePairArgBody
+      #["result"]
+      "__proof_forge_crosscall_2_bool"
+      #[333, 444]
+      #[1, 2])
+    "plan-driven entrypoint lowering must consume storage aggregate crosscall argument ModulePlan body"
   let transferEntrypoint ← requireSome
     (dynamicPlan.entrypoints.find? (fun entrypoint => entrypoint.name == "transfer"))
     "dynamic ABI plan missing transfer entrypoint"
@@ -1627,8 +1754,79 @@ def testScalarExprPlanToYul : IO Unit := do
   let scalarEnv : TypeEnv := #[
     { name := "target", type := .u64, isMutable := false },
     { name := "amount", type := .u64, isMutable := false },
-    { name := "salt", type := .hash, isMutable := false }
+    { name := "salt", type := .hash, isMutable := false },
+    { name := "flag", type := .bool, isMutable := false }
   ]
+  let literalPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.literal (.u64 42)))
+    "literal Lower ExprPlan"
+  requireLiteralWordPlan literalPlan 42 "literal Lower ExprPlan"
+  let directLiteralExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.literal (.u64 42)))
+    "direct literal lowers through ExprPlan-to-Yul"
+  match directLiteralExpr with
+  | Lean.Compiler.Yul.Expr.lit lit =>
+      require (lit.value == "42") "direct literal ExprPlan-to-Yul value"
+  | _ => throw <| IO.userError "direct literal must lower to Yul literal"
+  let boolLiteralPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.literal (.bool true)))
+    "bool literal Lower ExprPlan"
+  requireLiteralWordPlan boolLiteralPlan 1 "bool literal Lower ExprPlan"
+  let hashLiteralPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.literal (.hash4 1 2 3 4)))
+    "hash literal Lower ExprPlan"
+  requireLiteralWordPlan
+    hashLiteralPlan
+    (← requireValidateOk
+      (ProofForge.Backend.Evm.Validate.packedHashLiteral 1 2 3 4)
+      "hash literal expected packed value")
+    "hash literal Lower ExprPlan"
+  let directHashLiteralExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.literal (.hash4 1 2 3 4)))
+    "direct hash literal lowers through ExprPlan-to-Yul"
+  match directHashLiteralExpr with
+  | Lean.Compiler.Yul.Expr.lit lit =>
+      require
+        (lit.value ==
+          toString (← requireValidateOk
+            (ProofForge.Backend.Evm.Validate.packedHashLiteral 1 2 3 4)
+            "direct hash literal expected packed value"))
+        "direct hash literal ExprPlan-to-Yul value"
+  | _ => throw <| IO.userError "direct hash literal must lower to Yul literal"
+  let localPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.local "amount"))
+    "local Lower ExprPlan"
+  match localPlan with
+  | .local "amount" => pure ()
+  | _ => throw <| IO.userError "local must lower to local ExprPlan"
+  let directLocalExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.local "amount"))
+    "direct local lowers through ExprPlan-to-Yul"
+  match directLocalExpr with
+  | Lean.Compiler.Yul.Expr.ident name =>
+      require (name == "amount") "direct local ExprPlan-to-Yul name"
+  | _ => throw <| IO.userError "direct local must lower to Yul identifier"
   let readExpr ← requireOk
     (lowerExprViaPlan
       ProofForge.IR.Examples.Counter.module
@@ -1675,6 +1873,259 @@ def testScalarExprPlanToYul : IO Unit := do
       require (name == "__pf_checked_add") "counter checked add plan-to-yul helper"
       require (args.size == 2) "counter checked add plan-to-yul arg count"
   | _ => throw <| IO.userError "counter checked add plan-to-yul must be helper call"
+  let addPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.add (.local "amount") (.literal (.u64 1))))
+    "add Lower ExprPlan"
+  match addPlan with
+  | .checkedArith .add (.local "amount") (.literalWord 1) => pure ()
+  | _ => throw <| IO.userError "add must lower to checked arithmetic ExprPlan"
+  let directAddExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.add (.local "amount") (.literal (.u64 1))))
+    "direct add lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directAddExpr
+    "__pf_checked_add"
+    2
+    "direct add ExprPlan-to-Yul"
+  let directDivExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.div (.local "amount") (.literal (.u64 2))))
+    "direct div lowers through ExprPlan-to-Yul"
+  match directDivExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "div") "direct div ExprPlan-to-Yul opcode"
+      require (args.size == 2) "direct div ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct div must lower to Yul div builtin"
+  let powPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.pow (.local "amount") (.literal (.u64 2))))
+    "pow Lower ExprPlan"
+  match powPlan with
+  | .builtin "exp" args => require (args.size == 2) "pow Lower ExprPlan arg count"
+  | _ => throw <| IO.userError "pow must lower to exp builtin ExprPlan"
+  let directPowExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.pow (.local "amount") (.literal (.u64 2))))
+    "direct pow lowers through ExprPlan-to-Yul"
+  match directPowExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "exp") "direct pow ExprPlan-to-Yul opcode"
+      require (args.size == 2) "direct pow ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct pow must lower to Yul exp builtin"
+  let shiftPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.shiftLeft (.local "amount") (.literal (.u64 3))))
+    "shiftLeft Lower ExprPlan"
+  match shiftPlan with
+  | .checkedArith .shiftLeft (.local "amount") (.literalWord 3) => pure ()
+  | _ => throw <| IO.userError "shiftLeft must lower to checked arithmetic ExprPlan"
+  let directShiftExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.shiftLeft (.local "amount") (.literal (.u64 3))))
+    "direct shiftLeft lowers through ExprPlan-to-Yul"
+  match directShiftExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "shl") "direct shiftLeft ExprPlan-to-Yul opcode"
+      require (args.size == 2) "direct shiftLeft ExprPlan-to-Yul arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.lit lit =>
+          require (lit.value == "3") "direct shiftLeft ExprPlan-to-Yul shift amount"
+      | _ => throw <| IO.userError "direct shiftLeft shift amount must be literal"
+  | _ => throw <| IO.userError "direct shiftLeft must lower to Yul shl builtin"
+  let directBitXorExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.bitXor (.local "amount") (.literal (.u64 255))))
+    "direct bitXor lowers through ExprPlan-to-Yul"
+  match directBitXorExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "xor") "direct bitXor ExprPlan-to-Yul opcode"
+      require (args.size == 2) "direct bitXor ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct bitXor must lower to Yul xor builtin"
+  let eqPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.eq (.local "amount") (.literal (.u64 7))))
+    "eq Lower ExprPlan"
+  match eqPlan with
+  | .builtin "eq" args => require (args.size == 2) "eq Lower ExprPlan arg count"
+  | _ => throw <| IO.userError "eq must lower to builtin ExprPlan"
+  let directEqExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.eq (.local "amount") (.literal (.u64 7))))
+    "direct eq lowers through ExprPlan-to-Yul"
+  match directEqExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "eq") "direct eq ExprPlan-to-Yul opcode"
+      require (args.size == 2) "direct eq ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct eq must lower to Yul eq builtin"
+  let directNeExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.ne (.local "amount") (.literal (.u64 7))))
+    "direct ne lowers through ExprPlan-to-Yul"
+  match directNeExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "iszero") "direct ne ExprPlan-to-Yul outer opcode"
+      require (args.size == 1) "direct ne ExprPlan-to-Yul outer arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.builtin innerName innerArgs => do
+          require (innerName == "eq") "direct ne ExprPlan-to-Yul inner opcode"
+          require (innerArgs.size == 2) "direct ne ExprPlan-to-Yul inner arg count"
+      | _ => throw <| IO.userError "direct ne inner expression must be eq builtin"
+  | _ => throw <| IO.userError "direct ne must lower to Yul iszero(eq(...))"
+  let boolPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.boolAnd (.local "flag") (.literal (.bool true))))
+    "boolAnd Lower ExprPlan"
+  match boolPlan with
+  | .builtin "and" args => require (args.size == 2) "boolAnd Lower ExprPlan arg count"
+  | _ => throw <| IO.userError "boolAnd must lower to builtin ExprPlan"
+  let directBoolNotExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.boolNot (.local "flag")))
+    "direct boolNot lowers through ExprPlan-to-Yul"
+  match directBoolNotExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "iszero") "direct boolNot ExprPlan-to-Yul opcode"
+      require (args.size == 1) "direct boolNot ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct boolNot must lower to Yul iszero builtin"
+  let castPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.cast (.local "amount") .u32))
+    "cast Lower ExprPlan"
+  match castPlan with
+  | .cast (.local "amount") .u32 => pure ()
+  | _ => throw <| IO.userError "cast must lower to cast ExprPlan"
+  let directCastExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.cast (.local "amount") .u32))
+    "direct cast lowers through ExprPlan-to-Yul"
+  match directCastExpr with
+  | Lean.Compiler.Yul.Expr.ident name =>
+      require (name == "amount") "direct cast ExprPlan-to-Yul source local"
+  | _ => throw <| IO.userError "direct cast must lower to source expression"
+  let nativePlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      .nativeValue)
+    "nativeValue Lower ExprPlan"
+  match nativePlan with
+  | .nativeValue => pure ()
+  | _ => throw <| IO.userError "nativeValue must lower to nativeValue ExprPlan"
+  let directNativeExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      .nativeValue)
+    "direct nativeValue lowers through ExprPlan-to-Yul"
+  match directNativeExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "callvalue") "direct nativeValue ExprPlan-to-Yul opcode"
+      require (args.isEmpty) "direct nativeValue ExprPlan-to-Yul arg count"
+  | _ => throw <| IO.userError "direct nativeValue must lower to Yul callvalue builtin"
+  let hashValuePlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.hashValue
+        (.local "amount")
+        (.literal (.u64 1))
+        (.literal (.u64 2))
+        (.literal (.u64 3))))
+    "hashValue Lower ExprPlan"
+  match hashValuePlan with
+  | .hashValue (.local "amount") (.literalWord 1) (.literalWord 2) (.literalWord 3) => pure ()
+  | _ => throw <| IO.userError "hashValue must lower to hashValue ExprPlan"
+  let directHashValueExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.hashValue
+        (.local "amount")
+        (.literal (.u64 1))
+        (.literal (.u64 2))
+        (.literal (.u64 3))))
+    "direct hashValue lowers through ExprPlan-to-Yul"
+  match directHashValueExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "or") "direct hashValue ExprPlan-to-Yul outer opcode"
+      require (args.size == 2) "direct hashValue ExprPlan-to-Yul outer arg count"
+  | _ => throw <| IO.userError "direct hashValue must lower to packed hash expression"
+  let hashPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.hash (.local "salt")))
+    "hash Lower ExprPlan"
+  match hashPlan with
+  | .hash (.local "salt") => pure ()
+  | _ => throw <| IO.userError "hash must lower to hash ExprPlan"
+  let directHashExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.hash (.local "salt")))
+    "direct hash lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directHashExpr
+    (ProofForge.Backend.Evm.Plan.Helper.hashWord).name
+    1
+    "direct hash ExprPlan-to-Yul"
+  let hashPairPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.hashTwoToOne
+        (.local "salt")
+        (.literal (.hash4 1 2 3 4))))
+    "hashTwoToOne Lower ExprPlan"
+  match hashPairPlan with
+  | .hashTwoToOne (.local "salt") (.literalWord _) => pure ()
+  | _ => throw <| IO.userError "hashTwoToOne must lower to hashTwoToOne ExprPlan"
+  let directHashPairExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.hashTwoToOne
+        (.local "salt")
+        (.literal (.hash4 1 2 3 4))))
+    "direct hashTwoToOne lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directHashPairExpr
+    (ProofForge.Backend.Evm.Plan.Helper.hashPair).name
+    2
+    "direct hashTwoToOne ExprPlan-to-Yul"
   let crosscallPlanExpr ← requireOk
     (lowerExprPlanExpr
       ProofForge.IR.Examples.Counter.module
@@ -1757,17 +2208,13 @@ def testScalarExprPlanToYul : IO Unit := do
     "storage-backed aggregate crosscall argument Lower ExprPlan"
   match aggregateStorageArgPlan with
   | .crosscall .call _ _ none args .u64 => do
-      require (args.size == 2) "storage-backed aggregate crosscall argument plan word count"
-      let xArgPlan ← requireAt args 0 "storage-backed aggregate crosscall argument missing x plan"
-      match xArgPlan with
-      | CrosscallArgWordPlan.expr (.storageLoad (.scalarSlot slot)) =>
-          require (slot == 1) "storage-backed aggregate crosscall argument x slot"
-      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument x must use storageLoad plan"
-      let yArgPlan ← requireAt args 1 "storage-backed aggregate crosscall argument missing y plan"
-      match yArgPlan with
-      | CrosscallArgWordPlan.expr (.storageLoad (.scalarSlot slot)) =>
-          require (slot == 2) "storage-backed aggregate crosscall argument y slot"
-      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument y must use storageLoad plan"
+      require (args.size == 1) "storage-backed aggregate crosscall argument plan source count"
+      let storageArgPlan ← requireAt args 0 "storage-backed aggregate crosscall argument missing storage source plan"
+      match storageArgPlan with
+      | CrosscallArgWordPlan.storage stateId type => do
+          require (stateId == "current") "storage-backed aggregate crosscall argument source state"
+          require (type == .structType "Point") "storage-backed aggregate crosscall argument source type"
+      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument must use storage source plan"
   | _ => throw <| IO.userError "storage-backed aggregate crosscall argument must lower to call plan"
   let aggregateStorageArgPlanExpr ← requireOk
     (lowerExprPlanExpr
@@ -1962,6 +2409,93 @@ def testScalarExprPlanToYul : IO Unit := do
     ("__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
     2
     "create2 ExprPlan-to-Yul"
+  let directCreatePlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.crosscallCreate
+        (.literal (.u64 0))
+        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
+    "direct create Lower ExprPlan"
+  match directCreatePlan with
+  | .create .create (.literalWord 0) none initCodeHex => do
+      require
+        (initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
+        "direct create Lower ExprPlan init code"
+  | _ => throw <| IO.userError "direct create must lower to create ExprPlan"
+  let directCreateExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.crosscallCreate
+        (.literal (.u64 0))
+        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
+    "direct create lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directCreateExpr
+    ("__proof_forge_create_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
+    1
+    "direct create ExprPlan-to-Yul"
+  let directCreate2Plan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.crosscallCreate2
+        (.literal (.u64 0))
+        (.local "salt")
+        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
+    "direct create2 Lower ExprPlan"
+  match directCreate2Plan with
+  | .create .create2 (.literalWord 0) (some (.local "salt")) initCodeHex => do
+      require
+        (initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
+        "direct create2 Lower ExprPlan init code"
+  | _ => throw <| IO.userError "direct create2 must lower to create2 ExprPlan"
+  let directCreate2Expr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.crosscallCreate2
+        (.literal (.u64 0))
+        (.local "salt")
+        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
+    "direct create2 lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directCreate2Expr
+    ("__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
+    2
+    "direct create2 ExprPlan-to-Yul"
+  let untypedCrosscallPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv scalarEnv)
+      (.crosscallInvoke
+        (.local "target")
+        (.literal (.u64 305419896))
+        #[.local "amount"]))
+    "untyped scalar crosscall Lower ExprPlan"
+  match untypedCrosscallPlan with
+  | .crosscall .call _ _ none args .u64 => do
+      require (args.size == 1) "untyped scalar crosscall argument count"
+      let arg ← requireAt args 0 "untyped scalar crosscall missing argument"
+      match arg with
+      | CrosscallArgWordPlan.expr (.local "amount") => pure ()
+      | _ => throw <| IO.userError "untyped scalar crosscall argument must be scalar expr plan"
+  | _ => throw <| IO.userError "untyped scalar crosscall must lower to call ExprPlan"
+  let directUntypedCrosscallExpr ← requireOk
+    (lowerExpr
+      ProofForge.IR.Examples.Counter.module
+      scalarEnv
+      (.crosscallInvoke
+        (.local "target")
+        (.literal (.u64 305419896))
+        #[.local "amount"]))
+    "direct untyped scalar crosscall lowers through ExprPlan-to-Yul"
+  requireCallExpr
+    directUntypedCrosscallExpr
+    "__proof_forge_crosscall_1"
+    3
+    "direct untyped scalar crosscall ExprPlan-to-Yul"
   let directCrosscallExpr ← requireOk
     (lowerExpr
       ProofForge.IR.Examples.Counter.module
@@ -2412,9 +2946,45 @@ def testLocalCrosscallWordsToYul : IO Unit := do
   match directArgWords[2]! with
   | Lean.Compiler.Yul.Expr.lit value =>
       require (value.value == "9") "direct crosscall arg word plan scalar word"
-  | _ => throw <| IO.userError "direct crosscall arg word plan scalar word must be numeric"
+  | _ =>
+      throw <| IO.userError "direct crosscall arg word plan scalar word must be numeric"
   requireIdentExpr directArgWords[3]! "current_x" "direct crosscall arg word plan storage word 0"
   requireIdentExpr directArgWords[4]! "current_y" "direct crosscall arg word plan storage word 1"
+  let directCrosscallExpr ← requireOk
+    (ProofForge.Backend.Evm.ToYul.crosscallExprPlanExpr
+      toYulError
+      (fun
+        | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
+        | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
+        | _ => .error { message := "direct crosscall expression test only lowers literal/local scalar plans" })
+      (fun name type =>
+        ProofForge.Backend.Evm.ToYul.localCrosscallWords
+          toYulError
+          simpleStructFields
+          "crosscall argument"
+          name
+          type)
+      (fun stateId type =>
+        if stateId == "current" && type == .structType "Point" then
+          .ok #[Lean.Compiler.Yul.Expr.id "current_x", Lean.Compiler.Yul.Expr.id "current_y"]
+        else
+          .error { message := "direct crosscall expression test unexpected storage plan" })
+      ProofForge.Backend.Evm.Plan.CrosscallMode.call
+      (.local "target")
+      (.literalWord 305419896)
+      none
+      #[
+        CrosscallArgWordPlan.local "p" (.structType "Point"),
+        CrosscallArgWordPlan.expr (.literalWord 9),
+        CrosscallArgWordPlan.storage "current" (.structType "Point")
+      ]
+      .u64)
+    "direct provider-backed crosscall ExprPlan-to-Yul"
+  requireCallExpr
+    directCrosscallExpr
+    "__proof_forge_crosscall_5"
+    7
+    "direct provider-backed crosscall ExprPlan-to-Yul"
   let structEnv : TypeEnv := #[
     { name := "p", type := .structType "Point", isMutable := false }
   ]
@@ -4848,6 +5418,16 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | Lean.Compiler.Yul.Expr.builtin "and" args =>
       require (args.size == 2) "planned scalar storage read target helper packed arg count"
   | _ => throw <| IO.userError "planned scalar storage read target helper must lower to packed read"
+  let directReadEffectExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.storageScalarRead "count"))
+    "scalar storage read effect Lower-to-Yul"
+  match directReadEffectExpr with
+  | Lean.Compiler.Yul.Expr.builtin "and" args =>
+      require (args.size == 2) "scalar storage read effect must use packed target read"
+  | _ => throw <| IO.userError "scalar storage read effect must lower through packed target plan"
   let directPlannedWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
       toYulError
@@ -5064,6 +5644,16 @@ def testMapReadPlanToYul : IO Unit := do
   | Lean.Compiler.Yul.Expr.builtin "iszero" args => do
       require (args.size == 1) "map contains expression outer iszero arg count"
   | _ => throw <| IO.userError "map contains expression must lower to iszero"
+  let containsEffectExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.EvmMapProbe.module
+      env
+      (.storageMapContains "balances" (.add (.local "key") (.literal (.u64 1)))))
+    "map contains effect Lower-to-Yul"
+  match containsEffectExpr with
+  | Lean.Compiler.Yul.Expr.builtin "iszero" args => do
+      require (args.size == 1) "map contains effect outer iszero arg count"
+  | _ => throw <| IO.userError "map contains effect must lower through target plan"
   let getExpr ← requireOk
     (lowerExpr
       ProofForge.IR.Examples.EvmMapProbe.module
@@ -5223,23 +5813,43 @@ def testMapWritePlanToYul : IO Unit := do
       | _ => throw <| IO.userError "map write value must be plan-lowered packed storage read"
   | _ => throw <| IO.userError "map write plan-to-yul must lower to helper call"
   let setReturnExpr ← requireOk
-    (lowerMapSetReturnExpr
+    (lowerEffectExpr
       ProofForge.IR.Examples.EvmMapProbe.module
       env
-      "balances"
-      (.local "key")
-      (.add (.local "value") (.literal (.u64 2))))
-    "map set-return value plan-to-yul"
+      (.storageMapSet
+        "balances"
+        (.local "key")
+        (.add (.local "value") (.literal (.u64 2)))))
+    "map set-return effect Lower-to-Yul"
   match setReturnExpr with
   | Lean.Compiler.Yul.Expr.call name args => do
-      require (name == (Helper.mapSetReturn).name) "map set-return plan-to-yul helper"
-      require (args.size == 3) "map set-return plan-to-yul arg count"
+      require (name == (Helper.mapSetReturn).name) "map set-return effect helper"
+      require (args.size == 3) "map set-return effect arg count"
       match args[2]! with
       | Lean.Compiler.Yul.Expr.call addName addArgs => do
-          require (addName == "__pf_checked_add") "map set-return value must lower through checked add plan"
-          require (addArgs.size == 2) "map set-return value checked add arg count"
-      | _ => throw <| IO.userError "map set-return value must be plan-lowered checked add"
-  | _ => throw <| IO.userError "map set-return plan-to-yul must lower to helper call"
+          require (addName == "__pf_checked_add") "map set-return effect value checked add"
+          require (addArgs.size == 2) "map set-return effect value checked add arg count"
+      | _ => throw <| IO.userError "map set-return effect value must be plan-lowered checked add"
+  | _ => throw <| IO.userError "map set-return effect must lower through EffectPlan"
+  let insertReturnExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.EvmMapProbe.module
+      env
+      (.storageMapInsert
+        "balances"
+        (.add (.local "key") (.literal (.u64 1)))
+        (.local "value")))
+    "map insert-return effect Lower-to-Yul"
+  match insertReturnExpr with
+  | Lean.Compiler.Yul.Expr.call name args => do
+      require (name == (Helper.mapSetReturn).name) "map insert-return effect helper"
+      require (args.size == 3) "map insert-return effect arg count"
+      match args[1]! with
+      | Lean.Compiler.Yul.Expr.call addName addArgs => do
+          require (addName == "__pf_checked_add") "map insert-return effect key checked add"
+          require (addArgs.size == 2) "map insert-return effect key checked add arg count"
+      | _ => throw <| IO.userError "map insert-return effect key must be plan-lowered checked add"
+  | _ => throw <| IO.userError "map insert-return effect must lower through EffectPlan"
 
 def testArrayReadPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]
@@ -5295,6 +5905,17 @@ def testArrayReadPlanToYul : IO Unit := do
       require (args.size == 1) "array read expression sload arg count"
       requireCallExpr args[0]! (Helper.arraySlot).name 3 "array read expression slot helper"
   | _ => throw <| IO.userError "array read expression must lower to sload"
+  let readEffectExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.EvmStorageArrayProbe.module
+      env
+      (.storageArrayRead "values" (.add (.literal (.u64 1)) (.literal (.u64 1)))))
+    "array read effect Lower-to-Yul"
+  match readEffectExpr with
+  | Lean.Compiler.Yul.Expr.builtin "sload" args => do
+      require (args.size == 1) "array read effect sload arg count"
+      requireCallExpr args[0]! (Helper.arraySlot).name 3 "array read effect slot helper"
+  | _ => throw <| IO.userError "array read effect must lower through target plan"
 
 def testArrayWritePlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]
@@ -5537,6 +6158,17 @@ def testStructArrayFieldReadPlanToYul : IO Unit := do
       require (args.size == 1) "struct-array field read expression sload arg count"
       requireCallExpr args[0]! (Helper.structArraySlot).name 5 "struct-array field read expression slot helper"
   | _ => throw <| IO.userError "struct-array field read expression must lower to sload"
+  let readEffectExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.EvmStorageStructProbe.module
+      env
+      (.storageArrayStructFieldRead "points" (.add (.literal (.u64 0)) (.literal (.u64 1))) "y"))
+    "struct-array field read effect Lower-to-Yul"
+  match readEffectExpr with
+  | Lean.Compiler.Yul.Expr.builtin "sload" args => do
+      require (args.size == 1) "struct-array field read effect sload arg count"
+      requireCallExpr args[0]! (Helper.structArraySlot).name 5 "struct-array field read effect slot helper"
+  | _ => throw <| IO.userError "struct-array field read effect must lower through target plan"
 
 def testStructFieldWritePlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]
@@ -6028,6 +6660,17 @@ def testStoragePathReadPlanToYul : IO Unit := do
       require (args.size == 1) "raw map storage path read sload arg count"
       requireCallExpr args[0]! (Helper.mapSlot).name 2 "raw map storage path read slot helper"
   | _ => throw <| IO.userError "raw map storage path read must lower to sload"
+  let rawMapPathReadEffect ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.EvmMapProbe.module
+      mapEnv
+      (.storagePathRead "balances" #[.mapKey (.add (.local "outer") (.literal (.u64 1)))]))
+    "raw map storage path read effect Lower-to-Yul"
+  match rawMapPathReadEffect with
+  | Lean.Compiler.Yul.Expr.builtin "sload" args => do
+      require (args.size == 1) "raw map storage path read effect sload arg count"
+      requireCallExpr args[0]! (Helper.mapSlot).name 2 "raw map storage path read effect slot helper"
+  | _ => throw <| IO.userError "raw map storage path read effect must lower through target plan"
 
 def testStoragePathWritePlanToYul : IO Unit := do
   let arrayEnv : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]
@@ -6495,6 +7138,18 @@ def testContextPlanToYul : IO Unit := do
       require (args.size == 1) "context blockhash plan-to-yul arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash planned argument"
   | _ => throw <| IO.userError "context blockhash plan-to-yul must lower to blockhash builtin"
+  let directContextExpr ← requireOk
+    (lowerEffectExpr
+      ProofForge.IR.Examples.Counter.module
+      env
+      (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
+    "context blockhash effect Lower-to-Yul"
+  match directContextExpr with
+  | Lean.Compiler.Yul.Expr.builtin name args => do
+      require (name == "blockhash") "context blockhash effect Lower-to-Yul builtin"
+      require (args.size == 1) "context blockhash effect Lower-to-Yul arg count"
+      requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash effect planned argument"
+  | _ => throw <| IO.userError "context blockhash effect must lower through target plan"
 
 def main : IO UInt32 := do
   testCounterSemanticPlan

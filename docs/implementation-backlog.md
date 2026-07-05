@@ -546,12 +546,45 @@ Tasks:
     nodes for scalar `call`, value-bearing `call`, native value transfer,
     `staticcall`, `delegatecall`, `create`, and `create2` can lower directly to
     helper calls using the same helper-name selection used for helper body
-    emission. Planned scalar return frames now call the same `lowerExprPlanExpr`
-    callback used by expression lowering, so local/storage aggregate crosscall
-    argument source plans can be provider-expanded before `ToYul` selects the
-    helper-call name and argument order. The compatibility `IR.lean` expression
-    lowering still owns type-env validation and fallback aggregate crosscall
-    argument word expansion.
+    emission. `ToYul.crosscallExprPlanExpr` now owns target/method/call-value
+    lowering, provider-backed crosscall argument source expansion, helper-call
+    name selection, and final argument ordering for scalar crosscall expressions.
+    Planned scalar return frames call the same `lowerExprPlanExpr` callback used
+    by expression lowering, so local/storage aggregate crosscall argument source
+    plans can be provider-expanded before `ToYul` selects the helper-call shape.
+    Legacy untyped `.crosscallInvoke` expression lowering now enters the same
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.crosscall` ->
+    `ToYul.crosscallExprPlanExpr` path instead of assembling its scalar helper
+    call directly inside `IR.lowerExpr`. The compatibility `IR.lean` expression
+    lowering still supplies local/storage provider callbacks for source plans.
+    Legacy `crosscallCreate` and `crosscallCreate2` expression lowering also now
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.create` ->
+    `ToYul.exprPlanExpr`, removing the old IR-local create helper-call branches.
+    Hash expression lowering for `hashValue`, `hash`, and `hashTwoToOne` now
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.hashValue`/`ExprPlan.hash`/
+    `ExprPlan.hashTwoToOne` -> `ToYul.exprPlanExpr`, removing the old IR-local
+    hash pack/helper-call branches.
+    Scalar arithmetic, division/modulo, bitwise, shift, and exponent expression
+    lowering now enters `Lower.buildExpressionExprPlan` -> `ExprPlan.checkedArith`
+    or `ExprPlan.builtin` -> `ToYul.exprPlanExpr`, so checked helper selection,
+    builtin opcode names, and shift argument ordering no longer live in
+    `IR.lowerExpr`.
+    Comparison, boolean, cast, and native-value expression lowering now also
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.builtin`/`ExprPlan.cast`/
+    `ExprPlan.nativeValue` -> `ToYul.exprPlanExpr`, removing another direct
+    scalar expression frame from `IR.lowerExpr`.
+    Scalar literal and local expression leaves now also enter
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.literalWord`/`ExprPlan.local` ->
+    `ToYul.exprPlanExpr`, including `hash4` limb packing through the same
+    `Lower.literalPlan` validation path.
+    Expression-position storage and context read effects now enter
+    `Lower.buildEffectPlan` -> target `EffectPlan`/`EffectPlan.contextRead` ->
+    `lowerPlanEffectExpr`/`ToYul` instead of being dispatched directly from
+    `IR.lowerEffectExpr`.
+    Expression-position map insert/set return effects now also enter
+    `Lower.buildEffectPlan` -> target `EffectPlan.storageMapInsertTarget`/
+    `EffectPlan.storageMapSetTarget` -> `lowerPlanEffectExpr`/
+    `ToYul.mapSetReturnTargetExpr`.
   - Started: expression-position local fixed-array getter, local struct-field
     getter, and scalar array-literal indexing assembly now live behind
     `ExprPlan -> ToYul` for local scalar leaves. `Lower` records local
@@ -607,20 +640,25 @@ Tasks:
     crosscall word markers. `ExprPlan.crosscall.args` and
     `CrosscallReturnAssignmentPlan.args` carry planned crosscall argument word
     sources: scalar/literal/storage-load words use `CrosscallArgWordPlan.expr`,
-    local aggregate sources use `CrosscallArgWordPlan.local`, and compatibility
-    storage sources can use `CrosscallArgWordPlan.storage` when direct ToYul
-    callers need provider-backed expansion. The obsolete
+    local aggregate sources use `CrosscallArgWordPlan.local`, and
+    storage-backed aggregate sources use `CrosscallArgWordPlan.storage` for
+    provider-backed expansion. Direct storage-load word plans remain available
+    through `CrosscallArgWordPlan.expr` for already-expanded scalar word sources.
+    The obsolete
     `ExprPlan.localAbiWords`, `ExprPlan.storageAbiWords`,
     `ExprPlan.localCrosscallWords`, and `ExprPlan.storageCrosscallWords`
     constructors have been retired from `ExprPlan`; direct `ToYul.*Words`
     helpers remain only as helper APIs for explicit local/source word expansion.
     `Lower.buildCrosscallArgWordPlansMany`
     now returns those source plans, while `ToYul.crosscallArgWordPlanExprs`
-    performs the final traversal and word concatenation. `IR.lean` still
-    supplies ToYul provider callbacks for local/storage crosscall source plans,
-    while scalar expression fallback crosscall lowering now also calls
-    `Lower.buildCrosscallArgWordPlansMany` before that ToYul boundary, and the
-    old IR-local `lowerCrosscall*ArgWords` expansion tree has been removed.
+    performs the final traversal and word concatenation.
+    `ToYul.crosscallExprPlanExpr` wraps that traversal with target/method/call-
+    value lowering and scalar helper-call selection. `IR.lean` still supplies
+    ToYul provider callbacks for local/storage crosscall source plans, while
+    legacy untyped scalar expression crosscall lowering now enters
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.crosscall` before that ToYul
+    boundary. The old IR-local scalar helper-call branch and
+    `lowerCrosscall*ArgWords` expansion tree have been removed.
   - Add `EntrypointPlan` for selector dispatch, calldata guards, ABI word
     flattening, return-data encoding, and metadata selector layout.
   - Add `EventPlan` for event signature topics, indexed-topic hashing,

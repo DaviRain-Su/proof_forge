@@ -2242,15 +2242,10 @@ mutual
     lowerExprPlanExpr module env plan
 
   partial def lowerExpr (module : Module) (env : TypeEnv) : ProofForge.IR.Expr → Except LowerError Lean.Compiler.Yul.Expr
-    | .literal (.u8 value) => .ok (Lean.Compiler.Yul.Expr.num value)
-    | .literal (.u32 value) => .ok (Lean.Compiler.Yul.Expr.num value)
-    | .literal (.u64 value) => .ok (Lean.Compiler.Yul.Expr.num value)
-    | .literal (.u128 value) => .ok (Lean.Compiler.Yul.Expr.num value)
-    | .literal (.bool value) => .ok (if value then Lean.Compiler.Yul.Expr.num 1 else Lean.Compiler.Yul.Expr.num 0)
-    | .literal (.hash4 a b c d) => do
-        .ok (Lean.Compiler.Yul.Expr.num (← lowerValidate <| ProofForge.Backend.Evm.Validate.packedHashLiteral a b c d))
-    | .literal (.address value) => .ok (Lean.Compiler.Yul.Expr.num value)
-    | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
+    | .literal value => do
+        lowerExprThroughPlan module env (.literal value)
+    | .local name => do
+        lowerExprThroughPlan module env (.local name)
     | .arrayLit _ _ =>
         .error { message := "fixed array literals must be consumed by a fixed array local binding or literal index in IR EVM v0" }
     | .arrayGet array index =>
@@ -2278,77 +2273,57 @@ mutual
     | .field base fieldName =>
         lowerLocalStructFieldExpr module env base fieldName
     | .add lhs rhs => do
-        .ok (checkedAddExpr (← lowerExpr module env lhs) (← lowerExpr module env rhs))
+        lowerExprThroughPlan module env (.add lhs rhs)
     | .sub lhs rhs => do
-        .ok (checkedSubExpr (← lowerExpr module env lhs) (← lowerExpr module env rhs))
+        lowerExprThroughPlan module env (.sub lhs rhs)
     | .mul lhs rhs => do
-        .ok (checkedMulExpr (← lowerExpr module env lhs) (← lowerExpr module env rhs))
+        lowerExprThroughPlan module env (.mul lhs rhs)
     | .div lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "div" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.div lhs rhs)
     | .mod lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "mod" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.mod lhs rhs)
     | .pow lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "exp" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.pow lhs rhs)
     | .bitAnd lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "and" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.bitAnd lhs rhs)
     | .bitOr lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "or" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.bitOr lhs rhs)
     | .bitXor lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "xor" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.bitXor lhs rhs)
     | .shiftLeft lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "shl" #[← lowerExpr module env rhs, ← lowerExpr module env lhs])
+        lowerExprThroughPlan module env (.shiftLeft lhs rhs)
     | .shiftRight lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "shr" #[← lowerExpr module env rhs, ← lowerExpr module env lhs])
-    | .cast value _ => do
-        lowerExpr module env value
+        lowerExprThroughPlan module env (.shiftRight lhs rhs)
+    | .cast value targetType => do
+        lowerExprThroughPlan module env (.cast value targetType)
     | .eq lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "eq" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.eq lhs rhs)
     | .ne lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "eq" #[← lowerExpr module env lhs, ← lowerExpr module env rhs]])
+        lowerExprThroughPlan module env (.ne lhs rhs)
     | .lt lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "lt" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.lt lhs rhs)
     | .le lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "gt" #[← lowerExpr module env lhs, ← lowerExpr module env rhs]])
+        lowerExprThroughPlan module env (.le lhs rhs)
     | .gt lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "gt" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.gt lhs rhs)
     | .ge lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "lt" #[← lowerExpr module env lhs, ← lowerExpr module env rhs]])
+        lowerExprThroughPlan module env (.ge lhs rhs)
     | .boolAnd lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "and" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.boolAnd lhs rhs)
     | .boolOr lhs rhs => do
-        .ok (Lean.Compiler.Yul.builtin "or" #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.boolOr lhs rhs)
     | .boolNot value => do
-        .ok (Lean.Compiler.Yul.builtin "iszero" #[← lowerExpr module env value])
+        lowerExprThroughPlan module env (.boolNot value)
     | .hashValue a b c d => do
-        .ok (ProofForge.Backend.Evm.ToYul.hashPackExpr
-          (← lowerExpr module env a)
-          (← lowerExpr module env b)
-          (← lowerExpr module env c)
-          (← lowerExpr module env d))
+        lowerExprThroughPlan module env (.hashValue a b c d)
     | .hash preimage => do
-        .ok (ProofForge.Backend.Evm.ToYul.helperCall
-          ProofForge.Backend.Evm.Plan.Helper.hashWord
-          #[← lowerExpr module env preimage])
+        lowerExprThroughPlan module env (.hash preimage)
     | .hashTwoToOne lhs rhs => do
-        .ok (ProofForge.Backend.Evm.ToYul.helperCall
-          ProofForge.Backend.Evm.Plan.Helper.hashPair
-          #[← lowerExpr module env lhs, ← lowerExpr module env rhs])
+        lowerExprThroughPlan module env (.hashTwoToOne lhs rhs)
     | .nativeValue =>
-        .ok (Lean.Compiler.Yul.builtin "callvalue" #[])
+        lowerExprThroughPlan module env .nativeValue
     | .crosscallInvoke target methodId args => do
-        let targetExpr ← lowerExpr module env target
-        let methodIdExpr ← lowerExpr module env methodId
-        let mut argExprs := #[]
-        for arg in args do
-          argExprs := argExprs.push (← lowerExpr module env arg)
-        .ok <| ← ProofForge.Backend.Evm.ToYul.crosscallScalarHelperCallExpr
-          toYulError
-          ProofForge.Backend.Evm.Plan.CrosscallMode.call
-          targetExpr
-          methodIdExpr
-          none
-          argExprs
-          .u64
+        lowerExprThroughPlan module env (.crosscallInvoke target methodId args)
     | .crosscallInvokeTyped target methodId args returnType => do
         lowerExprThroughPlan module env (.crosscallInvokeTyped target methodId args returnType)
     | .crosscallInvokeValueTyped target methodId callValue args returnType => do
@@ -2358,50 +2333,44 @@ mutual
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         lowerExprThroughPlan module env (.crosscallInvokeDelegateTyped target methodId args returnType)
     | .crosscallCreate callValue initCodeHex => do
-        .ok <| ← ProofForge.Backend.Evm.ToYul.createHelperCallExpr
-          toYulError
-          ProofForge.Backend.Evm.Plan.CreateMode.create
-          (← lowerExpr module env callValue)
-          none
-          initCodeHex
+        lowerExprThroughPlan module env (.crosscallCreate callValue initCodeHex)
     | .crosscallCreate2 callValue salt initCodeHex => do
-        .ok <| ← ProofForge.Backend.Evm.ToYul.createHelperCallExpr
-          toYulError
-          ProofForge.Backend.Evm.Plan.CreateMode.create2
-          (← lowerExpr module env callValue)
-          (some (← lowerExpr module env salt))
-          initCodeHex
+        lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .effect effect => lowerEffectExpr module env effect
+
+  partial def lowerEffectExprThroughPlan
+      (module : Module)
+      (env : TypeEnv)
+      (effect : Effect) : Except LowerError Lean.Compiler.Yul.Expr := do
+    let plan ←
+      match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env) effect with
+      | .ok plan => .ok plan
+      | .error err => .error { message := err.message }
+    lowerPlanEffectExpr module env plan
 
   partial def lowerEffectExpr (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Expr
     | .storageScalarRead stateId => do
-        match ← scalarStateType module stateId with
-        | .structType _ =>
-            .error {
-              message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
-            }
-        | _ => pure ()
-        lowerScalarStorageReadExpr module env stateId
+        lowerEffectExprThroughPlan module env (.storageScalarRead stateId)
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
     | .storageScalarAssignOp _ _ _ =>
         .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
     | .storageMapContains stateId key =>
-        lowerMapContainsExpr module env stateId key
+        lowerEffectExprThroughPlan module env (.storageMapContains stateId key)
     | .storageMapGet stateId key =>
-        lowerMapGetExpr module env stateId key
+        lowerEffectExprThroughPlan module env (.storageMapGet stateId key)
     | .storageMapInsert stateId key value =>
-        lowerMapSetReturnExpr module env stateId key value
+        lowerEffectExprThroughPlan module env (.storageMapInsert stateId key value)
     | .storageMapSet stateId key value =>
-        lowerMapSetReturnExpr module env stateId key value
+        lowerEffectExprThroughPlan module env (.storageMapSet stateId key value)
     | .storageArrayRead stateId index =>
-        lowerArrayReadExpr module env stateId index
+        lowerEffectExprThroughPlan module env (.storageArrayRead stateId index)
     | .storageArrayWrite _ _ _ =>
         .error { message := "storage.array.write is a statement effect, not an expression" }
     | .memoryArraySet _ _ _ =>
         .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageArrayStructFieldRead stateId index fieldName =>
-        lowerStructArrayFieldReadExpr module env stateId index fieldName
+        lowerEffectExprThroughPlan module env (.storageArrayStructFieldRead stateId index fieldName)
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
     | .storageDynamicArrayPush _ _ =>
@@ -2409,19 +2378,17 @@ mutual
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName =>
-        lowerStructFieldReadExpr module stateId fieldName
+        lowerEffectExprThroughPlan module env (.storageStructFieldRead stateId fieldName)
     | .storageStructFieldWrite _ _ _ =>
         .error { message := "storage.struct.field.write is a statement effect, not an expression" }
     | .storagePathRead stateId path =>
-        lowerStoragePathReadExpr module env stateId path
+        lowerEffectExprThroughPlan module env (.storagePathRead stateId path)
     | .storagePathWrite _ _ _ =>
         .error { message := "storage.path.write is a statement effect, not an expression" }
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
     | .contextRead field =>
-        ProofForge.Backend.Evm.ToYul.contextFieldExpr
-          (fun expr => lowerExpr module env expr)
-          field
+        lowerEffectExprThroughPlan module env (.contextRead field)
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
@@ -2601,24 +2568,19 @@ mutual
       Except LowerError Lean.Compiler.Yul.Expr := do
     match plan with
     | .crosscall mode target methodId callValue? args returnType => do
-        let targetExpr ← lowerExprPlanExpr module env target
-        let methodIdExpr ← lowerExprPlanExpr module env methodId
-        let callValueExpr? ← callValue?.mapM (lowerExprPlanExpr module env)
-        let argWords ← lowerCrosscallArgWordPlanExprs module env (crosscallPlanArgContext mode) args
-        let plainTransfer :=
-          mode == .callValue && argWords.isEmpty &&
-            match methodId with
-            | .literalWord 0 => true
-            | _ => false
-        ProofForge.Backend.Evm.ToYul.crosscallScalarHelperCallExpr
+        ProofForge.Backend.Evm.ToYul.crosscallExprPlanExpr
           toYulError
+          (lowerExprPlanExpr module env)
+          (fun name type =>
+            lowerLocalCrosscallWords module env (crosscallPlanArgContext mode) name type)
+          (fun stateId type =>
+            lowerStorageCrosscallWords module env (crosscallPlanArgContext mode) stateId type)
           mode
-          targetExpr
-          methodIdExpr
-          callValueExpr?
-          argWords
+          target
+          methodId
+          callValue?
+          args
           returnType
-          plainTransfer
     | _ =>
         ProofForge.Backend.Evm.ToYul.exprPlanExpr
           toYulError

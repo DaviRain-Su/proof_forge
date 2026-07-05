@@ -73,8 +73,471 @@ Next step:
   to cover it; then consider wiring `quint verify` into the default CI path once
   Java 17+ is available.
 
+### EVM Map Return EffectPlan Routing
+
+Commit: 978dfb9
+
+Summary:
+
+- Routed expression-position `storageMapInsert` and `storageMapSet` return
+  effects through `Lower.buildEffectPlan`, target
+  `EffectPlan.storageMapInsertTarget`/`EffectPlan.storageMapSetTarget`, and
+  `lowerPlanEffectExpr`.
+- Reused `ToYul.mapSetReturnTargetExpr` for the value-return map helper instead
+  of dispatching directly from `IR.lowerEffectExpr`.
+- Added semantic-plan coverage for direct `lowerEffectExpr` map set-return and
+  insert-return paths, including planned checked arithmetic on key/value words.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Statement-position storage write effects still keep their per-effect
+  compatibility fallback helpers.
+- Some aggregate expression, statement, storage, and event paths still pass
+  through the compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue by moving a statement-position storage write boundary from
+  compatibility helpers into `Lower -> EffectPlan -> ToYul`.
+
 ### EVM Planned Aggregate Crosscall Arguments
 
+### EVM Read Effect EffectPlan Routing
+
+Commit: c3d2a17
+
+Summary:
+
+- Routed expression-position storage and context read effects through
+  `Lower.buildEffectPlan`, target `EffectPlan`/`EffectPlan.contextRead`, and
+  `lowerPlanEffectExpr` before final ToYul lowering.
+- Added a shared `lowerEffectExprThroughPlan` entry in `IR.lean` for scalar
+  storage reads, map contains/get, storage array reads, struct-array field
+  reads, struct field reads, storage path reads, and context reads.
+- Added semantic-plan coverage for direct `lowerEffectExpr` read/context paths
+  so the compatibility expression facade exercises the planned effect route.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Expression-position map insert/set still use the existing value-return helper
+  path until write-return semantics are moved behind an `EffectPlan` facade.
+- Statement-position write effects still keep their per-effect compatibility
+  fallback helpers.
+- Some aggregate expression, statement, storage, and event paths still pass
+  through the compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue by moving a write-return effect or a statement-position storage
+  effect boundary from compatibility helpers into `Lower -> EffectPlan -> ToYul`.
+
+### EVM Scalar Leaf ExprPlan Routing
+
+Commit: 299d6de
+
+Summary:
+
+- Routed scalar literal and local expression leaves through
+  `Lower.buildExpressionExprPlan`, `ExprPlan.literalWord`/`ExprPlan.local`, and
+  `ToYul.exprPlanExpr`.
+- Removed direct numeric, boolean, address, `hash4`, and local identifier
+  assembly from `IR.lowerExpr`.
+- Added semantic-plan coverage for direct literal/local plan shapes, direct IR
+  expression lowering results, and `hash4` limb packing through the shared
+  `Lower.literalPlan` validation path.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns direct aggregate expression/error paths and compatibility
+  callbacks for local/storage source plans.
+- Some statement, storage, event, and aggregate paths still pass through the
+  compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue with the next meaningful statement, storage, or event semantic
+  boundary now that scalar expression leaves are mostly behind `ExprPlan`.
+
+### EVM Scalar Predicate ExprPlan Routing
+
+Commit: df0fbbf
+
+Summary:
+
+- Routed comparison, boolean, cast, and native-value expression lowering through
+  `Lower.buildExpressionExprPlan`, `ExprPlan.builtin`/`ExprPlan.cast`/
+  `ExprPlan.nativeValue`, and `ToYul.exprPlanExpr`.
+- Removed direct `eq`/`iszero`/comparison/boolean/cast/callvalue assembly from
+  `IR.lowerExpr`.
+- Added semantic-plan coverage for direct predicate, boolean, cast, and native
+  value plan shapes plus direct IR expression lowering results.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns direct literal/local expression handling and some aggregate
+  expression branches that can be migrated through planned expressions or kept as
+  trivial facade leaves by a later cleanup decision.
+- Some statement, storage, event, and aggregate paths still pass through the
+  compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue by either routing the remaining trivial literal/local expression leaves
+  through `ExprPlan`, or by switching to the next narrow statement/storage/event
+  shape with meaningful IR-local assembly.
+
+### EVM Arithmetic ExprPlan Routing
+
+Commit: 8e8a2a5
+
+Summary:
+
+- Routed scalar arithmetic, division/modulo, bitwise, shift, and exponent
+  expression lowering through `Lower.buildExpressionExprPlan`,
+  `ExprPlan.checkedArith` or `ExprPlan.builtin`, and `ToYul.exprPlanExpr`.
+- Removed the corresponding direct helper-call and builtin assembly branches from
+  `IR.lowerExpr`, including checked add/sub/mul selection and shift operand
+  ordering.
+- Added semantic-plan coverage for direct arithmetic/bitwise plan shapes and
+  direct IR expression lowering results.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns direct comparison, boolean, cast, context/native, literal,
+  local, and some aggregate expression branches that can be migrated through
+  planned expressions in later slices.
+- Some statement, storage, event, and aggregate paths still pass through the
+  compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving another simple expression family, likely comparison/boolean or
+  context/native expressions, from `IR.lean` compatibility lowering into the
+  `Lower -> Plan -> ToYul` path.
+
+### EVM Hash ExprPlan Routing
+
+Commit: 673deed
+
+Summary:
+
+- Routed `hashValue`, `hash`, and `hashTwoToOne` expression lowering through
+  `Lower.buildExpressionExprPlan`, their corresponding `ExprPlan` hash nodes, and
+  `ToYul.exprPlanExpr` instead of assembling hash pack/helper-call expressions
+  directly in `IR.lowerExpr`.
+- Added semantic-plan coverage for direct hash plan shapes and direct IR
+  expression lowering results.
+- Kept hash helper-call selection on the same ToYul helper API used by planned
+  helper discovery.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns several direct scalar arithmetic, comparison, boolean, and
+  context expression branches that can be migrated through planned expressions in
+  later slices.
+- Some statement, storage, event, and aggregate paths still pass through the
+  compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving another simple expression family or a narrow statement shape
+  from `IR.lean` compatibility lowering into the `Lower -> Plan -> ToYul` path.
+
+### EVM Create ExprPlan Routing
+
+Commit: d3fc0b9
+
+Summary:
+
+- Routed legacy `crosscallCreate` and `crosscallCreate2` expression lowering
+  through `Lower.buildExpressionExprPlan`, `ExprPlan.create`, and
+  `ToYul.exprPlanExpr` instead of assembling create helper calls directly in
+  `IR.lowerExpr`.
+- Added semantic-plan coverage for direct create/create2 plan shapes and direct
+  IR expression lowering results.
+- Kept create/create2 helper-call naming aligned with the same ToYul helper-name
+  selection used for helper body emission.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still supplies validation-backed provider callbacks for local and
+  storage crosscall source plans.
+- Some non-create expression, statement, storage, event, and aggregate paths still
+  pass through the compatibility facade until their own semantic-plan slices land.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving the next expression or statement shape from the compatibility
+  facade into the `Lower -> Plan -> ToYul` path, with direct semantic-plan tests
+  before removing additional IR-local assembly.
+
+### EVM Untyped Crosscall ExprPlan Routing
+
+Commit: f91338f
+
+Summary:
+
+- Routed legacy untyped `crosscallInvoke` expression lowering through
+  `Lower.buildExpressionExprPlan`, `ExprPlan.crosscall`, and
+  `ToYul.crosscallExprPlanExpr` instead of assembling its scalar helper call
+  directly in `IR.lowerExpr`.
+- Added semantic-plan coverage for the untyped crosscall plan shape and direct IR
+  lowering result.
+- Kept typed, value-bearing, static, and delegate crosscall routing on the same
+  planned expression path.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still supplies validation-backed provider callbacks for local and
+  storage crosscall source plans.
+- `crosscallCreate` and `crosscallCreate2` still have direct `IR.lowerExpr`
+  compatibility branches; they remain candidates for the same planned-expression
+  routing cleanup.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving another create, storage, event, or crosscall expression/statement
+  shape from the compatibility facade into the `Lower -> Plan -> ToYul` path.
+
+### EVM Provider-Aware Crosscall ExprPlan Lowering
+
+Commit: cb8242f
+
+Summary:
+
+- Added `ToYul.crosscallExprPlanExpr`, a provider-aware crosscall expression
+  helper that owns target/method/call-value lowering, source-plan argument
+  expansion, scalar helper-call selection, and final argument ordering.
+- Routed the generic `ExprPlan.crosscall` ToYul path through the new helper while
+  preserving the existing explicit diagnostic for unexpanded local/storage source
+  plans.
+- Simplified `IR.lowerExprPlanExpr` so the compatibility facade now supplies only
+  local/storage crosscall word providers instead of assembling the crosscall
+  helper-call frame itself.
+- Added direct semantic-plan coverage for `ToYul.crosscallExprPlanExpr` with
+  mixed local, scalar, and storage-backed argument source plans.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still supplies validation-backed provider callbacks for local and
+  storage crosscall source plans.
+- Generic `ToYul.exprPlanExpr` still requires already-expanded crosscall
+  argument words unless the caller uses `ToYul.crosscallExprPlanExpr` directly.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving another storage, event, or crosscall statement shape from the
+  compatibility facade into the planned-body `Lower -> Plan -> ToYul` path.
+
+### EVM Planned Storage Crosscall Argument Sources
+
+Commit: 221f486
+
+Summary:
+
+- Preserved storage-backed aggregate crosscall arguments as
+  `CrosscallArgWordPlan.storage` source plans instead of pre-expanding them to
+  per-field `ExprPlan.storageLoad` words in `Lower`.
+- Kept storage source validation by reusing `Lower.storageCrosscallWordPlans`
+  before emitting the storage source plan.
+- Added semantic-plan coverage showing active `buildExprPlan` output records
+  storage-backed aggregate crosscall arguments as storage source plans while
+  ToYul provider expansion still emits the same helper-call argument words.
+- Added module-level altered-plan coverage proving `lowerModuleWithPlan`
+  consumes storage aggregate crosscall argument source plans.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Storage crosscall source planning currently covers struct scalar storage reads;
+  unsupported storage source shapes still fail validation or fall back through
+  existing compatibility paths.
+- Already-expanded scalar storage-load words still use
+  `CrosscallArgWordPlan.expr`.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving another storage, event, or crosscall statement shape from the
+  compatibility facade into the planned-body `Lower -> Plan -> ToYul` path.
 ### EVM Planned Aggregate Crosscall Arguments
 
 Commit: 1c38854
