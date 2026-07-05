@@ -360,6 +360,17 @@ BCH/CashScript 与 UTXO covenant 目标有重叠，但 CashVM、transaction intr
 
 目前通过 `ProofForge.Evm` / `Lean.Evm` 实现 —— 参见 [targets/evm.md](targets/evm.md)。
 
+## 工具链能力
+
+这些能力描述的是 ProofForge 工具链产生的验证与建模产物，而非已部署目标的运行时行为。它们附加到 `quint` 伪目标，或任何真实目标的验证阶段。
+
+| 能力 id | 可移植含义 | 状态 |
+|---|---|:---:|
+| `model.quint` | 目标从 portable IR 生成 Quint 状态机模型。 | 已实现 |
+| `verify.model_check` | 生成的模型可通过 Apalache/TLC 用 `quint verify` 进行模型检查。 | 已实现（需要 Java 17+） |
+| `verify.simulation` | 生成的模型可通过 `quint run` 进行仿真。 | 已实现 |
+| `test.mbt_trace` | 生成的模型可产生 ITF 追踪，用于对 IR 语义进行回放。 | 已实现 |
+
 ## Phase 1 验收标准
 
 - [ ] 此表中的每个 id 至少出现在一个目标的 `TargetProfile.capabilities` 中。

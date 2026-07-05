@@ -401,6 +401,20 @@ explicit representation before a target profile is added.
 Implemented today via `ProofForge.Evm` / `Lean.Evm` — see
 [targets/evm.md](targets/evm.md).
 
+## Toolchain Capabilities
+
+These capabilities describe verification and modeling artifacts produced by the
+ProofForge toolchain, not runtime behavior of a deployed target. They are
+attached to the `quint` pseudo-target or to the verification stage of any real
+target.
+
+| Capability id | Portable meaning | Status |
+|---|---|:---:|
+| `model.quint` | Target emits a Quint state-machine model from portable IR. | Implemented |
+| `verify.model_check` | Generated model can be checked with Apalache/TLC via `quint verify`. | Implemented (Java 17+ required) |
+| `verify.simulation` | Generated model can be simulated with `quint run`. | Implemented |
+| `test.mbt_trace` | Generated model can produce ITF traces for replay against IR semantics. | Implemented |
+
 ## Phase 1 Acceptance Criteria
 
 - [ ] Every id in this table appears in `TargetProfile.capabilities` for at least

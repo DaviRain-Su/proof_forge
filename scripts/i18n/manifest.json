@@ -29,9 +29,9 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/capability-registry.md": {
-    "sha256": "57d2eb3d15572441ada9b1342b36d55434476c76be38f11d43e8b44f3f1d789e",
+    "sha256": "3e4e12733f19cdf81011fe0487e814b31d41ce5a2028c0e751f477b17bc65291",
     "zh": "docs/zh/capability-registry.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/portable-ir.md": {
     "sha256": "df2375f131d624d62ec1acd66f0c1deb15130ce5a0778370d3b809beb9cf78e8",
