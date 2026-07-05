@@ -73,6 +73,53 @@ Next step:
   to cover it; then consider wiring `quint verify` into the default CI path once
   Java 17+ is available.
 
+### EVM Struct-Field Write Statement EffectPlan Routing
+
+Commit: afc5284
+
+Summary:
+
+- Routed statement-position storage struct-field write effects through
+  `Lower.buildEffectPlan` before final ToYul statement lowering.
+- Removed IR-local reconstruction of struct-field write target plans and value
+  expression plans from the plan-supported struct-field write statement path.
+- Reused `ToYul.structFieldWriteTargetEffectStmtPlanStatements` for planned
+  struct-field write target effects.
+- Strengthened semantic-plan coverage for direct struct-field write statement
+  lowering by checking the planned storage slot.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Struct-field write statements still keep the existing fallback path for
+  expression shapes that are not yet covered by planned scalar Yul lowering.
+- Struct-array-field, dynamic-array, memory-array, and storage-path statement
+  writes still keep their per-effect compatibility fallback helpers.
+- Some aggregate expression, statement, storage, and event paths still pass
+  through the compatibility facade until their own semantic-plan slices land.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit` and `Cli`.
+
+Next step:
+
+- Continue by moving struct-array-field statement-position storage write effects
+  from compatibility helpers into `Lower -> EffectPlan -> ToYul`.
+
 ### EVM Array Write Statement EffectPlan Routing
 
 Commit: ab599c8

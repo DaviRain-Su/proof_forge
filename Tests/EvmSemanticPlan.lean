@@ -6403,6 +6403,10 @@ def testStructFieldWritePlanToYul : IO Unit := do
   match fieldStmt with
   | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
       require (args.size == 2) "struct field write plan-to-yul arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.lit literal =>
+          require (literal.value == "1") "struct field write slot must lower through target plan"
+      | _ => throw <| IO.userError "struct field write slot must be planned literal"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.call addName addArgs => do
           require (addName == "__pf_checked_add") "struct field write value must lower through checked add plan"
