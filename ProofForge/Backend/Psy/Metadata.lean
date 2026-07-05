@@ -15,12 +15,14 @@ EVM's.
 
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Backend.Psy.IR
 import ProofForge.Backend.Psy.Plan
 import ProofForge.IR.Contract
 
 namespace ProofForge.Backend.Psy.Metadata
 
 open ProofForge.IR
+open ProofForge.Backend.Psy.IR
 open ProofForge.Backend.Psy.Plan
 
 /-! ## ABI entrypoint metadata -/
@@ -64,7 +66,7 @@ structure AbiEventDescriptor where
 def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
   {
     name := event.name
-    fields := event.dataFields.map (fun fieldName => { name := fieldName, type := "Felt" })
+    fields := event.dataFields.map (fun fieldName => { name := fieldName, type := psyFeltTypeName })
   }
 
 def abiEventDescriptors (plan : PsyModulePlan) : Array AbiEventDescriptor :=

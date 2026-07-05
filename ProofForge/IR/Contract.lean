@@ -252,6 +252,10 @@ inductive Statement where
   | release (name : String)
   | ifElse (condition : Expr) (thenBody elseBody : Array Statement)
   | boundedFor (indexName : String) (start stopExclusive : Nat) (body : Array Statement)
+  /-- A general while loop with a Bool condition. Psy accepts unbounded
+      `while cond { ... }` loops; EVM v0 rejects this because EVM gas bounds
+      require statically bounded iteration. -/
+  | whileLoop (condition : Expr) (body : Array Statement)
   | return (value : Expr)
   deriving Repr
 
@@ -448,6 +452,9 @@ def Statement.capabilities : Statement → Array ProofForge.Target.Capability
         elseBody.foldl (fun acc stmt => acc ++ stmt.capabilities) #[]
   | .boundedFor _ _ _ body =>
       #[.controlBoundedLoop] ++ body.foldl (fun acc stmt => acc ++ stmt.capabilities) #[]
+  | .whileLoop condition body =>
+      #[.controlUnboundedLoop] ++ condition.capabilities ++
+        body.foldl (fun acc stmt => acc ++ stmt.capabilities) #[]
   | .return value => value.capabilities
 
 def Entrypoint.capabilities (entrypoint : Entrypoint) : Array ProofForge.Target.Capability :=

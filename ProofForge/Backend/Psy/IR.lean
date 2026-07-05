@@ -223,11 +223,14 @@ def testFunctionName (module : Module) : String :=
   else
     s!"test_{module.name}_fixture"
 
+/-- The Psy surface type name for the native field element (`Felt`). -/
+def psyFeltTypeName : String := "Felt"
+
 def valueTypeName : ValueType → Except LowerError String
   | .unit => .ok "()"
   | .bool => .ok "bool"
   | .u32 => .ok "u32"
-  | .u64 => .ok "Felt"
+  | .u64 => .ok psyFeltTypeName
   | .hash => .ok "Hash"
   | .u8 => .ok "U8"
   | .address => .ok "Address"
@@ -1415,7 +1418,7 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
   | .storageDynamicArrayPop _ => .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
   | .memoryArraySet _ _ _ =>
       .error { message := "memory arrays are not supported by Psy IR v0" }
-  | .storageStructFieldRead _ _ => .error { message := "storage.array.struct.field.read must be used as an expression" }
+  | .storageStructFieldRead _ _ => .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
       requireStructScalarStateCtx ctx stateId fieldName
       .ok <| .effect (.storageStructFieldWrite stateId fieldName (← buildExpr ctx value))
@@ -1445,7 +1448,7 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
             let read := Lean.Compiler.Psy.Expr.storagePathRead stateId segs true
             let rhs := Lean.Compiler.Psy.Expr.cast
               (Lean.Compiler.Psy.Expr.binary read ((mapAssignOp op).toBinaryOp) (← buildExpr ctx value))
-              { text := "Felt" }
+              { text := psyFeltTypeName }
             .ok <| .assign target rhs
           else
             .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath ctx path) (mapAssignOp op) (← buildExpr ctx value))

@@ -120,6 +120,7 @@ Statement	assertEq	lowered	EmitWat lowers assertEq with scalar/hash/fixed-array 
 Statement	release	lowered	EmitWat lowers release of owned fixed-array and struct locals to __pf_arr_dealloc after IR ownership checking.
 Statement	ifElse	lowered	EmitWat lowers if/else to wasm if with lowered branch bodies.
 Statement	boundedFor	lowered	EmitWat lowers boundedFor to wasm block/loop/br_if control flow.
+Statement	whileLoop	unsupported	EmitWat lowerStmt falls through to the unsupported-statement error for unbounded while loops; wasm target profile carries control.unbounded_loop but the WAT backend does not emit open-ended loops in v0.
 Statement	return	lowered	EmitWat lowers returns to value_return helpers for U32/U64/Bool/Hash values.
 Statement	revert	lowered	EmitWat lowers revert to unreachable trap (no message encoding in Wasm).
 Statement	revertWithError	lowered	EmitWat lowers revertWithError to unreachable trap (no ErrorRef encoding in Wasm).

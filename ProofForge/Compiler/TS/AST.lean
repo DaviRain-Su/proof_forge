@@ -78,6 +78,7 @@ mutual
     | exprStmt (expr : Expr)
     | ifStmt (cond : Expr) (thenBody : Array Stmt) (elseBody? : Option (Array Stmt))
     | forLoop (init : Stmt) (cond : Expr) (step : Stmt) (body : Array Stmt)
+    | whileLoop (cond : Expr) (body : Array Stmt)
     | return (expr : Expr)
     | throw (expr : Expr)
     deriving BEq, Repr, Inhabited

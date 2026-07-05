@@ -274,6 +274,10 @@ mutual
         let cond := Expr.binary .lt (.ident indexName) (Expr.num stopExclusive)
         let step := Stmt.assign (.ident indexName) (.binary .add (.ident indexName) (Expr.num 1))
         emit (.forLoop init cond step bodyStmts)
+    | .whileLoop condition body => do
+        let c ← emitExpr .bool condition
+        let bodyStmts ← captureStmts (body.forM emitStmt)
+        emit (.whileLoop c bodyStmts)
     | .assertEq lhs rhs msg _ => do
         let l ← emitExpr .u64 lhs
         let r ← emitExpr .u64 rhs

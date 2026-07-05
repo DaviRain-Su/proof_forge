@@ -120,6 +120,7 @@ Statement	assertEq	lowered	lowerStatement emits assert_eq!(lhs, rhs, "msg"); aft
 Statement	release	unsupported	wasm-near Rust sourcegen v0 rejects release statements; the SDK allocator manages heap-backed locals and explicit name-based release has no Rust lowering. The direct-WAT EmitWat backend lowers release to __pf_arr_dealloc for minimalMalloc/nearWeeModel, but that path is not tracked by this Rust sourcegen coverage manifest.
 Statement	ifElse	unsupported	Rust sourcegen v0 rejects if/else statements in lowerStatement; control.conditional is present on the target profile for EmitWat coverage.
 Statement	boundedFor	unsupported	Rust sourcegen v0 rejects bounded for loops in lowerStatement; control.bounded_loop is present on the target profile for EmitWat coverage.
+Statement	whileLoop	unsupported	Rust sourcegen v0 rejects unbounded while loops in lowerStatement; control.unbounded_loop is present on the target profile for EmitWat coverage.
 Statement	return	lowered	lowerStatement emits return value;; validateModule requires non-Unit returns to end with return and return-type diagnostics guard mismatches.
 Statement	revert	lowered	lowerStatement emits panic!("message"); for revert with message and panic!("revertWithError"); for revertWithError.
 Statement	revertWithError	lowered	lowerStatement emits panic!("revertWithError"); for structured error reverts.

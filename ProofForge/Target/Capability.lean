@@ -14,6 +14,7 @@ inductive Capability where
   | envBlock
   | controlConditional
   | controlBoundedLoop
+  | controlUnboundedLoop
   | dataDynamicBytes
   | dataFixedArray
   | dataDynamicArray
@@ -42,6 +43,7 @@ def Capability.id : Capability → String
   | .envBlock => "env.block"
   | .controlConditional => "control.conditional"
   | .controlBoundedLoop => "control.bounded_loop"
+  | .controlUnboundedLoop => "control.unbounded_loop"
   | .dataFixedArray => "data.fixed_array"
   | .dataDynamicArray => "data.dynamic_array"
   | .dataDynamicBytes => "data.dynamic_bytes"

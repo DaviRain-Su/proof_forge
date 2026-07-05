@@ -273,6 +273,10 @@ mutual
         let bodyEnv ← checkStatements entrypoint env body
         ensureLoopPreservesOwnership entrypoint env bodyEnv
         .ok env
+    | .whileLoop _ body => do
+        let bodyEnv ← checkStatements entrypoint env body
+        ensureLoopPreservesOwnership entrypoint env bodyEnv
+        .ok env
     | .return value => do
         checkExpr entrypoint env value
         .ok env
