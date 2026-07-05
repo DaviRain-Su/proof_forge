@@ -259,6 +259,7 @@ def moveSui : TargetProfile := {
     .crosscallInvoke,
     .envBlock,
     .cryptoHash,
+    .assertions,
     .accountExplicit
   ]
   requiredTools := #["sui"]

@@ -61,6 +61,30 @@ aptos-build-examples:
 aptos-diagnostics:
     lake env lean --run Tests/AptosDiagnostics.lean
 
+# Emit and validate the Sui Move Counter package layout.
+sui-build-examples:
+    scripts/sui/build-examples.sh
+
+# Run the Sui Move Counter package through local sui move build/test.
+sui-counter-smoke:
+    scripts/sui/counter-smoke.sh
+
+# Run Sui unsupported-shape diagnostic smoke.
+sui-diagnostics:
+    lake env lean --run Tests/SuiDiagnostics.lean
+
+# Check Sui emit/build target-first package parity.
+sui-emit-build-parity:
+    scripts/sui/emit-build-parity-smoke.sh
+
+# Check generated Sui object source avoids Aptos/global-storage patterns.
+sui-object-semantics:
+    scripts/sui/object-semantics-smoke.sh
+
+# Check Sui validation stays local to sui move build/test.
+sui-local-only:
+    scripts/sui/local-only-smoke.sh
+
 # Check the EVM semantic plan smoke.
 evm-plan:
     lake build ProofForge.Backend.Evm.Plan

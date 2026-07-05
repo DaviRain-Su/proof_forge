@@ -42,6 +42,7 @@ def renderSource (mod : Module) : Except EmitError String := do
   checkCapabilities mod
   let field ← requireScalarState mod
   pure <| String.intercalate "\n" [
+    "#[allow(duplicate_alias)]",
     "module proof_forge::" ++ mod.name.toLower ++ " {",
     "    use sui::object::{Self, UID};",
     "    use sui::tx_context::TxContext;",
@@ -61,6 +62,11 @@ def renderSource (mod : Module) : Except EmitError String := do
     "",
     "    public fun increment(counter: &mut " ++ mod.name ++ ") {",
     "        counter." ++ field ++ " = counter." ++ field ++ " + 1;",
+    "    }",
+    "",
+    "    public fun destroy(counter: " ++ mod.name ++ ") {",
+    "        let " ++ mod.name ++ " { id, " ++ field ++ ": _ } = counter;",
+    "        object::delete(id);",
     "    }",
     "",
     "    public fun value(counter: &" ++ mod.name ++ "): u64 {",
@@ -83,14 +89,15 @@ def renderTests (modName : String) : String :=
     "",
     "    #[test]",
     "    fun counter_lifecycle() {",
-    "        let scenario = test_scenario::begin(@0xCAFE);",
+    "        let mut scenario = test_scenario::begin(@0xCAFE);",
     "        let ctx = test_scenario::ctx(&mut scenario);",
-    "        let counter = " ++ n ++ "::initialize(ctx);",
+    "        let mut counter = " ++ n ++ "::initialize(ctx);",
     "        assert!(" ++ n ++ "::value(&counter) == 0, 0);",
     "        " ++ n ++ "::increment(&mut counter);",
     "        assert!(" ++ n ++ "::get(&counter) == 1, 1);",
     "        " ++ n ++ "::increment(&mut counter);",
     "        assert!(" ++ n ++ "::value(&counter) == 2, 2);",
+    "        " ++ n ++ "::destroy(counter);",
     "        test_scenario::end(scenario);",
     "    }",
     "}"
@@ -101,12 +108,13 @@ def renderMoveToml (modName : String) : String :=
     "[package]",
     "name = \"" ++ modName.toLower ++ "\"",
     "version = \"0.0.1\"",
+    "edition = \"2024\"",
     "",
     "[addresses]",
     "proof_forge = \"0x0\"",
     "",
     "[dependencies]",
-    "Sui = { local = \"${SUI_FRAMEWORK_PATH}\" }",
+    "# Sui framework dependencies are resolved automatically by local `sui move build/test`.",
     ""
   ]
 

@@ -15,6 +15,14 @@ def requireLegacy (args expected : List String) : IO Unit :=
   | .error err =>
       throw <| IO.userError s!"unexpected CLI mapping error: {err}"
 
+def requireErrorContains (args : List String) (needles : Array String) : IO Unit :=
+  match ProofForge.Cli.newCommandArgsToLegacy args with
+  | .ok got =>
+      throw <| IO.userError s!"expected CLI mapping error, got {repr got}"
+  | .error err =>
+      for needle in needles do
+        require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
+
 def main : IO UInt32 := do
   requireLegacy
     ["build", "--target", "evm", "--root", ".", "--module", "contract", "-o", "build/evm/Counter.bin", "Examples/Evm/Contracts/Counter.lean"]
@@ -97,6 +105,9 @@ def main : IO UInt32 := do
   requireLegacy
     ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "sui", "-o", "build/sdk/move-sui"]
     ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
+  requireErrorContains
+    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "aptos", "-o", "build/sdk/move-sui"]
+    #["move-sui", "aptos", "sui"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]

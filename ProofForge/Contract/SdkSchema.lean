@@ -245,10 +245,8 @@ def sdkSupportedCapabilities (profile : TargetProfile) : Array Capability :=
   if profile.id == "move-sui" then
     #[
       .storageScalar,
-      .accountExplicit,
       .assertions,
-      .controlConditional,
-      .controlBoundedLoop
+      .accountExplicit
     ]
   else
     profile.capabilities
