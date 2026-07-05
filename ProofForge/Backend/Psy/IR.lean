@@ -1361,10 +1361,12 @@ mutual
     | .field base fieldName => do
         match ← resolveStorageTargetRoot ctx base with
         | .scalar stateId => .ok <| .structField stateId fieldName
-        | .arrayIndex stateId index _ => .ok <| .arrayStructField stateId index fieldName
+        | .arrayIndex stateId index feltBacked => .ok <| .arrayStructField stateId index fieldName
         | .path stateId segs feltBacked => .ok <| .path stateId (segs.push (.field fieldName)) feltBacked
-        | .structField _ _ => .error { message := "nested struct field assignment target is not a direct storage target" }
-        | .arrayStructField _ _ _ => .error { message := "nested array struct field assignment target is not a direct storage target" }
+        | .structField stateId baseField =>
+            .ok <| .path stateId #[.field baseField, .field fieldName] false
+        | .arrayStructField stateId index baseField =>
+            .ok <| .path stateId #[.index index, .field baseField, .field fieldName] false
     | .arrayGet base index => do
         match ← resolveStorageTargetRoot ctx base with
         | .scalar stateId =>
