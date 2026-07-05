@@ -3049,10 +3049,15 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
   | "move-aptos", false, _, _, _ => Except.ok "--emit-counter-ir-aptos"
   | "move-sui", true, _, _, _ =>
       Except.error "proof-forge build --target move-sui from .learn source is not yet implemented"
-  | "move-sui", false, some fixture, _, _ =>
-      if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
-      else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
-  | "move-sui", false, none, _, _ => Except.ok "--emit-counter-ir-sui"
+  | "move-sui", false, fixture?, _, _ =>
+      if isLeanSource then
+        Except.error "proof-forge build --target move-sui from source is out of scope for the Counter object MVP; use --fixture counter"
+      else
+        match fixture? with
+        | some fixture =>
+            if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
+            else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
+        | none => Except.ok "--emit-counter-ir-sui"
   | other, _, _, _, _ => Except.error s!"unknown target '{other}'"
 
 def emitLegacyFlag (target fixture : String) (format? : Option String) : Except String String :=
@@ -5444,6 +5449,7 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
         ("sourceKind", jsonString "contract-sdk"),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
         ("sourceModule", jsonString spec.name),
+        ("sdkSchema", jsonString "proof-forge-sdk.json"),
         ("capabilities", jsonStringArray (dedupStrings (plan.capabilities.map fun capability => capability.id))),
         ("capabilityPlan", capabilityPlanJson plan),
         ("solanaInstructions", solanaInstructionsJson spec.module plan),
@@ -5471,6 +5477,19 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
       ]
       IO.FS.writeFile metadataOutput (metadata ++ "\n")
       IO.println s!"wrote {metadataOutput}"
+      if opts.fromNewSurface then
+        let schemaDir := output.parent.getD (FilePath.mk ".")
+        discard <| writeSdkSchemaFile
+          ProofForge.Backend.Solana.SbpfAsm.targetId
+          spec
+          schemaDir
+          #[
+            ("artifactMetadata", metadataOutput),
+            ("primary", output),
+            ("manifest", manifestOutput),
+            ("interface", idlOutput)
+          ]
+          #[("typescript", clientOutput)]
       return 0
   | .error err =>
       throw <| IO.userError err.render

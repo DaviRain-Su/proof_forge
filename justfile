@@ -180,6 +180,22 @@ near-target-first:
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
 
+# Generate and validate the portable Counter canonical SDK layout for all four SDK targets.
+portable-counter-four-target-sdk:
+    scripts/portable/counter-four-target-sdk.sh
+
+# Build portable Counter SDK outputs from the shared source authoring path.
+portable-source-counter-sdk:
+    scripts/portable/source-counter-sdk-smoke.sh
+
+# Check canonical SDK generation does not mutate legacy portable Counter outputs.
+portable-legacy-output-stability:
+    scripts/portable/legacy-output-stability-smoke.sh
+
+# Validate local Counter runtime behavior across runnable EVM, Solana, NEAR, and Sui targets.
+portable-counter-four-target-runtime:
+    scripts/portable/counter-four-target-runtime-smoke.sh
+
 # Build the shared RoleGatedToken to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-role-gated-token-multi-target:
     scripts/portable/role-gated-token-multi-target.sh

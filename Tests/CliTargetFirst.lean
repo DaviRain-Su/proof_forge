@@ -108,6 +108,15 @@ def main : IO UInt32 := do
   requireErrorContains
     ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "aptos", "-o", "build/sdk/move-sui"]
     #["move-sui", "aptos", "sui"]
+  requireErrorContains
+    ["build", "--target", "move-sui", "--fixture", "value-vault", "-o", "build/sdk/move-sui"]
+    #["move-sui", "value-vault", "not yet implemented"]
+  requireErrorContains
+    ["emit", "--target", "move-sui", "--fixture", "value-vault", "--format", "sui", "-o", "build/sdk/move-sui"]
+    #["move-sui", "value-vault", "not yet mapped"]
+  requireErrorContains
+    ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Shared/Counter.lean"]
+    #["move-sui", "source", "out of scope"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]
