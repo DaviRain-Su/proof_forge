@@ -42,6 +42,9 @@ def typedEventModule : Module := {
   ]
 }
 
+def hasDuplicate [BEq α] (arr : Array α) : Bool :=
+  arr.any (fun x => (arr.filter (fun y => y == x)).size > 1)
+
 def main : IO Unit := do
   let counterMeta ← requireOk (buildPlanArtifactMetadata Examples.Counter.module) "counter metadata"
   assertEq "counter targetId" "psy-dpn" counterMeta.targetId
@@ -50,6 +53,8 @@ def main : IO Unit := do
     (counterMeta.entrypoints.map (·.name))
   assertEq "counter return types" #["Unit", "Unit", "U64"]
     (counterMeta.entrypoints.map (·.returnType))
+
+  assertEq "counter capabilities unique" false (hasDuplicate counterMeta.capabilities)
 
   let mapMeta ← requireOk (buildPlanArtifactMetadata Examples.MapProbe.module) "map metadata"
   assertEq "map has capabilities" false mapMeta.capabilities.isEmpty
