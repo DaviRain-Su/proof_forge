@@ -119,6 +119,9 @@ jobs:
       - name: Check Psy IR coverage manifest
         run: just psy-coverage
 
+      - name: Run Psy plan-driven metadata unit tests
+        run: just psy-metadata
+
       - name: Check EVM diagnostics
         run: just evm-diagnostics
 

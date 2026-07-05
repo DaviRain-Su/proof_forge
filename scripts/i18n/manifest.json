@@ -64,10 +64,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/validation-gates.md": {
-    "sha256": "76075d00dbdc270915f04785f0a3c89d5436065e812dc83ddad570b0eca1c69d",
+    "sha256": "27d263561d6568fbb3d770a6e82f2e6185baaec4ae1be4e2c999a58bdcf61ebf",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "gemini-3-flash-preview",
-    "en_sha256": "1afb4ed12d260c65379cdc7f7088e75c6e25fc5d5190c5fb59c8ed45eaa63ec3"
+    "en_sha256": "27d263561d6568fbb3d770a6e82f2e6185baaec4ae1be4e2c999a58bdcf61ebf"
   },
   "docs/rfcs/README.md": {
     "sha256": "4b471236ca5909c0e328f8ad2687b8cce9743f11a9e0172069037fc5354ee798",

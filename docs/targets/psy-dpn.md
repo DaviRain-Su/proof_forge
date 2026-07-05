@@ -1391,9 +1391,13 @@ EVM `Lower.lean` → `Plan.lean` split.
   (`ArtifactMetadata` with entrypoints, events, context ops, crosscalls,
   capabilities; `buildPlanArtifactMetadata` plan-first construction). Mirrors
   EVM `Metadata.lean`.
-- Remaining: integrate `Metadata.buildPlanArtifactMetadata` into Psy smoke
-  scripts so `proof-forge-artifact.json` records the plan-driven metadata, and
-  consider upstream `psy-ast` emission if the compiler internals stabilize.
+- Done: integrate `Metadata.buildPlanArtifactMetadata` into Psy smoke
+  scripts so `proof-forge-artifact.json` records the plan-driven metadata.
+  `Tests/PsyMetadataExport.lean` renders `ArtifactMetadata` as JSON for each
+  fixture; `scripts/psy/write-artifact-metadata.py` accepts `--plan-metadata`
+  and merges `moduleName`, `abi.entrypoints`, `events`, `contextOps`,
+  `crosscalls`, and `planCapabilities` into the artifact.
+- Remaining: consider upstream `psy-ast` emission if the compiler internals stabilize.
 
 ### Phase C: Metadata and Scenario Parity
 
