@@ -1379,11 +1379,21 @@ EVM `Lower.lean` → `Plan.lean` split.
   introduced in the main merge.
 - Done: verify all Psy golden sources are byte-identical, 59 diagnostic cases
   pass, and the IR coverage manifest is unchanged.
-- Remaining: move remaining inline `requireScalarState`/`requireMapState`/
-  `requireArrayState`/`resolveStoragePathType` calls from `buildExpr`/
-  `buildEffectExpr`/`buildEffectStmt` to plan-time lookups against
-  `StorageLayout`, and wire plan fields (context ops, events, crosscalls)
-  into artifact metadata.
+- Done: introduce `BuildContext` (module + `StorageLayout`) and context-based
+  lookup helpers (`lookupState?`, `requireScalarStateCtx`, `requireMapStateCtx`,
+  `requireArrayStateCtx`, `requireStructScalarStateCtx`, `requireStructArrayStateCtx`,
+  `isFeltBackedU32ArrayCtx`, `resolveStoragePathTypeCtx`). All AST builder
+  functions now accept `BuildContext` and look up storage shapes from the
+  pre-resolved `StorageLayout` rather than re-resolving `findState?` inline.
+  Validation functions continue to use the raw `Module` since they run before
+  plan construction.
+- Done: add `ProofForge.Backend.Psy.Metadata` — plan-driven artifact metadata
+  (`ArtifactMetadata` with entrypoints, events, context ops, crosscalls,
+  capabilities; `buildPlanArtifactMetadata` plan-first construction). Mirrors
+  EVM `Metadata.lean`.
+- Remaining: integrate `Metadata.buildPlanArtifactMetadata` into Psy smoke
+  scripts so `proof-forge-artifact.json` records the plan-driven metadata, and
+  consider upstream `psy-ast` emission if the compiler internals stabilize.
 
 ### Phase C: Metadata and Scenario Parity
 

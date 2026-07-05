@@ -24,7 +24,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "bd8be568a9b2adea501f8910e9311edad53c00ca538e81857576b30e4c328e9c",
+    "sha256": "f315a859b78ec30f82b002b99e902cdf22493ff5fd2f42130caf5926dae99825",
     "zh": "docs/zh/decisions.zh.md",
     "model": "gemini-3-flash-preview"
   },
