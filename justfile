@@ -25,6 +25,7 @@ sdk-schema:
     lake env lean --run Tests/SdkSchema.lean
     lake env lean --run Tests/SdkSchemaExtensions.lean
     lake env lean --run Tests/SdkSchemaDiagnostics.lean
+    lake env lean --run Tests/SuiSdkSchema.lean
     python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
     python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
     scripts/sdk/schema-determinism-smoke.sh
@@ -84,6 +85,10 @@ sui-object-semantics:
 # Check Sui validation stays local to sui move build/test.
 sui-local-only:
     scripts/sui/local-only-smoke.sh
+
+# Type-check the generated Sui client in a minimal consumer smoke.
+sui-client-ts-smoke:
+    scripts/sui/client-ts-smoke.sh
 
 # Check the EVM semantic plan smoke.
 evm-plan:

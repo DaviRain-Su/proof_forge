@@ -58,12 +58,76 @@ def crosscallModule : Module := {
   }]
 }
 
+def nativeValueModule : Module := {
+  name := "NativeValueCounter"
+  state := ProofForge.IR.Examples.Counter.module.state
+  entrypoints := #[{
+    name := "deposit"
+    returns := .u64
+    body := #[
+      .return .nativeValue
+    ]
+  }]
+}
+
+def eventModule : Module := {
+  name := "EventCounter"
+  state := ProofForge.IR.Examples.Counter.module.state
+  entrypoints := #[{
+    name := "emit_count"
+    returns := .unit
+    body := #[
+      .effect (.eventEmit "CountChanged" #[("count", .literal (.u64 1))])
+    ]
+  }]
+}
+
+def arrayStateModule : Module := {
+  name := "ArrayCounter"
+  state := #[{
+    id := "counts"
+    kind := .array 2
+    type := .u64
+  }]
+  entrypoints := #[]
+}
+
+def multiStateModule : Module := {
+  name := "MultiStateCounter"
+  state := #[
+    {
+      id := "count"
+      kind := .scalar
+      type := .u64
+    },
+    {
+      id := "total"
+      kind := .scalar
+      type := .u64
+    }
+  ]
+  entrypoints := #[]
+}
+
 def main : IO UInt32 := do
   match ProofForge.Backend.Move.Sui.renderPackage ProofForge.IR.Examples.Counter.module with
   | .ok files =>
       require (files.any (fun file => file.path == "Move.toml")) "Sui Counter package missing Move.toml"
       require (files.any (fun file => file.path == "sources/counter.move")) "Sui Counter package missing source"
       require (files.any (fun file => file.path == "tests/counter_tests.move")) "Sui Counter package missing tests"
+      match files.find? (fun file => file.path == "proof-forge-client.ts") with
+      | some client =>
+          require (contains client.content "export const TARGET = \"move-sui\"")
+            "Sui client missing move-sui target constant"
+          require (contains client.content "export const PACKAGE_NAME = \"counter\"")
+            "Sui client missing package constant"
+          require (contains client.content "export function counterType")
+            "Sui client missing Counter object type helper"
+          require (contains client.content "export function incrementCounter")
+            "Sui client missing mutable Counter helper"
+          require (contains client.content "export function getCounterValue")
+            "Sui client missing immutable Counter value helper"
+      | none => throw <| IO.userError "Sui Counter package missing client"
   | .error err =>
       throw <| IO.userError s!"Sui Counter package unexpectedly failed: {err.message}"
 
@@ -79,6 +143,22 @@ def main : IO UInt32 := do
     (ProofForge.Backend.Move.Sui.renderPackage crosscallModule)
     #["Sui Counter MVP", "crosscall.invoke"]
     "crosscall capability"
+  expectErrorContains
+    (ProofForge.Backend.Move.Sui.renderPackage nativeValueModule)
+    #["Sui Counter MVP", "value.native"]
+    "native value capability"
+  expectErrorContains
+    (ProofForge.Backend.Move.Sui.renderPackage eventModule)
+    #["Sui Counter MVP", "events.emit"]
+    "event capability"
+  expectErrorContains
+    (ProofForge.Backend.Move.Sui.renderPackage arrayStateModule)
+    #["Sui Counter MVP", "storage.array"]
+    "array state"
+  expectErrorContains
+    (ProofForge.Backend.Move.Sui.renderPackage multiStateModule)
+    #["Sui Counter MVP", "exactly one scalar u64 state"]
+    "multi-state storage"
 
   IO.println "sui-diagnostics: ok"
   return 0

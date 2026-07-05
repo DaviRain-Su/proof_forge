@@ -330,31 +330,76 @@ def defaultExtension (targetId : String) : TargetExtension :=
       targetId := targetId
       fields := #[
         ("packageDir", Json.string "."),
+        ("packageName", Json.string "counter"),
+        ("module", Json.string "counter"),
+        ("moduleAddress", Json.string "proof_forge"),
+        ("client", Json.string "proof-forge-client.ts"),
         ("moveToml", Json.string "Move.toml"),
         ("sources", Json.stringArray #["sources/counter.move"]),
         ("tests", Json.stringArray #["tests/counter_tests.move"]),
         ("object", Json.object #[
           ("type", Json.string "Counter"),
+          ("objectType", Json.string "Counter"),
+          ("moveType", Json.string "proof_forge::counter::Counter"),
           ("uidField", Json.string "id"),
           ("uidType", Json.string "UID"),
           ("ownership", Json.string "owned-object")
         ]),
-        ("state", Json.object #[
+        ("stateFieldMapping", Json.object #[
           ("count", Json.object #[
             ("field", Json.string "count"),
-            ("type", Json.string "u64")
+            ("type", Json.string "u64"),
+            ("moveType", Json.string "u64"),
+            ("objectField", Json.string "Counter.count")
           ])
         ]),
         ("entrypoints", Json.object #[
           ("create", Json.object #[
-            ("txContext", Json.string "required"),
-            ("returns", Json.string "Counter")
+            ("txContext", Json.string "&mut TxContext"),
+            ("objectRequirements", Json.array #[]),
+            ("returns", Json.string "Counter"),
+            ("returnsOrTransfers", Json.string "returns new Counter")
+          ]),
+          ("initialize", Json.object #[
+            ("txContext", Json.string "&mut TxContext"),
+            ("objectRequirements", Json.array #[]),
+            ("returns", Json.string "Counter"),
+            ("returnsOrTransfers", Json.string "returns new Counter")
           ]),
           ("increment", Json.object #[
-            ("object", Json.string "&mut Counter")
+            ("object", Json.string "&mut Counter"),
+            ("objectRequirements", Json.array #[
+              Json.object #[
+                ("name", Json.string "counter"),
+                ("type", Json.string "Counter"),
+                ("mutability", Json.string "mutable"),
+                ("passing", Json.string "&mut Counter")
+              ]
+            ]),
+            ("returns", Json.string "unit")
+          ]),
+          ("value", Json.object #[
+            ("object", Json.string "&Counter"),
+            ("objectRequirements", Json.array #[
+              Json.object #[
+                ("name", Json.string "counter"),
+                ("type", Json.string "Counter"),
+                ("mutability", Json.string "immutable"),
+                ("passing", Json.string "&Counter")
+              ]
+            ]),
+            ("returns", Json.string "u64")
           ]),
           ("get", Json.object #[
             ("object", Json.string "&Counter"),
+            ("objectRequirements", Json.array #[
+              Json.object #[
+                ("name", Json.string "counter"),
+                ("type", Json.string "Counter"),
+                ("mutability", Json.string "immutable"),
+                ("passing", Json.string "&Counter")
+              ]
+            ]),
             ("returns", Json.string "u64")
           ])
         ])

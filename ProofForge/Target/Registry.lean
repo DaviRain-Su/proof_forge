@@ -252,13 +252,6 @@ def moveSui : TargetProfile := {
   artifactKind := .movePackage
   capabilities := #[
     .storageScalar,
-    .storageMap,
-    .callerSender,
-    .valueNative,
-    .eventsEmit,
-    .crosscallInvoke,
-    .envBlock,
-    .cryptoHash,
     .assertions,
     .accountExplicit
   ]

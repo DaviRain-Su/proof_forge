@@ -37,6 +37,28 @@ def main : IO UInt32 := do
   require (cosmwasmProfile.hostBridge? == some HostBridge.cosmWasm)
     "wasm-cosmwasm must declare the CosmWasm host bridge"
 
+  let suiProfile ← requireSome (find? "move-sui") "missing move-sui target profile"
+  require (suiProfile.capabilities.contains .storageScalar)
+    "move-sui Counter MVP must support scalar storage"
+  require (suiProfile.capabilities.contains .assertions)
+    "move-sui Counter MVP must support assertions"
+  require (suiProfile.capabilities.contains .accountExplicit)
+    "move-sui Counter MVP must support explicit object/account semantics"
+  for unsupported in #[
+    .storageMap,
+    .storageArray,
+    .valueNative,
+    .eventsEmit,
+    .crosscallInvoke,
+    .envBlock,
+    .cryptoHash,
+    .dataFixedArray,
+    .dataDynamicArray,
+    .dataStruct
+  ] do
+    require (!suiProfile.capabilities.contains unsupported)
+      s!"move-sui Counter MVP must not advertise unsupported capability {unsupported.id}"
+
   let robinhood ← requireSome (findEvmChainProfile? "robinhood-chain-testnet")
     "missing Robinhood Chain testnet profile"
   require (robinhood.targetId == evm.id)

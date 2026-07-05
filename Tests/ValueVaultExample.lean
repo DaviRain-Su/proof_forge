@@ -51,7 +51,6 @@ def routableTargets : Array TargetProfile := #[
   solanaSbpfLinker,
   solanaZigFork,
   moveAptos,
-  moveSui,
   psyDpn
 ]
 
@@ -66,6 +65,17 @@ def requireRoutableTarget (profile : TargetProfile) : IO Unit := do
   requireCapability plan .envBlock
   require (noSolanaMetadata plan)
     s!"ValueVault should not carry Solana target-extension metadata for `{profile.id}`"
+
+def requireSuiMvpRejectsValueVault : IO Unit := do
+  match resolveSpec moveSui ProofForge.Contract.Examples.ValueVault.spec with
+  | .ok _ =>
+      throw <| IO.userError "ValueVault should not route through move-sui Counter MVP"
+  | .error err =>
+      let rendered := err.render
+      require (contains rendered "move-sui")
+        s!"move-sui ValueVault diagnostic missing target id: {rendered}"
+      require (contains rendered "env.block" || contains rendered "events.emit")
+        s!"move-sui ValueVault diagnostic missing unsupported capability: {rendered}"
 
 def requireModuleShape : IO Unit := do
   let module := ProofForge.Contract.Examples.ValueVault.module
@@ -139,6 +149,7 @@ def main : IO UInt32 := do
   requireModuleShape
   for profile in routableTargets do
     requireRoutableTarget profile
+  requireSuiMvpRejectsValueVault
   requireSolanaRender
   IO.println "value-vault-example: ok"
   return 0
