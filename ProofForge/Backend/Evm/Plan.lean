@@ -314,7 +314,7 @@ def scalarStorageTargetPlan (module : Module) (stateId : String) : Except PlanEr
               byteOffset := plan.byteOffset
               byteWidth := plan.byteWidth
             }
-        | .map _ _, _ | .array _, _ =>
+        | .map _ _, _ | .array _, _ | .dynamicArray, _ =>
             .error { message := s!"EVM storage state '{stateId}' is not a scalar target" }
     | none =>
         .error { message := s!"unknown EVM state '{stateId}'" }
@@ -489,7 +489,7 @@ def requireStructState
           .ok (slot, typeName, decl)
       | .scalar, other =>
           .error { message := s!"state `{stateId}` has unsupported EVM IR v0 struct storage type `{other.name}`; expected struct storage" }
-      | .array _, _ =>
+      | .array _, _ | .dynamicArray, _ =>
           .error { message := s!"state `{stateId}` is array storage, not scalar struct storage" }
       | .map _ _, _ =>
           .error { message := s!"state `{stateId}` is map storage, not scalar struct storage" }
@@ -542,6 +542,7 @@ def storagePathWriteTargetPlan
       match state.kind with
       | .map _ _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
       | .array _ => .error { message := s!"storage path state `{stateId}` is array storage; first segment must be an index" }
+      | .dynamicArray => .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
       | .scalar => .error { message := "scalar storage paths are not supported by IR EVM v0; use storage.scalar.write" }
   | _ =>
       match storagePathMapKeys? path with
@@ -574,6 +575,7 @@ def storagePathReadSlotPlan
       match state.kind with
       | .map _ _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
       | .array _ => .error { message := s!"storage path state `{stateId}` is array storage; first segment must be an index" }
+      | .dynamicArray => .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
       | .scalar => .error { message := "scalar storage paths are not supported by IR EVM v0; use storage.scalar.read" }
   | _ =>
       match storagePathMapKeys? path with

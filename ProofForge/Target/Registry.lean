@@ -91,11 +91,6 @@ def evm : TargetProfile := {
     .assertions,
     .accountExplicit
   ]
-  chainSemantics := {
-    nativeAmount? := some .evmWeiU256
-    indexedEvents := .evmTopics 3
-    crosscall := .evmCall
-  }
   requiredTools := #["solc", "foundry"]
 }
 
@@ -189,11 +184,6 @@ def solanaSbpfLinker : TargetProfile := {
     .storagePda,
     .crosscallCpi
   ]
-  chainSemantics := {
-    nativeAmount? := some .solanaLamportsU64
-    indexedEvents := .unsupported
-    crosscall := .solanaCpi
-  }
   requiredTools := #["zig", "sbpf-linker"]
 }
 
@@ -234,7 +224,6 @@ def solanaZigFork : TargetProfile := {
   family := .solana
   artifactKind := .solanaElf
   capabilities := solanaSbpfLinker.capabilities
-  chainSemantics := solanaSbpfLinker.chainSemantics
   requiredTools := #["solana-zig"]
 }
 
@@ -253,11 +242,6 @@ def moveAptos : TargetProfile := {
     .cryptoHash,
     .accountExplicit
   ]
-  chainSemantics := {
-    nativeAmount? := some .moveCoinResources
-    indexedEvents := .moveEvents
-    crosscall := .moveEntryFunction
-  }
   requiredTools := #["aptos"]
 }
 
@@ -276,11 +260,6 @@ def moveSui : TargetProfile := {
     .cryptoHash,
     .accountExplicit
   ]
-  chainSemantics := {
-    nativeAmount? := some .moveCoinResources
-    indexedEvents := .moveEvents
-    crosscall := .moveEntryFunction
-  }
   requiredTools := #["sui"]
 }
 
@@ -307,12 +286,6 @@ def psyDpn : TargetProfile := {
     .zkCircuit,
     .zkProof
   ]
-  chainSemantics := {
-    nativeAmount? := none
-    indexedEvents := .unsupported
-    crosscall := .unsupported
-    notes := #["Psy DPN is a circuit sourcegen target; chain-native value and cross-contract execution are not modeled here."]
-  }
   requiredTools := #["dargo"]
 }
 

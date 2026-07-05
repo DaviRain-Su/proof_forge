@@ -26,21 +26,14 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 
-def wasmNearChainSemantics : ProofForge.Target.ChainSemantics :=
-  ProofForge.Target.wasmNear.chainSemantics
-
 def nativeValueUnsupportedMessage : String :=
-  match wasmNearChainSemantics.nativeAmount? with
-  | some amount =>
-      s!"EmitWat: NEAR native value uses {amount.id} ({amount.description}); IR v0 lacks an exact U128/native-amount projection, so nativeValue cannot be lowered yet"
-  | none =>
-      "EmitWat: native value is not modeled for the wasm-near target"
+  "EmitWat: NEAR native value (attached deposit) requires an exact U128 projection; IR v0 cannot lower nativeValue yet"
 
 def indexedEventUnsupportedMessage (name : String) : String :=
-  s!"EmitWat: event `{name}` uses indexed fields, but {wasmNearChainSemantics.indexedEvents.description}; add a NEAR indexing policy before lowering eventEmitIndexed"
+  s!"EmitWat: event `{name}` uses indexed fields, but NEAR logs do not support EVM-style topic indexing"
 
 def crosscallUnsupportedMessage : String :=
-  s!"EmitWat: crosscall.invoke maps to {wasmNearChainSemantics.crosscall.description}, but EmitWat v0 has no NEAR Promise lowering yet"
+  "EmitWat: crosscall.invoke maps to NEAR Promise-based execution, but EmitWat v0 has no Promise lowering yet"
 
 structure EmitError where
   message : String
@@ -967,7 +960,6 @@ mutual
     | .effect (.contextRead .contractId) => .ok (#[.call ctxContractIdName], .u64)
     | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
     | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
-    | .nativeValue => .ok (#[.call "attached_deposit"], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value
     | .effect (.storageArrayRead id index) => lowerStorageArrayRead ctx env id index

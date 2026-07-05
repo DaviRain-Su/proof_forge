@@ -5264,7 +5264,7 @@ def lowerReturnStmt
 
 def scalarBodyTypeSupported : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .bytes | .string | .fixedArray _ _ | .structType _ => false
+  | .unit | .bytes | .string | .array _ | .fixedArray _ _ | .structType _ => false
 
 partial def storagePathSegmentSupportsScalarBody :
     StoragePathSegment → Bool
@@ -5287,7 +5287,8 @@ def storageSlotPlanSupportsScalarBody :
   | .mapPresenceSlot _ keys =>
       keys.all valuePlanSupportsScalarBody
   | .arraySlot _ _ index
-  | .structArrayFieldSlot _ _ _ _ index =>
+  | .structArrayFieldSlot _ _ _ _ index
+  | .dynamicArraySlot _ index =>
       valuePlanSupportsScalarBody index
 
 def storagePathWriteTargetPlanSupportsScalarBody :
@@ -5378,7 +5379,7 @@ def eventFieldPlanSupportsScalarBody :
   | .mk _ type _ =>
       match type with
       | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-      | .unit | .bytes | .string | .fixedArray _ _ | .structType _ => false
+      | .unit | .bytes | .string | .array _ | .fixedArray _ _ | .structType _ => false
 
 def eventFieldPlansSupportScalarBody
     (fields : Array ProofForge.Backend.Evm.Plan.EventFieldPlan)
@@ -5509,7 +5510,7 @@ def lowerScalarEventFieldWords
   match field.type with
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       .ok #[← lowerExprPlanExpr module env value]
-  | .unit | .bytes | .string | .fixedArray _ _ | .structType _ =>
+  | .unit | .bytes | .string | .array _ | .fixedArray _ _ | .structType _ =>
       .error {
         message := s!"planned scalar control-flow event `{eventName}` field `{field.name}` has unsupported type `{field.type.name}`"
       }

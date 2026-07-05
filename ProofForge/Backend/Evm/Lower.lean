@@ -202,7 +202,7 @@ mutual
                 (.localArrayGet name (← path.mapM (buildExprPlan module env)) lengths)
                 fieldName)
         | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address
-        | .unit | .fixedArray _ _ | .bytes | .string =>
+        | .unit | .fixedArray _ _ | .array _ | .bytes | .string =>
             .ok none
     | none =>
         .ok none

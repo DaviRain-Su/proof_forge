@@ -131,6 +131,7 @@ def moduleDataSize (module : Module) : Nat :=
     | .scalar => acc + 8
     | .map _ capacity => acc + capacity * 16
     | .array length => acc + length * 8
+    | .dynamicArray => acc
   ) 0
 
 /-- Map entry layout: key (8 bytes) + value (8 bytes) = 16 bytes per entry. -/
@@ -144,6 +145,7 @@ def stateDeclSize (state : StateDecl) : Nat :=
   | .scalar => 8
   | .map _ capacity => capacity * MAP_ENTRY_SIZE
   | .array length => length * 8
+  | .dynamicArray => 0
 
 -- ============================================================================
 -- Per-module field offsets
