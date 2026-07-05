@@ -36,9 +36,15 @@ def main : IO Unit := do
   let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata"
   assertEq "event has events" false eventMeta.events.isEmpty
   assertEq "event has fields" false eventMeta.events[0]!.fields.isEmpty
+  -- EventProbe fields are all .local expressions, so type inference falls
+  -- back to feltBackedTypeName ("Felt"). Verify the fallback works.
+  assertEq "event field type" "Felt" (eventMeta.events[0]!.fields[0]!.type)
 
   let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata"
   assertEq "context has contextOps" false ctxMeta.contextOps.isEmpty
+  -- ContextProbe uses userId, contractId, and checkpointId.
+  assertEq "context op names" #["userId", "contractId", "checkpointId"]
+    (ctxMeta.contextOps.map (·.name))
 
   IO.println "PsyMetadata: all assertions passed"
 

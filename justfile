@@ -304,7 +304,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata
+check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
@@ -358,6 +358,16 @@ psy-coverage:
 psy-metadata:
     lake build ProofForge.Backend.Psy.Metadata
     lake env lean --run Tests/PsyMetadata.lean
+
+# Run Psy metadata validation unit tests (Python).
+psy-metadata-validation:
+    python3 scripts/psy/test-metadata-validation.py
+
+# Run Psy metadata CLI smoke test.
+psy-metadata-cli:
+    lake build proof-forge
+    diff <(lake env lean --run Tests/PsyMetadataExport.lean Counter) \
+      <(lake env proof-forge metadata --fixture counter)
 
 # List available Psy smoke fixture names for `just psy-smoke <name>`.
 psy-smokes-list:
