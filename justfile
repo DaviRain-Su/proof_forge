@@ -477,6 +477,7 @@ evm-ir-smokes:
       struct-value
       abi-aggregate
       dynamic-abi
+      array-abi
       dynamic-array
       memory-array
       packed-storage

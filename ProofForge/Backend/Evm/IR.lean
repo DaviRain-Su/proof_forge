@@ -5910,13 +5910,24 @@ def lowerEntrypointWithPlan
         .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}` but does not return on every control-flow path" }
   validateEntrypointTypes module entrypoint
   let body ← lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
+  let dynamicParamAliases :=
+    entrypointPlan.params.foldl
+      (fun acc param =>
+        if param.isDynamic then
+          acc.push (Lean.Compiler.Yul.Statement.varDecl
+            #[({ name := param.name } : Lean.Compiler.Yul.TypedName)]
+            (some (Lean.Compiler.Yul.Expr.id (ProofForge.Backend.Evm.ToYul.dynamicParamDataPtrName param.name))))
+        else
+          acc)
+      #[]
+  let bodyStatements := dynamicParamAliases ++ body
   -- Fallback/receive functions use a fixed name and have no params/returns
   if entrypoint.kind == .fallback || entrypoint.kind == .receive then
     .ok (ProofForge.Backend.Evm.ToYul.fallbackReceiveFunctionDefinition
            (ProofForge.Backend.Evm.ToYul.fallbackReceiveFunctionName entrypoint.kind)
-           body)
+           bodyStatements)
   else
-    .ok (ProofForge.Backend.Evm.ToYul.entrypointFunctionDefinition module.name entrypointPlan body)
+    .ok (ProofForge.Backend.Evm.ToYul.entrypointFunctionDefinition module.name entrypointPlan bodyStatements)
 
 def lowerEntrypoint (module : Module) (entrypoint : Entrypoint) : Except LowerError Lean.Compiler.Yul.Statement := do
   let entrypointPlan ←

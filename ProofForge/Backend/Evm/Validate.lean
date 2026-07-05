@@ -313,6 +313,10 @@ partial def abiNestedFixedArrayWordTypes (module : Module) (context : String) : 
   | .structType typeName =>
       abiStructWordTypes module context typeName
 
+def isStorageWordType : ValueType → Bool
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
+
 partial def abiValueWordTypes (module : Module) (context : String) : ValueType → Except LowerError (Array ValueType)
   | .u8 => .ok #[.u8]
   | .u32 => .ok #[.u32]
@@ -323,8 +327,11 @@ partial def abiValueWordTypes (module : Module) (context : String) : ValueType �
   | .address => .ok #[.address]
   | .bytes => .ok #[.bytes]
   | .string => .ok #[.string]
-  | .array _ =>
-      .error { message := s!"{context} uses a dynamic array; IR EVM v0 ABI values do not yet support dynamic arrays" }
+  | .array elementType =>
+      if isStorageWordType elementType then
+        .ok #[.array elementType]
+      else
+        .error { message := s!"{context} uses a dynamic array of `{elementType.name}`; IR EVM v0 ABI dynamic arrays support word-sized elements only" }
   | .unit =>
       .error { message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs" }
   | .fixedArray elementType length => do
@@ -413,13 +420,16 @@ partial def abiValueParamNamesAt
     (module : Module)
     (context name : String)
     (path : Array Nat) : ValueType → Except LowerError (Array String)
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
       if path.isEmpty then
         .ok #[name]
       else
         .ok #[arrayLocalPathName name path]
-  | .array _ =>
-      .error { message := s!"{context} parameter `{name}` uses a dynamic array; IR EVM v0 ABI parameters do not yet support dynamic arrays" }
+  | .bytes | .string | .array _ =>
+      if path.isEmpty then
+        .ok #[name]
+      else
+        .error { message := s!"{context} parameter `{name}` uses a dynamic type nested in a fixed array; IR EVM v0 ABI parameters do not support nested dynamic arrays" }
   | .unit => do
       discard <| abiValueWordTypes module context .unit
       .ok #[]
@@ -453,10 +463,6 @@ def entrypointParamWordTypes (module : Module) (entrypoint : Entrypoint) : Excep
 
 def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"
-
-def isStorageWordType : ValueType → Bool
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
-  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
 
 def requireStorageMapState (module : Module) (stateId : String) : Except LowerError (Nat × ValueType × ValueType) :=
   match stateInfo? module stateId with

@@ -76,9 +76,11 @@ object "EvmDynamicAbiProbe" {
       }
     }
     function f_EvmDynamicAbiProbe_echo_bytes(data__length, data__data_ptr) -> result {
+      let data := data__data_ptr
       result := data__data_ptr
     }
     function f_EvmDynamicAbiProbe_echo_string(data__length, data__data_ptr) -> result {
+      let data := data__data_ptr
       result := data__data_ptr
     }
     function f_EvmDynamicAbiProbe_transfer(to, amount) -> result {
