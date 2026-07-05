@@ -129,7 +129,7 @@ expect_bytes32() {
   local expected="$2"
   local actual
   actual="$(cast call --rpc-url "$RPC_URL" "$CONTRACT_ADDRESS" "$sig" | tr 'A-F' 'a-f')"
-  expected="${expected,,}"
+  expected="$(echo "$expected" | tr 'A-F' 'a-f')"
   if [[ "$actual" != "$expected" ]]; then
     echo "dynamic-constructor-anvil-smoke: $sig expected $expected, got $actual" >&2
     exit 1
