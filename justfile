@@ -28,6 +28,10 @@ sdk-schema:
     python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
     python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
     scripts/sdk/schema-determinism-smoke.sh
+    scripts/sdk/discoverability-smoke.sh
+    python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
+    python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
+    scripts/sdk/validate-sdk-layout.py build/sdk
 
 # Check the proof-forge deploy command parser and defaults.
 cli-deploy:

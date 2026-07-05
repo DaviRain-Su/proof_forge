@@ -26,8 +26,14 @@ def main : IO UInt32 := do
     ["emit", "--target", "evm", "--fixture", "counter", "--format", "yul", "-o", "build/ir/Counter.yul"]
     ["--emit-counter-ir-yul", "-o", "build/ir/Counter.yul"]
   requireLegacy
+    ["build", "--target", "evm", "--fixture", "counter", "--format", "bytecode", "-o", "build/sdk/evm"]
+    ["--emit-counter-ir-bytecode", "-o", "build/sdk/evm/Counter.bin", "--yul-output", "build/sdk/evm/Counter.yul", "--solc", "solc", "--cast", "cast"]
+  requireLegacy
     ["emit", "--target", "evm", "--fixture", "evm-event", "--format", "bytecode", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "-o", "build/ir/EventProbe.bin"]
     ["--emit-evm-event-ir-bytecode", "-o", "build/ir/EventProbe.bin", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "--solc", "solc", "--cast", "cast"]
+  requireLegacy
+    ["build", "--target", "solana-sbpf-asm", "--fixture", "counter", "-o", "build/sdk/solana-sbpf-asm"]
+    ["--emit-counter-ir-sbpf", "-o", "build/sdk/solana-sbpf-asm/Counter.s"]
   requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "s"]
     ["--emit-solana-system-cpi-sbpf"]
@@ -85,6 +91,12 @@ def main : IO UInt32 := do
   requireLegacy
     ["emit", "--target", "move-aptos", "--fixture", "counter", "--format", "aptos", "-o", "build/aptos-counter"]
     ["--emit-counter-ir-aptos", "-o", "build/aptos-counter"]
+  requireLegacy
+    ["build", "--target", "move-sui", "--fixture", "counter", "-o", "build/sdk/move-sui"]
+    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
+  requireLegacy
+    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "sui", "-o", "build/sdk/move-sui"]
+    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]
