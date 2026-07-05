@@ -1568,6 +1568,7 @@ partial def collectArrayLitsStmt (s : Statement) : Array (ValueType × Nat) :=
   | .assertEq a b _ _ => collectArrayLitsExpr a ++ collectArrayLitsExpr b
   | .ifElse c t e => collectArrayLitsExpr c ++ t.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[] ++ e.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
   | .boundedFor _ _ _ body => body.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
+  | .whileLoop c body => collectArrayLitsExpr c ++ body.foldl (fun acc st => acc ++ collectArrayLitsStmt st) #[]
   | .release _ | .revert _ | .revertWithError _ => #[]
   | .return v => collectArrayLitsExpr v
 def dedupArrayLits (xs : Array (ValueType × Nat)) : Array (ValueType × Nat) :=
@@ -1635,6 +1636,7 @@ partial def collectStructLitsStmt (s : Statement) : Array String :=
   | .assertEq a b _ _ => collectStructLitsExpr a ++ collectStructLitsExpr b
   | .ifElse c t e => collectStructLitsExpr c ++ t.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[] ++ e.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
   | .boundedFor _ _ _ body => body.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
+  | .whileLoop c body => collectStructLitsExpr c ++ body.foldl (fun acc st => acc ++ collectStructLitsStmt st) #[]
   | .release _ | .revert _ | .revertWithError _ => #[]
   | .return v => collectStructLitsExpr v
 def dedupStrings (xs : Array String) : Array String :=
