@@ -55,6 +55,11 @@ def arrayReadTargetPlan? (module : Module) (stateId : String) : Option ArrayRead
   | .ok target => some target
   | .error _ => none
 
+def dynamicArrayTargetPlan? (module : Module) (stateId : String) : Option DynamicArrayTargetPlan :=
+  match dynamicArrayTargetPlan module stateId with
+  | .ok target => some target
+  | .error _ => none
+
 def structFieldWriteTargetPlan?
     (module : Module)
     (stateId fieldName : String) : Option StructFieldWriteTargetPlan :=
@@ -113,6 +118,40 @@ def returnPlan (module : Module) (context : String) (returnType : ValueType) :
     | _ => abiValueWordTypes module s!"{context} return value" returnType
   .ok { returnType, wordTypes, localNames := returnLocalNames returnType wordTypes }
 
+def localAbiStructFieldIds
+    (module : Module)
+    (context typeName : String) : Except LowerError (Array String) := do
+  discard <| abiValueWordTypes module context (.structType typeName)
+  let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
+    | .error { message := s!"{context} uses unknown struct `{typeName}`" }
+  let mut fieldIds : Array String := #[]
+  for fieldDecl in decl.fields do
+    ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
+    fieldIds := fieldIds.push fieldDecl.id
+  .ok fieldIds
+
+def localAbiStructFields
+    (module : Module)
+    (context typeName : String) : Except LowerError (Array (String × ValueType)) := do
+  discard <| abiValueWordTypes module context (.structType typeName)
+  let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
+    | .error { message := s!"{context} uses unknown struct `{typeName}`" }
+  let mut fields : Array (String × ValueType) := #[]
+  for fieldDecl in decl.fields do
+    ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
+    fields := fields.push (fieldDecl.id, fieldDecl.type)
+  .ok fields
+
+def validateLocalAbiWordPlan
+    (module : Module)
+    (env : TypeEnv)
+    (context name : String)
+    (expectedType : ValueType) : Except LowerError Unit := do
+  let some binding := findLocal? env name
+    | .error { message := s!"unknown local `{name}`" }
+  ensureType context expectedType binding.type
+  discard <| abiValueWordTypes module context expectedType
+
 def crosscallReturnPlan (module : Module) (context : String) (returnType : ValueType) :
     Except LowerError ReturnPlan := do
   let wordTypes ← crosscallReturnWordTypes module context returnType
@@ -143,6 +182,99 @@ def validateLocalCrosscallWordPlan
       discard <| crosscallValueWordTypes module context expectedType
   | _ => pure ()
 
+partial def localCrosscallWordPlansAt
+    (module : Module)
+    (context name : String)
+    (path : Array Nat) : ValueType → Except LowerError (Array ExprPlan)
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      if path.isEmpty then
+        .ok #[.local name]
+      else
+        .ok #[.local (arrayLocalPathName name path)]
+  | .fixedArray elementType length => do
+      if length == 0 then
+        .error {
+          message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 crosscall fixed arrays must have non-zero length"
+        }
+      let mut plans : Array ExprPlan := #[]
+      for _h : idx in [0:length] do
+        plans := plans ++ (← localCrosscallWordPlansAt module context name (path.push idx) elementType)
+      .ok plans
+  | .structType typeName => do
+      let fieldIds ← localCrosscallStructFieldIds module context typeName
+      let mut plans : Array ExprPlan := #[]
+      for fieldId in fieldIds do
+        let fieldName :=
+          if path.isEmpty then
+            structLocalFieldName name fieldId
+          else
+            arrayStructLocalPathFieldName name path fieldId
+        plans := plans.push (.local fieldName)
+      .ok plans
+  | .unit | .bytes | .string | .array _ =>
+      .error {
+        message := s!"{context} uses a dynamic type; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, Address, fixed arrays, or structs"
+      }
+
+def localCrosscallWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (context name : String)
+    (expectedType : ValueType) : Except LowerError (Array ExprPlan) := do
+  validateLocalCrosscallWordPlan module env context name expectedType
+  localCrosscallWordPlansAt module context name #[] expectedType
+
+def wrapCrosscallExprWordPlans (plans : Array ExprPlan) : Array CrosscallArgWordPlan :=
+  plans.map CrosscallArgWordPlan.expr
+
+def storageArrayAbiWordPlans
+    (module : Module)
+    (context stateId : String)
+    (elementType : ValueType)
+    (length : Nat) : Except LowerError (Array ExprPlan) := do
+  match elementType with
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => do
+      let (slot, stateLength, stateElementType) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireArrayState module stateId
+      if stateLength != length then
+        .error { message := s!"{context} storage array `{stateId}` expected length {length}, got {stateLength}" }
+      ensureType s!"{context} storage array `{stateId}` element type" elementType stateElementType
+      let mut plans : Array ExprPlan := #[]
+      for _h : idx in [0:length] do
+        plans := plans.push (.storageLoad (.arraySlot slot stateLength (.irExpr (.literal (.u64 idx)))))
+      .ok plans
+  | .structType typeName => do
+      let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
+        | .error { message := s!"{context} storage array `{stateId}` uses unknown struct `{typeName}`" }
+      match ProofForge.Backend.Evm.Validate.stateInfo? module stateId with
+      | some (_, { kind := .array stateLength, type := .structType stateTypeName, .. }) => do
+          if stateLength != length then
+            .error { message := s!"{context} storage struct array `{stateId}` expected length {length}, got {stateLength}" }
+          if stateTypeName != typeName then
+            .error { message := s!"{context} storage struct array `{stateId}` expected struct `{typeName}`, got `{stateTypeName}`" }
+      | some (_, state) =>
+          .error { message := s!"{context} storage struct array `{stateId}` expected fixed array of struct `{typeName}`, got `{state.type.name}`" }
+      | none =>
+          .error { message := s!"unknown struct array state `{stateId}`" }
+      let mut plans : Array ExprPlan := #[]
+      for _h : idx in [0:length] do
+        for fieldDecl in decl.fields do
+          let (slot, stateLength, fieldCount, fieldOffset, field) ←
+            lowerPlan <| ProofForge.Backend.Evm.Plan.requireStructArrayStateField module stateId fieldDecl.id
+          ensureType s!"{context} storage struct array `{stateId}` field `{fieldDecl.id}`" fieldDecl.type field.type
+          plans := plans.push
+            (.storageLoad
+              (.structArrayFieldSlot
+                slot
+                stateLength
+                fieldCount
+                fieldOffset
+                (.irExpr (.literal (.u64 idx)))))
+      .ok plans
+  | .unit | .fixedArray _ _ | .bytes | .string | .array _ =>
+      .error {
+        message := s!"{context} storage-backed ABI word expansion has unsupported fixed-array element type `{elementType.name}`"
+      }
+
 def storageCrosscallWordPlans
     (module : Module)
     (context stateId : String)
@@ -158,11 +290,335 @@ def storageCrosscallWordPlans
         ensureStructLocalFieldType typeName field.id field.type
         plans := plans.push (.storageLoad (.scalarSlot (slot + idx)))
       .ok plans
+  | .fixedArray elementType length => do
+      discard <| crosscallValueWordTypes module context (.fixedArray elementType length)
+      storageArrayAbiWordPlans module context stateId elementType length
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit
-  | .fixedArray _ _ | .bytes | .string | .array _ =>
+  | .bytes | .string | .array _ =>
       .error {
-        message := s!"{context} storage-backed crosscall word expansion supports struct scalar storage only, got `{expectedType.name}`"
+        message := s!"{context} storage-backed crosscall word expansion supports struct scalar storage or fixed storage arrays only, got `{expectedType.name}`"
       }
+
+def storageAbiWordPlans
+    (module : Module)
+    (context stateId : String)
+    (expectedType : ValueType) : Except LowerError (Array ExprPlan) := do
+  match expectedType with
+  | .structType typeName => do
+      let (slot, stateTypeName, decl) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireStructState module stateId
+      ensureType context (.structType typeName) (.structType stateTypeName)
+      let mut plans : Array ExprPlan := #[]
+      for h : idx in [0:decl.fields.size] do
+        let field := decl.fields[idx]
+        ensureStructLocalFieldType typeName field.id field.type
+        plans := plans.push (.storageLoad (.scalarSlot (slot + idx)))
+      .ok plans
+  | .fixedArray elementType length =>
+      storageArrayAbiWordPlans module context stateId elementType length
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit
+  | .bytes | .string | .array _ =>
+      .error {
+        message := s!"{context} storage-backed ABI word expansion supports struct scalar storage or fixed storage arrays only, got `{expectedType.name}`"
+      }
+
+partial def localAbiWordPlansAt
+    (module : Module)
+    (context name : String)
+    (path : Array Nat) : ValueType → Except LowerError (Array ExprPlan)
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      if path.isEmpty then
+        .ok #[.local name]
+      else
+        .ok #[.local (arrayLocalPathName name path)]
+  | .unit =>
+      .error {
+        message := s!"{context} uses Unit; IR EVM v0 ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or structs"
+      }
+  | .bytes | .string | .array _ =>
+      if path.isEmpty then
+        .ok #[.local (dynamicParamDataPtrName name)]
+      else
+        .error { message := s!"{context} dynamic type cannot be nested in fixed arrays" }
+  | .fixedArray elementType length => do
+      if length == 0 then
+        .error {
+          message := s!"{context} uses Array<{elementType.name},0>; IR EVM v0 ABI fixed arrays must have non-zero length"
+        }
+      let mut plans : Array ExprPlan := #[]
+      for _h : idx in [0:length] do
+        plans := plans ++ (← localAbiWordPlansAt module context name (path.push idx) elementType)
+      .ok plans
+  | .structType typeName => do
+      let fields ← localAbiStructFields module context typeName
+      let mut plans : Array ExprPlan := #[]
+      for field in fields do
+        let fieldName :=
+          if path.isEmpty then
+            structLocalFieldName name field.fst
+          else
+            arrayStructLocalPathFieldName name path field.fst
+        plans := plans.push (.local fieldName)
+      .ok plans
+
+def localAbiWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (context name : String)
+    (expectedType : ValueType) : Except LowerError (Array ExprPlan) := do
+  validateLocalAbiWordPlan module env context name expectedType
+  localAbiWordPlansAt module context name #[] expectedType
+
+partial def abiValueWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (type : ValueType)
+    (value : AbiValuePlan) : Except LowerError (Array ExprPlan) := do
+  match type with
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      match value with
+      | .expr plan => .ok #[plan]
+      | _ =>
+          .error { message := s!"{context} scalar ABI value requires an expression plan" }
+  | .fixedArray elementType length =>
+      match value with
+      | .local name plannedType =>
+          if plannedType == type then
+            localAbiWordPlans module env context name type
+          else
+            .error {
+              message := s!"{context} local ABI word plan type mismatch: expected `{type.name}`, got `{plannedType.name}`"
+            }
+      | .storage stateId plannedType =>
+          if plannedType == type then
+            storageAbiWordPlans module context stateId type
+          else
+            .error {
+              message := s!"{context} storage ABI word plan type mismatch: expected `{type.name}`, got `{plannedType.name}`"
+            }
+      | .arrayLit literalElementType values => do
+          if literalElementType != elementType then
+            .error {
+              message := s!"{context} fixed-array literal element type mismatch: expected `{elementType.name}`, got `{literalElementType.name}`"
+            }
+          if values.size != length then
+            .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
+          let mut plans : Array ExprPlan := #[]
+          for h : idx in [0:values.size] do
+            plans := plans ++
+              (← abiValueWordPlans
+                module
+                env
+                s!"{context} fixed-array element {idx}"
+                elementType
+                values[idx])
+          .ok plans
+      | _ =>
+          .error { message := s!"{context} aggregate field requires an ABI word expansion plan" }
+  | .structType typeName =>
+      match value with
+      | .local name plannedType =>
+          if plannedType == type then
+            localAbiWordPlans module env context name type
+          else
+            .error {
+              message := s!"{context} local ABI word plan type mismatch: expected `{type.name}`, got `{plannedType.name}`"
+            }
+      | .storage stateId plannedType =>
+          if plannedType == type then
+            storageAbiWordPlans module context stateId type
+          else
+            .error {
+              message := s!"{context} storage ABI word plan type mismatch: expected `{type.name}`, got `{plannedType.name}`"
+            }
+      | .structLit literalTypeName fields => do
+          if literalTypeName != typeName then
+            .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
+          let fieldDecls ← localAbiStructFields module context typeName
+          let mut plans : Array ExprPlan := #[]
+          for fieldDecl in fieldDecls do
+            let some field := fields.find? fun field => field.fst == fieldDecl.fst
+              | .error {
+                  message := s!"{context} struct literal `{typeName}` is missing field `{fieldDecl.fst}`"
+                }
+            plans := plans ++
+              (← abiValueWordPlans
+                module
+                env
+                s!"{context} struct field `{fieldDecl.fst}`"
+                fieldDecl.snd
+                field.snd)
+          .ok plans
+      | _ =>
+          .error { message := s!"{context} aggregate field requires an ABI word expansion plan" }
+  | .unit | .bytes | .string | .array _ =>
+      .error { message := s!"{context} has unsupported ABI word type `{type.name}`" }
+
+def returnValueWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (plan : ReturnValueWordPlan) : Except LowerError (Array ExprPlan) :=
+  abiValueWordPlans module env context plan.returns.returnType plan.source
+
+partial def abiValuePlanFromExprPlan
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (expectedType : ValueType)
+    (value : ExprPlan) : Except LowerError AbiValuePlan := do
+  match expectedType with
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      ensureAbiWordType context expectedType
+      .ok (.expr value)
+  | .fixedArray elementType length =>
+      match value with
+      | .local name => do
+          validateLocalAbiWordPlan module env context name expectedType
+          .ok (.local name expectedType)
+      | .arrayLit literalElementType values => do
+          if literalElementType != elementType then
+            .error {
+              message := s!"{context} fixed-array literal element type mismatch: expected `{elementType.name}`, got `{literalElementType.name}`"
+            }
+          if values.size != length then
+            .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
+          let mut plannedValues : Array AbiValuePlan := #[]
+          for h : idx in [0:values.size] do
+            plannedValues := plannedValues.push
+              (← abiValuePlanFromExprPlan
+                module
+                env
+                s!"{context} fixed-array element {idx}"
+                elementType
+                values[idx])
+          .ok (.arrayLit elementType plannedValues)
+      | _ =>
+          .error { message := s!"{context} aggregate return requires an ABI word expansion plan" }
+  | .structType typeName =>
+      match value with
+      | .local name => do
+          validateLocalAbiWordPlan module env context name expectedType
+          .ok (.local name expectedType)
+      | .effect (.storageScalarRead stateId) => do
+          ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
+          .ok (.storage stateId expectedType)
+      | .structLit literalTypeName fields => do
+          if literalTypeName != typeName then
+            .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
+          let fieldDecls ← localAbiStructFields module context typeName
+          let mut plannedFields : Array (String × AbiValuePlan) := #[]
+          for fieldDecl in fieldDecls do
+            let some field := fields.find? fun field => field.fst == fieldDecl.fst
+              | .error {
+                  message := s!"{context} struct literal `{typeName}` is missing field `{fieldDecl.fst}`"
+                }
+            plannedFields := plannedFields.push
+              (fieldDecl.fst,
+                ← abiValuePlanFromExprPlan
+                  module
+                  env
+                  s!"{context} struct field `{fieldDecl.fst}`"
+                  fieldDecl.snd
+                  field.snd)
+          .ok (.structLit typeName plannedFields)
+      | _ =>
+          .error { message := s!"{context} aggregate return requires an ABI word expansion plan" }
+  | .unit | .bytes | .string | .array _ =>
+      .error { message := s!"{context} has unsupported ABI return type `{expectedType.name}`" }
+
+def returnValueWordPlanFromExprPlan
+    (module : Module)
+    (env : TypeEnv)
+    (entrypointName : String)
+    (returnType : ValueType)
+    (value : ExprPlan) : Except LowerError ReturnValueWordPlan := do
+  match returnType with
+  | .fixedArray _ _ | .structType _ =>
+      let context := s!"entrypoint `{entrypointName}` return value"
+      let returns ← returnPlan module s!"entrypoint `{entrypointName}`" returnType
+      .ok {
+        returns
+        source := ← abiValuePlanFromExprPlan module env context returnType value
+      }
+  | _ =>
+      .error {
+        message := s!"entrypoint `{entrypointName}` return type `{returnType.name}` does not require aggregate return word planning"
+      }
+
+def eventFieldDataWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (eventName : String)
+    (field : EventFieldPlan)
+    (value : AbiValuePlan) : Except LowerError (Array ExprPlan) :=
+  abiValueWordPlans
+    module
+    env
+    s!"planned event `{eventName}` field `{field.name}`"
+    field.type
+    value
+
+def eventFieldsDataWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (eventName : String)
+    (fields : Array EventFieldPlan)
+    (values : Array AbiValuePlan) : Except LowerError (Array ExprPlan) := do
+  if fields.size != values.size then
+    .error { message := s!"planned scalar control-flow event `{eventName}` field/value count mismatch" }
+  let mut plans : Array ExprPlan := #[]
+  for h : idx in [0:fields.size] do
+    let some value := values[idx]?
+      | .error { message := s!"planned scalar control-flow event `{eventName}` missing field value at index {idx}" }
+    plans := plans ++ (← eventFieldDataWordPlans module env eventName fields[idx] value)
+  .ok plans
+
+def eventFieldWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (eventName : String)
+    (field : EventFieldPlan)
+    (value : AbiValuePlan) : Except LowerError (Array ExprPlan) :=
+  eventFieldDataWordPlans module env eventName field value
+
+def eventFieldsWordPlans
+    (module : Module)
+    (env : TypeEnv)
+    (event : EventPlan)
+    (fields : Array EventFieldPlan)
+    (values : Array AbiValuePlan) :
+    Except LowerError (Array (Array ExprPlan)) := do
+  if fields.size != values.size then
+    .error {
+      message := s!"planned scalar control-flow event `{event.name}` field/value count mismatch"
+    }
+  let mut fieldWords : Array (Array ExprPlan) := #[]
+  for h : idx in [0:fields.size] do
+    let some value := values[idx]?
+      | .error {
+          message := s!"planned scalar control-flow event `{event.name}` missing field value at index {idx}"
+        }
+    fieldWords := fieldWords.push (← eventFieldWordPlans module env event.name fields[idx] value)
+  .ok fieldWords
+
+def eventEffectWordPlan
+    (module : Module)
+    (env : TypeEnv) :
+    EffectPlan → Except LowerError EffectPlan
+  | .eventEmit event dataFields => do
+      let dataFieldWords ← eventFieldsWordPlans module env event event.dataFields dataFields
+      .ok (.eventEmitWords event dataFieldWords)
+  | .eventEmitIndexed event indexedFields dataFields => do
+      let indexedFieldWords ← eventFieldsWordPlans module env event event.indexedFields indexedFields
+      let dataFieldWords ← eventFieldsWordPlans module env event event.dataFields dataFields
+      .ok (.eventEmitIndexedWords event indexedFieldWords dataFieldWords)
+  | .eventEmitWords event dataFieldWords =>
+      .ok (.eventEmitWords event dataFieldWords)
+  | .eventEmitIndexedWords event indexedFieldWords dataFieldWords =>
+      .ok (.eventEmitIndexedWords event indexedFieldWords dataFieldWords)
+  | _ =>
+      .error { message := "planned event lowering expected event emit effect" }
 
 def entrypointSelector (entrypoint : Entrypoint) : Except LowerError String :=
   match entrypoint.selector? with
@@ -296,7 +752,7 @@ def storageStructArrayReadState? (decl : StructDecl) (values : Array Expr) : Opt
 def storageArrayAbiWordsPlan?
     (module : Module)
     (fieldType : ValueType)
-    (value : Expr) : Except LowerError (Option ExprPlan) := do
+    (value : Expr) : Except LowerError (Option AbiValuePlan) := do
   match fieldType, value with
   | .fixedArray (.structType typeName) length, .arrayLit (.structType literalTypeName) values => do
       if literalTypeName != typeName || values.size != length then
@@ -310,7 +766,7 @@ def storageArrayAbiWordsPlan?
             match ProofForge.Backend.Evm.Validate.stateInfo? module stateId with
             | some (_, { kind := .array stateLength, type := .structType stateTypeName, .. }) =>
                 if stateLength == length && stateTypeName == typeName then
-                  .ok (some (.storageAbiWords stateId fieldType))
+                  .ok (some (.storage stateId fieldType))
                 else
                   .ok none
             | _ => .ok none
@@ -323,7 +779,7 @@ def storageArrayAbiWordsPlan?
         | some stateId => do
             let (_, stateLength, stateElementType) ← lowerPlan <| requireArrayState module stateId
             if stateLength == length && stateElementType == elementType then
-              .ok (some (.storageAbiWords stateId fieldType))
+              .ok (some (.storage stateId fieldType))
             else
               .ok none
   | _, _ =>
@@ -386,26 +842,27 @@ mutual
       (module : Module)
       (env : TypeEnv)
       (context typeName : String)
-      (arg : Expr) : Except LowerError (Array ExprPlan) := do
+      (arg : Expr) : Except LowerError (Array CrosscallArgWordPlan) := do
     discard <| crosscallArgWordTypes module context (.structType typeName)
     let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
       | .error { message := s!"{context} uses unknown struct `{typeName}`" }
     match arg with
     | .local name =>
-        ensureType context (.structType typeName) (← inferExprType module env arg)
-        .ok #[.localCrosscallWords name (.structType typeName)]
+        .ok <| wrapCrosscallExprWordPlans
+          (← localCrosscallWordPlans module env context name (.structType typeName))
     | .structLit literalTypeName fields => do
         if literalTypeName != typeName then
           .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
-        let mut plans : Array ExprPlan := #[]
+        let mut plans : Array CrosscallArgWordPlan := #[]
         for fieldDecl in decl.fields do
           ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
           let some field := fields.find? fun field => field.fst == fieldDecl.id
             | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
-          plans := plans.push (← buildExprPlan module env field.snd)
+          plans := plans.push (.expr (← buildExprPlan module env field.snd))
         .ok plans
     | .effect (.storageScalarRead stateId) => do
-        storageCrosscallWordPlans module context stateId (.structType typeName)
+        .ok <| wrapCrosscallExprWordPlans
+          (← storageCrosscallWordPlans module context stateId (.structType typeName))
     | _ =>
         .error {
           message := s!"{context} struct values in IR EVM v0 support local struct values, struct literals, or storage scalar struct reads only"
@@ -416,17 +873,17 @@ mutual
       (env : TypeEnv)
       (context typeName : String)
       (length : Nat)
-      (arg : Expr) : Except LowerError (Array ExprPlan) := do
+      (arg : Expr) : Except LowerError (Array CrosscallArgWordPlan) := do
     discard <| crosscallArgWordTypes module context (.fixedArray (.structType typeName) length)
     match arg with
     | .local name =>
-        ensureType context (.fixedArray (.structType typeName) length) (← inferExprType module env arg)
-        .ok #[.localCrosscallWords name (.fixedArray (.structType typeName) length)]
+        .ok <| wrapCrosscallExprWordPlans
+          (← localCrosscallWordPlans module env context name (.fixedArray (.structType typeName) length))
     | .arrayLit literalElementType values => do
         ensureType s!"{context} fixed-array element type" (.structType typeName) literalElementType
         if values.size != length then
           .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
-        let mut plans : Array ExprPlan := #[]
+        let mut plans : Array CrosscallArgWordPlan := #[]
         for h : idx in [0:values.size] do
           match values[idx] with
           | .structLit .. =>
@@ -448,66 +905,73 @@ mutual
       (context : String)
       (elementType : ValueType)
       (length : Nat)
-      (arg : Expr) : Except LowerError (Array ExprPlan) := do
+      (arg : Expr) : Except LowerError (Array CrosscallArgWordPlan) := do
     discard <| crosscallArgWordTypes module context (.fixedArray elementType length)
-    match elementType with
-    | .structType typeName =>
-        buildCrosscallStructArrayArgWordPlans module env context typeName length arg
-    | .fixedArray nestedElementType nestedLength =>
-        match arg with
-        | .local name =>
-            ensureType context (.fixedArray elementType length) (← inferExprType module env arg)
-            .ok #[.localCrosscallWords name (.fixedArray elementType length)]
-        | .arrayLit literalElementType values => do
-            ensureType s!"{context} fixed-array element type" elementType literalElementType
-            if values.size != length then
-              .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
-            let mut plans : Array ExprPlan := #[]
-            for h : idx in [0:values.size] do
-              plans := plans ++ (← buildCrosscallFixedArrayArgWordPlans module env context nestedElementType nestedLength values[idx])
-            .ok plans
-        | _ =>
-            .error {
-              message := s!"{context} nested fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
-            }
+    match ← storageArrayAbiWordsPlan? module (.fixedArray elementType length) arg with
+    | some (.storage stateId storageType) =>
+        .ok <| wrapCrosscallExprWordPlans
+          (← storageCrosscallWordPlans module context stateId storageType)
     | _ =>
-        match arg with
-        | .local name =>
-            ensureType context (.fixedArray elementType length) (← inferExprType module env arg)
-            .ok #[.localCrosscallWords name (.fixedArray elementType length)]
-        | .arrayLit literalElementType values => do
-            ensureType s!"{context} fixed-array element type" elementType literalElementType
-            if values.size != length then
-              .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
-            let mut plans : Array ExprPlan := #[]
-            for h : idx in [0:values.size] do
-              plans := plans.push (← buildExprPlan module env values[idx])
-            .ok plans
+        match elementType with
+        | .structType typeName =>
+            buildCrosscallStructArrayArgWordPlans module env context typeName length arg
+        | .fixedArray nestedElementType nestedLength =>
+            match arg with
+            | .local name =>
+                .ok <| wrapCrosscallExprWordPlans
+                  (← localCrosscallWordPlans module env context name (.fixedArray elementType length))
+            | .arrayLit literalElementType values => do
+                ensureType s!"{context} fixed-array element type" elementType literalElementType
+                if values.size != length then
+                  .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
+                let mut plans : Array CrosscallArgWordPlan := #[]
+                for h : idx in [0:values.size] do
+                  plans := plans ++ (← buildCrosscallFixedArrayArgWordPlans module env context nestedElementType nestedLength values[idx])
+                .ok plans
+            | _ =>
+                .error {
+                  message := s!"{context} nested fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
+                }
         | _ =>
-            .error {
-              message := s!"{context} fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
-            }
+            match arg with
+            | .local name =>
+                .ok <| wrapCrosscallExprWordPlans
+                  (← localCrosscallWordPlans module env context name (.fixedArray elementType length))
+            | .arrayLit literalElementType values => do
+                ensureType s!"{context} fixed-array element type" elementType literalElementType
+                if values.size != length then
+                  .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
+                let mut plans : Array CrosscallArgWordPlan := #[]
+                for h : idx in [0:values.size] do
+                  plans := plans.push (.expr (← buildExprPlan module env values[idx]))
+                .ok plans
+            | _ =>
+                .error {
+                  message := s!"{context} fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
+                }
 
   partial def buildCrosscallArgWordPlans
       (module : Module)
       (env : TypeEnv)
       (context : String)
-      (arg : Expr) : Except LowerError (Array ExprPlan) := do
+      (arg : Expr) : Except LowerError (Array CrosscallArgWordPlan) := do
     let type ← inferExprType module env arg
     discard <| crosscallArgWordTypes module context type
     match type with
     | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
-        .ok #[← buildExprPlan module env arg]
+        .ok #[.expr (← buildExprPlan module env arg)]
     | .fixedArray elementType length =>
         match arg with
         | .local name =>
-            .ok #[.localCrosscallWords name type]
+            .ok <| wrapCrosscallExprWordPlans
+              (← localCrosscallWordPlans module env context name type)
         | _ =>
             buildCrosscallFixedArrayArgWordPlans module env context elementType length arg
     | .structType typeName =>
         match arg with
         | .local name =>
-            .ok #[.localCrosscallWords name type]
+            .ok <| wrapCrosscallExprWordPlans
+              (← localCrosscallWordPlans module env context name type)
         | _ =>
             buildCrosscallStructArgWordPlans module env context typeName arg
     | .array _ =>
@@ -519,8 +983,8 @@ mutual
       (module : Module)
       (env : TypeEnv)
       (context : String)
-      (args : Array Expr) : Except LowerError (Array ExprPlan) := do
-    let mut plans : Array ExprPlan := #[]
+      (args : Array Expr) : Except LowerError (Array CrosscallArgWordPlan) := do
+    let mut plans : Array CrosscallArgWordPlan := #[]
     for arg in args do
       plans := plans ++ (← buildCrosscallArgWordPlans module env context arg)
     .ok plans
@@ -609,7 +1073,7 @@ mutual
           (← buildExprPlan module env target)
           (← buildExprPlan module env methodId)
           none
-          (← args.mapM (buildExprPlan module env))
+          (wrapCrosscallExprWordPlans (← args.mapM (buildExprPlan module env)))
           .u64)
     | .crosscallInvokeTyped target methodId args returnType => do
         .ok (.crosscall .call
@@ -648,6 +1112,69 @@ mutual
           initCodeHex)
     | .effect effect => do
         .ok (.effect (← buildEffectPlan module env effect))
+
+  partial def buildAbiValuePlan
+      (module : Module)
+      (env : TypeEnv)
+      (context : String)
+      (expectedType : ValueType)
+      (value : Expr) : Except LowerError AbiValuePlan := do
+    ensureType context expectedType (← inferExprType module env value)
+    match expectedType, value with
+    | .fixedArray _ _, .local name
+    | .structType _, .local name => do
+        let some binding := findLocal? env name
+          | .error { message := s!"unknown local `{name}`" }
+        ensureType s!"{context} local value" expectedType binding.type
+        .ok (.local name expectedType)
+    | .structType typeName, .effect (.storageScalarRead stateId) => do
+        ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
+        .ok (.storage stateId expectedType)
+    | .fixedArray elementType length, .arrayLit literalElementType values => do
+        match ← storageArrayAbiWordsPlan? module expectedType value with
+        | some plan => .ok plan
+        | none => do
+            if literalElementType != elementType then
+              .error {
+                message := s!"{context} fixed-array literal element type mismatch: expected `{elementType.name}`, got `{literalElementType.name}`"
+              }
+            if values.size != length then
+              .error { message := s!"{context} fixed-array expected length {length}, got {values.size}" }
+            let mut plannedValues : Array AbiValuePlan := #[]
+            for h : idx in [0:values.size] do
+              plannedValues := plannedValues.push
+                (← buildAbiValuePlan
+                  module
+                  env
+                  s!"{context} fixed-array element {idx}"
+                  elementType
+                  values[idx])
+            .ok (.arrayLit elementType plannedValues)
+    | .fixedArray _ _, _ => do
+        match ← storageArrayAbiWordsPlan? module expectedType value with
+        | some plan => .ok plan
+        | none => .ok (.expr (← buildExprPlan module env value))
+    | .structType typeName, .structLit literalTypeName fields => do
+        if literalTypeName != typeName then
+          .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
+        let fieldDecls ← localAbiStructFields module context typeName
+        let mut plannedFields : Array (String × AbiValuePlan) := #[]
+        for fieldDecl in fieldDecls do
+          let some field := fields.find? fun field => field.fst == fieldDecl.fst
+            | .error {
+                message := s!"{context} struct literal `{typeName}` is missing field `{fieldDecl.fst}`"
+              }
+          plannedFields := plannedFields.push
+            (fieldDecl.fst,
+              ← buildAbiValuePlan
+                module
+                env
+                s!"{context} struct field `{fieldDecl.fst}`"
+                fieldDecl.snd
+                field.snd)
+        .ok (.structLit typeName plannedFields)
+    | _, _ =>
+        .ok (.expr (← buildExprPlan module env value))
 
   partial def buildStoragePathSegmentPlan
       (module : Module)
@@ -689,25 +1216,10 @@ mutual
       (env : TypeEnv)
       (eventName fieldName : String)
       (fieldType : ValueType)
-      (value : Expr) : Except LowerError ExprPlan := do
+      (value : Expr) : Except LowerError AbiValuePlan := do
     let context := s!"event `{eventName}` field `{fieldName}`"
     ensureType context fieldType (← inferEventFieldExprType module env value)
-    match fieldType, value with
-    | .fixedArray _ _, .local name
-    | .structType _, .local name => do
-        let some binding := findLocal? env name
-          | .error { message := s!"unknown local `{name}`" }
-        ensureType s!"{context} local value" fieldType binding.type
-        .ok (.localAbiWords name fieldType)
-    | .structType typeName, .effect (.storageScalarRead stateId) => do
-        ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
-        .ok (.storageAbiWords stateId (.structType typeName))
-    | .fixedArray _ _, _ => do
-        match ← storageArrayAbiWordsPlan? module fieldType value with
-        | some plan => .ok plan
-        | none => buildExprPlan module env value
-    | _, _ =>
-        buildExprPlan module env value
+    buildAbiValuePlan module env context fieldType value
 
   partial def buildEffectPlan (module : Module) (env : TypeEnv) : Effect → Except LowerError EffectPlan
     | .storageScalarRead stateId =>
@@ -769,9 +1281,14 @@ mutual
         | some target => .ok (.storageArrayStructFieldWriteTarget target indexPlan valuePlan)
         | none => .ok (.storageArrayStructFieldWrite stateId indexPlan fieldName valuePlan)
     | .storageDynamicArrayPush stateId value => do
-        .ok (.storageDynamicArrayPush stateId (← buildExprPlan module env value))
+        let valuePlan ← buildExprPlan module env value
+        match dynamicArrayTargetPlan? module stateId with
+        | some target => .ok (.storageDynamicArrayPushTarget target valuePlan)
+        | none => .ok (.storageDynamicArrayPush stateId valuePlan)
     | .storageDynamicArrayPop stateId =>
-        .ok (.storageDynamicArrayPop stateId)
+        match dynamicArrayTargetPlan? module stateId with
+        | some target => .ok (.storageDynamicArrayPopTarget target)
+        | none => .ok (.storageDynamicArrayPop stateId)
     | .memoryArraySet array index value => do
         let arrayPlan ← buildExprPlan module env array
         let indexPlan ← buildExprPlan module env index
@@ -807,7 +1324,7 @@ mutual
           let some fieldPlan := dataFields[idx]?
             | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
           buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
-        .ok (.eventEmit eventPlan plannedFields)
+        eventEffectWordPlan module env (.eventEmit eventPlan plannedFields)
     | .eventEmitIndexed name indexedFields dataFields => do
         let eventPlan ← eventPlanForFields module env name indexedFields dataFields
         let indexedPlans := eventPlan.indexedFields
@@ -820,7 +1337,7 @@ mutual
           let some fieldPlan := dataPlans[idx]?
             | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
           buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
-        .ok (.eventEmitIndexed eventPlan plannedIndexed plannedData)
+        eventEffectWordPlan module env (.eventEmitIndexed eventPlan plannedIndexed plannedData)
 
   partial def buildStatementPlan
       (module : Module)
@@ -961,6 +1478,32 @@ def aggregateCrosscallReturnAssignmentPlan?
         .ok (some plan)
     | _ => .ok none
 
+def aggregateCrosscallReturnAssignmentPlanFromExprPlan?
+    (module : Module)
+    (entrypointName : String)
+    (returnType : ValueType)
+    (value : ExprPlan) :
+    Except LowerError (Option CrosscallReturnAssignmentPlan) := do
+  match returnType with
+  | .fixedArray _ _ | .structType _ =>
+      match value with
+      | .crosscall mode target methodId callValue? args callReturnType => do
+          ensureType s!"entrypoint `{entrypointName}` aggregate crosscall return type"
+            returnType
+            callReturnType
+          let returns ← crosscallReturnPlan module s!"entrypoint `{entrypointName}` return value" returnType
+          .ok (some {
+            returns
+            mode
+            target
+            methodId
+            callValue?
+            args
+          })
+      | _ => .ok none
+  | .unit | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string | .array _ =>
+      .ok none
+
 def returnValueWordPlan?
     (module : Module)
     (env : TypeEnv)
@@ -971,36 +1514,11 @@ def returnValueWordPlan?
   let context := s!"entrypoint `{entrypointName}` return value"
   let returns ← returnPlan module s!"entrypoint `{entrypointName}`" returnType
   match returnType, value with
-  | .fixedArray _ _, .local name
-  | .structType _, .local name => do
-      let some binding := findLocal? env name
-        | .error { message := s!"unknown local `{name}`" }
-      ensureType context returnType binding.type
-      .ok (some {
-        returns
-        source := .localAbiWords name returnType
-      })
-  | .structType typeName, .effect (.storageScalarRead stateId) => do
-      ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
-      .ok (some {
-        returns
-        source := .storageAbiWords stateId returnType
-      })
-  | .fixedArray _ _, _ => do
-      match ← storageArrayAbiWordsPlan? module returnType value with
-      | some source =>
-          .ok (some { returns, source })
-      | none => do
-          ensureType context returnType (← inferExprType module env value)
-          .ok (some {
-            returns
-            source := ← buildExprPlan module env value
-          })
+  | .fixedArray _ _, _
   | .structType _, _ => do
-      ensureType context returnType (← inferExprType module env value)
       .ok (some {
         returns
-        source := ← buildExprPlan module env value
+        source := ← buildAbiValuePlan module env context returnType value
       })
   | _, _ =>
       .ok none
@@ -1460,6 +1978,276 @@ def buildCrosscallHelperPlans (module : Module) : Except LowerError (Array Cross
     specs := mergeCrosscallHelperSpecs specs entrypointSpecs
   .ok specs
 
+def plainValueTransferMethodIdPlan? : ExprPlan → Bool
+  | .literalWord 0 => true
+  | _ => false
+
+def plainValueTransferCallPlan? (methodId : ExprPlan) (args : Array CrosscallArgWordPlan) : Bool :=
+  plainValueTransferMethodIdPlan? methodId && args.isEmpty
+
+mutual
+  partial def crosscallHelperSpecsFromContextExprPlan
+      (module : Module) : ContextExprPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .blockHash blockNumber =>
+        crosscallHelperSpecsFromExprPlan module blockNumber
+    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+        .ok #[]
+
+  partial def crosscallHelperSpecsFromStorageSlotExprPlan
+      (module : Module) : StorageSlotExprPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .scalarSlot _ | .fixedSlot _ => .ok #[]
+    | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+        keys.foldlM (init := #[]) fun acc key => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module key))
+    | .arraySlot _ _ index
+    | .structArrayFieldSlot _ _ _ _ index
+    | .dynamicArraySlot _ index =>
+        crosscallHelperSpecsFromExprPlan module index
+
+  partial def crosscallHelperSpecsFromStoragePathWriteExprTargetPlan
+      (module : Module) : StoragePathWriteExprTargetPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .mapWrite _ key =>
+        crosscallHelperSpecsFromExprPlan module key
+    | .singleSlot slot =>
+        crosscallHelperSpecsFromStorageSlotExprPlan module slot
+    | .mapValuePresence valueSlot presenceSlot => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromStorageSlotExprPlan module valueSlot)
+          (← crosscallHelperSpecsFromStorageSlotExprPlan module presenceSlot))
+
+  partial def crosscallHelperSpecsFromAbiValuePlan
+      (module : Module) : AbiValuePlan → Except LowerError (Array CrosscallHelperSpec)
+    | .expr value =>
+        crosscallHelperSpecsFromExprPlan module value
+    | .local .. | .storage .. =>
+        .ok #[]
+    | .arrayLit _ values =>
+        values.foldlM (init := #[]) fun acc value => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromAbiValuePlan module value))
+    | .structLit _ fields =>
+        fields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromAbiValuePlan module field.snd))
+
+  partial def crosscallHelperSpecsFromCrosscallArgWordPlan
+      (module : Module) : CrosscallArgWordPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .expr value =>
+        crosscallHelperSpecsFromExprPlan module value
+    | .local .. | .storage .. =>
+        .ok #[]
+
+  partial def crosscallHelperSpecsFromExprPlan
+      (module : Module) : ExprPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        .ok #[]
+    | .storageLoad slot =>
+        match slot with
+        | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+            keys.foldlM (init := #[]) fun acc valuePlan => do
+              match valuePlan with
+              | .irExpr _ => .ok acc
+        | .arraySlot .. | .structArrayFieldSlot .. | .dynamicArraySlot ..
+        | .scalarSlot _ | .fixedSlot _ =>
+            .ok #[]
+    | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+        args.foldlM (init := #[]) fun acc arg => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module arg))
+    | .checkedArith _ lhs rhs
+    | .arrayGet lhs rhs
+    | .hashTwoToOne lhs rhs => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module lhs)
+          (← crosscallHelperSpecsFromExprPlan module rhs))
+    | .hashPack a b c d | .hashValue a b c d => do
+        let ab := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module a)
+          (← crosscallHelperSpecsFromExprPlan module b)
+        let cd := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module c)
+          (← crosscallHelperSpecsFromExprPlan module d)
+        .ok (mergeCrosscallHelperSpecs ab cd)
+    | .context field =>
+        crosscallHelperSpecsFromContextExprPlan module field
+    | .crosscall mode target methodId callValue? args returnType => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module target)
+          (← crosscallHelperSpecsFromExprPlan module methodId)
+        match callValue? with
+        | some callValue =>
+            nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsFromExprPlan module callValue)
+        | none => pure ()
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsFromCrosscallArgWordPlan module arg)
+        let plainTransfer :=
+          match mode with
+          | .callValue => plainValueTransferCallPlan? methodId args && isCrosscallWordType returnType
+          | .call | .staticcall | .delegatecall => false
+        let spec ← crosscallHelperSpec
+          module
+          "planned crosscall return"
+          args.size
+          returnType
+          mode
+          plainTransfer
+        .ok (pushCrosscallHelperSpecIfMissing nested spec)
+    | .create _ callValue salt? _ => do
+        let callValueSpecs ← crosscallHelperSpecsFromExprPlan module callValue
+        match salt? with
+        | some salt =>
+            .ok (mergeCrosscallHelperSpecs callValueSpecs (← crosscallHelperSpecsFromExprPlan module salt))
+        | none =>
+            .ok callValueSpecs
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source
+    | .hash source =>
+        crosscallHelperSpecsFromExprPlan module source
+    | .localArrayGet _ path _ =>
+        path.foldlM (init := #[]) fun acc index => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module index))
+    | .memoryArrayNew _ length =>
+        crosscallHelperSpecsFromExprPlan module length
+    | .memoryArrayGet array index => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module array)
+          (← crosscallHelperSpecsFromExprPlan module index))
+    | .structLit _ fields =>
+        fields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module field.snd))
+    | .effect effect =>
+        crosscallHelperSpecsFromEffectPlan module effect
+
+  partial def crosscallHelperSpecsFromEffectPlan
+      (module : Module) : EffectPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .storageScalarRead _ | .storageScalarReadTarget _
+    | .storageStructFieldRead _ _ | .storageStructFieldReadTarget _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        .ok #[]
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageScalarAssignOp _ _ value
+    | .storageScalarAssignOpTarget _ _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        crosscallHelperSpecsFromExprPlan module value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        crosscallHelperSpecsFromExprPlan module key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value => do
+        let keySpecs ← crosscallHelperSpecsFromExprPlan module key
+        let valueSpecs ← crosscallHelperSpecsFromExprPlan module value
+        .ok (mergeCrosscallHelperSpecs keySpecs valueSpecs)
+    | .memoryArraySet array index value => do
+        let arraySpecs ← crosscallHelperSpecsFromExprPlan module array
+        let indexSpecs ← crosscallHelperSpecsFromExprPlan module index
+        let valueSpecs ← crosscallHelperSpecsFromExprPlan module value
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs arraySpecs indexSpecs) valueSpecs)
+    | .storagePathRead _ _ =>
+        .ok #[]
+    | .storagePathReadTarget slot =>
+        match slot with
+        | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+            keys.foldlM (init := #[]) fun acc valuePlan => do
+              match valuePlan with
+              | .irExpr _ => .ok acc
+        | .arraySlot .. | .structArrayFieldSlot .. | .dynamicArraySlot ..
+        | .scalarSlot _ | .fixedSlot _ =>
+            .ok #[]
+    | .storagePathReadExprTarget slot =>
+        crosscallHelperSpecsFromStorageSlotExprPlan module slot
+    | .storagePathWrite _ _ value | .storagePathAssignOp _ _ _ value =>
+        crosscallHelperSpecsFromExprPlan module value
+    | .storagePathWriteTarget target value
+    | .storagePathAssignOpTarget target _ value => do
+        let targetSpecs ←
+          match target with
+          | .mapWrite _ (.irExpr _) => .ok #[]
+          | .singleSlot _ => .ok #[]
+          | .mapValuePresence _ _ => .ok #[]
+        .ok (mergeCrosscallHelperSpecs targetSpecs (← crosscallHelperSpecsFromExprPlan module value))
+    | .storagePathWriteExprTarget target value
+    | .storagePathAssignOpExprTarget target _ value => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromStoragePathWriteExprTargetPlan module target)
+          (← crosscallHelperSpecsFromExprPlan module value))
+    | .contextRead field =>
+        crosscallHelperSpecsFromContextExprPlan module field
+    | .eventEmit _ dataFields =>
+        dataFields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromAbiValuePlan module field))
+    | .eventEmitIndexed _ indexedFields dataFields => do
+        let indexedSpecs ← indexedFields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromAbiValuePlan module field))
+        dataFields.foldlM (init := indexedSpecs) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromAbiValuePlan module field))
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.foldlM (init := #[]) fun acc words => do
+          words.foldlM (init := acc) fun wordAcc word => do
+            .ok (mergeCrosscallHelperSpecs wordAcc (← crosscallHelperSpecsFromExprPlan module word))
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords => do
+        let indexedSpecs ← indexedFieldWords.foldlM (init := #[]) fun acc words => do
+          words.foldlM (init := acc) fun wordAcc word => do
+            .ok (mergeCrosscallHelperSpecs wordAcc (← crosscallHelperSpecsFromExprPlan module word))
+        dataFieldWords.foldlM (init := indexedSpecs) fun acc words => do
+          words.foldlM (init := acc) fun wordAcc word => do
+            .ok (mergeCrosscallHelperSpecs wordAcc (← crosscallHelperSpecsFromExprPlan module word))
+
+  partial def crosscallHelperSpecsFromStmtPlan
+      (module : Module) : StmtPlan → Except LowerError (Array CrosscallHelperSpec)
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        crosscallHelperSpecsFromExprPlan module value
+    | .assign target value
+    | .assignOp target _ value => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module target)
+          (← crosscallHelperSpecsFromExprPlan module value))
+    | .effect effect =>
+        crosscallHelperSpecsFromEffectPlan module effect
+    | .assertEq lhs rhs _ _ => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExprPlan module lhs)
+          (← crosscallHelperSpecsFromExprPlan module rhs))
+    | .release _ | .revert _ | .revertWithError _ =>
+        .ok #[]
+    | .ifElse condition thenBody elseBody => do
+        let conditionSpecs ← crosscallHelperSpecsFromExprPlan module condition
+        let thenSpecs ← crosscallHelperSpecsFromStmtPlans module thenBody
+        let elseSpecs ← crosscallHelperSpecsFromStmtPlans module elseBody
+        .ok (mergeCrosscallHelperSpecs conditionSpecs (mergeCrosscallHelperSpecs thenSpecs elseSpecs))
+    | .boundedFor _ _ _ body =>
+        crosscallHelperSpecsFromStmtPlans module body
+
+  partial def crosscallHelperSpecsFromStmtPlans
+      (module : Module)
+      (statements : Array StmtPlan) : Except LowerError (Array CrosscallHelperSpec) :=
+    statements.foldlM (init := #[]) fun acc stmt => do
+      .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromStmtPlan module stmt))
+end
+
+def buildCrosscallHelperPlansFromEntrypoints
+    (module : Module)
+    (entrypoints : Array EntrypointPlan) : Except LowerError (Array CrosscallHelperSpec) :=
+  entrypoints.foldlM (init := #[]) fun acc entrypoint => do
+    .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromStmtPlans module entrypoint.body))
+
 def pushCreateHelperSpecIfMissing
     (acc : Array CreateHelperSpec)
     (value : CreateHelperSpec) : Array CreateHelperSpec :=
@@ -1599,6 +2387,478 @@ def buildCreateHelperPlans (module : Module) : Array CreateHelperSpec :=
   module.entrypoints.foldl (init := #[]) fun acc entrypoint =>
     mergeCreateHelperSpecs acc (createHelperSpecsFromStatements entrypoint.body)
 
+mutual
+  partial def createHelperSpecsFromContextExprPlan : ContextExprPlan → Array CreateHelperSpec
+    | .blockHash blockNumber =>
+        createHelperSpecsFromExprPlan blockNumber
+    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+        #[]
+
+  partial def createHelperSpecsFromStorageSlotExprPlan : StorageSlotExprPlan → Array CreateHelperSpec
+    | .scalarSlot _ | .fixedSlot _ => #[]
+    | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+        keys.foldl (init := #[]) fun acc key =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan key)
+    | .arraySlot _ _ index
+    | .structArrayFieldSlot _ _ _ _ index
+    | .dynamicArraySlot _ index =>
+        createHelperSpecsFromExprPlan index
+
+  partial def createHelperSpecsFromStoragePathWriteExprTargetPlan :
+      StoragePathWriteExprTargetPlan → Array CreateHelperSpec
+    | .mapWrite _ key =>
+        createHelperSpecsFromExprPlan key
+    | .singleSlot slot =>
+        createHelperSpecsFromStorageSlotExprPlan slot
+    | .mapValuePresence valueSlot presenceSlot =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromStorageSlotExprPlan valueSlot)
+          (createHelperSpecsFromStorageSlotExprPlan presenceSlot)
+
+  partial def createHelperSpecsFromAbiValuePlan : AbiValuePlan → Array CreateHelperSpec
+    | .expr value =>
+        createHelperSpecsFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromAbiValuePlan value)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromAbiValuePlan field.snd)
+
+  partial def createHelperSpecsFromCrosscallArgWordPlan :
+      CrosscallArgWordPlan → Array CreateHelperSpec
+    | .expr value =>
+        createHelperSpecsFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+
+  partial def createHelperSpecsFromExprPlan : ExprPlan → Array CreateHelperSpec
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        #[]
+    | .storageLoad slot =>
+        match slot with
+        | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+            keys.foldl (init := #[]) fun acc valuePlan =>
+              match valuePlan with
+              | .irExpr _ => acc
+        | .arraySlot .. | .structArrayFieldSlot .. | .dynamicArraySlot ..
+        | .scalarSlot _ | .fixedSlot _ =>
+            #[]
+    | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan arg)
+    | .checkedArith _ lhs rhs
+    | .arrayGet lhs rhs
+    | .hashTwoToOne lhs rhs =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan lhs)
+          (createHelperSpecsFromExprPlan rhs)
+    | .hashPack a b c d | .hashValue a b c d =>
+        let ab := mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan a)
+          (createHelperSpecsFromExprPlan b)
+        let cd := mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan c)
+          (createHelperSpecsFromExprPlan d)
+        mergeCreateHelperSpecs ab cd
+    | .context field =>
+        createHelperSpecsFromContextExprPlan field
+    | .crosscall _ target methodId callValue? args _ =>
+        let nested := mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan target)
+          (createHelperSpecsFromExprPlan methodId)
+        let nested :=
+          match callValue? with
+          | some callValue => mergeCreateHelperSpecs nested (createHelperSpecsFromExprPlan callValue)
+          | none => nested
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromCrosscallArgWordPlan arg)
+    | .create mode callValue salt? initCodeHex =>
+        let nested :=
+          match salt? with
+          | some salt =>
+              mergeCreateHelperSpecs
+                (createHelperSpecsFromExprPlan callValue)
+                (createHelperSpecsFromExprPlan salt)
+          | none =>
+              createHelperSpecsFromExprPlan callValue
+        pushCreateHelperSpecIfMissing nested { mode, initCodeHex }
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source
+    | .hash source =>
+        createHelperSpecsFromExprPlan source
+    | .localArrayGet _ path _ =>
+        path.foldl (init := #[]) fun acc index =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan index)
+    | .memoryArrayNew _ length =>
+        createHelperSpecsFromExprPlan length
+    | .memoryArrayGet array index =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan array)
+          (createHelperSpecsFromExprPlan index)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan field.snd)
+    | .effect effect =>
+        createHelperSpecsFromEffectPlan effect
+
+  partial def createHelperSpecsFromEffectPlan : EffectPlan → Array CreateHelperSpec
+    | .storageScalarRead _ | .storageScalarReadTarget _
+    | .storageStructFieldRead _ _ | .storageStructFieldReadTarget _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        #[]
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageScalarAssignOp _ _ value
+    | .storageScalarAssignOpTarget _ _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        createHelperSpecsFromExprPlan value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        createHelperSpecsFromExprPlan key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan key)
+          (createHelperSpecsFromExprPlan value)
+    | .memoryArraySet array index value =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs
+            (createHelperSpecsFromExprPlan array)
+            (createHelperSpecsFromExprPlan index))
+          (createHelperSpecsFromExprPlan value)
+    | .storagePathRead _ _ =>
+        #[]
+    | .storagePathReadTarget slot =>
+        match slot with
+        | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+            keys.foldl (init := #[]) fun acc valuePlan =>
+              match valuePlan with
+              | .irExpr _ => acc
+        | .arraySlot .. | .structArrayFieldSlot .. | .dynamicArraySlot ..
+        | .scalarSlot _ | .fixedSlot _ =>
+            #[]
+    | .storagePathReadExprTarget slot =>
+        createHelperSpecsFromStorageSlotExprPlan slot
+    | .storagePathWrite _ _ value | .storagePathAssignOp _ _ _ value =>
+        createHelperSpecsFromExprPlan value
+    | .storagePathWriteTarget target value
+    | .storagePathAssignOpTarget target _ value =>
+        let targetSpecs :=
+          match target with
+          | .mapWrite _ (.irExpr _) => #[]
+          | .singleSlot _ => #[]
+          | .mapValuePresence _ _ => #[]
+        mergeCreateHelperSpecs targetSpecs (createHelperSpecsFromExprPlan value)
+    | .storagePathWriteExprTarget target value
+    | .storagePathAssignOpExprTarget target _ value =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromStoragePathWriteExprTargetPlan target)
+          (createHelperSpecsFromExprPlan value)
+    | .contextRead field =>
+        createHelperSpecsFromContextExprPlan field
+    | .eventEmit _ dataFields =>
+        dataFields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromAbiValuePlan field)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexedSpecs := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromAbiValuePlan field)
+        dataFields.foldl (init := indexedSpecs) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromAbiValuePlan field)
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeCreateHelperSpecs wordAcc (createHelperSpecsFromExprPlan word)
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords =>
+        let indexedSpecs := indexedFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeCreateHelperSpecs wordAcc (createHelperSpecsFromExprPlan word)
+        dataFieldWords.foldl (init := indexedSpecs) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeCreateHelperSpecs wordAcc (createHelperSpecsFromExprPlan word)
+
+  partial def createHelperSpecsFromStmtPlan : StmtPlan → Array CreateHelperSpec
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        createHelperSpecsFromExprPlan value
+    | .assign target value
+    | .assignOp target _ value =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan target)
+          (createHelperSpecsFromExprPlan value)
+    | .effect effect =>
+        createHelperSpecsFromEffectPlan effect
+    | .assertEq lhs rhs _ _ =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan lhs)
+          (createHelperSpecsFromExprPlan rhs)
+    | .release _ | .revert _ | .revertWithError _ =>
+        #[]
+    | .ifElse condition thenBody elseBody =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsFromExprPlan condition)
+          (mergeCreateHelperSpecs (createHelperSpecsFromStmtPlans thenBody) (createHelperSpecsFromStmtPlans elseBody))
+    | .boundedFor _ _ _ body =>
+        createHelperSpecsFromStmtPlans body
+
+  partial def createHelperSpecsFromStmtPlans (statements : Array StmtPlan) : Array CreateHelperSpec :=
+    statements.foldl (init := #[]) fun acc stmt =>
+      mergeCreateHelperSpecs acc (createHelperSpecsFromStmtPlan stmt)
+end
+
+def buildCreateHelperPlansFromEntrypoints
+    (entrypoints : Array EntrypointPlan) : Array CreateHelperSpec :=
+  entrypoints.foldl (init := #[]) fun acc entrypoint =>
+    mergeCreateHelperSpecs acc (createHelperSpecsFromStmtPlans entrypoint.body)
+
+def valuePlanUsesCheckedArithmetic : ValuePlan → Bool
+  | .irExpr expr => ProofForge.Backend.Evm.Validate.exprUsesCheckedArithmetic expr
+
+def storagePathSegmentUsesCheckedArithmetic : StoragePathSegment → Bool
+  | .field _ => false
+  | .index index => ProofForge.Backend.Evm.Validate.exprUsesCheckedArithmetic index
+  | .mapKey key => ProofForge.Backend.Evm.Validate.exprUsesCheckedArithmetic key
+
+def storageSlotPlanUsesCheckedArithmetic : StorageSlotPlan → Bool
+  | .scalarSlot _ | .fixedSlot _ => false
+  | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+      keys.any valuePlanUsesCheckedArithmetic
+  | .arraySlot _ _ index
+  | .structArrayFieldSlot _ _ _ _ index
+  | .dynamicArraySlot _ index =>
+      valuePlanUsesCheckedArithmetic index
+
+def storagePathWriteTargetPlanUsesCheckedArithmetic : StoragePathWriteTargetPlan → Bool
+  | .mapWrite _ key =>
+      valuePlanUsesCheckedArithmetic key
+  | .singleSlot slot =>
+      storageSlotPlanUsesCheckedArithmetic slot
+  | .mapValuePresence valueSlot presenceSlot =>
+      storageSlotPlanUsesCheckedArithmetic valueSlot ||
+        storageSlotPlanUsesCheckedArithmetic presenceSlot
+
+mutual
+  partial def contextExprPlanUsesCheckedArithmetic : ContextExprPlan → Bool
+    | .blockHash blockNumber =>
+        exprPlanUsesCheckedArithmetic blockNumber
+    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+        false
+
+  partial def storageSlotExprPlanUsesCheckedArithmetic : StorageSlotExprPlan → Bool
+    | .scalarSlot _ | .fixedSlot _ => false
+    | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+        keys.any exprPlanUsesCheckedArithmetic
+    | .arraySlot _ _ index
+    | .structArrayFieldSlot _ _ _ _ index
+    | .dynamicArraySlot _ index =>
+        exprPlanUsesCheckedArithmetic index
+
+  partial def storagePathWriteExprTargetPlanUsesCheckedArithmetic :
+      StoragePathWriteExprTargetPlan → Bool
+    | .mapWrite _ key =>
+        exprPlanUsesCheckedArithmetic key
+    | .singleSlot slot =>
+        storageSlotExprPlanUsesCheckedArithmetic slot
+    | .mapValuePresence valueSlot presenceSlot =>
+        storageSlotExprPlanUsesCheckedArithmetic valueSlot ||
+          storageSlotExprPlanUsesCheckedArithmetic presenceSlot
+
+  partial def abiValuePlanUsesCheckedArithmetic : AbiValuePlan → Bool
+    | .expr value =>
+        exprPlanUsesCheckedArithmetic value
+    | .local .. | .storage .. =>
+        false
+    | .arrayLit _ values =>
+        values.any abiValuePlanUsesCheckedArithmetic
+    | .structLit _ fields =>
+        fields.any (fun field => abiValuePlanUsesCheckedArithmetic field.snd)
+
+  partial def crosscallArgWordPlanUsesCheckedArithmetic : CrosscallArgWordPlan → Bool
+    | .expr value =>
+        exprPlanUsesCheckedArithmetic value
+    | .local .. | .storage .. =>
+        false
+
+  partial def exprPlanUsesCheckedArithmetic : ExprPlan → Bool
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        false
+    | .storageLoad slot =>
+        storageSlotPlanUsesCheckedArithmetic slot
+    | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+        args.any exprPlanUsesCheckedArithmetic
+    | .checkedArith op lhs rhs =>
+        needsCheckedArithmetic op ||
+          exprPlanUsesCheckedArithmetic lhs ||
+          exprPlanUsesCheckedArithmetic rhs
+    | .arrayGet lhs rhs
+    | .hashTwoToOne lhs rhs =>
+        exprPlanUsesCheckedArithmetic lhs || exprPlanUsesCheckedArithmetic rhs
+    | .hashPack a b c d | .hashValue a b c d =>
+        exprPlanUsesCheckedArithmetic a ||
+          exprPlanUsesCheckedArithmetic b ||
+          exprPlanUsesCheckedArithmetic c ||
+          exprPlanUsesCheckedArithmetic d
+    | .context field =>
+        contextExprPlanUsesCheckedArithmetic field
+    | .crosscall _ target methodId callValue? args _ =>
+        exprPlanUsesCheckedArithmetic target ||
+          exprPlanUsesCheckedArithmetic methodId ||
+          (match callValue? with
+          | some callValue => exprPlanUsesCheckedArithmetic callValue
+          | none => false) ||
+          args.any crosscallArgWordPlanUsesCheckedArithmetic
+    | .create _ callValue salt? _ =>
+        exprPlanUsesCheckedArithmetic callValue ||
+          (match salt? with
+          | some salt => exprPlanUsesCheckedArithmetic salt
+          | none => false)
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source
+    | .hash source =>
+        exprPlanUsesCheckedArithmetic source
+    | .localArrayGet _ path _ =>
+        path.any exprPlanUsesCheckedArithmetic
+    | .memoryArrayNew _ length =>
+        exprPlanUsesCheckedArithmetic length
+    | .memoryArrayGet array index =>
+        exprPlanUsesCheckedArithmetic array || exprPlanUsesCheckedArithmetic index
+    | .structLit _ fields =>
+        fields.any (fun field => exprPlanUsesCheckedArithmetic field.snd)
+    | .effect effect =>
+        effectPlanUsesCheckedArithmetic effect
+
+  partial def effectPlanUsesCheckedArithmetic : EffectPlan → Bool
+    | .storageScalarRead _ | .storageStructFieldRead _ _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        false
+    | .storageScalarReadTarget target =>
+        storageSlotPlanUsesCheckedArithmetic target.slot
+    | .storageStructFieldReadTarget target =>
+        storageSlotPlanUsesCheckedArithmetic target.slot
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        exprPlanUsesCheckedArithmetic value
+    | .storageScalarAssignOp _ op value
+    | .storageScalarAssignOpTarget _ op value =>
+        needsCheckedArithmetic op || exprPlanUsesCheckedArithmetic value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        exprPlanUsesCheckedArithmetic key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value =>
+        exprPlanUsesCheckedArithmetic key || exprPlanUsesCheckedArithmetic value
+    | .memoryArraySet array index value =>
+        exprPlanUsesCheckedArithmetic array ||
+          exprPlanUsesCheckedArithmetic index ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathRead _ path =>
+        path.any storagePathSegmentUsesCheckedArithmetic
+    | .storagePathReadTarget slot =>
+        storageSlotPlanUsesCheckedArithmetic slot
+    | .storagePathReadExprTarget slot =>
+        storageSlotExprPlanUsesCheckedArithmetic slot
+    | .storagePathWrite _ path value =>
+        path.any storagePathSegmentUsesCheckedArithmetic ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathAssignOp _ path op value =>
+        path.any storagePathSegmentUsesCheckedArithmetic ||
+          needsCheckedArithmetic op ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathWriteTarget target value =>
+        storagePathWriteTargetPlanUsesCheckedArithmetic target ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathAssignOpTarget target op value =>
+        storagePathWriteTargetPlanUsesCheckedArithmetic target ||
+          needsCheckedArithmetic op ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathWriteExprTarget target value =>
+        storagePathWriteExprTargetPlanUsesCheckedArithmetic target ||
+          exprPlanUsesCheckedArithmetic value
+    | .storagePathAssignOpExprTarget target op value =>
+        storagePathWriteExprTargetPlanUsesCheckedArithmetic target ||
+          needsCheckedArithmetic op ||
+          exprPlanUsesCheckedArithmetic value
+    | .contextRead field =>
+        contextExprPlanUsesCheckedArithmetic field
+    | .eventEmit _ dataFields =>
+        dataFields.any abiValuePlanUsesCheckedArithmetic
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        indexedFields.any abiValuePlanUsesCheckedArithmetic ||
+          dataFields.any abiValuePlanUsesCheckedArithmetic
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.any (fun words => words.any exprPlanUsesCheckedArithmetic)
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords =>
+        indexedFieldWords.any (fun words => words.any exprPlanUsesCheckedArithmetic) ||
+          dataFieldWords.any (fun words => words.any exprPlanUsesCheckedArithmetic)
+
+  partial def stmtPlanUsesCheckedArithmetic : StmtPlan → Bool
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        exprPlanUsesCheckedArithmetic value
+    | .assign target value =>
+        exprPlanUsesCheckedArithmetic target || exprPlanUsesCheckedArithmetic value
+    | .assignOp target op value =>
+        exprPlanUsesCheckedArithmetic target ||
+          needsCheckedArithmetic op ||
+          exprPlanUsesCheckedArithmetic value
+    | .effect effect =>
+        effectPlanUsesCheckedArithmetic effect
+    | .assertEq lhs rhs _ _ =>
+        exprPlanUsesCheckedArithmetic lhs || exprPlanUsesCheckedArithmetic rhs
+    | .release _ | .revert _ | .revertWithError _ =>
+        false
+    | .ifElse condition thenBody elseBody =>
+        exprPlanUsesCheckedArithmetic condition ||
+          thenBody.any stmtPlanUsesCheckedArithmetic ||
+          elseBody.any stmtPlanUsesCheckedArithmetic
+    | .boundedFor _ _ _ body =>
+        body.any stmtPlanUsesCheckedArithmetic
+end
+
+def entrypointsUseCheckedArithmetic (entrypoints : Array EntrypointPlan) : Bool :=
+  entrypoints.any fun entrypoint => entrypoint.body.any stmtPlanUsesCheckedArithmetic
+
 def pushNatIfMissing (acc : Array Nat) (value : Nat) : Array Nat :=
   if acc.contains value then acc else acc.push value
 
@@ -1612,6 +2872,879 @@ def pushNatArrayIfMissing
 
 def mergeNatArraySets (lhs rhs : Array (Array Nat)) : Array (Array Nat) :=
   rhs.foldl pushNatArrayIfMissing lhs
+
+abbrev LocalArrayHelperRequirements := Array Nat × Array (Array Nat)
+
+def emptyLocalArrayHelperRequirements : LocalArrayHelperRequirements :=
+  (#[], #[])
+
+def mergeLocalArrayHelperRequirements
+    (lhs rhs : LocalArrayHelperRequirements) : LocalArrayHelperRequirements :=
+  (mergeNatSets lhs.fst rhs.fst, mergeNatArraySets lhs.snd rhs.snd)
+
+def addLocalArrayGetLength
+    (requirements : LocalArrayHelperRequirements)
+    (length : Nat) : LocalArrayHelperRequirements :=
+  (pushNatIfMissing requirements.fst length, requirements.snd)
+
+def addNestedLocalArrayGetShape
+    (requirements : LocalArrayHelperRequirements)
+    (shape : Array Nat) : LocalArrayHelperRequirements :=
+  (requirements.fst, pushNatArrayIfMissing requirements.snd shape)
+
+def exprPlanLiteralWord? : ExprPlan → Option Nat
+  | .literalWord value => some value
+  | _ => none
+
+def exprPlanPathIsStatic (path : Array ExprPlan) : Bool :=
+  path.all fun index => exprPlanLiteralWord? index |>.isSome
+
+def localArrayGetRequirementsFromPath
+    (path : Array ExprPlan)
+    (lengths : Array Nat) : LocalArrayHelperRequirements :=
+  if path.size == lengths.size && !exprPlanPathIsStatic path then
+    match lengths.toList with
+    | [] => emptyLocalArrayHelperRequirements
+    | [length] => addLocalArrayGetLength emptyLocalArrayHelperRequirements length
+    | _ => addNestedLocalArrayGetShape emptyLocalArrayHelperRequirements lengths
+  else
+    emptyLocalArrayHelperRequirements
+
+mutual
+  partial def localArrayHelperRequirementsFromStorageSlotExprPlan :
+      StorageSlotExprPlan → LocalArrayHelperRequirements
+    | .scalarSlot _ | .fixedSlot _ => emptyLocalArrayHelperRequirements
+    | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+        keys.foldl (init := emptyLocalArrayHelperRequirements) fun acc key =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan key)
+    | .arraySlot _ _ index
+    | .structArrayFieldSlot _ _ _ _ index
+    | .dynamicArraySlot _ index =>
+        localArrayHelperRequirementsFromExprPlan index
+
+  partial def localArrayHelperRequirementsFromStoragePathWriteExprTargetPlan :
+      StoragePathWriteExprTargetPlan → LocalArrayHelperRequirements
+    | .mapWrite _ key =>
+        localArrayHelperRequirementsFromExprPlan key
+    | .singleSlot slot =>
+        localArrayHelperRequirementsFromStorageSlotExprPlan slot
+    | .mapValuePresence valueSlot presenceSlot =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromStorageSlotExprPlan valueSlot)
+          (localArrayHelperRequirementsFromStorageSlotExprPlan presenceSlot)
+
+  partial def localArrayHelperRequirementsFromContextExprPlan :
+      ContextExprPlan → LocalArrayHelperRequirements
+    | .blockHash blockNumber =>
+        localArrayHelperRequirementsFromExprPlan blockNumber
+    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+        emptyLocalArrayHelperRequirements
+
+  partial def localArrayHelperRequirementsFromAbiValuePlan :
+      AbiValuePlan → LocalArrayHelperRequirements
+    | .expr value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .local .. | .storage .. =>
+        emptyLocalArrayHelperRequirements
+    | .arrayLit _ values =>
+        values.foldl (init := emptyLocalArrayHelperRequirements) fun acc value =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromAbiValuePlan value)
+    | .structLit _ fields =>
+        fields.foldl (init := emptyLocalArrayHelperRequirements) fun acc field =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromAbiValuePlan field.snd)
+
+  partial def localArrayHelperRequirementsFromCrosscallArgWordPlan :
+      CrosscallArgWordPlan → LocalArrayHelperRequirements
+    | .expr value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .local .. | .storage .. =>
+        emptyLocalArrayHelperRequirements
+
+  partial def localArrayHelperRequirementsFromExprPlan :
+      ExprPlan → LocalArrayHelperRequirements
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        emptyLocalArrayHelperRequirements
+    | .storageLoad _ =>
+        emptyLocalArrayHelperRequirements
+    | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+        args.foldl (init := emptyLocalArrayHelperRequirements) fun acc arg =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan arg)
+    | .checkedArith _ lhs rhs
+    | .hashTwoToOne lhs rhs =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan lhs)
+          (localArrayHelperRequirementsFromExprPlan rhs)
+    | .hashPack a b c d | .hashValue a b c d =>
+        let ab := mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan a)
+          (localArrayHelperRequirementsFromExprPlan b)
+        let cd := mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan c)
+          (localArrayHelperRequirementsFromExprPlan d)
+        mergeLocalArrayHelperRequirements ab cd
+    | .context field =>
+        localArrayHelperRequirementsFromContextExprPlan field
+    | .crosscall _ target methodId callValue? args _ =>
+        let nested := mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan target)
+          (localArrayHelperRequirementsFromExprPlan methodId)
+        let nested :=
+          match callValue? with
+          | some callValue =>
+              mergeLocalArrayHelperRequirements nested (localArrayHelperRequirementsFromExprPlan callValue)
+          | none => nested
+        args.foldl (init := nested) fun acc arg =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromCrosscallArgWordPlan arg)
+    | .create _ callValue salt? _ =>
+        match salt? with
+        | some salt =>
+            mergeLocalArrayHelperRequirements
+              (localArrayHelperRequirementsFromExprPlan callValue)
+              (localArrayHelperRequirementsFromExprPlan salt)
+        | none =>
+            localArrayHelperRequirementsFromExprPlan callValue
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source
+    | .hash source =>
+        localArrayHelperRequirementsFromExprPlan source
+    | .arrayGet array index =>
+        let nested := mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan array)
+          (localArrayHelperRequirementsFromExprPlan index)
+        match array with
+        | .arrayLit _ values =>
+            if values.isEmpty || (exprPlanLiteralWord? index).isSome then
+              nested
+            else
+              addLocalArrayGetLength nested values.size
+        | _ =>
+            nested
+    | .localArrayGet _ path lengths =>
+        let nested := path.foldl (init := emptyLocalArrayHelperRequirements) fun acc index =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan index)
+        mergeLocalArrayHelperRequirements nested (localArrayGetRequirementsFromPath path lengths)
+    | .memoryArrayNew _ length =>
+        localArrayHelperRequirementsFromExprPlan length
+    | .memoryArrayGet array index =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan array)
+          (localArrayHelperRequirementsFromExprPlan index)
+    | .structLit _ fields =>
+        fields.foldl (init := emptyLocalArrayHelperRequirements) fun acc field =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan field.snd)
+    | .effect effect =>
+        localArrayHelperRequirementsFromEffectPlan effect
+
+  partial def localArrayHelperRequirementsFromEffectPlan :
+      EffectPlan → LocalArrayHelperRequirements
+    | .storageScalarRead _ | .storageScalarReadTarget _
+    | .storageStructFieldRead _ _ | .storageStructFieldReadTarget _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        emptyLocalArrayHelperRequirements
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageScalarAssignOp _ _ value
+    | .storageScalarAssignOpTarget _ _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        localArrayHelperRequirementsFromExprPlan key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan key)
+          (localArrayHelperRequirementsFromExprPlan value)
+    | .memoryArraySet array index value =>
+        mergeLocalArrayHelperRequirements
+          (mergeLocalArrayHelperRequirements
+            (localArrayHelperRequirementsFromExprPlan array)
+            (localArrayHelperRequirementsFromExprPlan index))
+          (localArrayHelperRequirementsFromExprPlan value)
+    | .storagePathRead _ _ | .storagePathReadTarget _ =>
+        emptyLocalArrayHelperRequirements
+    | .storagePathReadExprTarget slot =>
+        localArrayHelperRequirementsFromStorageSlotExprPlan slot
+    | .storagePathWrite _ _ value | .storagePathAssignOp _ _ _ value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .storagePathWriteTarget _ value | .storagePathAssignOpTarget _ _ value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .storagePathWriteExprTarget target value
+    | .storagePathAssignOpExprTarget target _ value =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromStoragePathWriteExprTargetPlan target)
+          (localArrayHelperRequirementsFromExprPlan value)
+    | .contextRead field =>
+        localArrayHelperRequirementsFromContextExprPlan field
+    | .eventEmit _ dataFields =>
+        dataFields.foldl (init := emptyLocalArrayHelperRequirements) fun acc field =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromAbiValuePlan field)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexed := indexedFields.foldl (init := emptyLocalArrayHelperRequirements) fun acc field =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromAbiValuePlan field)
+        dataFields.foldl (init := indexed) fun acc field =>
+          mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromAbiValuePlan field)
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.foldl (init := emptyLocalArrayHelperRequirements) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeLocalArrayHelperRequirements wordAcc (localArrayHelperRequirementsFromExprPlan word)
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords =>
+        let indexed := indexedFieldWords.foldl (init := emptyLocalArrayHelperRequirements) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeLocalArrayHelperRequirements wordAcc (localArrayHelperRequirementsFromExprPlan word)
+        dataFieldWords.foldl (init := indexed) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeLocalArrayHelperRequirements wordAcc (localArrayHelperRequirementsFromExprPlan word)
+
+  partial def localArrayHelperRequirementsFromStmtPlan :
+      StmtPlan → LocalArrayHelperRequirements
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        localArrayHelperRequirementsFromExprPlan value
+    | .assign target value
+    | .assignOp target _ value =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan target)
+          (localArrayHelperRequirementsFromExprPlan value)
+    | .effect effect =>
+        localArrayHelperRequirementsFromEffectPlan effect
+    | .assertEq lhs rhs _ _ =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan lhs)
+          (localArrayHelperRequirementsFromExprPlan rhs)
+    | .release _ | .revert _ | .revertWithError _ =>
+        emptyLocalArrayHelperRequirements
+    | .ifElse condition thenBody elseBody =>
+        mergeLocalArrayHelperRequirements
+          (localArrayHelperRequirementsFromExprPlan condition)
+          (mergeLocalArrayHelperRequirements
+            (localArrayHelperRequirementsFromStmtPlans thenBody)
+            (localArrayHelperRequirementsFromStmtPlans elseBody))
+    | .boundedFor _ _ _ body =>
+        localArrayHelperRequirementsFromStmtPlans body
+
+  partial def localArrayHelperRequirementsFromStmtPlans
+      (statements : Array StmtPlan) : LocalArrayHelperRequirements :=
+    statements.foldl (init := emptyLocalArrayHelperRequirements) fun acc stmt =>
+      mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromStmtPlan stmt)
+end
+
+def buildLocalArrayHelperRequirementsFromEntrypoints
+    (entrypoints : Array EntrypointPlan) : LocalArrayHelperRequirements :=
+  entrypoints.foldl (init := emptyLocalArrayHelperRequirements) fun acc entrypoint =>
+    mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromStmtPlans entrypoint.body)
+
+def pushHelperIfMissing (helpers : HelperSet) (helper : Helper) : HelperSet :=
+  HelperSet.insert helpers helper
+
+def mergeHelperSets (lhs rhs : HelperSet) : HelperSet :=
+  rhs.foldl pushHelperIfMissing lhs
+
+def removeMemoryArrayHelpers (helpers : HelperSet) : HelperSet :=
+  helpers.filter fun helper =>
+    !(helper == Helper.memoryArrayNew) && !(helper == Helper.memoryArrayGet)
+
+def replaceMemoryArrayHelpers (helpers memoryHelpers : HelperSet) : HelperSet :=
+  mergeHelperSets (removeMemoryArrayHelpers helpers) memoryHelpers
+
+def isMemoryArrayHelper : Helper → Bool
+  | .memoryArrayNew | .memoryArrayGet => true
+  | _ => false
+
+def isHashHelper : Helper → Bool
+  | .hashWord | .hashPair => true
+  | _ => false
+
+def isStorageArrayHelper : Helper → Bool
+  | .arraySlot | .structArraySlot | .dynamicArraySlot => true
+  | _ => false
+
+def isMapHelper : Helper → Bool
+  | .mapSlot | .mapPresenceSlot | .mapWrite | .mapSetReturn | .mapAssign _ => true
+  | _ => false
+
+def removeHashHelpers (helpers : HelperSet) : HelperSet :=
+  helpers.filter fun helper =>
+    !(helper == Helper.hashWord) && !(helper == Helper.hashPair)
+
+def replaceHashHelpers (helpers hashHelpers : HelperSet) : HelperSet :=
+  mergeHelperSets (removeHashHelpers helpers) hashHelpers
+
+def removeStorageArrayHelpers (helpers : HelperSet) : HelperSet :=
+  helpers.filter fun helper =>
+    !(helper == Helper.arraySlot) &&
+      !(helper == Helper.structArraySlot) &&
+      !(helper == Helper.dynamicArraySlot)
+
+def replaceStorageArrayHelpers (helpers storageArrayHelpers : HelperSet) : HelperSet :=
+  mergeHelperSets (removeStorageArrayHelpers helpers) storageArrayHelpers
+
+def removeMapHelpers (helpers : HelperSet) : HelperSet :=
+  helpers.filter fun helper => !isMapHelper helper
+
+def insertMapHelperDependencies (helpers : HelperSet) : Helper → HelperSet
+  | .mapWrite =>
+      HelperSet.insert
+        (HelperSet.insert
+          (HelperSet.insert helpers .mapSlot)
+          .mapPresenceSlot)
+        .mapWrite
+  | .mapSetReturn =>
+      HelperSet.insert
+        (HelperSet.insert
+          (HelperSet.insert helpers .mapSlot)
+          .mapPresenceSlot)
+        .mapSetReturn
+  | .mapAssign op =>
+      HelperSet.insert
+        (HelperSet.insert
+          (HelperSet.insert helpers .mapSlot)
+          .mapPresenceSlot)
+        (.mapAssign op)
+  | helper =>
+      HelperSet.insert helpers helper
+
+def closeMapHelpers (helpers : HelperSet) : HelperSet :=
+  helpers.foldl insertMapHelperDependencies #[]
+
+def replaceMapHelpers (helpers mapHelpers : HelperSet) : HelperSet :=
+  mergeHelperSets (removeMapHelpers helpers) (closeMapHelpers mapHelpers)
+
+mutual
+  partial def plannedHelpersFromStorageSlotExprPlan : StorageSlotExprPlan → HelperSet
+    | .scalarSlot _ | .fixedSlot _ => #[]
+    | .mapValueSlot _ keys =>
+        let nested := keys.foldl (init := #[]) fun acc key =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan key)
+        HelperSet.insert nested .mapSlot
+    | .mapPresenceSlot _ keys =>
+        let nested := keys.foldl (init := #[]) fun acc key =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan key)
+        let helpers := HelperSet.insert nested .mapPresenceSlot
+        if keys.size > 1 then HelperSet.insert helpers .mapSlot else helpers
+    | .arraySlot _ _ index =>
+        HelperSet.insert (plannedHelpersFromExprPlan index) .arraySlot
+    | .structArrayFieldSlot _ _ _ _ index =>
+        HelperSet.insert (plannedHelpersFromExprPlan index) .structArraySlot
+    | .dynamicArraySlot _ index =>
+        HelperSet.insert (plannedHelpersFromExprPlan index) .dynamicArraySlot
+
+  partial def plannedHelpersFromStoragePathWriteExprTargetPlan :
+      StoragePathWriteExprTargetPlan → HelperSet
+    | .mapWrite _ key =>
+        HelperSet.insert (plannedHelpersFromExprPlan key) .mapWrite
+    | .singleSlot slot =>
+        plannedHelpersFromStorageSlotExprPlan slot
+    | .mapValuePresence valueSlot presenceSlot =>
+        mergeHelperSets
+          (plannedHelpersFromStorageSlotExprPlan valueSlot)
+          (plannedHelpersFromStorageSlotExprPlan presenceSlot)
+
+  partial def plannedHelpersFromContextExprPlan : ContextExprPlan → HelperSet
+    | .blockHash blockNumber =>
+        plannedHelpersFromExprPlan blockNumber
+    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+        #[]
+
+  partial def plannedHelpersFromAbiValuePlan : AbiValuePlan → HelperSet
+    | .expr value =>
+        plannedHelpersFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value =>
+          mergeHelperSets acc (plannedHelpersFromAbiValuePlan value)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeHelperSets acc (plannedHelpersFromAbiValuePlan field.snd)
+
+  partial def plannedHelpersFromCrosscallArgWordPlan : CrosscallArgWordPlan → HelperSet
+    | .expr value =>
+        plannedHelpersFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+
+  partial def plannedHelpersFromExprPlan : ExprPlan → HelperSet
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        #[]
+    | .storageLoad slot =>
+        slot.requiredHelpers
+    | .builtin _ args | .arrayLit _ args =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan arg)
+    | .helperCall helper args =>
+        let nested := args.foldl (init := #[]) fun acc arg =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan arg)
+        HelperSet.insert nested helper
+    | .checkedArith _ lhs rhs
+    | .arrayGet lhs rhs =>
+        mergeHelperSets
+          (plannedHelpersFromExprPlan lhs)
+          (plannedHelpersFromExprPlan rhs)
+    | .hashTwoToOne lhs rhs =>
+        HelperSet.insert
+          (mergeHelperSets
+            (plannedHelpersFromExprPlan lhs)
+            (plannedHelpersFromExprPlan rhs))
+          .hashPair
+    | .hashPack a b c d | .hashValue a b c d =>
+        let ab := mergeHelperSets
+          (plannedHelpersFromExprPlan a)
+          (plannedHelpersFromExprPlan b)
+        let cd := mergeHelperSets
+          (plannedHelpersFromExprPlan c)
+          (plannedHelpersFromExprPlan d)
+        mergeHelperSets ab cd
+    | .context field =>
+        plannedHelpersFromContextExprPlan field
+    | .crosscall _ target methodId callValue? args _ =>
+        let nested := mergeHelperSets
+          (plannedHelpersFromExprPlan target)
+          (plannedHelpersFromExprPlan methodId)
+        let nested :=
+          match callValue? with
+          | some callValue =>
+              mergeHelperSets nested (plannedHelpersFromExprPlan callValue)
+          | none => nested
+        args.foldl (init := nested) fun acc arg =>
+          mergeHelperSets acc (plannedHelpersFromCrosscallArgWordPlan arg)
+    | .create _ callValue salt? _ =>
+        match salt? with
+        | some salt =>
+            mergeHelperSets
+              (plannedHelpersFromExprPlan callValue)
+              (plannedHelpersFromExprPlan salt)
+        | none =>
+            plannedHelpersFromExprPlan callValue
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source =>
+        plannedHelpersFromExprPlan source
+    | .hash source =>
+        HelperSet.insert (plannedHelpersFromExprPlan source) .hashWord
+    | .localArrayGet _ path _ =>
+        path.foldl (init := #[]) fun acc index =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan index)
+    | .memoryArrayNew _ length =>
+        HelperSet.insert (plannedHelpersFromExprPlan length) .memoryArrayNew
+    | .memoryArrayGet array index =>
+        HelperSet.insert
+          (mergeHelperSets
+            (plannedHelpersFromExprPlan array)
+            (plannedHelpersFromExprPlan index))
+          .memoryArrayGet
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan field.snd)
+    | .effect effect =>
+        plannedHelpersFromEffectPlan .mapSetReturn effect
+
+  partial def plannedHelpersFromEffectPlan (mapWriteHelper : Helper) : EffectPlan → HelperSet
+    | .storageScalarRead _ | .storageScalarReadTarget _
+    | .storageStructFieldRead _ _ | .storageStructFieldReadTarget _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        #[]
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageScalarAssignOp _ _ value
+    | .storageScalarAssignOpTarget _ _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        plannedHelpersFromExprPlan value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key =>
+        HelperSet.insert (plannedHelpersFromExprPlan key) .mapPresenceSlot
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key =>
+        HelperSet.insert (plannedHelpersFromExprPlan key) .mapSlot
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        plannedHelpersFromExprPlan key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value =>
+        HelperSet.insert
+          (mergeHelperSets
+            (plannedHelpersFromExprPlan key)
+            (plannedHelpersFromExprPlan value))
+          mapWriteHelper
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value =>
+        mergeHelperSets
+          (plannedHelpersFromExprPlan key)
+          (plannedHelpersFromExprPlan value)
+    | .memoryArraySet array index value =>
+        mergeHelperSets
+          (mergeHelperSets
+            (plannedHelpersFromExprPlan array)
+            (plannedHelpersFromExprPlan index))
+          (plannedHelpersFromExprPlan value)
+    | .storagePathRead _ _ | .storagePathReadTarget _ =>
+        #[]
+    | .storagePathReadExprTarget slot =>
+        plannedHelpersFromStorageSlotExprPlan slot
+    | .storagePathWrite _ _ value | .storagePathAssignOp _ _ _ value =>
+        plannedHelpersFromExprPlan value
+    | .storagePathWriteTarget _ value | .storagePathAssignOpTarget _ _ value =>
+        plannedHelpersFromExprPlan value
+    | .storagePathWriteExprTarget target value =>
+        mergeHelperSets
+          (plannedHelpersFromStoragePathWriteExprTargetPlan target)
+          (plannedHelpersFromExprPlan value)
+    | .storagePathAssignOpExprTarget target op value =>
+        let targetHelpers :=
+          match target with
+          | .mapWrite _ key =>
+              HelperSet.insert (plannedHelpersFromExprPlan key) (.mapAssign op)
+          | .singleSlot slot =>
+              plannedHelpersFromStorageSlotExprPlan slot
+          | .mapValuePresence valueSlot presenceSlot =>
+              mergeHelperSets
+                (plannedHelpersFromStorageSlotExprPlan valueSlot)
+                (plannedHelpersFromStorageSlotExprPlan presenceSlot)
+        mergeHelperSets targetHelpers (plannedHelpersFromExprPlan value)
+    | .contextRead field =>
+        plannedHelpersFromContextExprPlan field
+    | .eventEmit _ dataFields =>
+        dataFields.foldl (init := #[]) fun acc field =>
+          mergeHelperSets acc (plannedHelpersFromAbiValuePlan field)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexed := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeHelperSets acc (plannedHelpersFromAbiValuePlan field)
+        dataFields.foldl (init := indexed) fun acc field =>
+          mergeHelperSets acc (plannedHelpersFromAbiValuePlan field)
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeHelperSets wordAcc (plannedHelpersFromExprPlan word)
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords =>
+        let indexed := indexedFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeHelperSets wordAcc (plannedHelpersFromExprPlan word)
+        dataFieldWords.foldl (init := indexed) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeHelperSets wordAcc (plannedHelpersFromExprPlan word)
+
+  partial def plannedHelpersFromStmtPlan : StmtPlan → HelperSet
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        plannedHelpersFromExprPlan value
+    | .assign target value
+    | .assignOp target _ value =>
+        mergeHelperSets
+          (plannedHelpersFromExprPlan target)
+          (plannedHelpersFromExprPlan value)
+    | .effect effect =>
+        plannedHelpersFromEffectPlan .mapWrite effect
+    | .assertEq lhs rhs _ _ =>
+        mergeHelperSets
+          (plannedHelpersFromExprPlan lhs)
+          (plannedHelpersFromExprPlan rhs)
+    | .release _ | .revert _ | .revertWithError _ =>
+        #[]
+    | .ifElse condition thenBody elseBody =>
+        mergeHelperSets
+          (plannedHelpersFromExprPlan condition)
+          (mergeHelperSets
+            (plannedHelpersFromStmtPlans thenBody)
+            (plannedHelpersFromStmtPlans elseBody))
+    | .boundedFor _ _ _ body =>
+        plannedHelpersFromStmtPlans body
+
+  partial def plannedHelpersFromStmtPlans (statements : Array StmtPlan) : HelperSet :=
+    statements.foldl (init := #[]) fun acc stmt =>
+      mergeHelperSets acc (plannedHelpersFromStmtPlan stmt)
+end
+
+def buildPlannedHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : HelperSet :=
+  entrypoints.foldl (init := #[]) fun acc entrypoint =>
+    mergeHelperSets acc (plannedHelpersFromStmtPlans entrypoint.body)
+
+def buildMemoryArrayHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : HelperSet :=
+  (buildPlannedHelpersFromEntrypoints entrypoints).filter isMemoryArrayHelper
+
+def buildHashHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : HelperSet :=
+  (buildPlannedHelpersFromEntrypoints entrypoints).filter isHashHelper
+
+def buildStorageArrayHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : HelperSet :=
+  (buildPlannedHelpersFromEntrypoints entrypoints).filter isStorageArrayHelper
+
+def buildMapHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : HelperSet :=
+  (buildPlannedHelpersFromEntrypoints entrypoints).filter isMapHelper
+    |> closeMapHelpers
+
+def contextFieldFromContextExprPlan : ContextExprPlan → ContextField
+  | .userId => .userId
+  | .contractId => .contractId
+  | .checkpointId => .checkpointId
+  | .timestamp => .timestamp
+  | .chainId => .chainId
+  | .gasPrice => .gasPrice
+  | .gasLeft => .gasLeft
+  | .baseFee => .baseFee
+  | .prevRandao => .prevRandao
+  | .origin => .origin
+  | .coinbase => .coinbase
+  | .blockHash _ => .blockHash (.literal (.u64 0))
+
+def pushContextPlanIfMissing (ops : Array ContextPlan) (op : ContextPlan) : Array ContextPlan :=
+  if ops.any (fun existing => existing.field.name == op.field.name) then ops else ops.push op
+
+def mergeContextPlans (lhs rhs : Array ContextPlan) : Array ContextPlan :=
+  rhs.foldl pushContextPlanIfMissing lhs
+
+mutual
+  partial def contextOpsFromStorageSlotExprPlan :
+      StorageSlotExprPlan → Array ContextPlan
+    | .scalarSlot _ | .fixedSlot _ => #[]
+    | .mapValueSlot _ keys | .mapPresenceSlot _ keys =>
+        keys.foldl (init := #[]) fun acc key =>
+          mergeContextPlans acc (contextOpsFromExprPlan key)
+    | .arraySlot _ _ index
+    | .structArrayFieldSlot _ _ _ _ index
+    | .dynamicArraySlot _ index =>
+        contextOpsFromExprPlan index
+
+  partial def contextOpsFromStoragePathWriteExprTargetPlan :
+      StoragePathWriteExprTargetPlan → Array ContextPlan
+    | .mapWrite _ key =>
+        contextOpsFromExprPlan key
+    | .singleSlot slot =>
+        contextOpsFromStorageSlotExprPlan slot
+    | .mapValuePresence valueSlot presenceSlot =>
+        mergeContextPlans
+          (contextOpsFromStorageSlotExprPlan valueSlot)
+          (contextOpsFromStorageSlotExprPlan presenceSlot)
+
+  partial def contextOpsFromContextExprPlan : ContextExprPlan → Array ContextPlan
+    | .blockHash blockNumber =>
+        mergeContextPlans
+          #[{ field := contextFieldFromContextExprPlan (.blockHash blockNumber) }]
+          (contextOpsFromExprPlan blockNumber)
+    | field =>
+        #[{ field := contextFieldFromContextExprPlan field }]
+
+  partial def contextOpsFromAbiValuePlan : AbiValuePlan → Array ContextPlan
+    | .expr value =>
+        contextOpsFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value =>
+          mergeContextPlans acc (contextOpsFromAbiValuePlan value)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeContextPlans acc (contextOpsFromAbiValuePlan field.snd)
+
+  partial def contextOpsFromCrosscallArgWordPlan : CrosscallArgWordPlan → Array ContextPlan
+    | .expr value =>
+        contextOpsFromExprPlan value
+    | .local .. | .storage .. =>
+        #[]
+
+  partial def contextOpsFromExprPlan : ExprPlan → Array ContextPlan
+    | .literalWord _ | .local _ | .calldataWord _ | .nativeValue =>
+        #[]
+    | .storageLoad _ =>
+        #[]
+    | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeContextPlans acc (contextOpsFromExprPlan arg)
+    | .checkedArith _ lhs rhs
+    | .hashTwoToOne lhs rhs =>
+        mergeContextPlans
+          (contextOpsFromExprPlan lhs)
+          (contextOpsFromExprPlan rhs)
+    | .hashPack a b c d | .hashValue a b c d =>
+        let ab := mergeContextPlans
+          (contextOpsFromExprPlan a)
+          (contextOpsFromExprPlan b)
+        let cd := mergeContextPlans
+          (contextOpsFromExprPlan c)
+          (contextOpsFromExprPlan d)
+        mergeContextPlans ab cd
+    | .context field =>
+        contextOpsFromContextExprPlan field
+    | .crosscall _ target methodId callValue? args _ =>
+        let nested := mergeContextPlans
+          (contextOpsFromExprPlan target)
+          (contextOpsFromExprPlan methodId)
+        let nested :=
+          match callValue? with
+          | some callValue =>
+              mergeContextPlans nested (contextOpsFromExprPlan callValue)
+          | none => nested
+        args.foldl (init := nested) fun acc arg =>
+          mergeContextPlans acc (contextOpsFromCrosscallArgWordPlan arg)
+    | .create _ callValue salt? _ =>
+        match salt? with
+        | some salt =>
+            mergeContextPlans
+              (contextOpsFromExprPlan callValue)
+              (contextOpsFromExprPlan salt)
+        | none =>
+            contextOpsFromExprPlan callValue
+    | .cast source _
+    | .structField source _
+    | .memoryArrayLength source
+    | .hash source =>
+        contextOpsFromExprPlan source
+    | .arrayGet array index
+    | .memoryArrayGet array index =>
+        mergeContextPlans
+          (contextOpsFromExprPlan array)
+          (contextOpsFromExprPlan index)
+    | .localArrayGet _ path _ =>
+        path.foldl (init := #[]) fun acc index =>
+          mergeContextPlans acc (contextOpsFromExprPlan index)
+    | .memoryArrayNew _ length =>
+        contextOpsFromExprPlan length
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeContextPlans acc (contextOpsFromExprPlan field.snd)
+    | .effect effect =>
+        contextOpsFromEffectPlan effect
+
+  partial def contextOpsFromEffectPlan : EffectPlan → Array ContextPlan
+    | .storageScalarRead _ | .storageScalarReadTarget _
+    | .storageStructFieldRead _ _ | .storageStructFieldReadTarget _
+    | .storageDynamicArrayPop _ | .storageDynamicArrayPopTarget _ =>
+        #[]
+    | .storageScalarWrite _ value
+    | .storageScalarWriteTarget _ value
+    | .storageScalarAssignOp _ _ value
+    | .storageScalarAssignOpTarget _ _ value
+    | .storageStructFieldWrite _ _ value
+    | .storageStructFieldWriteTarget _ value
+    | .storageDynamicArrayPush _ value
+    | .storageDynamicArrayPushTarget _ value =>
+        contextOpsFromExprPlan value
+    | .storageMapContains _ key
+    | .storageMapContainsTarget _ key
+    | .storageMapGet _ key
+    | .storageMapGetTarget _ key
+    | .storageArrayRead _ key
+    | .storageArrayReadTarget _ key
+    | .storageArrayStructFieldRead _ key _
+    | .storageArrayStructFieldReadTarget _ key =>
+        contextOpsFromExprPlan key
+    | .storageMapInsert _ key value
+    | .storageMapInsertTarget _ key value
+    | .storageMapSet _ key value
+    | .storageMapSetTarget _ key value
+    | .storageArrayWrite _ key value
+    | .storageArrayWriteTarget _ key value
+    | .storageArrayStructFieldWrite _ key _ value
+    | .storageArrayStructFieldWriteTarget _ key value =>
+        mergeContextPlans
+          (contextOpsFromExprPlan key)
+          (contextOpsFromExprPlan value)
+    | .memoryArraySet array index value =>
+        mergeContextPlans
+          (mergeContextPlans
+            (contextOpsFromExprPlan array)
+            (contextOpsFromExprPlan index))
+          (contextOpsFromExprPlan value)
+    | .storagePathRead _ _ | .storagePathReadTarget _ =>
+        #[]
+    | .storagePathReadExprTarget slot =>
+        contextOpsFromStorageSlotExprPlan slot
+    | .storagePathWrite _ _ value | .storagePathAssignOp _ _ _ value =>
+        contextOpsFromExprPlan value
+    | .storagePathWriteTarget _ value | .storagePathAssignOpTarget _ _ value =>
+        contextOpsFromExprPlan value
+    | .storagePathWriteExprTarget target value
+    | .storagePathAssignOpExprTarget target _ value =>
+        mergeContextPlans
+          (contextOpsFromStoragePathWriteExprTargetPlan target)
+          (contextOpsFromExprPlan value)
+    | .contextRead field =>
+        contextOpsFromContextExprPlan field
+    | .eventEmit _ dataFields =>
+        dataFields.foldl (init := #[]) fun acc field =>
+          mergeContextPlans acc (contextOpsFromAbiValuePlan field)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexed := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeContextPlans acc (contextOpsFromAbiValuePlan field)
+        dataFields.foldl (init := indexed) fun acc field =>
+          mergeContextPlans acc (contextOpsFromAbiValuePlan field)
+    | .eventEmitWords _ dataFieldWords =>
+        dataFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeContextPlans wordAcc (contextOpsFromExprPlan word)
+    | .eventEmitIndexedWords _ indexedFieldWords dataFieldWords =>
+        let indexed := indexedFieldWords.foldl (init := #[]) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeContextPlans wordAcc (contextOpsFromExprPlan word)
+        dataFieldWords.foldl (init := indexed) fun acc words =>
+          words.foldl (init := acc) fun wordAcc word =>
+            mergeContextPlans wordAcc (contextOpsFromExprPlan word)
+
+  partial def contextOpsFromStmtPlan : StmtPlan → Array ContextPlan
+    | .letBind _ _ value
+    | .letMutBind _ _ value
+    | .assert value _ _
+    | .return value =>
+        contextOpsFromExprPlan value
+    | .assign target value
+    | .assignOp target _ value =>
+        mergeContextPlans
+          (contextOpsFromExprPlan target)
+          (contextOpsFromExprPlan value)
+    | .effect effect =>
+        contextOpsFromEffectPlan effect
+    | .assertEq lhs rhs _ _ =>
+        mergeContextPlans
+          (contextOpsFromExprPlan lhs)
+          (contextOpsFromExprPlan rhs)
+    | .release _ | .revert _ | .revertWithError _ =>
+        #[]
+    | .ifElse condition thenBody elseBody =>
+        mergeContextPlans
+          (contextOpsFromExprPlan condition)
+          (mergeContextPlans
+            (contextOpsFromStmtPlans thenBody)
+            (contextOpsFromStmtPlans elseBody))
+    | .boundedFor _ _ _ body =>
+        contextOpsFromStmtPlans body
+
+  partial def contextOpsFromStmtPlans (statements : Array StmtPlan) : Array ContextPlan :=
+    statements.foldl (init := #[]) fun acc stmt =>
+      mergeContextPlans acc (contextOpsFromStmtPlan stmt)
+end
+
+def buildContextOpsFromEntrypoints (entrypoints : Array EntrypointPlan) : Array ContextPlan :=
+  entrypoints.foldl (init := #[]) fun acc entrypoint =>
+    mergeContextPlans acc (contextOpsFromStmtPlans entrypoint.body)
 
 def localArrayGetLengthsForDynamicExprTarget
     (env : TypeEnv)
@@ -1981,11 +4114,25 @@ def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
     | none => some plan
   let dispatchPlan := moduleDispatchPlan module dispatchEntrypointPlans
   let eventPlans ← buildEventPlans module
-  let crosscallPlans ← buildCrosscallHelperPlans module
-  let createPlans := buildCreateHelperPlans module
-  let localArrayGetLengths ← buildLocalArrayGetLengths module
-  let nestedLocalArrayGetShapes ← buildNestedLocalArrayGetShapes module
-  let usesCheckedArithmetic := moduleUsesCheckedArithmetic module
+  let crosscallPlans ← buildCrosscallHelperPlansFromEntrypoints module entrypointPlans
+  let createPlans := buildCreateHelperPlansFromEntrypoints entrypointPlans
+  let localArrayRequirements := buildLocalArrayHelperRequirementsFromEntrypoints entrypointPlans
+  let localArrayGetLengths := localArrayRequirements.fst
+  let nestedLocalArrayGetShapes := localArrayRequirements.snd
+  let usesCheckedArithmetic := entrypointsUseCheckedArithmetic entrypointPlans
+  let contextOps := buildContextOpsFromEntrypoints entrypointPlans
+  let memoryArrayHelpers := buildMemoryArrayHelpersFromEntrypoints entrypointPlans
+  let hashHelpers := buildHashHelpersFromEntrypoints entrypointPlans
+  let storageArrayHelpers := buildStorageArrayHelpersFromEntrypoints entrypointPlans
+  let mapHelpers := buildMapHelpersFromEntrypoints entrypointPlans
+  let helpers := replaceHashHelpers
+    (replaceMemoryArrayHelpers
+      (replaceStorageArrayHelpers
+        (replaceMapHelpers basePlan.helpers mapHelpers)
+        storageArrayHelpers)
+      memoryArrayHelpers)
+    hashHelpers
+  let mapAssignOps := helperMapAssignOps helpers
   let metadata := {
     moduleName := module.name
     entrypoints := entrypointPlans
@@ -2001,6 +4148,9 @@ def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
     localArrayGetLengths := localArrayGetLengths
     nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
     usesCheckedArithmetic := usesCheckedArithmetic
+    contextOps := contextOps
+    helpers := helpers
+    mapAssignOps := mapAssignOps
     metadata := metadata
   }
 
@@ -2019,11 +4169,25 @@ def buildFullModulePlanWithTargetPlan
     | none => some plan
   let dispatchPlan := moduleDispatchPlan module dispatchEntrypointPlans
   let eventPlans ← buildEventPlans module
-  let crosscallPlans ← buildCrosscallHelperPlans module
-  let createPlans := buildCreateHelperPlans module
-  let localArrayGetLengths ← buildLocalArrayGetLengths module
-  let nestedLocalArrayGetShapes ← buildNestedLocalArrayGetShapes module
-  let usesCheckedArithmetic := moduleUsesCheckedArithmetic module
+  let crosscallPlans ← buildCrosscallHelperPlansFromEntrypoints module entrypointPlans
+  let createPlans := buildCreateHelperPlansFromEntrypoints entrypointPlans
+  let localArrayRequirements := buildLocalArrayHelperRequirementsFromEntrypoints entrypointPlans
+  let localArrayGetLengths := localArrayRequirements.fst
+  let nestedLocalArrayGetShapes := localArrayRequirements.snd
+  let usesCheckedArithmetic := entrypointsUseCheckedArithmetic entrypointPlans
+  let contextOps := buildContextOpsFromEntrypoints entrypointPlans
+  let memoryArrayHelpers := buildMemoryArrayHelpersFromEntrypoints entrypointPlans
+  let hashHelpers := buildHashHelpersFromEntrypoints entrypointPlans
+  let storageArrayHelpers := buildStorageArrayHelpersFromEntrypoints entrypointPlans
+  let mapHelpers := buildMapHelpersFromEntrypoints entrypointPlans
+  let helpers := replaceHashHelpers
+    (replaceMemoryArrayHelpers
+      (replaceStorageArrayHelpers
+        (replaceMapHelpers basePlan.helpers mapHelpers)
+        storageArrayHelpers)
+      memoryArrayHelpers)
+    hashHelpers
+  let mapAssignOps := helperMapAssignOps helpers
   let metadata := {
     moduleName := module.name
     entrypoints := entrypointPlans
@@ -2039,6 +4203,9 @@ def buildFullModulePlanWithTargetPlan
     localArrayGetLengths := localArrayGetLengths
     nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
     usesCheckedArithmetic := usesCheckedArithmetic
+    contextOps := contextOps
+    helpers := helpers
+    mapAssignOps := mapAssignOps
     metadata := metadata
   }
 

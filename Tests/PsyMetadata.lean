@@ -53,25 +53,24 @@ def main : IO Unit := do
     (counterMeta.entrypoints.map (·.name))
   assertEq "counter return types" #["Unit", "Unit", "U64"]
     (counterMeta.entrypoints.map (·.returnType))
-
   assertEq "counter capabilities unique" false (hasDuplicate counterMeta.capabilities)
 
   let mapMeta ← requireOk (buildPlanArtifactMetadata Examples.MapProbe.module) "map metadata"
   assertEq "map has capabilities" false mapMeta.capabilities.isEmpty
 
-  let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata")
+  let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata"
   assertEq "event has events" false eventMeta.events.isEmpty
   assertEq "event has fields" false eventMeta.events[0]!.fields.isEmpty
   -- EventProbe's only Psy entrypoint emits a .local value, so type inference falls
   -- back to "Felt". Verify the fallback works.
   assertEq "event field fallback type" "Felt" (eventMeta.events[0]!.fields[0]!.type)
 
-  let typedEventMeta ← requireOk (buildPlanArtifactMetadata typedEventModule) "typed event metadata")
+  let typedEventMeta ← requireOk (buildPlanArtifactMetadata typedEventModule) "typed event metadata"
   assertEq "typed event count field type" "U64" typedEventMeta.events[0]!.fields[0]!.type
   assertEq "typed event flag field type" "Bool" typedEventMeta.events[0]!.fields[1]!.type
   assertEq "typed event pair field type" "Pair" typedEventMeta.events[0]!.fields[2]!.type
 
-  let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata")
+  let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata"
   assertEq "context has contextOps" false ctxMeta.contextOps.isEmpty
   -- ContextProbe uses userId, contractId, and checkpointId.
   assertEq "context op names" #["userId", "contractId", "checkpointId"]

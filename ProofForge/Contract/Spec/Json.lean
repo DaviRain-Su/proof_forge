@@ -37,6 +37,33 @@ def jsonStringArray (values : Array String) : String :=
 def jsonUInt32 (value : UInt32) : String :=
   toString value.toNat
 
+def isUnsignedScalar (decl : StateDecl) : Bool :=
+  match decl.kind, decl.type with
+  | .scalar, .u8 | .scalar, .u32 | .scalar, .u64 | .scalar, .u128 => true
+  | _, _ => false
+
+def quintInvariants (module : Module) : Array String :=
+  module.state.filter isUnsignedScalar |>.map (fun decl => s!"{decl.id}NonNegative")
+
+def quintVerificationJson (module : Module) : String :=
+  let invariants := quintInvariants module
+  let verifyCommand :=
+    String.join [
+      "quint verify build/quint/", module.name, ".qnt --invariants ",
+      String.intercalate "," invariants.toList,
+      " --max-steps 10"
+    ]
+  jsonObject #[
+    ("quint", jsonObject #[
+      ("modelHash", "null"),
+      ("modelPath", jsonString s!"build/quint/{module.name}.qnt"),
+      ("invariants", jsonStringArray invariants),
+      ("verifyCommand", jsonString verifyCommand),
+      ("maxSteps", "10"),
+      ("checker", jsonString "apalache")
+    ])
+  ]
+
 def valueTypeJson (type : ValueType) : String := jsonString type.name
 
 def paramJson (param : String × ValueType) : String :=
@@ -154,6 +181,7 @@ def render (spec : ContractSpec) : String :=
     ("capabilities", jsonStringArray (dedupStrings (spec.module.capabilities.map fun c => c.id))),
     ("intents", jsonArray (spec.intents.map intentJson)),
     ("errors", jsonArray (errorCatalog spec.module |>.map errorCatalogEntryJson)),
+    ("verification", quintVerificationJson spec.module),
     upgradePolicyField,
     proxyPatternField
   ]

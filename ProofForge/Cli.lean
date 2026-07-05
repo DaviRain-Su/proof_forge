@@ -26,6 +26,8 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.Aleo.IR
 import ProofForge.Backend.CosmWasm.EmitWat
 import ProofForge.Backend.Move.Aptos
+import ProofForge.Backend.Quint.Scenario
+import ProofForge.Backend.Quint.Lower
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
@@ -266,6 +268,7 @@ inductive EmitMode where
   | pureMathIrLeo
   | counterIrCosmWasm
   | counterIrAptos
+  | counterIrQuint
   deriving BEq, Inhabited
 
 def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
@@ -435,7 +438,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .pureMathIrLeo
   | .counterIrTs
   | .counterIrCosmWasm
-  | .counterIrAptos => true
+  | .counterIrAptos
+  | .counterIrQuint => true
   | _ => false
 
 def EmitMode.isLegacyAlias : EmitMode → Bool
@@ -454,6 +458,7 @@ inductive Command where
   | emit
   | check
   | init
+  | metadata
   | listTargets
   | listFixtures
   deriving BEq, Inhabited, Repr
@@ -635,6 +640,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-leo [-o output.leo]",
     "  proof-forge --emit-counter-ir-cosmwasm [-o output.wat]   (CosmWasm Counter spike)",
     "  proof-forge --emit-counter-ir-aptos [-o output-dir]       (Aptos Move Counter spike)",
+    "  proof-forge --emit-counter-ir-quint [-o output.qnt]       (Quint Counter model)",
     "  proof-forge init [DIR] [--template portable-counter]",
     "",
     "EVM bytecode mode loads `spec : ContractSpec` from the Lean module and uses Foundry `cast sig` plus `solc --strict-assembly`.",
@@ -1703,7 +1709,7 @@ mutual
           ProofForge.Backend.Evm.IR.addLocal env indexName .u32 false
         let (events, _) ← eventAbisInStatements cast module loopEnv body
         return (events, env)
-    | .whileLoop _cond body => do
+    | .whileLoop cond body => do
         let (events, _) ← eventAbisInStatements cast module env body
         return (events, env)
 end
@@ -2724,6 +2730,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .counterIrCosmWasm }
   | "--emit-counter-ir-aptos" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrAptos }
+  | "--emit-counter-ir-quint" :: rest, opts =>
+      parseArgs rest { opts with mode := .counterIrQuint }
   | "-h" :: _, _ =>
       .error usage
   | "--help" :: _, _ =>
@@ -2963,6 +2971,7 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
   | "aleo-leo", "counter", _ => Except.ok "--emit-counter-ir-leo"
   | "aleo-leo", "pure-math", _ => Except.ok "--emit-pure-math-ir-leo"
   | "move-aptos", "counter", _ => Except.ok "--emit-counter-ir-aptos"
+  | "quint", "counter", _ => Except.ok "--emit-counter-ir-quint"
   | t, f, fmt =>
       Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
@@ -3015,6 +3024,115 @@ def newCommandArgsToLegacy (args : List String) : Except String (List String) :=
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
+
+/-! ### Metadata command (plan-driven artifact metadata JSON) -/
+
+/-- Map a fixture id to its portable IR module for plan-driven metadata
+    export. Covers all Psy-compatible fixtures. -/
+def metadataFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
+  match fixtureId with
+  | "counter" => some ProofForge.IR.Examples.Counter.module
+  | "map" => some ProofForge.IR.Examples.MapProbe.module
+  | "event" => some ProofForge.IR.Examples.EventProbe.module
+  | "context" => some ProofForge.IR.Examples.ContextProbe.module
+  | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module
+  | "struct" => some ProofForge.IR.Examples.StructProbe.module
+  | "struct-array" => some ProofForge.IR.Examples.StructArrayProbe.module
+  | "array" => some ProofForge.IR.Examples.ArrayProbe.module
+  | "assert" => some ProofForge.IR.Examples.AssertProbe.module
+  | "hash" => some ProofForge.IR.Examples.HashProbe.module
+  | "hash-storage" => some ProofForge.IR.Examples.HashStorageProbe.module
+  | "loop" => some ProofForge.IR.Examples.LoopProbe.module
+  | "arithmetic" => some ProofForge.IR.Examples.ArithmeticProbe.module
+  | "bitwise" => some ProofForge.IR.Examples.BitwiseProbe.module
+  | "conditional" => some ProofForge.IR.Examples.ConditionalProbe.module
+  | "else-if" => some ProofForge.IR.Examples.ElseIfProbe.module
+  | "expression-predicate" => some ProofForge.IR.Examples.ExpressionPredicateProbe.module
+  | "generic-entrypoint" => some ProofForge.IR.Examples.GenericEntrypointProbe.module
+  | "abi-aggregate" => some ProofForge.IR.Examples.AbiAggregateProbe.module
+  | "nested-aggregate" => some ProofForge.IR.Examples.NestedAggregateProbe.module
+  | "storage-nested-aggregate" => some ProofForge.IR.Examples.StorageNestedAggregateProbe.module
+  | "u32-arithmetic" => some ProofForge.IR.Examples.U32ArithmeticProbe.module
+  | "u32-hash-packing" => some ProofForge.IR.Examples.U32HashPackingProbe.module
+  | "u32-storage-array" => some ProofForge.IR.Examples.U32StorageArrayProbe.module
+  | "u32-storage-scalar" => some ProofForge.IR.Examples.U32StorageScalarProbe.module
+  | "bool-storage-array" => some ProofForge.IR.Examples.BoolStorageArrayProbe.module
+  | "bool-storage-scalar" => some ProofForge.IR.Examples.BoolStorageScalarProbe.module
+  | _ => none
+
+def metadataQuoteString (s : String) : String :=
+  "\"" ++ (s.toList.map (fun c => match c with
+    | '\\' => "\\\\"
+    | '"' => "\\\""
+    | '\n' => "\\n"
+    | '\r' => "\\r"
+    | '\t' => "\\t"
+    | c => c.toString)).foldl (· ++ ·) "" ++ "\""
+
+def metadataJsonArray (items : List String) : String :=
+  "[" ++ ", ".intercalate items ++ "]"
+
+def metadataJsonObject (fields : List (String × String)) : String :=
+  "{" ++ ", ".intercalate (fields.map (fun (k, v) => metadataQuoteString k ++ ": " ++ v)) ++ "}"
+
+def metadataRenderAbiParam (p : ProofForge.Backend.Psy.Metadata.AbiParamDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString p.name), ("type", metadataQuoteString p.type)]
+
+def metadataRenderAbiEntrypoint (e : ProofForge.Backend.Psy.Metadata.AbiEntrypointDescriptor) : String :=
+  metadataJsonObject [
+    ("name", metadataQuoteString e.name),
+    ("params", metadataJsonArray (e.params.toList.map metadataRenderAbiParam)),
+    ("returnType", metadataQuoteString e.returnType)
+  ]
+
+def metadataRenderAbiEventField (f : ProofForge.Backend.Psy.Metadata.AbiEventFieldDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString f.name), ("type", metadataQuoteString f.type)]
+
+def metadataRenderAbiEvent (e : ProofForge.Backend.Psy.Metadata.AbiEventDescriptor) : String :=
+  metadataJsonObject [
+    ("name", metadataQuoteString e.name),
+    ("fields", metadataJsonArray (e.fields.toList.map metadataRenderAbiEventField))
+  ]
+
+def metadataRenderContextOp (o : ProofForge.Backend.Psy.Metadata.ContextOpDescriptor) : String :=
+  metadataJsonObject [("name", metadataQuoteString o.name)]
+
+def metadataRenderCrosscall (c : ProofForge.Backend.Psy.Metadata.CrosscallDescriptor) : String :=
+  metadataJsonObject [("targetContractId", metadataQuoteString c.targetContractId)]
+
+def metadataRenderArtifactMetadata (m : ProofForge.Backend.Psy.Metadata.ArtifactMetadata) : String :=
+  metadataJsonObject [
+    ("targetId", metadataQuoteString m.targetId),
+    ("moduleName", metadataQuoteString m.moduleName),
+    ("entrypoints", metadataJsonArray (m.entrypoints.toList.map metadataRenderAbiEntrypoint)),
+    ("events", metadataJsonArray (m.events.toList.map metadataRenderAbiEvent)),
+    ("contextOps", metadataJsonArray (m.contextOps.toList.map metadataRenderContextOp)),
+    ("crosscalls", metadataJsonArray (m.crosscalls.toList.map metadataRenderCrosscall)),
+    ("capabilities", metadataJsonArray (m.capabilities.toList.map metadataQuoteString))
+  ]
+
+/-- Run the `proof-forge metadata` command: build plan-driven artifact
+    metadata from a fixture and print it as JSON to stdout or --output. -/
+def metadataCommand (opts : CliOptions) : IO UInt32 := do
+  let fixtureId ← match opts.fixture? with
+    | some f => pure f
+    | none => throw <| IO.userError "metadata requires --fixture <id>"
+  let module ← match metadataFixtureModule? fixtureId with
+    | some m => pure m
+    | none => throw <| IO.userError s!"metadata: unknown fixture '{fixtureId}'"
+  let artifactMeta ← match ProofForge.Backend.Psy.Metadata.buildPlanArtifactMetadata module with
+    | .ok m => pure m
+    | .error e => throw <| IO.userError s!"metadata: failed to build plan: {e.message}"
+  let json := metadataRenderArtifactMetadata artifactMeta
+  match opts.output? with
+  | some path =>
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path (json ++ "\n")
+      IO.eprintln s!"metadata: wrote {path}"
+  | none =>
+      IO.println json
+  pure 0
 
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
@@ -5679,6 +5797,20 @@ def compileCounterIrAptos (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.message
 
+def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/quint/Counter.qnt")
+  let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
+  match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.Counter.module scenario with
+  | .ok source =>
+      let some parent := output.parent
+        | throw <| IO.userError s!"invalid output path: {output}"
+      IO.FS.createDirAll parent
+      IO.FS.writeFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.message
+
 unsafe def compileEvmBytecode (opts : CliOptions) : IO UInt32 :=
   compileContractSourceEvmBytecode opts
 
@@ -5825,6 +5957,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .pureMathIrLeo => compilePureMathIrLeo opts
   | .counterIrCosmWasm => compileCounterIrCosmWasm opts
   | .counterIrAptos => compileCounterIrAptos opts
+  | .counterIrQuint => compileCounterIrQuint opts
 
 end ProofForge.Cli
 
@@ -5880,6 +6013,17 @@ unsafe def main (args : List String) : IO UInt32 := do
             fromNewSurface := true
             : ProofForge.Cli.CliOptions }
         | Except.error msg => Except.error msg
+      | "metadata" :: rest =>
+        match ProofForge.Cli.parseNewOptions rest {} with
+        | Except.ok state =>
+          Except.ok {
+            cmd := ProofForge.Cli.Command.metadata,
+            fixture? := state.fixture?,
+            output? := state.out?.map FilePath.mk,
+            root? := state.root?.map FilePath.mk,
+            fromNewSurface := true
+            : ProofForge.Cli.CliOptions }
+        | Except.error msg => Except.error msg
       | _ => ProofForge.Cli.parseArgs args {}
     match parseResult with
     | Except.ok opts => do
@@ -5892,6 +6036,8 @@ unsafe def main (args : List String) : IO UInt32 := do
           return 0
         | ProofForge.Cli.Command.check =>
           ProofForge.Cli.checkCommand opts
+        | ProofForge.Cli.Command.metadata =>
+          ProofForge.Cli.metadataCommand opts
         | _ =>
           if !opts.fromNewSurface then
             if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then

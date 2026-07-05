@@ -89,6 +89,8 @@ inductive Format where
   | cosmwasm
   | aptos
   | elf
+  | qnt
+  | scenario
   deriving BEq, Inhabited, Repr
 
 def Format.id : Format → String
@@ -102,6 +104,8 @@ def Format.id : Format → String
   | .cosmwasm => "cosmwasm"
   | .aptos => "aptos"
   | .elf => "elf"
+  | .qnt => "qnt"
+  | .scenario => "scenario"
 
 def parseFormat? (s : String) : Option Format :=
   match s with
@@ -115,6 +119,8 @@ def parseFormat? (s : String) : Option Format :=
   | "cosmwasm" => some .cosmwasm
   | "aptos" => some .aptos
   | "elf" | "so" => some .elf
+  | "qnt" => some .qnt
+  | "scenario" | "toml" => some .scenario
   | _ => none
 
 /-- Target ids that participate in the new `build|emit|check` surface. This is
@@ -127,7 +133,8 @@ def supportedTargetIds : Array String := #[
   "wasm-cosmwasm",
   "psy-dpn",
   "aleo-leo",
-  "move-aptos"
+  "move-aptos",
+  "quint"
 ]
 
 /-- Default format for a (target, fixture) pair when `--format` is omitted. -/
@@ -141,6 +148,7 @@ def defaultFormatFor (targetId fixtureId : String) : Option Format :=
   | "psy-dpn" => some .psy
   | "aleo-leo" => some .leo
   | "move-aptos" => some .aptos
+  | "quint" => some .qnt
   | _ => none
 
 /-- Conservative whitelist of supported (target, fixture, format) triples.
@@ -180,6 +188,8 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "aleo-leo", "counter", .leo => true
   | "aleo-leo", "pure-math", .leo => true
   | "move-aptos", "counter", .aptos => true
+  | "quint", "counter", .qnt => true
+  | "quint", "counter", .scenario => true
   | _, _, _ => false
 
 /-- Conservative capability demand for a fixture. Used by `proof-forge check` to

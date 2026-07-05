@@ -265,6 +265,10 @@ structure ArrayReadTargetPlan where
   length : Nat
   deriving Repr
 
+structure DynamicArrayTargetPlan where
+  rootSlot : Nat
+  deriving Repr
+
 structure StructFieldWriteTargetPlan where
   slot : StorageSlotPlan
   deriving Repr
@@ -465,6 +469,11 @@ def requireDynamicArrayState (module : Module) (stateId : String) : Except PlanE
         .error { message := s!"EVM dynamic array state '{stateId}' has unsupported element type '{elementType.name}'; only word types are supported" }
   | .scalar, _ | .map _ _, _ | .array _, _ =>
       .error { message := s!"EVM storage state '{stateId}' is not a dynamic array" }
+
+def dynamicArrayTargetPlan (module : Module) (stateId : String) :
+    Except PlanError DynamicArrayTargetPlan := do
+  let (rootSlot, _) ← requireDynamicArrayState module stateId
+  .ok { rootSlot }
 
 def dynamicArraySlotPlan (module : Module) (stateId : String) (index : Expr) : Except PlanError StorageSlotPlan := do
   let (slot, _) ← requireDynamicArrayState module stateId
@@ -772,14 +781,10 @@ mutual
     | hashPack (a b c d : ExprPlan)
     | context (field : ContextExprPlan)
     | crosscall (mode : CrosscallMode) (target methodId : ExprPlan)
-        (callValue? : Option ExprPlan) (args : Array ExprPlan) (returnType : ValueType)
+        (callValue? : Option ExprPlan) (args : Array CrosscallArgWordPlan) (returnType : ValueType)
     | create (mode : CreateMode) (callValue : ExprPlan) (salt? : Option ExprPlan)
         (initCodeHex : String)
     | cast (source : ExprPlan) (target : ValueType)
-    | localAbiWords (name : String) (type : ValueType)
-    | storageAbiWords (stateId : String) (type : ValueType)
-    | localCrosscallWords (name : String) (type : ValueType)
-    | storageCrosscallWords (stateId : String) (type : ValueType)
     | structField (base : ExprPlan) (fieldName : String)
     | arrayGet (array index : ExprPlan)
     | localArrayGet (name : String) (path : Array ExprPlan) (lengths : Array Nat)
@@ -793,6 +798,20 @@ mutual
     | hashTwoToOne (lhs rhs : ExprPlan)
     | nativeValue
     | effect (effect : EffectPlan)
+    deriving Repr
+
+  inductive AbiValuePlan where
+    | expr (value : ExprPlan)
+    | local (name : String) (type : ValueType)
+    | storage (stateId : String) (type : ValueType)
+    | arrayLit (elementType : ValueType) (values : Array AbiValuePlan)
+    | structLit (typeName : String) (fields : Array (String × AbiValuePlan))
+    deriving Repr
+
+  inductive CrosscallArgWordPlan where
+    | expr (value : ExprPlan)
+    | local (name : String) (type : ValueType)
+    | storage (stateId : String) (type : ValueType)
     deriving Repr
 
   inductive StorageSlotExprPlan where
@@ -835,7 +854,9 @@ mutual
     | storageArrayStructFieldWrite (stateId : String) (index : ExprPlan) (fieldName : String) (value : ExprPlan)
     | storageArrayStructFieldWriteTarget (target : StructArrayFieldWriteTargetPlan) (index value : ExprPlan)
     | storageDynamicArrayPush (stateId : String) (value : ExprPlan)
+    | storageDynamicArrayPushTarget (target : DynamicArrayTargetPlan) (value : ExprPlan)
     | storageDynamicArrayPop (stateId : String)
+    | storageDynamicArrayPopTarget (target : DynamicArrayTargetPlan)
     | memoryArraySet (array index value : ExprPlan)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldReadTarget (target : StructFieldReadTargetPlan)
@@ -851,8 +872,10 @@ mutual
     | storagePathAssignOpTarget (target : StoragePathWriteTargetPlan) (op : AssignOp) (value : ExprPlan)
     | storagePathAssignOpExprTarget (target : StoragePathWriteExprTargetPlan) (op : AssignOp) (value : ExprPlan)
     | contextRead (field : ContextExprPlan)
-    | eventEmit (event : EventPlan) (dataFields : Array ExprPlan)
-    | eventEmitIndexed (event : EventPlan) (indexedFields dataFields : Array ExprPlan)
+    | eventEmit (event : EventPlan) (dataFields : Array AbiValuePlan)
+    | eventEmitIndexed (event : EventPlan) (indexedFields dataFields : Array AbiValuePlan)
+    | eventEmitWords (event : EventPlan) (dataFieldWords : Array (Array ExprPlan))
+    | eventEmitIndexedWords (event : EventPlan) (indexedFieldWords dataFieldWords : Array (Array ExprPlan))
     deriving Repr
 
   inductive EventFieldPlan where
@@ -1145,12 +1168,12 @@ structure CrosscallReturnAssignmentPlan where
   target : ExprPlan
   methodId : ExprPlan
   callValue? : Option ExprPlan
-  args : Array ExprPlan
+  args : Array CrosscallArgWordPlan
   deriving Repr
 
 structure ReturnValueWordPlan where
   returns : ReturnPlan
-  source : ExprPlan
+  source : AbiValuePlan
   deriving Repr
 
 instance : Inhabited ReturnPlan := ⟨{ returnType := .unit, wordTypes := #[], localNames := #[] }⟩

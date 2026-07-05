@@ -151,6 +151,50 @@ Acceptance criteria:
 - At least one unsupported capability is rejected with a clear diagnostic.
 - IR version appears in artifact metadata when emitted.
 
+## Workstream 1.6: Quint Model Generation and MBT Replay
+
+Goal: add Quint as an upstream design-validation layer that generates
+state-machine models from portable IR, model-checks them, and produces MBT
+traces that replay against ProofForge IR semantics.
+
+Tasks:
+
+- Done: add `ProofForge.Backend.Quint` library with AST (`Model.lean`),
+  pretty-printer (`Emit.lean`), IR-to-Quint lowering (`Lower.lean`),
+  scenario TOML parsing (`Scenario.lean`), invariant derivation
+  (`Invariants.lean`), ITF trace parsing (`ITF.lean`), and IR-semantics replay
+  (`Replay.lean`).
+- Done: wire `proof-forge emit --target quint --fixture counter` into the CLI
+  and `Fixture.lean`.
+- Done: add end-to-end test `Tests/Quint/CounterReplay.lean` that lowers
+  Counter, runs `quint run --mbt --out-itf`, parses the ITF trace, and replays
+  every transition through `ProofForge.IR.Semantics`.
+- Done: register toolchain capabilities `model.quint`, `verify.model_check`,
+  `verify.simulation`, and `test.mbt_trace` in `docs/capability-registry.md`.
+- Done: extend `ProofForge.Contract.Spec.Json.render` with a `verification.quint`
+  metadata block (model path, invariants, verify command, checker).
+- Done: add `scripts/quint/model-check-gate.sh` and
+  `scripts/quint/mbt-replay-gate.sh` with graceful skips when `quint` or
+  Java 17+ are unavailable; expose them as `just quint-model-gate` and
+  `just quint-mbt-gate`.
+- Add a ValueVault IR fixture and extend the generator/replay gates to cover it.
+- Parse manual invariants from scenario TOML under `[invariants]` and emit them
+  as Quint `val` definitions.
+- Extend the supported IR subset toward maps, arrays, structs, and bounded loops
+  as the corresponding IR semantics coverage grows.
+- Consider adding `quint verify` to the default CI path once Java 17+ is
+  available in the build environment.
+
+Acceptance criteria:
+
+- `lake env proof-forge emit --target quint --fixture counter` writes a valid
+  `build/quint/Counter.qnt` model.
+- `quint run build/quint/Counter.qnt` finds no invariant violations.
+- `just quint-mbt-gate` replays a generated ITF trace through IR semantics and
+  passes.
+- `quint verify` is exercised by `just quint-model-gate` and skips gracefully
+  when Java 17+ is missing.
+
 ## Workstream 2: Artifact Metadata
 
 See [validation-gates.md](validation-gates.md) for current and planned validation commands.
@@ -341,7 +385,9 @@ Tasks:
     `EffectPlan -> ToYul` helpers own the final packed read/write/assign-op
     frame. Struct-valued scalar storage reads/writes remain on compatibility
     paths until their field expansion can be represented as planned storage
-    targets.
+    targets. The now-unused `lowerScalarStorageWriteStmt` compatibility helper
+    has been removed; scalar storage write success paths now pass through the
+    target `EffectPlan -> ToYul` helper.
   - Started: direct `storageMapInsert`/`storageMapSet` write assembly now
     consumes `MapWriteTargetPlan` variants from `Lower.buildEffectPlan` for
     supported scalar map key/value expressions. Statement-position writes and
@@ -353,7 +399,9 @@ Tasks:
     `ToYul.mapGetTargetExpr` for final presence/value slot reads. Storage-path
     map reads and writes continue on their dedicated `StorageSlotPlan` /
     `StoragePathWriteTargetPlan` surfaces until typed map path-expression
-    planning is widened.
+    planning is widened. The now-unused `lowerMapSetReturnExpr` helper has
+    been removed; expression-position map insert/set return effects remain on
+    the target effect-plan path.
   - Started: direct `storageArrayRead`/`storageArrayWrite` assembly now
     consumes `ArrayReadTargetPlan`/`ArrayWriteTargetPlan` variants from
     `Lower.buildEffectPlan` for supported scalar index/value expressions. The
@@ -381,30 +429,57 @@ Tasks:
     fieldOffset, index))` assembly. Storage-path struct/array field surfaces
     remain on their dedicated storage-path target path until typed path
     expression planning is widened.
-  - Started: whole-struct `storageScalarWrite` assembly now consumes a narrow
-    `StmtPlan.effect` / `EffectPlan -> ToYul` helper for local struct sources,
-    storage-struct read sources, and struct literals whose field expressions
-    are in the supported scalar plan subset. Struct metadata lookup and field
-    source expansion remain in the `IR.lean` compatibility facade; the helper
-    owns the final snapshot-temp declarations and field-slot `sstore` block.
-    Struct literals with unsupported field expressions still use the
-    compatibility fallback.
+  - Started: whole-struct `storageScalarWrite` assembly now starts from
+    `Lower.buildEffectPlan` for local struct sources, storage-struct read
+    sources, and struct literals whose field expressions are in the supported
+    scalar plan subset, then consumes the resulting narrow `StmtPlan.effect` /
+    `EffectPlan -> ToYul` helper. Struct metadata lookup and field source
+    expansion remain in the `IR.lean` compatibility facade; the helper owns the
+    final snapshot-temp declarations and field-slot `sstore` block. Struct
+    literals with unsupported field expressions still use the compatibility
+    fallback.
   - Started: expression-position `storagePathRead` assembly now consumes a
-    planned `StorageSlotPlan` target from `Lower.buildEffectPlan`. Direct map,
-    nested map, array, struct-field, and struct-array-field storage-path reads
-    route through `ToYul.storagePathReadExprFromPlan` for the final `sload`
-    slot expression instead of recomputing the slot only in the compatibility
-    facade. Path segment expressions still live in `ValuePlan` wrappers around
-    IR expressions; fully typed storage-path expression planning remains a
-    follow-up extraction slice.
+    planned typed `StorageSlotExprPlan` target from `Lower.buildEffectPlan`.
+    Direct map, nested map, array, struct-field, and struct-array-field
+    storage-path reads route through `ToYul.storagePathReadExprFromExprPlan`
+    for the final `sload` slot expression instead of recomputing the slot only
+    in the compatibility facade. Active path segment expressions now flow
+    through `Lower.buildStoragePathPlan` as `StoragePathPlanSegment` values
+    carrying `ExprPlan`s. The compatibility `lowerStoragePathReadExprTarget`
+    helper now also builds `Lower.buildStoragePathPlan` and lowers
+    `StorageSlotExprPlan -> ToYul`, so raw path segment expressions no longer
+    enter the read fallback through `ValuePlan` wrappers. Older `ValuePlan`
+    slot helpers remain only for direct `StorageSlotPlan` helper surfaces and
+    legacy compatibility tests.
+    The now-unused compatibility `lowerStoragePathReadExpr` wrapper has been
+    removed; raw planned effects still use `lowerStoragePathReadExprTarget`
+    until the remaining diagnostic-only callers no longer need that target
+    callback.
+    The now-unused legacy `lowerMapPathReadExpr` nested-map read helper has
+    been removed.
   - Started: statement-position `storagePathWrite` and `storagePathAssignOp`
-    assembly now consume planned `StoragePathWriteTargetPlan` variants from
+    assembly now consume planned `StoragePathWriteExprTargetPlan` variants from
     `Lower.buildEffectPlan`, with direct `EffectPlan -> ToYul` helpers for
     supported scalar write/assign RHS values across direct `mapKey`, `index`,
-    `field`, `index`+`field`, and nested consecutive-`mapKey` paths. Legacy
-    callback helpers remain for compatibility/fallback paths, while typed path
-    expression planning and the remaining path-shape diagnostic surfaces are
-    the next storage-path extraction slices.
+    `field`, `index`+`field`, and nested consecutive-`mapKey` paths. The
+    compatibility `lowerStoragePathWriteTarget` helper now also builds
+    `Lower.buildStoragePathPlan` and lowers
+    `StoragePathWriteExprTargetPlan -> ToYul`, so raw path segment expressions
+    no longer enter that helper through `ValuePlan` wrappers. The remaining
+    storage-path extraction work is to delete legacy callback surfaces once
+    direct callers and diagnostic-only fallback paths no longer need them.
+    Storage-path write fallback frames now also reuse
+    `ToYul.storagePathWriteTargetStatements`; `IR.lean` still chooses the
+    fallback storage-path target and scalar value expression, but it no longer
+    hand-assembles the map write helper call, single-slot `sstore`, or
+    nested-map value/presence writeback block.
+    The now-unused legacy `lowerMapPathWriteStmt` nested-map writeback helper
+    has been removed.
+    Storage-path assign-op fallback writeback frames now also reuse
+    `ToYul.storagePathAssignOpTargetStatements`; `IR.lean` still chooses the
+    fallback storage-path target and scalar value expression, but it no longer
+    hand-assembles the map helper call, single-slot `_slot` block, or nested-map
+    value/presence writeback block.
   - Started: scalar `ifElse` and `boundedFor` control-flow frame assembly now
     consumes narrow `StmtPlan -> ToYul` helpers. If conditions and synthesized
     bounded-loop guards consume `ExprPlan -> ToYul`; supported branch/loop body
@@ -415,20 +490,54 @@ Tasks:
     read expressions, and storage-path writes/assign-ops plus read expressions,
     static and dynamic scalar local fixed-array read expressions,
     static/dynamic local struct-array field read expressions, scalar
-    non-indexed/indexed event emits, and scalar crosscall/create helper-call
+    non-indexed/indexed event emits, memory-array set effects,
+    memory-array length/get expressions (including length over planned
+    memory-array allocation), and scalar crosscall/create helper-call
     expressions inside supported body statements.
-    Statement sequencing and unsupported body shapes still remain in the
-    `IR.lean` compatibility facade until full recursive `StmtPlan -> Yul`
-    lowering is extracted.
+    Supported branch/loop body
+    sequencing now routes through `ToYul.stmtPlanBodyStatements`, which owns
+    statement ordering, environment threading, and branch-local
+    `leaveAfterReturn` propagation for planned scalar bodies. Planned
+    `revert`/`revertWithError` statement frames now route through
+    `ToYul.revertStmtPlanStatements`, including empty revert, message revert,
+    and callback-provided `ErrorRef` payloads. Unsupported body
+    shapes still remain on the `IR.lean` compatibility facade until full
+    recursive `StmtPlan -> Yul` lowering is extracted.
   - Started: scalar event data words and indexed scalar event topics now
     consume the same `ExprPlan -> ToYul` expression boundary. Aggregate event
     flattening and indexed aggregate topic hashing remain in the compatibility
     facade until event assembly is extracted behind `EventPlan -> Yul`.
   - Started: final event block assembly now consumes an `EventPlan -> ToYul`
     helper for signature topic setup, indexed-topic statements, non-indexed
-    data stores, and final `log1`-`log4` statement selection. Event field value
-    evaluation still uses the compatibility facade until data-word and
-    indexed-topic expression assembly move fully behind `EventPlan -> Yul`.
+    data stores, and final `log1`-`log4` statement selection. `Lower` now owns
+    conversion from `AbiValuePlan` sources into per-field `ExprPlan` word
+    sequences before ToYul runs, using `EffectPlan.eventEmitWords` /
+    `eventEmitIndexedWords` as the active lowering surface. Full semantic-plan
+    construction now returns those word-effect variants directly from
+    `Lower.buildEffectPlan`; complete module assembly now consumes
+    `ModulePlan` entrypoint bodies for the already-supported planned-body subset
+    plus aggregate event word effects whose per-word `ExprPlan`s are supported,
+    dynamic local returns, and aggregate local/literal return word assignments,
+    storage-backed struct scalar return word assignments, and planned aggregate
+    crosscall return assignments, plus scalar planned-body returns whose
+    crosscall argument words use local/storage source plans, before falling
+    back to the portable IR body path for unsupported shapes.
+    The IR facade conversion remains only on compatibility event statement
+    paths outside that planned-body subset.
+    Planned-body event effects now route through
+    `ToYul.eventEffectStmtPlanStatements`, so `StmtPlan.effect`
+    selects word-effect event block construction behind ToYul,
+    and ToYul owns field/value count checks, word-plan-to-Yul expression
+    lowering, and indexed-topic/data routing while IR only supplies field word
+    plans. Ordinary event statements now use the same `StmtPlan.effect` helper,
+    and the IR-local indexed-topic/data-word wrapper helpers have been removed.
+    The compatibility `lowerEventEmitCoreStmt` facade now starts from
+    `Lower.buildEffectPlan` for portable event effects and only accepts the
+    word-planned `eventEmitWords`/`eventEmitIndexedWords` variants before
+    delegating to `ToYul.eventEffectStmtPlanStatements`, so event plan and
+    field-value source planning no longer happens in `IR.lean`.
+    The earlier Yul-expression and field-word provider callback helper shapes
+    have also been removed from the active ToYul surface.
   - Started: event data-word store assembly and indexed scalar/aggregate topic
     assembly now consume `EventFieldPlan -> ToYul` helpers. Field expression
     evaluation and aggregate flattening still use the compatibility facade
@@ -447,38 +556,188 @@ Tasks:
     return helpers, and plain native transfer helpers can be emitted from the
     semantic plan without rediscovering return layout from the module during
     complete plan-driven lowering. Complete `ModulePlan` construction now
-    discovers crosscall helper specs, including the planned return word layout,
-    in `Lower.buildFullModulePlan`; `IR.buildSemanticPlan` preserves those
-    Lower-discovered specs instead of re-scanning the module. The old IR-local
-    fallback discovery scanner has been removed; fallback helper discovery now
-    calls `Lower.buildCrosscallHelperPlans` directly.
+    discovers crosscall helper specs from the already-built
+    `EntrypointPlan.body` `StmtPlan`/`ExprPlan` tree, including planned
+    argument word arity, planned return word layout, and native-transfer
+    detection, in `Lower.buildFullModulePlan`; `IR.buildSemanticPlan` preserves
+    those Lower-discovered specs instead of re-scanning the module. The old
+    IR-local fallback discovery scanner has been removed; fallback helper
+    discovery now calls the raw-IR compatibility scanner
+    `Lower.buildCrosscallHelperPlans` only for incomplete/legacy plan surfaces.
   - Started: create/create2 helper naming and body construction now live behind
     the `CreateHelperSpec -> ToYul` boundary. Planned create specs can emit
     deterministic init-code `mstore` frames, `create`/`create2` opcode calls,
     zero-address revert guards, and helper function names without converting
     back to the `IR.lean` compatibility helper spec. Complete `ModulePlan`
-    construction now discovers create/create2 helper specs in
-    `Lower.buildFullModulePlan`. The old IR-local discovery scanner and
-    compatibility helper spec facade have been removed; fallback helper
-    discovery now calls `Lower.buildCreateHelperPlans` and emits through
-    `ToYul.createHelperFunction`.
+    construction now discovers create/create2 helper specs from the already-built
+    `EntrypointPlan.body` `StmtPlan`/`ExprPlan` tree in
+    `Lower.buildFullModulePlan` and
+    `Lower.buildFullModulePlanWithTargetPlan`; `IR.buildSemanticPlan` preserves
+    those Lower-discovered specs instead of re-scanning the module. The old
+    IR-local discovery scanner and compatibility helper spec facade have been
+    removed; fallback helper discovery calls the raw-IR compatibility scanner
+    `Lower.buildCreateHelperPlans` only for incomplete/legacy plan surfaces and
+    emits through `ToYul.createHelperFunction`.
   - Started: checked-arithmetic and local fixed-array getter helper
-    requirements are now discovered by complete `ModulePlan` construction in
-    `Lower.buildFullModulePlan`. `IR.buildSemanticPlan` preserves the
-    Lower-owned `usesCheckedArithmetic`, `localArrayGetLengths`, and
+    requirements are now discovered from the already-built `EntrypointPlan.body`
+    `StmtPlan`/`ExprPlan` tree in `Lower.buildFullModulePlan` and
+    `Lower.buildFullModulePlanWithTargetPlan`. Checked-arithmetic discovery
+    covers planned `.checkedArith` expressions and planned
+    `assignOp`/storage assign-op nodes. Local-array discovery covers planned
+    dynamic `ExprPlan.localArrayGet` paths, nested local-array shapes, and
+    dynamic array-literal getters; this avoids the legacy raw scanner's
+    over-approximation of standalone row helpers when a nested helper covers
+    the same access. `IR.buildSemanticPlan` preserves the Lower-owned
+    `usesCheckedArithmetic`, `localArrayGetLengths`, and
     `nestedLocalArrayGetShapes` fields instead of re-scanning the module after
-    plan construction. Incomplete-plan fallback lowering now calls
+    plan construction. Incomplete-plan fallback lowering still calls
     `Validate.moduleUsesCheckedArithmetic`, `Lower.buildLocalArrayGetLengths`,
-    and `Lower.buildNestedLocalArrayGetShapes` directly; the IR-local
-    rediscovery scanners have been removed.
+    and `Lower.buildNestedLocalArrayGetShapes`. Complete `ModulePlan`
+    construction now also replaces broad capability-derived memory-array helper
+    requirements with helper requirements discovered from planned entrypoint
+    bodies; `memoryArrayLength` alone no longer emits allocation/get helpers,
+    and `ToYul` can emit memory-array new/get helpers independently. The same
+    planned helper scanner now replaces broad capability-derived hash helpers:
+    `hash(x)` only emits `hashWord`, `hashTwoToOne(a,b)` only emits `hashPair`,
+    and `ToYul` can emit hash word/pair helpers independently. It also replaces
+    state-shape-derived storage-array helpers for complete plans, so unused
+    fixed-array, dynamic-array, or struct-array state declarations no longer
+    emit `arraySlot`, `dynamicArraySlot`, or `structArraySlot` helpers unless
+    planned entrypoint bodies actually reference those storage slot plans.
+    Complete plans now also replace broad state-shape-derived map helpers with
+    helper requirements discovered from planned entrypoint bodies: unused map
+    state no longer emits map helpers, contains-only reads emit only
+    `mapPresenceSlot`, value reads emit only `mapSlot`, statement writes emit
+    `mapWrite` plus its slot/presence dependencies, expression-position
+    insert/set emits `mapSetReturn` plus dependencies, and map assign-op
+    helpers update `ModulePlan.mapAssignOps` from the final helper set.
+  - Started: `ModulePlan.contextOps` is now discovered from the already-built
+    `EntrypointPlan.body` `StmtPlan`/`ExprPlan` tree in
+    `Lower.buildFullModulePlan` and
+    `Lower.buildFullModulePlanWithTargetPlan`. The planned scanner covers
+    `ExprPlan.context`, `EffectPlan.contextRead`, nested `blockHash` argument
+    expressions, event words, crosscall/create arguments, storage target
+    expression slots, and control-flow bodies, then de-duplicates by
+    `ContextField.name`. `IR.buildSemanticPlan` preserves these Lower-owned
+    context summaries; the raw `Plan.contextOpsFromModule` scanner remains only
+    as the base/best-effort compatibility surface.
   - Started: scalar expression-position crosscall helper-call assembly and
     create/create2 helper-call assembly now live behind `ToYul`. `ExprPlan`
     nodes for scalar `call`, value-bearing `call`, native value transfer,
     `staticcall`, `delegatecall`, `create`, and `create2` can lower directly to
     helper calls using the same helper-name selection used for helper body
-    emission. The compatibility `IR.lean` expression lowering still owns
-    type-env validation and aggregate crosscall argument word expansion, but
-    delegates final helper-call names and argument ordering to `ToYul`.
+    emission. `ToYul.crosscallExprPlanExpr` now owns target/method/call-value
+    lowering, provider-backed crosscall argument source expansion, helper-call
+    name selection, and final argument ordering for scalar crosscall expressions.
+    Planned scalar return frames call the same `lowerExprPlanExpr` callback used
+    by expression lowering, so local/storage aggregate crosscall argument source
+    plans can be provider-expanded before `ToYul` selects the helper-call shape.
+    Legacy untyped `.crosscallInvoke` expression lowering now enters the same
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.crosscall` ->
+    `ToYul.crosscallExprPlanExpr` path instead of assembling its scalar helper
+    call directly inside `IR.lowerExpr`. The compatibility `IR.lean` expression
+    lowering still supplies local/storage provider callbacks for source plans.
+    Legacy `crosscallCreate` and `crosscallCreate2` expression lowering also now
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.create` ->
+    `ToYul.exprPlanExpr`, removing the old IR-local create helper-call branches.
+    Hash expression lowering for `hashValue`, `hash`, and `hashTwoToOne` now
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.hashValue`/`ExprPlan.hash`/
+    `ExprPlan.hashTwoToOne` -> `ToYul.exprPlanExpr`, removing the old IR-local
+    hash pack/helper-call branches.
+    Scalar arithmetic, division/modulo, bitwise, shift, and exponent expression
+    lowering now enters `Lower.buildExpressionExprPlan` -> `ExprPlan.checkedArith`
+    or `ExprPlan.builtin` -> `ToYul.exprPlanExpr`, so checked helper selection,
+    builtin opcode names, and shift argument ordering no longer live in
+    `IR.lowerExpr`.
+    Comparison, boolean, cast, and native-value expression lowering now also
+    enters `Lower.buildExpressionExprPlan` -> `ExprPlan.builtin`/`ExprPlan.cast`/
+    `ExprPlan.nativeValue` -> `ToYul.exprPlanExpr`, removing another direct
+    scalar expression frame from `IR.lowerExpr`.
+    Scalar literal and local expression leaves now also enter
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.literalWord`/`ExprPlan.local` ->
+    `ToYul.exprPlanExpr`, including `hash4` limb packing through the same
+    `Lower.literalPlan` validation path.
+    Expression-position storage and context read effects now enter
+    `Lower.buildEffectPlan` -> target `EffectPlan`/`EffectPlan.contextRead` ->
+    `lowerPlanEffectExpr`/`ToYul` instead of being dispatched directly from
+    `IR.lowerEffectExpr`.
+    Raw compatibility `EffectPlan.storageMapContains` and
+    `EffectPlan.storageMapGet` expression frames now also use
+    `ToYul.mapContainsExpr` and `ToYul.mapGetExpr`; `IR.lean` keeps only the
+    map state/root-slot lookup for those legacy plan variants.
+    Raw compatibility `EffectPlan.storageArrayRead` expression frames now also
+    use `ToYul.arrayReadExpr`; `IR.lean` keeps only the array state root-slot
+    and length lookup for that legacy plan variant.
+    Raw compatibility `EffectPlan.storageStructFieldRead` expression frames now
+    also use `ToYul.structFieldReadExpr`; `IR.lean` keeps only the struct
+    state/field slot lookup for that legacy plan variant.
+    Raw compatibility `EffectPlan.storageArrayStructFieldRead` expression
+    frames now also use `ToYul.structArrayFieldReadExpr`; `IR.lean` keeps only
+    the struct-array root-slot/length/field metadata lookup for that legacy
+    plan variant.
+    The now-unused direct read compatibility helpers for map get/contains,
+    fixed-array read, dynamic-array read, and struct-array field read have been
+    removed from `IR.lean`; direct storage read expressions now enter through
+    `lowerEffectExprThroughPlan` and the `lowerPlanEffectExpr -> ToYul`
+    boundary.
+    The old `lowerMapPathReadExpr` nested-map read helper has been removed
+    after storage-path reads switched to the shared `StorageSlotExprPlan ->
+    ToYul` frame.
+    Expression-position map insert/set return effects now also enter
+    `Lower.buildEffectPlan` -> target `EffectPlan.storageMapInsertTarget`/
+    `EffectPlan.storageMapSetTarget` -> `lowerPlanEffectExpr`/
+    `ToYul.mapSetReturnTargetExpr`.
+    The now-unused `lowerMapSetReturnExpr` helper has been removed after this
+    expression-position return-old-value path moved behind target effect
+    planning.
+    Statement-position scalar storage write and assign-op effects now consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.scalarStorageTargetEffectStmtPlanStatements`, so scalar slot,
+    packing, and fixed-slot target decisions no longer come from IR-local
+    target reconstruction.
+    The now-unused `lowerScalarStorageWriteStmt` helper has been removed after
+    packed scalar write assembly moved behind the target effect helper.
+    Statement-position map insert/set write effects now also consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.mapWriteTargetEffectStmtPlanStatements`, so map root-slot target
+    decisions and key/value expression planning no longer come from IR-local
+    target reconstruction.
+    Statement-position fixed-array storage write effects now also consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.arrayWriteTargetEffectStmtPlanStatements`, so array root-slot,
+    length, index, and value planning no longer come from IR-local target
+    reconstruction.
+    Statement-position storage struct-field write effects now also consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.structFieldWriteTargetEffectStmtPlanStatements`, so struct-field slot
+    and value planning no longer come from IR-local target reconstruction.
+    Statement-position storage struct-array-field write effects now also consume
+    `Lower.buildEffectPlan` target effects before calling
+    `ToYul.structArrayFieldWriteTargetEffectStmtPlanStatements`, so struct-array
+    field root-slot, length, field offset, index, and value planning no longer
+    come from IR-local target reconstruction.
+    Storage-path write fallback frames now also reuse
+    `ToYul.storagePathWriteTargetStatements`; `IR.lean` still chooses the
+    fallback target and scalar value, but no longer owns the final map write,
+    single-slot, or nested-map writeback frame.
+    The old `lowerMapPathWriteStmt` nested-map writeback helper has been
+    removed after the fallback path switched to the shared `ToYul` frame.
+    Storage-path assign-op fallback writeback frames now also reuse
+    `ToYul.storagePathAssignOpTargetStatements`; `IR.lean` still chooses the
+    fallback target and scalar value, but no longer owns the final map helper,
+    single-slot, or nested-map writeback frame.
+    Statement-position dynamic-array push/pop effects now also consume
+    `Lower.buildEffectPlan` target variants carrying a
+    `DynamicArrayTargetPlan` before calling
+    `ToYul.dynamicArrayPushTargetEffectStmtPlanStatements`/
+    `ToYul.dynamicArrayPopTargetEffectStmtPlanStatements`, so push value
+    expression planning, pop effect validation, root-slot selection, and final
+    dynamic-array slot helper assembly no longer come from IR-local effect
+    reconstruction callbacks.
+    The now-unused `lowerDynamicArrayWriteStmt` and
+    `lowerDynamicArrayPopStmt` fallback helpers have been removed; dynamic-array
+    write-like behavior remains on storage-path write plans, and dynamic-array
+    pop success paths must pass through target effect planning.
   - Started: expression-position local fixed-array getter, local struct-field
     getter, and scalar array-literal indexing assembly now live behind
     `ExprPlan -> ToYul` for local scalar leaves. `Lower` records local
@@ -486,9 +745,16 @@ Tasks:
     the static local-name selection, local struct-field name selection, struct
     literal field selection, array literal element selection, plus
     one-dimensional and nested dynamic helper-call argument frames for scalar
-    arrays, scalar array literals, and struct-array fields. Standalone struct
-    literal values, storage-backed struct reads, and aggregate array values
-    still fall back through the compatibility facade.
+    arrays, scalar array literals, and struct-array fields. Direct
+    `IR.lowerExpr` local fixed-array reads now first consume
+    `Lower.buildExprPlan` when it produces `.localArrayGet`, and direct local
+    struct-field reads first consume `Lower.buildExprPlan` when it produces
+    supported `.structField` plans for local struct values, struct literals, or
+    local struct-array leaves. Direct scalar array-literal reads also first
+    consume `Lower.buildExprPlan` when it produces `.arrayGet (.arrayLit ..)`.
+    Storage-backed struct reads, aggregate array values, and unsupported
+    aggregate local-array leaves still fall back through the compatibility
+    facade.
   - Started: whole local aggregate assignment snapshot blocks now live behind
     `ToYul`. `IR.lean` still validates and expands local fixed-array, nested
     fixed-array, struct-array, and struct assignment sources, but final temp
@@ -497,9 +763,10 @@ Tasks:
     final Yul statement frame.
   - Started: dynamic local aggregate assignment switch frames now live behind
     `ToYul`. `IR.lean` still resolves dynamic local fixed-array and
-    struct-array paths, but the shared dynamic index/value snapshot locals,
+    struct-array paths, but dynamic index/value snapshot expressions now enter
+    `Lower.buildExprPlan` before `ToYul` emits the shared snapshot locals,
     switch default case, checked-assignment RHS, one-dimensional switch frame,
-    and nested path switch frame are emitted by `ToYul` helpers.
+    and nested path switch frame.
   - Started: aggregate crosscall helper-call assembly and entrypoint multi-word
     return assignment now live behind `ToYul`. Expression-position aggregate
     crosscall return diagnostics now come from `Lower.buildExpressionExprPlan`,
@@ -509,36 +776,60 @@ Tasks:
     words, and `ReturnPlan` local-name/word-layout data; `IR.lean` consumes the
     planned `ExprPlan`s and delegates final helper-call function-name
     selection, argument ordering, and multi-return Yul assignment construction
-    to `ToYul`. Local
-    aggregate ABI word expansion for entrypoint returns now uses
-    `Lower.returnValueWordPlan?` to validate the source local and expected type,
-    records the planned `ExprPlan.localAbiWords` source plus `ReturnPlan`
-    layout in `ReturnValueWordPlan`, and delegates the final multi-word
-    assignment frame to `ToYul.returnValueWordPlanAssignments`. Related
-    compatibility paths still call `ToYul.localAbiWords` directly until they
-    are represented in the semantic plan. Local
-    aggregate crosscall argument word expansion now delegates the final local
-    identifier word construction to `ToYul.localCrosscallWords`; local provider
-    validation and struct-field discovery now route through
-    `Lower.validateLocalCrosscallWordPlan` and
-    `Lower.localCrosscallStructFieldIds`. `IR.lean` still owns non-literal
-    aggregate sources that are not storage scalar struct reads until those are
-    represented directly in the semantic plan. `Lower` now represents local
-    aggregate typed/value/static/delegate crosscall arguments as
-    `ExprPlan.localCrosscallWords`, expands storage scalar struct reads into
-    explicit `ExprPlan.storageLoad` word plans through
-    `Lower.storageCrosscallWordPlans`, expands struct literal and fixed-array
-    literal crosscall arguments into scalar word `ExprPlan`s, and lets
-    `IR.lowerExprPlanExpr` consume those planned words before selecting the
-    helper-call arity. The final traversal and concatenation of planned
-    crosscall argument word groups now uses `ToYul.crosscallArgWordPlanExprs`;
-    `IR.lean` still supplies ToYul provider callbacks for compatibility
-    `ExprPlan.localCrosscallWords`/`ExprPlan.storageCrosscallWords` inputs, but
-    active Lower-produced storage-backed crosscall arguments no longer depend
-    on the IR-local storage provider expansion. Scalar expression fallback
-    crosscall lowering now also calls
-    `Lower.buildCrosscallArgWordPlansMany` before that ToYul boundary, and the
-    old IR-local `lowerCrosscall*ArgWords` expansion tree has been removed.
+    to `ToYul`. Aggregate ABI word expansion for entrypoint returns, indexed
+    events, and event data now uses `AbiValuePlan` source nodes instead of
+    `ExprPlan.localAbiWords`/`ExprPlan.storageAbiWords` expression markers.
+    `ReturnValueWordPlan.source`, planned event data fields, and planned event
+    indexed fields now carry `AbiValuePlan.expr`, `AbiValuePlan.local`,
+    `AbiValuePlan.storage`, `AbiValuePlan.arrayLit`, or
+    `AbiValuePlan.structLit`. `Lower.returnValueWordPlans`,
+    `Lower.eventFieldDataWordPlans`, and `Lower.eventFieldsDataWordPlans`
+    expand those ABI value plans into scalar word `ExprPlan`s. Local aggregates
+    lower to explicit `.local` word plans through `Lower.localAbiWordPlans`,
+    storage-backed aggregates lower to explicit `ExprPlan.storageLoad` word
+    plans through `Lower.storageAbiWordPlans`, and fixed-array/struct literals
+    recursively lower to scalar word plans in `Lower.abiValueWordPlans`.
+    `IR.lean` now consumes those planned words, lowers each word plan to Yul,
+    and delegates only the final return assignment frame to
+    `ToYul.returnValueWordAssignments` plus the final event topic/log frames to
+    `ToYul.eventIndexedTopicStatements` and `ToYul.eventEmitCoreStatement`.
+    Compatibility `ToYul.*FromPlan` helpers still exist for direct tests and
+    older callers, but the active IR facade no longer depends on provider
+    callbacks or expression-level aggregate source markers for return/event
+    aggregate ABI word expansion. Crosscall helper-call assembly now uses
+    dedicated `CrosscallArgWordPlan` source nodes rather than expression-level
+    crosscall word markers. `ExprPlan.crosscall.args` and
+    `CrosscallReturnAssignmentPlan.args` carry planned crosscall argument word
+    sources: scalar/literal/storage-load words use `CrosscallArgWordPlan.expr`,
+    local aggregate struct/fixed-array sources are now expanded by `Lower` into
+    explicit `CrosscallArgWordPlan.expr (.local ...)` word plans, and
+    storage-backed aggregate struct/fixed-array sources are now expanded by
+    `Lower` into explicit
+    `CrosscallArgWordPlan.expr (.storageLoad ...)` word plans instead of
+    preserving provider-backed local or storage source markers on the active
+    lowering path.
+    The obsolete
+    `ExprPlan.localAbiWords`, `ExprPlan.storageAbiWords`,
+    `ExprPlan.localCrosscallWords`, and `ExprPlan.storageCrosscallWords`
+    constructors have been retired from `ExprPlan`; direct `ToYul.*Words`
+    helpers remain only as helper APIs for explicit local/source word expansion.
+    `Lower.buildCrosscallArgWordPlansMany`
+    now returns those source plans, while `ToYul.crosscallArgWordPlanExprs`
+    performs the final traversal and word concatenation.
+    `ToYul.crosscallExprPlanExpr` wraps that traversal with target/method/call-
+    value lowering and scalar helper-call selection. Legacy untyped scalar
+    expression crosscall lowering now enters
+    `Lower.buildExpressionExprPlan` -> `ExprPlan.crosscall` before that ToYul
+    boundary. `IR.lean` still supplies ToYul provider callbacks only for
+    direct/legacy local and storage crosscall source plan surfaces. The old
+    IR-local scalar helper-call branch and
+    `lowerCrosscall*ArgWords` expansion tree have been removed. Aggregate
+    crosscall return assignment now also enters
+    `ToYul.crosscallAggregateReturnAssignmentPlanStatement`, so target/method/
+    call-value lowering, planned crosscall argument word traversal, helper-call
+    name selection, argument ordering, and multi-return assignment construction
+    live behind the ToYul plan boundary; compatibility provider callbacks remain
+    only for direct/legacy local and storage word-source surfaces.
   - Add `EntrypointPlan` for selector dispatch, calldata guards, ABI word
     flattening, return-data encoding, and metadata selector layout.
   - Add `EventPlan` for event signature topics, indexed-topic hashing,

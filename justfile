@@ -86,6 +86,13 @@ solana-lean:
     lake env lean --run Tests/SolanaReturnDataCompute.lean
     lake env lean --run Tests/SolanaComputeBudgetInstruction.lean
     lake env lean --run Tests/SolanaPdaSeeds.lean
+    lake env lean --run Tests/SolanaLoop.lean
+    lake env lean --run Tests/SolanaStorageArray.lean
+    lake env lean --run Tests/SolanaStorageArrayStruct.lean
+    lake env lean --run Tests/SolanaStorageStructField.lean
+    lake env lean --run Tests/SolanaFixedArrayStruct.lean
+    lake env lean --run Tests/SolanaHash.lean
+    lake env lean --run Tests/SolanaMemoryArray.lean
     lake env lean --run Tests/LearnSource.lean
     lake env lean --run Tests/SharedContractSource.lean
     lake env lean --run Tests/LearnDiagnostics.lean
@@ -290,6 +297,14 @@ solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-s
 docs-check:
     scripts/i18n/check-sync.sh
 
+# Emit Counter .qnt model and run `quint verify`. Skips if Java < 17.
+quint-model-gate:
+    scripts/quint/model-check-gate.sh
+
+# Emit Counter .qnt model, run `quint run --mbt`, and replay ITF traces against IR semantics.
+quint-mbt-gate:
+    scripts/quint/mbt-replay-gate.sh
+
 # Run the unified RFC 0007 testkit scenario suite.
 testkit:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run
@@ -359,7 +374,6 @@ psy-metadata:
     lake build ProofForge.Backend.Psy.Metadata
     lake env lean --run Tests/PsyMetadata.lean
     lake env lean --run Tests/CliMetadata.lean
-    python3 scripts/psy/test-metadata-validation.py
 
 # Run Psy metadata validation unit tests (Python).
 psy-metadata-validation:
