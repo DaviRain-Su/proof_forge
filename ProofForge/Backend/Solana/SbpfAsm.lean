@@ -153,6 +153,15 @@ def arrayStructFieldInfo? (ctx : LowerCtx) (stateId fieldName : String) : Option
       -- Treat a scalar array as a single-field struct for uniform lowering.
       some (valueTypeByteSize element, 0)
 
+/-- Compute the byte offset of a field inside a scalar struct state. -/
+def scalarStructFieldInfo? (ctx : LowerCtx) (stateId fieldName : String) : Option Nat :=
+  match ctx.stateDecls.find? (fun s => s.id == stateId) with
+  | none => none
+  | some decl =>
+      match decl.type with
+      | .structType typeName => structFieldOffset ctx.structs typeName fieldName
+      | _ => none
+
 def LowerCtx.addLocal (ctx : LowerCtx) (name : String) (ty : ValueType) : LowerCtx :=
   let byteSize := valueTypeByteSize ty
   let alignedSize := max 8 (byteSize + alignTo8 byteSize)
@@ -588,6 +597,19 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
           .instruction { opcode := .add64, dst := some .r2, imm := some (.num fieldOff) },
           .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
         ], ctx')
+  | .effect (.storageStructFieldRead stateId fieldName) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown struct state: {stateId}" }
+    | some base =>
+      match scalarStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for struct state `{stateId}`" }
+      | some fieldOff =>
+        .ok (#[
+          .comment s!"solana.storage.struct_field_read {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r2, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r2, imm := some (.num (base + fieldOff)) },
+          .instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
+        ], ctx)
   | .effect (.storagePathRead stateId path) =>
     if path.isEmpty then
       match ctx.stateAbsOff? stateId with
@@ -971,6 +993,20 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
           .instruction { opcode := .add64, dst := some .r2, imm := some (.num fieldOff) },
           .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num valScratch) },
           .instruction { opcode := .stxdw, dst := some .r2, off := some (.num 0), src := some .r3 }
+        ], ctx')
+  | .effect (.storageStructFieldWrite stateId fieldName value) => do
+    match ctx.stateAbsOff? stateId with
+    | none => .error { message := s!"unknown struct state: {stateId}" }
+    | some base => do
+      match scalarStructFieldInfo? ctx stateId fieldName with
+      | none => .error { message := s!"cannot resolve field `{fieldName}` for struct state `{stateId}`" }
+      | some fieldOff => do
+        let (vn, ctx') ← lowerExpr ctx value
+        .ok (vn ++ #[
+          .comment s!"solana.storage.struct_field_write {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
+          .instruction { opcode := .add64, dst := some .r3, imm := some (.num (base + fieldOff)) },
+          .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
         ], ctx')
   | .effect (.storageScalarWrite stateId value) => do
     match ctx.stateAbsOff? stateId with
