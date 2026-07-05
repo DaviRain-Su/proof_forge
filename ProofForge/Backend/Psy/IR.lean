@@ -1172,8 +1172,8 @@ mutual
     | .field base fieldName => do
         match ← resolveStorageTargetRoot ctx base with
         | .scalar stateId => .ok <| .structField stateId fieldName
-        | .arrayIndex stateId index feltBacked => .ok <| .arrayStructField stateId index fieldName
-        | .path stateId segs feltBacked => .ok <| .path stateId (segs.push (.field fieldName)) feltBacked
+        | .arrayIndex stateId index _ => .ok <| .arrayStructField stateId index fieldName
+        | .path stateId segs _ => .ok <| .path stateId (segs.push (.field fieldName)) false
         | .structField stateId baseField =>
             .ok <| .path stateId #[.field baseField, .field fieldName] false
         | .arrayStructField stateId index baseField =>
