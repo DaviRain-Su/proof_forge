@@ -33,6 +33,7 @@ fi
 mkdir -p "$OUT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture hash-storage -o "$PSY_FILE"
 lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" HashStorageProbe > "$PLAN_METADATA_FILE"
 

@@ -29,6 +29,7 @@ fi
 mkdir -p "$OUT_DIR" "$PROJECT_DIR"
 
 lake build proof-forge >/dev/null
+lake build ProofForge.Backend.Psy.Metadata >/dev/null
 "$ROOT/.lake/build/bin/proof-forge" emit --target psy-dpn --fixture event -o "$PSY_FILE"
 lake env lean --run "$ROOT/Tests/PsyMetadataExport.lean" EventProbe > "$PLAN_METADATA_FILE"
 

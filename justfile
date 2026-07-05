@@ -356,6 +356,7 @@ psy-coverage:
 
 # Run Psy plan-driven metadata unit tests.
 psy-metadata:
+    lake build ProofForge.Backend.Psy.Metadata
     lake env lean --run Tests/PsyMetadata.lean
 
 # List available Psy smoke fixture names for `just psy-smoke <name>`.
