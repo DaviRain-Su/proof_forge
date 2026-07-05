@@ -127,7 +127,24 @@ inductive Helper where
   | memoryArrayGet
   | hashWord
   | hashPair
-  deriving BEq, DecidableEq, Repr
+  deriving DecidableEq, Repr
+
+def Helper.beq : Helper → Helper → Bool
+  | .mapSlot, .mapSlot => true
+  | .mapPresenceSlot, .mapPresenceSlot => true
+  | .mapWrite, .mapWrite => true
+  | .mapSetReturn, .mapSetReturn => true
+  | .mapAssign lhs, .mapAssign rhs => lhs == rhs
+  | .arraySlot, .arraySlot => true
+  | .structArraySlot, .structArraySlot => true
+  | .dynamicArraySlot, .dynamicArraySlot => true
+  | .memoryArrayNew, .memoryArrayNew => true
+  | .memoryArrayGet, .memoryArrayGet => true
+  | .hashWord, .hashWord => true
+  | .hashPair, .hashPair => true
+  | _, _ => false
+
+instance : BEq Helper := ⟨Helper.beq⟩
 
 def assignOpHelperSuffix : AssignOp → String
   | .add => "add"
@@ -760,6 +777,7 @@ mutual
         (initCodeHex : String)
     | cast (source : ExprPlan) (target : ValueType)
     | localAbiWords (name : String) (type : ValueType)
+    | storageAbiWords (stateId : String) (type : ValueType)
     | localCrosscallWords (name : String) (type : ValueType)
     | storageCrosscallWords (stateId : String) (type : ValueType)
     | structField (base : ExprPlan) (fieldName : String)
@@ -1061,6 +1079,8 @@ structure CreateHelperSpec where
   initCodeHex : String
   deriving BEq, Repr
 
+instance : BEq CreateHelperSpec := ⟨fun a b => a.mode == b.mode && a.initCodeHex == b.initCodeHex⟩
+
 /-! ## StmtPlan: target-semantic statement plan -/
 
 inductive StmtPlan where
@@ -1332,7 +1352,7 @@ end
 def contextOpsFromModule (module : Module) : Array ContextPlan :=
   let all := module.entrypoints.foldl (init := #[]) fun acc ep => acc ++ contextOpsFromStatements ep.body
   all.foldl (init := #[]) fun acc plan =>
-    if acc.contains plan then acc else acc.push plan
+    if acc.any (fun existing => existing.field.name == plan.field.name) then acc else acc.push plan
 
 def buildModulePlanWithTargetPlan (module : Module) (targetPlan : CapabilityPlan) :
     Except PlanError ModulePlan := do

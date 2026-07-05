@@ -73,7 +73,7 @@ Expr	boolNot	lowered	EmitWat lowers boolean not with i32.eqz.
 Expr	hashValue	lowered	EmitWat lowers four U64 limbs into a hash value helper.
 Expr	hash	lowered	EmitWat lowers hash preimage hashing through the sha256-backed helper.
 Expr	hashTwoToOne	lowered	EmitWat lowers two-to-one hash through the hash concat helper.
-Expr	nativeValue	unsupported	EmitWat rejects nativeValue with a NEAR chain-semantics diagnostic: attached deposit is yoctoNEAR/U128 and needs an explicit native-amount IR projection.
+Expr	nativeValue	lowered	EmitWat lowers nativeValue to the attached_deposit host import as a U64 projection; Tests/EmitWatContext.lean and the offline host smoke cover the returned value.
 Expr	crosscallInvoke	unsupported	EmitWat capability checking rejects crosscall.invoke with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
@@ -106,7 +106,7 @@ Expr	memoryArrayLength	unsupported	EmitWat rejects memory.array.length because m
 Expr	memoryArrayGet	unsupported	EmitWat rejects memory.array.get because memory arrays are not lowered to NEAR/Wasm.
 Effect	contextRead	lowered	EmitWat lowers userId, contractId, and checkpointId context reads through NEAR host helpers.
 Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
-Effect	eventEmitIndexed	unsupported	EmitWat rejects indexed events with a NEAR chain-semantics diagnostic because NEAR JSON logs do not provide native EVM-style topics.
+Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEAR JSON event log because NEAR logs do not provide native EVM-style topics; Tests/EmitWatChainSemantics.lean checks the rendered event fields.
 StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
 StoragePathSegment	index	lowered	EmitWat lowers index as a storage array path segment and before field for struct-valued storage arrays.
 StoragePathSegment	mapKey	lowered	EmitWat lowers single mapKey path segments through map helpers.

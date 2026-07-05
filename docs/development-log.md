@@ -17,6 +17,790 @@ Each entry should include:
 
 ## 2026-07-05
 
+### EVM Local Crosscall Word Plan Validation
+
+Commit: 72ae37d
+
+Summary:
+
+- Added `Lower.localCrosscallStructFieldIds` and
+  `Lower.validateLocalCrosscallWordPlan` so local crosscall word validation and
+  struct-field discovery are owned by the EVM Lower layer.
+- Removed the IR-local `localCrosscallStructFieldIds` helper and routed
+  `IR.lowerLocalCrosscallWords` plus planned crosscall argument word expansion
+  through the new Lower helpers before final `ToYul.localCrosscallWords`
+  emission.
+- Added semantic-plan coverage for Lower-owned local crosscall struct field
+  discovery, local/type validation, and unknown-local diagnostics.
+- Updated the backlog to record that storage-backed crosscall provider
+  expansion is now the remaining compatibility helper in this slice.
+
+Validation run:
+
+```sh
+lake build proof-forge
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+```
+
+Known limitations:
+
+- Storage-backed crosscall word-provider expansion still depends on
+  compatibility helpers in `IR.lean`.
+- Related local aggregate ABI compatibility paths still call
+  `ToYul.localAbiWords` directly until they are represented in the semantic
+  plan.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Move storage-backed crosscall provider expansion behind explicit
+  `Lower`/`Plan` helpers, then continue the same treatment for the remaining
+  local aggregate ABI compatibility paths.
+
+### EVM Crosscall Return Diagnostic Planning
+
+Commit: 50eabcd
+
+Summary:
+
+- Added `Lower.buildExpressionExprPlan` as the expression-position wrapper
+  around `buildExprPlan`.
+- Moved typed/value/static/delegate aggregate crosscall return diagnostics out
+  of `IR.lean` and into the Lower expression wrapper.
+- Kept `buildExprPlan` valid for return statement planning so aggregate
+  crosscall return assignments can still be planned by
+  `Lower.aggregateCrosscallReturnAssignmentPlan?`.
+- Added semantic-plan coverage for Lower-level diagnostics and IR facade
+  propagation.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Local/storage crosscall word-provider callbacks still depend on compatibility
+  type-env helpers.
+- Related compatibility paths still call `ToYul.localAbiWords` directly until
+  they are represented in the semantic plan.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue migrating local/storage word-provider validation and remaining
+  aggregate ABI compatibility paths behind explicit `Lower`/`Plan` surfaces.
+
+### EVM Crosscall Argument Word Planning
+
+Commit: 83dabe8
+
+Summary:
+
+- Routed scalar expression fallback crosscall argument lowering through
+  `Lower.buildCrosscallArgWordPlansMany` before the `ToYul` argument-word
+  boundary.
+- Removed the old IR-local `lowerCrosscall*ArgWords` expansion tree from
+  `IR.lean`.
+- Tightened `Lower` so unsupported non-literal aggregate crosscall argument
+  sources fail with explicit diagnostics instead of falling through to scalar
+  expression planning.
+- Added semantic-plan coverage for the IR compatibility facade consuming
+  planned local struct crosscall argument words.
+
+Validation run:
+
+```sh
+test -z "$(rg -n "lowerCrosscallStructArgWords|lowerCrosscallStructArrayArgWords|lowerCrosscallFixedArrayArgWords|lowerCrosscallArgWords\\b" ProofForge/Backend/Evm/IR.lean ProofForge/Backend/Evm/Lower.lean Tests || true)"
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns scalar expression fallback return-type checks for
+  aggregate crosscall returns.
+- Local/storage crosscall word-provider callbacks still depend on compatibility
+  type-env helpers.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue migrating remaining expression-position aggregate crosscall return
+  diagnostics and local/storage word-provider validation behind explicit
+  `Lower`/`Plan` surfaces.
+
+### EVM Crosscall Argument Word Plan Delegation
+
+Commit: becf9d8
+
+Summary:
+
+- Added `ToYul.crosscallArgWordPlanExprs` to own traversal and concatenation of
+  planned crosscall argument word groups.
+- Routed `IR.lowerCrosscallArgWordPlanExprs` through that helper, leaving
+  `IR.lean` responsible only for local/storage word-provider callbacks that
+  still depend on compatibility type-env helpers.
+- Added semantic-plan coverage for mixed local aggregate, scalar, and
+  storage-backed crosscall word groups.
+- Updated the implementation backlog and Chinese translation sync metadata to
+  record the narrower crosscall compatibility surface.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns non-literal aggregate crosscall argument source
+  validation outside local aggregate values and storage scalar struct reads.
+- Some expression-position aggregate crosscall diagnostics still live in the
+  compatibility facade.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue migrating aggregate crosscall argument source validation and
+  diagnostics into explicit `Lower`/`Plan` surfaces.
+
+### EVM Dynamic Return Fallback Removal
+
+Commit: 2746617
+
+Summary:
+
+- Removed the stale `lowerReturnWords` dynamic local data-pointer success path
+  from `IR.lean`.
+- Made dynamic return fallback fail explicitly if a `bytes`/`string`/array
+  return bypasses `Lower.buildExprPlan -> StmtPlan.return ->
+  ToYul.dynamicReturnStmtPlanStatements`.
+- Updated the implementation backlog and Chinese translation sync metadata so
+  the remaining return fallback surface reflects the new ownership boundary.
+
+Validation run:
+
+```sh
+test -z "$(rg -n "bytes/string returns in IR EVM v0 support local references only|Non-local dynamic returns still use the compatibility fallback|非本地动态返回仍走兼容 fallback" ProofForge/Backend/Evm/IR.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md || true)"
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/dynamic-abi-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Non-local dynamic return expressions remain unsupported and fail before
+  successful lowering.
+- Some expression-position aggregate crosscall diagnostics and aggregate
+  argument expansion still live in `IR.lean`.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving expression-position crosscall fallback decisions and
+  aggregate argument expansion behind explicit `Lower`/`Plan` surfaces.
+
+### EVM Aggregate Return Fallback Removal
+
+Commit: 65b8a1c
+
+Summary:
+
+- Removed the stale IR-local fixed-array, struct-array, and struct return word
+  fallback helpers from `IR.lean`.
+- Made aggregate return fallback in `lowerReturnWords` fail explicitly if a
+  fixed-array or struct return ever bypasses `ReturnValueWordPlan` or aggregate
+  crosscall return planning.
+- Updated the implementation backlog and Chinese translation sync metadata to
+  record that aggregate return success paths must now pass through the
+  semantic-plan return surfaces.
+
+Validation run:
+
+```sh
+test -z "$(rg -n "lowerStructArrayReturnWords|lowerFixedArrayReturnWords|lowerStructReturnWords" ProofForge/Backend/Evm/IR.lean || true)"
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/abi-aggregate-ir-smoke.sh
+scripts/evm/storage-array-ir-smoke.sh
+scripts/evm/storage-struct-ir-smoke.sh
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Non-local dynamic returns still use the compatibility fallback and diagnostic
+  path.
+- Some aggregate argument expansion and unsupported expression-position
+  aggregate crosscall diagnostics still live in `IR.lean`.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue migrating the remaining expression-position crosscall and non-local
+  dynamic return fallback decisions behind explicit `Lower`/`Plan` surfaces.
+
+### EVM Scalar Return Name Plan Ownership
+
+Commit: 68c16f3
+
+Summary:
+
+- Routed scalar `return` statement lowering through
+  `Lower.returnPlan.localNames` before calling
+  `ToYul.scalarReturnStmtPlanStatements`.
+- Removed one more IR-facade dependency on local return-name calculation for
+  the supported scalar return plan path.
+- Kept generated Yul behavior unchanged; this is an ownership cleanup toward
+  `Lower -> Plan -> ToYul`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/expression-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Aggregate and non-local dynamic return fallback paths still have compatibility
+  facade work remaining.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving return and crosscall fallback decisions behind explicit
+  `Lower`/`Plan` surfaces before deleting more IR-local compatibility code.
+
+### EVM Dynamic Local Return ToYul Slice
+
+Commit: 2d72dc8
+
+Summary:
+
+- Added `ToYul.dynamicReturnStmtPlanStatements` for dynamic `bytes`/`string`/
+  array return statements that return a local ABI value.
+- Routed `IR.lowerReturnStmt` through `Lower.buildExprPlan ->
+  StmtPlan.return -> ToYul.dynamicReturnStmtPlanStatements` for dynamic local
+  returns, so `IR.lean` no longer owns the final `name__data_ptr` assignment
+  frame for that supported shape.
+- Added semantic-plan coverage for the direct ToYul helper and the integrated
+  `EvmDynamicAbiProbe.echo_bytes` return path.
+- Updated the implementation backlog and Chinese translation sync metadata to
+  reflect the narrower remaining compatibility surface.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/dynamic-abi-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- This slice only covers local dynamic return values. Non-local dynamic returns
+  still fall back to the existing compatibility path and diagnostic behavior.
+- Broader aggregate/crosscall return paths still need their own plan-level
+  migration slices.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the remaining EVM compatibility facade around aggregate
+  crosscall return assignment and non-local dynamic return-data boundaries.
+
+### EVM Local Array Helper Discovery Delegation
+
+Commit: c0600b2
+
+Summary:
+
+- Removed the stale IR-local local fixed-array getter and nested local-array
+  getter discovery scanners from `IR.lean`.
+- Kept the compatibility facade entrypoints `moduleLocalArrayGetLengths` and
+  `moduleNestedLocalArrayGetShapes`, but made them delegate to
+  `Lower.buildLocalArrayGetLengths` and `Lower.buildNestedLocalArrayGetShapes`.
+- Aligned helper requirement discovery with the existing `ModulePlan` ownership
+  model so fallback lowering and complete plan lowering consume the same
+  lower/plan source.
+
+Validation run:
+
+```sh
+test -z "$(rg -n "localArrayGetLengthsExpr|localArrayGetLengthsEffect|localArrayGetLengthsStatement|localArrayGetLengthsForDynamicExprTarget|nestedLocalArrayGetShapesExpr|nestedLocalArrayGetShapesEffect|nestedLocalArrayGetShapesStatement|nestedLocalArrayGetShapesForDynamicExprTarget|mergeNatSets|mergeNatArraySets|arrayNatEq" ProofForge/Backend/Evm/IR.lean || true)"
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/array-value-ir-smoke.sh
+scripts/evm/struct-array-value-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- This slice removes duplicate local-array helper discovery only; aggregate
+  crosscall argument/return expansion and bytes/string return encoding still
+  have compatibility-facade work left.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the remaining EVM compatibility facade around aggregate
+  crosscall argument/return paths and dynamic return-data encoding.
+
+### EVM Create Helper Discovery Delegation
+
+Commit: aaba7b2
+
+Summary:
+
+- Removed the stale IR-local create/create2 helper discovery scanner from
+  `IR.lean`.
+- Kept the compatibility facade entrypoints `moduleCreateHelperSpecs` and
+  `createHelperFunctions`, but made helper discovery delegate to
+  `Lower.buildCreateHelperPlans` while helper body emission remains in
+  `ToYul.createHelperFunction`.
+- Aligned the code with the backlog's planned ownership model: create helper
+  facts are discovered in the lower/plan layer and emitted by ToYul, not
+  re-scanned in the compatibility facade.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+test -z "$(rg -n "createHelperSpecsExpr|createHelperSpecsEffect|createHelperSpecsStatement|pushCreateHelperSpecIfMissing|mergeCreateHelperSpecs|createHelperSpecsStoragePathSegment" ProofForge/Backend/Evm/IR.lean || true)"
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- This slice removes duplicate create helper discovery only; aggregate
+  crosscall argument/return expansion and bytes/string return encoding still
+  have compatibility-facade work left.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the remaining EVM compatibility facade around aggregate
+  crosscall argument/return paths and dynamic return-data encoding.
+
+### EVM Crosscall Helper Discovery Delegation
+
+Commit: eac0b95
+
+Summary:
+
+- Removed the stale IR-local crosscall helper discovery scanner and helper-body
+  assembly definitions from `IR.lean`.
+- Kept the compatibility facade entrypoints
+  `moduleCrosscallHelperSpecs` and `crosscallHelperFunctions`, but made them
+  delegate directly to `Lower.buildCrosscallHelperPlans` and
+  `ToYul.crosscallHelperFunction`.
+- Preserved the public wrapper shape while ensuring crosscall helper discovery
+  has a single semantic source of truth in the plan/lower layer.
+
+Validation run:
+
+```sh
+test -z "$(rg -n "crosscallHelperSpecsExpr|crosscallHelperSpecsEffect|crosscallHelperSpecsStatement|pushCrosscallHelperSpecIfMissing|mergeCrosscallHelperSpecs|crosscallArgName|crosscallFunctionParams|crosscallReturnGuardStatements|def crosscallHelperFunction \\(" ProofForge/Backend/Evm/IR.lean || true)"
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/crosscall-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- This slice removes duplicate discovery logic; it does not migrate the
+  remaining `IR.lean` aggregate crosscall argument expansion or bytes/string
+  return paths.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue moving the remaining crosscall aggregate argument/return and dynamic
+  return encoding decisions behind explicit plan surfaces before deleting more
+  compatibility fallback code.
+
+### EVM Aggregate Return ABI Word Plans
+
+Commit: 26a8453
+
+Summary:
+
+- Generalized `ToYul.returnValueWordPlanAssignments` so return ABI word
+  assignment uses the shared `abiValueWordsFromPlan` path instead of accepting
+  only local aggregate word plans.
+- Extended `Lower.returnValueWordPlan?` from local fixed-array/struct returns
+  to literal aggregate returns and storage-backed fixed-array/struct aggregate
+  returns.
+- Taught the `IR.lean` compatibility facade to supply expression, local struct,
+  storage struct, and storage array word callbacks while the final assignment
+  frame lives in `ToYul`.
+- Added semantic-plan tests for literal struct returns, storage fixed-array
+  returns, and storage fixed-array-of-struct returns, including the expected
+  Yul assignment targets and slot helper calls.
+- Updated the implementation backlog and Chinese translation state so the
+  documented EVM migration status matches the code.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/storage-array-ir-smoke.sh
+scripts/evm/storage-struct-ir-smoke.sh
+scripts/evm/abi-aggregate-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Dynamic `bytes`/`string` returns remain on their existing compatibility path.
+- Aggregate crosscall return helpers still need a separate migration slice.
+- Storage aggregate return recognition is limited to complete contiguous
+  literal-index arrays that match the declared fixed-array return shape.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the EVM compatibility facade around the remaining aggregate
+  return/crosscall helper boundaries, with coverage before deleting old paths.
+
+### EVM Storage Array Event ABI Word Plans
+
+Commit: a20bd8b
+
+Summary:
+
+- Extended `ExprPlan.storageAbiWords` from scalar storage structs to fixed
+  storage arrays and fixed storage struct arrays.
+- Taught `Lower.buildEventFieldValuePlan` to recognize whole storage-array
+  event fields expressed as contiguous literal-index reads and record them as
+  `storageAbiWords` instead of opaque aggregate literals.
+- Added `ToYul.storageAbiWords` support for fixed-array storage expansion via a
+  storage-array callback, with the `IR.lean` facade supplying the concrete
+  `arraySlot` / `structArraySlot` backed `sload` words.
+- Added semantic-plan coverage for `StorageArrayEvent` and
+  `StoragePairArrayEvent`, asserting their planned storage state ids, ABI
+  types, word counts, and slot helper calls.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Storage-array ABI word planning recognizes complete literal-index arrays
+  only: indexes must be `0..N-1` and the event fixed-array length must match
+  the storage array length.
+- Partial slices, dynamic indexes, and mixed storage/literal aggregates still
+  remain ordinary planned aggregate literals.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Look for the next remaining EVM compatibility-facade boundary where
+  aggregate storage semantics still enter as expression fallback rather than an
+  explicit `ExprPlan` / `StmtPlan` node.
+
+### EVM Legacy Event Data Word Helper Removal
+
+Commit: 423fa63
+
+Summary:
+
+- Deleted the old `lowerEventDataWords`, `lowerEventStructDataWords`, and
+  `lowerEventFixedArrayDataWords` compatibility helpers from `IR.lean`.
+- Reworked local aggregate event data coverage to validate
+  `Lower.buildEffectPlan -> ToYul.eventFieldsDataWordsFromPlan` directly for
+  local structs, fixed arrays, and struct arrays.
+- Kept the existing emitted data-word assertions, but made the scalar fallback
+  in the test fail fast so local aggregates cannot silently bypass ABI word
+  plans.
+
+Validation run:
+
+```sh
+rg -n "lowerEvent(Struct|FixedArray|DataWords)|testLocalAggregateEventDataWordsToYul" ProofForge Tests
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Storage fixed-array and storage struct-array event fields still enter as
+  planned aggregate literals rather than first-class storage-array ABI word
+  plans.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Decide whether storage-array aggregate event fields need their own
+  first-class ABI word plan nodes, or whether planned aggregate literals are the
+  right stable representation for EVM.
+
+### EVM Event Data Fields via Planned ABI Words
+
+Commit: 8975edb
+
+Summary:
+
+- Routed `lowerEventEmitCoreStmt` data-field value expansion through
+  `Lower.buildEventFieldValuePlan` and
+  `ToYul.eventFieldsDataWordsFromPlan`.
+- Removed the event emit facade's direct dependency on `lowerEventDataWords`
+  for data fields, matching the indexed aggregate topic path's
+  `Lower -> Plan -> ToYul` boundary.
+- Added facade-level coverage for a storage-backed struct event data field,
+  asserting that the planned path still emits two `sload`-backed data words.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- `lowerEventDataWords` and related literal-specific helpers still remain in
+  `IR.lean` for direct helper coverage and future cleanup.
+- Storage fixed-array and storage struct-array event fields still enter as
+  planned aggregate literals rather than first-class storage-array ABI word
+  plans.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Confirm whether the remaining event data-word helpers are dead outside tests,
+  then delete or shrink them in a separate cleanup commit.
+
+### EVM Indexed Aggregate Event Topics via ABI Word Plans
+
+Commit: d78c562
+
+Summary:
+
+- Routed indexed aggregate event topic word expansion through
+  `Lower.buildEventFieldValuePlan` and `ToYul.eventFieldDataWordsFromPlan`.
+- Extended planned ABI word lowering so aggregate `arrayLit` and `structLit`
+  values can still flatten through the planned path; this preserves existing
+  storage-array and storage-struct-array event behavior while moving the topic
+  hash input assembly out of the `IR.lean` facade.
+- Added focused coverage for storage-backed indexed struct topics using
+  `storageAbiWords`, including the direct facade path.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Some legacy event data-word literal fallback code still lives in `IR.lean`
+  for non-planned statement lowering paths.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the `IR.lean` compatibility facade by migrating remaining
+  event data-word literal flattening and storage-array aggregate paths into
+  reusable plan/ToYul helpers.
+
+### EVM Storage Aggregate Event ABI Word Plan
+
+Commit: c35886f
+
+Summary:
+
+- Added a `storageAbiWords` expression-plan node for storage-backed ABI word
+  expansion.
+- Taught `Lower.buildEffectPlan` to record local aggregate event fields as
+  `localAbiWords` and scalar storage struct event fields as `storageAbiWords`.
+- Extended `ToYul.eventFieldsDataWordsFromPlan` so planned event data words can
+  consume aggregate ABI word expansion plans instead of only scalar
+  expressions.
+- Routed scalar storage struct event data lowering in the `IR.lean`
+  compatibility facade through `Lower -> Plan -> ToYul`.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Plan ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Storage fixed-array and storage struct-array event data still enter through
+  array literals of scalar storage reads.
+- Indexed aggregate storage topics still have their hashing path in the
+  `IR.lean` compatibility facade.
+
+Next step:
+
+- Move indexed aggregate topic word expansion and hashing behind the same
+  planned ABI word boundary.
+
+### EVM Local Aggregate Event Data Words via ABI Words
+
+Commit: 4ccf8de
+
+Summary:
+
+- Routed local struct, fixed-array, and struct-array event data-word lowering
+  through the shared `lowerLocalAbiWords` path instead of duplicating aggregate
+  local flattening inside `IR.lean`.
+- Kept literal and storage-backed aggregate event paths unchanged; this commit
+  narrows only the local value boundary that already has reusable ABI word
+  planning behavior.
+- Restored EVM plan/test runtime after the deploy metadata merge by rebuilding
+  affected examples, tightening helper/context comparison boundaries, and
+  splitting oversized semantic-plan smoke sections without changing their
+  assertions.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Plan ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmPlan.lean
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-diagnostics
+scripts/evm/event-ir-smoke.sh
+lake build proof-forge
+git diff --check
+```
+
+Known limitations:
+
+- Literal aggregate event data-word flattening and storage-backed aggregate
+  event reads still live in the `IR.lean` compatibility facade.
+- `lake build proof-forge` still reports pre-existing unused-variable warnings
+  in `ConstructorInit`, `SbpfAsm`, and `Cli`.
+
+Next step:
+
+- Move storage-backed aggregate event data-word planning behind an explicit
+  `Lower -> Plan -> ToYul` boundary.
+
 ### EVM IR Indexed Event Topic Assembly Cleanup
 
 Commit: bf98fcb

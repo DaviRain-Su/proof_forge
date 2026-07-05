@@ -310,12 +310,20 @@ Tasks:
   - Started: scalar `return` statement assembly now consumes a narrow
     `StmtPlan -> ToYul` helper for supported single-word `U32`/`U64`/`Bool`/
     `Hash`/`Address` return values, including branch-local `leave` insertion.
-    Local fixed-array and struct aggregate returns now use
-    `Lower.returnValueWordPlan? -> ReturnValueWordPlan -> ToYul` for return ABI
-    word assignment. Bytes/string returns, literal/storage aggregate returns,
-    and aggregate crosscall return helpers remain on their existing
-    compatibility paths until their own migration slices add broader plan-level
-    coverage.
+    Local, literal, and storage-backed fixed-array/struct aggregate returns now
+    use `Lower.returnValueWordPlan? -> ReturnValueWordPlan -> ToYul` for return
+    ABI word assignment. Dynamic local `bytes`/`string`/array return
+    statements now use `Lower.buildExprPlan -> StmtPlan.return ->
+    ToYul.dynamicReturnStmtPlanStatements` for the return data-pointer
+    assignment. The old dynamic return word fallback in `lowerReturnWords` has
+    been removed; dynamic return success paths must now pass through
+    `StmtPlan.return -> ToYul.dynamicReturnStmtPlanStatements`, while non-local
+    dynamic return expressions fail with an explicit unsupported-capability
+    diagnostic. Broader aggregate/crosscall return paths continue to migrate
+    through their own plan-level slices. The old IR-local fixed-array/struct
+    return word fallback helpers have been removed; aggregate return success
+    paths must now pass through `ReturnValueWordPlan` or aggregate crosscall
+    return planning.
   - Started: direct scalar local assignment and compound-assignment statement
     assembly now consumes a narrow `StmtPlan -> ToYul` helper when the RHS is in
     the supported scalar plan subset. Static local fixed-array element
@@ -493,15 +501,15 @@ Tasks:
     switch default case, checked-assignment RHS, one-dimensional switch frame,
     and nested path switch frame are emitted by `ToYul` helpers.
   - Started: aggregate crosscall helper-call assembly and entrypoint multi-word
-    return assignment now live behind `ToYul`. `IR.lean` still owns return type
-    checks and aggregate argument word expansion for scalar expression fallback
-    paths, but aggregate crosscall return assignment decisions now come from
-    `Lower.aggregateCrosscallReturnAssignmentPlan?`. That plan records the
-    call mode, target/method/call-value expression plans, planned crosscall
-    argument words, and `ReturnPlan` local-name/word-layout data; `IR.lean`
-    consumes the planned `ExprPlan`s and delegates final helper-call
-    function-name selection, argument ordering, and multi-return Yul assignment
-    construction to `ToYul`. Local
+    return assignment now live behind `ToYul`. Expression-position aggregate
+    crosscall return diagnostics now come from `Lower.buildExpressionExprPlan`,
+    while aggregate crosscall return assignment decisions now come from
+    `Lower.aggregateCrosscallReturnAssignmentPlan?`. That plan records the call
+    mode, target/method/call-value expression plans, planned crosscall argument
+    words, and `ReturnPlan` local-name/word-layout data; `IR.lean` consumes the
+    planned `ExprPlan`s and delegates final helper-call function-name
+    selection, argument ordering, and multi-return Yul assignment construction
+    to `ToYul`. Local
     aggregate ABI word expansion for entrypoint returns now uses
     `Lower.returnValueWordPlan?` to validate the source local and expected type,
     records the planned `ExprPlan.localAbiWords` source plus `ReturnPlan`
@@ -510,15 +518,27 @@ Tasks:
     compatibility paths still call `ToYul.localAbiWords` directly until they
     are represented in the semantic plan. Local
     aggregate crosscall argument word expansion now delegates the final local
-    identifier word construction to `ToYul.localCrosscallWords`; `IR.lean`
-    still owns non-literal aggregate sources that are not storage scalar struct
-    reads until those are represented directly in the semantic plan. `Lower`
-    now represents local aggregate typed/value/static/delegate crosscall
-    arguments as `ExprPlan.localCrosscallWords`, represents storage scalar
-    struct reads as `ExprPlan.storageCrosscallWords`, expands struct literal
-    and fixed-array literal crosscall arguments into scalar word `ExprPlan`s,
-    and lets `IR.lowerExprPlanExpr` consume those planned words before
-    selecting the helper-call arity.
+    identifier word construction to `ToYul.localCrosscallWords`; local provider
+    validation and struct-field discovery now route through
+    `Lower.validateLocalCrosscallWordPlan` and
+    `Lower.localCrosscallStructFieldIds`. `IR.lean` still owns non-literal
+    aggregate sources that are not storage scalar struct reads until those are
+    represented directly in the semantic plan. `Lower` now represents local
+    aggregate typed/value/static/delegate crosscall arguments as
+    `ExprPlan.localCrosscallWords`, expands storage scalar struct reads into
+    explicit `ExprPlan.storageLoad` word plans through
+    `Lower.storageCrosscallWordPlans`, expands struct literal and fixed-array
+    literal crosscall arguments into scalar word `ExprPlan`s, and lets
+    `IR.lowerExprPlanExpr` consume those planned words before selecting the
+    helper-call arity. The final traversal and concatenation of planned
+    crosscall argument word groups now uses `ToYul.crosscallArgWordPlanExprs`;
+    `IR.lean` still supplies ToYul provider callbacks for compatibility
+    `ExprPlan.localCrosscallWords`/`ExprPlan.storageCrosscallWords` inputs, but
+    active Lower-produced storage-backed crosscall arguments no longer depend
+    on the IR-local storage provider expansion. Scalar expression fallback
+    crosscall lowering now also calls
+    `Lower.buildCrosscallArgWordPlansMany` before that ToYul boundary, and the
+    old IR-local `lowerCrosscall*ArgWords` expansion tree has been removed.
   - Add `EntrypointPlan` for selector dispatch, calldata guards, ABI word
     flattening, return-data encoding, and metadata selector layout.
   - Add `EventPlan` for event signature topics, indexed-topic hashing,

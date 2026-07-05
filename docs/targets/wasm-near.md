@@ -100,7 +100,7 @@ Defined in `ProofForge/Target/Registry.lean` (`def wasmNear`):
 | `storage.scalar` | Yes | u32, u64, bool, hash → Rust struct fields |
 | `storage.map` | Yes | Map<U64, …> and Map<Hash, …> → raw `env::storage_read`/`env::storage_write` |
 | `caller.sender` | Yes | `env::predecessor_account_id()` |
-| `value.native` | Partial | Rust sourcegen lowers `nativeValue` to `env::attached_deposit()`; EmitWat does not yet lower expression inspection |
+| `value.native` | Partial | Rust sourcegen and EmitWat lower `nativeValue` to `env::attached_deposit()` / the `attached_deposit` host import as a U64 projection |
 | `events.emit` | Yes | `near_sdk::log!` with deterministic JSON |
 | `env.block` | Yes | `env::block_height()` |
 | `crypto.hash` | Yes | `env::sha256`-based hash helpers |

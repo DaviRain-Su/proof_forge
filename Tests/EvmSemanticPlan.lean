@@ -46,6 +46,26 @@ def requireValidateOk {α : Type}
   | .ok x => pure x
   | .error err => throw <| IO.userError s!"{message}: {err.message}"
 
+def requireErrorContains {α : Type}
+    (result : Except LowerError α)
+    (expected : String)
+    (message : String) : IO Unit :=
+  match result with
+  | .ok _ => throw <| IO.userError s!"{message}: expected error containing `{expected}`"
+  | .error err =>
+      require (err.message.contains expected)
+        s!"{message}: expected `{expected}`, got `{err.message}`"
+
+def requireValidateErrorContains {α : Type}
+    (result : Except ProofForge.Backend.Evm.Validate.LowerError α)
+    (expected : String)
+    (message : String) : IO Unit :=
+  match result with
+  | .ok _ => throw <| IO.userError s!"{message}: expected error containing `{expected}`"
+  | .error err =>
+      require (err.message.contains expected)
+        s!"{message}: expected `{expected}`, got `{err.message}`"
+
 def statementFunctionName? : Lean.Compiler.Yul.Statement → Option String
   | .funcDef name _ _ _ => some name
   | _ => none
@@ -195,7 +215,7 @@ def eip1967PackingProbe : Module := {
   entrypoints := #[]
 }
 
-def testCounterSemanticPlan : IO Unit := do
+def testCounterSemanticPlanEntrypoints : IO Unit := do
   let plan ← requireOk (buildSemanticPlan ProofForge.IR.Examples.Counter.module) "counter plan"
   require (plan.name == "Counter") "counter plan name"
   require (plan.targetPlan.targetId == "evm") "counter plan target"
@@ -226,6 +246,9 @@ def testCounterSemanticPlan : IO Unit := do
       require (name == "n") "counter plan increment add lhs"
       require (value == 1) "counter plan increment add rhs"
   | _ => throw <| IO.userError "counter plan increment second statement must write checked add"
+
+def testCounterSemanticPlanArtifacts : IO Unit := do
+  let plan ← requireOk (buildSemanticPlan ProofForge.IR.Examples.Counter.module) "counter plan"
   let get := plan.entrypoints[2]!
   require (get.name == "get") "counter plan get name"
   require (get.selector == "6d4ce63c") "counter plan get selector"
@@ -265,6 +288,10 @@ def testCounterSemanticPlan : IO Unit := do
   require (plan.creates.size == 0) "counter plan no creates"
   require (plan.dispatch.entrypoints.size == plan.entrypoints.size) "counter plan dispatch entrypoint count"
   require (plan.dispatch.default == .revert) "counter plan dispatch default"
+
+def testCounterSemanticPlan : IO Unit := do
+  testCounterSemanticPlanEntrypoints
+  testCounterSemanticPlanArtifacts
 
 def testEventSemanticPlan : IO Unit := do
   let plan ← requireOk (buildSemanticPlan ProofForge.IR.Examples.EventProbe.evmModule) "event plan"
@@ -499,7 +526,7 @@ def testMapHelperPlanToYul : IO Unit := do
     (statementsHaveFunctionNamed plannedMapHelpers (Helper.mapAssign .shiftRight).name)
     "planned map helpers include map assign shift-right"
 
-def testPlannedHelperDiscoveryToYul : IO Unit := do
+def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
   let plan ←
     requireOk
       (buildSemanticPlan ProofForge.IR.Examples.EvmCrosscallProbe.module)
@@ -626,6 +653,12 @@ def testPlannedHelperDiscoveryToYul : IO Unit := do
       require (name == "__proof_forge_crosscall_0_abi_bool_u32") "aggregate crosscall return assignment integration helper name"
       require (args.size == 2) "aggregate crosscall return assignment integration arg count"
   | _ => throw <| IO.userError "aggregate crosscall return assignment integration must assign aggregate helper call"
+
+def testPlannedCreateAndNativeHelperDiscoveryToYul : IO Unit := do
+  let plan ←
+    requireOk
+      (buildSemanticPlan ProofForge.IR.Examples.EvmCrosscallProbe.module)
+      "crosscall probe plan"
   require (plan.creates.size == 2) "crosscall probe planned create helpers"
   let nativePlan ← requireOk (buildSemanticPlan nativeTransferPlanProbe) "native transfer plan"
   let nativeTransfer ← requireSome
@@ -726,6 +759,10 @@ def testPlannedHelperDiscoveryToYul : IO Unit := do
     (statementsHaveFunctionNamed object.code.statements "__proof_forge_native_transfer")
     "plan-driven module lowering includes native transfer helper"
 
+def testPlannedHelperDiscoveryToYul : IO Unit := do
+  testPlannedCrosscallHelperDiscoveryToYul
+  testPlannedCreateAndNativeHelperDiscoveryToYul
+
 def testLocalArrayHelperDiscoveryInLowerPlan : IO Unit := do
   let plan ←
     requireOk
@@ -780,7 +817,7 @@ def testLocalArrayHelperDiscoveryInLowerPlan : IO Unit := do
     (statementsHaveFunctionNamed object.code.statements (ProofForge.Backend.Evm.ToYul.nestedLocalArrayGetFunctionName #[2, 2]))
     "plan-driven module lowering includes nested local-array helper"
 
-def testIncompletePlanFallbackHelperDiscovery : IO Unit := do
+def testIncompletePlanFallbackCrosscallHelperDiscovery : IO Unit := do
   let crosscallBasePlan ←
     requireOk
       (lowerPlan (ProofForge.Backend.Evm.Plan.buildModulePlan ProofForge.IR.Examples.EvmCrosscallProbe.module))
@@ -809,6 +846,8 @@ def testIncompletePlanFallbackHelperDiscovery : IO Unit := do
     require
       (statementsHaveFunctionNamed crosscallObject.code.statements helperName)
       s!"incomplete-plan fallback includes create helper `{helperName}`"
+
+def testIncompletePlanFallbackLocalArrayHelperDiscovery : IO Unit := do
   let arrayBasePlan ←
     requireOk
       (lowerPlan (ProofForge.Backend.Evm.Plan.buildModulePlan ProofForge.IR.Examples.EvmArrayValueProbe.module))
@@ -835,6 +874,10 @@ def testIncompletePlanFallbackHelperDiscovery : IO Unit := do
     require
       (statementsHaveFunctionNamed arrayObject.code.statements helperName)
       s!"incomplete-plan fallback includes nested local-array helper `{helperName}`"
+
+def testIncompletePlanFallbackHelperDiscovery : IO Unit := do
+  testIncompletePlanFallbackCrosscallHelperDiscovery
+  testIncompletePlanFallbackLocalArrayHelperDiscovery
 
 def testEntrypointDispatchPlanToYul : IO Unit := do
   let plan ← requireOk (buildSemanticPlan ProofForge.IR.Examples.Counter.module) "counter plan"
@@ -1158,6 +1201,24 @@ def testScalarExprPlanToYul : IO Unit := do
     "__proof_forge_crosscall_2"
     4
     "local aggregate crosscall argument ExprPlan-to-Yul"
+  let storageWordPlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.storageCrosscallWordPlans
+      ProofForge.IR.Examples.EvmStorageStructProbe.module
+      "typed crosscall argument"
+      "current"
+      (.structType "Point"))
+    "storage-backed aggregate crosscall argument Lower word plans"
+  require (storageWordPlans.size == 2) "storage-backed aggregate crosscall Lower word plan count"
+  let storageXPlan ← requireAt storageWordPlans 0 "storage-backed aggregate crosscall Lower missing x plan"
+  match storageXPlan with
+  | .storageLoad (.scalarSlot slot) =>
+      require (slot == 1) "storage-backed aggregate crosscall Lower x slot"
+  | _ => throw <| IO.userError "storage-backed aggregate crosscall Lower x must use storageLoad plan"
+  let storageYPlan ← requireAt storageWordPlans 1 "storage-backed aggregate crosscall Lower missing y plan"
+  match storageYPlan with
+  | .storageLoad (.scalarSlot slot) =>
+      require (slot == 2) "storage-backed aggregate crosscall Lower y slot"
+  | _ => throw <| IO.userError "storage-backed aggregate crosscall Lower y must use storageLoad plan"
   let aggregateStorageArgPlan ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.buildExprPlan
       ProofForge.IR.Examples.EvmStorageStructProbe.module
@@ -1170,13 +1231,17 @@ def testScalarExprPlanToYul : IO Unit := do
     "storage-backed aggregate crosscall argument Lower ExprPlan"
   match aggregateStorageArgPlan with
   | .crosscall .call _ _ none args .u64 => do
-      require (args.size == 1) "storage-backed aggregate crosscall argument plan word group count"
-      let argPlan ← requireAt args 0 "storage-backed aggregate crosscall argument missing plan"
-      match argPlan with
-      | .storageCrosscallWords stateId type => do
-          require (stateId == "current") "storage-backed aggregate crosscall argument plan state id"
-          require (type == .structType "Point") "storage-backed aggregate crosscall argument plan type"
-      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument must use storageCrosscallWords plan"
+      require (args.size == 2) "storage-backed aggregate crosscall argument plan word count"
+      let xArgPlan ← requireAt args 0 "storage-backed aggregate crosscall argument missing x plan"
+      match xArgPlan with
+      | .storageLoad (.scalarSlot slot) =>
+          require (slot == 1) "storage-backed aggregate crosscall argument x slot"
+      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument x must use storageLoad plan"
+      let yArgPlan ← requireAt args 1 "storage-backed aggregate crosscall argument missing y plan"
+      match yArgPlan with
+      | .storageLoad (.scalarSlot slot) =>
+          require (slot == 2) "storage-backed aggregate crosscall argument y slot"
+      | _ => throw <| IO.userError "storage-backed aggregate crosscall argument y must use storageLoad plan"
   | _ => throw <| IO.userError "storage-backed aggregate crosscall argument must lower to call plan"
   let aggregateStorageArgPlanExpr ← requireOk
     (lowerExprPlanExpr
@@ -1386,6 +1451,60 @@ def testScalarExprPlanToYul : IO Unit := do
     "__proof_forge_crosscall_1_u32"
     3
     "direct scalar crosscall ToYul helper-call"
+  let aggregateReturnExpr :=
+    Expr.crosscallInvokeTyped
+      (.local "target")
+      (.literal (.u64 305419896))
+      #[]
+      (.structType "Point")
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv #[{ name := "target", type := .u64, isMutable := false }])
+      aggregateReturnExpr)
+    "typed aggregate crosscall return `Point` must be consumed by aggregate return lowering in IR EVM v0"
+    "Lower expression aggregate typed crosscall return diagnostic"
+  requireErrorContains
+    (lowerExpr
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      #[{ name := "target", type := .u64, isMutable := false }]
+      aggregateReturnExpr)
+    "typed aggregate crosscall return `Point` must be consumed by aggregate return lowering in IR EVM v0"
+    "IR expression aggregate typed crosscall return diagnostic"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv #[{ name := "target", type := .u64, isMutable := false }])
+      (.crosscallInvokeValueTyped
+        (.local "target")
+        (.literal (.u64 0))
+        (.literal (.u64 1))
+        #[]
+        (.structType "Point")))
+    "value aggregate crosscall return `Point` must be consumed by aggregate return lowering in IR EVM v0"
+    "Lower expression aggregate value crosscall return diagnostic"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv #[{ name := "target", type := .u64, isMutable := false }])
+      (.crosscallInvokeStaticTyped
+        (.local "target")
+        (.literal (.u64 305419896))
+        #[]
+        (.structType "Point")))
+    "static aggregate crosscall return `Point` must be consumed by aggregate return lowering in IR EVM v0"
+    "Lower expression aggregate static crosscall return diagnostic"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv #[{ name := "target", type := .u64, isMutable := false }])
+      (.crosscallInvokeDelegateTyped
+        (.local "target")
+        (.literal (.u64 305419896))
+        #[]
+        (.structType "Point")))
+    "delegate aggregate crosscall return `Point` must be consumed by aggregate return lowering in IR EVM v0"
+    "Lower expression aggregate delegate crosscall return diagnostic"
   let directNativeTransferExpr ← requireOk
     (lowerExpr
       ProofForge.IR.Examples.Counter.module
@@ -1647,6 +1766,13 @@ def testLocalCrosscallWordsToYul : IO Unit := do
       .ok #["x", "y"]
     else
       .error { message := s!"unknown struct `{typeName}`" }
+  let lowerStructFields ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.localCrosscallStructFieldIds
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      "crosscall argument"
+      "Point")
+    "Lower local crosscall struct fields"
+  require (lowerStructFields == #["x", "y"]) "Lower local crosscall struct field order"
   let directStructWords ← requireOk
     (ProofForge.Backend.Evm.ToYul.localCrosscallWords
       toYulError
@@ -1669,9 +1795,68 @@ def testLocalCrosscallWordsToYul : IO Unit := do
   require (directArrayWords.size == 2) "direct local crosscall fixed-array words count"
   requireIdentExpr directArrayWords[0]! "__proof_forge_array_xs_0" "direct local crosscall fixed-array word 0"
   requireIdentExpr directArrayWords[1]! "__proof_forge_array_xs_1" "direct local crosscall fixed-array word 1"
+  let directArgWords ← requireOk
+    (ProofForge.Backend.Evm.ToYul.crosscallArgWordPlanExprs
+      (fun
+        | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
+        | _ => .error { message := "direct crosscall arg word plan test only lowers literal scalar plans" })
+      (fun name type =>
+        ProofForge.Backend.Evm.ToYul.localCrosscallWords
+          toYulError
+          simpleStructFields
+          "crosscall argument"
+          name
+          type)
+      (fun stateId type =>
+        if stateId == "current" && type == .structType "Point" then
+          .ok #[Lean.Compiler.Yul.Expr.id "current_x", Lean.Compiler.Yul.Expr.id "current_y"]
+        else
+          .error { message := "direct crosscall arg word plan test unexpected storage plan" })
+      #[
+        .localCrosscallWords "p" (.structType "Point"),
+        .literalWord 9,
+        .storageCrosscallWords "current" (.structType "Point")
+      ])
+    "direct crosscall arg word plan ToYul"
+  require (directArgWords.size == 5) "direct crosscall arg word plan word count"
+  requireIdentExpr directArgWords[0]! "__proof_forge_struct_p_x" "direct crosscall arg word plan local word 0"
+  requireIdentExpr directArgWords[1]! "__proof_forge_struct_p_y" "direct crosscall arg word plan local word 1"
+  match directArgWords[2]! with
+  | Lean.Compiler.Yul.Expr.lit value =>
+      require (value.value == "9") "direct crosscall arg word plan scalar word"
+  | _ => throw <| IO.userError "direct crosscall arg word plan scalar word must be numeric"
+  requireIdentExpr directArgWords[3]! "current_x" "direct crosscall arg word plan storage word 0"
+  requireIdentExpr directArgWords[4]! "current_y" "direct crosscall arg word plan storage word 1"
   let structEnv : TypeEnv := #[
     { name := "p", type := .structType "Point", isMutable := false }
   ]
+  discard <| requireValidateOk
+    (ProofForge.Backend.Evm.Lower.validateLocalCrosscallWordPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv structEnv)
+      "typed crosscall argument"
+      "p"
+      (.structType "Point"))
+    "Lower local crosscall word validation"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.validateLocalCrosscallWordPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv structEnv)
+      "typed crosscall argument"
+      "missing"
+      (.structType "Point"))
+    "unknown local `missing`"
+    "Lower local crosscall word unknown local diagnostic"
+  let plannedStructArgWords ← requireOk
+    (lowerCrosscallArgWordsMany
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      structEnv
+      "typed crosscall argument"
+      #[.local "p"])
+    "planned local crosscall struct words via IR facade"
+  require (plannedStructArgWords.size == 2) "planned local crosscall struct words count"
+  requireIdentExpr plannedStructArgWords[0]! "__proof_forge_struct_p_x" "planned local crosscall struct word 0"
+  requireIdentExpr plannedStructArgWords[1]! "__proof_forge_struct_p_y" "planned local crosscall struct word 1"
   let loweredStructWords ← requireOk
     (lowerLocalCrosscallWords
       ProofForge.IR.Examples.EvmStructValueProbe.module
@@ -1700,11 +1885,21 @@ def testLocalCrosscallWordsToYul : IO Unit := do
   requireIdentExpr loweredArrayWords[2]! "__proof_forge_array_xs_2" "compat local crosscall fixed-array word 2"
 
 def testReturnValueWordPlanToYul : IO Unit := do
-  let simpleStructFields (typeName : String) : Except LowerError (Array String) :=
+  let simpleStructFields (typeName : String) : Except LowerError (Array (String × ValueType)) :=
     if typeName == "Point" then
-      .ok #["x", "y"]
+      .ok #[("x", .u64), ("y", .u64)]
     else
       .error { message := s!"unknown struct `{typeName}`" }
+  let noReturnPlanExpr (_ : ExprPlan) : Except LowerError Lean.Compiler.Yul.Expr :=
+    .error { message := "direct return value word test should not lower scalar ExprPlan" }
+  let noStorageStructWords
+      (_context _typeName _stateId : String) : Except LowerError (Array Lean.Compiler.Yul.Expr) :=
+    .error { message := "direct return value word test should not lower storage struct words" }
+  let noStorageArrayWords
+      (_context _stateId : String)
+      (_elementType : ValueType)
+      (_length : Nat) : Except LowerError (Array Lean.Compiler.Yul.Expr) :=
+    .error { message := "direct return value word test should not lower storage array words" }
   let directPlan : ReturnValueWordPlan := {
     returns := {
       returnType := .fixedArray .u64 2
@@ -1716,7 +1911,10 @@ def testReturnValueWordPlanToYul : IO Unit := do
   let directAssignments ← requireOk
     (ProofForge.Backend.Evm.ToYul.returnValueWordPlanAssignments
       toYulError
+      noReturnPlanExpr
       simpleStructFields
+      noStorageStructWords
+      noStorageArrayWords
       "entrypoint `array` return value"
       directPlan)
     "direct return value word plan ToYul"
@@ -1795,6 +1993,104 @@ def testReturnValueWordPlanToYul : IO Unit := do
       require (names == #["__proof_forge_return_2"]) "Lower local fixed-array return third target"
       require (valueName == "__proof_forge_array_xs_2") "Lower local fixed-array return third source"
   | _ => throw <| IO.userError "Lower local fixed-array return third statement must assign local ABI word"
+  let literalStructPlan? ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.returnValueWordPlan?
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv #[])
+      "literal_point"
+      (.structType "Point")
+      (ProofForge.IR.Examples.EvmStructValueProbe.point 4 6))
+    "Lower literal struct return value word plan"
+  let literalStructPlan ← requireSome literalStructPlan? "Lower literal struct return value word plan missing"
+  match literalStructPlan.source with
+  | .structLit typeName fields => do
+      require (typeName == "Point") "Lower literal struct return source type"
+      require (fields.size == 2) "Lower literal struct return field count"
+  | _ => throw <| IO.userError "Lower literal struct return must use structLit source plan"
+  let literalStructAssignments ← requireOk
+    (lowerReturnValueWordPlan
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      #[]
+      "literal_point"
+      literalStructPlan)
+    "Lower literal struct return value word plan ToYul integration"
+  require (literalStructAssignments.size == 2) "Lower literal struct return assignment count"
+  match literalStructAssignments[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.lit value) => do
+      require (names == #["__proof_forge_return_0"]) "Lower literal struct return first target"
+      require (value.value == "4") "Lower literal struct return first literal"
+  | _ => throw <| IO.userError "Lower literal struct return first statement must assign literal ABI word"
+  let storageArrayValue : Expr := .arrayLit .u64 #[
+    .effect (.storageArrayRead "values" (ProofForge.IR.Examples.EvmStorageArrayProbe.u64 0)),
+    .effect (.storageArrayRead "values" (ProofForge.IR.Examples.EvmStorageArrayProbe.u64 1)),
+    .effect (.storageArrayRead "values" (ProofForge.IR.Examples.EvmStorageArrayProbe.u64 2))
+  ]
+  let storageArrayPlan? ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.returnValueWordPlan?
+      ProofForge.IR.Examples.EvmStorageArrayProbe.module
+      (toValidateTypeEnv #[])
+      "return_values"
+      (.fixedArray .u64 3)
+      storageArrayValue)
+    "Lower storage fixed-array return value word plan"
+  let storageArrayPlan ← requireSome storageArrayPlan? "Lower storage fixed-array return value word plan missing"
+  match storageArrayPlan.source with
+  | .storageAbiWords stateId type => do
+      require (stateId == "values") "Lower storage fixed-array return source state"
+      require (type == .fixedArray .u64 3) "Lower storage fixed-array return source type"
+  | _ => throw <| IO.userError "Lower storage fixed-array return must use storageAbiWords source plan"
+  let storageArrayAssignments ← requireOk
+    (lowerReturnValueWordPlan
+      ProofForge.IR.Examples.EvmStorageArrayProbe.module
+      #[]
+      "return_values"
+      storageArrayPlan)
+    "Lower storage fixed-array return value word plan ToYul integration"
+  require (storageArrayAssignments.size == 3) "Lower storage fixed-array return assignment count"
+  match storageArrayAssignments[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "sload" args) => do
+      require (names == #["__proof_forge_return_0"]) "Lower storage fixed-array return first target"
+      require (args.size == 1) "Lower storage fixed-array return first sload arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.call name _ =>
+          require (name == "__proof_forge_array_slot") "Lower storage fixed-array return first slot helper"
+      | _ => throw <| IO.userError "Lower storage fixed-array return first source must use array slot helper"
+  | _ => throw <| IO.userError "Lower storage fixed-array return first statement must assign sload ABI word"
+  let storageStructArrayValue : Expr := .arrayLit (.structType "Point") #[
+    ProofForge.IR.Examples.EvmStorageStructProbe.storagePoint 0,
+    ProofForge.IR.Examples.EvmStorageStructProbe.storagePoint 1
+  ]
+  let storageStructArrayPlan? ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.returnValueWordPlan?
+      ProofForge.IR.Examples.EvmStorageStructProbe.module
+      (toValidateTypeEnv #[])
+      "return_points"
+      (.fixedArray (.structType "Point") 2)
+      storageStructArrayValue)
+    "Lower storage struct-array return value word plan"
+  let storageStructArrayPlan ← requireSome storageStructArrayPlan? "Lower storage struct-array return value word plan missing"
+  match storageStructArrayPlan.source with
+  | .storageAbiWords stateId type => do
+      require (stateId == "points") "Lower storage struct-array return source state"
+      require (type == .fixedArray (.structType "Point") 2) "Lower storage struct-array return source type"
+  | _ => throw <| IO.userError "Lower storage struct-array return must use storageAbiWords source plan"
+  let storageStructArrayAssignments ← requireOk
+    (lowerReturnValueWordPlan
+      ProofForge.IR.Examples.EvmStorageStructProbe.module
+      #[]
+      "return_points"
+      storageStructArrayPlan)
+    "Lower storage struct-array return value word plan ToYul integration"
+  require (storageStructArrayAssignments.size == 4) "Lower storage struct-array return assignment count"
+  match storageStructArrayAssignments[3]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "sload" args) => do
+      require (names == #["__proof_forge_return_3"]) "Lower storage struct-array return last target"
+      require (args.size == 1) "Lower storage struct-array return last sload arg count"
+      match args[0]! with
+      | Lean.Compiler.Yul.Expr.call name _ =>
+          require (name == "__proof_forge_struct_array_slot") "Lower storage struct-array return last slot helper"
+      | _ => throw <| IO.userError "Lower storage struct-array return last source must use struct-array slot helper"
+  | _ => throw <| IO.userError "Lower storage struct-array return last statement must assign sload ABI word"
 
 def testAggregateAssignmentPlanToYul : IO Unit := do
   let fixedStmt :=
@@ -2022,6 +2318,24 @@ def testScalarAssertPlanToYul : IO Unit := do
 
 def testScalarReturnPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
+  let dynamicReturnPlan : ReturnPlan := {
+    returnType := .bytes
+    wordTypes := #[.bytes]
+    localNames := #["result"]
+  }
+  let directDynamicStmts ← requireOk
+    (ProofForge.Backend.Evm.ToYul.dynamicReturnStmtPlanStatements
+      toYulError
+      dynamicReturnPlan
+      false
+      (ProofForge.Backend.Evm.Plan.StmtPlan.return (.local "data")))
+    "dynamic return StmtPlan-to-Yul helper"
+  require (directDynamicStmts.size == 1) "dynamic return StmtPlan-to-Yul helper statement count"
+  match directDynamicStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+      require (names == #["result"]) "dynamic return StmtPlan-to-Yul helper target"
+      require (valueName == "data__data_ptr") "dynamic return StmtPlan-to-Yul helper data ptr"
+  | _ => throw <| IO.userError "dynamic return StmtPlan-to-Yul helper must assign data pointer"
   let directStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarReturnStmtPlanStatements
       toYulError
@@ -2076,6 +2390,21 @@ def testScalarReturnPlanToYul : IO Unit := do
       require (name == "__pf_checked_add") "scalar return plan-to-yul helper"
       require (args.size == 2) "scalar return plan-to-yul arg count"
   | _ => throw <| IO.userError "scalar return plan-to-yul must assign helper result"
+  let dynamicReturnStmts ← requireOk
+    (lowerReturnStmt
+      ProofForge.IR.Examples.EvmDynamicAbiProbe.module
+      (entrypointTypeEnv ProofForge.IR.Examples.EvmDynamicAbiProbe.echoBytes)
+      "echo_bytes"
+      .bytes
+      (.local "data")
+      false)
+    "dynamic return plan-to-yul"
+  require (dynamicReturnStmts.size == 1) "dynamic return plan-to-yul statement count"
+  match dynamicReturnStmts[0]! with
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+      require (names == #["result"]) "dynamic return plan-to-yul target"
+      require (valueName == "data__data_ptr") "dynamic return plan-to-yul data ptr"
+  | _ => throw <| IO.userError "dynamic return plan-to-yul must assign data pointer"
   let storageReturnStmts ← requireOk
     (lowerReturnStmt
       ProofForge.IR.Examples.Counter.module
@@ -3256,10 +3585,22 @@ def testScalarEventPlanToYul : IO Unit := do
     | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
     | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
     | _ => .error (toYulError "unexpected event plan test expression")
+  let noStructFields (_ : String) : Except LowerError (Array (String × ValueType)) :=
+    .error (toYulError "unexpected event plan test struct fields")
+  let noStorageWords (_context _typeName _stateId : String) : Except LowerError (Array Lean.Compiler.Yul.Expr) :=
+    .error (toYulError "unexpected event plan test storage words")
+  let noStorageArrayWords
+      (_context _stateId : String)
+      (_elementType : ValueType)
+      (_length : Nat) : Except LowerError (Array Lean.Compiler.Yul.Expr) :=
+    .error (toYulError "unexpected event plan test storage array words")
   let directDataWords ← requireOk
     (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
       toYulError
       simplePlanExpr
+      noStructFields
+      noStorageWords
+      noStorageArrayWords
       directEvent.name
       directEvent.dataFields
       #[.literalWord 11])
@@ -3273,6 +3614,9 @@ def testScalarEventPlanToYul : IO Unit := do
     (ProofForge.Backend.Evm.ToYul.eventIndexedTopicStatementsFromPlans
       toYulError
       simplePlanExpr
+      noStructFields
+      noStorageWords
+      noStorageArrayWords
       directEvent
       #[.literalWord 7])
     "event indexed field plan-to-yul topic statements"
@@ -3330,6 +3674,297 @@ def testScalarEventPlanToYul : IO Unit := do
         | _ => pure ()
       require foundIndexedSload "scalar indexed event topic must lower storage read through plan"
   | _ => throw <| IO.userError "scalar indexed event topic plan-to-yul must lower to block"
+
+def plannedLocalAggregateEventDataWords
+    (module : ProofForge.IR.Module)
+    (env : TypeEnv)
+    (eventName : String)
+    (fields : Array (String × ProofForge.IR.Expr))
+    (label : String) : IO (Array Lean.Compiler.Yul.Expr) := do
+  let plan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      module
+      (toValidateTypeEnv env)
+      (.eventEmit eventName fields))
+    s!"{label} Lower EffectPlan"
+  let (event, dataFields) ←
+    match plan with
+    | .eventEmit event dataFields => pure (event, dataFields)
+    | _ => throw <| IO.userError s!"{label} must lower to eventEmit plan"
+  require (event.name == eventName) s!"{label} event name"
+  requireOk
+    (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
+      toYulError
+      (fun _ => .error (toYulError s!"{label} should use local ABI word plans"))
+      (localAbiStructFields module label)
+      (fun _ _ _ => .error (toYulError s!"{label} should not use storage ABI words"))
+      (fun _ _ _ _ => .error (toYulError s!"{label} should not use storage array ABI words"))
+      event.name
+      event.dataFields
+      dataFields)
+    s!"{label} plan-to-yul"
+
+def testLocalAggregateEventDataWordsPlanToYul : IO Unit := do
+  let module := ProofForge.IR.Examples.EventProbe.evmModule
+  let pairEnv : TypeEnv := #[
+    { name := "pair", type := .structType "Pair", isMutable := false }
+  ]
+  let pairWords ← plannedLocalAggregateEventDataWords
+    module
+    pairEnv
+    "PairEvent"
+    #[("pair", .local "pair")]
+    "local struct event data words"
+  require (pairWords.size == 2) "local struct event data word count"
+  requireIdentExpr (← requireAt pairWords 0 "local struct event missing first word")
+    "__proof_forge_struct_pair_left"
+    "local struct event first word"
+  requireIdentExpr (← requireAt pairWords 1 "local struct event missing second word")
+    "__proof_forge_struct_pair_right"
+    "local struct event second word"
+  let arrayEnv : TypeEnv := #[
+    { name := "values", type := .fixedArray .u64 2, isMutable := false }
+  ]
+  let arrayWords ← plannedLocalAggregateEventDataWords
+    module
+    arrayEnv
+    "ArrayEvent"
+    #[("values", .local "values")]
+    "local fixed-array event data words"
+  require (arrayWords.size == 2) "local fixed-array event data word count"
+  requireIdentExpr (← requireAt arrayWords 0 "local fixed-array event missing first word")
+    "__proof_forge_array_values_0"
+    "local fixed-array event first word"
+  requireIdentExpr (← requireAt arrayWords 1 "local fixed-array event missing second word")
+    "__proof_forge_array_values_1"
+    "local fixed-array event second word"
+  let pairArrayEnv : TypeEnv := #[
+    { name := "pairs", type := .fixedArray (.structType "Pair") 2, isMutable := false }
+  ]
+  let pairArrayWords ← plannedLocalAggregateEventDataWords
+    module
+    pairArrayEnv
+    "PairArrayEvent"
+    #[("pairs", .local "pairs")]
+    "local struct-array event data words"
+  require (pairArrayWords.size == 4) "local struct-array event data word count"
+  requireIdentExpr (← requireAt pairArrayWords 0 "local struct-array event missing word 0")
+    "__proof_forge_array_struct_pairs_0_left"
+    "local struct-array event word 0"
+  requireIdentExpr (← requireAt pairArrayWords 1 "local struct-array event missing word 1")
+    "__proof_forge_array_struct_pairs_0_right"
+    "local struct-array event word 1"
+  requireIdentExpr (← requireAt pairArrayWords 2 "local struct-array event missing word 2")
+    "__proof_forge_array_struct_pairs_1_left"
+    "local struct-array event word 2"
+  requireIdentExpr (← requireAt pairArrayWords 3 "local struct-array event missing word 3")
+    "__proof_forge_array_struct_pairs_1_right"
+    "local struct-array event word 3"
+
+def testStorageAggregateEventDataWordsPlanToYul : IO Unit := do
+  let module := ProofForge.IR.Examples.EventProbe.evmModule
+  let plan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      module
+      (toValidateTypeEnv #[])
+      (.eventEmit "StoragePairEvent" #[("pair", .effect (.storageScalarRead "storedPair"))]))
+    "storage aggregate event Lower EffectPlan"
+  let (event, dataFields) ←
+    match plan with
+    | .eventEmit event dataFields => pure (event, dataFields)
+    | _ => throw <| IO.userError "storage aggregate event must lower to eventEmit plan"
+  require (event.name == "StoragePairEvent") "storage aggregate event plan name"
+  require (event.dataFields.size == 1) "storage aggregate event data field count"
+  require (dataFields.size == 1) "storage aggregate event planned data value count"
+  match dataFields[0]? with
+  | some (ExprPlan.storageAbiWords stateId type) => do
+      require (stateId == "storedPair") "storage aggregate event storageAbiWords state id"
+      require (type == .structType "Pair") "storage aggregate event storageAbiWords type"
+  | some _ => throw <| IO.userError "storage aggregate event data field must use storageAbiWords"
+  | none => throw <| IO.userError "storage aggregate event missing planned data field"
+  let words ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
+      toYulError
+      (fun _ => .error (toYulError "storage aggregate event should not lower scalar field value"))
+      (localAbiStructFields module "storage aggregate event")
+      (fun context typeName stateId => do
+        let fields ← lowerStructStorageReadFields module context typeName stateId
+        .ok (fields.map fun field => field.snd))
+      (fun context stateId elementType length =>
+        lowerStorageArrayAbiWords module context stateId elementType length)
+      event.name
+      event.dataFields
+      dataFields)
+    "storage aggregate event data words plan-to-yul"
+  require (words.size == 2) "storage aggregate event data word count"
+  for h : idx in [0:words.size] do
+    match words[idx] with
+    | Lean.Compiler.Yul.Expr.builtin name args => do
+        require (name == "sload") s!"storage aggregate event word {idx} must be sload"
+        require (args.size == 1) s!"storage aggregate event word {idx} sload arg count"
+    | _ => throw <| IO.userError s!"storage aggregate event word {idx} must lower to sload"
+  let facadeStmt ← requireOk
+    (lowerEventEmitStmt
+      module
+      #[]
+      "StoragePairEvent"
+      #[("pair", .effect (.storageScalarRead "storedPair"))])
+    "storage aggregate event facade data words plan-to-yul"
+  match facadeStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      let mut sloadDataWordCount := 0
+      for stmt in block.statements do
+        match stmt with
+        | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "mstore" args) => do
+            match args[1]? with
+            | some (Lean.Compiler.Yul.Expr.builtin "sload" sloadArgs) =>
+                if sloadArgs.size == 1 then
+                  sloadDataWordCount := sloadDataWordCount + 1
+            | _ => pure ()
+        | _ => pure ()
+      require (sloadDataWordCount == 2)
+        "storage aggregate event facade must store two sload-backed data words"
+  | _ =>
+      throw <| IO.userError "storage aggregate event facade must lower to event emit block"
+  let arrayPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      module
+      (toValidateTypeEnv #[])
+      (.eventEmit "StorageArrayEvent" #[("values", ProofForge.IR.Examples.EventProbe.storedValues)]))
+    "storage array aggregate event Lower EffectPlan"
+  let (arrayEvent, arrayDataFields) ←
+    match arrayPlan with
+    | .eventEmit event dataFields => pure (event, dataFields)
+    | _ => throw <| IO.userError "storage array aggregate event must lower to eventEmit plan"
+  match arrayDataFields[0]? with
+  | some (ExprPlan.storageAbiWords stateId type) => do
+      require (stateId == "storedValues") "storage array aggregate event storageAbiWords state id"
+      require (type == .fixedArray .u64 2) "storage array aggregate event storageAbiWords type"
+  | some _ => throw <| IO.userError "storage array aggregate event data field must use storageAbiWords"
+  | none => throw <| IO.userError "storage array aggregate event missing planned data field"
+  let arrayWords ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
+      toYulError
+      (fun _ => .error (toYulError "storage array aggregate event should not lower scalar field value"))
+      (localAbiStructFields module "storage array aggregate event")
+      (fun context typeName stateId => do
+        let fields ← lowerStructStorageReadFields module context typeName stateId
+        .ok (fields.map fun field => field.snd))
+      (fun context stateId elementType length =>
+        lowerStorageArrayAbiWords module context stateId elementType length)
+      arrayEvent.name
+      arrayEvent.dataFields
+      arrayDataFields)
+    "storage array aggregate event data words plan-to-yul"
+  require (arrayWords.size == 2) "storage array aggregate event data word count"
+  for h : idx in [0:arrayWords.size] do
+    match arrayWords[idx] with
+    | Lean.Compiler.Yul.Expr.builtin "sload" args => do
+        require (args.size == 1) s!"storage array aggregate event word {idx} sload arg count"
+        match args[0]! with
+        | Lean.Compiler.Yul.Expr.call name _ =>
+            require (name == "__proof_forge_array_slot") s!"storage array aggregate event word {idx} slot helper"
+        | _ => throw <| IO.userError s!"storage array aggregate event word {idx} must call array slot helper"
+    | _ => throw <| IO.userError s!"storage array aggregate event word {idx} must lower to sload"
+  let structArrayPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      module
+      (toValidateTypeEnv #[])
+      (.eventEmit "StoragePairArrayEvent" #[("pairs", ProofForge.IR.Examples.EventProbe.storedPairs)]))
+    "storage struct-array aggregate event Lower EffectPlan"
+  let (structArrayEvent, structArrayDataFields) ←
+    match structArrayPlan with
+    | .eventEmit event dataFields => pure (event, dataFields)
+    | _ => throw <| IO.userError "storage struct-array aggregate event must lower to eventEmit plan"
+  match structArrayDataFields[0]? with
+  | some (ExprPlan.storageAbiWords stateId type) => do
+      require (stateId == "storedPairs") "storage struct-array aggregate event storageAbiWords state id"
+      require (type == .fixedArray (.structType "Pair") 2) "storage struct-array aggregate event storageAbiWords type"
+  | some _ => throw <| IO.userError "storage struct-array aggregate event data field must use storageAbiWords"
+  | none => throw <| IO.userError "storage struct-array aggregate event missing planned data field"
+  let structArrayWords ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventFieldsDataWordsFromPlan
+      toYulError
+      (fun _ => .error (toYulError "storage struct-array aggregate event should not lower scalar field value"))
+      (localAbiStructFields module "storage struct-array aggregate event")
+      (fun context typeName stateId => do
+        let fields ← lowerStructStorageReadFields module context typeName stateId
+        .ok (fields.map fun field => field.snd))
+      (fun context stateId elementType length =>
+        lowerStorageArrayAbiWords module context stateId elementType length)
+      structArrayEvent.name
+      structArrayEvent.dataFields
+      structArrayDataFields)
+    "storage struct-array aggregate event data words plan-to-yul"
+  require (structArrayWords.size == 4) "storage struct-array aggregate event data word count"
+  for h : idx in [0:structArrayWords.size] do
+    match structArrayWords[idx] with
+    | Lean.Compiler.Yul.Expr.builtin "sload" args => do
+        require (args.size == 1) s!"storage struct-array aggregate event word {idx} sload arg count"
+        match args[0]! with
+        | Lean.Compiler.Yul.Expr.call name _ =>
+            require (name == "__proof_forge_struct_array_slot") s!"storage struct-array aggregate event word {idx} slot helper"
+        | _ => throw <| IO.userError s!"storage struct-array aggregate event word {idx} must call struct-array slot helper"
+    | _ => throw <| IO.userError s!"storage struct-array aggregate event word {idx} must lower to sload"
+
+def testStorageAggregateIndexedEventTopicPlanToYul : IO Unit := do
+  let module := ProofForge.IR.Examples.EventProbe.evmModule
+  let plan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      module
+      (toValidateTypeEnv #[{ name := "value", type := .u64, isMutable := false }])
+      (.eventEmitIndexed
+        "IndexedStoragePair"
+        #[("pair", .effect (.storageScalarRead "storedPair"))]
+        #[("value", .local "value")]))
+    "storage aggregate indexed event Lower EffectPlan"
+  let (event, indexedFields) ←
+    match plan with
+    | .eventEmitIndexed event indexedFields _ => pure (event, indexedFields)
+    | _ => throw <| IO.userError "storage aggregate indexed event must lower to eventEmitIndexed plan"
+  require (event.name == "IndexedStoragePair") "storage aggregate indexed event plan name"
+  require (event.indexedFields.size == 1) "storage aggregate indexed event indexed field count"
+  require (indexedFields.size == 1) "storage aggregate indexed event planned indexed value count"
+  match indexedFields[0]? with
+  | some (ExprPlan.storageAbiWords stateId type) => do
+      require (stateId == "storedPair") "storage aggregate indexed event storageAbiWords state id"
+      require (type == .structType "Pair") "storage aggregate indexed event storageAbiWords type"
+  | some _ => throw <| IO.userError "storage aggregate indexed event field must use storageAbiWords"
+  | none => throw <| IO.userError "storage aggregate indexed event missing planned indexed field"
+  let plannedTopicStmts ← requireOk
+    (ProofForge.Backend.Evm.ToYul.eventIndexedTopicStatementsFromPlans
+      toYulError
+      (fun _ => .error (toYulError "storage aggregate indexed event should not lower scalar indexed field"))
+      (localAbiStructFields module "storage aggregate indexed event")
+      (fun context typeName stateId => do
+        let fields ← lowerStructStorageReadFields module context typeName stateId
+        .ok (fields.map fun field => field.snd))
+      (fun context stateId elementType length =>
+        lowerStorageArrayAbiWords module context stateId elementType length)
+      event
+      indexedFields)
+    "storage aggregate indexed event topic plan-to-yul"
+  require (plannedTopicStmts.size == 3) "storage aggregate indexed event topic statement count"
+  match plannedTopicStmts[2]! with
+  | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args)) => do
+      match vars[0]? with
+      | some var => require (var.name == "_indexed_topic0") "storage aggregate indexed event topic var"
+      | none => throw <| IO.userError "storage aggregate indexed event topic missing var"
+      require (args.size == 2) "storage aggregate indexed event topic keccak arg count"
+  | _ => throw <| IO.userError "storage aggregate indexed event topic must hash planned words"
+  let fieldPlan ← requireAt event.indexedFields 0 "storage aggregate indexed event missing field plan"
+  let facadeTopicStmts ← requireOk
+    (lowerIndexedEventTopicStatements
+      module
+      #[]
+      "IndexedStoragePair"
+      "pair"
+      0
+      fieldPlan
+      (.effect (.storageScalarRead "storedPair")))
+    "storage aggregate indexed event facade topic plan-to-yul"
+  require (facadeTopicStmts.size == plannedTopicStmts.size)
+    "storage aggregate indexed event facade topic statement count"
 
 def testScalarStorageEffectPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
@@ -5117,6 +5752,9 @@ def main : IO UInt32 := do
   testScalarAssignmentPlanToYul
   testScalarControlFlowPlanToYul
   testScalarEventPlanToYul
+  testLocalAggregateEventDataWordsPlanToYul
+  testStorageAggregateEventDataWordsPlanToYul
+  testStorageAggregateIndexedEventTopicPlanToYul
   testScalarStorageEffectPlanToYul
   testMapReadPlanToYul
   testMapWritePlanToYul

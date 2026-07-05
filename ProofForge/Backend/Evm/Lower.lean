@@ -118,6 +118,52 @@ def crosscallReturnPlan (module : Module) (context : String) (returnType : Value
   let wordTypes ← crosscallReturnWordTypes module context returnType
   .ok { returnType, wordTypes, localNames := returnLocalNames returnType wordTypes }
 
+def localCrosscallStructFieldIds
+    (module : Module)
+    (context typeName : String) : Except LowerError (Array String) := do
+  discard <| crosscallValueWordTypes module context (.structType typeName)
+  let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
+    | .error { message := s!"{context} uses unknown struct `{typeName}`" }
+  let mut fieldIds : Array String := #[]
+  for fieldDecl in decl.fields do
+    ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
+    fieldIds := fieldIds.push fieldDecl.id
+  .ok fieldIds
+
+def validateLocalCrosscallWordPlan
+    (module : Module)
+    (env : TypeEnv)
+    (context name : String)
+    (expectedType : ValueType) : Except LowerError Unit := do
+  let some binding := findLocal? env name
+    | .error { message := s!"unknown local `{name}`" }
+  ensureType context expectedType binding.type
+  match expectedType with
+  | .fixedArray _ _ | .structType _ =>
+      discard <| crosscallValueWordTypes module context expectedType
+  | _ => pure ()
+
+def storageCrosscallWordPlans
+    (module : Module)
+    (context stateId : String)
+    (expectedType : ValueType) : Except LowerError (Array ExprPlan) := do
+  match expectedType with
+  | .structType typeName => do
+      discard <| crosscallValueWordTypes module context (.structType typeName)
+      let (slot, stateTypeName, decl) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireStructState module stateId
+      ensureType context (.structType typeName) (.structType stateTypeName)
+      let mut plans : Array ExprPlan := #[]
+      for h : idx in [0:decl.fields.size] do
+        let field := decl.fields[idx]
+        ensureStructLocalFieldType typeName field.id field.type
+        plans := plans.push (.storageLoad (.scalarSlot (slot + idx)))
+      .ok plans
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit
+  | .fixedArray _ _ | .bytes | .string | .array _ =>
+      .error {
+        message := s!"{context} storage-backed crosscall word expansion supports struct scalar storage only, got `{expectedType.name}`"
+      }
+
 def entrypointSelector (entrypoint : Entrypoint) : Except LowerError String :=
   match entrypoint.selector? with
   | some selector => .ok selector
@@ -168,6 +214,130 @@ def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) : ExprPlan :=
 def fixedArrayScalarLeafType? : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
   | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ => false
+
+def storageArrayReadStateAt? (index : Nat) : Expr → Option String
+  | .effect (.storageArrayRead stateId indexExpr) =>
+      match literalArrayIndex? indexExpr with
+      | some value => if value == index then some stateId else none
+      | none => none
+  | _ => none
+
+def storageArrayReadState? (values : Array Expr) : Option String := Id.run do
+  let mut state? : Option String := none
+  let mut ok := true
+  for h : idx in [0:values.size] do
+    match storageArrayReadStateAt? idx values[idx] with
+    | some stateId =>
+        match state? with
+        | none => state? := some stateId
+        | some existing =>
+            if existing != stateId then
+              ok := false
+    | none =>
+        ok := false
+  if ok then
+    state?
+  else
+    none
+
+def storageStructArrayFieldReadStateAt? (index : Nat) (fieldName : String) : Expr → Option String
+  | .effect (.storageArrayStructFieldRead stateId indexExpr readFieldName) =>
+      match literalArrayIndex? indexExpr with
+      | some value =>
+          if value == index && readFieldName == fieldName then some stateId else none
+      | none => none
+  | _ => none
+
+def storageStructArrayElementReadState? (decl : StructDecl) (index : Nat) : Expr → Option String
+  | .structLit typeName fields =>
+      if typeName != decl.name || fields.size != decl.fields.size then
+        none
+      else Id.run do
+        let mut state? : Option String := none
+        let mut ok := true
+        for fieldDecl in decl.fields do
+          match fields.find? fun field => field.fst == fieldDecl.id with
+          | some field =>
+            match storageStructArrayFieldReadStateAt? index fieldDecl.id field.snd with
+            | some stateId =>
+                match state? with
+                | none => state? := some stateId
+                | some existing =>
+                    if existing != stateId then
+                      ok := false
+            | none =>
+                ok := false
+          | none =>
+              ok := false
+        if ok then
+          state?
+        else
+          none
+  | _ => none
+
+def storageStructArrayReadState? (decl : StructDecl) (values : Array Expr) : Option String := Id.run do
+  let mut state? : Option String := none
+  let mut ok := true
+  for h : idx in [0:values.size] do
+    match storageStructArrayElementReadState? decl idx values[idx] with
+    | some stateId =>
+        match state? with
+        | none => state? := some stateId
+        | some existing =>
+            if existing != stateId then
+              ok := false
+    | none =>
+        ok := false
+  if ok then
+    state?
+  else
+    none
+
+def storageArrayAbiWordsPlan?
+    (module : Module)
+    (fieldType : ValueType)
+    (value : Expr) : Except LowerError (Option ExprPlan) := do
+  match fieldType, value with
+  | .fixedArray (.structType typeName) length, .arrayLit (.structType literalTypeName) values => do
+      if literalTypeName != typeName || values.size != length then
+        .ok none
+      else
+        let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
+          | .error { message := s!"event storage array ABI word plan uses unknown struct `{typeName}`" }
+        match storageStructArrayReadState? decl values with
+        | none => .ok none
+        | some stateId =>
+            match ProofForge.Backend.Evm.Validate.stateInfo? module stateId with
+            | some (_, { kind := .array stateLength, type := .structType stateTypeName, .. }) =>
+                if stateLength == length && stateTypeName == typeName then
+                  .ok (some (.storageAbiWords stateId fieldType))
+                else
+                  .ok none
+            | _ => .ok none
+  | .fixedArray elementType length, .arrayLit literalElementType values => do
+      if literalElementType != elementType || values.size != length then
+        .ok none
+      else
+        match storageArrayReadState? values with
+        | none => .ok none
+        | some stateId => do
+            let (_, stateLength, stateElementType) ← lowerPlan <| requireArrayState module stateId
+            if stateLength == length && stateElementType == elementType then
+              .ok (some (.storageAbiWords stateId fieldType))
+            else
+              .ok none
+  | _, _ =>
+      .ok none
+
+def ensureExpressionCrosscallReturnWord
+    (modeLabel : String)
+    (returnType : ValueType) : Except LowerError Unit :=
+  if isCrosscallWordType returnType then
+    .ok ()
+  else
+    .error {
+      message := s!"{modeLabel} aggregate crosscall return `{returnType.name}` must be consumed by aggregate return lowering in IR EVM v0"
+    }
 
 mutual
   partial def localArrayGetExprPlan?
@@ -221,6 +391,9 @@ mutual
     let some decl := ProofForge.Backend.Evm.Validate.findStruct? module typeName
       | .error { message := s!"{context} uses unknown struct `{typeName}`" }
     match arg with
+    | .local name =>
+        ensureType context (.structType typeName) (← inferExprType module env arg)
+        .ok #[.localCrosscallWords name (.structType typeName)]
     | .structLit literalTypeName fields => do
         if literalTypeName != typeName then
           .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
@@ -232,10 +405,11 @@ mutual
           plans := plans.push (← buildExprPlan module env field.snd)
         .ok plans
     | .effect (.storageScalarRead stateId) => do
-        ensureType context (.structType typeName) (← scalarStateType module stateId)
-        .ok #[.storageCrosscallWords stateId (.structType typeName)]
+        storageCrosscallWordPlans module context stateId (.structType typeName)
     | _ =>
-        .ok #[← buildExprPlan module env arg]
+        .error {
+          message := s!"{context} struct values in IR EVM v0 support local struct values, struct literals, or storage scalar struct reads only"
+        }
 
   partial def buildCrosscallStructArrayArgWordPlans
       (module : Module)
@@ -245,6 +419,9 @@ mutual
       (arg : Expr) : Except LowerError (Array ExprPlan) := do
     discard <| crosscallArgWordTypes module context (.fixedArray (.structType typeName) length)
     match arg with
+    | .local name =>
+        ensureType context (.fixedArray (.structType typeName) length) (← inferExprType module env arg)
+        .ok #[.localCrosscallWords name (.fixedArray (.structType typeName) length)]
     | .arrayLit literalElementType values => do
         ensureType s!"{context} fixed-array element type" (.structType typeName) literalElementType
         if values.size != length then
@@ -261,7 +438,9 @@ mutual
               }
         .ok plans
     | _ =>
-        .ok #[← buildExprPlan module env arg]
+        .error {
+          message := s!"{context} fixed-array struct values in IR EVM v0 support local fixed-array values or array literals only"
+        }
 
   partial def buildCrosscallFixedArrayArgWordPlans
       (module : Module)
@@ -276,6 +455,9 @@ mutual
         buildCrosscallStructArrayArgWordPlans module env context typeName length arg
     | .fixedArray nestedElementType nestedLength =>
         match arg with
+        | .local name =>
+            ensureType context (.fixedArray elementType length) (← inferExprType module env arg)
+            .ok #[.localCrosscallWords name (.fixedArray elementType length)]
         | .arrayLit literalElementType values => do
             ensureType s!"{context} fixed-array element type" elementType literalElementType
             if values.size != length then
@@ -285,9 +467,14 @@ mutual
               plans := plans ++ (← buildCrosscallFixedArrayArgWordPlans module env context nestedElementType nestedLength values[idx])
             .ok plans
         | _ =>
-            .ok #[← buildExprPlan module env arg]
+            .error {
+              message := s!"{context} nested fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
+            }
     | _ =>
         match arg with
+        | .local name =>
+            ensureType context (.fixedArray elementType length) (← inferExprType module env arg)
+            .ok #[.localCrosscallWords name (.fixedArray elementType length)]
         | .arrayLit literalElementType values => do
             ensureType s!"{context} fixed-array element type" elementType literalElementType
             if values.size != length then
@@ -297,7 +484,9 @@ mutual
               plans := plans.push (← buildExprPlan module env values[idx])
             .ok plans
         | _ =>
-            .ok #[← buildExprPlan module env arg]
+            .error {
+              message := s!"{context} fixed-array values in IR EVM v0 support local fixed-array values or array literals only"
+            }
 
   partial def buildCrosscallArgWordPlans
       (module : Module)
@@ -495,6 +684,31 @@ mutual
     | .blockHash blockNumber => do
         .ok (.blockHash (← buildExprPlan module env blockNumber))
 
+  partial def buildEventFieldValuePlan
+      (module : Module)
+      (env : TypeEnv)
+      (eventName fieldName : String)
+      (fieldType : ValueType)
+      (value : Expr) : Except LowerError ExprPlan := do
+    let context := s!"event `{eventName}` field `{fieldName}`"
+    ensureType context fieldType (← inferEventFieldExprType module env value)
+    match fieldType, value with
+    | .fixedArray _ _, .local name
+    | .structType _, .local name => do
+        let some binding := findLocal? env name
+          | .error { message := s!"unknown local `{name}`" }
+        ensureType s!"{context} local value" fieldType binding.type
+        .ok (.localAbiWords name fieldType)
+    | .structType typeName, .effect (.storageScalarRead stateId) => do
+        ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
+        .ok (.storageAbiWords stateId (.structType typeName))
+    | .fixedArray _ _, _ => do
+        match ← storageArrayAbiWordsPlan? module fieldType value with
+        | some plan => .ok plan
+        | none => buildExprPlan module env value
+    | _, _ =>
+        buildExprPlan module env value
+
   partial def buildEffectPlan (module : Module) (env : TypeEnv) : Effect → Except LowerError EffectPlan
     | .storageScalarRead stateId =>
         match scalarStorageTargetPlan? module stateId with
@@ -588,12 +802,24 @@ mutual
         .ok (.contextRead (← buildContextExprPlan module env field))
     | .eventEmit name fields => do
         let eventPlan ← eventPlanForFields module env name #[] fields
-        let plannedFields ← fields.mapM fun field => buildExprPlan module env field.snd
+        let dataFields := eventPlan.dataFields
+        let plannedFields ← fields.mapIdxM fun idx field => do
+          let some fieldPlan := dataFields[idx]?
+            | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
+          buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
         .ok (.eventEmit eventPlan plannedFields)
     | .eventEmitIndexed name indexedFields dataFields => do
         let eventPlan ← eventPlanForFields module env name indexedFields dataFields
-        let plannedIndexed ← indexedFields.mapM fun field => buildExprPlan module env field.snd
-        let plannedData ← dataFields.mapM fun field => buildExprPlan module env field.snd
+        let indexedPlans := eventPlan.indexedFields
+        let dataPlans := eventPlan.dataFields
+        let plannedIndexed ← indexedFields.mapIdxM fun idx field => do
+          let some fieldPlan := indexedPlans[idx]?
+            | .error { message := s!"event `{name}` missing indexed field plan at index {idx}" }
+          buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
+        let plannedData ← dataFields.mapIdxM fun idx field => do
+          let some fieldPlan := dataPlans[idx]?
+            | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
+          buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
         .ok (.eventEmitIndexed eventPlan plannedIndexed plannedData)
 
   partial def buildStatementPlan
@@ -660,6 +886,22 @@ mutual
       .ok (plans.push stmtPlan, nextEnv)
 end
 
+def buildExpressionExprPlan
+    (module : Module)
+    (env : TypeEnv)
+    (expr : Expr) : Except LowerError ExprPlan := do
+  match expr with
+  | .crosscallInvokeTyped _ _ _ returnType =>
+      ensureExpressionCrosscallReturnWord "typed" returnType
+  | .crosscallInvokeValueTyped _ _ _ _ returnType =>
+      ensureExpressionCrosscallReturnWord "value" returnType
+  | .crosscallInvokeStaticTyped _ _ _ returnType =>
+      ensureExpressionCrosscallReturnWord "static" returnType
+  | .crosscallInvokeDelegateTyped _ _ _ returnType =>
+      ensureExpressionCrosscallReturnWord "delegate" returnType
+  | _ => pure ()
+  buildExprPlan module env expr
+
 def crosscallModeArgContext : CrosscallMode → String
   | .call => "typed crosscall argument"
   | .callValue => "value crosscall argument"
@@ -724,16 +966,39 @@ def returnValueWordPlan?
     (returnType : ValueType)
     (value : Expr) :
     Except LowerError (Option ReturnValueWordPlan) := do
+  let context := s!"entrypoint `{entrypointName}` return value"
+  let returns ← returnPlan module s!"entrypoint `{entrypointName}`" returnType
   match returnType, value with
   | .fixedArray _ _, .local name
   | .structType _, .local name => do
       let some binding := findLocal? env name
         | .error { message := s!"unknown local `{name}`" }
-      let context := s!"entrypoint `{entrypointName}` return value"
       ensureType context returnType binding.type
       .ok (some {
-        returns := ← returnPlan module s!"entrypoint `{entrypointName}`" returnType
+        returns
         source := .localAbiWords name returnType
+      })
+  | .structType typeName, .effect (.storageScalarRead stateId) => do
+      ensureType s!"{context} storage value" (.structType typeName) (← scalarStateType module stateId)
+      .ok (some {
+        returns
+        source := .storageAbiWords stateId returnType
+      })
+  | .fixedArray _ _, _ => do
+      match ← storageArrayAbiWordsPlan? module returnType value with
+      | some source =>
+          .ok (some { returns, source })
+      | none => do
+          ensureType context returnType (← inferExprType module env value)
+          .ok (some {
+            returns
+            source := ← buildExprPlan module env value
+          })
+  | .structType _, _ => do
+      ensureType context returnType (← inferExprType module env value)
+      .ok (some {
+        returns
+        source := ← buildExprPlan module env value
       })
   | _, _ =>
       .ok none
