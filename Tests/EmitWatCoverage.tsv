@@ -100,6 +100,10 @@ Effect	storagePathWrite	lowered	EmitWat lowers mapKey paths, index paths over U3
 Effect	storagePathAssignOp	lowered	EmitWat lowers storagePathAssignOp for mapKey paths with U32/U64 map values, index paths with U32/U64 arrays, scalar struct fields, and array struct fields; effectful duplicated path/value expressions remain rejected.
 Effect	storageDynamicArrayPush	unsupported	EmitWat rejects storage.dynamic.array.push because dynamic array storage is not lowered to NEAR/Wasm.
 Effect	storageDynamicArrayPop	unsupported	EmitWat rejects storage.dynamic.array.pop because dynamic array storage is not lowered to NEAR/Wasm.
+Effect	memoryArraySet	unsupported	EmitWat rejects memory.array.set because memory arrays are not lowered to NEAR/Wasm.
+Expr	memoryArrayNew	unsupported	EmitWat rejects memory.array.new because memory arrays are not lowered to NEAR/Wasm.
+Expr	memoryArrayLength	unsupported	EmitWat rejects memory.array.length because memory arrays are not lowered to NEAR/Wasm.
+Expr	memoryArrayGet	unsupported	EmitWat rejects memory.array.get because memory arrays are not lowered to NEAR/Wasm.
 Effect	contextRead	lowered	EmitWat lowers userId, contractId, and checkpointId context reads through NEAR host helpers.
 Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
 Effect	eventEmitIndexed	unsupported	EmitWat rejects indexed events with a NEAR chain-semantics diagnostic because NEAR JSON logs do not provide native EVM-style topics.

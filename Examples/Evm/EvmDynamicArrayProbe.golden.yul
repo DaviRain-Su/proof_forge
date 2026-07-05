@@ -82,6 +82,17 @@ object "EvmDynamicArrayProbe" {
       mstore(0, slot)
       result := add(keccak256(0, 32), index)
     }
+    function __proof_forge_memory_array_new(length) -> ptr {
+      ptr := mload(64)
+      mstore(ptr, length)
+      mstore(64, add(ptr, mul(add(length, 1), 32)))
+    }
+    function __proof_forge_memory_array_get(array, index) -> value {
+      if iszero(lt(index, mload(array))) {
+        revert(0, 0)
+      }
+      value := mload(add(add(array, 32), mul(index, 32)))
+    }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
         revert(0, 0)

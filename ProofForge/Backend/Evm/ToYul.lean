@@ -140,6 +140,46 @@ def dynamicArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
     }
 ]
 
+def memoryArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+  .funcDef (Helper.memoryArrayNew).name
+    #[{ name := "length" }]
+    #[{ name := "ptr" }]
+    {
+      statements := #[
+        .assignment #["ptr"] (Lean.Compiler.Yul.builtin "mload" #[Lean.Compiler.Yul.Expr.num 64]),
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.id "ptr", Lean.Compiler.Yul.Expr.id "length"]),
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+          Lean.Compiler.Yul.Expr.num 64,
+          Lean.Compiler.Yul.builtin "add" #[
+            Lean.Compiler.Yul.Expr.id "ptr",
+            Lean.Compiler.Yul.builtin "mul" #[
+              Lean.Compiler.Yul.builtin "add" #[Lean.Compiler.Yul.Expr.id "length", Lean.Compiler.Yul.Expr.num 1],
+              Lean.Compiler.Yul.Expr.num 32
+            ]
+          ]
+        ])
+      ]
+    },
+  .funcDef (Helper.memoryArrayGet).name
+    #[{ name := "array" }, { name := "index" }]
+    #[{ name := "value" }]
+    {
+      statements := #[
+        revertIfStatement
+          (Lean.Compiler.Yul.builtin "iszero" #[
+            Lean.Compiler.Yul.builtin "lt" #[Lean.Compiler.Yul.Expr.id "index", Lean.Compiler.Yul.builtin "mload" #[Lean.Compiler.Yul.Expr.id "array"]]
+          ]),
+        .assignment #["value"]
+          (Lean.Compiler.Yul.builtin "mload" #[
+            Lean.Compiler.Yul.builtin "add" #[
+              Lean.Compiler.Yul.builtin "add" #[Lean.Compiler.Yul.Expr.id "array", Lean.Compiler.Yul.Expr.num 32],
+              Lean.Compiler.Yul.builtin "mul" #[Lean.Compiler.Yul.Expr.id "index", Lean.Compiler.Yul.Expr.num 32]
+            ]
+          ])
+      ]
+    }
+]
+
 def structArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
   .funcDef (Helper.structArraySlot).name
     #[
@@ -1989,6 +2029,15 @@ partial def exprPlanExpr
         (exprPlanExpr mkError lowerExpr lowerEffect)
         array
         index
+  | .memoryArrayNew _ length => do
+      .ok (helperCall Helper.memoryArrayNew #[← exprPlanExpr mkError lowerExpr lowerEffect length])
+  | .memoryArrayLength array => do
+      .ok (Lean.Compiler.Yul.builtin "mload" #[← exprPlanExpr mkError lowerExpr lowerEffect array])
+  | .memoryArrayGet array index => do
+      .ok (helperCall Helper.memoryArrayGet #[
+        ← exprPlanExpr mkError lowerExpr lowerEffect array,
+        ← exprPlanExpr mkError lowerExpr lowerEffect index
+      ])
   | .localArrayGet name path lengths =>
       localArrayGetExpr
         mkError
@@ -3191,6 +3240,42 @@ def storagePathAssignOpExprTargetEffectStmtPlanStatements
       storagePathAssignOpExprTargetEffectPlanStatements mkError lowerExpr lowerEffect lowerPlanExpr effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned storage path assign_op expr lowering expected effect")
+def memoryArraySetEffectPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .memoryArraySet array index value => do
+      let arrayExpr ← exprPlanExpr mkError lowerExpr lowerEffect array
+      let indexExpr ← exprPlanExpr mkError lowerExpr lowerEffect index
+      let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
+      let lengthExpr := Lean.Compiler.Yul.builtin "mload" #[arrayExpr]
+      let inBounds := Lean.Compiler.Yul.builtin "lt" #[indexExpr, lengthExpr]
+      let revertGuard := Lean.Compiler.Yul.Statement.ifStmt
+        (Lean.Compiler.Yul.builtin "iszero" #[inBounds])
+        { statements := #[revertStatement] }
+      let elementPtr := Lean.Compiler.Yul.builtin "add" #[
+        Lean.Compiler.Yul.builtin "add" #[arrayExpr, Lean.Compiler.Yul.Expr.num 32],
+        Lean.Compiler.Yul.builtin "mul" #[indexExpr, Lean.Compiler.Yul.Expr.num 32]
+      ]
+      .ok #[
+        revertGuard,
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[elementPtr, valueExpr])
+      ]
+  | _ =>
+      .error (mkError "EVM EffectPlan-to-Yul memory array set lowering expected memoryArraySet")
+
+def memoryArraySetEffectStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .effect effect =>
+      memoryArraySetEffectPlanStatements mkError lowerExpr lowerEffect effect
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul memory array set lowering expected effect")
 
 /-! ## Plan-driven helper requirements
 

@@ -478,6 +478,7 @@ evm-ir-smokes:
       abi-aggregate
       dynamic-abi
       dynamic-array
+      memory-array
       packed-storage
       errors
       fallback

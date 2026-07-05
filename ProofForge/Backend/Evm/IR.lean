@@ -894,6 +894,24 @@ mutual
             | none => pure ()
             .ok elementType
         | other => .error { message := s!"fixed array indexing target expected `Array`, got `{other.name}`" }
+    | .memoryArrayNew elementType length => do
+        if !isStorageWordType elementType then
+          .error { message := s!"memory array element type `{elementType.name}` must be a word-sized type" }
+        ensureType "memory array length" .u64 (← inferExprType module env length)
+        .ok (.array elementType)
+    | .memoryArrayLength array => do
+        match ← inferExprType module env array with
+        | .array _ => .ok .u64
+        | other => .error { message := s!"memory array length expected `Array`, got `{other.name}`" }
+    | .memoryArrayGet array index => do
+        ensureArrayIndexType "memory array index" (← inferExprType module env index)
+        match ← inferExprType module env array with
+        | .array elementType =>
+            if !isStorageWordType elementType then
+              .error { message := s!"memory array element type `{elementType.name}` must be a word-sized type" }
+            else
+              .ok elementType
+        | other => .error { message := s!"memory array get expected `Array`, got `{other.name}`" }
     | .structLit typeName fields => do
         validateStructLiteralFields module typeName fields (inferExprType module env)
         .ok (.structType typeName)
@@ -1115,6 +1133,8 @@ mutual
         .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         let (_, field) ← requireStructStateField module stateId fieldName
         .ok field.type
@@ -1240,6 +1260,15 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
   | .storageDynamicArrayPop stateId => do
       let _ ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
       .ok ()
+  | .memoryArraySet array index value => do
+      match ← inferExprType module env array with
+      | .array elementType => do
+          if !isStorageWordType elementType then
+            .error { message := s!"memory.array.set element type `{elementType.name}` must be a word-sized type" }
+          ensureArrayIndexType "memory array index" (← inferExprType module env index)
+          ensureType "memory.array.set value" elementType (← inferExprType module env value)
+      | other =>
+          .error { message := s!"memory.array.set expected `Array`, got `{other.name}`" }
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
@@ -2301,6 +2330,24 @@ mutual
         .error { message := "fixed array literals must be consumed by a fixed array local binding or literal index in IR EVM v0" }
     | .arrayGet array index =>
         lowerLocalFixedArrayGetExpr module env array index
+    | .memoryArrayNew elementType length => do
+        let lengthPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) (.memoryArrayNew elementType length) with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        lowerExprPlanExpr module env lengthPlan
+    | .memoryArrayLength array => do
+        let arrayPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) (.memoryArrayLength array) with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        lowerExprPlanExpr module env arrayPlan
+    | .memoryArrayGet array index => do
+        let getPlan ←
+          match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) (.memoryArrayGet array index) with
+          | .ok plan => .ok plan
+          | .error err => .error { message := err.message }
+        lowerExprPlanExpr module env getPlan
     | .structLit _ _ =>
         .error { message := "struct literals must be consumed by a struct local binding or field access in IR EVM v0" }
     | .field base fieldName =>
@@ -2477,6 +2524,8 @@ mutual
         lowerArrayReadExpr module env stateId index
     | .storageArrayWrite _ _ _ =>
         .error { message := "storage.array.write is a statement effect, not an expression" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageArrayStructFieldRead stateId index fieldName =>
         lowerStructArrayFieldReadExpr module env stateId index fieldName
     | .storageArrayStructFieldWrite _ _ _ _ =>
@@ -2767,6 +2816,9 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .effect (.contextRead _) => true
   | .arrayLit _ _
   | .arrayGet _ _
+  | .memoryArrayNew _ _
+  | .memoryArrayLength _
+  | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
   | .crosscallInvoke _ _ _
@@ -3740,6 +3792,26 @@ partial def lowerStoragePathAssignOpStmtPlanOrFallback
   else
     lowerStoragePathAssignOpStmt module env stateId path op value
 
+partial def lowerMemoryArraySetStmtPlanOrFallback
+    (module : Module)
+    (env : TypeEnv)
+    (array index value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.memoryArraySet array index value) with
+    | .ok plan => .ok plan
+    | .error err => .error { message := err.message }
+  let statements ←
+    ProofForge.Backend.Evm.ToYul.memoryArraySetEffectStmtPlanStatements
+      toYulError
+      (fun expr => lowerExpr module env expr)
+      (lowerPlanEffectExpr module env)
+      (.effect effectPlan)
+  if statements.isEmpty then
+    .error { message := "EVM StmtPlan-to-Yul memory array set lowering produced no statements" }
+  else
+    .ok (.block { statements := statements })
+
 partial def lowerScalarStorageEffectStmtPlanOrFallback
     (module : Module)
     (env : TypeEnv) :
@@ -3845,6 +3917,8 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
       lowerStoragePathWriteStmtPlanOrFallback module env stateId path value
   | .storagePathAssignOp stateId path op value =>
       lowerStoragePathAssignOpStmtPlanOrFallback module env stateId path op value
+  | .memoryArraySet array index value =>
+      lowerMemoryArraySetStmtPlanOrFallback module env array index value
   | .contextRead _ =>
       .error { message := "context reads must be used as expressions" }
   | .eventEmit name fields =>
@@ -5172,6 +5246,7 @@ mutual
         path.all exprPlanSupportsScalarBody
     | .localAbiWords .. | .localCrosscallWords ..
     | .storageCrosscallWords .. | .structField .. | .arrayGet .. | .arrayLit ..
+    | .memoryArrayNew .. | .memoryArrayLength .. | .memoryArrayGet ..
     | .structLit .. => false
 end
 
@@ -5454,6 +5529,12 @@ def lowerScalarBodyEffectPlan
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (.effect effect)
+  | .memoryArraySet .. =>
+      ProofForge.Backend.Evm.ToYul.memoryArraySetEffectStmtPlanStatements
+        toYulError
+        (fun expr => lowerExpr module env expr)
+        (lowerPlanEffectExpr module env)
+        (.effect effect)
   | .storageStructFieldWriteTarget .. =>
       ProofForge.Backend.Evm.ToYul.structFieldWriteTargetEffectStmtPlanStatements
         toYulError
@@ -5701,6 +5782,10 @@ mutual
         let lowered ← lowerStructLetBinding module env name typeName value
         let nextEnv ← addLocal env name (.structType typeName) false
         .ok (lowered, nextEnv)
+    | .letBind name (.array elementType) value => do
+        let lowered ← lowerExpr module env value
+        let nextEnv ← addLocal env name (.array elementType) false
+        .ok (#[Lean.Compiler.Yul.Statement.varDecl #[{ name := name }] (some lowered)], nextEnv)
     | .letBind name type value => do
         ensureLocalScalarType "let binding" name type
         let nextEnv ← addLocal env name type false
@@ -5713,6 +5798,10 @@ mutual
         let lowered ← lowerStructLetBinding module env name typeName value
         let nextEnv ← addLocal env name (.structType typeName) true
         .ok (lowered, nextEnv)
+    | .letMutBind name (.array elementType) value => do
+        let lowered ← lowerExpr module env value
+        let nextEnv ← addLocal env name (.array elementType) true
+        .ok (#[Lean.Compiler.Yul.Statement.varDecl #[{ name := name }] (some lowered)], nextEnv)
     | .letMutBind name type value => do
         ensureLocalScalarType "mutable let binding" name type
         let nextEnv ← addLocal env name type true
@@ -5957,6 +6046,895 @@ def dispatchBlock (module : Module) : Except LowerError Lean.Compiler.Yul.Statem
   let dispatchPlan ← dispatchPlanForModule module
   dispatchBlockWithPlan module dispatchPlan
 
+
+def arrayNatEq (lhs rhs : Array Nat) : Bool :=
+  lhs == rhs
+
+def pushNatArrayIfMissing (acc : Array (Array Nat)) (value : Array Nat) : Array (Array Nat) :=
+  if acc.any fun existing => arrayNatEq existing value then acc else acc.push value
+
+def mergeNatArraySets (lhs rhs : Array (Array Nat)) : Array (Array Nat) :=
+  rhs.foldl pushNatArrayIfMissing lhs
+
+def crosscallArgName (idx : Nat) : String :=
+  s!"arg{idx}"
+
+def crosscallCallValueName : String := "call_value"
+
+def crosscallCalldataSize (arity : Nat) : Nat :=
+  4 + arity * 32
+
+inductive CrosscallMode where
+  | call
+  | callValue
+  | staticcall
+  | delegatecall
+  deriving BEq, Repr
+
+def CrosscallMode.forwardsValue : CrosscallMode → Bool
+  | .callValue => true
+  | .call | .staticcall | .delegatecall => false
+
+def crosscallFunctionParams (arity : Nat) (mode : CrosscallMode) (plainTransfer : Bool := false) : Array Lean.Compiler.Yul.TypedName :=
+  if plainTransfer then
+    #[
+      ({ name := "target" } : Lean.Compiler.Yul.TypedName),
+      ({ name := crosscallCallValueName } : Lean.Compiler.Yul.TypedName)
+    ]
+  else
+    let base := #[
+      ({ name := "target" } : Lean.Compiler.Yul.TypedName),
+      ({ name := "selector" } : Lean.Compiler.Yul.TypedName)
+    ]
+    let base :=
+      if mode.forwardsValue then
+        base.push ({ name := crosscallCallValueName } : Lean.Compiler.Yul.TypedName)
+      else
+        base
+    go 0 base
+  where
+    go (idx : Nat) (acc : Array Lean.Compiler.Yul.TypedName) : Array Lean.Compiler.Yul.TypedName :=
+      if h : idx < arity then
+        go (idx + 1) (acc.push ({ name := crosscallArgName idx } : Lean.Compiler.Yul.TypedName))
+      else
+        acc
+
+def crosscallArgStoreStatements (arity : Nat) : Array Lean.Compiler.Yul.Statement :=
+  go 0 #[]
+where
+  go (idx : Nat) (acc : Array Lean.Compiler.Yul.Statement) : Array Lean.Compiler.Yul.Statement :=
+    if h : idx < arity then
+      let store := Lean.Compiler.Yul.Statement.exprStmt
+        (Lean.Compiler.Yul.builtin "mstore" #[
+          Lean.Compiler.Yul.Expr.num (4 + idx * 32),
+          Lean.Compiler.Yul.Expr.id (crosscallArgName idx)
+        ])
+      go (idx + 1) (acc.push store)
+    else
+      acc
+
+structure CrosscallHelperSpec where
+  arity : Nat
+  returnType : ValueType
+  mode : CrosscallMode := .call
+  plainTransfer : Bool := false
+  deriving BEq, Repr
+
+def crosscallReturnGuardStatementsForName (resultName : String) (returnType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
+  match returnType with
+  | .u32 =>
+      .ok #[
+        .ifStmt
+          (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num maxU32])
+          { statements := #[revertStmt] }
+      ]
+  | .bool =>
+      .ok #[
+        .ifStmt
+          (Lean.Compiler.Yul.builtin "gt" #[Lean.Compiler.Yul.Expr.id resultName, Lean.Compiler.Yul.Expr.num 1])
+          { statements := #[revertStmt] }
+      ]
+  | .u8 | .u128 | .u64 | .hash | .address => .ok #[]
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
+      .error { message := "crosscall return type must be U8, U32, U64, U128, Bool, or Hash in IR EVM v0" }
+
+def crosscallReturnGuardStatements (returnType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
+  match returnType with
+  | .u32 => crosscallReturnGuardStatementsForName "result" .u32
+  | .bool => crosscallReturnGuardStatementsForName "result" .bool
+  | .u8 | .u128 | .u64 | .hash | .address => .ok #[]
+  | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
+      .error { message := "crosscall return type must be U8, U32, U64, U128, Bool, or Hash in IR EVM v0" }
+
+def crosscallHelperReturnNames (wordCount : Nat) : Array Lean.Compiler.Yul.TypedName :=
+  if wordCount == 1 then
+    #[{ name := "result" }]
+  else
+    Id.run do
+      let mut names : Array Lean.Compiler.Yul.TypedName := #[]
+      for _h : idx in [0:wordCount] do
+        names := names.push ({ name := s!"result{idx}" } : Lean.Compiler.Yul.TypedName)
+      names
+
+def crosscallHelperReturnNameStrings (wordCount : Nat) : Array String :=
+  (crosscallHelperReturnNames wordCount).map fun name => name.name
+
+def crosscallHelperFunction (module : Module) (spec : CrosscallHelperSpec) : Except LowerError Lean.Compiler.Yul.Statement := do
+  let wordTypes ← crosscallReturnWordTypes module "typed crosscall return" spec.returnType
+  let planMode :=
+    match spec.mode with
+    | .call => ProofForge.Backend.Evm.Plan.CrosscallMode.call
+    | .callValue => ProofForge.Backend.Evm.Plan.CrosscallMode.callValue
+    | .staticcall => ProofForge.Backend.Evm.Plan.CrosscallMode.staticcall
+    | .delegatecall => ProofForge.Backend.Evm.Plan.CrosscallMode.delegatecall
+  ProofForge.Backend.Evm.ToYul.crosscallHelperFunction toYulError {
+    arity := spec.arity
+    returnType := spec.returnType
+    wordTypes := wordTypes
+    mode := planMode
+    plainTransfer := spec.plainTransfer
+  }
+
+def pushNatIfMissing (acc : Array Nat) (value : Nat) : Array Nat :=
+  if acc.contains value then acc else acc.push value
+
+def mergeNatSets (lhs rhs : Array Nat) : Array Nat :=
+  rhs.foldl pushNatIfMissing lhs
+
+def pushCrosscallHelperSpecIfMissing (acc : Array CrosscallHelperSpec) (value : CrosscallHelperSpec) : Array CrosscallHelperSpec :=
+  if acc.any (fun existing => existing == value) then acc else acc.push value
+
+def mergeCrosscallHelperSpecs (lhs rhs : Array CrosscallHelperSpec) : Array CrosscallHelperSpec :=
+  rhs.foldl pushCrosscallHelperSpecIfMissing lhs
+
+def crosscallArgWordCountForExpr
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (arg : ProofForge.IR.Expr) : Except LowerError Nat := do
+  let type ← inferExprType module env arg
+  let words ← crosscallArgWordTypes module context type
+  .ok words.size
+
+def crosscallArgWordCountForArgs
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (args : Array ProofForge.IR.Expr) : Except LowerError Nat := do
+  let mut count := 0
+  for arg in args do
+    count := count + (← crosscallArgWordCountForExpr module env context arg)
+  .ok count
+
+mutual
+  partial def crosscallHelperSpecsExpr
+      (module : Module)
+      (env : TypeEnv) : ProofForge.IR.Expr → Except LowerError (Array CrosscallHelperSpec)
+    | .literal _ => .ok #[]
+    | .local _ => .ok #[]
+    | .arrayLit _ values =>
+        values.foldlM (init := #[]) fun acc value => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsExpr module env value))
+    | .arrayGet array index => do
+        let arraySpecs ← crosscallHelperSpecsExpr module env array
+        let indexSpecs ← crosscallHelperSpecsExpr module env index
+        .ok (mergeCrosscallHelperSpecs arraySpecs indexSpecs)
+    | .memoryArrayNew _ length => do
+        crosscallHelperSpecsExpr module env length
+    | .memoryArrayLength array => do
+        crosscallHelperSpecsExpr module env array
+    | .memoryArrayGet array index => do
+        let arraySpecs ← crosscallHelperSpecsExpr module env array
+        let indexSpecs ← crosscallHelperSpecsExpr module env index
+        .ok (mergeCrosscallHelperSpecs arraySpecs indexSpecs)
+    | .structLit _ fields => do
+        fields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsExpr module env field.snd))
+    | .field base _ =>
+        crosscallHelperSpecsExpr module env base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs => do
+        let lhsSpecs ← crosscallHelperSpecsExpr module env lhs
+        let rhsSpecs ← crosscallHelperSpecsExpr module env rhs
+        .ok (mergeCrosscallHelperSpecs lhsSpecs rhsSpecs)
+    | .cast value _ | .boolNot value | .hash value =>
+        crosscallHelperSpecsExpr module env value
+    | .hashValue a b c d => do
+        let ab := mergeCrosscallHelperSpecs (← crosscallHelperSpecsExpr module env a) (← crosscallHelperSpecsExpr module env b)
+        let cd := mergeCrosscallHelperSpecs (← crosscallHelperSpecsExpr module env c) (← crosscallHelperSpecsExpr module env d)
+        .ok (mergeCrosscallHelperSpecs ab cd)
+    | .nativeValue => .ok #[]
+    | .crosscallInvoke target methodId args => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env target)
+          (← crosscallHelperSpecsExpr module env methodId)
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env arg)
+        .ok (pushCrosscallHelperSpecIfMissing nested { arity := args.size, returnType := .u64, mode := .call })
+    | .crosscallInvokeTyped target methodId args returnType => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env target)
+          (← crosscallHelperSpecsExpr module env methodId)
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env arg)
+        let argWordCount ← crosscallArgWordCountForArgs module env "typed crosscall argument" args
+        .ok (pushCrosscallHelperSpecIfMissing nested { arity := argWordCount, returnType := returnType, mode := .call })
+    | .crosscallInvokeValueTyped target methodId callValue args returnType => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env target)
+          (← crosscallHelperSpecsExpr module env methodId)
+        nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env callValue)
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env arg)
+        let argWordCount ← crosscallArgWordCountForArgs module env "value crosscall argument" args
+        let plainTransfer := plainValueTransferCall? methodId args && isCrosscallWordType returnType
+        .ok (pushCrosscallHelperSpecIfMissing nested {
+          arity := argWordCount
+          returnType := returnType
+          mode := .callValue
+          plainTransfer := plainTransfer
+        })
+    | .crosscallInvokeStaticTyped target methodId args returnType => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env target)
+          (← crosscallHelperSpecsExpr module env methodId)
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env arg)
+        let argWordCount ← crosscallArgWordCountForArgs module env "static crosscall argument" args
+        .ok (pushCrosscallHelperSpecIfMissing nested { arity := argWordCount, returnType := returnType, mode := .staticcall })
+    | .crosscallInvokeDelegateTyped target methodId args returnType => do
+        let mut nested := mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env target)
+          (← crosscallHelperSpecsExpr module env methodId)
+        for arg in args do
+          nested := mergeCrosscallHelperSpecs nested (← crosscallHelperSpecsExpr module env arg)
+        let argWordCount ← crosscallArgWordCountForArgs module env "delegate crosscall argument" args
+        .ok (pushCrosscallHelperSpecIfMissing nested { arity := argWordCount, returnType := returnType, mode := .delegatecall })
+    | .crosscallCreate callValue _ =>
+        crosscallHelperSpecsExpr module env callValue
+    | .crosscallCreate2 callValue salt _ => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsExpr module env callValue)
+          (← crosscallHelperSpecsExpr module env salt))
+    | .effect effect =>
+        crosscallHelperSpecsEffect module env effect
+
+  partial def crosscallHelperSpecsEffect
+      (module : Module)
+      (env : TypeEnv) : Effect → Except LowerError (Array CrosscallHelperSpec)
+    | .storageScalarRead _ => .ok #[]
+    | .storageScalarWrite _ value =>
+        crosscallHelperSpecsExpr module env value
+    | .storageScalarAssignOp _ _ value =>
+        crosscallHelperSpecsExpr module env value
+    | .storageMapContains _ key =>
+        crosscallHelperSpecsExpr module env key
+    | .storageMapGet _ key =>
+        crosscallHelperSpecsExpr module env key
+    | .storageMapInsert _ key value | .storageMapSet _ key value => do
+        let keySpecs ← crosscallHelperSpecsExpr module env key
+        let valueSpecs ← crosscallHelperSpecsExpr module env value
+        .ok (mergeCrosscallHelperSpecs keySpecs valueSpecs)
+    | .storageArrayRead _ index =>
+        crosscallHelperSpecsExpr module env index
+    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value => do
+        let indexSpecs ← crosscallHelperSpecsExpr module env index
+        let valueSpecs ← crosscallHelperSpecsExpr module env value
+        .ok (mergeCrosscallHelperSpecs indexSpecs valueSpecs)
+    | .storageArrayStructFieldRead _ index _ =>
+        crosscallHelperSpecsExpr module env index
+    | .storageDynamicArrayPush _ value =>
+        crosscallHelperSpecsExpr module env value
+    | .storageDynamicArrayPop _ => .ok #[]
+    | .memoryArraySet _ index value => do
+        let indexSpecs ← crosscallHelperSpecsExpr module env index
+        let valueSpecs ← crosscallHelperSpecsExpr module env value
+        .ok (mergeCrosscallHelperSpecs indexSpecs valueSpecs)
+    | .storageStructFieldRead _ _ => .ok #[]
+    | .storageStructFieldWrite _ _ value =>
+        crosscallHelperSpecsExpr module env value
+    | .storagePathRead _ path =>
+        path.foldlM (init := #[]) fun acc segment => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsStoragePathSegment module env segment))
+    | .storagePathWrite _ path value => do
+        let pathSpecs ← path.foldlM (init := #[]) fun acc segment => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsStoragePathSegment module env segment))
+        .ok (mergeCrosscallHelperSpecs pathSpecs (← crosscallHelperSpecsExpr module env value))
+    | .storagePathAssignOp _ path _ value => do
+        let pathSpecs ← path.foldlM (init := #[]) fun acc segment => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsStoragePathSegment module env segment))
+        .ok (mergeCrosscallHelperSpecs pathSpecs (← crosscallHelperSpecsExpr module env value))
+    | .contextRead _ => .ok #[]
+    | .eventEmit _ fields =>
+        fields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsExpr module env field.snd))
+    | .eventEmitIndexed _ indexedFields dataFields => do
+        let indexedSpecs ← indexedFields.foldlM (init := #[]) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsExpr module env field.snd))
+        dataFields.foldlM (init := indexedSpecs) fun acc field => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsExpr module env field.snd))
+
+  partial def crosscallHelperSpecsStoragePathSegment
+      (module : Module)
+      (env : TypeEnv) : StoragePathSegment → Except LowerError (Array CrosscallHelperSpec)
+    | .field _ => .ok #[]
+    | .index index => crosscallHelperSpecsExpr module env index
+    | .mapKey key => crosscallHelperSpecsExpr module env key
+
+  partial def crosscallHelperSpecsStatement
+      (module : Module)
+      (env : TypeEnv) : Statement → Except LowerError (Array CrosscallHelperSpec × TypeEnv)
+    | .letBind name type value => do
+        let specs ← crosscallHelperSpecsExpr module env value
+        let nextEnv ← addLocal env name type false
+        .ok (specs, nextEnv)
+    | .letMutBind name type value => do
+        let specs ← crosscallHelperSpecsExpr module env value
+        let nextEnv ← addLocal env name type true
+        .ok (specs, nextEnv)
+    | .assign target value => do
+        let targetSpecs ← crosscallHelperSpecsExpr module env target
+        let valueSpecs ← crosscallHelperSpecsExpr module env value
+        .ok (mergeCrosscallHelperSpecs targetSpecs valueSpecs, env)
+    | .assignOp target _ value => do
+        let targetSpecs ← crosscallHelperSpecsExpr module env target
+        let valueSpecs ← crosscallHelperSpecsExpr module env value
+        .ok (mergeCrosscallHelperSpecs targetSpecs valueSpecs, env)
+    | .effect effect => do
+        .ok (← crosscallHelperSpecsEffect module env effect, env)
+    | .assert condition _ _ => do
+        .ok (← crosscallHelperSpecsExpr module env condition, env)
+    | .assertEq lhs rhs _ _ => do
+        let lhsSpecs ← crosscallHelperSpecsExpr module env lhs
+        let rhsSpecs ← crosscallHelperSpecsExpr module env rhs
+        .ok (mergeCrosscallHelperSpecs lhsSpecs rhsSpecs, env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
+    | .release _ =>
+        .ok (#[], env)
+    | .ifElse condition thenBody elseBody => do
+        let (thenSpecs, _) ← crosscallHelperSpecsStatements module env thenBody
+        let (elseSpecs, _) ← crosscallHelperSpecsStatements module env elseBody
+        let bodySpecs := mergeCrosscallHelperSpecs thenSpecs elseSpecs
+        let conditionSpecs ← crosscallHelperSpecsExpr module env condition
+        .ok (mergeCrosscallHelperSpecs conditionSpecs bodySpecs, env)
+    | .boundedFor indexName _ _ body => do
+        let loopEnv ← addLocal env indexName .u32 false
+        let (bodySpecs, _) ← crosscallHelperSpecsStatements module loopEnv body
+        .ok (bodySpecs, env)
+    | .return value => do
+        .ok (← crosscallHelperSpecsExpr module env value, env)
+
+  partial def crosscallHelperSpecsStatements
+      (module : Module)
+      (env : TypeEnv)
+      (statements : Array Statement) : Except LowerError (Array CrosscallHelperSpec × TypeEnv) :=
+    statements.foldlM (init := (#[], env)) fun acc stmt => do
+      let (specs, currentEnv) := acc
+      let (stmtSpecs, nextEnv) ← crosscallHelperSpecsStatement module currentEnv stmt
+      .ok (mergeCrosscallHelperSpecs specs stmtSpecs, nextEnv)
+end
+
+def moduleCrosscallHelperSpecs (module : Module) : Except LowerError (Array CrosscallHelperSpec) := do
+  let mut specs : Array CrosscallHelperSpec := #[]
+  for entrypoint in module.entrypoints do
+    let (entrypointSpecs, _) ← crosscallHelperSpecsStatements module (entrypointTypeEnv entrypoint) entrypoint.body
+    specs := mergeCrosscallHelperSpecs specs entrypointSpecs
+  .ok specs
+
+def crosscallHelperFunctions (module : Module) (specs : Array CrosscallHelperSpec) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
+  specs.mapM (crosscallHelperFunction module)
+
+def pushCreateHelperSpecIfMissing (acc : Array CreateHelperSpec) (value : CreateHelperSpec) : Array CreateHelperSpec :=
+  if acc.any (fun existing => existing == value) then acc else acc.push value
+
+def mergeCreateHelperSpecs (lhs rhs : Array CreateHelperSpec) : Array CreateHelperSpec :=
+  rhs.foldl pushCreateHelperSpecIfMissing lhs
+
+mutual
+  partial def createHelperSpecsExpr : ProofForge.IR.Expr → Array CreateHelperSpec
+    | .literal _ => #[]
+    | .local _ => #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr value)
+    | .arrayGet array index =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr array) (createHelperSpecsExpr index)
+    | .memoryArrayNew _ length =>
+        createHelperSpecsExpr length
+    | .memoryArrayLength array =>
+        createHelperSpecsExpr array
+    | .memoryArrayGet array index =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr array) (createHelperSpecsExpr index)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr field.snd)
+    | .field base _ =>
+        createHelperSpecsExpr base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr lhs) (createHelperSpecsExpr rhs)
+    | .cast value _ | .boolNot value | .hash value =>
+        createHelperSpecsExpr value
+    | .hashValue a b c d =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsExpr a) (createHelperSpecsExpr b))
+          (mergeCreateHelperSpecs (createHelperSpecsExpr c) (createHelperSpecsExpr d))
+    | .nativeValue => #[]
+    | .crosscallInvoke target methodId args =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
+    | .crosscallInvokeTyped target methodId args _ =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
+    | .crosscallInvokeValueTyped target methodId callValue args _ =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr methodId)
+        let nested := mergeCreateHelperSpecs nested (createHelperSpecsExpr callValue)
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
+    | .crosscallInvokeStaticTyped target methodId args _ =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
+    | .crosscallInvokeDelegateTyped target methodId args _ =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
+    | .crosscallCreate callValue initCodeHex =>
+        pushCreateHelperSpecIfMissing (createHelperSpecsExpr callValue) { mode := .create, initCodeHex }
+    | .crosscallCreate2 callValue salt initCodeHex =>
+        let nested := mergeCreateHelperSpecs (createHelperSpecsExpr callValue) (createHelperSpecsExpr salt)
+        pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
+    | .effect effect =>
+        createHelperSpecsEffect effect
+
+  partial def createHelperSpecsEffect : Effect → Array CreateHelperSpec
+    | .storageScalarRead _ => #[]
+    | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
+        createHelperSpecsExpr value
+    | .storageMapContains _ key | .storageMapGet _ key =>
+        createHelperSpecsExpr key
+    | .storageMapInsert _ key value | .storageMapSet _ key value =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr key) (createHelperSpecsExpr value)
+    | .storageArrayRead _ index =>
+        createHelperSpecsExpr index
+    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr index) (createHelperSpecsExpr value)
+    | .storageArrayStructFieldRead _ index _ =>
+        createHelperSpecsExpr index
+    | .storageDynamicArrayPush _ value =>
+        createHelperSpecsExpr value
+    | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet _ index value =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr index) (createHelperSpecsExpr value)
+    | .storageStructFieldRead _ _ => #[]
+    | .storageStructFieldWrite _ _ value =>
+        createHelperSpecsExpr value
+    | .storagePathRead _ path =>
+        path.foldl (init := #[]) fun acc segment =>
+          mergeCreateHelperSpecs acc (createHelperSpecsStoragePathSegment segment)
+    | .storagePathWrite _ path value =>
+        let pathSpecs := path.foldl (init := #[]) fun acc segment =>
+          mergeCreateHelperSpecs acc (createHelperSpecsStoragePathSegment segment)
+        mergeCreateHelperSpecs pathSpecs (createHelperSpecsExpr value)
+    | .storagePathAssignOp _ path _ value =>
+        let pathSpecs := path.foldl (init := #[]) fun acc segment =>
+          mergeCreateHelperSpecs acc (createHelperSpecsStoragePathSegment segment)
+        mergeCreateHelperSpecs pathSpecs (createHelperSpecsExpr value)
+    | .contextRead _ => #[]
+    | .eventEmit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr field.snd)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexedSpecs := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr field.snd)
+        dataFields.foldl (init := indexedSpecs) fun acc field =>
+          mergeCreateHelperSpecs acc (createHelperSpecsExpr field.snd)
+
+  partial def createHelperSpecsStoragePathSegment : StoragePathSegment → Array CreateHelperSpec
+    | .field _ => #[]
+    | .index index => createHelperSpecsExpr index
+    | .mapKey key => createHelperSpecsExpr key
+
+  partial def createHelperSpecsStatement : Statement → Array CreateHelperSpec
+    | .letBind _ _ value | .letMutBind _ _ value =>
+        createHelperSpecsExpr value
+    | .assign target value =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr value)
+    | .assignOp target _ value =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr target) (createHelperSpecsExpr value)
+    | .effect effect =>
+        createHelperSpecsEffect effect
+    | .assert condition _ _ =>
+        createHelperSpecsExpr condition
+    | .assertEq lhs rhs _ _ =>
+        mergeCreateHelperSpecs (createHelperSpecsExpr lhs) (createHelperSpecsExpr rhs)
+    | .release _ =>
+        #[]
+    | .revert _ => #[]
+    | .revertWithError _ => #[]
+    | .ifElse condition thenBody elseBody =>
+        mergeCreateHelperSpecs
+          (createHelperSpecsExpr condition)
+          (mergeCreateHelperSpecs (createHelperSpecsStatements thenBody) (createHelperSpecsStatements elseBody))
+    | .boundedFor _ _ _ body =>
+        createHelperSpecsStatements body
+    | .return value =>
+        createHelperSpecsExpr value
+
+  partial def createHelperSpecsStatements (statements : Array Statement) : Array CreateHelperSpec :=
+    statements.foldl (init := #[]) fun acc stmt =>
+      mergeCreateHelperSpecs acc (createHelperSpecsStatement stmt)
+end
+
+def moduleCreateHelperSpecs (module : Module) : Array CreateHelperSpec :=
+  module.entrypoints.foldl (init := #[]) fun acc entrypoint =>
+    mergeCreateHelperSpecs acc (createHelperSpecsStatements entrypoint.body)
+
+def createHelperFunctions (specs : Array CreateHelperSpec) : Except LowerError (Array Lean.Compiler.Yul.Statement) :=
+  specs.mapM createHelperFunction
+
+def localArrayGetLengthsForDynamicExprTarget
+    (env : TypeEnv)
+    (array index : ProofForge.IR.Expr) : Array Nat :=
+  match literalArrayIndex? index with
+  | some _ => #[]
+  | none =>
+      match array with
+      | .local name =>
+          match findLocal? env name with
+          | some { type := .fixedArray _ length, .. } => #[length]
+          | _ => #[]
+      | .arrayLit _ values => #[values.size]
+      | _ => #[]
+
+def nestedLocalArrayGetShapesForDynamicExprTarget
+    (env : TypeEnv)
+    (array index : ProofForge.IR.Expr) : Array (Array Nat) :=
+  let fullExpr := ProofForge.IR.Expr.arrayGet array index
+  match collectLocalArrayGetPath fullExpr with
+  | some (name, path) =>
+      if path.size > 1 && arrayIndexPathHasDynamic path then
+        match findLocal? env name with
+        | some binding =>
+            match fixedArrayPathShape "fixed array index" binding.type path with
+            | .ok (lengths, leafType) =>
+                match leafType with
+                | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .structType _ => #[lengths]
+                | .unit | .fixedArray _ _ | .bytes | .string | .array _ => #[]
+            | .error _ => #[]
+        | none => #[]
+      else
+        #[]
+  | none => #[]
+
+mutual
+  partial def localArrayGetLengthsExpr (env : TypeEnv) : ProofForge.IR.Expr → Array Nat
+    | .literal _ => #[]
+    | .local _ => #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value => mergeNatSets acc (localArrayGetLengthsExpr env value)
+    | .arrayGet array index =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env array) (localArrayGetLengthsExpr env index)
+        mergeNatSets nested (localArrayGetLengthsForDynamicExprTarget env array index)
+    | .memoryArrayNew _ length =>
+        localArrayGetLengthsExpr env length
+    | .memoryArrayLength array =>
+        localArrayGetLengthsExpr env array
+    | .memoryArrayGet array index =>
+        mergeNatSets (localArrayGetLengthsExpr env array) (localArrayGetLengthsExpr env index)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field => mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
+    | .field base _ =>
+        localArrayGetLengthsExpr env base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
+        mergeNatSets (localArrayGetLengthsExpr env lhs) (localArrayGetLengthsExpr env rhs)
+    | .cast value _ | .boolNot value | .hash value =>
+        localArrayGetLengthsExpr env value
+    | .hashValue a b c d =>
+        mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
+          (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d))
+    | .nativeValue => #[]
+    | .crosscallInvoke target methodId args =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env target) (localArrayGetLengthsExpr env methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
+    | .crosscallInvokeTyped target methodId args _ =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env target) (localArrayGetLengthsExpr env methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
+    | .crosscallInvokeValueTyped target methodId callValue args _ =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env target) (localArrayGetLengthsExpr env methodId)
+        let nested := mergeNatSets nested (localArrayGetLengthsExpr env callValue)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
+    | .crosscallInvokeStaticTyped target methodId args _ =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env target) (localArrayGetLengthsExpr env methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
+    | .crosscallInvokeDelegateTyped target methodId args _ =>
+        let nested := mergeNatSets (localArrayGetLengthsExpr env target) (localArrayGetLengthsExpr env methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
+    | .crosscallCreate callValue _ =>
+        localArrayGetLengthsExpr env callValue
+    | .crosscallCreate2 callValue salt _ =>
+        mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
+    | .effect effect =>
+        localArrayGetLengthsEffect env effect
+
+  partial def localArrayGetLengthsEffect (env : TypeEnv) : Effect → Array Nat
+    | .storageScalarRead _ => #[]
+    | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
+        localArrayGetLengthsExpr env value
+    | .storageMapContains _ key | .storageMapGet _ key =>
+        localArrayGetLengthsExpr env key
+    | .storageMapInsert _ key value | .storageMapSet _ key value =>
+        mergeNatSets (localArrayGetLengthsExpr env key) (localArrayGetLengthsExpr env value)
+    | .storageArrayRead _ index | .storageArrayStructFieldRead _ index _ =>
+        localArrayGetLengthsExpr env index
+    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
+        mergeNatSets (localArrayGetLengthsExpr env index) (localArrayGetLengthsExpr env value)
+    | .storageDynamicArrayPush _ value =>
+        localArrayGetLengthsExpr env value
+    | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet _ index value =>
+        mergeNatSets (localArrayGetLengthsExpr env index) (localArrayGetLengthsExpr env value)
+    | .storageStructFieldRead _ _ => #[]
+    | .storageStructFieldWrite _ _ value =>
+        localArrayGetLengthsExpr env value
+    | .storagePathRead _ path =>
+        path.foldl (init := #[]) fun acc segment => mergeNatSets acc (localArrayGetLengthsStoragePathSegment env segment)
+    | .storagePathWrite _ path value =>
+        let pathLengths := path.foldl (init := #[]) fun acc segment =>
+          mergeNatSets acc (localArrayGetLengthsStoragePathSegment env segment)
+        mergeNatSets pathLengths (localArrayGetLengthsExpr env value)
+    | .storagePathAssignOp _ path _ value =>
+        let pathLengths := path.foldl (init := #[]) fun acc segment =>
+          mergeNatSets acc (localArrayGetLengthsStoragePathSegment env segment)
+        mergeNatSets pathLengths (localArrayGetLengthsExpr env value)
+    | .contextRead _ => #[]
+    | .eventEmit _ fields =>
+        fields.foldl (init := #[]) fun acc field => mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexedLengths := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
+        dataFields.foldl (init := indexedLengths) fun acc field =>
+          mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
+
+  partial def localArrayGetLengthsStoragePathSegment (env : TypeEnv) : StoragePathSegment → Array Nat
+    | .field _ => #[]
+    | .index index => localArrayGetLengthsExpr env index
+    | .mapKey key => localArrayGetLengthsExpr env key
+
+  partial def localArrayGetLengthsAssignTarget (env : TypeEnv) : ProofForge.IR.Expr → Array Nat
+    | .arrayGet (.local _) index =>
+        localArrayGetLengthsExpr env index
+    | .field (.local _) _ =>
+        #[]
+    | target =>
+        localArrayGetLengthsExpr env target
+
+  partial def localArrayGetLengthsStatement
+      (module : Module)
+      (env : TypeEnv) : Statement → Except LowerError (Array Nat × TypeEnv)
+    | .letBind name type value => do
+        let nextEnv ← addLocal env name type false
+        .ok (localArrayGetLengthsExpr env value, nextEnv)
+    | .letMutBind name type value => do
+        let nextEnv ← addLocal env name type true
+        .ok (localArrayGetLengthsExpr env value, nextEnv)
+    | .assign target value =>
+        .ok (mergeNatSets (localArrayGetLengthsAssignTarget env target) (localArrayGetLengthsExpr env value), env)
+    | .assignOp target _ value =>
+        .ok (mergeNatSets (localArrayGetLengthsAssignTarget env target) (localArrayGetLengthsExpr env value), env)
+    | .effect effect =>
+        .ok (localArrayGetLengthsEffect env effect, env)
+    | .assert condition _ _ =>
+        .ok (localArrayGetLengthsExpr env condition, env)
+    | .assertEq lhs rhs _ _ =>
+        .ok (mergeNatSets (localArrayGetLengthsExpr env lhs) (localArrayGetLengthsExpr env rhs), env)
+    | .release _ =>
+        .ok (#[], env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
+    | .ifElse condition thenBody elseBody => do
+        let (thenLengths, _) ← localArrayGetLengthsStatements module env thenBody
+        let (elseLengths, _) ← localArrayGetLengthsStatements module env elseBody
+        let bodyLengths := mergeNatSets thenLengths elseLengths
+        .ok (mergeNatSets (localArrayGetLengthsExpr env condition) bodyLengths, env)
+    | .boundedFor indexName _ _ body => do
+        let loopEnv ← addLocal env indexName .u32 false
+        let (bodyLengths, _) ← localArrayGetLengthsStatements module loopEnv body
+        .ok (bodyLengths, env)
+    | .return value =>
+        .ok (localArrayGetLengthsExpr env value, env)
+
+  partial def localArrayGetLengthsStatements
+      (module : Module)
+      (env : TypeEnv)
+      (statements : Array Statement) : Except LowerError (Array Nat × TypeEnv) :=
+    statements.foldlM (init := (#[], env)) fun acc stmt => do
+      let (lengths, currentEnv) := acc
+      let (stmtLengths, nextEnv) ← localArrayGetLengthsStatement module currentEnv stmt
+      .ok (mergeNatSets lengths stmtLengths, nextEnv)
+end
+
+def moduleLocalArrayGetLengths (module : Module) : Except LowerError (Array Nat) := do
+  let mut lengths : Array Nat := #[]
+  for entrypoint in module.entrypoints do
+    let (entrypointLengths, _) ← localArrayGetLengthsStatements module (entrypointTypeEnv entrypoint) entrypoint.body
+    lengths := mergeNatSets lengths entrypointLengths
+  .ok lengths
+
+mutual
+  partial def nestedLocalArrayGetShapesExpr (env : TypeEnv) : ProofForge.IR.Expr → Array (Array Nat)
+    | .literal _ => #[]
+    | .local _ => #[]
+    | .arrayLit _ values =>
+        values.foldl (init := #[]) fun acc value => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env value)
+    | .arrayGet array index =>
+        let nested := mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index)
+        mergeNatArraySets nested (nestedLocalArrayGetShapesForDynamicExprTarget env array index)
+    | .memoryArrayNew _ length =>
+        nestedLocalArrayGetShapesExpr env length
+    | .memoryArrayLength array =>
+        nestedLocalArrayGetShapesExpr env array
+    | .memoryArrayGet array index =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index)
+    | .structLit _ fields =>
+        fields.foldl (init := #[]) fun acc field => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
+    | .field base _ =>
+        nestedLocalArrayGetShapesExpr env base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env lhs) (nestedLocalArrayGetShapesExpr env rhs)
+    | .cast value _ | .boolNot value | .hash value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .hashValue a b c d =>
+        mergeNatArraySets (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
+          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d))
+    | .nativeValue => #[]
+    | .crosscallInvoke target methodId args
+    | .crosscallInvokeTyped target methodId args _
+    | .crosscallInvokeStaticTyped target methodId args _
+    | .crosscallInvokeDelegateTyped target methodId args _ =>
+        let nested := mergeNatArraySets (nestedLocalArrayGetShapesExpr env target) (nestedLocalArrayGetShapesExpr env methodId)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
+    | .crosscallInvokeValueTyped target methodId callValue args _ =>
+        let nested := mergeNatArraySets (nestedLocalArrayGetShapesExpr env target) (nestedLocalArrayGetShapesExpr env methodId)
+        let nested := mergeNatArraySets nested (nestedLocalArrayGetShapesExpr env callValue)
+        args.foldl (init := nested) fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
+    | .crosscallCreate callValue _ =>
+        nestedLocalArrayGetShapesExpr env callValue
+    | .crosscallCreate2 callValue salt _ =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
+    | .effect effect =>
+        nestedLocalArrayGetShapesEffect env effect
+
+  partial def nestedLocalArrayGetShapesEffect (env : TypeEnv) : Effect → Array (Array Nat)
+    | .storageScalarRead _ => #[]
+    | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .storageMapContains _ key | .storageMapGet _ key =>
+        nestedLocalArrayGetShapesExpr env key
+    | .storageMapInsert _ key value | .storageMapSet _ key value =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env key) (nestedLocalArrayGetShapesExpr env value)
+    | .storageArrayRead _ index =>
+        nestedLocalArrayGetShapesExpr env index
+    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env index) (nestedLocalArrayGetShapesExpr env value)
+    | .storageArrayStructFieldRead _ index _ =>
+        nestedLocalArrayGetShapesExpr env index
+    | .storageDynamicArrayPush _ value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet _ index value =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env index) (nestedLocalArrayGetShapesExpr env value)
+    | .storageStructFieldRead _ _ => #[]
+    | .storageStructFieldWrite _ _ value =>
+        nestedLocalArrayGetShapesExpr env value
+    | .storagePathRead _ path =>
+        path.foldl (init := #[]) fun acc segment => mergeNatArraySets acc (nestedLocalArrayGetShapesStoragePathSegment env segment)
+    | .storagePathWrite _ path value =>
+        let pathShapes := path.foldl (init := #[]) fun acc segment =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesStoragePathSegment env segment)
+        mergeNatArraySets pathShapes (nestedLocalArrayGetShapesExpr env value)
+    | .storagePathAssignOp _ path _ value =>
+        let pathShapes := path.foldl (init := #[]) fun acc segment =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesStoragePathSegment env segment)
+        mergeNatArraySets pathShapes (nestedLocalArrayGetShapesExpr env value)
+    | .contextRead _ => #[]
+    | .eventEmit _ fields =>
+        fields.foldl (init := #[]) fun acc field =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
+    | .eventEmitIndexed _ indexedFields dataFields =>
+        let indexedShapes := indexedFields.foldl (init := #[]) fun acc field =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
+        dataFields.foldl (init := indexedShapes) fun acc field =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
+
+  partial def nestedLocalArrayGetShapesStoragePathSegment (env : TypeEnv) : StoragePathSegment → Array (Array Nat)
+    | .field _ => #[]
+    | .index index => nestedLocalArrayGetShapesExpr env index
+    | .mapKey key => nestedLocalArrayGetShapesExpr env key
+
+  partial def nestedLocalArrayGetShapesAssignTarget (env : TypeEnv) : ProofForge.IR.Expr → Array (Array Nat)
+    | .arrayGet array index =>
+        let nested := mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index)
+        mergeNatArraySets nested (nestedLocalArrayGetShapesForDynamicExprTarget env array index)
+    | .field target _ =>
+        nestedLocalArrayGetShapesExpr env target
+    | _ => #[]
+
+  partial def nestedLocalArrayGetShapesStatement
+      (module : Module)
+      (env : TypeEnv) : Statement → Except LowerError (Array (Array Nat) × TypeEnv)
+    | .letBind name type value => do
+        let nextEnv ← addLocal env name type false
+        .ok (nestedLocalArrayGetShapesExpr env value, nextEnv)
+    | .letMutBind name type value => do
+        let nextEnv ← addLocal env name type true
+        .ok (nestedLocalArrayGetShapesExpr env value, nextEnv)
+    | .assign target value =>
+        .ok (mergeNatArraySets (nestedLocalArrayGetShapesAssignTarget env target) (nestedLocalArrayGetShapesExpr env value), env)
+    | .assignOp target _ value =>
+        .ok (mergeNatArraySets (nestedLocalArrayGetShapesAssignTarget env target) (nestedLocalArrayGetShapesExpr env value), env)
+    | .effect effect =>
+        .ok (nestedLocalArrayGetShapesEffect env effect, env)
+    | .assert condition _ _ =>
+        .ok (nestedLocalArrayGetShapesExpr env condition, env)
+    | .assertEq lhs rhs _ _ =>
+        .ok (mergeNatArraySets (nestedLocalArrayGetShapesExpr env lhs) (nestedLocalArrayGetShapesExpr env rhs), env)
+    | .ifElse condition thenBody elseBody => do
+        let (thenShapes, _) ← nestedLocalArrayGetShapesStatements module env thenBody
+        let (elseShapes, _) ← nestedLocalArrayGetShapesStatements module env elseBody
+        .ok (mergeNatArraySets (nestedLocalArrayGetShapesExpr env condition) (mergeNatArraySets thenShapes elseShapes), env)
+    | .boundedFor indexName _ _ body => do
+        let loopEnv ← addLocal env indexName .u32 false
+        let (bodyShapes, _) ← nestedLocalArrayGetShapesStatements module loopEnv body
+        .ok (bodyShapes, env)
+    | .release _ =>
+        .ok (#[], env)
+    | .revert _ => .ok (#[], env)
+    | .revertWithError _ => .ok (#[], env)
+    | .return value =>
+        .ok (nestedLocalArrayGetShapesExpr env value, env)
+
+  partial def nestedLocalArrayGetShapesStatements
+      (module : Module)
+      (env : TypeEnv)
+      (statements : Array Statement) : Except LowerError (Array (Array Nat) × TypeEnv) :=
+    statements.foldlM (init := (#[], env)) fun acc stmt => do
+      let (shapes, currentEnv) := acc
+      let (stmtShapes, nextEnv) ← nestedLocalArrayGetShapesStatement module currentEnv stmt
+      .ok (mergeNatArraySets shapes stmtShapes, nextEnv)
+end
+
+def moduleNestedLocalArrayGetShapes (module : Module) : Except LowerError (Array (Array Nat)) := do
+  let mut shapes : Array (Array Nat) := #[]
+  for entrypoint in module.entrypoints do
+    let (entrypointShapes, _) ← nestedLocalArrayGetShapesStatements module (entrypointTypeEnv entrypoint) entrypoint.body
+    shapes := mergeNatArraySets shapes entrypointShapes
+  .ok shapes
+
 def validateDistinctStructName (seen : Array String) (name : String) : Except LowerError (Array String) :=
   if name.isEmpty then
     .error { message := "struct name must be non-empty for IR EVM v0" }
@@ -6066,6 +7044,78 @@ def plannedHashHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
   else
     #[]
 
+def plannedMemoryArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    Array Lean.Compiler.Yul.Statement :=
+  if plan.hasHelper .memoryArrayNew || plan.hasHelper .memoryArrayGet then
+    ProofForge.Backend.Evm.ToYul.memoryArrayHelperFunctions
+  else
+    #[]
+
+/-! Detect whether a module uses any `.add`/`.sub`/`.mul` `Expr` or compound
+    assignment op that would route to the checked-arithmetic helpers. Used to
+    avoid emitting the helpers when a module only uses div/mod/bitwise/shift. -/
+mutual
+  partial def effectUsesCheckedArithmetic : Effect → Bool
+    | .storageScalarWrite _ v => exprUsesCheckedArithmetic v
+    | .storageScalarAssignOp _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v
+    | .storageMapInsert _ _ v => exprUsesCheckedArithmetic v
+    | .storageMapSet _ _ v => exprUsesCheckedArithmetic v
+    | .storageArrayWrite _ _ v => exprUsesCheckedArithmetic v
+    | .storageArrayStructFieldWrite _ _ _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPush _ v => exprUsesCheckedArithmetic v
+    | .storageDynamicArrayPop _ => false
+    | .memoryArraySet _ i v => exprUsesCheckedArithmetic i || exprUsesCheckedArithmetic v
+    | .storageStructFieldWrite _ _ v => exprUsesCheckedArithmetic v
+    | .storagePathWrite _ _ v => exprUsesCheckedArithmetic v
+    | .storagePathAssignOp _ _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v
+    | .storageScalarRead _ | .storageMapContains _ _ | .storageMapGet _ _
+    | .storageArrayRead _ _ | .storageArrayStructFieldRead _ _ _
+    | .storageStructFieldRead _ _ | .storagePathRead _ _
+    | .contextRead _ | .eventEmit _ _ | .eventEmitIndexed _ _ _ => false
+
+  partial def exprUsesCheckedArithmetic : Expr → Bool
+    | .add _ _ | .sub _ _ | .mul _ _ => true
+    | .literal _ | .local _ | .nativeValue => false
+    | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
+    | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
+    | .memoryArrayNew _ l => exprUsesCheckedArithmetic l
+    | .memoryArrayLength a => exprUsesCheckedArithmetic a
+    | .memoryArrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
+    | .structLit _ fs => fs.any (fun (_, v) => exprUsesCheckedArithmetic v)
+    | .field b _ => exprUsesCheckedArithmetic b
+    | .div l r | .mod l r | .pow l r
+    | .bitAnd l r | .bitOr l r | .bitXor l r
+    | .shiftLeft l r | .shiftRight l r => exprUsesCheckedArithmetic l || exprUsesCheckedArithmetic r
+    | .cast v _ => exprUsesCheckedArithmetic v
+    | .eq l r | .ne l r | .lt l r | .le l r | .gt l r | .ge l r
+    | .boolAnd l r | .boolOr l r => exprUsesCheckedArithmetic l || exprUsesCheckedArithmetic r
+    | .boolNot v => exprUsesCheckedArithmetic v
+    | .hashValue a b c d => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b
+        || exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
+    | .hash p => exprUsesCheckedArithmetic p
+    | .hashTwoToOne l r => exprUsesCheckedArithmetic l || exprUsesCheckedArithmetic r
+    | .crosscallInvoke t m args | .crosscallInvokeTyped t m args _
+    | .crosscallInvokeValueTyped t m _ args _
+    | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>
+        exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
+    | .crosscallCreate v _ => exprUsesCheckedArithmetic v
+    | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .effect e => effectUsesCheckedArithmetic e
+
+  partial def stmtUsesCheckedArithmetic : Statement → Bool
+    | .letBind _ _ v | .letMutBind _ _ v | .assign _ v | .assignOp _ _ v | .return v =>
+        exprUsesCheckedArithmetic v
+    | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .revert _ | .revertWithError _ => false
+    | .effect e => effectUsesCheckedArithmetic e
+    | .ifElse c thenBody elseBody =>
+        exprUsesCheckedArithmetic c || thenBody.any stmtUsesCheckedArithmetic
+          || elseBody.any stmtUsesCheckedArithmetic
+    | .boundedFor _ _ _ body => body.any stmtUsesCheckedArithmetic
+end
+
+def moduleUsesCheckedArithmetic (module : Module) : Bool :=
+  module.entrypoints.any (fun ep => ep.body.any stmtUsesCheckedArithmetic)
+
 def plannedCheckedArithmeticHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
   if plan.usesCheckedArithmetic then ProofForge.Backend.Evm.ToYul.checkedArithmeticHelperFunctions else #[]
@@ -6138,6 +7188,7 @@ def lowerModuleWithPlan
   let helpers := helpers ++ plannedDynamicArrayHelperFunctions plan
   let helpers := helpers ++ plannedStructArrayHelperFunctions plan
   let helpers := helpers ++ plannedHashHelperFunctions plan
+  let helpers := helpers ++ plannedMemoryArrayHelperFunctions plan
   let completePlan := entrypointPlanIsComplete module plan.entrypoints
   let helpers :=
     if completePlan then

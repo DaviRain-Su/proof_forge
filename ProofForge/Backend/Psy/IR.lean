@@ -563,6 +563,12 @@ mutual
               .ok element
         | other =>
             .error { message := s!"array index requires fixed array, got `{other.name}`" }
+    | .memoryArrayNew _ _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
+    | .memoryArrayLength _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
+    | .memoryArrayGet _ _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
     | .structLit typeName fields => do
         if fields.isEmpty then
           .error { message := s!"struct literal `{typeName}` must have at least one field" }
@@ -803,6 +809,8 @@ mutual
         .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         match ← scalarStateType module stateId with
         | .structType typeName => structFieldType module typeName fieldName
@@ -847,6 +855,12 @@ partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → E
             .ok element
       | other =>
           .error { message := s!"assignment array target requires fixed array, got `{other.name}`" }
+  | .memoryArrayNew _ _ =>
+      .error { message := "memory arrays are not supported by Psy IR v0" }
+  | .memoryArrayLength _ =>
+      .error { message := "memory arrays are not supported by Psy IR v0" }
+  | .memoryArrayGet _ _ =>
+      .error { message := "memory arrays are not supported by Psy IR v0" }
   | .field base fieldName => do
       match ← inferAssignTargetType module env base with
       | .structType typeName =>
@@ -907,6 +921,8 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
   | .storageDynamicArrayPop _ =>
       .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
+  | .memoryArraySet _ _ _ =>
+      .error { message := "memory arrays are not supported by Psy IR v0" }
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
@@ -1013,6 +1029,12 @@ mutual
         .ok s!"[{String.intercalate ", " items.toList}]"
     | .arrayGet array index => do
         .ok s!"{← lowerExpr module array}[{← lowerExpr module index}]"
+    | .memoryArrayNew _ _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
+    | .memoryArrayLength _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
+    | .memoryArrayGet _ _ =>
+        .error { message := "memory arrays are not supported by Psy IR v0" }
     | .structLit typeName fields => do
         if fields.isEmpty then
           .error { message := s!"struct literal `{typeName}` must have at least one field" }
@@ -1141,6 +1163,8 @@ mutual
         .error { message := "storage.dynamic.array.push is a statement effect, not an expression" }
     | .storageDynamicArrayPop _ =>
         .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory.array.set is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         requireStructScalarState module stateId fieldName
         .ok s!"c.{stateId}.{fieldName}.get()"
@@ -1274,6 +1298,8 @@ def lowerEffectStmt (module : Module) : Effect → Except LowerError (Array Stri
       .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
   | .storageDynamicArrayPop _ =>
       .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
+  | .memoryArraySet _ _ _ =>
+      .error { message := "memory arrays are not supported by Psy IR v0" }
   | .storageStructFieldRead _ _ =>
       .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do

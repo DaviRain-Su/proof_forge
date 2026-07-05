@@ -123,6 +123,8 @@ inductive Helper where
   | arraySlot
   | structArraySlot
   | dynamicArraySlot
+  | memoryArrayNew
+  | memoryArrayGet
   | hashWord
   | hashPair
   deriving BEq, DecidableEq, Repr
@@ -148,6 +150,8 @@ def Helper.name : Helper → String
   | .arraySlot => "__proof_forge_array_slot"
   | .structArraySlot => "__proof_forge_struct_array_slot"
   | .dynamicArraySlot => "__proof_forge_dynamic_array_slot"
+  | .memoryArrayNew => "__proof_forge_memory_array_new"
+  | .memoryArrayGet => "__proof_forge_memory_array_get"
   | .hashWord => "__proof_forge_hash_word"
   | .hashPair => "__proof_forge_hash_pair"
 
@@ -684,6 +688,11 @@ def moduleHelpers (module : Module) : HelperSet :=
       HelperSet.insert helpers .dynamicArraySlot
     else
       helpers
+  let helpers :=
+    if module.capabilities.contains .dataDynamicArray then
+      HelperSet.insert (HelperSet.insert helpers .memoryArrayNew) .memoryArrayGet
+    else
+      helpers
   if moduleUsesHash module then
     HelperSet.insert (HelperSet.insert helpers .hashWord) .hashPair
   else
@@ -757,6 +766,9 @@ mutual
     | arrayGet (array index : ExprPlan)
     | localArrayGet (name : String) (path : Array ExprPlan) (lengths : Array Nat)
     | arrayLit (elementType : ValueType) (values : Array ExprPlan)
+    | memoryArrayNew (elementType : ValueType) (length : ExprPlan)
+    | memoryArrayLength (array : ExprPlan)
+    | memoryArrayGet (array index : ExprPlan)
     | structLit (typeName : String) (fields : Array (String × ExprPlan))
     | hashValue (a b c d : ExprPlan)
     | hash (preimage : ExprPlan)
@@ -806,6 +818,7 @@ mutual
     | storageArrayStructFieldWriteTarget (target : StructArrayFieldWriteTargetPlan) (index value : ExprPlan)
     | storageDynamicArrayPush (stateId : String) (value : ExprPlan)
     | storageDynamicArrayPop (stateId : String)
+    | memoryArraySet (array index value : ExprPlan)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldReadTarget (target : StructFieldReadTargetPlan)
     | storageStructFieldWrite (stateId fieldName : String) (value : ExprPlan)
@@ -1232,6 +1245,12 @@ mutual
         values.foldl (init := #[]) fun acc v => acc ++ contextOpsFromExpr v
     | .arrayGet array index =>
         contextOpsFromExpr array ++ contextOpsFromExpr index
+    | .memoryArrayNew _ length =>
+        contextOpsFromExpr length
+    | .memoryArrayLength array =>
+        contextOpsFromExpr array
+    | .memoryArrayGet array index =>
+        contextOpsFromExpr array ++ contextOpsFromExpr index
     | .structLit _ fields =>
         fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
     | .field base _ => contextOpsFromExpr base
@@ -1273,6 +1292,8 @@ mutual
     | .storageArrayStructFieldRead _ index _ => contextOpsFromExpr index
     | .storageDynamicArrayPush _ value => contextOpsFromExpr value
     | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet array index value =>
+        contextOpsFromExpr array ++ contextOpsFromExpr index ++ contextOpsFromExpr value
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ value => contextOpsFromExpr value
     | .storagePathRead _ path =>

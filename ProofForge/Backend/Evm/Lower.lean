@@ -346,6 +346,12 @@ mutual
         match ← localArrayGetExprPlan? module env array index with
         | some plan => .ok plan
         | none => .ok (.arrayGet (← buildExprPlan module env array) (← buildExprPlan module env index))
+    | .memoryArrayNew elementType length => do
+        .ok (.memoryArrayNew elementType (← buildExprPlan module env length))
+    | .memoryArrayLength array => do
+        .ok (.memoryArrayLength (← buildExprPlan module env array))
+    | .memoryArrayGet array index => do
+        .ok (.memoryArrayGet (← buildExprPlan module env array) (← buildExprPlan module env index))
     | .structLit typeName fields => do
         let mut planned : Array (String × ExprPlan) := #[]
         for field in fields do
@@ -552,7 +558,12 @@ mutual
         .ok (.storageDynamicArrayPush stateId (← buildExprPlan module env value))
     | .storageDynamicArrayPop stateId =>
         .ok (.storageDynamicArrayPop stateId)
-    | .storageStructFieldRead stateId fieldName =>
+    | .memoryArraySet array index value => do
+        let arrayPlan ← buildExprPlan module env array
+        let indexPlan ← buildExprPlan module env index
+        let valuePlan ← buildExprPlan module env value
+        .ok (.memoryArraySet arrayPlan indexPlan valuePlan)
+    | .storageStructFieldRead stateId fieldName => do
         match structFieldReadTargetPlan? module stateId fieldName with
         | some target => .ok (.storageStructFieldReadTarget target)
         | none => .ok (.storageStructFieldRead stateId fieldName)
@@ -783,6 +794,13 @@ mutual
     | .arrayGet array index => do
         let collector ← collectEventPlansFromExpr module env collector array
         collectEventPlansFromExpr module env collector index
+    | .memoryArrayNew _ length =>
+        collectEventPlansFromExpr module env collector length
+    | .memoryArrayLength array =>
+        collectEventPlansFromExpr module env collector array
+    | .memoryArrayGet array index => do
+        let collector ← collectEventPlansFromExpr module env collector array
+        collectEventPlansFromExpr module env collector index
     | .structLit _ fields =>
         fields.foldlM (init := collector) fun acc field =>
           collectEventPlansFromExpr module env acc field.snd
@@ -826,6 +844,10 @@ mutual
     | .storageArrayStructFieldRead _ index _ => collectEventPlansFromExpr module env collector index
     | .storageDynamicArrayPush _ value => collectEventPlansFromExpr module env collector value
     | .storageDynamicArrayPop _ => pure collector
+    | .memoryArraySet array index value => do
+        let collector ← collectEventPlansFromExpr module env collector array
+        let collector ← collectEventPlansFromExpr module env collector index
+        collectEventPlansFromExpr module env collector value
     | .storageStructFieldRead _ _ => pure collector
     | .storageStructFieldWrite _ _ value => collectEventPlansFromExpr module env collector value
     | .storagePathRead _ path =>
@@ -968,6 +990,14 @@ mutual
         let arraySpecs ← crosscallHelperSpecsFromExpr module env array
         let indexSpecs ← crosscallHelperSpecsFromExpr module env index
         .ok (mergeCrosscallHelperSpecs arraySpecs indexSpecs)
+    | .memoryArrayNew _ length =>
+        crosscallHelperSpecsFromExpr module env length
+    | .memoryArrayLength array =>
+        crosscallHelperSpecsFromExpr module env array
+    | .memoryArrayGet array index => do
+        let arraySpecs ← crosscallHelperSpecsFromExpr module env array
+        let indexSpecs ← crosscallHelperSpecsFromExpr module env index
+        .ok (mergeCrosscallHelperSpecs arraySpecs indexSpecs)
     | .structLit _ fields =>
         fields.foldlM (init := #[]) fun acc field => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env field.snd))
@@ -1076,6 +1106,11 @@ mutual
         crosscallHelperSpecsFromExpr module env value
     | .storageDynamicArrayPop _ =>
         .ok #[]
+    | .memoryArraySet array index value => do
+        let arraySpecs ← crosscallHelperSpecsFromExpr module env array
+        let indexSpecs ← crosscallHelperSpecsFromExpr module env index
+        let valueSpecs ← crosscallHelperSpecsFromExpr module env value
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs arraySpecs indexSpecs) valueSpecs)
     | .storagePathRead _ path =>
         path.foldlM (init := #[]) fun acc segment => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromStoragePathSegment module env segment))
@@ -1173,6 +1208,12 @@ mutual
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr value)
     | .arrayGet array index =>
         mergeCreateHelperSpecs (createHelperSpecsFromExpr array) (createHelperSpecsFromExpr index)
+    | .memoryArrayNew _ length =>
+        createHelperSpecsFromExpr length
+    | .memoryArrayLength array =>
+        createHelperSpecsFromExpr array
+    | .memoryArrayGet array index =>
+        mergeCreateHelperSpecs (createHelperSpecsFromExpr array) (createHelperSpecsFromExpr index)
     | .structLit _ fields =>
         fields.foldl (init := #[]) fun acc field =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr field.snd)
@@ -1230,6 +1271,10 @@ mutual
         createHelperSpecsFromExpr value
     | .storageDynamicArrayPop _ =>
         #[]
+    | .memoryArraySet array index value =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsFromExpr array) (createHelperSpecsFromExpr index))
+          (createHelperSpecsFromExpr value)
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromStoragePathSegment segment)
@@ -1341,6 +1386,12 @@ mutual
     | .arrayGet array index =>
         let nested := mergeNatSets (localArrayGetLengthsExpr env array) (localArrayGetLengthsExpr env index)
         mergeNatSets nested (localArrayGetLengthsForDynamicExprTarget env array index)
+    | .memoryArrayNew _ length =>
+        localArrayGetLengthsExpr env length
+    | .memoryArrayLength array =>
+        localArrayGetLengthsExpr env array
+    | .memoryArrayGet array index =>
+        mergeNatSets (localArrayGetLengthsExpr env array) (localArrayGetLengthsExpr env index)
     | .structLit _ fields =>
         fields.foldl (init := #[]) fun acc field =>
           mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
@@ -1397,6 +1448,10 @@ mutual
         localArrayGetLengthsExpr env value
     | .storageDynamicArrayPop _ =>
         #[]
+    | .memoryArraySet array index value =>
+        mergeNatSets
+          (mergeNatSets (localArrayGetLengthsExpr env array) (localArrayGetLengthsExpr env index))
+          (localArrayGetLengthsExpr env value)
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeNatSets acc (localArrayGetLengthsStoragePathSegment env segment)
@@ -1484,6 +1539,12 @@ mutual
         let nested :=
           mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index)
         mergeNatArraySets nested (nestedLocalArrayGetShapesForDynamicExprTarget env array index)
+    | .memoryArrayNew _ length =>
+        nestedLocalArrayGetShapesExpr env length
+    | .memoryArrayLength array =>
+        nestedLocalArrayGetShapesExpr env array
+    | .memoryArrayGet array index =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index)
     | .structLit _ fields =>
         fields.foldl (init := #[]) fun acc field =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
@@ -1542,6 +1603,10 @@ mutual
         nestedLocalArrayGetShapesExpr env value
     | .storageDynamicArrayPop _ =>
         #[]
+    | .memoryArraySet array index value =>
+        mergeNatArraySets
+          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env array) (nestedLocalArrayGetShapesExpr env index))
+          (nestedLocalArrayGetShapesExpr env value)
     | .storagePathRead _ path =>
         path.foldl (init := #[]) fun acc segment =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesStoragePathSegment env segment)

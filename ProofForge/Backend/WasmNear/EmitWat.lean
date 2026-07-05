@@ -849,6 +849,9 @@ mutual
     | .local _ => true
     | .arrayLit _ values => values.all canDuplicateExpr
     | .arrayGet array index => canDuplicateExpr array && canDuplicateExpr index
+    | .memoryArrayNew _ length => canDuplicateExpr length
+    | .memoryArrayLength array => canDuplicateExpr array
+    | .memoryArrayGet array index => canDuplicateExpr array && canDuplicateExpr index
     | .structLit _ fields => fields.all (fun field => canDuplicateExpr field.snd)
     | .field base _ => canDuplicateExpr base
     | .add lhs rhs
@@ -989,6 +992,12 @@ mutual
           .ok (pa ++ pi ++ conv ++ #[.i32Const (scalarWidth elemType), .plain "i32.mul",
                 .plain "i32.add", .load (loadOpFor elemType) 0], elemType)
       | _ => err s!"EmitWat: arrayGet expected an array value, got `{ta.name}`"
+    | .memoryArrayNew _ _ =>
+      err "EmitWat: memory arrays are not supported by wasm-near IR v0"
+    | .memoryArrayLength _ =>
+      err "EmitWat: memory arrays are not supported by wasm-near IR v0"
+    | .memoryArrayGet _ _ =>
+      err "EmitWat: memory arrays are not supported by wasm-near IR v0"
     | .structLit typeName fields => do
       match findStruct? ctx.structs typeName with
       | none => err s!"EmitWat: unknown struct `{typeName}`"
@@ -1436,6 +1445,9 @@ mutual
     | .arrayLit elementType values =>
         #[(elementType, values.size)] ++ values.foldl (fun acc v => acc ++ collectArrayLitsExpr v) #[]
     | .arrayGet array index => collectArrayLitsExpr array ++ collectArrayLitsExpr index
+    | .memoryArrayNew _ length => collectArrayLitsExpr length
+    | .memoryArrayLength array => collectArrayLitsExpr array
+    | .memoryArrayGet array index => collectArrayLitsExpr array ++ collectArrayLitsExpr index
     | .structLit _ fields => fields.foldl (fun acc f => acc ++ collectArrayLitsExpr f.snd) #[]
     | .field base _ => collectArrayLitsExpr base
     | .add a b | .sub a b | .mul a b | .div a b | .mod a b | .pow a b
@@ -1471,6 +1483,7 @@ mutual
     | .storageArrayStructFieldWrite _ i _ v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
     | .storageDynamicArrayPush _ v => collectArrayLitsExpr v
     | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet _ i v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectArrayLitsExpr v
     | .storagePathRead _ path => collectArrayLitsPath path
@@ -1487,6 +1500,9 @@ mutual
     | .literal _ | .local _ | .nativeValue => #[]
     | .arrayLit _ values => values.foldl (fun acc v => acc ++ collectStructLitsExpr v) #[]
     | .arrayGet a i => collectStructLitsExpr a ++ collectStructLitsExpr i
+    | .memoryArrayNew _ length => collectStructLitsExpr length
+    | .memoryArrayLength array => collectStructLitsExpr array
+    | .memoryArrayGet array index => collectStructLitsExpr array ++ collectStructLitsExpr index
     | .structLit typeName fields => #[typeName] ++ fields.foldl (fun acc f => acc ++ collectStructLitsExpr f.snd) #[]
     | .field base _ => collectStructLitsExpr base
     | .add a b | .sub a b | .mul a b | .div a b | .mod a b | .pow a b
@@ -1525,6 +1541,7 @@ mutual
     | .storageArrayStructFieldWrite _ i _ v => collectStructLitsExpr i ++ collectStructLitsExpr v
     | .storageDynamicArrayPush _ v => collectStructLitsExpr v
     | .storageDynamicArrayPop _ => #[]
+    | .memoryArraySet _ i v => collectStructLitsExpr i ++ collectStructLitsExpr v
     | .storageStructFieldRead _ _ => #[]
     | .storageStructFieldWrite _ _ v => collectStructLitsExpr v
     | .storagePathRead _ path => collectStructLitsPath path

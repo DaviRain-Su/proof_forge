@@ -53,6 +53,7 @@ import ProofForge.IR.Examples.EventProbe
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmDynamicAbiProbe
 import ProofForge.IR.Examples.EvmDynamicArrayProbe
+import ProofForge.IR.Examples.EvmMemoryArrayProbe
 import ProofForge.IR.Examples.EvmPackedStorageProbe
 import ProofForge.IR.Examples.EvmErrorsProbe
 import ProofForge.IR.Examples.EvmFallbackProbe
@@ -182,6 +183,8 @@ inductive EmitMode where
   | evmDynamicAbiIrBytecode
   | evmDynamicArrayIrYul
   | evmDynamicArrayIrBytecode
+  | evmMemoryArrayIrYul
+  | evmMemoryArrayIrBytecode
   | evmPackedStorageIrYul
   | evmPackedStorageIrBytecode
   | evmErrorsIrYul
@@ -286,6 +289,7 @@ def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
   | .evmAbiAggregateIrBytecode => true
   | .evmDynamicAbiIrBytecode => true
   | .evmDynamicArrayIrBytecode => true
+  | .evmMemoryArrayIrBytecode => true
   | .evmPackedStorageIrBytecode => true
   | .evmErrorsIrBytecode => true
   | .evmFallbackIrBytecode => true
@@ -344,6 +348,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .evmDynamicAbiIrBytecode
   | .evmDynamicArrayIrYul
   | .evmDynamicArrayIrBytecode
+  | .evmMemoryArrayIrYul
+  | .evmMemoryArrayIrBytecode
   | .evmPackedStorageIrYul
   | .evmPackedStorageIrBytecode
   | .evmErrorsIrYul
@@ -541,6 +547,8 @@ def usage : String :=
     "  proof-forge --emit-evm-dynamic-abi-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-dynamic-array-ir-yul [-o output.yul]",
     "  proof-forge --emit-evm-dynamic-array-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
+    "  proof-forge --emit-evm-memory-array-ir-yul [-o output.yul]",
+    "  proof-forge --emit-evm-memory-array-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-packed-storage-ir-yul [-o output.yul]",
     "  proof-forge --emit-evm-packed-storage-ir-bytecode [--solc solc] [--yul-output output.yul] [--artifact-output file] [-o output.bin]",
     "  proof-forge --emit-evm-errors-ir-yul [-o output.yul]",
@@ -2533,6 +2541,10 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .evmDynamicArrayIrYul }
   | "--emit-evm-dynamic-array-ir-bytecode" :: rest, opts =>
       parseArgs rest { opts with mode := .evmDynamicArrayIrBytecode }
+  | "--emit-evm-memory-array-ir-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmMemoryArrayIrYul }
+  | "--emit-evm-memory-array-ir-bytecode" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmMemoryArrayIrBytecode }
   | "--emit-evm-packed-storage-ir-yul" :: rest, opts =>
       parseArgs rest { opts with mode := .evmPackedStorageIrYul }
   | "--emit-evm-packed-storage-ir-bytecode" :: rest, opts =>
@@ -4159,6 +4171,32 @@ def compileEvmDynamicArrayIrBytecode (opts : CliOptions) : IO UInt32 := do
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
+def compileEvmMemoryArrayIrYul (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmMemoryArrayProbe.yul")
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
+  | .ok yul =>
+      writeTextFile output yul
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
+def renderEvmMemoryArrayIrYul : IO String := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
+  | .ok yul => return yul
+  | .error err => throw <| IO.userError err.render
+
+def compileEvmMemoryArrayIrBytecode (opts : CliOptions) : IO UInt32 := do
+  let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmMemoryArrayProbe.yul")
+  let yul ← renderEvmMemoryArrayIrYul
+  writeTextFile yulOutput yul
+  let bytecode ← solcBytecode opts.solc yulOutput
+  let output := opts.output?.getD (FilePath.mk "build/ir/EvmMemoryArrayProbe.bin")
+  writeTextFile output (bytecode ++ "\n")
+  writeEvmIrArtifactMetadata opts "EvmMemoryArrayProbe" "ProofForge.IR.Examples.EvmMemoryArrayProbe" ProofForge.IR.Examples.EvmMemoryArrayProbe.module yulOutput output
+  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  return 0
+
 def compileEvmPackedStorageIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmPackedStorageProbe.yul")
   match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmPackedStorageProbe.module with
@@ -5639,6 +5677,8 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .evmDynamicAbiIrBytecode => compileEvmDynamicAbiIrBytecode opts
   | .evmDynamicArrayIrYul => compileEvmDynamicArrayIrYul opts
   | .evmDynamicArrayIrBytecode => compileEvmDynamicArrayIrBytecode opts
+  | .evmMemoryArrayIrYul => compileEvmMemoryArrayIrYul opts
+  | .evmMemoryArrayIrBytecode => compileEvmMemoryArrayIrBytecode opts
   | .evmPackedStorageIrYul => compileEvmPackedStorageIrYul opts
   | .evmPackedStorageIrBytecode => compileEvmPackedStorageIrBytecode opts
   | .evmErrorsIrYul => compileEvmErrorsIrYul opts
