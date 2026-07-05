@@ -1002,10 +1002,21 @@ mutual
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
     | .crosscallInvokeTyped _ _ _ _ | .crosscallInvoke _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ =>
-      -- Cross-contract call via NEAR Promise API. This minimal lowering logs
-      -- the intent and returns 0 (promise index placeholder). Full async
-      -- promise execution requires account-id string passing (future work).
-      .ok (#[.i32Const 4, .i32Const EVT_KEY_PTR, .call "log_utf8", .i64Const 0], .u64)
+      -- Cross-contract call via NEAR Promise API.
+      -- Call promise_create with current_account_id as placeholder target.
+      -- Returns promise index. Full cross-contract call with real account-id
+      -- string passing is future work (P1).
+      .ok (#[
+        .i32Const 4, .i32Const EVT_KEY_PTR, .call "log_utf8",
+        .i64Const 0, .call "current_account_id",
+        .i64Const 0, .call "register_len",
+        .i64Const 0, .i32Const CTX_BUF, .call "read_register",
+        .i64Const 0, .call "register_len",
+        .i32Const CTX_BUF,
+        .i32Const CTX_BUF, .i64Const 0,
+        .i64Const 0, .i64Const 0, .i64Const 10000000000000,
+        .call "promise_create"
+      ], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
