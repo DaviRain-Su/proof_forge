@@ -51,6 +51,7 @@ def main() -> int:
     parser.add_argument("--dargo", required=True)
     parser.add_argument("--execute-result", required=True)
     parser.add_argument("--capability", action="append", default=[])
+    parser.add_argument("--plan-metadata")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -90,6 +91,15 @@ def main() -> int:
         "artifacts": artifacts,
         "validation": validation,
     }
+
+    if args.plan_metadata:
+        plan_meta = json.loads(Path(args.plan_metadata).read_text())
+        metadata["moduleName"] = plan_meta.get("moduleName")
+        metadata["abi"] = {"entrypoints": plan_meta.get("entrypoints", [])}
+        metadata["events"] = plan_meta.get("events", [])
+        metadata["contextOps"] = plan_meta.get("contextOps", [])
+        metadata["crosscalls"] = plan_meta.get("crosscalls", [])
+        metadata["planCapabilities"] = plan_meta.get("capabilities", [])
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
