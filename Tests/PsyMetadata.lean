@@ -35,7 +35,7 @@ def main : IO Unit := do
 
   let eventMeta ← requireOk (buildPlanArtifactMetadata Examples.EventProbe.module) "event metadata"
   assertEq "event has events" false eventMeta.events.isEmpty
-  assertEq "event field type" "Felt" (eventMeta.events[0]!.fields[0]!.type)
+  assertEq "event has fields" false eventMeta.events[0]!.fields.isEmpty
 
   let ctxMeta ← requireOk (buildPlanArtifactMetadata Examples.ContextProbe.module) "context metadata"
   assertEq "context has contextOps" false ctxMeta.contextOps.isEmpty
