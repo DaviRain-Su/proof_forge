@@ -202,22 +202,56 @@ partial def stmtEvents (s : IR.Statement) : Array EventPlan :=
   | .boundedFor _ _ _ body => body.flatMap stmtEvents
   | _ => #[]
 
-/-- Collect crosscall target contract ids from an expression. -/
-partial def exprCrosscallTargets (e : IR.Expr) : Array String :=
-  match e with
-  | .crosscallInvoke target _ _ =>
-      match target with
-      | .local n => #[n]
-      | _ => #[]
-  | .effect (.storageArrayRead _ idx) | .effect (.storageArrayWrite _ idx _) => exprCrosscallTargets idx
-  | _ => #[]
+mutual
+  /-- Collect crosscall target contract ids from an effect. -/
+  partial def effectCrosscallTargets (eff : IR.Effect) : Array String :=
+    match eff with
+    | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
+    | .storageArrayWrite _ _ v | .storageStructFieldWrite _ _ v
+    | .storageArrayStructFieldWrite _ _ _ v
+    | .storagePathWrite _ _ v | .storagePathAssignOp _ _ _ v
+    | .storageMapInsert _ _ v | .storageMapSet _ _ v =>
+        exprCrosscallTargets v
+    | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k =>
+        exprCrosscallTargets k
+    | .storagePathRead _ path =>
+        path.foldl (fun acc seg => match seg with | .index e => acc ++ exprCrosscallTargets e | _ => acc) #[]
+    | .storageArrayStructFieldRead _ k _ => exprCrosscallTargets k
+    | .storageStructFieldRead _ _ => #[]
+    | .eventEmit _ fields | .eventEmitIndexed _ _ fields =>
+        fields.foldl (fun acc (_, v) => acc ++ exprCrosscallTargets v) #[]
+    | _ => #[]
+
+  /-- Collect crosscall target contract ids from an expression. -/
+  partial def exprCrosscallTargets (e : IR.Expr) : Array String :=
+    match e with
+    | .crosscallInvoke target _ args =>
+        let targetIds := match target with | .local n => #[n] | _ => #[]
+        args.foldl (fun acc v => acc ++ exprCrosscallTargets v) targetIds
+    | .effect eff => effectCrosscallTargets eff
+    | .arrayLit _ values => values.foldl (fun acc v => acc ++ exprCrosscallTargets v) #[]
+    | .arrayGet array index => exprCrosscallTargets array ++ exprCrosscallTargets index
+    | .structLit _ fields => fields.foldl (fun acc (_, v) => acc ++ exprCrosscallTargets v) #[]
+    | .field base _ => exprCrosscallTargets base
+    | .add l r | .sub l r | .mul l r | .div l r | .mod l r | .pow l r
+    | .bitAnd l r | .bitOr l r | .bitXor l r | .shiftLeft l r | .shiftRight l r
+    | .eq l r | .ne l r | .lt l r | .le l r | .gt l r | .ge l r
+    | .boolAnd l r | .boolOr l r => exprCrosscallTargets l ++ exprCrosscallTargets r
+    | .boolNot v | .hash v => exprCrosscallTargets v
+    | .hashTwoToOne l r => exprCrosscallTargets l ++ exprCrosscallTargets r
+    | .cast v _ => exprCrosscallTargets v
+    | .hashValue a b c d =>
+        exprCrosscallTargets a ++ exprCrosscallTargets b ++ exprCrosscallTargets c ++ exprCrosscallTargets d
+    | _ => #[]
+end
 
 /-- Collect context ops from a statement. -/
 partial def stmtContextOps (s : IR.Statement) : Array ContextOp :=
   match s with
   | .letBind _ _ v | .letMutBind _ _ v | .assign _ v | .assignOp _ _ v => exprContextOps v
   | .effect eff => effectContextOps eff
-  | .assert c _ _ | .assertEq _ c _ _ => exprContextOps c
+  | .assert c _ _ => exprContextOps c
+  | .assertEq lhs rhs _ _ => exprContextOps lhs ++ exprContextOps rhs
   | .ifElse c thenBody elseBody => exprContextOps c ++ thenBody.flatMap stmtContextOps ++ elseBody.flatMap stmtContextOps
   | .boundedFor _ _ _ body => body.flatMap stmtContextOps
   | .return v => exprContextOps v
@@ -227,12 +261,9 @@ partial def stmtContextOps (s : IR.Statement) : Array ContextOp :=
 partial def stmtCrosscallTargets (s : IR.Statement) : Array String :=
   match s with
   | .letBind _ _ v | .letMutBind _ _ v | .assign _ v | .assignOp _ _ v => exprCrosscallTargets v
-  | .effect eff => match eff with
-    | .storageScalarWrite _ v | .storageArrayWrite _ _ v | .storageStructFieldWrite _ _ v
-    | .storageArrayStructFieldWrite _ _ _ v | .storagePathWrite _ _ v
-    | .storageMapInsert _ _ v | .storageMapSet _ _ v => exprCrosscallTargets v
-    | _ => #[]
-  | .assert c _ _ | .assertEq c _ _ _ => exprCrosscallTargets c
+  | .effect eff => effectCrosscallTargets eff
+  | .assert c _ _ => exprCrosscallTargets c
+  | .assertEq lhs rhs _ _ => exprCrosscallTargets lhs ++ exprCrosscallTargets rhs
   | .ifElse c thenBody elseBody => exprCrosscallTargets c ++ thenBody.flatMap stmtCrosscallTargets ++ elseBody.flatMap stmtCrosscallTargets
   | .boundedFor _ _ _ body => body.flatMap stmtCrosscallTargets
   | .return v => exprCrosscallTargets v
