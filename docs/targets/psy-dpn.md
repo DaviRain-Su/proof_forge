@@ -41,11 +41,19 @@ source-generation target**:
 Lean portable contract
   -> Lean checks and proofs
   -> Psy-compatible portable IR subset
-  -> generated .psy package
+  -> Psy AST (ProofForge.Compiler.Psy.AST)
+  -> generated .psy package (ProofForge.Compiler.Psy.Printer)
   -> dargo compile
   -> DPNFunctionCircuitDefinition JSON + ABI
   -> Psy deploy/test tooling
 ```
+
+The lowering is now two-stage, mirroring the EVM (`Compiler/Yul/AST.lean` +
+`Printer.lean`) and Wasm (`Compiler/Wasm/AST.lean` + `Printer.lean`) backends:
+the portable IR is first lowered to a target-side `Psy.Module` AST, then the
+printer renders that AST to `.psy` source text. The AST is a surface AST that
+captures exactly the `.psy` forms the printer emits; it does not model the
+upstream `psy-ast::Program` interner/arena/checker layers.
 
 Do not start by directly emitting Psy DPN internals. The public repo does not
 expose a stable Yul-like textual intermediate language.
@@ -170,15 +178,32 @@ for ProofForge's purposes.
 
 | Layer | Public? | Stable integration boundary? | Notes |
 |---|---:|---:|---|
-| `.psy` source | Yes | Yes | Best first target for source generation |
-| `psy-ast` / checked AST | Yes | Maybe | Useful for understanding syntax and ABI, but tied to Psy compiler internals |
+| `.psy` source | Yes | Yes | Source text boundary; rendered by `ProofForge.Compiler.Psy.Printer` |
+| `psy-ast` / checked AST | Yes | Yes (surface mirror) | ProofForge maintains a target-side surface AST (`ProofForge.Compiler.Psy.AST`) mirroring the `.psy` source forms, **not** the upstream `psy-ast::Program` interner/arena/checker layers |
 | `QExecContext` / DPN ops | Partly | No | Symbolic execution/circuit lowering layer; core types come from `psy-node` |
 | `DPNFunctionCircuitDefinition` JSON | Yes | Artifact, not IR | Good output artifact, too target-specific and opaque for ProofForge IR |
 | ABI / contract code JSON | Yes | Output metadata | Useful for deployment and cloud metadata |
 
-Conclusion: **there is no Yul-equivalent public IR to target today**.
-ProofForge should use its own portable contract IR as the stable middle layer,
-then generate `.psy` source.
+The upstream `psy-ast` crate (`psy-compiler/psy-ast/src`) defines a full
+compiler AST with interners, arenas, def-ids, locations, and a checked
+`Program<F>` tree. ProofForge does not target that internal representation
+directly — it is tied to Psy compiler internals and carries type-checking
+state that belongs upstream. Instead, ProofForge defines its own
+`ProofForge.Compiler.Psy.AST` module-side AST that captures exactly the
+`.psy` surface forms the printer emits (modules, structs, state, methods,
+statements, expressions, effects, storage targets, operators, literals, and
+context fields). This mirrors the in-repo pattern used by the EVM backend
+(`Compiler/Yul/AST.lean` + `Printer.lean`) and the Wasm-family backends
+(`Compiler/Wasm/AST.lean` + `Printer.lean`): a small target AST plus a pure
+structural printer.
+
+Conclusion: **ProofForge uses its own portable contract IR as the stable
+middle layer, lowers it to a target-side `Psy.Module` AST, and renders that
+AST to `.psy` source**. The two-stage lowering (IR → AST → source) decouples
+validation and shape resolution (done on the IR side) from source formatting
+(done by the printer), and leaves a clear extension point for future Psy
+AST-level passes (canonicalization, formatting control, or upstream-AST
+emission if the compiler internals stabilize).
 
 ## Proposed Target Profile
 
@@ -374,8 +399,9 @@ impl CounterRef {
 }
 ```
 
-This is intentionally source-like and reviewable. The current implementation is
-`ProofForge.Backend.Psy.IR.renderModule`, exposed through:
+This is intentionally source-like and reviewable. The current implementation
+lowers the portable IR to a `ProofForge.Compiler.Psy.Module` AST and renders
+it through `ProofForge.Compiler.Psy.Printer.module`, exposed through:
 
 ```sh
 lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
@@ -1275,6 +1301,40 @@ Deployment smoke:
   modules, plus `GenericEntrypointProbe` and
   `scripts/psy/generic-entrypoint-smoke.sh` to prove the fallback with Dargo.
 - Remaining: move to upstream genesis deploy JSON/live node research.
+
+### Phase B2: Two-Stage Lowering via Psy AST
+
+The initial spike lowered portable IR directly to `.psy` source strings inside
+`Backend.Psy.IR.renderModule`. This worked but mixed IR validation, shape
+resolution, and source formatting in one pass, and left no extension point for
+target-side AST-level passes. Phase B2 introduces the two-stage lowering that
+the EVM and Wasm-family backends already use.
+
+- Done: add `ProofForge.Compiler.Psy.AST` — a target-side surface AST
+  (`Module`, `StructDecl`, `StateDecl`, `Method`, `Stmt`, `Expr`, `Effect`,
+  `StorageTarget`, `StoragePathSegment`, `BinaryOp`, `UnaryOp`, `AssignOp`,
+  `Literal`, `TypeName`, `ContextField`, `Visibility`) mirroring the `.psy`
+  source forms at the granularity the printer needs. It does not model the
+  upstream `psy-ast::Program` interner/arena/checker layers.
+- Done: add `ProofForge.Compiler.Psy.Printer` — a pure structural renderer
+  (`module : Psy.Module → String`) that emits valid `.psy` source text with no
+  IR resolution or validation logic.
+- Done: refactor `Backend.Psy.IR.renderModule` to lower portable IR →
+  `Psy.Module` AST (`buildModule`) and render via `Printer.module`. All
+  validation (capabilities, identifiers, structs, entrypoints, state, bodies)
+  and shape resolution (storage targets, felt-backed U32 rewrites, map-key
+  special cases, path-type-aware casts) stay on the IR-lowering side; the
+  printer is self-describing.
+- Done: register `ProofForge.Compiler.Psy.AST` and
+  `ProofForge.Compiler.Psy.Printer` as `lean_lib` roots in `lakefile.lean`,
+  matching the `Compiler.Yul.*` and `Compiler.Wasm.*` registration pattern.
+- Done: verify all Psy golden sources are byte-identical after the refactor
+  (`just psy-golden-sources`), all 55 diagnostic cases pass
+  (`just psy-diagnostics`), and the IR coverage manifest is unchanged
+  (`just psy-coverage`).
+- Remaining: consider upstream `psy-ast` emission if the compiler internals
+  stabilize, and use the AST boundary for formatting control or
+  canonicalization passes.
 
 ### Phase C: Metadata and Scenario Parity
 

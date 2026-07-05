@@ -3,6 +3,8 @@ import Init.Data.String.Basic
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
+import ProofForge.Compiler.Psy.AST
+import ProofForge.Compiler.Psy.Printer
 
 namespace ProofForge.Backend.Psy.IR
 
@@ -1002,80 +1004,98 @@ mutual
       validateStatement module entrypoint acc stmt
 end
 
+open Lean.Compiler.Psy hiding Module AssignOp Expr Stmt Effect ContextField Literal TypeName StorageTarget StoragePathSegment Method StructDecl StructField StateDecl Test
+
+/-- Map a portable IR `AssignOp` to the Psy AST `AssignOp`. -/
+def mapAssignOp : AssignOp → Lean.Compiler.Psy.AssignOp
+  | .add => .add
+  | .sub => .sub
+  | .mul => .mul
+  | .div => .div
+  | .mod => .mod
+  | .bitAnd => .bitAnd
+  | .bitOr => .bitOr
+  | .bitXor => .bitXor
+  | .shiftLeft => .shiftLeft
+  | .shiftRight => .shiftRight
+
+/-- Map a portable IR `ContextField` to the Psy AST `ContextField`, rejecting
+unsupported context fields. -/
+def mapContextField : IR.ContextField → Except LowerError Lean.Compiler.Psy.ContextField
+  | .userId => .ok .userId
+  | .contractId => .ok .contractId
+  | .checkpointId => .ok .checkpointId
+  | field => .error { message := s!"Psy IR v0 context read `{field.name}` is not supported; only userId, contractId, and checkpointId are available" }
+
+/-- Map a portable IR `Literal` to the Psy AST `Literal`. -/
+def buildLiteral : IR.Literal → Lean.Compiler.Psy.Literal
+  | .u32 value => .u32 value
+  | .u64 value => .felt value
+  | .bool value => .bool value
+  | .hash4 a b c d => .hash4 a b c d
+  | .u8 value => .u8 value
+  | .u128 value => .u128 value
+  | .address value => .address (toString value)
+
+/-- Build a `Lean.Compiler.Psy.TypeName` from a portable `ValueType` via `valueTypeName`. -/
+def typeName (type : ValueType) : Except LowerError Lean.Compiler.Psy.TypeName :=
+  match valueTypeName type with
+  | .ok text => .ok { text }
+  | .error err => .error err
+
 mutual
-  partial def lowerExpr (module : Module) : Expr → Except LowerError String
-    | .literal value => .ok (literal value)
-    | .local name => .ok name
+  /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Expr`. Storage/state validation is
+  performed by the type-checking pass before this runs; the builder only folds
+  the validated shape into the AST. -/
+  partial def buildExpr (module : Module) : IR.Expr → Except LowerError Lean.Compiler.Psy.Expr
+    | .literal value => .ok <| .literal (buildLiteral value)
+    | .local name => .ok <| .local name
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Psy IR v0 for `{← valueTypeName elementType}`" }
-        let items ← values.mapM (lowerExpr module)
-        .ok s!"[{String.intercalate ", " items.toList}]"
+        let elementTypeName ← typeName elementType
+        let items ← values.mapM (buildExpr module)
+        .ok <| .arrayLit elementTypeName items
     | .arrayGet array index => do
-        .ok s!"{← lowerExpr module array}[{← lowerExpr module index}]"
-    | .structLit typeName fields => do
+        .ok <| .arrayGet (← buildExpr module array) (← buildExpr module index)
+    | .structLit structName fields => do
         if fields.isEmpty then
-          .error { message := s!"struct literal `{typeName}` must have at least one field" }
-        let items ← fields.mapM fun field => do
-          .ok s!"{field.fst}: {← lowerExpr module field.snd}"
-        .ok (s!"new {typeName} " ++ "{" ++ s!" {String.intercalate ", " items.toList} " ++ "}")
+          .error { message := s!"struct literal `{structName}` must have at least one field" }
+        let items ← fields.mapM fun (n, v) => do
+          .ok (n, ← buildExpr module v)
+        .ok <| .structLit structName items
     | .field base fieldName => do
-        .ok s!"{← lowerExpr module base}.{fieldName}"
-    | .add lhs rhs => do
-        .ok s!"{← lowerExpr module lhs} + {← lowerExpr module rhs}"
-    | .sub lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} - {← lowerExprOperand module rhs}"
-    | .mul lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} * {← lowerExprOperand module rhs}"
-    | .div lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} / {← lowerExprOperand module rhs}"
-    | .mod lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} % {← lowerExprOperand module rhs}"
-    | .pow lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} ** {← lowerExprOperand module rhs}"
-    | .bitAnd lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} & {← lowerExprOperand module rhs}"
-    | .bitOr lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} | {← lowerExprOperand module rhs}"
-    | .bitXor lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} ^ {← lowerExprOperand module rhs}"
-    | .shiftLeft lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} << {← lowerExprOperand module rhs}"
-    | .shiftRight lhs rhs => do
-        .ok s!"{← lowerExprOperand module lhs} >> {← lowerExprOperand module rhs}"
+        .ok <| .field (← buildExpr module base) fieldName
+    | .add lhs rhs => do .ok <| .binary (← buildExpr module lhs) .add (← buildExpr module rhs)
+    | .sub lhs rhs => do .ok <| .binary (← buildExpr module lhs) .sub (← buildExpr module rhs)
+    | .mul lhs rhs => do .ok <| .binary (← buildExpr module lhs) .mul (← buildExpr module rhs)
+    | .div lhs rhs => do .ok <| .binary (← buildExpr module lhs) .div (← buildExpr module rhs)
+    | .mod lhs rhs => do .ok <| .binary (← buildExpr module lhs) .mod (← buildExpr module rhs)
+    | .pow lhs rhs => do .ok <| .binary (← buildExpr module lhs) .pow (← buildExpr module rhs)
+    | .bitAnd lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitAnd (← buildExpr module rhs)
+    | .bitOr lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitOr (← buildExpr module rhs)
+    | .bitXor lhs rhs => do .ok <| .binary (← buildExpr module lhs) .bitXor (← buildExpr module rhs)
+    | .shiftLeft lhs rhs => do .ok <| .binary (← buildExpr module lhs) .shiftLeft (← buildExpr module rhs)
+    | .shiftRight lhs rhs => do .ok <| .binary (← buildExpr module lhs) .shiftRight (← buildExpr module rhs)
     | .cast value targetType => do
-        .ok s!"{← lowerExprOperand module value} as {← valueTypeName targetType}"
-    | .eq lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} == {← lowerExpr module rhs})"
-    | .ne lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} != {← lowerExpr module rhs})"
-    | .lt lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} < {← lowerExpr module rhs})"
-    | .le lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} <= {← lowerExpr module rhs})"
-    | .gt lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} > {← lowerExpr module rhs})"
-    | .ge lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} >= {← lowerExpr module rhs})"
-    | .boolAnd lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} && {← lowerExpr module rhs})"
-    | .boolOr lhs rhs => do
-        .ok s!"({← lowerExpr module lhs} || {← lowerExpr module rhs})"
-    | .boolNot value => do
-        .ok s!"!({← lowerExpr module value})"
-    | .hashValue a b c d => do
-        .ok s!"[{← lowerExpr module a}, {← lowerExpr module b}, {← lowerExpr module c}, {← lowerExpr module d}]"
-    | .hash preimage => do
-        .ok s!"hash({← lowerExpr module preimage})"
-    | .hashTwoToOne lhs rhs => do
-        .ok s!"hash_two_to_one({← lowerExpr module lhs}, {← lowerExpr module rhs})"
+        let targetTypeName ← typeName targetType
+        .ok <| .cast (← buildExpr module value) targetTypeName
+    | .eq lhs rhs => do .ok <| .binary (← buildExpr module lhs) .eq (← buildExpr module rhs)
+    | .ne lhs rhs => do .ok <| .binary (← buildExpr module lhs) .ne (← buildExpr module rhs)
+    | .lt lhs rhs => do .ok <| .binary (← buildExpr module lhs) .lt (← buildExpr module rhs)
+    | .le lhs rhs => do .ok <| .binary (← buildExpr module lhs) .le (← buildExpr module rhs)
+    | .gt lhs rhs => do .ok <| .binary (← buildExpr module lhs) .gt (← buildExpr module rhs)
+    | .ge lhs rhs => do .ok <| .binary (← buildExpr module lhs) .ge (← buildExpr module rhs)
+    | .boolAnd lhs rhs => do .ok <| .binary (← buildExpr module lhs) .boolAnd (← buildExpr module rhs)
+    | .boolOr lhs rhs => do .ok <| .binary (← buildExpr module lhs) .boolOr (← buildExpr module rhs)
+    | .boolNot value => do .ok <| .unary .not (← buildExpr module value)
+    | .hashValue a b c d => do .ok <| .hashValue (← buildExpr module a) (← buildExpr module b) (← buildExpr module c) (← buildExpr module d)
+    | .hash preimage => do .ok <| .hash (← buildExpr module preimage)
+    | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr module lhs) (← buildExpr module rhs)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
-        let targetStr ← lowerExpr module target
-        let methodIdStr ← lowerExpr module methodId
-        let argStrs ← args.mapM (lowerExpr module)
-        .ok s!"__invoke_sync#<Felt>({targetStr}, {methodIdStr}, [{String.intercalate ", " argStrs.toList}])"
+        .ok <| .crosscallInvoke (← buildExpr module target) (← buildExpr module methodId) (← args.mapM (buildExpr module))
     | .crosscallInvokeTyped _ _ _ returnType =>
         .error { message := s!"typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
     | .crosscallInvokeValueTyped _ _ _ _ returnType =>
@@ -1088,53 +1108,40 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
-    | .effect effect => lowerEffectExpr module effect
+    | .effect effect => buildEffectExpr module effect
 
-  partial def lowerExprOperand (module : Module) : Expr → Except LowerError String
-    | .literal value => .ok (literal value)
-    | .local name => .ok name
-    | .arrayGet array index => do
-        .ok s!"{← lowerExpr module array}[{← lowerExpr module index}]"
-    | .field base fieldName => do
-        .ok s!"{← lowerExpr module base}.{fieldName}"
-    | .effect effect => lowerEffectExpr module effect
-    | expr => do
-        .ok s!"({← lowerExpr module expr})"
-
-  partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String
+  /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/
+  partial def buildEffectExpr (module : Module) : IR.Effect → Except LowerError Lean.Compiler.Psy.Expr
     | .storageScalarRead stateId => do
         requireScalarState module stateId
-        .ok s!"c.{stateId}.get()"
+        .ok <| .storageScalarRead stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
     | .storageScalarAssignOp _ _ _ =>
         .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
     | .storageMapContains stateId key => do
         requireMapState module stateId
-        .ok s!"c.{stateId}.contains({← lowerExpr module key})"
+        .ok <| .storageMapContains stateId (← buildExpr module key)
     | .storageMapGet stateId key => do
         requireMapState module stateId
-        .ok s!"c.{stateId}.get({← lowerExpr module key})"
+        .ok <| .storageMapGet stateId (← buildExpr module key)
     | .storageMapInsert stateId key value => do
         requireMapState module stateId
-        .ok s!"c.{stateId}.insert({← lowerExpr module key}, {← lowerExpr module value})"
+        .ok <| .storageMapInsert stateId (← buildExpr module key) (← buildExpr module value)
     | .storageMapSet stateId key value => do
         requireMapState module stateId
-        .ok s!"c.{stateId}.set({← lowerExpr module key}, {← lowerExpr module value})"
+        .ok <| .storageMapSet stateId (← buildExpr module key) (← buildExpr module value)
     | .storageArrayRead stateId index => do
         requireArrayState module stateId
-        match findState? module stateId with
-        | some { type := .u32, .. } =>
-            .ok s!"c.{stateId}[{← lowerExpr module index}].get() as u32"
-        | some _ =>
-            .ok s!"c.{stateId}[{← lowerExpr module index}].get()"
-        | none =>
-            .error { message := s!"unknown array state `{stateId}`" }
+        let feltBacked := match findState? module stateId with
+          | some { type := .u32, .. } => true
+          | _ => false
+        .ok <| .storageArrayRead stateId (← buildExpr module index) feltBacked
     | .storageArrayWrite _ _ _ =>
         .error { message := "storage.array.write is a statement effect, not an expression" }
     | .storageArrayStructFieldRead stateId index fieldName => do
         requireStructArrayState module stateId fieldName
-        .ok s!"c.{stateId}[{← lowerExpr module index}].{fieldName}.get()"
+        .ok <| .storageArrayStructFieldRead stateId (← buildExpr module index) fieldName
     | .storageArrayStructFieldWrite _ _ _ _ =>
         .error { message := "storage.array.struct.field.write is a statement effect, not an expression" }
     | .storageDynamicArrayPush _ _ =>
@@ -1143,230 +1150,218 @@ mutual
         .error { message := "storage.dynamic.array.pop is a statement effect, not an expression" }
     | .storageStructFieldRead stateId fieldName => do
         requireStructScalarState module stateId fieldName
-        .ok s!"c.{stateId}.{fieldName}.get()"
+        .ok <| .storageStructFieldRead stateId fieldName
     | .storageStructFieldWrite _ _ _ =>
         .error { message := "storage.struct.field.write is a statement effect, not an expression" }
     | .storagePathRead stateId path => do
         discard <| resolveStoragePathType module stateId path
-        lowerStoragePathRead module stateId path
+        match findState? module stateId with
+        | some { kind := .map _ _, .. } =>
+            match path.toList with
+            | .mapKey key :: [] => .ok <| .storageMapGet stateId (← buildExpr module key)
+            | .mapKey _ :: _ => .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
+            | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
+        | some _ =>
+            let pathType ← resolveStoragePathType module stateId path
+            let feltBacked := pathType == .u32
+            .ok <| .storagePathRead stateId (← buildStoragePath module path) feltBacked
+        | none => .error { message := s!"unknown storage path state `{stateId}`" }
     | .storagePathWrite _ _ _ =>
         .error { message := "storage.path.write is a statement effect, not an expression" }
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
-    | .contextRead .userId => .ok "get_user_id()"
-    | .contextRead .contractId => .ok "get_contract_id()"
-    | .contextRead .checkpointId => .ok "get_checkpoint_id()"
-    | .contextRead field =>
-        .error { message := s!"Psy IR v0 context read `{field.name}` is not supported; only userId, contractId, and checkpointId are available" }
+    | .contextRead field => do
+        .ok <| .contextRead (← mapContextField field)
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
 
-  partial def lowerStoragePathSegment (module : Module) : StoragePathSegment → Except LowerError String
-    | .field fieldName => .ok s!".{fieldName}"
-    | .index index => do
-        .ok s!"[{← lowerExpr module index}]"
-    | .mapKey _ =>
-        .error { message := "storage path map key lowering is handled at the map state boundary" }
+  /-- Build `Lean.Compiler.Psy.StoragePathSegment` array from portable IR path segments. -/
+  partial def buildStoragePath (module : Module) : Array IR.StoragePathSegment → Except LowerError (Array Lean.Compiler.Psy.StoragePathSegment)
+    | #[] => .ok #[]
+    | arr => arr.mapM fun
+      | .field fieldName => .ok <| .field fieldName
+      | .index index => do .ok <| .index (← buildExpr module index)
+      | .mapKey _ => .error { message := "storage path map key lowering is handled at the map state boundary" }
 
-  partial def lowerStoragePath (module : Module) (stateId : String) (path : Array StoragePathSegment) : Except LowerError String := do
-    discard <| resolveStoragePathType module stateId path
-    let segments ← path.mapM (lowerStoragePathSegment module)
-    .ok s!"c.{stateId}{String.intercalate "" segments.toList}"
+  /-- Check whether an assignment target's root is a storage state (vs a local). -/
+  partial def isStorageTargetRoot (module : Module) : IR.Expr → Bool
+    | .local name => findState? module name |>.isSome
+    | .field base _ => isStorageTargetRoot module base
+    | .arrayGet base _ => isStorageTargetRoot module base
+    | _ => false
 
-  partial def lowerStoragePathRead (module : Module) (stateId : String) (path : Array StoragePathSegment) : Except LowerError String := do
-    let pathType ← resolveStoragePathType module stateId path
-    match findState? module stateId with
-    | some { kind := .map _ _, .. } =>
-        match path.toList with
-        | .mapKey key :: [] =>
-            .ok s!"c.{stateId}.get({← lowerExpr module key})"
-        | .mapKey _ :: _ =>
-            .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
-        | _ =>
-            .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
-    | some _ =>
-        match pathType with
-        | .u32 =>
-            .ok s!"{← lowerStoragePath module stateId path}.get() as u32"
-        | _ =>
-            .ok s!"{← lowerStoragePath module stateId path}.get()"
-    | none =>
-        .error { message := s!"unknown storage path state `{stateId}`" }
-
-  partial def lowerStoragePathWrite (module : Module) (stateId : String) (path : Array StoragePathSegment) (value : Expr) : Except LowerError (Array String) := do
-    let pathType ← resolveStoragePathType module stateId path
-    match findState? module stateId with
-    | some { kind := .map _ _, .. } =>
-        match path.toList with
-        | .mapKey key :: [] =>
-            .ok #[s!"c.{stateId}.set({← lowerExpr module key}, {← lowerExpr module value});"]
-        | .mapKey _ :: _ =>
-            .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
-        | _ =>
-            .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
-    | some _ =>
-        match pathType with
-        | .u32 =>
-            if isFeltBackedU32StorageArrayPath module stateId pathType then
-              .ok #[s!"{← lowerStoragePath module stateId path} = {← lowerExprOperand module value} as Felt;"]
-            else
-              .ok #[s!"{← lowerStoragePath module stateId path} = {← lowerExpr module value};"]
-        | _ =>
-            .ok #[s!"{← lowerStoragePath module stateId path} = {← lowerExpr module value};"]
-    | none =>
-        .error { message := s!"unknown storage path state `{stateId}`" }
-
-  partial def lowerStoragePathAssignOp (module : Module) (stateId : String) (path : Array StoragePathSegment) (op : AssignOp) (value : Expr) : Except LowerError (Array String) := do
-    let pathType ← resolveStoragePathType module stateId path
-    match findState? module stateId with
-    | some { kind := .map _ _, .. } =>
-        .error { message := s!"storage path state `{stateId}` map values do not support compound assignment" }
-    | some { kind := .array _, type := .u32, .. } =>
-        if pathType == .u32 then
-          let target ← lowerStoragePath module stateId path
-          .ok #[s!"{target} = ({target}.get() as u32 {assignOpBinarySymbol op} {← lowerExprOperand module value}) as Felt;"]
-        else
-          .ok #[s!"{← lowerStoragePath module stateId path} {assignOpSymbol op} {← lowerExpr module value};"]
-    | some _ =>
-        .ok #[s!"{← lowerStoragePath module stateId path} {assignOpSymbol op} {← lowerExpr module value};"]
-    | none =>
-        .error { message := s!"unknown storage path state `{stateId}`" }
+  /-- Resolve the root storage form of an assignment target expression. -/
+  partial def resolveStorageTargetRoot (module : Module) : IR.Expr → Except LowerError Lean.Compiler.Psy.StorageTarget
+    | .local stateId =>
+        match findState? module stateId with
+        | some _ => .ok <| .scalar stateId
+        | none => .error { message := s!"unknown storage target `{stateId}`" }
+    | .field base fieldName => do
+        match ← resolveStorageTargetRoot module base with
+        | .scalar stateId => .ok <| .structField stateId fieldName
+        | .arrayIndex stateId index _ => .ok <| .arrayStructField stateId index fieldName
+        | .path stateId segs feltBacked => .ok <| .path stateId (segs.push (.field fieldName)) feltBacked
+        | .structField _ _ => .error { message := "nested struct field assignment target is not a direct storage target" }
+        | .arrayStructField _ _ _ => .error { message := "nested array struct field assignment target is not a direct storage target" }
+    | .arrayGet base index => do
+        match ← resolveStorageTargetRoot module base with
+        | .scalar stateId =>
+            let feltBacked := match findState? module stateId with
+              | some { type := .u32, .. } => true
+              | _ => false
+            .ok <| .arrayIndex stateId (← buildExpr module index) feltBacked
+        | .arrayIndex stateId baseIndex feltBacked =>
+            .ok <| .path stateId #[.index baseIndex, .index (← buildExpr module index)] feltBacked
+        | .path stateId segs feltBacked =>
+            .ok <| .path stateId (segs.push (.index (← buildExpr module index))) feltBacked
+        | .structField _ _ => .error { message := "struct field is not an array assignment target" }
+        | .arrayStructField _ _ _ => .error { message := "array struct field is not an array assignment target" }
+    | _ => .error { message := "assignment target must be a local, array index, or field path" }
 end
 
-def lowerEffectStmt (module : Module) : Effect → Except LowerError (Array String)
-  | .storageScalarRead _ =>
-      .error { message := "storage.scalar.read must be used as an expression" }
+/-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Effect` in statement position. -/
+def buildEffectStmt (module : Module) : IR.Effect → Except LowerError Lean.Compiler.Psy.Stmt
+  | .storageScalarRead _ => .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
       requireScalarState module stateId
-      .ok #[s!"c.{stateId} = {← lowerExpr module value};"]
+      .ok <| .effect (.storageScalarWrite stateId (← buildExpr module value))
   | .storageScalarAssignOp stateId op value => do
       requireScalarState module stateId
-      .ok #[s!"c.{stateId} {assignOpSymbol op} {← lowerExpr module value};"]
-  | .storageMapContains _ _ =>
-      .error { message := "storage.map.contains must be used as an expression" }
-  | .storageMapGet _ _ =>
-      .error { message := "storage.map.get must be used as an expression" }
+      .ok <| .effect (.storageScalarAssignOp stateId (mapAssignOp op) (← buildExpr module value))
+  | .storageMapContains _ _ => .error { message := "storage.map.contains must be used as an expression" }
+  | .storageMapGet _ _ => .error { message := "storage.map.get must be used as an expression" }
   | .storageMapInsert stateId key value => do
       requireMapState module stateId
-      .ok #[s!"c.{stateId}.insert({← lowerExpr module key}, {← lowerExpr module value});"]
+      .ok <| .effect (.storageMapInsert stateId (← buildExpr module key) (← buildExpr module value))
   | .storageMapSet stateId key value => do
       requireMapState module stateId
-      .ok #[s!"c.{stateId}.set({← lowerExpr module key}, {← lowerExpr module value});"]
-  | .storageArrayRead _ _ =>
-      .error { message := "storage.array.read must be used as an expression" }
+      .ok <| .effect (.storageMapSet stateId (← buildExpr module key) (← buildExpr module value))
+  | .storageArrayRead _ _ => .error { message := "storage.array.read must be used as an expression" }
   | .storageArrayWrite stateId index value => do
       requireArrayState module stateId
-      match findState? module stateId with
-      | some { type := .u32, .. } =>
-          .ok #[s!"c.{stateId}[{← lowerExpr module index}] = {← lowerExprOperand module value} as Felt;"]
-      | some _ =>
-          .ok #[s!"c.{stateId}[{← lowerExpr module index}] = {← lowerExpr module value};"]
-      | none =>
-          .error { message := s!"unknown array state `{stateId}`" }
-  | .storageArrayStructFieldRead _ _ _ =>
-      .error { message := "storage.array.struct.field.read must be used as an expression" }
+      let feltBacked := match findState? module stateId with
+        | some { type := .u32, .. } => true
+        | _ => false
+      .ok <| .effect (.storageArrayWrite stateId (← buildExpr module index) (← buildExpr module value) feltBacked)
+  | .storageArrayStructFieldRead _ _ _ => .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageArrayStructFieldWrite stateId index fieldName value => do
       requireStructArrayState module stateId fieldName
-      .ok #[s!"c.{stateId}[{← lowerExpr module index}].{fieldName} = {← lowerExpr module value};"]
-  | .storageDynamicArrayPush _ _ =>
-      .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
-  | .storageDynamicArrayPop _ =>
-      .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
-  | .storageStructFieldRead _ _ =>
-      .error { message := "storage.array.struct.field.read must be used as an expression" }
+      .ok <| .effect (.storageArrayStructFieldWrite stateId (← buildExpr module index) fieldName (← buildExpr module value))
+  | .storageDynamicArrayPush _ _ => .error { message := "storage.dynamic.array.push is not supported by Psy IR v0" }
+  | .storageDynamicArrayPop _ => .error { message := "storage.dynamic.array.pop is not supported by Psy IR v0" }
+  | .storageStructFieldRead _ _ => .error { message := "storage.array.struct.field.read must be used as an expression" }
   | .storageStructFieldWrite stateId fieldName value => do
       requireStructScalarState module stateId fieldName
-      .ok #[s!"c.{stateId}.{fieldName} = {← lowerExpr module value};"]
-  | .storagePathRead _ _ =>
-      .error { message := "storage.path.read must be used as an expression" }
+      .ok <| .effect (.storageStructFieldWrite stateId fieldName (← buildExpr module value))
+  | .storagePathRead _ _ => .error { message := "storage.path.read must be used as an expression" }
   | .storagePathWrite stateId path value => do
       discard <| resolveStoragePathType module stateId path
-      lowerStoragePathWrite module stateId path value
+      match findState? module stateId with
+      | some { kind := .map _ _, .. } =>
+          match path.toList with
+          | .mapKey key :: [] => do .ok <| .effect (.storageMapSet stateId (← buildExpr module key) (← buildExpr module value))
+          | .mapKey _ :: _ => .error { message := s!"storage path state `{stateId}` map values support direct key access only" }
+          | _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
+      | some _ =>
+          let pathType ← resolveStoragePathType module stateId path
+          let feltBacked := isFeltBackedU32StorageArrayPath module stateId pathType
+          .ok <| .effect (.storagePathWrite stateId (← buildStoragePath module path) (← buildExpr module value) feltBacked)
+      | none => .error { message := s!"unknown storage path state `{stateId}`" }
   | .storagePathAssignOp stateId path op value => do
       discard <| resolveStoragePathType module stateId path
-      lowerStoragePathAssignOp module stateId path op value
-  | .contextRead _ =>
-      .error { message := "context.read must be used as an expression" }
+      let pathType ← resolveStoragePathType module stateId path
+      match findState? module stateId with
+      | some { kind := .map _ _, .. } => .error { message := s!"storage path state `{stateId}` map values do not support compound assignment" }
+      | some { kind := .array _, type := .u32, .. } =>
+          if pathType == .u32 then
+            let segs ← buildStoragePath module path
+            let target := Lean.Compiler.Psy.StorageTarget.path stateId segs false
+            let read := Lean.Compiler.Psy.Expr.storagePathRead stateId segs true
+            let rhs := Lean.Compiler.Psy.Expr.cast
+              (Lean.Compiler.Psy.Expr.binary read ((mapAssignOp op).toBinaryOp) (← buildExpr module value))
+              { text := "Felt" }
+            .ok <| .assign target rhs
+          else
+            .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath module path) (mapAssignOp op) (← buildExpr module value))
+      | some _ => do .ok <| .effect (.storagePathAssignOp stateId (← buildStoragePath module path) (mapAssignOp op) (← buildExpr module value))
+      | none => .error { message := s!"unknown storage path state `{stateId}`" }
+  | .contextRead _ => .error { message := "context.read must be used as an expression" }
   | .eventEmit name fields => do
-      let fieldStrs ← fields.mapM fun field => lowerExpr module field.snd
-      .ok #[s!"__emit([{String.intercalate ", " fieldStrs.toList}]); // event `{name}`"]
-  | .eventEmitIndexed name _ _ =>
-      .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
-
-partial def lowerAssignTarget (module : Module) : Expr → Except LowerError String
-  | .local name => .ok name
-  | .arrayGet array index => do
-      .ok s!"{← lowerAssignTarget module array}[{← lowerExpr module index}]"
-  | .field base fieldName => do
-      .ok s!"{← lowerAssignTarget module base}.{fieldName}"
-  | _ =>
-      .error { message := "assignment target must be a local, array index, or field path" }
+      let fieldExprs ← fields.mapM fun (n, v) => do .ok (n, ← buildExpr module v)
+      .ok <| .effect (.eventEmit name fieldExprs)
+  | .eventEmitIndexed name _ _ => .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
 
 mutual
-  partial def lowerStatement (module : Module) : Statement → Except LowerError (Array String)
+  /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Statement`. -/
+  partial def buildStmt (module : Module) : IR.Statement → Except LowerError Lean.Compiler.Psy.Stmt
     | .letBind name type value => do
-        .ok #[s!"let {name}: {← valueTypeName type} = {← lowerExpr module value};"]
+        .ok <| .letBind name (← typeName type) (← buildExpr module value)
     | .letMutBind name type value => do
-        .ok #[s!"let mut {name}: {← valueTypeName type} = {← lowerExpr module value};"]
+        .ok <| .letMutBind name (← typeName type) (← buildExpr module value)
     | .assign target value => do
-        .ok #[s!"{← lowerAssignTarget module target} = {← lowerExpr module value};"]
+        if isStorageTargetRoot module target then
+          do .ok <| .assign (← resolveStorageTargetRoot module target) (← buildExpr module value)
+        else
+          do .ok <| .localAssign (← buildExpr module target) (← buildExpr module value)
     | .assignOp target op value => do
-        .ok #[s!"{← lowerAssignTarget module target} {assignOpSymbol op} {← lowerExpr module value};"]
-    | .effect effect =>
-        lowerEffectStmt module effect
-    | .assert condition message _ => do
-        .ok #[s!"assert({← lowerExpr module condition}, {stringLiteral message});"]
-    | .assertEq lhs rhs message _ => do
-        .ok #[s!"assert_eq({← lowerExpr module lhs}, {← lowerExpr module rhs}, {stringLiteral message});"]
-    | .release _ =>
-        .error { message := "release statements are not supported by Psy IR v0" }
-    | .revert message =>
-        .ok #[s!"abort(\"{message}\");"]
-    | .revertWithError _ =>
-        .ok #["abort(\"revertWithError\");"]
+        if isStorageTargetRoot module target then
+          do .ok <| .assignOp (← resolveStorageTargetRoot module target) (mapAssignOp op) (← buildExpr module value)
+        else
+          do .ok <| .localAssignOp (← buildExpr module target) (mapAssignOp op) (← buildExpr module value)
+    | .effect effect => buildEffectStmt module effect
+    | .assert condition message _ => do .ok <| .assert (← buildExpr module condition) message
+    | .assertEq lhs rhs message _ => do .ok <| .assertEq (← buildExpr module lhs) (← buildExpr module rhs) message
+    | .release _ => .error { message := "release statements are not supported by Psy IR v0" }
+    | .revert message => .ok <| .revert message
+    | .revertWithError _ => .ok <| .revert "revertWithError"
     | .ifElse condition thenBody elseBody => do
-        let thenLines ← lowerBody module thenBody
-        let elseLines ← lowerBody module elseBody
-        .ok <|
-          #[s!"if {← lowerExpr module condition} " ++ "{"] ++
-          thenLines.map (indent 1) ++
-          #["} else {"] ++
-          elseLines.map (indent 1) ++
-          #["};"]
+        .ok <| .ifElse (← buildExpr module condition) (← buildBody module thenBody) (← buildBody module elseBody)
     | .boundedFor indexName start stopExclusive body => do
         if stopExclusive <= start then
           .error { message := s!"bounded loop `{indexName}` must have stop greater than start" }
-        let bodyLines ← lowerBody module body
-        .ok <|
-          #[s!"for {indexName} in {start}u32..{stopExclusive}u32 " ++ "{"] ++
-          bodyLines.map (indent 1) ++
-          #["}"]
-    | .return value => do
-        .ok #[s!"return {← lowerExpr module value};"]
+        .ok <| .boundedFor indexName start stopExclusive (← buildBody module body)
+    | .return value => do .ok <| .returnExpr (← buildExpr module value)
 
-  partial def lowerBody (module : Module) (body : Array Statement) : Except LowerError (Array String) := do
-    body.foldlM (init := #[]) fun acc stmt => do
-      .ok (acc ++ (← lowerStatement module stmt))
+  /-- Build an array of `Lean.Compiler.Psy.Stmt` from a portable IR body. -/
+  partial def buildBody (module : Module) : Array IR.Statement → Except LowerError (Array Lean.Compiler.Psy.Stmt)
+    | #[] => .ok #[]
+    | arr => arr.mapM (buildStmt module)
 end
 
-def paramDecl (param : String × ValueType) : Except LowerError String := do
-  .ok s!"{param.fst}: {← valueTypeName param.snd}"
+/-- Build a `Lean.Compiler.Psy.Method` from a portable IR `Entrypoint`. -/
+def buildMethod (module : Module) (entrypoint : Entrypoint) : Except LowerError Lean.Compiler.Psy.Method := do
+  let params ← entrypoint.params.mapM fun (n, t) => do
+    let tn ← typeName t
+    .ok (n, tn)
+  let returns ← match entrypoint.returns with
+    | .unit => .ok none
+    | other => do .ok (some (← typeName other))
+  let body ← buildBody module entrypoint.body
+  .ok { name := entrypoint.name, params, returns, body }
 
-def lowerEntrypoint (module : Module) (entrypoint : Entrypoint) : Except LowerError String := do
-  let refName := capitalizedRefName module
-  let returnSuffix ←
-    match entrypoint.returns with
-    | .unit => .ok ""
-    | other => .ok s!" -> {← valueTypeName other}"
-  let paramList ← entrypoint.params.mapM paramDecl
-  let body ← lowerBody module entrypoint.body
-  let header := indent 1 "#[contract_method]"
-  let signature := indent 1 (s!"pub fn {entrypoint.name}({String.intercalate ", " paramList.toList}){returnSuffix} " ++ "{")
-  let newRef := indent 2 s!"let c = {refName}::new(ContractMetadata::current());"
-  let bodyLines := body.map (indent 2)
-  lines (#[header, signature, newRef] ++ bodyLines ++ #[indent 1 "}"]) |> .ok
+/-- Build a `Lean.Compiler.Psy.StructDecl` from a portable IR struct declaration. -/
+def buildStructDecl (decl : IR.StructDecl) : Except LowerError Lean.Compiler.Psy.StructDecl := do
+  let fields ← decl.fields.mapM fun field => do
+    let tn ← typeName field.type
+    .ok { id := field.id, type := tn, isPublic := field.isPublic, isRef := field.isRef }
+  .ok { name := decl.name, isPublic := decl.isPublic, deriveStorage := decl.deriveStorage, fields }
+
+/-- Build a `Lean.Compiler.Psy.StateDecl` from a portable IR state declaration. -/
+def buildStateDecl (state : IR.StateDecl) : Except LowerError Lean.Compiler.Psy.StateDecl := do
+  match state.kind with
+  | .scalar =>
+      match state.type with
+      | .structType _ => do .ok <| .structRef state.id (← typeName state.type)
+      | _ => do .ok <| .scalar state.id (← typeName state.type)
+  | .map keyType capacity => do .ok <| .map state.id (← typeName keyType) (← typeName state.type) capacity
+  | .array length =>
+      let feltBacked := state.type == .u32
+      .ok <| .array state.id (← typeName state.type) length feltBacked
+  | .dynamicArray =>
+      .error { message := s!"state `{state.id}` is storage.dynamicArray; Psy IR v0 does not lower portable dynamic array storage" }
+
 
 mutual
   partial def validateStatementIdentifiers (entrypointName : String) : Statement → Except LowerError Unit
@@ -1723,6 +1718,31 @@ def testBody (module : Module) : Except LowerError (Array String) := do
       s!"let _c = {refName}::new(ContractMetadata::current());"
     ]
 
+
+/-- Build a `Lean.Compiler.Psy.Module` from a portable IR `Module`. -/
+def buildModule (module : Module) : Except LowerError Lean.Compiler.Psy.Module := do
+  let structs ← module.structs.mapM buildStructDecl
+  let state ← module.state.mapM buildStateDecl
+  let methods ← module.entrypoints.mapM (buildMethod module)
+  let testName := testFunctionName module
+  let testLines ← testBody module
+  let headerComment := s!"// Generated by ProofForge from the portable {module.name} IR.\n// This is Psy source intended for the official Dargo/Psy compiler toolchain."
+  .ok {
+    name := module.name,
+    headerComment,
+    structs,
+    contractName := module.name,
+    state,
+    refName := capitalizedRefName module,
+    methods,
+    test := { name := testName, body := testLines }
+  }
+
+/-- Render a portable IR `Module` to `.psy` source text.
+
+This is the public entrypoint. It validates the module, lowers it to a
+`Lean.Compiler.Psy.Module` AST, and renders the AST to source text via
+`Lean.Compiler.Psy.Printer.module`. -/
 def renderModule (module : Module) : Except LowerError String := do
   validateCapabilities module
   validateIdentifiers module
@@ -1730,36 +1750,7 @@ def renderModule (module : Module) : Except LowerError String := do
   validateEntrypoints module
   validateState module
   validateEntrypointBodies module
-  let structBlocks ← module.structs.mapM structDecl
-  let stateDecls ← module.state.mapM stateDecl
-  let stateLines := stateDecls.foldl (fun acc lines => acc ++ lines) #[]
-  let entrypoints ← module.entrypoints.mapM (lowerEntrypoint module)
-  let testLines := (← testBody module).map (indent 1)
-  let structLines :=
-    if structBlocks.isEmpty then
-      #[]
-    else
-      #[String.intercalate "\n\n" structBlocks.toList, ""]
-  .ok <| lines <| #[
-    s!"// Generated by ProofForge from the portable {module.name} IR.",
-    "// This is Psy source intended for the official Dargo/Psy compiler toolchain.",
-    ""
-  ] ++ structLines ++ #[
-    "#[contract]",
-    "#[derive(Storage)]",
-    s!"pub struct {module.name} " ++ "{"
-  ] ++ stateLines.map (indent 1) ++ #[
-    "}",
-    "",
-    s!"impl {capitalizedRefName module} " ++ "{",
-    lines entrypoints,
-    "}",
-    "",
-    "#[test]",
-    s!"fn {testFunctionName module}() " ++ "{"
-  ] ++ testLines ++ #[
-    "}",
-    ""
-  ]
+  let ast ← buildModule module
+  .ok (Lean.Compiler.Psy.Printer.module ast)
 
 end ProofForge.Backend.Psy.IR
