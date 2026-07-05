@@ -242,6 +242,7 @@ partial def stmtCrosscallTargets (s : IR.Statement) : Array String :=
 def testFunctionName (module : Module) : String :=
   if module.name == "StorageNestedAggregateProbe" then "test_storage_nested_aggregate_probe_fixture"
   else if module.name == "ConditionalProbe" then "test_conditional_probe_fixture"
+  else if module.name == "ElseIfProbe" then "test_else_if_probe_fixture"
   else if module.name == "ArithmeticProbe" then "test_arithmetic_probe_fixture"
   else if module.name == "U32ArithmeticProbe" then "test_u32_arithmetic_probe_fixture"
   else if module.name == "BitwiseProbe" then "test_bitwise_probe_fixture"
@@ -455,6 +456,11 @@ def buildTestBody (module : Module) : Except PlanError (Array String) := do
     .ok #[
       s!"{refName}::emit_value_event(42);",
       "assert_eq(1, 1, \"event entrypoint call compiles and emits\");"
+    ]
+  else if module.name == "ElseIfProbe" &&
+    module.entrypoints.any (fun entry => entry.name == "classify" && entry.params.isEmpty && entry.returns == .u64) then
+    .ok #[
+      s!"assert_eq({refName}::classify(), 1, \"else-if chain selects the equality branch\");"
     ]
   else
     .ok #[

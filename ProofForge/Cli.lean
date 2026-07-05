@@ -44,6 +44,7 @@ import ProofForge.IR.Examples.BoolStorageArrayProbe
 import ProofForge.IR.Examples.BoolStorageScalarProbe
 import ProofForge.IR.Examples.ContextProbe
 import ProofForge.IR.Examples.ConditionalProbe
+import ProofForge.IR.Examples.ElseIfProbe
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.CrosscallProbe
@@ -204,6 +205,7 @@ inductive EmitMode where
   | boolStorageArrayIrPsy
   | boolStorageScalarIrPsy
   | conditionalIrPsy
+  | elseIfIrPsy
   | contextIrPsy
   | hashIrPsy
   | hashStorageIrPsy
@@ -372,6 +374,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .boolStorageArrayIrPsy
   | .boolStorageScalarIrPsy
   | .conditionalIrPsy
+  | .elseIfIrPsy
   | .contextIrPsy
   | .hashIrPsy
   | .hashStorageIrPsy
@@ -2592,6 +2595,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .boolStorageScalarIrPsy }
   | "--emit-conditional-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .conditionalIrPsy }
+  | "--emit-else-if-ir-psy" :: rest, opts =>
+      parseArgs rest { opts with mode := .elseIfIrPsy }
   | "--emit-context-ir-psy" :: rest, opts =>
       parseArgs rest { opts with mode := .contextIrPsy }
   | "--emit-hash-ir-psy" :: rest, opts =>
@@ -4424,6 +4429,16 @@ def compileConditionalIrPsy (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.render
 
+def compileElseIfIrPsy (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/psy/ElseIfProbe.psy")
+  match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.ElseIfProbe.module with
+  | .ok source =>
+      writeTextFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.render
+
 def compileContextIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/ContextProbe.psy")
   match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.ContextProbe.module with
@@ -5746,6 +5761,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .boolStorageArrayIrPsy => compileBoolStorageArrayIrPsy opts
   | .boolStorageScalarIrPsy => compileBoolStorageScalarIrPsy opts
   | .conditionalIrPsy => compileConditionalIrPsy opts
+  | .elseIfIrPsy => compileElseIfIrPsy opts
   | .contextIrPsy => compileContextIrPsy opts
   | .hashIrPsy => compileHashIrPsy opts
   | .hashStorageIrPsy => compileHashStorageIrPsy opts

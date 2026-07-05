@@ -182,7 +182,7 @@ mutual
     | effect (eff : Effect)
     | assert (condition : Expr) (message : String)
     | assertEq (lhs rhs : Expr) (message : String)
-    | ifElse (condition : Expr) (thenBody : Array Stmt) (elseBody : Array Stmt)
+    | ifElse (condition : Expr) (thenBody : Array Stmt) (elseIfs : Array (Expr × Array Stmt)) (elseBody : Array Stmt)
     | boundedFor (indexName : Name) (start stopExclusive : Nat) (body : Array Stmt)
     | returnExpr (value : Expr)
     | revert (message : String)

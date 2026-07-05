@@ -320,6 +320,7 @@ psy-golden-sources:
       "arithmetic:ArithmeticProbe"
       "bitwise:BitwiseProbe"
       "conditional:ConditionalProbe"
+      "else-if:ElseIfProbe"
       "u32-arithmetic:U32ArithmeticProbe"
       "u32-hash-packing:U32HashPackingProbe"
       "u32-storage-scalar:U32StorageScalarProbe"

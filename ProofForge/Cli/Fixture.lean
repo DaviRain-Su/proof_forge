@@ -12,6 +12,7 @@ def ids : Array String := #[
   "assert",
   "assignment",
   "conditional",
+  "else-if",
   "arithmetic",
   "bitwise",
   "loop",
@@ -171,7 +172,7 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "psy-dpn", f, .psy =>
       f == "counter" || f == "crosscall" || f == "event" || f == "expression-predicate" ||
       f == "generic-entrypoint" || f.startsWith "arithmetic" || f.startsWith "bitwise" ||
-      f.startsWith "bool-" || f.startsWith "conditional" || f.startsWith "context" ||
+      f.startsWith "bool-" || f.startsWith "conditional" || f == "else-if" || f.startsWith "context" ||
       f.startsWith "hash" || f.startsWith "loop" || f.startsWith "map" ||
       f == "assert" || f.startsWith "array" || f.startsWith "struct" ||
       f.startsWith "abi-" || f.startsWith "nested-" || f.startsWith "storage-nested" ||
@@ -193,7 +194,7 @@ def capabilitiesFor (id : String) : Array ProofForge.Target.Capability :=
   | "map" => #[.storageMap]
   | "assert" => #[.assertions]
   | "assignment" | "evm-assign-op" => #[.storageScalar]
-  | "conditional" => #[.controlConditional]
+  | "conditional" | "else-if" => #[.controlConditional]
   | "loop" | "evm-loop" => #[.controlBoundedLoop]
   | "array" | "evm-array-value" | "u32-storage-array" | "evm-storage-array" => #[.dataFixedArray]
   | "struct" | "evm-struct-value" | "evm-storage-struct" | "evm-struct-array-value" => #[.dataStruct]

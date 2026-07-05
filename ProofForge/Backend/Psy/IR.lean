@@ -1454,6 +1454,22 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
   | .eventEmitIndexed name _ _ => .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
 
 mutual
+  /-- Collect else-if chain from a nested if/else body.
+
+  Given the `elseBody` of an IR `.ifElse`, if the body is a single
+  `.ifElse` statement, lift it into an `elseIfs` entry and recurse into its
+  else body. This lets the printer emit `} else if cond {` instead of
+  `} else { if cond { ... } else { ... } }`. -/
+  partial def collectElseIfs (ctx : BuildContext) : Array IR.Statement → Except LowerError (Array (Lean.Compiler.Psy.Expr × Array Lean.Compiler.Psy.Stmt) × Array Lean.Compiler.Psy.Stmt)
+    | #[.ifElse cond thenBody nestedElseBody] => do
+        let condExpr ← buildExpr ctx cond
+        let thenStmts ← buildBody ctx thenBody
+        let (nestedElseIfs, finalElse) ← collectElseIfs ctx nestedElseBody
+        .ok (#[(condExpr, thenStmts)] ++ nestedElseIfs, finalElse)
+    | other => do
+        let elseStmts ← buildBody ctx other
+        .ok (#[], elseStmts)
+
   /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Statement`. -/
   partial def buildStmt (ctx : BuildContext) : IR.Statement → Except LowerError Lean.Compiler.Psy.Stmt
     | .letBind name type value => do
@@ -1477,7 +1493,10 @@ mutual
     | .revert message => .ok <| .revert message
     | .revertWithError _ => .ok <| .revert "revertWithError"
     | .ifElse condition thenBody elseBody => do
-        .ok <| .ifElse (← buildExpr ctx condition) (← buildBody ctx thenBody) (← buildBody ctx elseBody)
+        let condExpr ← buildExpr ctx condition
+        let thenStmts ← buildBody ctx thenBody
+        let (elseIfs, finalElse) ← collectElseIfs ctx elseBody
+        .ok <| .ifElse condExpr thenStmts elseIfs finalElse
     | .boundedFor indexName start stopExclusive body => do
         if stopExclusive <= start then
           .error { message := s!"bounded loop `{indexName}` must have stop greater than start" }
@@ -1607,9 +1626,10 @@ def initialTypeEnv (entrypoint : Entrypoint) : Except LowerError TypeEnv :=
   entrypoint.params.foldlM (init := #[]) fun env param =>
     addLocal env param.fst param.snd false
 
-def bodyEndsWithReturn (body : Array Statement) : Bool :=
+partial def bodyEndsWithReturn (body : Array Statement) : Bool :=
   match body.toList.reverse with
   | Statement.return _ :: _ => true
+  | Statement.ifElse _ thenBody elseBody :: _ => bodyEndsWithReturn thenBody && bodyEndsWithReturn elseBody
   | _ => false
 
 def validateEntrypointBodies (module : Module) : Except LowerError Unit := do

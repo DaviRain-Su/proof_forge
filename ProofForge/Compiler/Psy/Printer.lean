@@ -239,13 +239,16 @@ mutual
       #[indent level s!"assert({expr condition}, {stringLiteral message});"]
     | .assertEq lhs rhs message =>
       #[indent level s!"assert_eq({expr lhs}, {expr rhs}, {stringLiteral message});"]
-    | .ifElse condition thenBody elseBody =>
+    | .ifElse condition thenBody elseIfs elseBody =>
       let thenLines := thenBody.flatMap (stmt (level + 1))
+      let elseIfLines := elseIfs.flatMap fun (cond, body) =>
+        #[indent level (s!"} else if {expr cond} " ++ "{")] ++ body.flatMap (stmt (level + 1))
       let elseLines := elseBody.flatMap (stmt (level + 1))
+      let hasElse := !elseBody.isEmpty
       #[indent level (s!"if {expr condition} " ++ "{")]
         ++ thenLines
-        ++ #[indent level "} else {"]
-        ++ elseLines
+        ++ elseIfLines
+        ++ (if hasElse then #[indent level "} else {"] ++ elseLines else #[])
         ++ #[indent level "};"]
     | .boundedFor indexName start stopExclusive body =>
       let bodyLines := body.flatMap (stmt (level + 1))
