@@ -137,6 +137,9 @@ mutual
     | .forLoop init cond step body =>
         let head := indent depth ++ s!"for ({printForClause init}; {printExpr cond}; {printForClause step}) "
         head ++ printBlock depth body ++ "\n"
+    | .whileLoop cond body =>
+        let head := indent depth ++ s!"while ({printExpr cond}) "
+        head ++ printBlock depth body ++ "\n"
     | .return e =>
         line depth s!"return {printExpr e};"
     | .throw e =>
