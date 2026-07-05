@@ -6,12 +6,17 @@ import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.Lower
 import ProofForge.Backend.Evm.Metadata
 import ProofForge.IR.Contract
+import ProofForge.IR.Semantics
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 import ProofForge.Compiler.Yul.AST
 import ProofForge.Compiler.Yul.Printer
 
 namespace ProofForge.Backend.Evm.IR
+
+open ProofForge.Backend.Evm.Plan
+open ProofForge.IR.Semantics
+open ProofForge.Backend.Evm.Validate (needsCheckedArithmetic exprUsesCheckedArithmetic)
 
 open ProofForge.IR
 open ProofForge.Target
@@ -6381,10 +6386,10 @@ mutual
         args.foldl (init := nested) fun acc arg =>
           mergeCreateHelperSpecs acc (createHelperSpecsExpr arg)
     | .crosscallCreate callValue initCodeHex =>
-        pushCreateHelperSpecIfMissing (createHelperSpecsExpr callValue) { mode := .create, initCodeHex }
+        pushCreateHelperSpecIfMissing (createHelperSpecsExpr callValue) ({ mode := .create, initCodeHex } : CreateHelperSpec)
     | .crosscallCreate2 callValue salt initCodeHex =>
         let nested := mergeCreateHelperSpecs (createHelperSpecsExpr callValue) (createHelperSpecsExpr salt)
-        pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
+        pushCreateHelperSpecIfMissing nested ({ mode := .create2, initCodeHex } : CreateHelperSpec)
     | .effect effect =>
         createHelperSpecsEffect effect
 

@@ -1079,6 +1079,8 @@ structure CreateHelperSpec where
   initCodeHex : String
   deriving BEq, Repr
 
+instance : BEq CreateHelperSpec := ⟨fun a b => a.mode == b.mode && a.initCodeHex == b.initCodeHex⟩
+
 /-! ## StmtPlan: target-semantic statement plan -/
 
 inductive StmtPlan where
