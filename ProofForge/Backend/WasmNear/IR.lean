@@ -292,6 +292,7 @@ mutual
     | .boundedFor indexName _ _ body => do
         validateRustIdentifier s!"loop index in entrypoint `{entrypointName}`" indexName
         validateBodyIdentifiers entrypointName body
+    | .whileLoop _ body => validateBodyIdentifiers entrypointName body
     | .assign _ _ | .assignOp _ _ _ | .effect _ | .assert _ _ _ | .assertEq _ _ _ _ | .release _ | .revert _ | .revertWithError _ | .return _ =>
         pure ()
 
@@ -545,6 +546,8 @@ mutual
         .error { message := "conditional branches are not supported by wasm-near IR v0" }
     | .boundedFor _ _ _ _ =>
         .error { message := "bounded for loops are not supported by wasm-near IR v0" }
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by wasm-near IR v0" }
     | .return value => do
         ensureType "return value" entrypoint.returns (← inferExprType module env value)
         .ok env
@@ -986,6 +989,8 @@ mutual
         .error { message := "if/else statements are not supported by wasm-near IR v0" }
     | .boundedFor _ _ _ _ =>
         .error { message := "bounded for loops are not supported by wasm-near IR v0" }
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by wasm-near IR v0" }
     | .return value => do
         .ok #[s!"return {← lowerExpr module value};"]
 
