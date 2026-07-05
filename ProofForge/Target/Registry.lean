@@ -278,7 +278,6 @@ def psyDpn : TargetProfile := {
     .envBlock,
     .controlConditional,
     .controlBoundedLoop,
-    .controlUnboundedLoop,
     .dataFixedArray,
     .dataStruct,
     .cryptoHash,
