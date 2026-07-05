@@ -72,11 +72,11 @@ docs/capability-registry.md                                     (update with too
 - `ProofForge.Backend.Quint.Emit.renderModule : Module → String`
 
 **Steps:**
-- [ ] Define the AST in `Model.lean`. Keep it minimal: support `module`, `const`, `var`, `pure def`, `action`, `val`, `assume`, and the operators needed for Counter/ValueVault (`+`, `-`, `*`, `/`, `>`, `<`, `>=`, `<=`, `==`, `!=`, `&&`, `||`, `!`).
-- [ ] Implement `Emit.lean` to pretty-print valid Quint syntax. Use 2-space indentation. Ensure `action step` can use `any { ... }` and `nondet x = oneOf(S) ...`.
-- [ ] Write a test that renders a hand-built Counter Quint model and checks the output contains expected substrings (`module CounterModel`, `var count: int`, `action increment`, etc.).
-- [ ] Run: `lake env lean Tests/Quint/CounterModel.lean`
-- [ ] Commit.
+- [x] Define the AST in `Model.lean`. Keep it minimal: support `module`, `const`, `var`, `pure def`, `action`, `val`, `assume`, and the operators needed for Counter/ValueVault (`+`, `-`, `*`, `/`, `>`, `<`, `>=`, `<=`, `==`, `!=`, `&&`, `||`, `!`).
+- [x] Implement `Emit.lean` to pretty-print valid Quint syntax. Use 2-space indentation. Ensure `action step` can use `any { ... }` and `nondet x = oneOf(S) ...`.
+- [x] Write a test that renders a hand-built Counter Quint model and checks the output contains expected substrings (`module CounterModel`, `var count: int`, `action increment`, etc.).
+- [x] Run: `lake env lean Tests/Quint/CounterModel.lean`
+- [x] Commit.
 
 ## Task 2: Scenario configuration
 
@@ -94,11 +94,11 @@ docs/capability-registry.md                                     (update with too
 - `ProofForge.Backend.Quint.Scenario.toQuintConstants : Config → Array Constant`
 
 **Steps:**
-- [ ] Define `Config` and a lightweight TOML parser (no external dependency; parse the tiny subset we need: `max_uint = 3`, `users = ["alice", "bob"]`, etc.).
-- [ ] Add `toQuintConstants` to emit `const MAX_UINT: int` and `const USERS: Set[str]`.
-- [ ] Write a test parsing a sample TOML and checking the defaults.
-- [ ] Run: `lake env lean Tests/Quint/Scenario.lean`
-- [ ] Commit.
+- [x] Define `Config` and a lightweight TOML parser (no external dependency; parse the tiny subset we need: `max_uint = 3`, `users = ["alice", "bob"]`, etc.).
+- [x] Add `toQuintConstants` to emit `const MAX_UINT: int` and `const USERS: Set[str]`.
+- [x] Write a test parsing a sample TOML and checking the defaults.
+- [x] Run: `lake env lean Tests/Quint/Scenario.lean`
+- [x] Commit.
 
 ## Task 3: IR-to-Quint lowering
 
@@ -128,15 +128,15 @@ docs/capability-registry.md                                     (update with too
 - `+!`/`-!`/`*!`/`/!` become guarded arithmetic; `/!` also guards `divisor != 0`.
 
 **Steps:**
-- [ ] Implement `lowerModule` by walking `Module.state` and `Module.entrypoints`.
-- [ ] Emit `init` action that zero-initializes all scalar state.
-- [ ] Emit one `action` per entrypoint. Entrypoint parameters become action parameters with finite domains (drawn from scenario constants).
-- [ ] Emit `step` as `any { nondet ... entrypoint(...) }` for each entrypoint.
-- [ ] For unsupported constructs, return a clear `LowerError`.
-- [ ] Expand `Tests/Quint/CounterModel.lean` to lower `ProofForge.IR.Examples.Counter.module` and check the rendered `.qnt` is valid Quint syntax.
+- [x] Implement `lowerModule` by walking `Module.state` and `Module.entrypoints`.
+- [x] Emit `init` action that zero-initializes all scalar state.
+- [x] Emit one `action` per entrypoint. Entrypoint parameters become action parameters with finite domains (drawn from scenario constants).
+- [x] Emit `step` as `any { nondet ... entrypoint(...) }` for each entrypoint.
+- [x] For unsupported constructs, return a clear `LowerError`.
+- [x] Expand `Tests/Quint/CounterModel.lean` to lower `ProofForge.IR.Examples.Counter.module` and check the rendered `.qnt` is valid Quint syntax.
 - [ ] Create `Tests/Quint/ValueVaultModel.lean`: lower a ValueVault IR fixture and check render. If an IR-level ValueVault fixture does not exist, create `ProofForge/IR/Examples/ValueVault.lean` by hand-translating `ProofForge.Contract.Examples.ValueVault` to IR.
-- [ ] Run: `lake env lean Tests/Quint/CounterModel.lean` and `lake env lean Tests/Quint/ValueVaultModel.lean`
-- [ ] Commit.
+- [x] Run: `lake env lean Tests/Quint/CounterModel.lean` and `lake env lean Tests/Quint/ValueVaultModel.lean`
+- [x] Commit.
 
 ## Task 4: Invariant derivation
 
@@ -153,12 +153,12 @@ docs/capability-registry.md                                     (update with too
 - For ValueVault: `balance + released + fees <= MAX_UINT` (this is scenario-specific; add a manual invariant list in TOML).
 
 **Steps:**
-- [ ] Implement `derive` to produce auto invariants for every `u8/u32/u64/u128` scalar state variable.
+- [x] Implement `derive` to produce auto invariants for every `u8/u32/u64/u128` scalar state variable.
 - [ ] Support a manual invariant list in scenario TOML under `[invariants]`.
-- [ ] Wire invariants into `lowerModule` so the emitted `.qnt` contains `val` definitions.
-- [ ] Write a test checking that Counter gets `count >= 0` and ValueVault gets its conservation invariant.
-- [ ] Run: `lake env lean Tests/Quint/Invariants.lean`
-- [ ] Commit.
+- [x] Wire invariants into `lowerModule` so the emitted `.qnt` contains `val` definitions.
+- [x] Write a test checking that Counter gets `count >= 0` and ValueVault gets its conservation invariant.
+- [x] Run: `lake env lean Tests/Quint/Invariants.lean`
+- [x] Commit.
 
 ## Task 5: CLI integration
 
@@ -173,16 +173,16 @@ docs/capability-registry.md                                     (update with too
 - `proof-forge check --target quint --fixture counter` (validates IR-to-Quint lowering without emitting)
 
 **Steps:**
-- [ ] Add `quint` to `Fixture.supportedTargetIds` and `Fixture.Format` (`qnt`, `scenario`).
-- [ ] Update `emitLegacyFlag` to map `--target quint --fixture counter` to `--emit-counter-ir-quint` and `--format scenario` to `--emit-counter-ir-quint-scenario`.
-- [ ] Add a compile branch in `compileFile` for `.counterIrQuint` that calls `ProofForge.Backend.Quint.Lower.renderModule` and writes the output.
+- [x] Add `quint` to `Fixture.supportedTargetIds` and `Fixture.Format` (`qnt`, `scenario`).
+- [x] Update `emitLegacyFlag` to map `--target quint --fixture counter` to `--emit-counter-ir-quint` and `--format scenario` to `--emit-counter-ir-quint-scenario`.
+- [x] Add a compile branch in `compileFile` for `.counterIrQuint` that calls `ProofForge.Backend.Quint.Lower.renderModule` and writes the output.
 - [ ] Add CLI options `--scenario` to pass a TOML scenario file; default to built-in defaults.
-- [ ] Run end-to-end:
+- [x] Run end-to-end:
   ```bash
   lake env proof-forge emit --target quint --fixture counter -o build/quint/Counter.qnt
   quint run --main Counter --n-traces 1 --max-steps 5 build/quint/Counter.qnt
   ```
-- [ ] Commit.
+- [x] Commit.
 
 ## Task 6: ITF trace parsing
 
@@ -201,11 +201,11 @@ docs/capability-registry.md                                     (update with too
 - `mbt::nondetPicks`: object mapping param names to values
 
 **Steps:**
-- [ ] Define Lean types matching the ITF JSON structure.
-- [ ] Implement a parser using `Lean.Json`.
-- [ ] Write a test with a synthetic ITF JSON string and verify parsing.
-- [ ] Run: `lake env lean Tests/Quint/ITF.lean`
-- [ ] Commit.
+- [x] Define Lean types matching the ITF JSON structure.
+- [x] Implement a parser using `Lean.Json`.
+- [x] Write a test with a synthetic ITF JSON string and verify parsing.
+- [x] Run: `lake env lean Tests/Quint/ITF.lean`
+- [x] Commit.
 
 ## Task 7: Trace replay harness
 
@@ -220,13 +220,13 @@ docs/capability-registry.md                                     (update with too
 - On mismatch, returns an error describing the step, expected value, and actual value.
 
 **Steps:**
-- [ ] Map ITF state variables to IR `State` storage keys using the same flattening scheme as the generator.
-- [ ] Find the entrypoint by `actionTaken`, map nondet picks to parameter values.
-- [ ] Run `ProofForge.IR.Semantics.runEntrypoint` (or equivalent) for each step.
-- [ ] Compare resulting storage against the next ITF state.
-- [ ] Write a test that constructs a 3-step Counter trace manually and replays it.
-- [ ] Run: `lake env lean Tests/Quint/Replay.lean`
-- [ ] Commit.
+- [x] Map ITF state variables to IR `State` storage keys using the same flattening scheme as the generator.
+- [x] Find the entrypoint by `actionTaken`, map nondet picks to parameter values.
+- [x] Run `ProofForge.IR.Semantics.runEntrypoint` (or equivalent) for each step.
+- [x] Compare resulting storage against the next ITF state.
+- [x] Write a test that constructs a 3-step Counter trace manually and replays it.
+- [x] Run: `lake env lean Tests/Quint/Replay.lean`
+- [x] Commit.
 
 ## Task 8: End-to-end MBT replay test
 
@@ -238,14 +238,14 @@ docs/capability-registry.md                                     (update with too
 - Lean test that shells out to `quint run --mbt` and then replays generated ITF traces.
 
 **Steps:**
-- [ ] Write a test that:
+- [x] Write a test that:
   1. Calls `ProofForge.Backend.Quint.Lower.renderModule` for Counter.
   2. Writes `build/quint/Counter.qnt`.
   3. Runs `quint run --mbt --n-traces 5 --max-steps 5 --out-itf build/quint/itf/Counter.json build/quint/Counter.qnt`.
   4. Parses each generated ITF trace and replays it against `ProofForge.IR.Semantics`.
-- [ ] Gate the test so it skips gracefully if `quint` is not on `PATH`.
-- [ ] Run: `lake env lean Tests/Quint/Verify.lean`
-- [ ] Commit.
+- [x] Gate the test so it skips gracefully if `quint` is not on `PATH`.
+- [x] Run: `lake env lean Tests/Quint/Verify.lean`
+- [x] Commit.
 
 ## Task 9: Capability and metadata registry updates
 
