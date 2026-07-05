@@ -7,6 +7,7 @@ import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Psy.IR
 import ProofForge.Backend.Psy.Metadata
+import ProofForge.Backend.Psy.MetadataJson
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
@@ -3051,57 +3052,6 @@ def metadataFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "bool-storage-scalar" => some ProofForge.IR.Examples.BoolStorageScalarProbe.module
   | _ => none
 
-def metadataQuoteString (s : String) : String :=
-  "\"" ++ (s.toList.map (fun c => match c with
-    | '\\' => "\\\\"
-    | '"' => "\\\""
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | c => c.toString)).foldl (· ++ ·) "" ++ "\""
-
-def metadataJsonArray (items : List String) : String :=
-  "[" ++ ", ".intercalate items ++ "]"
-
-def metadataJsonObject (fields : List (String × String)) : String :=
-  "{" ++ ", ".intercalate (fields.map (fun (k, v) => metadataQuoteString k ++ ": " ++ v)) ++ "}"
-
-def metadataRenderAbiParam (p : ProofForge.Backend.Psy.Metadata.AbiParamDescriptor) : String :=
-  metadataJsonObject [("name", metadataQuoteString p.name), ("type", metadataQuoteString p.type)]
-
-def metadataRenderAbiEntrypoint (e : ProofForge.Backend.Psy.Metadata.AbiEntrypointDescriptor) : String :=
-  metadataJsonObject [
-    ("name", metadataQuoteString e.name),
-    ("params", metadataJsonArray (e.params.toList.map metadataRenderAbiParam)),
-    ("returnType", metadataQuoteString e.returnType)
-  ]
-
-def metadataRenderAbiEventField (f : ProofForge.Backend.Psy.Metadata.AbiEventFieldDescriptor) : String :=
-  metadataJsonObject [("name", metadataQuoteString f.name), ("type", metadataQuoteString f.type)]
-
-def metadataRenderAbiEvent (e : ProofForge.Backend.Psy.Metadata.AbiEventDescriptor) : String :=
-  metadataJsonObject [
-    ("name", metadataQuoteString e.name),
-    ("fields", metadataJsonArray (e.fields.toList.map metadataRenderAbiEventField))
-  ]
-
-def metadataRenderContextOp (o : ProofForge.Backend.Psy.Metadata.ContextOpDescriptor) : String :=
-  metadataJsonObject [("name", metadataQuoteString o.name)]
-
-def metadataRenderCrosscall (c : ProofForge.Backend.Psy.Metadata.CrosscallDescriptor) : String :=
-  metadataJsonObject [("targetContractId", metadataQuoteString c.targetContractId)]
-
-def metadataRenderArtifactMetadata (m : ProofForge.Backend.Psy.Metadata.ArtifactMetadata) : String :=
-  metadataJsonObject [
-    ("targetId", metadataQuoteString m.targetId),
-    ("moduleName", metadataQuoteString m.moduleName),
-    ("entrypoints", metadataJsonArray (m.entrypoints.toList.map metadataRenderAbiEntrypoint)),
-    ("events", metadataJsonArray (m.events.toList.map metadataRenderAbiEvent)),
-    ("contextOps", metadataJsonArray (m.contextOps.toList.map metadataRenderContextOp)),
-    ("crosscalls", metadataJsonArray (m.crosscalls.toList.map metadataRenderCrosscall)),
-    ("capabilities", metadataJsonArray (m.capabilities.toList.map metadataQuoteString))
-  ]
-
 /-- Run the `proof-forge metadata` command: build plan-driven artifact
     metadata from a fixture and print it as JSON to stdout or --output. -/
 def metadataCommand (opts : CliOptions) : IO UInt32 := do
@@ -3114,7 +3064,7 @@ def metadataCommand (opts : CliOptions) : IO UInt32 := do
   let artifactMeta ← match ProofForge.Backend.Psy.Metadata.buildPlanArtifactMetadata module with
     | .ok m => pure m
     | .error e => throw <| IO.userError s!"metadata: failed to build plan: {e.message}"
-  let json := metadataRenderArtifactMetadata artifactMeta
+  let json := ProofForge.Backend.Psy.MetadataJson.renderArtifactMetadata artifactMeta
   match opts.output? with
   | some path =>
       if let some parent := path.parent then
