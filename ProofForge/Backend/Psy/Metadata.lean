@@ -66,10 +66,7 @@ structure AbiEventDescriptor where
 def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
   {
     name := event.name
-    -- Event field types are currently hardcoded to `psyFeltTypeName` because the
-    -- plan captures only field names, not expression types. Revisit this when
-    -- event emission types are plumbed through the plan.
-    fields := event.dataFields.map (fun fieldName => { name := fieldName, type := psyFeltTypeName })
+    fields := event.dataFields.map (fun (fieldName, fieldType) => { name := fieldName, type := fieldType })
   }
 
 def pushUniqueEvent (events : Array AbiEventDescriptor) (event : AbiEventDescriptor) : Array AbiEventDescriptor :=

@@ -112,9 +112,64 @@ def ContextOp.name : ContextOp → String
 
 /-! ## Event plan -/
 
+/-- Infer a Psy surface type name from an IR expression for event field
+    metadata. Returns `some` for the unambiguous cases (literals, casts,
+    struct literals, typed crosscalls, array literals) and `none` for
+    locals, field access, arithmetic, and other shapes that require
+    environment or module context to resolve. Callers fall back to
+    `psyFeltTypeName` when the result is `none`. -/
+def exprTypeName? (e : IR.Expr) : Option String :=
+  match e with
+  | .literal (.u32 _) => some "u32"
+  | .literal (.u64 _) => some "Felt"
+  | .literal (.bool _) => some "bool"
+  | .literal (.hash4 ..) => some "Hash"
+  | .literal (.u8 _) => some "U8"
+  | .literal (.address _) => some "Address"
+  | .literal (.u128 _) => none
+  | .arrayLit elementType _ =>
+    match elementType with
+    | .u32 => some "[u32]"
+    | .u64 => some "[Felt]"
+    | .bool => some "[bool]"
+    | .hash => some "[Hash]"
+    | .u8 => some "[U8]"
+    | .address => some "[Address]"
+    | .structType name => some s!"[{name}]"
+    | _ => none
+  | .cast _ targetType =>
+    match targetType with
+    | .unit => some "()"
+    | .bool => some "bool"
+    | .u32 => some "u32"
+    | .u64 => some "Felt"
+    | .hash => some "Hash"
+    | .u8 => some "U8"
+    | .address => some "Address"
+    | .structType name => some name
+    | .fixedArray elem len => some s!"[{elem.name}; {len}]"
+    | _ => none
+  | .structLit typeName _ => some typeName
+  | .crosscallInvokeTyped _ _ _ returnType =>
+    match returnType with
+    | .unit => some "()"
+    | .bool => some "bool"
+    | .u32 => some "u32"
+    | .u64 => some "Felt"
+    | .hash => some "Hash"
+    | .u8 => some "U8"
+    | .address => some "Address"
+    | .structType name => some name
+    | _ => none
+  | _ => none
+
+/-- The fallback type name for event fields whose source expression cannot be
+    statically typed without environment context. -/
+def feltBackedTypeName : String := "Felt"
+
 structure EventPlan where
   name : String
-  dataFields : Array String
+  dataFields : Array (String × String)
   deriving Repr
 
 /-! ## Crosscall plan -/
@@ -192,8 +247,10 @@ end
 /-- Collect events from a statement. -/
 partial def stmtEvents (s : IR.Statement) : Array EventPlan :=
   match s with
-  | .effect (.eventEmit name fields) => #[{ name, dataFields := fields.map (·.fst) }]
-  | .effect (.eventEmitIndexed name _ dataFields) => #[{ name, dataFields := dataFields.map (·.fst) }]
+  | .effect (.eventEmit name fields) =>
+      #[{ name, dataFields := fields.map (fun (n, e) => (n, exprTypeName? e |>.getD feltBackedTypeName)) }]
+  | .effect (.eventEmitIndexed name _ dataFields) =>
+      #[{ name, dataFields := dataFields.map (fun (n, e) => (n, exprTypeName? e |>.getD feltBackedTypeName)) }]
   | .ifElse _ thenBody elseBody => thenBody.flatMap stmtEvents ++ elseBody.flatMap stmtEvents
   | .boundedFor _ _ _ body => body.flatMap stmtEvents
   | _ => #[]
