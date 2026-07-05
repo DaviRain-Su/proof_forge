@@ -5408,6 +5408,24 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       require (op == .add) "Lower scalar storage assign_op target op"
       requireScalarStorageTarget valueTarget 0 0 8 "Lower scalar storage assign_op value target"
   | _ => throw <| IO.userError "Lower scalar storage assign_op must produce storageScalarAssignOpTarget"
+  let loweredFixedSlotWriteEffect ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      eip1967PackingProbe
+      (toValidateTypeEnv #[{ name := "impl", type := .address, isMutable := false }])
+      (.storageScalarWrite "$eip1967.implementation" (.local "impl")))
+    "Lower fixed-slot scalar storage write target effect plan"
+  match loweredFixedSlotWriteEffect with
+  | .storageScalarWriteTarget target (.local valueName) => do
+      match target.slot with
+      | .fixedSlot slotHex =>
+          require
+            (slotHex == "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+            "Lower fixed-slot scalar storage write target slot"
+      | _ => throw <| IO.userError "Lower fixed-slot scalar storage write must use fixed slot target"
+      require (target.byteOffset == 0) "Lower fixed-slot scalar storage write byte offset"
+      require (target.byteWidth == 32) "Lower fixed-slot scalar storage write byte width"
+      require (valueName == "impl") "Lower fixed-slot scalar storage write value"
+  | _ => throw <| IO.userError "Lower fixed-slot scalar storage write must produce storageScalarWriteTarget"
   let directPlannedReadExpr ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetReadExpr
       toYulError
@@ -5831,6 +5849,29 @@ def testMapWritePlanToYul : IO Unit := do
           require (addArgs.size == 2) "map set-return effect value checked add arg count"
       | _ => throw <| IO.userError "map set-return effect value must be plan-lowered checked add"
   | _ => throw <| IO.userError "map set-return effect must lower through EffectPlan"
+  let insertStmt ← requireOk
+    (lowerEffectStmt
+      ProofForge.IR.Examples.EvmMapProbe.module
+      env
+      (.storageMapInsert
+        "balances"
+        (.add (.local "key") (.literal (.u64 1)))
+        (.local "value")))
+    "map insert statement Lower-to-Yul"
+  match insertStmt with
+  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.call name args) => do
+      require (name == (Helper.mapWrite).name) "map insert statement helper"
+      require (args.size == 3) "map insert statement arg count"
+      match args[1]! with
+      | Lean.Compiler.Yul.Expr.call addName addArgs => do
+          require (addName == "__pf_checked_add") "map insert statement key checked add"
+          require (addArgs.size == 2) "map insert statement key checked add arg count"
+      | _ => throw <| IO.userError "map insert statement key must be plan-lowered checked add"
+      match args[2]! with
+      | Lean.Compiler.Yul.Expr.ident valueName =>
+          require (valueName == "value") "map insert statement value"
+      | _ => throw <| IO.userError "map insert statement value must be plan-lowered local"
+  | _ => throw <| IO.userError "map insert statement must lower through EffectPlan"
   let insertReturnExpr ← requireOk
     (lowerEffectExpr
       ProofForge.IR.Examples.EvmMapProbe.module
