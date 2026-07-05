@@ -38,9 +38,9 @@ blockers across `evm`, `solana-sbpf-asm`, and `wasm-near` are resolved:
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke, Anvil deploy, constructor body, stdlib (ERC-20/721/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2) |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Token-2022 extensions |
-| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke (15 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2) |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner), map storage, nativeValue lamports read |
+| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike | Counter/PureMath golden fixtures and smokes |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research (off-chain host, D-033) | `tsc` type-check, `wrangler` dry-run |
