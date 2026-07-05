@@ -214,6 +214,7 @@ partial def stmtEvents (s : IR.Statement) : Array EventPlan :=
       #[{ name, dataFields := (indexedFields ++ dataFields).map (fun (n, e) => (n, fieldType e)) }]
   | .ifElse _ thenBody elseBody => thenBody.flatMap stmtEvents ++ elseBody.flatMap stmtEvents
   | .boundedFor _ _ _ body => body.flatMap stmtEvents
+  | .whileLoop _ body => body.flatMap stmtEvents
   | _ => #[]
 
 mutual
@@ -268,6 +269,7 @@ partial def stmtContextOps (s : IR.Statement) : Array ContextOp :=
   | .assertEq lhs rhs _ _ => exprContextOps lhs ++ exprContextOps rhs
   | .ifElse c thenBody elseBody => exprContextOps c ++ thenBody.flatMap stmtContextOps ++ elseBody.flatMap stmtContextOps
   | .boundedFor _ _ _ body => body.flatMap stmtContextOps
+  | .whileLoop cond body => exprContextOps cond ++ body.flatMap stmtContextOps
   | .return v => exprContextOps v
   | _ => #[]
 
@@ -280,6 +282,7 @@ partial def stmtCrosscallTargets (s : IR.Statement) : Array String :=
   | .assertEq lhs rhs _ _ => exprCrosscallTargets lhs ++ exprCrosscallTargets rhs
   | .ifElse c thenBody elseBody => exprCrosscallTargets c ++ thenBody.flatMap stmtCrosscallTargets ++ elseBody.flatMap stmtCrosscallTargets
   | .boundedFor _ _ _ body => body.flatMap stmtCrosscallTargets
+  | .whileLoop cond body => exprCrosscallTargets cond ++ body.flatMap stmtCrosscallTargets
   | .return v => exprCrosscallTargets v
   | _ => #[]
 
