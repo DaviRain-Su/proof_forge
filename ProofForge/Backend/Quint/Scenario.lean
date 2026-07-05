@@ -13,7 +13,7 @@ structure Config where
   users : Array String := #["alice", "bob", "charlie"]
   maxSteps : Nat := 10
   nTraces : Nat := 10
-  deriving Repr
+  deriving Repr, Inhabited
 
 def Config.quintConstants (cfg : Config) : Array Constant := #[
   { name := "MAX_UINT", type := .int },

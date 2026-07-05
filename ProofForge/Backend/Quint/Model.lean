@@ -67,6 +67,7 @@ inductive Expr where
   | listLit (values : Array Expr)
   | mapLit (entries : Array (Expr × Expr))
   | ite (cond thenExpr elseExpr : Expr)
+  deriving Inhabited
 
 /-- A clause inside an action body. -/
 inductive ActionClause where
@@ -76,6 +77,7 @@ inductive ActionClause where
   | nondet (name : String) (domain : Expr) (body : ActionClause)
   | all (clauses : Array ActionClause)
   | any (clauses : Array ActionClause)
+  deriving Inhabited
 
 /-- A Quint action (entrypoint or step). -/
 structure Action where
@@ -114,5 +116,6 @@ structure Module where
   pureDefs : Array PureDef := #[]
   actions : Array Action := #[]
   vals : Array Val := #[]
+  deriving Inhabited
 
 end ProofForge.Backend.Quint
