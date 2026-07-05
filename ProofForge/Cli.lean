@@ -35,6 +35,7 @@ import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
 import ProofForge.Cli.Deploy
 import ProofForge.Cli.Check
+import ProofForge.Cli.Metadata
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -53,6 +54,7 @@ import ProofForge.IR.Examples.ElseIfProbe
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.CrosscallProbe
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.ErrorRefProbe
 import ProofForge.IR.Examples.PureMath
 import ProofForge.IR.Examples.EventProbe
@@ -271,6 +273,7 @@ inductive EmitMode where
   | counterIrAptos
   | counterIrSui
   | counterIrQuint
+  | valueVaultIrQuint
   deriving BEq, Inhabited
 
 def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
@@ -443,6 +446,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .counterIrAptos
   | .counterIrSui
   | .counterIrQuint => true
+  | .valueVaultIrQuint => true
   | _ => false
 
 def EmitMode.isLegacyAlias : EmitMode → Bool
@@ -645,6 +649,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-aptos [-o output-dir]       (Aptos Move Counter spike)",
     "  proof-forge --emit-counter-ir-sui [-o output-dir]         (Sui Move Counter MVP)",
     "  proof-forge --emit-counter-ir-quint [-o output.qnt]       (Quint Counter model)",
+    "  proof-forge --emit-value-vault-ir-quint [-o output.qnt]    (Quint ValueVault model)",
     "  proof-forge init [DIR] [--template portable-counter]",
     "",
     "EVM bytecode mode loads `spec : ContractSpec` from the Lean module and uses Foundry `cast sig` plus `solc --strict-assembly`.",
@@ -2851,6 +2856,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .counterIrSui }
   | "--emit-counter-ir-quint" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrQuint }
+  | "--emit-value-vault-ir-quint" :: rest, opts =>
+      parseArgs rest { opts with mode := .valueVaultIrQuint }
   | "-h" :: _, _ =>
       .error usage
   | "--help" :: _, _ =>
@@ -3133,7 +3140,16 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
   | "move-sui", "counter", fmt =>
       if fmt == "" || fmt == "sui" || fmt == "move" then Except.ok "--emit-counter-ir-sui"
       else Except.error s!"emit --target move-sui --fixture counter --format {fmt} is not supported; use --format sui"
-  | "quint", "counter", _ => Except.ok "--emit-counter-ir-quint"
+  | "quint", "counter", fmt =>
+      if fmt == "qnt" || fmt == "" then
+        Except.ok "--emit-counter-ir-quint"
+      else
+        Except.error s!"emit --target quint --fixture counter --format {fmt} is not yet supported; use --format qnt"
+  | "quint", "value-vault", fmt =>
+      if fmt == "qnt" || fmt == "" then
+        Except.ok "--emit-value-vault-ir-quint"
+      else
+        Except.error s!"emit --target quint --fixture value-vault --format {fmt} is not yet supported; use --format qnt"
   | t, f, fmt =>
       Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
@@ -6124,9 +6140,23 @@ def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
   let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
   match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.Counter.module scenario with
   | .ok source =>
-      let some parent := output.parent
-        | throw <| IO.userError s!"invalid output path: {output}"
-      IO.FS.createDirAll parent
+      match output.parent with
+      | some parent => IO.FS.createDirAll parent
+      | none => pure ()
+      IO.FS.writeFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.message
+
+def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/quint/ValueVault.qnt")
+  let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
+  match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.ValueVault.module scenario with
+  | .ok source =>
+      match output.parent with
+      | some parent => IO.FS.createDirAll parent
+      | none => pure ()
       IO.FS.writeFile output source
       IO.println s!"wrote {output}"
       return 0
@@ -6281,6 +6311,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .counterIrAptos => compileCounterIrAptos opts
   | .counterIrSui => compileCounterIrSui opts
   | .counterIrQuint => compileCounterIrQuint opts
+  | .valueVaultIrQuint => compileValueVaultIrQuint opts
 
 end ProofForge.Cli
 
@@ -6295,6 +6326,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   | "deploy" :: rest =>
     match ProofForge.Cli.Deploy.parseDeployOptions rest with
     | Except.ok opts => ProofForge.Cli.Deploy.deployCommand opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1
+  | "metadata" :: rest =>
+    match ProofForge.Cli.Metadata.parseMetadataOptions rest with
+    | Except.ok opts => ProofForge.Cli.Metadata.metadataCommand opts
     | Except.error msg =>
         IO.eprintln msg
         return 1

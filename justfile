@@ -431,6 +431,7 @@ psy-coverage:
 psy-metadata:
     lake build ProofForge.Backend.Psy.Metadata
     lake env lean --run Tests/PsyMetadata.lean
+    lake env lean --run Tests/CliMetadata.lean
 
 # Run Psy metadata validation unit tests (Python).
 psy-metadata-validation:

@@ -15,6 +15,776 @@ Each entry should include:
 - known limitations
 - next step
 
+## 2026-07-06
+
+### EVM Dead Write Fallback Helper Removal
+
+Commit: f610632
+
+Summary:
+
+- Removed now-unused `IR.lean` write/return fallback helpers:
+  `lowerScalarStorageWriteStmt`, `lowerMapSetReturnExpr`,
+  `lowerDynamicArrayWriteStmt`, and `lowerDynamicArrayPopStmt`.
+- Kept active scalar storage writes, map insert/set return effects, and
+  dynamic-array pop behavior on their existing `Lower.buildEffectPlan ->
+  ToYul` target-effect paths.
+- Left dynamic-array write-like behavior on storage-path write plans.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+rg -n "\blowerScalarStorageWriteStmt\b|\blowerMapSetReturnExpr\b|\blowerDynamicArrayWriteStmt\b|\blowerDynamicArrayPopStmt\b" ProofForge/Backend/Evm/IR.lean Tests/EvmSemanticPlan.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md docs/development-log.md
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Struct-valued scalar storage writes still keep compatibility field expansion
+  in `IR.lean`.
+- Storage-path write and assign-op fallback target selection still keeps
+  compatibility callbacks in `IR.lean`.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue shrinking write/assign fallback callback surfaces after each helper
+  is demonstrably unused.
+
+### EVM Legacy Storage-Path Read Wrapper Removal
+
+Commit: 11a7e10
+
+Summary:
+
+- Removed the now-unused `lowerStoragePathReadExpr` compatibility wrapper from
+  `IR.lean`.
+- Kept `lowerStoragePathReadExprTarget` because raw planned effects and
+  diagnostic-only paths still need a typed storage-path target callback.
+- Left expression-position storage-path reads on the existing
+  `Lower.buildEffectPlan` / `StorageSlotExprPlan -> ToYul` path.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+rg -n "\blowerStoragePathReadExpr\b|\blowerStoragePathReadExprTarget\b" ProofForge/Backend/Evm/IR.lean Tests/EvmSemanticPlan.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md docs/development-log.md
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `lowerStoragePathReadExprTarget` remains as a compatibility target callback
+  for raw planned effects and diagnostic-only paths.
+- Storage-path write and assign-op fallback target selection still keeps
+  compatibility callbacks in `IR.lean`.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue auditing storage-path callback surfaces and remove helpers once they
+  are demonstrably unused.
+
+### EVM Dead Storage Read Helper Removal
+
+Commit: 053b83f
+
+Summary:
+
+- Removed dead direct read compatibility helpers from `IR.lean` for map
+  get/contains, fixed-array read, dynamic-array read, and struct-array field
+  read.
+- Kept slot helpers that are still used by storage-path write and assign-op
+  fallback target selection.
+- Left direct storage read expressions on the existing
+  `lowerEffectExprThroughPlan` and `lowerPlanEffectExpr -> ToYul` boundary.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+rg -n "lowerMapGetExpr|lowerMapContainsExpr|lowerArrayReadExpr|lowerDynamicArrayReadExpr|lowerStructArrayFieldReadExpr|lowerMapSlotExpr" ProofForge/Backend/Evm/IR.lean Tests/EvmSemanticPlan.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md docs/development-log.md
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Slot helpers for array, dynamic-array, struct-array, and map path targets
+  remain because write and assign-op fallback target selection still uses them.
+- Storage-path target selection callbacks still exist until direct callers and
+  diagnostic-only paths no longer need them.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue auditing storage-path callback surfaces and remove helpers once they
+  are demonstrably unused.
+
+### EVM Legacy Map-Path Read Helper Removal
+
+Commit: 603a330
+
+Summary:
+
+- Removed the now-unused `lowerMapPathReadExpr` helper from `IR.lean`.
+- Kept nested-map storage-path read behavior on the shared
+  `StorageSlotExprPlan -> ToYul` path introduced by the earlier storage-path
+  read migration.
+- Confirmed `lowerMapPathReadExpr` no longer has code references after the
+  storage-path read fallback migration.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+rg -n "lowerMapPathReadExpr" ProofForge/Backend/Evm/IR.lean Tests/EvmSemanticPlan.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Map-path value and presence slot helpers remain because write and assign-op
+  fallback target selection still uses them.
+- Storage-path target selection callbacks still exist until direct callers and
+  diagnostic-only paths no longer need them.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue auditing storage-path callback surfaces and remove helpers once they
+  are demonstrably unused.
+
+### EVM Legacy Map-Path Write Helper Removal
+
+Commit: 2b042ba
+
+Summary:
+
+- Removed the now-unused `lowerMapPathWriteStmt` helper from `IR.lean`.
+- Kept nested-map storage-path write fallback behavior on the shared
+  `ToYul.storagePathWriteTargetStatements` frame added in the previous slice.
+- Confirmed `lowerMapPathWriteStmt` no longer has code references after the
+  storage-path write fallback migration.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+rg -n "lowerMapPathWriteStmt" ProofForge/Backend/Evm/IR.lean Tests/EvmSemanticPlan.lean docs/implementation-backlog.md docs/zh/implementation-backlog.zh.md
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Other generic non-storage-path map/array/struct write compatibility helpers
+  remain in `IR.lean`.
+- Storage-path target selection callbacks still exist until direct callers and
+  diagnostic-only paths no longer need them.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue auditing storage-path callback surfaces and remove helpers once they
+  are demonstrably unused.
+
+### EVM Storage-Path Write Fallback ToYul Slice
+
+Commit: 7fb513b
+
+Summary:
+
+- Reused `ToYul.storagePathWriteTargetStatements` from
+  `IR.lowerStoragePathWriteStmt` fallback paths.
+- Kept `IR.lean` responsible for choosing the fallback storage-path target and
+  scalar RHS expression, while moving the final map write helper, single-slot
+  `sstore`, and nested-map value/presence writeback frame behind `ToYul`.
+- Added a fallback semantic-plan test that forces a non-plan scalar RHS shape
+  and verifies the generated array storage-path write still uses the array slot
+  helper and lowered scalar value.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns fallback target selection and scalar RHS lowering for
+  storage-path write compatibility paths.
+- Generic non-storage-path map/array/struct write fallback helpers still keep
+  their existing compatibility frames.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue deleting legacy storage-path callback/fallback surfaces once direct
+  callers and diagnostic-only paths no longer need them.
+
+### EVM Storage-Path Assign-Op Fallback ToYul Slice
+
+Commit: 788f637
+
+Summary:
+
+- Reused `ToYul.storagePathAssignOpTargetStatements` from
+  `IR.lowerStoragePathAssignOpStmt` fallback paths.
+- Kept `IR.lean` responsible for choosing the fallback storage-path target and
+  scalar RHS expression, while moving the final map helper, single-slot `_slot`
+  block, and nested-map value/presence writeback frame behind `ToYul`.
+- Added a fallback semantic-plan test that forces a non-plan scalar RHS shape
+  and verifies the generated array storage-path assign-op block still declares
+  `_slot` and writes through the checked assignment frame.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns fallback target selection and scalar RHS lowering for
+  storage-path assign-op compatibility paths.
+- Storage-path write fallback surfaces still have compatibility logic in
+  `IR.lean` while direct target paths continue to use `Lower -> Plan -> ToYul`.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue reducing storage-path write fallback surfaces, then delete legacy
+  callback surfaces once direct callers and diagnostics no longer need them.
+
+### EVM Raw Struct-Array Field Read ToYul Slice
+
+Commit: 7b5697c
+
+Summary:
+
+- Moved raw compatibility `EffectPlan.storageArrayStructFieldRead` expression
+  frame construction from `IR.lean` into
+  `ToYul.structArrayFieldReadExpr`.
+- Kept `IR.lowerPlanEffectExpr` responsible only for validating the
+  struct-array state and looking up its root slot, length, field count, and
+  field offset before delegating the Yul expression frame.
+- Made `structArrayFieldReadTargetExpr` reuse the same raw metadata helper, so
+  raw and target struct-array field reads share the final
+  `sload(__proof_forge_struct_array_slot(...))` frame.
+- Added semantic-plan tests that call the raw ToYul struct-array field read
+  helper directly in addition to existing target-plan and IR facade coverage.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns the struct-array state/root-slot/length/field metadata
+  lookup for the raw compatibility plan variant; only the final struct-array
+  field read Yul expression frame moved behind `ToYul`.
+- Storage-path read/write fallback surfaces still keep compatibility logic in
+  `IR.lean` while typed path expression planning continues to broaden.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by reducing the remaining
+  storage-path read/write fallback surface in `IR.lean`.
+
+### EVM Raw Struct Field Read ToYul Slice
+
+Commit: 5c45e07
+
+Summary:
+
+- Moved raw compatibility `EffectPlan.storageStructFieldRead` expression frame
+  construction from `IR.lean` into `ToYul.structFieldReadExpr`.
+- Kept `IR.lowerPlanEffectExpr` responsible only for validating the struct
+  state and looking up the field slot before delegating the Yul expression
+  frame.
+- Kept `structFieldReadTargetExpr` on the generic target-slot path while the
+  raw helper owns the numeric-slot frame.
+- Added semantic-plan tests that call the raw ToYul struct-field read helper
+  directly in addition to existing target-plan and IR facade coverage.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns the struct state/field-slot lookup for the raw
+  compatibility plan variant; only the final struct-field read Yul expression
+  frame moved behind `ToYul`.
+- Raw struct-array read expression frames still have an IR-local compatibility
+  branch.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the raw struct-array read
+  expression frame from `IR.lean` into `ToYul`.
+
+### EVM Raw Array Read ToYul Slice
+
+Commit: 4479430
+
+Summary:
+
+- Moved raw compatibility `EffectPlan.storageArrayRead` expression frame
+  construction from `IR.lean` into `ToYul.arrayReadExpr`.
+- Kept `IR.lowerPlanEffectExpr` responsible only for validating the storage
+  array state and looking up its root slot plus static length before delegating
+  the Yul expression frame.
+- Made `arrayReadTargetExpr` reuse the same raw root-slot/length helper.
+- Added semantic-plan tests that call the raw ToYul array read helper directly
+  in addition to existing target-plan and IR facade coverage.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns the storage array state/root-slot/length lookup for the
+  raw compatibility plan variant; only the final array read Yul expression
+  frame moved behind `ToYul`.
+- Raw struct and struct-array read expression frames still have IR-local
+  compatibility branches.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small raw storage
+  read expression frame from `IR.lean` into `ToYul`.
+
+### EVM Raw Map Read ToYul Slice
+
+Commit: e6eca8c
+
+Summary:
+
+- Moved raw compatibility `EffectPlan.storageMapContains` and
+  `EffectPlan.storageMapGet` expression frame construction from `IR.lean` into
+  `ToYul.mapContainsExpr` and `ToYul.mapGetExpr`.
+- Kept `IR.lowerPlanEffectExpr` responsible only for validating the map state
+  and looking up its root slot before delegating the Yul expression frame.
+- Made the planned target helpers `mapContainsTargetExpr` and
+  `mapGetTargetExpr` reuse the same raw root-slot helpers.
+- Added semantic-plan tests that call the raw ToYul map read helpers directly in
+  addition to the existing target-plan and IR facade coverage.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- `IR.lean` still owns the map state/root-slot lookup for raw compatibility
+  plan variants; only the final map read Yul expression frame moved behind
+  `ToYul`.
+- Other raw storage read expression frames, such as array and struct reads,
+  still have IR-local compatibility branches.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility expression or statement frame from raw `IR.lean` into
+  `Lower -> Plan -> ToYul`.
+
+### EVM Planned Map Helper Discovery Slice
+
+Commit: d837d0a
+
+Summary:
+
+- Extended the complete-plan helper scanner to detect map slot, presence,
+  statement write, expression set-return, and map assign-op helper
+  requirements from planned `EntrypointPlan.body` trees.
+- Replaced broad state-shape-derived map helpers for complete module plans, so
+  unused map state no longer emits map helpers and narrow map reads/writes emit
+  only the helper subset they actually call.
+- Split `ToYul` map base helper definitions so `mapSlot`, `mapPresenceSlot`,
+  `mapWrite`, and `mapSetReturn` can be emitted independently while
+  map assign-op helper emission stays driven by `ModulePlan.mapAssignOps`.
+- Recomputed `ModulePlan.mapAssignOps` from the final helper set after complete
+  plan helper replacement.
+- Added semantic-plan tests for unused-map, contains-only, get-only,
+  statement-write-only, expression set-return-only, and map assign-op-only
+  modules.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Base and incomplete/best-effort plans still use the raw helper scanner; the
+  complete-plan override now covers memory-array, hash, storage-array, and map
+  helper subsets.
+- This slice moves helper discovery and helper emission precision, not the
+  remaining raw compatibility paths for all EVM statement/expression lowering.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility boundary from raw `IR.lean` into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Storage-Array Helper Discovery Slice
+
+Commit: 0f30959
+
+Summary:
+
+- Extended the complete-plan helper scanner to detect storage fixed-array,
+  dynamic-array, and struct-array slot helper requirements from planned
+  `EntrypointPlan.body` trees.
+- Replaced state-shape-derived helper requirements for complete module plans, so
+  unused storage array declarations no longer emit `arraySlot`,
+  `dynamicArraySlot`, or `structArraySlot` helpers.
+- Added semantic-plan tests for unused fixed-array, dynamic-array, and
+  struct-array state plus positive coverage for existing storage array fixtures.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- Base and incomplete/best-effort plans still use the raw helper scanner; the
+  complete-plan override now covers memory-array, hash, and storage-array
+  helper subsets.
+- Map helper discovery is still broader and remains a separate follow-up slice.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility boundary from raw `IR.lean` into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Hash Helper Discovery Slice
+
+Commit: e5b14f3
+
+Summary:
+
+- Generalized the planned helper scanner so complete EVM module plans can
+  discover helper requirements from planned `EntrypointPlan.body` trees.
+- Replaced broad capability-derived hash helper requirements in complete module
+  plans with planned-body discovery: `hash(x)` requires only `hashWord`, and
+  `hashTwoToOne(a,b)` requires only `hashPair`.
+- Split `ToYul` hash helper definitions so hash word and hash pair helpers can
+  be emitted independently.
+- Added semantic-plan tests for hash-word-only and hash-pair-only modules,
+  including raw-plan over-emission contrasts and target-plan parity checks.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- Base and incomplete/best-effort plans still use the capability/raw helper
+  scanner; complete module plans now replace the memory-array and hash helper
+  subsets precisely.
+- This slice moves helper discovery and helper emission precision, not the
+  remaining aggregate statement compatibility paths in `IR.lean`.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility boundary from raw `IR.lean` into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Memory-Array Helper Discovery Slice
+
+Commit: bb9ef6f
+
+Summary:
+
+- Replaced broad complete-plan memory-array helper requirements with helper
+  requirements discovered from planned `EntrypointPlan.body` trees.
+- Split `ToYul` memory-array helper definitions so `memoryArrayNew` and
+  `memoryArrayGet` can be emitted independently.
+- Kept base/best-effort module plans on the raw capability helper surface while
+  making `Lower.buildFullModulePlan` and
+  `Lower.buildFullModulePlanWithTargetPlan` own complete-plan memory-array
+  helper precision.
+- Added semantic-plan tests for length-only, new-only, and get-only memory-array
+  modules, including a raw-plan over-emission contrast for `memoryArrayLength`.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- Base and incomplete/best-effort plans still use the capability/raw helper
+  scanner; complete module plans now replace only the memory-array helper subset.
+- This slice moves helper discovery and helper emission precision, not the full
+  memory-array lifecycle or remaining aggregate statement compatibility paths.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility boundary from raw `IR.lean` into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Memory-Array Expression Body Slice
+
+Commit: 00e8306
+
+Summary:
+
+- Added planned-body support for `ExprPlan.memoryArrayNew`,
+  `ExprPlan.memoryArrayLength`, and `ExprPlan.memoryArrayGet` when their nested
+  expressions are already supported.
+- Let supported control-flow branch bodies lower memory-array length/get
+  expressions through the existing `ExprPlan -> ToYul` expression boundary.
+- Added semantic-plan coverage for memory-array length over an existing local
+  buffer, length over a planned memory-array allocation, and memory-array get
+  helper calls inside planned `ifElse` bodies.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- Memory-array expressions are now eligible inside supported planned bodies, but
+  array-typed local bindings and wider memory-array lifecycle orchestration
+  still remain outside the planned-body subset.
+- This slice expands expression eligibility only; broader recursive
+  `StmtPlan -> Yul` extraction still needs to continue incrementally.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the `IR.lean` compatibility facade by moving the next
+  statement/effect boundary into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Memory-Array Set Body Slice
+
+Commit: 7c24232
+
+Summary:
+
+- Added `EffectPlan.memoryArraySet` to the planned-body support predicate for
+  EVM statement bodies.
+- Let supported `ifElse`/`boundedFor` planned-body lowering consume
+  memory-array set effects directly through
+  `ToYul.memoryArraySetEffectStmtPlanStatements`.
+- Added semantic-plan coverage that proves memory-array set effects inside
+  control-flow branches lower as direct planned `mstore` frames instead of
+  falling back to the older block-wrapped compatibility statement path.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- Memory-array set itself is now eligible for planned-body lowering, but broader
+  memory-array lifecycle and unsupported aggregate statement shapes still remain
+  on their existing compatibility surfaces.
+- This slice only expands the planned-body support predicate and tests the
+  control-flow path; broader recursive `StmtPlan -> Yul` extraction still needs
+  to continue incrementally.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue shrinking the `IR.lean` compatibility facade by moving the next
+  statement/effect boundary into `Lower -> Plan -> ToYul`.
+
+### EVM Planned Context Ops Discovery Slice
+
+Commit: eb062af
+
+Summary:
+
+- Moved `ModulePlan.contextOps` discovery for complete EVM module plans from
+  the base raw-IR scanner to the already-built `EntrypointPlan.body`
+  `StmtPlan`/`ExprPlan` tree.
+- Added planned traversal for `ExprPlan.context`, `EffectPlan.contextRead`,
+  nested `blockHash` arguments, event word plans, crosscall/create arguments,
+  storage target expression slots, and supported control-flow bodies.
+- Preserved `Plan.contextOpsFromModule` as the base/best-effort compatibility
+  scanner while making `buildFullModulePlan` and
+  `buildFullModulePlanWithTargetPlan` own the complete-plan summary.
+- Added `ContextOpsPlanProbe` semantic-plan coverage plus injected planned-body
+  coverage for nested `blockHash(.context timestamp)` discovery.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Known limitations:
+
+- `contextOps` is now planned for complete module plans, but fallback/base plans
+  still use the raw-IR compatibility scanner by design.
+- This slice only moves the context operation summary; remaining EVM semantic
+  migration work still needs to continue through the next compatibility
+  boundaries in `IR.lean`.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue the EVM semantic-plan migration by moving the next small
+  compatibility boundary from raw `IR.lean` into `Lower -> Plan -> ToYul`.
+
 ## 2026-07-05
 
 ### Quint Integration Phase 3 v1
@@ -72,6 +842,104 @@ Next step:
 - Add a ValueVault IR fixture, lower it to Quint, and extend the MBT replay gate
   to cover it; then consider wiring `quint verify` into the default CI path once
   Java 17+ is available.
+
+### EVM Dynamic-Array EffectPlan Routing
+
+Commit: 5fda3c4
+
+Summary:
+
+- Routed statement-position dynamic-array push/pop effects through
+  `Lower.buildEffectPlan` before final ToYul statement lowering.
+- Removed IR-local push value expression planning from the plan-supported
+  dynamic-array push statement path.
+- Reused `ToYul.dynamicArrayPushEffectStmtPlanStatements` and
+  `ToYul.dynamicArrayPopEffectStmtPlanStatements` for planned dynamic-array
+  effects.
+- Added semantic-plan coverage for direct dynamic-array push/pop statement
+  lowering, including planned checked-add push values and planned root-slot
+  length loads.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Dynamic-array push still keeps the existing fallback error path for expression
+  shapes that are not yet covered by planned scalar Yul lowering.
+- Dynamic-array write through storage paths and some aggregate statement paths
+  still keep compatibility helpers.
+- Some aggregate expression, statement, storage, and event paths still pass
+  through the compatibility facade until their own semantic-plan slices land.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue by moving storage-path dynamic-array writes or another aggregate
+  statement boundary from compatibility helpers into
+  `Lower -> EffectPlan -> ToYul`.
+
+### EVM Struct-Array-Field Write Statement EffectPlan Routing
+
+Commit: c9f358c
+
+Summary:
+
+- Routed statement-position storage struct-array-field write effects through
+  `Lower.buildEffectPlan` before final ToYul statement lowering.
+- Removed IR-local reconstruction of struct-array-field write target plans and
+  index/value expression plans from the plan-supported struct-array-field write
+  statement path.
+- Reused `ToYul.structArrayFieldWriteTargetEffectStmtPlanStatements` for planned
+  struct-array-field write target effects.
+- Strengthened semantic-plan coverage for direct struct-array-field write
+  statement lowering by checking planned root slot, length, and field offset.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Known limitations:
+
+- Struct-array-field write statements still keep the existing fallback path for
+  expression shapes that are not yet covered by planned scalar Yul lowering.
+- Dynamic-array push/pop and some aggregate statement paths still keep
+  per-effect compatibility helpers.
+- Some aggregate expression, statement, storage, and event paths still pass
+  through the compatibility facade until their own semantic-plan slices land.
+- `lake build` still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint.Scenario`, `Quint.Lower`, and `Cli`.
+
+Next step:
+
+- Continue by moving the next dynamic-array or aggregate statement boundary from
+  compatibility helpers into `Lower -> EffectPlan -> ToYul`.
 
 ### EVM Struct-Field Write Statement EffectPlan Routing
 
@@ -15905,3 +16773,766 @@ Result:
   representable as `ExprPlan.structField (.localArrayGet ...)`.
 - EVM semantic-plan, diagnostics, struct-array value IR smoke, full Lake build,
   and whitespace checks passed locally.
+
+### EVM Whole Struct Storage Write EffectPlan Slice
+
+Commit: 056eafa
+
+Summary:
+
+- Routed whole-struct `storageScalarWrite` statement lowering through
+  `Lower.buildEffectPlan` before handing the resulting `EffectPlan` to the
+  existing `ToYul.storageStructWriteEffectStmtPlanStatements` helper.
+- Kept struct metadata lookup and per-field source expansion in the
+  `IR.lean` compatibility facade for this slice, while removing the local
+  `buildExprPlan` + manual `.storageScalarWrite` construction from the
+  successful planned path.
+- Added a semantic-plan regression that checks `Lower.buildEffectPlan` produces
+  a `storageScalarWrite` plan for supported struct literals, including checked
+  arithmetic fields and planned scalar storage reads.
+- Updated the implementation backlog and Chinese backlog note to describe the
+  new `Lower.buildEffectPlan -> EffectPlan -> ToYul` path.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Whole-struct storage writes now enter the same `Lower.buildEffectPlan`
+  boundary as scalar, map, array, struct-field, struct-array-field, dynamic
+  array, and storage-path write slices.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Planned Create Helper Discovery Slice
+
+Commit: cfa8241
+
+Summary:
+
+- Added planned-body create/create2 helper discovery over `EntrypointPlan.body`
+  `StmtPlan`/`ExprPlan` trees, including nested expression traversal through
+  call values, create2 salts, storage expression targets, event word plans, and
+  crosscall argument expressions.
+- Routed complete `Lower.buildFullModulePlan` and
+  `Lower.buildFullModulePlanWithTargetPlan` create helper specs through the
+  planned entrypoint-body scanner instead of re-scanning raw portable IR
+  statements.
+- Kept the raw-IR `Lower.buildCreateHelperPlans` scanner available for
+  incomplete/legacy plan surfaces.
+- Added semantic-plan coverage proving complete plans preserve planned-body
+  create helper discovery and that injected planned `create`/`create2`
+  expressions are discovered even when the raw Counter IR has no create
+  helpers.
+- Updated the implementation backlog and Chinese backlog note to document the
+  planned-body create helper discovery boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Result:
+
+- Complete EVM `ModulePlan.creates` now comes from planned
+  `EntrypointPlan.body` traversal; raw IR create helper scanning is retained
+  only for fallback/legacy plan surfaces.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Planned Local-Array Helper Discovery Slice
+
+Commit: 387e6d0
+
+Summary:
+
+- Added planned-body local fixed-array helper discovery over
+  `EntrypointPlan.body` `StmtPlan`/`ExprPlan` trees.
+- Routed complete `Lower.buildFullModulePlan` and
+  `Lower.buildFullModulePlanWithTargetPlan` `localArrayGetLengths` and
+  `nestedLocalArrayGetShapes` through the planned entrypoint-body scanner
+  instead of re-scanning raw portable IR statements.
+- Covered planned dynamic `ExprPlan.localArrayGet` paths, nested local-array
+  shapes, dynamic array-literal getters, event word plans, storage expression
+  targets, and crosscall/create argument expressions.
+- Kept `Lower.buildLocalArrayGetLengths` and
+  `Lower.buildNestedLocalArrayGetShapes` as incomplete/legacy plan fallback
+  sources used by `lowerModuleWithPlan`.
+- Tightened the complete plan helper set for `EvmArrayValueProbe`: planned
+  discovery now emits the nested `[2, 2]` helper without the legacy raw
+  scanner's extra standalone length-2 row helper.
+- Updated the implementation backlog and Chinese backlog note to document the
+  planned-body local-array helper discovery boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Result:
+
+- Complete EVM `ModulePlan.localArrayGetLengths` and
+  `ModulePlan.nestedLocalArrayGetShapes` now come from planned
+  `EntrypointPlan.body` traversal; raw IR local-array helper scanning is
+  retained only for fallback/legacy plan surfaces.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Planned Checked Arithmetic Discovery Slice
+
+Commit: cade659
+
+Summary:
+
+- Added planned-body checked-arithmetic discovery over `EntrypointPlan.body`
+  `StmtPlan`/`ExprPlan` trees, including nested expression traversal,
+  planned `.checkedArith` expressions, planned `assignOp` nodes, storage
+  assign-op effects, storage expression targets, event word plans, and
+  crosscall/create argument expressions.
+- Routed complete `Lower.buildFullModulePlan` and
+  `Lower.buildFullModulePlanWithTargetPlan` `usesCheckedArithmetic` through
+  the planned entrypoint-body scanner instead of re-scanning raw portable IR
+  statements.
+- Kept `Validate.moduleUsesCheckedArithmetic` as the incomplete/legacy plan
+  fallback source used by `lowerModuleWithPlan`.
+- Added semantic-plan coverage proving complete plans preserve planned-body
+  checked-arithmetic discovery and that injected planned `.checkedArith` and
+  `assignOp` bodies are detected even when the raw native-transfer IR has no
+  checked arithmetic.
+- Updated the implementation backlog and Chinese backlog note to document that
+  local fixed-array getter discovery remains a separate follow-up slice.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Result:
+
+- Complete EVM `ModulePlan.usesCheckedArithmetic` now comes from planned
+  `EntrypointPlan.body` traversal; raw IR checked-arithmetic scanning is
+  retained only for fallback/legacy plan surfaces.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Dynamic Local Assignment ExprPlan Slice
+
+Commit: f5e6c00
+
+Summary:
+
+- Routed dynamic local aggregate assignment snapshot expressions through
+  `Lower.buildExprPlan -> ExprPlan -> ToYul` before emitting the shared
+  `ToYul` switch frames.
+- Covered dynamic fixed-array assignment, dynamic fixed-array compound
+  assignment, dynamic struct-array field assignment, and dynamic struct-array
+  field compound assignment.
+- Kept path resolution and local aggregate target validation in the `IR.lean`
+  compatibility facade for this slice, while moving dynamic index/value
+  expression lowering out of direct `IR.lowerExpr` calls.
+- Updated the implementation backlog and Chinese backlog note to record the
+  planned snapshot-expression boundary.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Dynamic local aggregate assignment switch frames now consume planned
+  index/value snapshot expressions before `ToYul` emits the snapshot locals,
+  switch default, checked-assignment RHS, and case bodies.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Local Array Getter ExprPlan Slice
+
+Commit: bb013e9
+
+Summary:
+
+- Routed direct expression-position local fixed-array reads through
+  `Lower.buildExprPlan` when the plan is a `.localArrayGet`, then reused the
+  existing `ExprPlan -> ToYul` lowering for static and dynamic local-array
+  helper-call assembly.
+- Kept unsupported aggregate local-array leaves and array-literal fallback
+  behavior on the existing compatibility path, preserving the current explicit
+  diagnostics for struct-array element reads that require field access.
+- Added a semantic-plan regression for a direct local-array read with a
+  checked-add dynamic index, proving the direct `IR.lowerExpr` entrypoint now
+  consumes the planned index expression before helper-call emission.
+- Updated the implementation backlog and Chinese backlog note so the documented
+  local-array getter boundary matches the active lowering path.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Direct local fixed-array reads now use the same `Lower.buildExprPlan ->
+  ExprPlan.localArrayGet -> ToYul` route as planned control-flow and helper
+  discovery paths.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Struct Field Getter ExprPlan Slice
+
+Commit: 0782c9d
+
+Summary:
+
+- Routed direct expression-position local struct-field reads through
+  `Lower.buildExprPlan` when the plan is a supported `.structField`, then reused
+  the existing `ExprPlan -> ToYul` lowering for local structs, struct literals,
+  and local struct-array leaves.
+- Preserved storage-backed struct reads, nested local fixed-array struct leaves,
+  and unsupported aggregate fallback behavior on the compatibility path.
+- Added semantic-plan regressions for direct local struct-field planning and a
+  dynamic local struct-array field read whose checked-add index must lower
+  through `ExprPlan` before helper-call emission.
+- Updated the implementation backlog and Chinese backlog note so the documented
+  struct-field getter boundary matches the active lowering path.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Direct local struct-field reads now use the same `Lower.buildExprPlan ->
+  ExprPlan.structField -> ToYul` route as planned control-flow and local-array
+  getter paths.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Array Literal Getter ExprPlan Slice
+
+Commit: b211189
+
+Summary:
+
+- Routed direct expression-position scalar array-literal reads through
+  `Lower.buildExprPlan` when the plan is `.arrayGet (.arrayLit ..) index`, then
+  reused the existing `ExprPlan -> ToYul` lowering for static selection and
+  dynamic helper-call assembly.
+- Added an isolated semantic-plan regression that asserts the complete
+  array-literal get expression lowers to an `ExprPlan.arrayGet` with an
+  `ExprPlan.arrayLit` base and a checked-add index before `IR.lowerExpr`
+  delegates helper-call emission to `ToYul`.
+- Kept aggregate array values and unsupported local-array leaf fallbacks on the
+  compatibility path.
+- Updated the implementation backlog and Chinese backlog note so the documented
+  array-literal getter boundary matches the active lowering path.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Direct scalar array-literal reads now use the same `Lower.buildExprPlan ->
+  ExprPlan.arrayGet/arrayLit -> ToYul` route as the local-array and struct-field
+  getter paths.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Storage Path Target ExprPlan Slice
+
+Commit: 07c1534
+
+Summary:
+
+- Routed the compatibility `lowerStoragePathWriteTarget` helper through
+  `Lower.buildStoragePathPlan -> StoragePathWriteExprTargetPlan -> ToYul`
+  instead of the older `StoragePathWriteTargetPlan`/`ValuePlan` path.
+- Added a semantic-plan regression that asserts a raw map storage path segment
+  becomes a typed `StoragePathPlanSegment.mapKey` carrying a checked-add
+  `ExprPlan`, then verifies the compatibility target helper lowers that typed
+  target to the expected checked-add Yul key.
+- Updated the implementation backlog and Chinese backlog note so the documented
+  storage-path boundary reflects the active typed path-segment planning route.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build proof-forge
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+git diff --check
+```
+
+Result:
+
+- Compatibility storage-path write target lowering now consumes the same typed
+  path-segment `ExprPlan` route as planned storage-path write/assign-op effects.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Storage Path Read ExprPlan Slice
+
+Commit: dbdae98
+
+Summary:
+
+- Routed the compatibility `lowerStoragePathReadExprTarget` helper through
+  `Lower.buildStoragePathPlan -> StorageSlotExprPlan -> ToYul` instead of the
+  older `StorageSlotPlan`/`ValuePlan` path.
+- Updated expression-position `storagePathRead` handling in `lowerPlanEffectExpr`
+  so raw path segment expressions are typed as `StoragePathPlanSegment` values
+  before final `sload` assembly.
+- Added semantic-plan regressions proving a raw map-key read path carries a
+  checked-add `ExprPlan` key and that raw expression/effect read compatibility
+  paths lower that key through the planned `__pf_checked_add` Yul helper.
+- Updated the implementation backlog and Chinese backlog note so read and write
+  storage-path compatibility routes both document the typed path-segment
+  boundary.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+scripts/evm/ir-counter-smoke.sh
+just evm-diagnostics
+git diff --check
+```
+
+Result:
+
+- Compatibility storage-path read lowering now consumes the same typed
+  path-segment `ExprPlan` route as planned storage-path read/write effects.
+- EVM semantic-plan tests, EVM plan tests, event/counter IR smokes, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Dynamic Array TargetPlan Slice
+
+Commit: eac5609
+
+Summary:
+
+- Added `DynamicArrayTargetPlan` and target `EffectPlan` variants for
+  dynamic-array push/pop root-slot planning.
+- Routed successful `Lower.buildEffectPlan` dynamic-array push/pop effects
+  through `DynamicArrayTargetPlan -> ToYul` helpers, so root-slot selection and
+  dynamic slot helper assembly no longer come from `IR.lean` callbacks.
+- Kept the old callback helpers for legacy/fallback variants while planned body
+  lowering and direct effect statements consume the target helper path.
+- Added semantic-plan regressions for Lower target variants and direct ToYul
+  target helper assembly.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Result:
+
+- Dynamic-array push/pop success paths now use target semantic plans for
+  root-slot and slot-helper assembly.
+- EVM semantic-plan tests, i18n sync, JSON validation, EVM IR build, and
+  whitespace checks passed locally.
+
+### EVM Event Statement Lower Plan Slice
+
+Commit: fb5a58e
+
+Summary:
+
+- Routed the compatibility `lowerEventEmitCoreStmt` facade through
+  `Lower.buildEffectPlan` for portable `eventEmit`/`eventEmitIndexed` effects
+  instead of reconstructing `EventPlan` and field value source plans in
+  `IR.lean`.
+- Restricted that facade to the word-planned `eventEmitWords` and
+  `eventEmitIndexedWords` effects before delegating final event block assembly
+  to `ToYul.eventEffectStmtPlanStatements`.
+- Added semantic-plan regressions proving ordinary and indexed portable event
+  statements lower to word-planned event effects before the compatibility facade
+  emits Yul.
+- Updated the implementation backlog and Chinese backlog note to reflect the
+  new event statement entrypoint boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmPlan.lean
+scripts/evm/event-ir-smoke.sh
+just evm-diagnostics
+git diff --check
+```
+
+Result:
+
+- Ordinary and indexed event statements now enter the same
+  `Lower.buildEffectPlan -> event word plans -> ToYul` path as planned-body
+  event effects.
+- EVM semantic-plan tests, EVM plan tests, event IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Aggregate Crosscall Return Plan Slice
+
+Commit: edd45b1
+
+Summary:
+
+- Added `ToYul.crosscallAggregateReturnAssignmentPlanStatement` so aggregate
+  crosscall return plans own target/method/call-value lowering, planned argument
+  word traversal, helper-call selection, argument ordering, and multi-return
+  assignment construction behind the ToYul plan boundary.
+- Routed `IR.lowerCrosscallReturnAssignmentPlan` through that helper, leaving
+  `IR.lean` responsible only for local/storage crosscall word-source provider
+  callbacks.
+- Added semantic-plan coverage for provider-backed aggregate crosscall return
+  assignment plans with local aggregate argument words plus scalar literal
+  argument words.
+- Updated the implementation backlog and Chinese backlog note to record the new
+  aggregate crosscall return assignment boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+just evm-smoke crosscall
+git diff --check
+```
+
+Result:
+
+- Aggregate crosscall return assignment now flows through
+  `CrosscallReturnAssignmentPlan -> ToYul` for helper-call and assignment frame
+  construction.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Storage Crosscall WordPlan Slice
+
+Commit: 4a5c5bd
+
+Summary:
+
+- Changed storage-backed struct crosscall arguments so `Lower` preserves the
+  already computed storage word plans as explicit
+  `CrosscallArgWordPlan.expr (.storageLoad ...)` entries.
+- Removed the active-path need to carry a provider-backed
+  `CrosscallArgWordPlan.storage` source marker for storage-backed struct
+  crosscall arguments.
+- Updated semantic-plan coverage for planned-body crosscall returns and direct
+  scalar expression crosscalls to assert storage-backed aggregate arguments
+  carry concrete storage-load word plans.
+- Updated the implementation backlog and Chinese backlog note to record the
+  storage crosscall source boundary change.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+just evm-smoke crosscall
+git diff --check
+```
+
+Result:
+
+- Storage-backed aggregate struct crosscall arguments now enter ToYul as
+  planned storage-load word expressions instead of storage source callbacks on
+  the active Lower path.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Local Crosscall WordPlan Slice
+
+Commit: 374d5fb
+
+Summary:
+
+- Added `Lower.localCrosscallWordPlans` so local aggregate crosscall arguments
+  expand into explicit planned local word expressions before ToYul.
+- Routed local struct and fixed-array crosscall argument lowering through
+  `CrosscallArgWordPlan.expr (.local ...)` word plans instead of active-path
+  `CrosscallArgWordPlan.local` provider markers.
+- Updated semantic-plan coverage for planned-body crosscall returns and direct
+  scalar expression crosscalls to assert local aggregate arguments carry
+  concrete local word plans.
+- Updated the implementation backlog and Chinese backlog note to record the
+  local crosscall source boundary change.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake build
+lake env lean --run Tests/EvmPlan.lean
+just evm-diagnostics
+just evm-smoke crosscall
+git diff --check
+```
+
+Result:
+
+- Local aggregate crosscall arguments now enter ToYul as planned local word
+  expressions instead of local source callbacks on the active Lower path.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Storage Fixed-Array Crosscall WordPlan Slice
+
+Commit: ad2602a
+
+Summary:
+
+- Extended `Lower.storageCrosscallWordPlans` so storage-backed fixed arrays can
+  expand into explicit planned storage-load word expressions before ToYul.
+- Routed crosscall fixed-array arguments that are assembled from storage array
+  reads through the same storage-backed source recognition used by ABI return
+  and event planning.
+- Added semantic-plan coverage for scalar storage arrays and struct storage
+  arrays as typed crosscall arguments, including concrete `arraySlot` and
+  `structArrayFieldSlot` word plans.
+- Updated the implementation backlog and Chinese backlog note to record that
+  storage-backed struct and fixed-array crosscall arguments are now expanded on
+  the active Lower path.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+git diff --check
+```
+
+Result:
+
+- Storage-backed fixed-array and struct-array crosscall arguments now enter
+  ToYul as planned storage-load word expressions instead of per-element storage
+  read expressions or provider-backed source markers on the active Lower path.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The first concurrent validation attempt hit a transient empty
+  `.lake/build/ir/ProofForge/Cli.setup.json`; the sequential `lake build`
+  rerun passed. The full Lake build still reports pre-existing unused-variable
+  warnings in `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Planned Crosscall Helper Discovery Slice
+
+Commit: 5df7ae0
+
+Summary:
+
+- Added planned-body crosscall helper discovery over `EntrypointPlan.body`
+  `StmtPlan`/`ExprPlan` trees, including nested expression traversal,
+  planned argument word arity, return word layout, and native-transfer
+  detection.
+- Routed complete `Lower.buildFullModulePlan` crosscall helper specs through
+  the planned entrypoint-body scanner instead of re-scanning raw portable IR
+  statements.
+- Kept the raw-IR `Lower.buildCrosscallHelperPlans` scanner available for
+  incomplete/legacy plan surfaces.
+- Added semantic-plan coverage proving complete plans preserve the planned-body
+  crosscall helper scan and that an injected planned entrypoint crosscall is
+  discovered even when the raw IR has no crosscall.
+- Updated the implementation backlog and Chinese backlog note to document the
+  planned-body helper discovery boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke crosscall
+```
+
+Result:
+
+- Complete EVM `ModulePlan.crosscalls` now comes from planned
+  `EntrypointPlan.body` traversal; raw IR crosscall helper scanning is retained
+  only for fallback/legacy plan surfaces.
+- EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
+  i18n sync, JSON validation, full Lake build, and whitespace checks passed
+  locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.

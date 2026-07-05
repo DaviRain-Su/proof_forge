@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests for write-artifact-metadata.py validation rules.
 
-Tests the 3 metadata consistency rules:
+Tests the metadata consistency rules:
 1. Capability/contextOp consistency
-2. Crosscall target present
+2. Crosscall target dependency validation
 3. Dedup sanity
 
 Run: python3 scripts/psy/test-metadata-validation.py
@@ -46,12 +46,18 @@ def make_plan_meta(
     })
 
 
-def run_writer(tmpdir: Path, plan_meta: str, capabilities: list[str]) -> int:
+def run_writer(
+    tmpdir: Path,
+    plan_meta: str,
+    capabilities: list[str],
+    dependencies: list[str] | None = None,
+) -> tuple[int, str]:
     """Run write-artifact-metadata.py with the given plan metadata and capabilities."""
     paths = make_stub_files(tmpdir)
     plan_file = tmpdir / "plan-meta.json"
     plan_file.write_text(plan_meta)
     out_file = tmpdir / "artifact.json"
+    dep_args = [arg for dep in (dependencies or []) for arg in ("--dependency", dep)]
     result = subprocess.run([
         sys.executable, str(WRITER),
         "--root", str(tmpdir),
@@ -66,7 +72,7 @@ def run_writer(tmpdir: Path, plan_meta: str, capabilities: list[str]) -> int:
         "--dargo", "/bin/true",
         "--execute-result", "result_vm: [0]",
         "--plan-metadata", str(plan_file),
-    ] + [arg for cap in capabilities for arg in ("--capability", cap)],
+    ] + [arg for cap in capabilities for arg in ("--capability", cap)] + dep_args,
         capture_output=True, text=True,
     )
     return result.returncode, result.stderr
@@ -123,6 +129,69 @@ def test_empty_crosscall_target() -> bool:
             print(f"FAIL: test_empty_crosscall_target: error should mention targetContractId: {stderr}")
             return False
         print("ok: test_empty_crosscall_target")
+        return True
+
+
+def test_missing_crosscall_dependency() -> bool:
+    """crosscall target that is not declared and not this/self should fail."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(
+            crosscalls=[{"targetContractId": "remote"}],
+        )
+        rc, stderr = run_writer(tmpdir, meta, ["zk.circuit"])
+        if rc == 0:
+            print("FAIL: test_missing_crosscall_dependency: expected non-zero")
+            return False
+        if "remote" not in stderr:
+            print(f"FAIL: test_missing_crosscall_dependency: error should mention remote: {stderr}")
+            return False
+        print("ok: test_missing_crosscall_dependency")
+        return True
+
+
+def test_crosscall_self_allowed() -> bool:
+    """crosscall target 'self' should be allowed without a dependency."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(
+            crosscalls=[{"targetContractId": "self"}],
+        )
+        rc, stderr = run_writer(tmpdir, meta, ["zk.circuit"])
+        if rc != 0:
+            print(f"FAIL: test_crosscall_self_allowed: expected 0, got {rc}: {stderr}")
+            return False
+        print("ok: test_crosscall_self_allowed")
+        return True
+
+
+def test_crosscall_this_allowed() -> bool:
+    """crosscall target 'this' should be allowed without a dependency."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(
+            crosscalls=[{"targetContractId": "this"}],
+        )
+        rc, stderr = run_writer(tmpdir, meta, ["zk.circuit"])
+        if rc != 0:
+            print(f"FAIL: test_crosscall_this_allowed: expected 0, got {rc}: {stderr}")
+            return False
+        print("ok: test_crosscall_this_allowed")
+        return True
+
+
+def test_crosscall_dependency_allowed() -> bool:
+    """crosscall target declared as --dependency should be allowed."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(
+            crosscalls=[{"targetContractId": "remote"}],
+        )
+        rc, stderr = run_writer(tmpdir, meta, ["zk.circuit"], dependencies=["remote"])
+        if rc != 0:
+            print(f"FAIL: test_crosscall_dependency_allowed: expected 0, got {rc}: {stderr}")
+            return False
+        print("ok: test_crosscall_dependency_allowed")
         return True
 
 
@@ -193,6 +262,10 @@ def main() -> int:
         test_pass_case,
         test_missing_context_op_capability,
         test_empty_crosscall_target,
+        test_missing_crosscall_dependency,
+        test_crosscall_self_allowed,
+        test_crosscall_this_allowed,
+        test_crosscall_dependency_allowed,
         test_duplicate_context_ops,
         test_duplicate_events,
         test_plan_caps_subset_of_smoke,

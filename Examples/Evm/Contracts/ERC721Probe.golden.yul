@@ -149,11 +149,5 @@ object "ERC721Probe" {
       sstore(_slot, value)
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
-    function __proof_forge_map_set_return(slot, key, value) -> old {
-      let _slot := __proof_forge_map_slot(slot, key)
-      old := sload(_slot)
-      sstore(_slot, value)
-      sstore(__proof_forge_map_presence_slot(slot, key), 1)
-    }
   }
 }

@@ -456,18 +456,6 @@ object "EvmArrayValueProbe" {
         revert(0, 0)
       }
     }
-    function __proof_forge_local_array_get_2(index, value_0, value_1) -> result {
-      switch index
-      case 0 {
-        result := value_0
-      }
-      case 1 {
-        result := value_1
-      }
-      default {
-        revert(0, 0)
-      }
-    }
     function __proof_forge_local_array_get_nested_2_2(index_0, index_1, value_0_0, value_0_1, value_1_0, value_1_1) -> result {
       switch index_0
       case 0 {

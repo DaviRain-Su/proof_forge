@@ -14,6 +14,22 @@ structure ReplayError where
 
 def ReplayError.render (err : ReplayError) : String := err.message
 
+/-- Quint encodes optional nondet picks as `{ tag: "Some", value: ... }`.
+    Unwrap the inner value, or fail on None/unexpected shapes. -/
+def unwrapItfOption (v : ITF.Value) : Except ReplayError ITF.Value :=
+  match v with
+  | .map entries =>
+      match entries.find? (fun (k, _) => k == .str "tag") with
+      | some (_, .str "Some") =>
+          match entries.find? (fun (k, _) => k == .str "value") with
+          | some (_, v) => .ok v
+          | none => .error { message := "ITF Some value missing value field" }
+      | some (_, .str "None") =>
+          .error { message := "unexpected None in ITF nondet pick" }
+      | _ =>
+          .error { message := s!"cannot convert ITF value to IR: {repr entries}" }
+  | other => .ok other
+
 /-- Convert an ITF value to an IR scalar Value. Defaults to U64 for integers. -/
 def itfValueToIr (t : ValueType) : ITF.Value → Except ReplayError ProofForge.IR.Semantics.Value
   | .int n =>
@@ -35,6 +51,7 @@ def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : E
   for decl in module.state do
     match itfState.vars.find? (fun (k, _) => k == decl.id) with
     | some (_, v) =>
+        let v ← unwrapItfOption v
         let irv ← itfValueToIr decl.type v
         state := state.write decl.id irv
     | none =>
@@ -59,6 +76,7 @@ def buildArgs (entrypoint : Entrypoint) (picks : List (String × ITF.Value)) : E
   for (name, t) in entrypoint.params do
     match picks.find? (fun (k, _) => k == name) with
     | some (_, v) =>
+        let v ← unwrapItfOption v
         let irv ← itfValueToIr t v
         args := args.push irv
     | none =>

@@ -95,6 +95,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --execute-result "result_vm: []" \
   --capability crosscall.invoke \
   --capability zk.circuit \
+  --dependency target \
   --plan-metadata "$PLAN_METADATA_FILE"
 
 python3 "$ROOT/scripts/psy/validate-artifact-metadata.py" \

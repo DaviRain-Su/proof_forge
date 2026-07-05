@@ -87,7 +87,7 @@ def checkedArithmeticHelperFunctions : Array Lean.Compiler.Yul.Statement :=
       ] }
   ]
 
-def hashHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+def hashWordHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.hashWord).name
     #[{ name := "value" }]
     #[{ name := "result" }]
@@ -96,7 +96,9 @@ def hashHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.id "value"]),
         .assignment #["result"] (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 32])
       ]
-    },
+    }
+
+def hashPairHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.hashPair).name
     #[{ name := "left" }, { name := "right" }]
     #[{ name := "result" }]
@@ -107,6 +109,10 @@ def hashHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
         .assignment #["result"] (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 64])
       ]
     }
+
+def hashHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+  hashWordHelperFunction,
+  hashPairHelperFunction
 ]
 
 def arrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
@@ -140,7 +146,7 @@ def dynamicArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
     }
 ]
 
-def memoryArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+def memoryArrayNewHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.memoryArrayNew).name
     #[{ name := "length" }]
     #[{ name := "ptr" }]
@@ -159,7 +165,9 @@ def memoryArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
           ]
         ])
       ]
-    },
+    }
+
+def memoryArrayGetHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.memoryArrayGet).name
     #[{ name := "array" }, { name := "index" }]
     #[{ name := "value" }]
@@ -178,6 +186,10 @@ def memoryArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
           ])
       ]
     }
+
+def memoryArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+  memoryArrayNewHelperFunction,
+  memoryArrayGetHelperFunction
 ]
 
 def structArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
@@ -207,7 +219,7 @@ def structArrayHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
     }
 ]
 
-def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+def mapSlotHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.mapSlot).name
     #[{ name := "slot" }, { name := "key" }]
     #[{ name := "result" }]
@@ -217,7 +229,9 @@ def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.id "slot"]),
         .assignment #["result"] (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 64])
       ]
-    },
+    }
+
+def mapPresenceSlotHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.mapPresenceSlot).name
     #[{ name := "slot" }, { name := "key" }]
     #[{ name := "result" }]
@@ -231,7 +245,9 @@ def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.id "_presence_slot"]),
         .assignment #["result"] (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 64])
       ]
-    },
+    }
+
+def mapWriteHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.mapWrite).name
     #[{ name := "slot" }, { name := "key" }, { name := "value" }]
     #[]
@@ -244,7 +260,9 @@ def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
           Lean.Compiler.Yul.Expr.num 1
         ])
       ]
-    },
+    }
+
+def mapSetReturnHelperFunction : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.mapSetReturn).name
     #[{ name := "slot" }, { name := "key" }, { name := "value" }]
     #[{ name := "old" }]
@@ -259,6 +277,12 @@ def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
         ])
       ]
     }
+
+def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
+  mapSlotHelperFunction,
+  mapPresenceSlotHelperFunction,
+  mapWriteHelperFunction,
+  mapSetReturnHelperFunction
 ]
 
 def mapAssignHelperFunction (op : AssignOp) : Lean.Compiler.Yul.Statement :=
@@ -1432,6 +1456,29 @@ partial def crosscallArgWordPlanExprs
     | .expr exprPlan =>
         words := words.push (← lowerPlanExpr exprPlan)
   .ok words
+
+def crosscallAggregateReturnAssignmentPlanStatement
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (localWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
+    (storageWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
+    (plan : CrosscallReturnAssignmentPlan) :
+    Except ε Lean.Compiler.Yul.Statement := do
+  let target ← lowerPlanExpr plan.target
+  let methodId ← lowerPlanExpr plan.methodId
+  let callValue? ← plan.callValue?.mapM lowerPlanExpr
+  let argWords ← crosscallArgWordPlanExprs lowerPlanExpr localWords storageWords plan.args
+  crosscallAggregateReturnAssignment
+    mkError
+    plan.returns.localNames
+    plan.mode
+    target
+    methodId
+    callValue?
+    argWords
+    plan.returns.returnType
+    plan.returns.wordTypes
 
 partial def crosscallExprPlanExpr
     {ε : Type}
@@ -3056,15 +3103,15 @@ def mapSetReturnTargetExpr
     ← exprPlanExpr mkError lowerExpr lowerEffect value
   ])
 
-def mapContainsTargetExpr
+def mapContainsExpr
     {ε : Type}
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
-    (target : MapReadTargetPlan)
+    (rootSlot : Nat)
     (key : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
   let presenceSlot := helperCall Helper.mapPresenceSlot #[
-    slotExpr target.rootSlot,
+    slotExpr rootSlot,
     ← exprPlanExpr mkError lowerExpr lowerEffect key
   ]
   .ok (Lean.Compiler.Yul.builtin "iszero" #[
@@ -3073,18 +3120,36 @@ def mapContainsTargetExpr
     ]
   ])
 
+def mapContainsTargetExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (target : MapReadTargetPlan)
+    (key : ExprPlan) : Except ε Lean.Compiler.Yul.Expr :=
+  mapContainsExpr mkError lowerExpr lowerEffect target.rootSlot key
+
+def mapGetExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (rootSlot : Nat)
+    (key : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
+  let valueSlot := helperCall Helper.mapSlot #[
+    slotExpr rootSlot,
+    ← exprPlanExpr mkError lowerExpr lowerEffect key
+  ]
+  .ok (Lean.Compiler.Yul.builtin "sload" #[valueSlot])
+
 def mapGetTargetExpr
     {ε : Type}
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
     (target : MapReadTargetPlan)
-    (key : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
-  let valueSlot := helperCall Helper.mapSlot #[
-    slotExpr target.rootSlot,
-    ← exprPlanExpr mkError lowerExpr lowerEffect key
-  ]
-  .ok (Lean.Compiler.Yul.builtin "sload" #[valueSlot])
+    (key : ExprPlan) : Except ε Lean.Compiler.Yul.Expr :=
+  mapGetExpr mkError lowerExpr lowerEffect target.rootSlot key
 
 def mapWriteTargetEffectPlanStatements
     {ε : Type}
@@ -3144,19 +3209,28 @@ def arrayWriteEffectStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul array write lowering expected effect")
 
+def arrayReadExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (rootSlot length : Nat)
+    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
+  let elementSlot := helperCall Helper.arraySlot #[
+    slotExpr rootSlot,
+    Lean.Compiler.Yul.Expr.num length,
+    ← exprPlanExpr mkError lowerExpr lowerEffect index
+  ]
+  .ok (Lean.Compiler.Yul.builtin "sload" #[elementSlot])
+
 def arrayReadTargetExpr
     {ε : Type}
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
     (target : ArrayReadTargetPlan)
-    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
-  let elementSlot := helperCall Helper.arraySlot #[
-    slotExpr target.rootSlot,
-    Lean.Compiler.Yul.Expr.num target.length,
-    ← exprPlanExpr mkError lowerExpr lowerEffect index
-  ]
-  .ok (Lean.Compiler.Yul.builtin "sload" #[elementSlot])
+    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr :=
+  arrayReadExpr mkError lowerExpr lowerEffect target.rootSlot target.length index
 
 def arrayWriteTargetEffectPlanStatements
     {ε : Type}
@@ -3227,6 +3301,45 @@ def dynamicArrayPushEffectStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul dynamic array push lowering expected effect")
 
+def dynamicArraySlotTargetExpr
+    (target : DynamicArrayTargetPlan)
+    (index : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
+  helperCall Helper.dynamicArraySlot #[slotExpr target.rootSlot, index]
+
+def dynamicArrayPushTargetEffectPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .storageDynamicArrayPushTarget target value => do
+      let baseSlot := slotExpr target.rootSlot
+      let lenExpr := Lean.Compiler.Yul.Expr.id "__proof_forge_dyn_array_len"
+      let newLenExpr := Lean.Compiler.Yul.Expr.id "__proof_forge_dyn_array_new_len"
+      .ok #[
+        .varDecl #[{ name := "__proof_forge_dyn_array_len" }] (some (Lean.Compiler.Yul.builtin "sload" #[baseSlot])),
+        .varDecl #[{ name := "__proof_forge_dyn_array_new_len" }]
+          (some (Lean.Compiler.Yul.builtin "add" #[lenExpr, Lean.Compiler.Yul.Expr.num 1])),
+        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
+          dynamicArraySlotTargetExpr target lenExpr,
+          ← exprPlanExpr mkError lowerExpr lowerEffect value
+        ]),
+        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[baseSlot, newLenExpr])
+      ]
+  | _ =>
+      .error (mkError "EVM EffectPlan-to-Yul planned dynamic array push lowering expected storageDynamicArrayPushTarget")
+
+def dynamicArrayPushTargetEffectStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .effect effect =>
+      dynamicArrayPushTargetEffectPlanStatements mkError lowerExpr lowerEffect effect
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul planned dynamic array push lowering expected effect")
+
 def dynamicArrayPopEffectPlanStatements
     {ε : Type}
     (mkError : String → ε)
@@ -3258,6 +3371,34 @@ def dynamicArrayPopEffectStmtPlanStatements
       dynamicArrayPopEffectPlanStatements mkError baseSlotFor dynamicArraySlotFor effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul dynamic array pop lowering expected effect")
+
+def dynamicArrayPopTargetEffectPlanStatements
+    {ε : Type}
+    (mkError : String → ε) :
+    EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .storageDynamicArrayPopTarget target => do
+      let baseSlot := slotExpr target.rootSlot
+      let lenExpr := Lean.Compiler.Yul.Expr.id "__proof_forge_dyn_array_len"
+      let newLenExpr := Lean.Compiler.Yul.Expr.id "__proof_forge_dyn_array_new_len"
+      .ok #[
+        .varDecl #[{ name := "__proof_forge_dyn_array_len" }] (some (Lean.Compiler.Yul.builtin "sload" #[baseSlot])),
+        .ifStmt (Lean.Compiler.Yul.builtin "iszero" #[lenExpr])
+          { statements := #[.exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])] },
+        .varDecl #[{ name := "__proof_forge_dyn_array_new_len" }]
+          (some (Lean.Compiler.Yul.builtin "sub" #[lenExpr, Lean.Compiler.Yul.Expr.num 1])),
+        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[baseSlot, newLenExpr])
+      ]
+  | _ =>
+      .error (mkError "EVM EffectPlan-to-Yul planned dynamic array pop lowering expected storageDynamicArrayPopTarget")
+
+def dynamicArrayPopTargetEffectStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .effect effect =>
+      dynamicArrayPopTargetEffectPlanStatements mkError effect
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul planned dynamic array pop lowering expected effect")
 
 def structFieldWriteEffectPlanStatements
     {ε : Type}
@@ -3357,6 +3498,9 @@ def structArrayFieldWriteTargetEffectStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned struct-array field write lowering expected effect")
 
+def structFieldReadExpr (slot : Nat) : Lean.Compiler.Yul.Expr :=
+  Lean.Compiler.Yul.builtin "sload" #[slotExpr slot]
+
 def structFieldReadTargetExpr
     {ε : Type}
     (mkError : String → ε)
@@ -3364,21 +3508,33 @@ def structFieldReadTargetExpr
     (target : StructFieldReadTargetPlan) : Except ε Lean.Compiler.Yul.Expr := do
   .ok (Lean.Compiler.Yul.builtin "sload" #[← storageSlotExpr mkError lowerExpr target.slot])
 
+def structArrayFieldReadExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (rootSlot length fieldCount fieldOffset : Nat)
+    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
+  let fieldSlot := helperCall Helper.structArraySlot #[
+    slotExpr rootSlot,
+    Lean.Compiler.Yul.Expr.num length,
+    Lean.Compiler.Yul.Expr.num fieldCount,
+    Lean.Compiler.Yul.Expr.num fieldOffset,
+    ← exprPlanExpr mkError lowerExpr lowerEffect index
+  ]
+  .ok (Lean.Compiler.Yul.builtin "sload" #[fieldSlot])
+
 def structArrayFieldReadTargetExpr
     {ε : Type}
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
     (target : StructArrayFieldReadTargetPlan)
-    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
-  let fieldSlot := helperCall Helper.structArraySlot #[
-    slotExpr target.rootSlot,
-    Lean.Compiler.Yul.Expr.num target.length,
-    Lean.Compiler.Yul.Expr.num target.fieldCount,
-    Lean.Compiler.Yul.Expr.num target.fieldOffset,
-    ← exprPlanExpr mkError lowerExpr lowerEffect index
-  ]
-  .ok (Lean.Compiler.Yul.builtin "sload" #[fieldSlot])
+    (index : ExprPlan) : Except ε Lean.Compiler.Yul.Expr :=
+  structArrayFieldReadExpr
+    mkError lowerExpr lowerEffect
+    target.rootSlot target.length target.fieldCount target.fieldOffset
+    index
 
 structure StorageStructWriteField where
   slot : Lean.Compiler.Yul.Expr

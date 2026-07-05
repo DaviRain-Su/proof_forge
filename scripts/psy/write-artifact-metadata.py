@@ -52,6 +52,7 @@ def main() -> int:
     parser.add_argument("--dargo", required=True)
     parser.add_argument("--execute-result", required=True)
     parser.add_argument("--capability", action="append", default=[])
+    parser.add_argument("--dependency", action="append", default=[])
     parser.add_argument("--plan-metadata")
     args = parser.parse_args()
 
@@ -83,6 +84,7 @@ def main() -> int:
         "artifactKind": "psy-circuit-json",
         "fixture": args.fixture,
         "capabilities": args.capability,
+        "dependencies": {dep: {} for dep in args.dependency},
         "toolchain": {
             "dargo": {
                 "path": args.dargo,
@@ -136,12 +138,21 @@ def main() -> int:
                 )
                 return 1
 
-        # Rule 2: crosscall targets must be non-empty strings.
+        # Rule 2: crosscall targets must reference a declared dependency or
+        # the special literals "this" / "self".
+        allowed_targets = set(metadata["dependencies"].keys()) | {"this", "self"}
         for cc in metadata["crosscalls"]:
             target = cc.get("targetContractId", "")
             if not target:
                 print(
                     "Error: crosscall entry has empty targetContractId",
+                    file=sys.stderr,
+                )
+                return 1
+            if target not in allowed_targets:
+                print(
+                    f"Error: crosscall target '{target}' is not declared as a "
+                    f"dependency and is not 'this' or 'self'",
                     file=sys.stderr,
                 )
                 return 1

@@ -104,6 +104,12 @@ def crosscallDescriptors (plan : PsyModulePlan) : Array CrosscallDescriptor :=
   let targets := plan.crosscalls.targets.map (fun target => { targetContractId := target })
   targets.foldl (fun acc c => if acc.any (fun existing => existing.targetContractId == c.targetContractId) then acc else acc.push c) #[]
 
+def pushUniqueCapability (caps : Array String) (cap : String) : Array String :=
+  if caps.any (fun c => c == cap) then caps else caps.push cap
+
+def dedupCapabilities (caps : Array String) : Array String :=
+  caps.foldl pushUniqueCapability #[]
+
 /-! ## Artifact metadata -/
 
 structure ArtifactMetadata where
@@ -125,7 +131,7 @@ def buildArtifactMetadata (module : Module) (plan : PsyModulePlan) : ArtifactMet
     events := abiEventDescriptors plan
     contextOps := contextOpDescriptors plan
     crosscalls := crosscallDescriptors plan
-    capabilities := plan.capabilities.map (·.id)
+    capabilities := dedupCapabilities (plan.capabilities.map (·.id))
   }
 
 /-- Build artifact metadata from a portable IR module (plan-first). -/

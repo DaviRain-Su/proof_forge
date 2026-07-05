@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -256,6 +260,21 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev protobuf-compiler libudev-dev
+
+      - name: Cache Solana live toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.local/share/solana/install
+            ~/.cargo/bin/sbpf
+            ~/.cargo/bin/surfpool
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: solana-pinocchio-live-${{ runner.os }}-${{ env.PROOF_FORGE_AGAVE_RELEASE }}-${{ env.PROOF_FORGE_SBF_TOOLS_VERSION }}-${{ env.PROOF_FORGE_SURFPOOL_TAG }}-${{ env.PROOF_FORGE_SBPF_REV }}-${{ hashFiles('scripts/solana/install-pinocchio-live-ci-tools.sh') }}
+          restore-keys: |
+            solana-pinocchio-live-${{ runner.os }}-${{ env.PROOF_FORGE_AGAVE_RELEASE }}-${{ env.PROOF_FORGE_SBF_TOOLS_VERSION }}-${{ env.PROOF_FORGE_SURFPOOL_TAG }}-
+            solana-pinocchio-live-${{ runner.os }}-${{ env.PROOF_FORGE_AGAVE_RELEASE }}-${{ env.PROOF_FORGE_SBF_TOOLS_VERSION }}-
 
       - name: Install Solana live toolchain
         run: scripts/solana/install-pinocchio-live-ci-tools.sh

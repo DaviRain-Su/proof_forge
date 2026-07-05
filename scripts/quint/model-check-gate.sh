@@ -32,9 +32,12 @@ fi
 
 echo "Emitting Quint models..."
 lake env proof-forge emit --target quint --fixture counter -o "${BUILD_DIR}/Counter.qnt"
+lake env proof-forge emit --target quint --fixture value-vault -o "${BUILD_DIR}/ValueVault.qnt"
 
-# ValueVault IR fixture does not exist yet; only run Counter for v1.
 echo "Running quint verify on Counter..."
 quint verify "${BUILD_DIR}/Counter.qnt" --invariants countNonNegative --max-steps 10
+
+echo "Running quint verify on ValueVault..."
+quint verify "${BUILD_DIR}/ValueVault.qnt" --invariant balanceNonNegative,releasedNonNegative,feesNonNegative --max-steps 10
 
 echo "Quint model-check gate passed."

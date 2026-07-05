@@ -265,6 +265,10 @@ structure ArrayReadTargetPlan where
   length : Nat
   deriving Repr
 
+structure DynamicArrayTargetPlan where
+  rootSlot : Nat
+  deriving Repr
+
 structure StructFieldWriteTargetPlan where
   slot : StorageSlotPlan
   deriving Repr
@@ -465,6 +469,11 @@ def requireDynamicArrayState (module : Module) (stateId : String) : Except PlanE
         .error { message := s!"EVM dynamic array state '{stateId}' has unsupported element type '{elementType.name}'; only word types are supported" }
   | .scalar, _ | .map _ _, _ | .array _, _ =>
       .error { message := s!"EVM storage state '{stateId}' is not a dynamic array" }
+
+def dynamicArrayTargetPlan (module : Module) (stateId : String) :
+    Except PlanError DynamicArrayTargetPlan := do
+  let (rootSlot, _) ← requireDynamicArrayState module stateId
+  .ok { rootSlot }
 
 def dynamicArraySlotPlan (module : Module) (stateId : String) (index : Expr) : Except PlanError StorageSlotPlan := do
   let (slot, _) ← requireDynamicArrayState module stateId
@@ -845,7 +854,9 @@ mutual
     | storageArrayStructFieldWrite (stateId : String) (index : ExprPlan) (fieldName : String) (value : ExprPlan)
     | storageArrayStructFieldWriteTarget (target : StructArrayFieldWriteTargetPlan) (index value : ExprPlan)
     | storageDynamicArrayPush (stateId : String) (value : ExprPlan)
+    | storageDynamicArrayPushTarget (target : DynamicArrayTargetPlan) (value : ExprPlan)
     | storageDynamicArrayPop (stateId : String)
+    | storageDynamicArrayPopTarget (target : DynamicArrayTargetPlan)
     | memoryArraySet (array index value : ExprPlan)
     | storageStructFieldRead (stateId fieldName : String)
     | storageStructFieldReadTarget (target : StructFieldReadTargetPlan)

@@ -6,8 +6,8 @@ namespace Tests.Quint.CounterLower
 
 def expectedSubstrings : Array String := #[
   "module CounterModel {",
-  "const MAX_UINT: int",
-  "const USERS: Set[str]",
+  "pure def MAX_UINT: int = 3",
+  "pure def USERS: Set[str] = Set(\"alice\", \"bob\", \"charlie\")",
   "var count: int",
   "action init = all {",
   "count' = 0",

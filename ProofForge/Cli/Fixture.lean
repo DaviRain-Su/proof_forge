@@ -195,7 +195,7 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "move-aptos", "counter", .aptos => true
   | "move-sui", "counter", .sui => true
   | "quint", "counter", .qnt => true
-  | "quint", "counter", .scenario => true
+  | "quint", "value-vault", .qnt => true
   | _, _, _ => false
 
 /-- Conservative capability demand for a fixture. Used by `proof-forge check` to
