@@ -200,6 +200,12 @@ jobs:
       - name: Run three-chain portable counter smoke
         run: just portable-counter-multi-target
 
+      - name: Run three-chain portable RoleGatedToken smoke
+        run: just portable-role-gated-token-multi-target
+
+      - name: Run three-chain portable StakingVault smoke
+        run: just portable-staking-vault-multi-target
+
   solana-pinocchio-live:
     runs-on: ubuntu-latest
     timeout-minutes: 75

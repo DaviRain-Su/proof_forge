@@ -167,7 +167,7 @@ economics) is almost entirely missing.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| attached_deposit (native value) | Missing | Target profile advertises valueNative but no deposit host fn | P0 |
+| attached_deposit (native value) | Covered | `attached_deposit` host import + `.nativeValue` EmitWat lowering (U64 truncation of U128); `StoragePathWrite` supports nested `mapKey+mapKey` paths | — |
 | balance_of / balance_change | Missing | No balance host APIs | P1 |
 | prepaid_gas / used_gas / GAS_PRICE | Missing | Only external fuel reporting; no in-contract gas APIs | P1 |
 

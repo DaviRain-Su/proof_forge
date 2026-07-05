@@ -439,8 +439,8 @@ If no runnable local command exists, the target remains `Research`.
 |---|---|---|---|---|
 | Three-chain Counter | `just portable-counter-multi-target` | Lean toolchain; `solc`+`cast` for EVM Yul validation; optional `cargo` for NEAR offline host | Compiles `Examples/Shared/Counter.lean` to EVM (golden Yul + metadata), Solana sBPF (golden assembly + manifest), and NEAR/Wasm (golden WAT + metadata + offline host execution) | Live RPC deploy, gas accounting beyond offline host |
 | Three-chain ValueVault | `just portable-value-vault` | Lean toolchain; `solc`+`cast` for EVM; `cargo` for NEAR offline host; optional `sbpf` for Solana ELF | Compiles `Examples/Portable/ValueVault.lean` to all three targets and runs the 11-step scenario on NEAR offline host | Live RPC deploy, cross-target behavioral parity beyond NEAR offline host |
-| Three-chain RoleGatedToken | `just portable-role-gated-token-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Shared/RoleGatedToken.lean` to EVM + Solana; NEAR deferred (nested map path) | NEAR nested map storage path, live deploy |
-| Three-chain StakingVault | `just portable-staking-vault-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Shared/StakingVault.lean` to EVM + Solana; NEAR deferred (nativeValue U128) | NEAR U128 native value, live deploy |
+| Three-chain RoleGatedToken | `just portable-role-gated-token-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Shared/RoleGatedToken.lean` to EVM + Solana + NEAR/Wasm with nested mapKey storage path support | Live RPC deploy, gas accounting |
+| Three-chain StakingVault | `just portable-staking-vault-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Shared/StakingVault.lean` to EVM + Solana + NEAR/Wasm with nativeValue U64 truncation | NEAR U128 exact native value, live deploy |
 
 ## Optional external tools
 

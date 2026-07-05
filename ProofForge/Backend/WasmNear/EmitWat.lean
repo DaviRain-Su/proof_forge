@@ -26,9 +26,6 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 
-def nativeValueUnsupportedMessage : String :=
-  "EmitWat: NEAR native value (attached deposit) requires an exact U128 projection; IR v0 cannot lower nativeValue yet"
-
 def indexedEventUnsupportedMessage (name : String) : String :=
   s!"EmitWat: event `{name}` uses indexed fields, but NEAR logs do not support EVM-style topic indexing"
 
