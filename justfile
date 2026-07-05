@@ -86,6 +86,11 @@ solana-lean:
     lake env lean --run Tests/SolanaReturnDataCompute.lean
     lake env lean --run Tests/SolanaComputeBudgetInstruction.lean
     lake env lean --run Tests/SolanaPdaSeeds.lean
+    lake env lean --run Tests/SolanaLoop.lean
+    lake env lean --run Tests/SolanaStorageArray.lean
+    lake env lean --run Tests/SolanaStorageArrayStruct.lean
+    lake env lean --run Tests/SolanaFixedArrayStruct.lean
+    lake env lean --run Tests/SolanaHash.lean
     lake env lean --run Tests/LearnSource.lean
     lake env lean --run Tests/SharedContractSource.lean
     lake env lean --run Tests/LearnDiagnostics.lean

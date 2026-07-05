@@ -39,5 +39,6 @@ def sol_keccak256           : String := "sol_keccak256"
 def sol_blake3              : String := "sol_blake3"
 def sol_panic_              : String := "sol_panic_"
 def sol_remaining_compute_units : String := "sol_remaining_compute_units"
+def sol_alloc_free_         : String := "sol_alloc_free_"
 
 end ProofForge.Backend.Solana.Syscalls
