@@ -197,6 +197,9 @@ jobs:
       - name: Run dynamic constructor Anvil smoke
         run: just evm-dynamic-constructor-anvil
 
+      - name: Run three-chain portable counter smoke
+        run: just portable-counter-multi-target
+
   solana-pinocchio-live:
     runs-on: ubuntu-latest
     timeout-minutes: 75
