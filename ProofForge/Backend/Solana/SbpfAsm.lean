@@ -470,12 +470,12 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     .error { message := s!"Solana context read `{field.name}` is not supported; userId/origin map to account[0], checkpointId maps to Clock.slot" }
   | .nativeValue =>
     -- On Solana, native value = lamports of account[0] (the fee payer).
-    -- Account info layout: [dup:u8, .., lamports:u64 at offset 8 in the per-account region].
-    -- For now, return 0 as a stub; proper lamports read needs account-info offset.
+    -- Account info layout: accountStart(8) + header(8) + pubkey(32) + owner_pubkey(32) + lamports(8)
+    -- lamports offset for account[0] = 8 + 8 + 32 + 32 = 80
     let (scratch, ctx) := ctx.allocScratch
     .ok (#[
-      .comment "solana.nativeValue: stub (returns 0; full lamports read needs account-info layout)",
-      .instruction { opcode := .mov64, dst := some .r1, imm := some (.num 0) }
+      .comment "solana.nativeValue: read account[0] lamports",
+      .instruction { opcode := .ldxdw, dst := some .r1, src := some .r1, off := some (.num 80) }
     ], ctx)
   | _ => .error { message := "unsupported expression in Phase 1" }
 where
