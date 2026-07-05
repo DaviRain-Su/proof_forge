@@ -290,6 +290,14 @@ solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-s
 docs-check:
     scripts/i18n/check-sync.sh
 
+# Emit Counter .qnt model and run `quint verify`. Skips if Java < 17.
+quint-model-gate:
+    scripts/quint/model-check-gate.sh
+
+# Emit Counter .qnt model, run `quint run --mbt`, and replay ITF traces against IR semantics.
+quint-mbt-gate:
+    scripts/quint/mbt-replay-gate.sh
+
 # Run the unified RFC 0007 testkit scenario suite.
 testkit:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run
