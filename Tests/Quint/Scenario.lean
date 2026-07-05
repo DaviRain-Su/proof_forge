@@ -30,9 +30,9 @@ def main : IO UInt32 := do
       if cfg.nTraces != 20 then
         IO.eprintln s!"FAIL nTraces expected 20, got {cfg.nTraces}"
         return 1
-      let constants := cfg.quintConstants
-      if constants.size != 2 then
-        IO.eprintln s!"FAIL expected 2 constants, got {constants.size}"
+      let pureDefs := cfg.quintPureDefs
+      if pureDefs.size != 2 then
+        IO.eprintln s!"FAIL expected 2 pure defs, got {pureDefs.size}"
         return 1
       IO.println s!"{repr cfg}"
       IO.println "PASS"

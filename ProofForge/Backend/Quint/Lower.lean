@@ -6,6 +6,8 @@ import ProofForge.Backend.Quint.Invariants
 
 namespace ProofForge.Backend.Quint.Lower
 
+set_option linter.unusedVariables false
+
 open ProofForge.IR (ValueType Literal Statement Entrypoint StateDecl Effect AssignOp)
 open ProofForge.Backend.Quint
 
@@ -76,9 +78,17 @@ mutual
         | some expr => .ok expr
         | none => .ok (.local name)
     | .add lhs rhs => .ok (.binOp .add (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .sub lhs rhs => .ok (.binOp .sub (← lowerExpr env lhs) (← lowerExpr env rhs))
+    | .sub lhs rhs =>
+        -- IR semantics uses Nat subtraction (clamps to 0), so mirror that in Quint.
+        let l ← lowerExpr env lhs
+        let r ← lowerExpr env rhs
+        .ok (.ite (.binOp .ge l r) (.binOp .sub l r) (.literalInt 0))
     | .mul lhs rhs => .ok (.binOp .mul (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .div lhs rhs => .ok (.binOp .div (← lowerExpr env lhs) (← lowerExpr env rhs))
+    | .div lhs rhs =>
+        -- IR semantics returns 0 on division by zero.
+        let l ← lowerExpr env lhs
+        let r ← lowerExpr env rhs
+        .ok (.ite (.binOp .eq r (.literalInt 0)) (.literalInt 0) (.binOp .div l r))
     | .mod lhs rhs => .ok (.binOp .mod (← lowerExpr env lhs) (← lowerExpr env rhs))
     | .eq lhs rhs => .ok (.binOp .eq (← lowerExpr env lhs) (← lowerExpr env rhs))
     | .ne lhs rhs => .ok (.binOp .ne (← lowerExpr env lhs) (← lowerExpr env rhs))
@@ -96,6 +106,14 @@ mutual
   partial def lowerEffectExpr (env : LocalEnv) (eff : Effect) : Except LowerError Expr :=
     match eff with
     | .storageScalarRead stateId => .ok (.local stateId)
+    | .contextRead field =>
+        -- Phase 3 v1: the executable IR semantics returns a fixed U64(0) for
+        -- all block/caller context fields. Mirror that in the model so MBT
+        -- traces replay without mismatch.
+        match field with
+        | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
+            .ok (.literalInt 0)
+        | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }
 
   partial def lowerEffectStmt (env : LocalEnv) (eff : Effect) : Except LowerError (Option ActionClause) := do
@@ -107,7 +125,8 @@ mutual
         .ok (some (.assign (.prime (.local stateId))
           (.binOp qop (.local stateId) (← lowerExpr env value))))
     | .eventEmit _ _ =>
-        -- Events are no-ops in the generated model for v1.
+        -- Events are no-ops in the generated model for v1. Keep a `true`
+        -- guard so event-only actions still produce valid (non-empty) `all` blocks.
         .ok (some (.guard (.literalBool true)))
     | _ => .error { message := "unsupported effect statement for Quint lowering v1" }
 
@@ -220,8 +239,9 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
   let step := stepAction module.entrypoints epParams
   pure {
     name := s!"{module.name}Model",
-    constants := scenario.quintConstants,
+    constants := #[],
     vars := vars,
+    pureDefs := scenario.quintPureDefs,
     actions := #[init] ++ epActions ++ #[step],
     vals := Invariants.derive module
   }

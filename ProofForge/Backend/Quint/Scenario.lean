@@ -15,9 +15,9 @@ structure Config where
   nTraces : Nat := 10
   deriving Repr, Inhabited
 
-def Config.quintConstants (cfg : Config) : Array Constant := #[
-  { name := "MAX_UINT", type := .int },
-  { name := "USERS", type := .set .str }
+def Config.quintPureDefs (cfg : Config) : Array PureDef := #[
+  { name := "MAX_UINT", ret := .int, body := .literalInt (Int.ofNat cfg.maxUint) },
+  { name := "USERS", ret := .set .str, body := .setLit (cfg.users.map .literalStr) }
 ]
 
 def Config.userSetExpr (cfg : Config) : Expr :=

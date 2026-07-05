@@ -189,7 +189,7 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "aleo-leo", "pure-math", .leo => true
   | "move-aptos", "counter", .aptos => true
   | "quint", "counter", .qnt => true
-  | "quint", "counter", .scenario => true
+  | "quint", "value-vault", .qnt => true
   | _, _, _ => false
 
 /-- Conservative capability demand for a fixture. Used by `proof-forge check` to

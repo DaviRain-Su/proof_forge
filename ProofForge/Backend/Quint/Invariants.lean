@@ -26,22 +26,11 @@ def deriveAuto (state : Array StateDecl) : Array Val :=
 /-- Manual invariants for known fixtures (ValueVault v1).
     In Phase 3 v1 these are hard-coded in Lean; later they move to
     scenario config or contract_source annotations. -/
-def deriveManual (module : ProofForge.IR.Module) : Array Val :=
-  if module.name == "ValueVault" then
-    let hasBalance := module.state.any (fun s => s.id == "balance")
-    let hasReleased := module.state.any (fun s => s.id == "released")
-    let hasFees := module.state.any (fun s => s.id == "fees")
-    if hasBalance && hasReleased && hasFees then
-      #[{
-        name := "conservation",
-        body := .binOp .le
-          (.binOp .add (.binOp .add (.local "balance") (.local "released")) (.local "fees"))
-          (.local "MAX_UINT")
-      }]
-    else
-      #[]
-  else
-    #[]
+def deriveManual (_module : ProofForge.IR.Module) : Array Val :=
+  -- Phase 3 v1: manual/scenario-specific invariants are not hard-coded.
+  -- They will be read from the TOML scenario `[invariants]` section in a
+  -- follow-up slice.
+  #[]
 
 /-- Derive all invariants for a module. -/
 def derive (module : ProofForge.IR.Module) : Array Val :=
