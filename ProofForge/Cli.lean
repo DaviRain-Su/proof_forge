@@ -25,6 +25,8 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.Aleo.IR
 import ProofForge.Backend.CosmWasm.EmitWat
 import ProofForge.Backend.Move.Aptos
+import ProofForge.Backend.Quint.Scenario
+import ProofForge.Backend.Quint.Lower
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
@@ -262,6 +264,7 @@ inductive EmitMode where
   | pureMathIrLeo
   | counterIrCosmWasm
   | counterIrAptos
+  | counterIrQuint
   deriving BEq, Inhabited
 
 def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
@@ -430,7 +433,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .pureMathIrLeo
   | .counterIrTs
   | .counterIrCosmWasm
-  | .counterIrAptos => true
+  | .counterIrAptos
+  | .counterIrQuint => true
   | _ => false
 
 def EmitMode.isLegacyAlias : EmitMode → Bool
@@ -630,6 +634,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-leo [-o output.leo]",
     "  proof-forge --emit-counter-ir-cosmwasm [-o output.wat]   (CosmWasm Counter spike)",
     "  proof-forge --emit-counter-ir-aptos [-o output-dir]       (Aptos Move Counter spike)",
+    "  proof-forge --emit-counter-ir-quint [-o output.qnt]       (Quint Counter model)",
     "  proof-forge init [DIR] [--template portable-counter]",
     "",
     "EVM bytecode mode loads `spec : ContractSpec` from the Lean module and uses Foundry `cast sig` plus `solc --strict-assembly`.",
@@ -2714,6 +2719,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .counterIrCosmWasm }
   | "--emit-counter-ir-aptos" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrAptos }
+  | "--emit-counter-ir-quint" :: rest, opts =>
+      parseArgs rest { opts with mode := .counterIrQuint }
   | "-h" :: _, _ =>
       .error usage
   | "--help" :: _, _ =>
@@ -2953,6 +2960,7 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
   | "aleo-leo", "counter", _ => Except.ok "--emit-counter-ir-leo"
   | "aleo-leo", "pure-math", _ => Except.ok "--emit-pure-math-ir-leo"
   | "move-aptos", "counter", _ => Except.ok "--emit-counter-ir-aptos"
+  | "quint", "counter", _ => Except.ok "--emit-counter-ir-quint"
   | t, f, fmt =>
       Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
@@ -5659,6 +5667,20 @@ def compileCounterIrAptos (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.message
 
+def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/quint/Counter.qnt")
+  let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
+  match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.Counter.module scenario with
+  | .ok source =>
+      let some parent := output.parent
+        | throw <| IO.userError s!"invalid output path: {output}"
+      IO.FS.createDirAll parent
+      IO.FS.writeFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.message
+
 unsafe def compileEvmBytecode (opts : CliOptions) : IO UInt32 :=
   compileContractSourceEvmBytecode opts
 
@@ -5804,6 +5826,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .pureMathIrLeo => compilePureMathIrLeo opts
   | .counterIrCosmWasm => compileCounterIrCosmWasm opts
   | .counterIrAptos => compileCounterIrAptos opts
+  | .counterIrQuint => compileCounterIrQuint opts
 
 end ProofForge.Cli
 

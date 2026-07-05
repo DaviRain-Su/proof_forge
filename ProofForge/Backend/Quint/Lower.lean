@@ -2,6 +2,7 @@ import ProofForge.IR.Contract
 import ProofForge.Backend.Quint.Model
 import ProofForge.Backend.Quint.Emit
 import ProofForge.Backend.Quint.Scenario
+import ProofForge.Backend.Quint.Invariants
 
 namespace ProofForge.Backend.Quint.Lower
 
@@ -201,7 +202,7 @@ def stepAction (entrypoints : Array Entrypoint) (loweredParams : Array (Array (S
   let pairs := Array.zip entrypoints loweredParams
   let calls := pairs.map (fun (ep, params) => entrypointStepCall ep params)
   {
-    name := "nextStep",
+    name := "step",
     body := ActionClause.any calls,
     ret? := none
   }
@@ -220,7 +221,7 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
     constants := scenario.quintConstants,
     vars := vars,
     actions := #[init] ++ epActions ++ #[step],
-    vals := #[]
+    vals := Invariants.derive module
   }
 
 def renderModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except LowerError String := do

@@ -17,10 +17,11 @@ def expectedSubstrings : Array String := #[
   "count' = count + 1",
   "action get_: bool = all {",
   "count' = count",
-  "action nextStep = any {",
+  "action step = any {",
   "initialize",
   "increment",
-  "get_"
+  "get_",
+  "val countNonNegative = count >= 0"
 ]
 
 def checkSubstrings (s : String) (substrings : Array String) : Option String :=
