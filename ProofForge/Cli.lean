@@ -1256,6 +1256,16 @@ def relativePathFromDir? (dir path : FilePath) : Option String :=
         if pathStringWithoutTrailingSlash parent == dirText then some fileName else none
     | _, _ => none
 
+def artifactEntryJsonRelativeTo (baseDir : FilePath) (path : FilePath) : IO String := do
+  let some rel := relativePathFromDir? baseDir path
+    | throw <| IO.userError s!"artifact reference {path} is not inside artifact directory {baseDir}"
+  let (digest, bytes) ← fileDigestAndBytes path
+  return jsonObject #[
+    ("path", jsonString rel),
+    ("sha256", jsonString digest),
+    ("bytes", toString bytes)
+  ]
+
 def sdkFileRefFromPath (schemaDir : FilePath) (path : FilePath) : IO ProofForge.Contract.SdkSchema.FileRef := do
   let some rel := relativePathFromDir? schemaDir path
     | throw <| IO.userError s!"SDK schema reference {path} is not inside SDK directory {schemaDir}"
@@ -3340,6 +3350,17 @@ def optionalExistingArtifactEntryJson (path? : Option FilePath) : IO (Option Str
       else
         return none
 
+def optionalExistingArtifactEntryJsonRelativeTo
+    (baseDir : FilePath)
+    (path? : Option FilePath) : IO (Option String) := do
+  match path? with
+  | none => return none
+  | some path =>
+      if ← path.pathExists then
+        return some (← artifactEntryJsonRelativeTo baseDir path)
+      else
+        return none
+
 def writeEmitWatDeployManifest
     (deployOutput : FilePath)
     (targetId fixture sourceKind : String)
@@ -3386,8 +3407,8 @@ def writeEmitWatArtifactMetadata
   let metadataOutput := opts.artifactOutput?.getD (defaultEmitWatArtifactOutput outputDir)
   let schemaDir := metadataOutput.parent.getD outputDir
   let deployOutput := defaultDeployManifestOutput metadataOutput
-  let watArtifact ← artifactEntryJson watPath
-  let wasmArtifact? ← optionalExistingArtifactEntryJson wasmPath?
+  let watArtifact ← artifactEntryJsonRelativeTo schemaDir watPath
+  let wasmArtifact? ← optionalExistingArtifactEntryJsonRelativeTo schemaDir wasmPath?
   let spec := ProofForge.Contract.ContractSpec.fromIR module
   let (contractSpecOutput, nearClientOutput, unifiedClientOutput) ←
     if opts.fromNewSurface then
@@ -3397,7 +3418,7 @@ def writeEmitWatArtifactMetadata
         outputDir / ProofForge.Contract.Client.nearWrapperPath,
         outputDir / "proof-forge-client.ts")
   writeEmitWatDeployManifest deployOutput targetId fixture sourceKind module watArtifact wasmArtifact?
-  let deployArtifact ← artifactEntryJson deployOutput
+  let deployArtifact ← artifactEntryJsonRelativeTo schemaDir deployOutput
   let mut artifactFields : Array (String × String) := #[
     ("wat", watArtifact),
     ("deployManifest", deployArtifact)
@@ -3448,10 +3469,39 @@ def writeEmitWatArtifactMetadata
     if let some wasmPath := wasmPath? then
       if ← wasmPath.pathExists then
         artifactPaths := artifactPaths.push ("secondary", wasmPath)
+    let watRel := (relativePathFromDir? schemaDir watPath).getD watPath.toString
+    let deployRel := (relativePathFromDir? schemaDir deployOutput).getD deployOutput.toString
+    let contractSpecRel := (relativePathFromDir? schemaDir contractSpecOutput).getD contractSpecOutput.toString
+    let nearClientRel := (relativePathFromDir? schemaDir nearClientOutput).getD nearClientOutput.toString
+    let wasmRel? := wasmPath?.bind (fun path => relativePathFromDir? schemaDir path)
+    let viewMethods := module.entrypoints.filter (fun entrypoint => entrypoint.returns != .unit) |>.map (fun entrypoint => entrypoint.name)
+    let callMethods := module.entrypoints.filter (fun entrypoint => entrypoint.returns == .unit) |>.map (fun entrypoint => entrypoint.name)
+    let mut nearFields : Array ProofForge.Contract.SdkSchema.JsonField := #[
+      ("wat", ProofForge.Contract.SdkSchema.Json.string watRel),
+      ("deployManifest", ProofForge.Contract.SdkSchema.Json.string deployRel),
+      ("contractSpec", ProofForge.Contract.SdkSchema.Json.string contractSpecRel),
+      ("typescriptWrapper", ProofForge.Contract.SdkSchema.Json.string nearClientRel),
+      ("offlineHost", ProofForge.Contract.SdkSchema.Json.string "runtime/offline-host"),
+      ("wrapperBehavior", ProofForge.Contract.SdkSchema.Json.object #[
+        ("viewMethods", ProofForge.Contract.SdkSchema.Json.stringArray viewMethods),
+        ("callMethods", ProofForge.Contract.SdkSchema.Json.stringArray callMethods)
+      ]),
+      ("callOptions", ProofForge.Contract.SdkSchema.Json.object #[
+        ("gas", ProofForge.Contract.SdkSchema.Json.string "optional"),
+        ("deposit", ProofForge.Contract.SdkSchema.Json.string "optional")
+      ])
+    ]
+    if let some wasmRel := wasmRel? then
+      nearFields := nearFields.push ("wasm", ProofForge.Contract.SdkSchema.Json.string wasmRel)
+    let nearExtension : ProofForge.Contract.SdkSchema.TargetExtension := {
+      key := "near"
+      targetId := targetId
+      fields := nearFields
+    }
     discard <| writeSdkSchemaFile targetId spec schemaDir artifactPaths #[
       ("typescript", unifiedClientOutput),
       ("nativeWrapper", nearClientOutput)
-    ]
+    ] (some nearExtension)
 
 def writeWatPackage (outputDir : FilePath) (name : String) (wat : String) : IO (FilePath × Option FilePath) := do
   IO.FS.createDirAll outputDir

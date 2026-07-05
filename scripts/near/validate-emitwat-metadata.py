@@ -39,11 +39,14 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def validate_artifact_entry(entry: Any, key: str) -> dict[str, Any]:
+def validate_artifact_entry(entry: Any, key: str, base_dir: Path) -> dict[str, Any]:
     obj = expect_object(entry, f"artifact {key}")
     raw_path = obj.get("path")
     expect(isinstance(raw_path, str) and raw_path, f"artifact {key}.path must be a non-empty string")
-    path = Path(raw_path)
+    raw = Path(raw_path)
+    expect(not raw.is_absolute(), f"artifact {key}.path must be relative: {raw_path}")
+    expect(".." not in raw.parts, f"artifact {key}.path must not escape artifact directory: {raw_path}")
+    path = base_dir / raw
     expect(path.is_file(), f"artifact {key}.path does not exist: {path}")
     expected_sha = obj.get("sha256")
     expected_bytes = obj.get("bytes")
@@ -81,6 +84,7 @@ def main() -> int:
 
     metadata_path = Path(args.metadata)
     metadata = expect_object(json.loads(metadata_path.read_text()), "metadata")
+    metadata_base = metadata_path.parent
 
     expect(metadata.get("schemaVersion") == 1, "schemaVersion must be 1")
     expect(metadata.get("target") == "wasm-near", "target must be wasm-near")
@@ -97,10 +101,10 @@ def main() -> int:
     expect(entrypoint_names(metadata) == args.expected_entrypoints.split(","), "entrypoint list mismatch")
 
     artifacts = expect_object(metadata.get("artifacts"), "artifacts")
-    wat = validate_artifact_entry(artifacts.get("wat"), "wat")
-    deploy = validate_artifact_entry(artifacts.get("deployManifest"), "deployManifest")
+    wat = validate_artifact_entry(artifacts.get("wat"), "wat", metadata_base)
+    deploy = validate_artifact_entry(artifacts.get("deployManifest"), "deployManifest", metadata_base)
     if "wasm" in artifacts:
-        validate_artifact_entry(artifacts.get("wasm"), "wasm")
+        validate_artifact_entry(artifacts.get("wasm"), "wasm", metadata_base)
 
     validation = expect_object(metadata.get("validation"), "validation")
     expect(validation.get("emitWat") == "passed", "validation.emitWat must be passed")
@@ -108,7 +112,9 @@ def main() -> int:
     expect(validation.get("deployManifest") == "passed", "validation.deployManifest must be passed")
     expect(validation.get("wat2wasm") in {"passed", "skipped"}, "validation.wat2wasm must be passed or skipped")
 
-    deploy_manifest = expect_object(json.loads(Path(deploy["path"]).read_text()), "deploy manifest")
+    deploy_path = metadata_base / Path(deploy["path"])
+    deploy_manifest = expect_object(json.loads(deploy_path.read_text()), "deploy manifest")
+    deploy_base = deploy_path.parent
     expect(deploy_manifest.get("schemaVersion") == 1, "deploy schemaVersion must be 1")
     expect(deploy_manifest.get("kind") == "proof-forge-wasm-near-deploy-manifest", "deploy kind mismatch")
     expect(deploy_manifest.get("target") == "wasm-near", "deploy target must be wasm-near")
@@ -121,10 +127,10 @@ def main() -> int:
     expect(deploy_manifest.get("sourceModule") == args.expected_module, "deploy sourceModule mismatch")
     expect(entrypoint_names(deploy_manifest) == args.expected_entrypoints.split(","), "deploy entrypoint list mismatch")
     deploy_artifacts = expect_object(deploy_manifest.get("artifacts"), "deploy artifacts")
-    deploy_wat = validate_artifact_entry(deploy_artifacts.get("wat"), "deploy wat")
+    deploy_wat = validate_artifact_entry(deploy_artifacts.get("wat"), "deploy wat", deploy_base)
     expect(deploy_wat["sha256"] == wat["sha256"], "deploy wat sha256 must match metadata wat")
     if "wasm" in deploy_artifacts:
-        validate_artifact_entry(deploy_artifacts.get("wasm"), "deploy wasm")
+        validate_artifact_entry(deploy_artifacts.get("wasm"), "deploy wasm", deploy_base)
     deployment = expect_object(deploy_manifest.get("deployment"), "deployment")
     expect(deployment.get("mode") == "local-offline-host", "deployment.mode must be local-offline-host")
     expect(deployment.get("status") == "not-broadcast", "deployment.status must be not-broadcast")
