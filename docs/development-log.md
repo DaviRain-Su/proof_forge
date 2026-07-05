@@ -17,6 +17,64 @@ Each entry should include:
 
 ## 2026-07-05
 
+### Quint Integration Phase 3 v1
+
+Commit range: 046d93d..98c6d50
+
+Summary:
+
+- Implemented a first-class Quint state-machine model generator from portable IR.
+- Added `ProofForge.Backend.Quint` library with AST, pretty-printer, IR-to-Quint
+  lowering, scenario TOML parsing, invariant derivation, ITF trace parsing, and
+  an IR-semantics replay harness.
+- Wired `proof-forge emit --target quint --fixture counter` into the CLI and
+  `Fixture.lean`.
+- Added `Tests/Quint/CounterReplay.lean` end-to-end test: lowers Counter, runs
+  `quint run --mbt --out-itf`, parses the ITF trace, and replays every step
+  against `ProofForge.IR.Semantics`.
+- Added toolchain capabilities `model.quint`, `verify.model_check`,
+  `verify.simulation`, and `test.mbt_trace` to the capability registry.
+- Extended `ProofForge.Contract.Spec.Json.render` to emit a `verification.quint`
+  metadata block.
+- Added `scripts/quint/model-check-gate.sh` and
+  `scripts/quint/mbt-replay-gate.sh` with graceful skips when `quint` or Java
+  17+ are unavailable, plus `just quint-model-gate` and `just quint-mbt-gate`.
+- Updated Chinese translations and i18n manifest.
+
+Validation run:
+
+```sh
+just check
+just quint-model-gate
+just quint-mbt-gate
+lake env lean --run Tests/Quint/CounterModel.lean
+lake env lean --run Tests/Quint/CounterLower.lean
+lake env lean --run Tests/Quint/Scenario.lean
+lake env lean --run Tests/Quint/ITF.lean
+lake env lean --run Tests/Quint/CounterReplay.lean
+```
+
+Known limitations:
+
+- Only the bounded scalar IR subset is supported (scalars, maps, arrays, structs,
+  bounded loops, basic arithmetic). Crosscalls, unbounded loops, floating point,
+  and complex bitwise ops are out of scope for v1.
+- `quint verify` requires Java 17+; the model-check gate skips on this machine
+  because only Java 11 is installed.
+- Invariants are auto-derived for unsigned scalar non-negativity only; manual
+  scenario invariants are planned but not yet parsed from TOML.
+- The replay harness trusts Quint `init` states and verifies subsequent
+  entrypoint transitions.
+- ValueVault IR fixture does not exist yet, so only Counter is covered end-to-end.
+
+Next step:
+
+- Add a ValueVault IR fixture, lower it to Quint, and extend the MBT replay gate
+  to cover it; then consider wiring `quint verify` into the default CI path once
+  Java 17+ is available.
+
+### EVM Planned Aggregate Crosscall Arguments
+
 ### EVM Planned Aggregate Crosscall Arguments
 
 Commit: 1c38854

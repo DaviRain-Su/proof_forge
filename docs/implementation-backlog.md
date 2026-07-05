@@ -151,6 +151,50 @@ Acceptance criteria:
 - At least one unsupported capability is rejected with a clear diagnostic.
 - IR version appears in artifact metadata when emitted.
 
+## Workstream 1.6: Quint Model Generation and MBT Replay
+
+Goal: add Quint as an upstream design-validation layer that generates
+state-machine models from portable IR, model-checks them, and produces MBT
+traces that replay against ProofForge IR semantics.
+
+Tasks:
+
+- Done: add `ProofForge.Backend.Quint` library with AST (`Model.lean`),
+  pretty-printer (`Emit.lean`), IR-to-Quint lowering (`Lower.lean`),
+  scenario TOML parsing (`Scenario.lean`), invariant derivation
+  (`Invariants.lean`), ITF trace parsing (`ITF.lean`), and IR-semantics replay
+  (`Replay.lean`).
+- Done: wire `proof-forge emit --target quint --fixture counter` into the CLI
+  and `Fixture.lean`.
+- Done: add end-to-end test `Tests/Quint/CounterReplay.lean` that lowers
+  Counter, runs `quint run --mbt --out-itf`, parses the ITF trace, and replays
+  every transition through `ProofForge.IR.Semantics`.
+- Done: register toolchain capabilities `model.quint`, `verify.model_check`,
+  `verify.simulation`, and `test.mbt_trace` in `docs/capability-registry.md`.
+- Done: extend `ProofForge.Contract.Spec.Json.render` with a `verification.quint`
+  metadata block (model path, invariants, verify command, checker).
+- Done: add `scripts/quint/model-check-gate.sh` and
+  `scripts/quint/mbt-replay-gate.sh` with graceful skips when `quint` or
+  Java 17+ are unavailable; expose them as `just quint-model-gate` and
+  `just quint-mbt-gate`.
+- Add a ValueVault IR fixture and extend the generator/replay gates to cover it.
+- Parse manual invariants from scenario TOML under `[invariants]` and emit them
+  as Quint `val` definitions.
+- Extend the supported IR subset toward maps, arrays, structs, and bounded loops
+  as the corresponding IR semantics coverage grows.
+- Consider adding `quint verify` to the default CI path once Java 17+ is
+  available in the build environment.
+
+Acceptance criteria:
+
+- `lake env proof-forge emit --target quint --fixture counter` writes a valid
+  `build/quint/Counter.qnt` model.
+- `quint run build/quint/Counter.qnt` finds no invariant violations.
+- `just quint-mbt-gate` replays a generated ITF trace through IR semantics and
+  passes.
+- `quint verify` is exercised by `just quint-model-gate` and skips gracefully
+  when Java 17+ is missing.
+
 ## Workstream 2: Artifact Metadata
 
 See [validation-gates.md](validation-gates.md) for current and planned validation commands.

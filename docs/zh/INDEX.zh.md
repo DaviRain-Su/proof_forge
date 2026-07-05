@@ -60,6 +60,7 @@ flowchart TB
 
 - [开发标准](development-standards.md)：贡献者规则和单一真值源映射。
 - [入职指南](onboarding.zh.md)：本地环境、编辑器说明和新贡献者最小验证循环。
+- [Quint 模型生成](quint.md)：从 portable IR 生成可执行状态机模型、仿真、模型检查并回放 MBT 追踪。
 - [开发日志](development-log.md)：带有验证说明和后续步骤的里程碑日志。
 - [Authoring model](authoring-model.zh.md)：Learn source、`contract_source` 与内部 `ContractSpec` 边界。
 - [验证门禁](validation-gates.md)：可运行的门禁和工具先决条件。

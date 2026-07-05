@@ -289,10 +289,10 @@ docs/capability-registry.md                                     (update with too
 - Create: `docs/superpowers/README.md` update (if needed)
 
 **Steps:**
-- [ ] Log Phase 3 completion in `docs/development-log.md`.
-- [ ] Update `docs/implementation-backlog.md` to mark Quint tasks done and note Java 17+ requirement for `quint verify`.
-- [ ] Add a short user-facing doc under `docs/` explaining how to run `proof-forge emit --target quint`.
-- [ ] Commit.
+- [x] Log Phase 3 completion in `docs/development-log.md`.
+- [x] Update `docs/implementation-backlog.md` to mark Quint tasks done and note Java 17+ requirement for `quint verify`.
+- [x] Add a short user-facing doc under `docs/` explaining how to run `proof-forge emit --target quint`.
+- [x] Commit.
 
 ## Spec Coverage Self-Review
 

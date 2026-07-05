@@ -137,6 +137,43 @@
 - 至少有一个不支持的能力被拒绝，并带有清晰的诊断信息。
 - 发射时，IR 版本出现在制品元数据中。
 
+## 工作流 1.6：Quint 模型生成与 MBT 回放
+
+目标：将 Quint 作为上游设计验证层，从 portable IR 生成状态机模型，
+对其进行模型检查，并生成可在 ProofForge IR 语义上回放的 MBT 追踪。
+
+任务：
+
+- 已完成：添加 `ProofForge.Backend.Quint` 库，包括 AST（`Model.lean`）、
+  美化打印（`Emit.lean`）、IR 到 Quint 的降级（`Lower.lean`）、
+  场景 TOML 解析（`Scenario.lean`）、不变式推导（`Invariants.lean`）、
+  ITF 追踪解析（`ITF.lean`）以及 IR 语义回放（`Replay.lean`）。
+- 已完成：将 `proof-forge emit --target quint --fixture counter` 接入 CLI
+  和 `Fixture.lean`。
+- 已完成：添加端到端测试 `Tests/Quint/CounterReplay.lean`，对 Counter 进行降级、
+  运行 `quint run --mbt --out-itf`、解析 ITF 追踪，并通过
+  `ProofForge.IR.Semantics` 回放每个转换。
+- 已完成：在 `docs/capability-registry.md` 中注册工具链能力
+  `model.quint`、`verify.model_check`、`verify.simulation` 和
+  `test.mbt_trace`。
+- 已完成：扩展 `ProofForge.Contract.Spec.Json.render`，添加 `verification.quint`
+  元数据块（模型路径、不变式、验证命令、检查器）。
+- 已完成：添加 `scripts/quint/model-check-gate.sh` 和
+  `scripts/quint/mbt-replay-gate.sh`，当 `quint` 或 Java 17+ 不可用时优雅跳过；
+  并通过 `just quint-model-gate` 和 `just quint-mbt-gate` 暴露。
+- 添加 ValueVault IR 固定装置，并扩展生成器/回放门以覆盖它。
+- 从场景 TOML 的 `[invariants]` 下解析手动不变式，并将其作为 Quint `val` 定义发射。
+- 随着相应 IR 语义覆盖范围的扩大，将支持的 IR 子集扩展到 map、数组、结构体和有界循环。
+- 当构建环境中可用 Java 17+ 时，考虑将 `quint verify` 加入默认 CI 路径。
+
+验收标准：
+
+- `lake env proof-forge emit --target quint --fixture counter` 写出有效的
+  `build/quint/Counter.qnt` 模型。
+- `quint run build/quint/Counter.qnt` 未找到不变式违反。
+- `just quint-mbt-gate` 生成 ITF 追踪并通过 IR 语义回放，测试通过。
+- `just quint-model-gate` 执行 `quint verify`，并在缺少 Java 17+ 时优雅跳过。
+
 ## 工作流 2：制品元数据
 
 有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.md)。

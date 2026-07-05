@@ -9,9 +9,9 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "d728d1ec6f7411c1d5c89bff73e619c50be6532daa8f4522ed4a2b691310eb7a",
+    "sha256": "95801ce1475d632a3ba955bba14a696ccfdc5e31ddccf09ff36c683da5ef34b5",
     "zh": "docs/zh/INDEX.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/onboarding.md": {
     "sha256": "cae8c22556e3dda35ac151c4a7d78cef790ae8dfd345a09fe6e14b641c9a7a7b",
@@ -49,9 +49,9 @@
     "model": "manual"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "55a3b6d384671a81cd46f108d8c571aebd109593de5d647948c6e8ec24933a41",
+    "sha256": "1f73dd02a7d1e46d18095bf7ec1b308a4a5ad38d64ba3e889fce8055a9efd98c",
     "zh": "docs/zh/implementation-backlog.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/review-checklist.md": {
     "sha256": "ff8faffc195d72e1d47fbd6c3a12fd90b284c591131c0a0031ab5841e26dc707",
