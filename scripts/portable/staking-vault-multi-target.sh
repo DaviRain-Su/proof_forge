@@ -43,12 +43,9 @@ echo "portable-staking-vault: Solana sBPF"
   "$SOURCE"
 
 echo "portable-staking-vault: NEAR/Wasm"
-if "${proof_forge[@]}" build --target wasm-near --root . \
+"${proof_forge[@]}" build --target wasm-near --root . \
   -o "$OUT/near" \
   --artifact-output "$OUT/StakingVault.near-artifact.json" \
-  "$SOURCE" 2>&1; then
-  echo "portable-staking-vault-multi-target: ok"
-else
-  echo "portable-staking-vault: NEAR build skipped (nativeValue U128 not yet supported in EmitWat)" >&2
-  echo "portable-staking-vault-multi-target: ok (EVM + Solana; NEAR deferred)"
-fi
+  "$SOURCE"
+
+echo "portable-staking-vault-multi-target: ok"

@@ -947,7 +947,11 @@ mutual
       if t != .bool then err s!"EmitWat: boolean not operand expected Bool, got `{t.name}`"
       else .ok (is ++ #[.plain "i32.eqz"], .bool)
     | .cast value target => lowerCast ctx env value target
-    | .nativeValue => err nativeValueUnsupportedMessage
+    | .nativeValue =>
+      -- NEAR attached_deposit returns U128, but IR v0 treats nativeValue as U64.
+      -- For deposits within U64 range (< 2^64), the low 64 bits are the amount.
+      -- Call attached_deposit (returns i64 = low 64 bits) and use directly.
+      .ok (#[.call "attached_deposit"], .u64)
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s =>
@@ -1102,6 +1106,22 @@ mutual
         let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
         .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ readCall, m.valueType)
 
+  /-- Nested map read: Map<K1, Map<K2, V>>. Builds compound key:
+      mapBuildkey writes prefix + key1 to MAPKEY_BUF, then we manually
+      append key2 bytes at MAPKEY_BUF + prefixLen + 8.
+      Then call storage_read with extended key length = prefixLen + 16. -/
+  partial def lowerNestedMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findMapState? ctx.maps id with
+    | none => err s!"EmitWat: unknown map state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: nested map key must be U64 (`{id}` has key `{m.keyType.name}`)"
+      else do
+        let readCall := #[.call (mapReadName m.valueType)]
+        let ki1 ← lowerMapKeyU64 ctx env key1
+        let ki2 ← lowerMapKeyU64 ctx env key2
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ ki1 ++ ki2 ++ readCall, m.valueType)
+
   partial def lowerMapContains (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
     match findMapState? ctx.maps id with
@@ -1135,6 +1155,27 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let (vis, vt) ← lowerExpr ctx env value
     lowerMapWriteValue ctx env id key vis vt
+
+  /-- Nested map write with pre-evaluated value instructions. -/
+  partial def lowerNestedMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 : Expr)
+      (valueInsns : Array Insn) (valueType : ValueType)
+      : Except EmitError (Array Insn × ValueType) := do
+    match findMapState? ctx.maps id with
+    | none => err s!"EmitWat: unknown map state `{id}`"
+    | some m =>
+      if m.keyType != .u64 then err s!"EmitWat: nested map key must be U64"
+      else if valueType != m.valueType then err s!"EmitWat: nested map write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
+      else do
+        let writeCall := #[.call (mapWriteName m.valueType)]
+        let ki1 ← lowerMapKeyU64 ctx env key1
+        let ki2 ← lowerMapKeyU64 ctx env key2
+        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ ki1 ++ ki2 ++ valueInsns ++ writeCall, m.valueType)
+
+  /-- Nested map write: Map<K1, Map<K2, V>>. -/
+  partial def lowerNestedMapWrite (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 value : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    let (vis, vt) ← lowerExpr ctx env value
+    lowerNestedMapWriteValue ctx env id key1 key2 vis vt
 
   partial def lowerStorageArrayRead (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr)
       : Except EmitError (Array Insn × ValueType) := do
@@ -1295,7 +1336,11 @@ mutual
     | [.index index] => lowerStorageArrayRead ctx env id index
     | [.field fieldName] => lowerScalarStructFieldRead ctx id fieldName
     | [.index index, .field fieldName] => lowerArrayStructFieldRead ctx env id index fieldName
-    | _ => err "EmitWat: storagePathRead supports mapKey, index, field, or index+field paths"
+    | [.mapKey key1, .mapKey key2] =>
+      -- Nested map: Map<K1, Map<K2, V>>. Encode as compound key:
+      -- prefix ++ key1_bytes ++ key2_bytes in MAPKEY_BUF.
+      lowerNestedMapGet ctx env id key1 key2
+    | _ => err "EmitWat: storagePathRead supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
   partial def lowerStoragePathWrite (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment) (value : Expr)
       : Except EmitError (Array Insn) := do
@@ -1312,7 +1357,10 @@ mutual
       lowerScalarStructFieldWrite ctx env id fieldName value
     | [.index index, .field fieldName] =>
       lowerArrayStructFieldWrite ctx env id index fieldName value
-    | _ => err "EmitWat: storagePathWrite supports mapKey, index, field, or index+field paths"
+    | [.mapKey key1, .mapKey key2] => do
+      let (is, _) ← lowerNestedMapWrite ctx env id key1 key2 value
+      .ok (is ++ #[.drop])
+    | _ => err "EmitWat: storagePathWrite supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
   partial def lowerStoragePathAssignOp (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment)
       (op : AssignOp) (value : Expr) : Except EmitError (Array Insn) := do
@@ -1363,7 +1411,18 @@ mutual
         err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
       let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
       lowerArrayStructFieldWriteValue ctx env id index fieldName computed currentType
-    | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, or index+field paths"
+    | [.mapKey key1, .mapKey key2] => do
+      let (currentInsns, currentType) ← lowerNestedMapGet ctx env id key1 key2
+      if !isNumeric currentType then
+        err s!"EmitWat: storagePathAssignOp requires U32/U64 nested map values, got `{currentType.name}`"
+      let (valueInsns, valueType) ← lowerExpr ctx env value
+      if valueType != currentType then
+        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+      let opInsn : Insn := .plain (widthOf currentType ++ "." ++ assignOpName op)
+      let computed := currentInsns ++ valueInsns ++ #[opInsn]
+      let (writeInsns, _) ← lowerNestedMapWriteValue ctx env id key1 key2 computed currentType
+      .ok (writeInsns ++ #[.drop])
+    | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
   partial def collectArrayLitsPathSegment (segment : StoragePathSegment) : Array (ValueType × Nat) :=
     match segment with

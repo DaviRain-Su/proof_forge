@@ -43,12 +43,9 @@ echo "portable-role-gated-token: Solana sBPF"
   "$SOURCE"
 
 echo "portable-role-gated-token: NEAR/Wasm"
-if "${proof_forge[@]}" build --target wasm-near --root . \
+"${proof_forge[@]}" build --target wasm-near --root . \
   -o "$OUT/near" \
   --artifact-output "$OUT/RoleGatedToken.near-artifact.json" \
-  "$SOURCE" 2>&1; then
-  echo "portable-role-gated-token-multi-target: ok"
-else
-  echo "portable-role-gated-token: NEAR build skipped (nested map path not yet supported in EmitWat)" >&2
-  echo "portable-role-gated-token-multi-target: ok (EVM + Solana; NEAR deferred)"
-fi
+  "$SOURCE"
+
+echo "portable-role-gated-token-multi-target: ok"
