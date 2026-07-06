@@ -18,7 +18,7 @@ Solana/Psy gates are live-network or `dargo`-backed and are not part of default 
 The root `justfile` is the canonical command catalog (`just --list`). It is also the CI
 entrypoint (see `.github/workflows/ci.yml`). Key commands:
 - Build: `just build` (`lake build`).
-- Fast baseline (lint + Lean/EVM/Psy/Quint static gates): `just check` (includes `just quint-mbt-gate`; skips when `quint` is not on `PATH` locally).
+- Fast baseline (lint + Lean/EVM/Psy/Quint static gates): `just check` (includes `just quint-mbt-gate` and `just quint-model-gate`; skips when `quint` or Java 17+ is missing locally).
 - Full EVM gates (compile examples, Foundry runtime smoke, live Anvil deploy):
   `just evm-all`.
 - Full CI sequence locally: `just ci`.

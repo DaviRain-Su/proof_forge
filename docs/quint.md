@@ -50,12 +50,14 @@ quint verify build/quint/Counter.qnt --invariants countNonNegative --max-steps 1
 ```
 
 `quint verify` requires Java 17+. If your environment only has Java 11, the
-`just quint-model-gate` script will skip this step gracefully.
+`just quint-model-gate` script will skip this step gracefully locally; CI
+installs Temurin 17 and runs the gate as a blocking check.
 
 ## Model-based testing and IR replay
 
 ```sh
 just quint-mbt-gate
+just quint-model-gate
 ```
 
 This lowers Counter, runs `quint run --mbt --out-itf`, parses the generated ITF

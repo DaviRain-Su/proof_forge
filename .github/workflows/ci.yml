@@ -59,6 +59,12 @@ jobs:
       - name: Install Quint CLI
         run: npm install -g @informalsystems/quint
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Tool versions
         run: |
           lean --version
@@ -73,6 +79,7 @@ jobs:
           node --version
           npm --version
           quint --version
+          java -version
 
       - name: Build Lean package
         run: just build
@@ -145,6 +152,9 @@ jobs:
 
       - name: Run Quint MBT replay gate
         run: just quint-mbt-gate
+
+      - name: Run Quint model-check gate
+        run: just quint-model-gate
 
       - name: Check EVM diagnostics
         run: just evm-diagnostics

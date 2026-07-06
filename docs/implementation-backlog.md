@@ -182,8 +182,8 @@ Tasks:
   as Quint `val` definitions.
 - Extend the supported IR subset toward maps, arrays, structs, and bounded loops
   as the corresponding IR semantics coverage grows.
-- Consider adding `quint verify` to the default CI path once Java 17+ is
-  available in the build environment.
+- Done: add `quint verify` to the default CI path via `just quint-model-gate`
+  with Temurin Java 17 in `.github/workflows/ci.yml`.
 
 Acceptance criteria:
 
