@@ -2,7 +2,7 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.StructProbe
-import ProofForge.IR.Examples.CrosscallProbe
+import ProofForge.IR.Examples.NearCrosscallProbe
 
 namespace ProofForge.Tests.WasmNearPlan
 
@@ -493,20 +493,22 @@ def testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports : IO Unit := do
   requireContains wat "__pf_arr_dealloc" "host-jemalloc release module must emit arr dealloc helper"
 
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
-  -- Crosscall is not in the wasm-near target profile yet; test the v0 stub lowering path directly.
   let wat ←
-    match renderCheckedModule ProofForge.IR.Examples.CrosscallProbe.module with
+    match renderModule ProofForge.IR.Examples.NearCrosscallProbe.module with
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat crosscall render failed: {err.message}"
   requireContains wat "(import \"env\" \"promise_create\"" "crosscall module must import promise_create"
-  requireContains wat "(import \"env\" \"current_account_id\"" "crosscall module must import current_account_id"
-  requireContains wat "(import \"env\" \"register_len\"" "crosscall module must import register_len"
-  requireContains wat "(import \"env\" \"log_utf8\"" "crosscall module must import log_utf8"
-  requireContains wat "(data (i32.const 42800) \"event\")" "crosscall module must retain event key data"
+  requireContains wat "(import \"env\" \"promise_return\"" "crosscall module must import promise_return"
+  requireContains wat "(data (i32.const 49000) \"callee.testnet\")" "crosscall module must emit target account data"
+  requireContains wat "(data (i32.const 49015) \"remote_call\")" "crosscall module must emit method name data"
+  requireContains wat "(data (i32.const 48100) \"{}\")" "crosscall module must emit empty JSON args data"
+  requireContains wat "call $promise_create" "crosscall module must call promise_create"
+  requireContains wat "call $promise_return" "crosscall module must call promise_return"
   requireNotContains wat "(import \"env\" \"promise_then\"" "crosscall module should not import promise_then"
   requireNotContains wat "(import \"env\" \"promise_results_count\"" "crosscall module should not import promise_results_count"
   requireNotContains wat "(import \"env\" \"promise_result\"" "crosscall module should not import promise_result"
-  requireNotContains wat "(import \"env\" \"promise_return\"" "crosscall module should not import promise_return"
+  requireNotContains wat "(import \"env\" \"log_utf8\"" "crosscall module should not import log_utf8"
+  requireNotContains wat "(import \"env\" \"current_account_id\"" "crosscall module should not import current_account_id"
 
 def testStructLiteralRenderKeepsOnlyMatchingStructLitSurface : IO Unit := do
   let wat ←

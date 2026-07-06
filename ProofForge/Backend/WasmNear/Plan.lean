@@ -412,12 +412,14 @@ def withPromiseApi : ModuleSurface := {
   usesPromiseApi := true
 }
 
-/-- EmitWat v0 crosscall lowering currently builds a `promise_create` stub and
-    reads the receiver account id from `current_account_id`. -/
-def withCrosscallStub : ModuleSurface := {
+/-- NEAR Promise-based crosscall lowering via `promise_create`. -/
+def withCrosscallPromise : ModuleSurface := {
   usesPromiseApi := true
   usesPromiseCreate := true
-  usesPromiseReceiverAccount := true
+}
+
+def withPromiseReturn : ModuleSurface := {
+  usesPromiseReturn := true
 }
 
 def withEventApi : ModuleSurface := {
@@ -535,6 +537,11 @@ def comparisonSurfaceForType (type : ValueType) : ModuleSurface :=
   | _ => ModuleSurface.empty
 
 end ModuleSurface
+
+partial def exprReturnsCrosscallPromise : Expr → Bool
+  | .crosscallInvoke _ _ _ => true
+  | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | _ => false
 
 def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
@@ -821,7 +828,7 @@ mutual
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
-            ModuleSurface.withCrosscallStub
+            ModuleSurface.withCrosscallPromise
         args.foldlM (init := base) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallInvokeValueTyped target methodId callValue args _ => do
@@ -830,15 +837,15 @@ mutual
             (mergeModuleSurfaces
               (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
               (← surfaceFromExpr module env callValue))
-            ModuleSurface.withCrosscallStub
+            ModuleSurface.withCrosscallPromise
         args.foldlM (init := base) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallCreate callValue _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallStub
+        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallPromise
     | .crosscallCreate2 callValue salt _ =>
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
-          ModuleSurface.withCrosscallStub
+          ModuleSurface.withCrosscallPromise
     | .effect effect =>
         surfaceFromEffect module env effect
 
@@ -989,8 +996,12 @@ mutual
         surfaceFromStatements module env returnType body
     | .whileLoop condition body =>
         return mergeModuleSurfaces (← surfaceFromExpr module env condition) (← surfaceFromStatements module env returnType body)
-    | .return value =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env value) (ModuleSurface.withReturnType returnType)
+    | .return value => do
+        let valueSurface ← surfaceFromExpr module env value
+        let promiseReturn :=
+          if exprReturnsCrosscallPromise value then ModuleSurface.withPromiseReturn else ModuleSurface.empty
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces valueSurface promiseReturn) (ModuleSurface.withReturnType returnType)
 
   partial def surfaceFromStatements (module : Module) (env : LocalTypeEnv) (returnType : ValueType) (statements : Array Statement) :
       Except PlanError ModuleSurface :=

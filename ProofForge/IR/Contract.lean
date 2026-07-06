@@ -291,6 +291,8 @@ structure Module where
   allocator : AllocatorConfig := defaultAllocator
   /-- When set to `uups`, EVM lowering adds a delegatecall fallback for proxy shells. -/
   evmProxyPattern? : Option String := none
+  /-- NEAR EmitWat crosscall strings indexed by `.literal (.address i)` target/method ids. -/
+  nearCrosscallStrings : Array String := #[]
   deriving Repr
 
 def Effect.capability : Effect → ProofForge.Target.Capability

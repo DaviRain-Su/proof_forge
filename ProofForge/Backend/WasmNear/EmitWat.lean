@@ -37,6 +37,12 @@ def indexedEventUnsupportedMessage (name : String) : String :=
 def crosscallUnsupportedMessage : String :=
   "EmitWat: crosscall.invoke maps to NEAR Promise-based execution, but EmitWat v0 has no Promise lowering yet"
 
+def crosscallEvmOnlyMessage (kind : String) : String :=
+  s!"EmitWat: NEAR crosscall does not support `{kind}`; use `crosscallInvoke` with `nearCrosscallStrings` address literals"
+
+def crosscallTypedUnsupportedMessage : String :=
+  "EmitWat: typed crosscall is not supported on NEAR; use untyped `crosscallInvoke`"
+
 structure EmitError where
   message : String
   deriving Repr, Inhabited
@@ -57,6 +63,10 @@ def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
 def EVT_KEY_PTR : Nat := 42800     -- fixed "event" key string (5 bytes)
 def STRING_BASE : Nat := 43000     -- event/field name string pool base
 def INPUT_BUF : Nat := 44000       -- 1 KB scratch for Borsh input args
+def CROSSCALL_ARGS_PTR : Nat := 48100 -- fixed "{}" args payload for v0 NEAR crosscalls
+def CROSSCALL_ARGS_LEN : Nat := 2
+def CROSSCALL_STRING_BASE : Nat := 49000
+def crosscallDefaultGas : Nat := 50_000_000_000_000
 def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one per hash param)
 def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-valued map entries
 def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
@@ -712,7 +722,7 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "promise_then" => plan.usesPromiseThen
     | "promise_results_count" | "promise_result" => plan.usesPromiseResults
     | "promise_return" => plan.usesPromiseReturn
-    | "log_utf8" => plan.usesEventApi || plan.usesPromiseCreate
+    | "log_utf8" => plan.usesEventApi
     | "signer_account_id" => plan.contextOps.contains .origin
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
@@ -933,12 +943,19 @@ def panicPool (mod : ProofForge.IR.Module) (stringPoolEnd : Nat) : Array StringI
 def findString? (pool : Array StringInfo) (s : String) : Option StringInfo :=
   pool.find? (fun si => si.str == s)
 
+def crosscallStringInfos (strings : Array String) (base : Nat) : Array StringInfo :=
+  let result : Array StringInfo × Nat :=
+    strings.foldl (init := (#[], base)) fun (acc, offset) s =>
+      (acc.push { str := s, ptr := offset, len := s.length }, offset + s.length + 1)
+  result.fst
+
 -- Type-directed expression lowering (mutually recursive)
 structure Ctx where
   scalars : Array StateInfo
   maps    : Array MapInfo
   strings : Array StringInfo
   panics  : Array StringInfo
+  crosscallStrings : Array StringInfo
   structs : Array ProofForge.IR.StructDecl
   allocator : ProofForge.IR.AllocatorConfig
 
@@ -956,6 +973,16 @@ def assignOpName : AssignOp → String
   | .add => "add" | .sub => "sub" | .mul => "mul" | .div => "div_u" | .mod => "rem_u"
   | .bitAnd => "and" | .bitOr => "or" | .bitXor => "xor"
   | .shiftLeft => "shl" | .shiftRight => "shr_u"
+
+def resolveCrosscallStringRef (ctx : Ctx) (e : Expr) (role : String) : Except EmitError StringInfo :=
+  match e with
+  | .literal (.address idx) =>
+    match ctx.crosscallStrings[idx]? with
+    | some si => .ok si
+    | none =>
+      err s!"EmitWat: NEAR crosscall {role} index `{idx}` is out of range for `module.nearCrosscallStrings`"
+  | _ =>
+    err s!"EmitWat: NEAR crosscall {role} must be `.literal (.address <index>)` into `module.nearCrosscallStrings`"
 
 mutual
   partial def canDuplicateExpr : Expr → Bool
@@ -1002,9 +1029,27 @@ mutual
     | .crosscallCreate _ _
     | .crosscallCreate2 _ _ _
     | .effect _ => false
-end
 
-mutual
+  partial def lowerCrosscallInvoke (ctx : Ctx) (env : LocalTypes) (target method : Expr) (args : Array Expr)
+      (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+    if !args.isEmpty then
+      err "EmitWat: NEAR crosscall arguments are not supported yet; pass an empty arg list"
+    if ctx.crosscallStrings.isEmpty then
+      err "EmitWat: NEAR crosscall requires `module.nearCrosscallStrings` to be populated"
+    let account ← resolveCrosscallStringRef ctx target "target account id"
+    let methodSi ← resolveCrosscallStringRef ctx method "method name"
+    let (depositInsns, depositType) ← lowerExpr ctx env deposit
+    if depositType != .u64 then
+      err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
+    .ok (#[
+      .i64Const account.len, .i32Const account.ptr, .plain "i64.extend_i32_u",
+      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u",
+      .i64Const CROSSCALL_ARGS_LEN, .i32Const CROSSCALL_ARGS_PTR, .plain "i64.extend_i32_u"
+    ] ++ depositInsns ++ #[
+      .i64Const crosscallDefaultGas,
+      .call "promise_create"
+    ], .u64)
+
   partial def lowerExpr (ctx : Ctx) (env : LocalTypes) (e : Expr)
       : Except EmitError (Array Insn × ValueType) :=
     match e with
@@ -1138,23 +1183,20 @@ mutual
             .ok (pb ++ #[.i32Const off, .plain "i32.add", .load (loadOpFor ft) 0], ft)
           | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
-    | .crosscallInvokeTyped _ _ _ _ | .crosscallInvoke _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
-    | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-      -- Cross-contract call / contract creation via NEAR Promise API.
-      -- For create/create2: NEAR has no CREATE opcode equivalent; log and
-      -- return 0 as a promise index placeholder.
-      .ok (#[
-        .i32Const 4, .i32Const EVT_KEY_PTR, .call "log_utf8",
-        .i64Const 0, .call "current_account_id",
-        .i64Const 0, .call "register_len",
-        .i64Const 0, .i32Const CTX_BUF, .call "read_register",
-        .i64Const 0, .call "register_len",
-        .i32Const CTX_BUF,
-        .i32Const CTX_BUF, .i64Const 0,
-        .i64Const 0, .i64Const 0, .i64Const 10000000000000,
-        .call "promise_create"
-      ], .u64)
+    | .crosscallInvoke target method args =>
+      lowerCrosscallInvoke ctx env target method args (.literal (.u64 0))
+    | .crosscallInvokeValueTyped target method callValue args _ =>
+      lowerCrosscallInvoke ctx env target method args callValue
+    | .crosscallInvokeTyped _ _ _ _ =>
+      err crosscallTypedUnsupportedMessage
+    | .crosscallInvokeStaticTyped _ _ _ _ =>
+      err (crosscallEvmOnlyMessage "crosscallInvokeStaticTyped")
+    | .crosscallInvokeDelegateTyped _ _ _ _ =>
+      err (crosscallEvmOnlyMessage "crosscallInvokeDelegateTyped")
+    | .crosscallCreate _ _ =>
+      err (crosscallEvmOnlyMessage "crosscallCreate")
+    | .crosscallCreate2 _ _ _ =>
+      err (crosscallEvmOnlyMessage "crosscallCreate2")
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
@@ -1796,10 +1838,17 @@ partial def collectLocalsFrom (acc : LocalTypes) (s : Statement) : Except EmitEr
 def collectLocals (body : Array Statement) : Except EmitError LocalTypes :=
   body.foldlM (init := #[]) collectLocalsFrom
 
+def exprReturnsCrosscallPromise : Expr → Bool
+  | .crosscallInvoke _ _ _ => true
+  | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | _ => false
+
 def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
   if t != expected then err s!"EmitWat: return expected `{expected.name}`, got `{t.name}`"
+  else if exprReturnsCrosscallPromise e then
+    .ok (is ++ #[.call "promise_return"])
   else match t with
     | .u64 => .ok (is ++ #[.call returnU64Name])
     | .u32 => .ok (is ++ #[.call returnU32Name])
@@ -2045,14 +2094,23 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let strs := stringPool mod
   let stringPoolEnd := strs.foldl (init := STRING_BASE) fun acc s => max acc (s.ptr + s.len + 1)
   let panics := panicPool mod stringPoolEnd
-  let ctx := { scalars := scalars, maps := maps, strings := strs, panics := panics, structs := mod.structs, allocator := mod.allocator : Ctx }
+  let crosscallStrs := crosscallStringInfos mod.nearCrosscallStrings CROSSCALL_STRING_BASE
+  let ctx := {
+    scalars := scalars, maps := maps, strings := strs, panics := panics,
+    crosscallStrings := crosscallStrs, structs := mod.structs, allocator := mod.allocator : Ctx }
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let scalarData := scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
   let mapData := maps.map fun m => { offset := m.prefixPtr, bytes := m.id ++ ":" : DataSegment }
   let boolData : Array DataSegment :=
     #[{ offset := TRUE_PTR, bytes := "true" }, { offset := FALSE_PTR, bytes := "false" }]
   let evtKeyData : DataSegment := { offset := EVT_KEY_PTR, bytes := "event" }
-  let evtKeySegments := if modulePlan.usesEventApi || modulePlan.usesPromiseCreate then #[evtKeyData] else #[]
+  let evtKeySegments := if modulePlan.usesEventApi then #[evtKeyData] else #[]
+  let crosscallArgsData :=
+    if modulePlan.usesPromiseCreate then #[{ offset := CROSSCALL_ARGS_PTR, bytes := "{}" }] else #[]
+  let crosscallStringData :=
+    if modulePlan.usesPromiseCreate then
+      crosscallStrs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
+    else #[]
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
@@ -2060,7 +2118,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let baseImportsCore :=
     (nearImportsForModulePlan modulePlan ++ sha256Imports).push inputImport
       |> fun imports =>
-        if modulePlan.usesEventApi || modulePlan.usesPromiseCreate then
+        if modulePlan.usesEventApi then
           imports.push logUtf8Import
         else
           imports
@@ -2085,22 +2143,22 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
-        dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++ (if hasPanic then panicData else #[]) }
+        dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++
+          crosscallStringData ++ crosscallArgsData ++ (if hasPanic then panicData else #[]) }
 
 /-! EmitWat supports the same capability surface as the `wasmNear` target profile,
     plus `controlConditional` and `controlBoundedLoop` (if/else + boundedFor are
     lowered natively in WAT). This set is intentionally kept in sync with the
     `wasmNear` profile so that the target-adapter capability gate and EmitWat's
     own gate reject the same shapes. Aggregate entrypoint params (structs/arrays)
-    and cross-contract calls are NOT in this set; they stay rejected until the
-    profile explicitly opens them. -/
+    and cross-contract calls are enabled for EmitWat via Promise lowering even
+    though wasm-near Rust sourcegen v0 still rejects them. -/
 def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  ProofForge.Target.wasmNear.capabilities
+  ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke
 
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>
     if emitWatCapabilities.contains c then .ok ()
-    else if c == .crosscallInvoke then .error { message := crosscallUnsupportedMessage }
     else .error { message := s!"EmitWat: capability `{c.id}` is not supported by the EmitWat backend" }) ()
 
 def checkTargetPlan (plan : ProofForge.Target.CapabilityPlan) : Except EmitError Unit :=
