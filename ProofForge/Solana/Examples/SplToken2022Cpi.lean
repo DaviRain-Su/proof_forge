@@ -29,10 +29,13 @@ def spec : ProofForge.Contract.ContractSpec :=
     writableAccountConstraint "permanent_delegate_mint"
     writableAccountConstraint "interest_bearing_mint"
     writableAccountConstraint "memo_transfer_account"
+    writableAccountConstraint "transfer_hook_mint"
     readonlyAccountConstraint "metadata_pointer_authority"
     readonlyAccountConstraint "metadata_address"
     readonlyAccountConstraint "permanent_delegate"
     readonlyAccountConstraint "interest_rate_authority"
+    readonlyAccountConstraint "transfer_hook_authority"
+    readonlyAccountConstraint "transfer_hook_program"
 
     splToken2022InitializeTransferFeeConfig
       "token_2022_init_fee_config"
@@ -111,6 +114,12 @@ def spec : ProofForge.Contract.ContractSpec :=
       "token_2022_enable_memo_transfer"
       "memo_transfer_account"
       "authority"
+
+    splToken2022InitializeTransferHook
+      "token_2022_init_transfer_hook"
+      "transfer_hook_mint"
+      "transfer_hook_authority"
+      "transfer_hook_program"
 
     entrySelectorWithParams "init_fee_config" "08"
         #[("basis_points", .u64), ("maximum_fee", .u64)] .unit do
@@ -221,6 +230,14 @@ def spec : ProofForge.Contract.ContractSpec :=
         "memo_transfer_account"
         "authority"
       effect (storageScalarWrite "last_marker" (u64 10))
+
+    entrySelector "initialize_transfer_hook" "15" do
+      invokeSplToken2022InitializeTransferHook
+        "token_2022_init_transfer_hook"
+        "transfer_hook_mint"
+        "transfer_hook_authority"
+        "transfer_hook_program"
+      effect (storageScalarWrite "last_marker" (u64 11))
 
 def module : ProofForge.IR.Module :=
   spec.module

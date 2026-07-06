@@ -100,6 +100,7 @@ expected_names = [
     "initialize_permanent_delegate",
     "initialize_interest_bearing",
     "enable_memo_transfer",
+    "initialize_transfer_hook",
 ]
 names = [instruction.get("name") for instruction in instructions]
 if names != expected_names:
@@ -123,10 +124,13 @@ expected_accounts = [
     "permanent_delegate_mint",
     "interest_bearing_mint",
     "memo_transfer_account",
+    "transfer_hook_mint",
     "metadata_pointer_authority",
     "metadata_address",
     "permanent_delegate",
     "interest_rate_authority",
+    "transfer_hook_authority",
+    "transfer_hook_program",
 ]
 for instruction in instructions:
     accounts = [account.get("name") for account in instruction.get("accounts", [])]
@@ -167,6 +171,7 @@ expected_cpis = {
     "token_2022_init_permanent_delegate": "token-2022.initialize_permanent_delegate",
     "token_2022_init_interest_bearing": "token-2022.initialize_interest_bearing_mint",
     "token_2022_enable_memo_transfer": "token-2022.enable_required_memo_transfers",
+    "token_2022_init_transfer_hook": "token-2022.initialize_transfer_hook",
 }
 if list(cpis) != list(expected_cpis):
     raise SystemExit(f"CPI schema mismatch: {list(cpis)}")
@@ -198,6 +203,10 @@ if cpis["token_2022_init_interest_bearing"].get("interestRate") != "250":
     raise SystemExit("interest_rate mismatch")
 if cpis["token_2022_enable_memo_transfer"].get("memoTransferRequired") != "true":
     raise SystemExit("memo_transfer required flag mismatch")
+if cpis["token_2022_init_transfer_hook"].get("transferHookAuthority") != "transfer_hook_authority":
+    raise SystemExit("transfer_hook authority source mismatch")
+if cpis["token_2022_init_transfer_hook"].get("transferHookProgram") != "transfer_hook_program":
+    raise SystemExit("transfer_hook program source mismatch")
 print("artifact validation: ok")
 PY
 

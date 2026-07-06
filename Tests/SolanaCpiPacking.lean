@@ -459,6 +459,12 @@ def main : IO UInt32 := do
         "Token-2022 manifest missing memo-transfer layout"
       require (contains manifest "memo_transfer_required = \"true\"")
         "Token-2022 manifest missing memo-transfer metadata"
+      require (contains manifest "data_layout = \"token-2022.initialize_transfer_hook\"")
+        "Token-2022 manifest missing transfer-hook layout"
+      require (contains manifest "transfer_hook_authority = \"transfer_hook_authority\"")
+        "Token-2022 manifest missing transfer-hook authority metadata"
+      require (contains manifest "transfer_hook_program = \"transfer_hook_program\"")
+        "Token-2022 manifest missing transfer-hook program metadata"
       require (contains manifest "num_token_accounts = \"1\"")
         "Token-2022 manifest missing withheld source count"
       require (contains idl "\"feeSource\": \"fee\"")
@@ -483,6 +489,10 @@ def main : IO UInt32 := do
         "Token-2022 IDL missing interestRate"
       require (contains idl "\"memoTransferRequired\": \"true\"")
         "Token-2022 IDL missing memoTransferRequired"
+      require (contains idl "\"transferHookAuthority\": \"transfer_hook_authority\"")
+        "Token-2022 IDL missing transferHookAuthority"
+      require (contains idl "\"transferHookProgram\": \"transfer_hook_program\"")
+        "Token-2022 IDL missing transferHookProgram"
       require (contains asm "sol_cpi_token_2022_init_fee_config:")
         "assembly missing Token-2022 init fee config helper label"
       require (contains asm "sol_cpi_token_2022_transfer_with_fee:")
@@ -501,6 +511,8 @@ def main : IO UInt32 := do
         "assembly missing Token-2022 interest-bearing helper label"
       require (contains asm "sol_cpi_token_2022_enable_memo_transfer:")
         "assembly missing Token-2022 memo-transfer helper label"
+      require (contains asm "sol_cpi_token_2022_init_transfer_hook:")
+        "assembly missing Token-2022 transfer-hook helper label"
       require (contains asm "solana.cpi.program_id spl_token_2022 TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
         "assembly missing Token-2022 program id packing marker"
       require (contains asm "solana.cpi.data token-2022.initialize_transfer_fee_config: u8 instruction=26, u8 transfer_fee_instruction=0")
@@ -547,6 +559,12 @@ def main : IO UInt32 := do
         "assembly missing interest-rate authority pubkey binding"
       require (contains asm "solana.cpi.data token-2022.enable_required_memo_transfers: u8 instruction=30, u8 memo_transfer_instruction=0")
         "assembly missing enable_required_memo_transfers data packing marker"
+      require (contains asm "solana.cpi.data token-2022.initialize_transfer_hook: u8 instruction=36, u8 transfer_hook_instruction=0, pubkey authority, pubkey transfer_hook_program_id")
+        "assembly missing initialize_transfer_hook data packing marker"
+      require (contains asm "solana.cpi.value transfer_hook_authority from account transfer_hook_authority")
+        "assembly missing transfer-hook authority pubkey binding"
+      require (contains asm "solana.cpi.value transfer_hook_program from account transfer_hook_program")
+        "assembly missing transfer-hook program pubkey binding"
       require (contains asm "mov64 r3, 78")
         "assembly missing initialize_transfer_fee_config data length"
       require (contains asm "mov64 r3, 19")
@@ -554,7 +572,7 @@ def main : IO UInt32 := do
       require (contains asm "mov64 r3, 12")
         "assembly missing set_transfer_fee data length"
       require (contains asm "mov64 r3, 66")
-        "assembly missing initialize_metadata_pointer data length"
+        "assembly missing 66-byte Token-2022 pubkey-extension data length"
       require (contains asm "mov64 r3, 3")
         "assembly missing initialize_default_account_state data length"
       require (contains asm "mov64 r3, 33")
@@ -599,6 +617,8 @@ def main : IO UInt32 := do
         "assembly missing interest-bearing rate store"
       require (contains asm "stb [r8+0], 30")
         "assembly missing memo-transfer instruction tag store"
+      require (contains asm "stb [r8+0], 36")
+        "assembly missing transfer-hook instruction tag store"
       require (contains asm "call sol_cpi_token_2022_transfer_with_fee")
         "assembly missing transfer_with_fee entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_2022_init_non_transferable")
@@ -615,6 +635,8 @@ def main : IO UInt32 := do
         "assembly missing interest-bearing entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_2022_enable_memo_transfer")
         "assembly missing memo-transfer entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_transfer_hook")
+        "assembly missing transfer-hook entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 CPI packing render failed: {err.render}"
 

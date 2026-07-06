@@ -313,6 +313,18 @@ def invokeSplToken2022EnableRequiredMemoTransfers
   ProofForge.Solana.invokeSplToken2022EnableRequiredMemoTransfers call.name account.name
     authority.name (signerSeeds := signerSeeds)
 
+def splToken2022InitializeTransferHook
+    (call : CpiRef) (mint authority transferHookProgram : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeTransferHook call.name mint.name
+    authority.name transferHookProgram.name
+
+def invokeSplToken2022InitializeTransferHook
+    (call : CpiRef) (mint authority transferHookProgram : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeTransferHook call.name mint.name
+    authority.name transferHookProgram.name
+
 def splTokenMintTo (call : CpiRef) (mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)

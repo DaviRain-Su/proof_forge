@@ -25,6 +25,7 @@ import {
   getNonTransferable,
   getPermanentDelegate,
   getOrCreateAssociatedTokenAccount,
+  getTransferHook,
   getTransferFeeAmount,
   getTransferFeeConfig,
   mintTo,
@@ -144,6 +145,7 @@ function validateInstructionSchemas(artifact) {
     "initialize_permanent_delegate",
     "initialize_interest_bearing",
     "enable_memo_transfer",
+    "initialize_transfer_hook",
   ];
   require(JSON.stringify(names) === JSON.stringify(expectedNames), `instruction names mismatch: ${JSON.stringify(names)}`);
 
@@ -165,10 +167,13 @@ function validateInstructionSchemas(artifact) {
     "permanent_delegate_mint",
     "interest_bearing_mint",
     "memo_transfer_account",
+    "transfer_hook_mint",
     "metadata_pointer_authority",
     "metadata_address",
     "permanent_delegate",
     "interest_rate_authority",
+    "transfer_hook_authority",
+    "transfer_hook_program",
   ];
   for (const instruction of instructions) {
     const accountNames = (instruction.accounts ?? []).map((account) => account.name);
@@ -199,6 +204,7 @@ function validateInstructionSchemas(artifact) {
     instructions[10],
     instructions[11],
     instructions[12],
+    instructions[13],
   ]) {
     require((instruction.params ?? []).length === 0, `instruction ${instruction.name} should not declare params`);
   }
@@ -218,6 +224,7 @@ function validateInstructionSchemas(artifact) {
     token_2022_init_permanent_delegate: "token-2022.initialize_permanent_delegate",
     token_2022_init_interest_bearing: "token-2022.initialize_interest_bearing_mint",
     token_2022_enable_memo_transfer: "token-2022.enable_required_memo_transfers",
+    token_2022_init_transfer_hook: "token-2022.initialize_transfer_hook",
   };
   require(JSON.stringify(Object.keys(cpis)) === JSON.stringify(Object.keys(expectedCpis)), `CPI names mismatch: ${JSON.stringify(Object.keys(cpis))}`);
   for (const [name, layout] of Object.entries(expectedCpis)) {
@@ -236,6 +243,8 @@ function validateInstructionSchemas(artifact) {
   require(cpis.token_2022_init_interest_bearing.interestRateAuthority === "interest_rate_authority", "interest_bearing missing authority source");
   require(cpis.token_2022_init_interest_bearing.interestRate === String(INTEREST_RATE_BASIS_POINTS), "interest_bearing rate mismatch");
   require(cpis.token_2022_enable_memo_transfer.memoTransferRequired === "true", "memo_transfer required flag mismatch");
+  require(cpis.token_2022_init_transfer_hook.transferHookAuthority === "transfer_hook_authority", "transfer_hook missing authority source");
+  require(cpis.token_2022_init_transfer_hook.transferHookProgram === "transfer_hook_program", "transfer_hook missing program source");
   return instructions;
 }
 
@@ -348,6 +357,8 @@ async function main() {
     await createMintAccountWithExtensions(connection, payer, []);
   const { account: memoTransferAccount, signature: createMemoTransferAccountSignature } =
     await createTokenAccountWithExtensions(connection, payer, [ExtensionType.MemoTransfer]);
+  const { mint: transferHookMint, signature: createTransferHookMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.TransferHook]);
   const tokenOwner = await createScratchAccount(connection, payer);
   const withdrawWithheldAuthority = await createScratchAccount(connection, payer);
   const transferFeeConfigAuthority = await createScratchAccount(connection, payer);
@@ -355,6 +366,8 @@ async function main() {
   const metadataAddress = await createScratchAccount(connection, payer);
   const permanentDelegate = await createScratchAccount(connection, payer);
   const interestRateAuthority = await createScratchAccount(connection, payer);
+  const transferHookAuthority = await createScratchAccount(connection, payer);
+  const transferHookProgram = await createScratchAccount(connection, payer);
   const scratchSource = await createScratchAccount(connection, payer);
   const scratchDestination = await createScratchAccount(connection, payer);
   const scratchFeeReceiver = await createScratchAccount(connection, payer);
@@ -378,10 +391,13 @@ async function main() {
     permanent_delegate_mint: permanentDelegateMint.publicKey,
     interest_bearing_mint: interestBearingMint.publicKey,
     memo_transfer_account: memoTransferAccount.publicKey,
+    transfer_hook_mint: transferHookMint.publicKey,
     metadata_pointer_authority: metadataPointerAuthority.publicKey,
     metadata_address: metadataAddress.publicKey,
     permanent_delegate: permanentDelegate.publicKey,
     interest_rate_authority: interestRateAuthority.publicKey,
+    transfer_hook_authority: transferHookAuthority.publicKey,
+    transfer_hook_program: transferHookProgram.publicKey,
   });
   const pubkeysFor = (overrides) => ({ ...basePubkeys(), ...overrides });
 
@@ -863,6 +879,37 @@ async function main() {
   require(stateAccount !== null, "state missing after enable_memo_transfer");
   assertAmount("state marker after enable_memo_transfer", readU64LEAt(stateAccount.data, 32), 10n);
 
+  const initTransferHookSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_transfer_hook,
+    pubkeysFor({}),
+    writeData(13),
+    generatedSigners,
+  );
+  const initializeTransferHookMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        transferHookMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const transferHookMintState = await getMint(connection, transferHookMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const transferHookState = getTransferHook(transferHookMintState);
+  require(transferHookState !== null, "mint missing TransferHook extension after generated init");
+  require(transferHookState.authority.equals(transferHookAuthority.publicKey), "transfer-hook authority mismatch");
+  require(transferHookState.programId.equals(transferHookProgram.publicKey), "transfer-hook program id mismatch");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_transfer_hook");
+  assertAmount("state marker after initialize_transfer_hook", readU64LEAt(stateAccount.data, 32), 11n);
+
   console.log(JSON.stringify({
     programId: programId.toBase58(),
     state: state.publicKey.toBase58(),
@@ -880,10 +927,13 @@ async function main() {
     interestBearingMint: interestBearingMint.publicKey.toBase58(),
     memoTransferMint: memoTransferMint.publicKey.toBase58(),
     memoTransferAccount: memoTransferAccount.publicKey.toBase58(),
+    transferHookMint: transferHookMint.publicKey.toBase58(),
     metadataPointerAuthority: metadataPointerAuthority.publicKey.toBase58(),
     metadataAddress: metadataAddress.publicKey.toBase58(),
     permanentDelegate: permanentDelegate.publicKey.toBase58(),
     interestRateAuthority: interestRateAuthority.publicKey.toBase58(),
+    transferHookAuthority: transferHookAuthority.publicKey.toBase58(),
+    transferHookProgram: transferHookProgram.publicKey.toBase58(),
     ownerAta: ownerAta.address.toBase58(),
     recipientAta: recipientAta.address.toBase58(),
     harvestRecipientAta: harvestRecipientAta.address.toBase58(),
@@ -936,6 +986,9 @@ async function main() {
       initializeMemoTransferMint: initializeMemoTransferMintSignature,
       initializeMemoTransferAccount: initializeMemoTransferAccountSignature,
       enableMemoTransfer: enableMemoTransferSignature,
+      createTransferHookMintAccount: createTransferHookMintAccountSignature,
+      initTransferHook: initTransferHookSignature,
+      initializeTransferHookMint: initializeTransferHookMintSignature,
     },
   }));
 }

@@ -2252,6 +2252,23 @@ def lowerToken2022MemoTransferData (cpi : CpiInvoke) : Array AstNode :=
     storeImm .stb .r8 1 subTag
   ]
 
+/-- Initialize transfer hook: u8 instruction=36, u8 sub=0, pubkey authority,
+    pubkey transfer_hook_program_id. This initializes the mint extension; hook
+    execute/extra-account-meta routing is tracked separately. -/
+def lowerToken2022InitializeTransferHookData
+    (accountBindings : Array CpiAccountBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data token-2022.initialize_transfer_hook: u8 instruction=36, u8 transfer_hook_instruction=0, pubkey authority, pubkey transfer_hook_program_id"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 36,
+    storeImm .stb .r8 1 0
+  ] ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.transfer_hook_authority" "transfer_hook_authority" 2 ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.transfer_hook_program" "transfer_hook_program" 34
+
 /-- Memo CPI data: raw bytes from the input binding. No discriminator — the
     Memo program accepts arbitrary bytes as instruction data. This initial
     lowering copies up to 8 bytes (one u64 word) from the binding's offset;
@@ -2329,6 +2346,8 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerToken2022InitializeInterestBearingMintData accountBindings cpi, 36)
   | some "token-2022.enable_required_memo_transfers" =>
       (lowerToken2022MemoTransferData cpi, 2)
+  | some "token-2022.initialize_transfer_hook" =>
+      (lowerToken2022InitializeTransferHookData accountBindings cpi, 66)
   | some "memo.memo" =>
       (lowerMemoData valueBindings cpi, 8)
   | some dl =>
@@ -2337,7 +2356,6 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       -- CPI (which would produce a no-op call). These dataLayouts have plan
       -- metadata in Token.lean but no sBPF instruction-data lowering yet.
       if dl == "token-2022.initialize_confidential_transfer_mint"
-         ∨ dl == "token-2022.initialize_transfer_hook"
          ∨ dl == "token-2022.initialize_memo_transfer" then
         (#[.comment s!"UNSUPPORTED CPI dataLayout `{dl}`: plan scaffolded but sBPF lowering pending — runtime abort",
           .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 1) },

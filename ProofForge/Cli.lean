@@ -1999,6 +1999,14 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_transfer_required" with
       | some value => jsonString value
       | none => "null"),
+    ("transferHookAuthority",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_hook_authority" with
+      | some value => jsonString value
+      | none => "null"),
+    ("transferHookProgram",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_hook_program" with
+      | some value => jsonString value
+      | none => "null"),
     ("signed", jsonBool cpi.signed)
   ]
 

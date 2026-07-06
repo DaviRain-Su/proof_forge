@@ -863,6 +863,21 @@ def splToken2022EnableRequiredMemoTransfersCall
   ]
 }
 
+def splToken2022InitializeTransferHookCall
+    (name mint authority transferHookProgram : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_transfer_hook"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_transfer_hook"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.transfer_hook_authority" authority,
+    kv "solana.cpi.transfer_hook_program" transferHookProgram
+  ]
+}
+
 def splTokenMintToCall (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -1663,6 +1678,16 @@ def invokeSplToken2022EnableRequiredMemoTransfers
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splToken2022EnableRequiredMemoTransfersCall name account authority
     (signerSeeds := signerSeeds))
+
+def splToken2022InitializeTransferHook
+    (name mint authority transferHookProgram : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeTransferHookCall name mint authority transferHookProgram)
+
+def invokeSplToken2022InitializeTransferHook
+    (name mint authority transferHookProgram : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeTransferHookCall name mint authority transferHookProgram)
 
 def splTokenMintTo (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) :

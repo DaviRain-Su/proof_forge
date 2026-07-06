@@ -118,7 +118,7 @@ missing.
 | interest_bearing | Covered | `splToken2022InitializeInterestBearingMint` builder/surface helper emits `InterestBearingMintExtension` tag 33 sub-instruction 0, packs the rate authority pubkey plus initial i16 rate, and `solana-spl-token-2022-cpi-web3` verifies `getInterestBearingMintConfigState` | — |
 | memo_transfer | Covered | `splToken2022EnableRequiredMemoTransfers` builder/surface helper emits `MemoTransferExtension` tag 30 sub-instruction 0 and `solana-spl-token-2022-cpi-web3` verifies `getMemoTransfer(...).requireIncomingTransferMemos` | — |
 | confidential_transfer | Missing | No plan or backend support | P1 |
-| transfer_hook | Missing | No plan or backend support | P1 |
+| transfer_hook | Partial (init) | `splToken2022InitializeTransferHook` builder/surface helper emits `token-2022.initialize_transfer_hook`; sBPF packs `[36, 0, authority, transfer_hook_program_id]` and `solana-spl-token-2022-cpi-web3` verifies the initialized mint extension through `getTransferHook`. Full hook program `execute` and extra-account-meta routing remain open. | P1 |
 
 ### Ecosystem
 
@@ -201,7 +201,7 @@ economics) is almost entirely missing.
 
 **EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
-**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner are closed.
+**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization are closed.
 
 **NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
 
