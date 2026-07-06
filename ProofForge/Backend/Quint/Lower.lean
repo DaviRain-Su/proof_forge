@@ -423,6 +423,8 @@ def crosscallHashStubExpr (sum : Expr) : Expr :=
 
 def crosscallStaticTagExpr : Expr := .literalInt 1000000
 def crosscallDelegateTagExpr : Expr := .literalInt 2000000
+def crosscallCreateTagExpr : Expr := .literalInt 3000000
+def crosscallCreate2TagExpr : Expr := .literalInt 4000000
 
 def lowerCrosscallCastReturn (sum : Expr) (returnType : ValueType) : Except LowerError Expr :=
   match returnType with
@@ -493,9 +495,10 @@ mutual
         lowerCrosscallInvokeDelegateTypedExpr ctx target methodId args returnType
     | .nativeValue =>
         .ok (.literalInt 0)
-    | .crosscallCreate _ _
-    | .crosscallCreate2 _ _ _ =>
-        .error { message := "crosscallCreate/crosscallCreate2 are not supported in Quint lowering v1" }
+    | .crosscallCreate callValue _ =>
+        lowerCrosscallCreateExpr ctx callValue
+    | .crosscallCreate2 callValue salt _ =>
+        lowerCrosscallCreate2Expr ctx callValue salt
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
   /-- Deterministic crosscall stub: sum target, method, and scalar args (MBT/replay aligned with IR semantics). -/
@@ -535,6 +538,18 @@ mutual
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
     lowerCrosscallCastReturn (.binOp .add sum crosscallDelegateTagExpr) returnType
+
+  partial def lowerCrosscallCreateExpr (ctx : LowerCtx) (callValue : ProofForge.IR.Expr) :
+      Except LowerError Expr := do
+    let callValue' ← lowerExpr ctx callValue
+    pure (.binOp .add callValue' crosscallCreateTagExpr)
+
+  partial def lowerCrosscallCreate2Expr (ctx : LowerCtx) (callValue salt : ProofForge.IR.Expr) :
+      Except LowerError Expr := do
+    let callValue' ← lowerExpr ctx callValue
+    let salt' ← lowerExpr ctx salt
+    let saltInt := crosscallArgToIntExpr salt' .hash
+    pure (.binOp .add (.binOp .add callValue' saltInt) crosscallCreate2TagExpr)
 
   partial def lowerMapKeyExpr (ctx : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
     match key with

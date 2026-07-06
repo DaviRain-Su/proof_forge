@@ -196,6 +196,9 @@ Tasks:
 - Done: value/static/delegate typed crosscall stubs — `crosscallInvokeValueTyped`
   (+ callValue), `crosscallInvokeStaticTyped` (+1_000_000 tag),
   `crosscallInvokeDelegateTyped` (+2_000_000 tag) in the `crosscall` fixture gate.
+- Done: `crosscallCreate` / `crosscallCreate2` stubs — `callValue + 3_000_000` and
+  `callValue + salt + 4_000_000` in Lower/Semantics with `deploy_create` /
+  `deploy_create2` in the `crosscall` fixture gate.
 - Done: `.assert` / `.assertEq` statement guards with `assert` fixture in
   `just quint-mbt-gate`; gate rebuilds `proof-forge` before CLI emit smoke.
 - Done: hash-valued map `storagePathAssignOp` replace stub with

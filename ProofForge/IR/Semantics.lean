@@ -365,6 +365,8 @@ def crosscallHashStubValue (sum : Nat) : Value :=
 
 def crosscallStaticTag : Nat := 1000000
 def crosscallDelegateTag : Nat := 2000000
+def crosscallCreateTag : Nat := 3000000
+def crosscallCreate2Tag : Nat := 4000000
 
 def crosscallCastReturn (sum : Nat) (returnType : ValueType) : Except String Value :=
   match returnType with
@@ -509,8 +511,8 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
       evalCrosscallInvokeStaticTyped state frame target methodId args returnType
   | .crosscallInvokeDelegateTyped target methodId args returnType =>
       evalCrosscallInvokeDelegateTyped state frame target methodId args returnType
-  | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-      .error "crosscall create is not supported by the scalar semantics model"
+  | .crosscallCreate callValue _ => evalCrosscallCreate state frame callValue
+  | .crosscallCreate2 callValue salt _ => evalCrosscallCreate2 state frame callValue salt
   | .effect effect => evalEffect state frame effect
   | .nativeValue => .ok (state, .u64 0)
   | _ => .error "expression is not supported by the scalar semantics model"
@@ -567,6 +569,24 @@ partial def evalCrosscallInvokeDelegateTyped (state : State) (frame : Frame) (ta
   let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
   let value ← crosscallCastReturn (sum + crosscallDelegateTag) returnType
   .ok (nextState, value)
+
+partial def evalCrosscallCreate (state : State) (frame : Frame) (callValue : Expr) :
+    Except String ExprResult := do
+  let (nextState, callValueResult) ← evalExpr state frame callValue
+  let callNat ← match callValueResult with
+    | .u64 n => pure n
+    | _ => .error "crosscallCreate callValue expected U64"
+  .ok (nextState, .u64 (callNat + crosscallCreateTag))
+
+partial def evalCrosscallCreate2 (state : State) (frame : Frame) (callValue salt : Expr) :
+    Except String ExprResult := do
+  let (stateAfterValue, callValueResult) ← evalExpr state frame callValue
+  let callNat ← match callValueResult with
+    | .u64 n => pure n
+    | _ => .error "crosscallCreate2 callValue expected U64"
+  let (nextState, saltValue) ← evalExpr stateAfterValue frame salt
+  let saltNat ← crosscallArgToNat saltValue
+  .ok (nextState, .u64 (callNat + saltNat + crosscallCreate2Tag))
 
 partial def evalPathSegmentKey (state : State) (frame : Frame) : StoragePathSegment →
     Except String (State × String)
