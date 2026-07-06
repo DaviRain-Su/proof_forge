@@ -235,6 +235,7 @@ export ProofForge.Backend.WasmNear.Statement (
 
 export ProofForge.Backend.WasmNear.Struct (
   findStruct? ScalarStructStateInfo scalarStructStateInfo
+  ArrayStructInfo arrayStructMapInfo arrayStructInfo
   structTotalSize structFieldOffset? structFieldType?
   structLitName isStructStorageFieldType isIndexedStorageValueType
   structStorageFieldsSupported structStorageFieldInfo zeroStructBufInsns readScalarStructBufInsns
@@ -677,43 +678,28 @@ mutual
 
   partial def lowerArrayStructFieldRead (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String)
       : Except EmitError (Array Insn × ValueType) := do
-    match findArrayState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else match m.valueType with
-        | .structType typeName =>
-          match findStruct? ctx.structs typeName with
-          | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd => do
-            let (off, ft) ← structStorageFieldInfo sd typeName fieldName "array"
-            let kis ← lowerMapKeyU64 ctx env index
-            .ok (arrayStructFieldReadInsns m sd kis #[.call mapBuildkeyName] off ft)
-        | _ => err s!"EmitWat: storageArrayStructFieldRead expects a struct-valued array, got `{m.valueType.name}`"
+    let mapInfo ← arrayStructMapInfo ctx.maps id
+    let structInfo ← arrayStructInfo ctx.structs mapInfo "storageArrayStructFieldRead"
+    let (off, ft) ← structStorageFieldInfo structInfo.structDecl structInfo.typeName fieldName "array"
+    let kis ← lowerMapKeyU64 ctx env index
+    .ok (arrayStructFieldReadInsns structInfo.mapInfo structInfo.structDecl kis #[.call mapBuildkeyName] off ft)
 
   partial def lowerArrayStructFieldWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn) := do
-    match findArrayState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else if !canDuplicateExpr index then
-        err "EmitWat: storage array struct field path index must be a pure expression until key temporaries are lowered"
-      else match m.valueType with
-        | .structType typeName =>
-          match findStruct? ctx.structs typeName with
-          | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd => do
-            let (off, ft) ← structStorageFieldInfo sd typeName fieldName "array"
-            if valueType != ft then
-              err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
-            else do
-              let readKey ← lowerMapKeyU64 ctx env index
-              let writeKey ← lowerMapKeyU64 ctx env index
-              .ok (arrayStructFieldWriteInsns m sd readKey writeKey #[.call mapBuildkeyName]
-                valueInsns off ft)
-        | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
+    let mapInfo ← arrayStructMapInfo ctx.maps id
+    if !canDuplicateExpr index then
+      err "EmitWat: storage array struct field path index must be a pure expression until key temporaries are lowered"
+    else
+      let structInfo ← arrayStructInfo ctx.structs mapInfo "storageArrayStructFieldWrite"
+      let (off, ft) ← structStorageFieldInfo structInfo.structDecl structInfo.typeName fieldName "array"
+      if valueType != ft then
+        err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+      else do
+        let readKey ← lowerMapKeyU64 ctx env index
+        let writeKey ← lowerMapKeyU64 ctx env index
+        .ok (arrayStructFieldWriteInsns structInfo.mapInfo structInfo.structDecl readKey writeKey
+          #[.call mapBuildkeyName] valueInsns off ft)
 
   partial def lowerArrayStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String) (value : Expr)
       : Except EmitError (Array Insn) := do

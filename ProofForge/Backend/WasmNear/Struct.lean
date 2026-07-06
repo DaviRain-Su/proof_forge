@@ -28,6 +28,11 @@ structure ScalarStructStateInfo where
   typeName : String
   structDecl : ProofForge.IR.StructDecl
 
+structure ArrayStructInfo where
+  mapInfo : MapInfo
+  typeName : String
+  structDecl : ProofForge.IR.StructDecl
+
 def scalarStructStateInfo (scalars : Array StateInfo) (structs : Array ProofForge.IR.StructDecl)
     (id operationName : String) : Except EmitError ScalarStructStateInfo :=
   match findScalarState? scalars id with
@@ -39,6 +44,22 @@ def scalarStructStateInfo (scalars : Array StateInfo) (structs : Array ProofForg
       | none => err s!"EmitWat: unknown struct `{typeName}`"
       | some structDecl => .ok { state := stateInfo, typeName := typeName, structDecl := structDecl }
     | _ => err s!"EmitWat: {operationName} expects a struct state, got `{stateInfo.type.name}`"
+
+def arrayStructMapInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findArrayState? maps id with
+  | none => err s!"EmitWat: unknown array state `{id}`"
+  | some mapInfo =>
+    if mapInfo.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+    else .ok mapInfo
+
+def arrayStructInfo (structs : Array ProofForge.IR.StructDecl) (mapInfo : MapInfo)
+    (operationName : String) : Except EmitError ArrayStructInfo :=
+  match mapInfo.valueType with
+  | .structType typeName =>
+    match findStruct? structs typeName with
+    | none => err s!"EmitWat: unknown struct `{typeName}`"
+    | some structDecl => .ok { mapInfo := mapInfo, typeName := typeName, structDecl := structDecl }
+  | _ => err s!"EmitWat: {operationName} expects a struct-valued array, got `{mapInfo.valueType.name}`"
 
 /-- Field offset = prefix sum of `scalarWidth` of preceding fields; total size = sum all. -/
 def structTotalSize (s : ProofForge.IR.StructDecl) : Nat :=
