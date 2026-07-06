@@ -179,6 +179,8 @@ export ProofForge.Backend.WasmNear.Locals (
 export ProofForge.Backend.WasmNear.Map (
   mapReadName mapWriteName mapContainsName mapBuildkeyName mapBuildkeyFunc
   mapWriteStateInfo mapWriteCall mapWriteValueInsns
+  storageArrayStateInfo storageArrayReadInsns
+  storageArrayWriteStateInfo storageArrayWriteInsns
   nestedMapWriteStateInfo nestedMapWriteValueInsns
   mapReadFunc mapWriteFunc mapContainsFunc mapHelperFuncsForModulePlan
   mapBuildkeyHashName mapReadHashName mapWriteHashName mapContainsHashName
@@ -649,30 +651,16 @@ mutual
 
   partial def lowerStorageArrayRead (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr)
       : Except EmitError (Array Insn × ValueType) := do
-    match findArrayState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else if !isIndexedStorageValueType m.valueType then
-        err s!"EmitWat: indexed storage path `{id}` has unsupported element type `{m.valueType.name}`; use index+field for struct arrays"
-      else do
-        let kis ← lowerMapKeyU64 ctx env index
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call (mapReadName m.valueType)], m.valueType)
+    let arrayInfo ← storageArrayStateInfo ctx.maps id
+    let indexInsns ← lowerMapKeyU64 ctx env index
+    .ok (storageArrayReadInsns arrayInfo indexInsns)
 
   partial def lowerStorageArrayWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn × ValueType) := do
-    match findArrayState? ctx.maps id with
-    | none => err s!"EmitWat: unknown array state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
-      else if !isIndexedStorageValueType m.valueType then
-        err s!"EmitWat: indexed storage path `{id}` has unsupported element type `{m.valueType.name}`; use index+field for struct arrays"
-      else if valueType != m.valueType then
-        err s!"EmitWat: array write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
-      else do
-        let kis ← lowerMapKeyU64 ctx env index
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ valueInsns ++ #[.call (mapWriteName m.valueType)], m.valueType)
+    let arrayInfo ← storageArrayWriteStateInfo ctx.maps id valueType
+    let indexInsns ← lowerMapKeyU64 ctx env index
+    .ok (storageArrayWriteInsns arrayInfo indexInsns valueInsns)
 
   partial def lowerStorageArrayWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index value : Expr)
       : Except EmitError (Array Insn × ValueType) := do

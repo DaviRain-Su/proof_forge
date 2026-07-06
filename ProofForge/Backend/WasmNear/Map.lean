@@ -9,6 +9,7 @@ import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
+import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
 
 namespace ProofForge.Backend.WasmNear.Map
@@ -20,6 +21,7 @@ open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Plan
+open ProofForge.Backend.WasmNear.Struct
 open ProofForge.Backend.WasmNear.Types
 
 /-! Indexed map storage helper functions for EmitWat. -/
@@ -159,6 +161,31 @@ def mapWriteValueInsns (mapInfo : MapInfo) (id : String) (keyInsns valueInsns wr
   else
     .ok (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
       keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
+
+def storageArrayStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findArrayState? maps id with
+  | none => err s!"EmitWat: unknown array state `{id}`"
+  | some mapInfo =>
+    if mapInfo.keyType != .u64 then err s!"EmitWat: storage array `{id}` index must be U64"
+    else if !isIndexedStorageValueType mapInfo.valueType then
+      err s!"EmitWat: indexed storage path `{id}` has unsupported element type `{mapInfo.valueType.name}`; use index+field for struct arrays"
+    else .ok mapInfo
+
+def storageArrayReadInsns (mapInfo : MapInfo) (indexInsns : Array Insn) : Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ indexInsns ++
+    #[.call (mapReadName mapInfo.valueType)], mapInfo.valueType)
+
+def storageArrayWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : ValueType) :
+    Except EmitError MapInfo := do
+  let mapInfo ← storageArrayStateInfo maps id
+  if valueType != mapInfo.valueType then
+    err s!"EmitWat: array write `{id}` expected `{mapInfo.valueType.name}`, got `{valueType.name}`"
+  else .ok mapInfo
+
+def storageArrayWriteInsns (mapInfo : MapInfo) (indexInsns valueInsns : Array Insn) :
+    Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ indexInsns ++
+    valueInsns ++ #[.call (mapWriteName mapInfo.valueType)], mapInfo.valueType)
 
 def nestedMapWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : ValueType) :
     Except EmitError MapInfo := do
