@@ -67,6 +67,14 @@ def getRoot : Entrypoint := {
   name := "getRoot", returns := .u64,
   body := #[.return (.effect (.storageMapGet "roots" (.literal (.hash4 1 2 3 4))))] }
 
+def emitBoolEvent : Entrypoint := {
+  name := "emitBoolEvent", returns := .unit,
+  body := #[.effect (.eventEmit "FlagChanged" #[("enabled", .literal (.bool true))])] }
+
+def emitU64Event : Entrypoint := {
+  name := "emitU64Event", returns := .unit,
+  body := #[.effect (.eventEmit "CountChanged" #[("count", .literal (.u64 7))])] }
+
 def unusedMapModule : Module := {
   name := "UnusedMapProbe",
   state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
@@ -102,6 +110,16 @@ def containsOnlyMapModule : Module := {
   state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
   entrypoints := #[containsScore] }
 
+def boolEventModule : Module := {
+  name := "BoolEventProbe",
+  entrypoints := #[emitBoolEvent],
+  state := #[] }
+
+def u64EventModule : Module := {
+  name := "U64EventProbe",
+  entrypoints := #[emitU64Event],
+  state := #[] }
+
 def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   let wat ←
     match renderModule depositModule with
@@ -132,11 +150,14 @@ def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   requireNotContains wat "(import \"env\" \"random_seed\"" "deposit module should not import random_seed"
   requireNotContains wat "(import \"env\" \"storage_read\"" "deposit module should not import storage_read"
   requireNotContains wat "(import \"env\" \"storage_write\"" "deposit module should not import storage_write"
+  requireNotContains wat "(import \"env\" \"log_utf8\"" "deposit module should not import log_utf8"
   requireNotContains wat "(import \"env\" \"promise_create\"" "deposit module should not import promise_create"
   requireNotContains wat "(import \"env\" \"promise_then\"" "deposit module should not import promise_then"
   requireNotContains wat "(import \"env\" \"promise_results_count\"" "deposit module should not import promise_results_count"
   requireNotContains wat "(import \"env\" \"promise_result\"" "deposit module should not import promise_result"
   requireNotContains wat "(import \"env\" \"promise_return\"" "deposit module should not import promise_return"
+  requireNotContains wat "__pf_evt_start" "deposit module should not emit event helpers"
+  requireNotContains wat "__pf_evt_log" "deposit module should not emit event logging helpers"
 
 def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   let wat ←
@@ -157,11 +178,14 @@ def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   requireNotContains wat "__pf_return_bool" "counter module should not emit Bool return helper"
   requireNotContains wat "__pf_read_hash" "counter module should not emit Hash scalar read helper"
   requireNotContains wat "__pf_write_hash" "counter module should not emit Hash scalar write helper"
+  requireNotContains wat "(import \"env\" \"log_utf8\"" "counter module should not import log_utf8"
   requireNotContains wat "(import \"env\" \"promise_create\"" "counter module should not import promise_create"
   requireNotContains wat "(import \"env\" \"promise_then\"" "counter module should not import promise_then"
   requireNotContains wat "(import \"env\" \"promise_results_count\"" "counter module should not import promise_results_count"
   requireNotContains wat "(import \"env\" \"promise_result\"" "counter module should not import promise_result"
   requireNotContains wat "(import \"env\" \"promise_return\"" "counter module should not import promise_return"
+  requireNotContains wat "__pf_evt_start" "counter module should not emit event helpers"
+  requireNotContains wat "__pf_evt_log" "counter module should not emit event logging helpers"
 
 def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
   let unusedMapWat ←
@@ -241,6 +265,31 @@ def testIndexedStorageRenderKeepsOnlyReadWriteHelperSurface : IO Unit := do
   requireNotContains getOnlyHashMapWat "__pf_map_write_hash_u64" "get-only hash-map module should not emit the hash-key write helper"
   requireNotContains getOnlyHashMapWat "__pf_map_contains_hash" "get-only hash-map module should not emit the hash-key contains helper"
 
+def testEventRenderKeepsOnlyNeededEventSurface : IO Unit := do
+  let boolEventWat ←
+    match renderModule boolEventModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat bool-event render failed: {err.message}"
+  requireContains boolEventWat "(import \"env\" \"log_utf8\"" "bool-event module must import log_utf8"
+  requireContains boolEventWat "__pf_evt_start" "bool-event module must emit event start helper"
+  requireContains boolEventWat "__pf_evt_putc" "bool-event module must emit event putc helper"
+  requireContains boolEventWat "__pf_evt_putstr" "bool-event module must emit event putstr helper"
+  requireContains boolEventWat "__pf_evt_putbool" "bool-event module must emit event bool helper"
+  requireContains boolEventWat "__pf_evt_log" "bool-event module must emit event log helper"
+  requireNotContains boolEventWat "__pf_fmt_u64" "bool-event module should not emit numeric event formatting helper"
+  requireNotContains boolEventWat "__pf_evt_putu64" "bool-event module should not emit numeric event writer helper"
+  let u64EventWat ←
+    match renderModule u64EventModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat u64-event render failed: {err.message}"
+  requireContains u64EventWat "(import \"env\" \"log_utf8\"" "u64-event module must import log_utf8"
+  requireContains u64EventWat "__pf_evt_start" "u64-event module must emit event start helper"
+  requireContains u64EventWat "__pf_evt_putstr" "u64-event module must emit event putstr helper"
+  requireContains u64EventWat "__pf_fmt_u64" "u64-event module must emit numeric event formatting helper"
+  requireContains u64EventWat "__pf_evt_putu64" "u64-event module must emit numeric event writer helper"
+  requireContains u64EventWat "__pf_evt_log" "u64-event module must emit event log helper"
+  requireNotContains u64EventWat "__pf_evt_putbool" "u64-event module should not emit bool event helper"
+
 def testUnsupportedContextDiagnostic : IO Unit := do
   match renderModule unsupportedChainIdModule with
   | .ok _ =>
@@ -255,6 +304,7 @@ def main : IO UInt32 := do
   testUnusedIndexedStorageRenderPrunesMapHelperSurface
   testContainsOnlyMapRenderKeepsContainsSurface
   testIndexedStorageRenderKeepsOnlyReadWriteHelperSurface
+  testEventRenderKeepsOnlyNeededEventSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0

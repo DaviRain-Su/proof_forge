@@ -81,6 +81,183 @@ def scalarHelperType (type : ValueType) : Option ValueType :=
   | .u32 | .u64 | .bool | .hash => some type
   | _ => none
 
+abbrev LocalTypeEnv := Array (String × ValueType)
+
+def lookupLocalType? (env : LocalTypeEnv) (name : String) : Option ValueType :=
+  env.foldr (fun binding acc => if binding.fst == name then some binding.snd else acc) none
+
+def findStruct? (module : Module) (name : String) : Option StructDecl :=
+  module.structs.find? (fun struct_ => struct_.name == name)
+
+def structFieldTypeOf (module : Module) (structName fieldName : String) : Except PlanError ValueType :=
+  match findStruct? module structName with
+  | none => err s!"wasm-near plan references unknown struct `{structName}`"
+  | some struct_ =>
+      match struct_.fields.find? (fun field => field.id == fieldName) with
+      | none => err s!"wasm-near plan references unknown struct field `{structName}.{fieldName}`"
+      | some field => .ok field.type
+
+mutual
+  partial def inferStoragePathType
+      (module : Module)
+      (env : LocalTypeEnv)
+      (stateId : String)
+      (path : Array StoragePathSegment) : Except PlanError ValueType := do
+    match path.toList with
+    | [.mapKey key] => do
+        discard <| inferExprType module env key
+        stateTypeOf module stateId
+    | [.index index] => do
+        discard <| inferExprType module env index
+        stateTypeOf module stateId
+    | [.field fieldName] => do
+        match ← stateTypeOf module stateId with
+        | .structType structName => structFieldTypeOf module structName fieldName
+        | type => err s!"wasm-near plan expected struct storage for `{stateId}`, got `{type.name}`"
+    | [.index index, .field fieldName] => do
+        discard <| inferExprType module env index
+        match ← stateTypeOf module stateId with
+        | .structType structName => structFieldTypeOf module structName fieldName
+        | type => err s!"wasm-near plan expected struct-valued array storage for `{stateId}`, got `{type.name}`"
+    | [.mapKey key1, .mapKey key2] => do
+        discard <| inferExprType module env key1
+        discard <| inferExprType module env key2
+        stateTypeOf module stateId
+    | _ =>
+        err "wasm-near plan storagePathRead supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
+
+  partial def inferEffectExprType
+      (module : Module)
+      (env : LocalTypeEnv)
+      (effect : Effect) : Except PlanError ValueType := do
+    match effect with
+    | .storageScalarRead stateId => stateTypeOf module stateId
+    | .storageMapContains stateId key => do
+        discard <| inferExprType module env key
+        discard <| stateTypeOf module stateId
+        .ok .bool
+    | .storageMapGet stateId key => do
+        discard <| inferExprType module env key
+        stateTypeOf module stateId
+    | .storageMapInsert stateId key value
+    | .storageMapSet stateId key value => do
+        discard <| inferExprType module env key
+        discard <| inferExprType module env value
+        stateTypeOf module stateId
+    | .storageArrayRead stateId index => do
+        discard <| inferExprType module env index
+        stateTypeOf module stateId
+    | .storageArrayStructFieldRead stateId index fieldName => do
+        discard <| inferExprType module env index
+        match ← stateTypeOf module stateId with
+        | .structType structName => structFieldTypeOf module structName fieldName
+        | type => err s!"wasm-near plan expected struct-valued array storage for `{stateId}`, got `{type.name}`"
+    | .storageStructFieldRead stateId fieldName => do
+        match ← stateTypeOf module stateId with
+        | .structType structName => structFieldTypeOf module structName fieldName
+        | type => err s!"wasm-near plan expected struct storage for `{stateId}`, got `{type.name}`"
+    | .storagePathRead stateId path =>
+        inferStoragePathType module env stateId path
+    | .contextRead field =>
+        .ok (ContextExprPlan.resultType (← buildContextExprPlan field))
+    | .storageScalarWrite _ _
+    | .storageScalarAssignOp _ _ _
+    | .storageArrayWrite _ _ _
+    | .storageArrayStructFieldWrite _ _ _ _
+    | .storageDynamicArrayPush _ _
+    | .storageDynamicArrayPop _
+    | .memoryArraySet _ _ _
+    | .storageStructFieldWrite _ _ _
+    | .storagePathWrite _ _ _
+    | .storagePathAssignOp _ _ _ _
+    | .eventEmit _ _
+    | .eventEmitIndexed _ _ _ =>
+        err "wasm-near plan cannot treat statement-only effects as expression values"
+
+  partial def inferExprType
+      (module : Module)
+      (env : LocalTypeEnv)
+      (expr : Expr) : Except PlanError ValueType := do
+    match expr with
+    | .literal (.u8 _) => .ok .u8
+    | .literal (.u32 _) => .ok .u32
+    | .literal (.u64 _) => .ok .u64
+    | .literal (.u128 _) => .ok .u128
+    | .literal (.address _) => .ok .address
+    | .literal (.bool _) => .ok .bool
+    | .literal (.hash4 ..) => .ok .hash
+    | .local name =>
+        match lookupLocalType? env name with
+        | some type => .ok type
+        | none => err s!"wasm-near plan references unknown local `{name}`"
+    | .arrayLit elementType values => do
+        for value in values do
+          discard <| inferExprType module env value
+        .ok (.fixedArray elementType values.size)
+    | .arrayGet array index => do
+        discard <| inferExprType module env index
+        match ← inferExprType module env array with
+        | .fixedArray elementType _ => .ok elementType
+        | .array elementType => .ok elementType
+        | type => err s!"wasm-near plan expected array value, got `{type.name}`"
+    | .memoryArrayNew elementType _ => .ok (.array elementType)
+    | .memoryArrayLength _ => .ok .u64
+    | .memoryArrayGet array index => do
+        discard <| inferExprType module env index
+        match ← inferExprType module env array with
+        | .fixedArray elementType _ => .ok elementType
+        | .array elementType => .ok elementType
+        | type => err s!"wasm-near plan expected memory array value, got `{type.name}`"
+    | .structLit typeName _ => .ok (.structType typeName)
+    | .field base fieldName => do
+        match ← inferExprType module env base with
+        | .structType structName => structFieldTypeOf module structName fieldName
+        | type => err s!"wasm-near plan expected struct value, got `{type.name}`"
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs => do
+        let lhsType ← inferExprType module env lhs
+        let rhsType ← inferExprType module env rhs
+        if lhsType == rhsType then .ok lhsType
+        else err s!"wasm-near plan expected matching numeric operands, got `{lhsType.name}`/`{rhsType.name}`"
+    | .eq lhs rhs | .ne lhs rhs | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs => do
+        let lhsType ← inferExprType module env lhs
+        let rhsType ← inferExprType module env rhs
+        if lhsType == rhsType then .ok .bool
+        else err s!"wasm-near plan expected comparable operands with matching types, got `{lhsType.name}`/`{rhsType.name}`"
+    | .boolAnd lhs rhs | .boolOr lhs rhs => do
+        discard <| inferExprType module env lhs
+        discard <| inferExprType module env rhs
+        .ok .bool
+    | .boolNot value => do
+        discard <| inferExprType module env value
+        .ok .bool
+    | .cast _ targetType => .ok targetType
+    | .hashValue a b c d => do
+        discard <| inferExprType module env a
+        discard <| inferExprType module env b
+        discard <| inferExprType module env c
+        discard <| inferExprType module env d
+        .ok .hash
+    | .hash preimage => do
+        discard <| inferExprType module env preimage
+        .ok .hash
+    | .hashTwoToOne lhs rhs => do
+        discard <| inferExprType module env lhs
+        discard <| inferExprType module env rhs
+        .ok .hash
+    | .nativeValue => .ok .u64
+    | .crosscallInvoke _ _ _ => .ok .u64
+    | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
+    | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType
+    | .crosscallInvokeStaticTyped _ _ _ returnType => .ok returnType
+    | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
+    | .crosscallCreate _ _ => .ok .u64
+    | .crosscallCreate2 _ _ _ => .ok .u64
+    | .effect effect =>
+        inferEffectExprType module env effect
+end
+
 inductive IndexedStorageHelperKeyKind where
   | u64
   | hash
@@ -117,6 +294,9 @@ structure ModuleSurface where
   usesStorageRead : Bool := false
   usesStorageWrite : Bool := false
   usesPromiseApi : Bool := false
+  usesEventApi : Bool := false
+  usesEventNumeric : Bool := false
+  usesEventBool : Bool := false
   u64IndexedReadTypes : Array ValueType := #[]
   u64IndexedWriteTypes : Array ValueType := #[]
   hashIndexedReadTypes : Array ValueType := #[]
@@ -136,6 +316,9 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesStorageRead := lhs.usesStorageRead || rhs.usesStorageRead
   usesStorageWrite := lhs.usesStorageWrite || rhs.usesStorageWrite
   usesPromiseApi := lhs.usesPromiseApi || rhs.usesPromiseApi
+  usesEventApi := lhs.usesEventApi || rhs.usesEventApi
+  usesEventNumeric := lhs.usesEventNumeric || rhs.usesEventNumeric
+  usesEventBool := lhs.usesEventBool || rhs.usesEventBool
   u64IndexedReadTypes := mergeValueTypeSets lhs.u64IndexedReadTypes rhs.u64IndexedReadTypes
   u64IndexedWriteTypes := mergeValueTypeSets lhs.u64IndexedWriteTypes rhs.u64IndexedWriteTypes
   hashIndexedReadTypes := mergeValueTypeSets lhs.hashIndexedReadTypes rhs.hashIndexedReadTypes
@@ -183,6 +366,20 @@ def withPromiseApi : ModuleSurface := {
   usesPromiseApi := true
 }
 
+def withEventApi : ModuleSurface := {
+  usesEventApi := true
+}
+
+def withEventNumeric : ModuleSurface := {
+  usesEventApi := true
+  usesEventNumeric := true
+}
+
+def withEventBool : ModuleSurface := {
+  usesEventApi := true
+  usesEventBool := true
+}
+
 def withU64IndexedBuildKey : ModuleSurface := {
   usesU64IndexedBuildKey := true
 }
@@ -222,6 +419,29 @@ def withHashIndexedContains : ModuleSurface := {
 }
 
 end ModuleSurface
+
+def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
+  match type with
+  | .u64 | .u32 => ModuleSurface.withEventNumeric
+  | .bool => ModuleSurface.withEventBool
+  | _ => ModuleSurface.withEventApi
+
+partial def collectLocalTypesFrom (env : LocalTypeEnv) (statement : Statement) : Except PlanError LocalTypeEnv := do
+  match statement with
+  | .letBind name type _ | .letMutBind name type _ =>
+      .ok (env.push (name, type))
+  | .ifElse _ thenBody elseBody => do
+      let env ← thenBody.foldlM (init := env) collectLocalTypesFrom
+      elseBody.foldlM (init := env) collectLocalTypesFrom
+  | .boundedFor indexName _ _ body => do
+      let env := env.push (indexName, .u64)
+      body.foldlM (init := env) collectLocalTypesFrom
+  | _ =>
+      .ok env
+
+def collectEntrypointLocalTypes (entrypoint : Entrypoint) : Except PlanError LocalTypeEnv := do
+  let initial := entrypoint.params.map (fun param => (param.fst, param.snd))
+  entrypoint.body.foldlM (init := initial) collectLocalTypesFrom
 
 def indexedStorageReadSurfaceSummary
     (module : Module)
@@ -546,10 +766,10 @@ mutual
     | .contextRead field => do
         .ok <| ModuleSurface.withContext (← buildContextExprPlan field)
     | .eventEmit _ fields =>
-        fields.foldlM (init := ModuleSurface.empty) fun acc field =>
+        fields.foldlM (init := ModuleSurface.withEventApi) fun acc field =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
     | .eventEmitIndexed _ indexedFields dataFields => do
-        let indexed ← indexedFields.foldlM (init := ModuleSurface.empty) fun acc field =>
+        let indexed ← indexedFields.foldlM (init := ModuleSurface.withEventApi) fun acc field =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
@@ -562,7 +782,7 @@ mutual
       | .index index | .mapKey index =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module index)
 
-  partial def surfaceFromStatement (module : Module) (returnType : ValueType) (statement : Statement) :
+  partial def surfaceFromStatement (module : Module) (env : LocalTypeEnv) (returnType : ValueType) (statement : Statement) :
       Except PlanError ModuleSurface :=
     match statement with
     | .letBind _ _ value | .letMutBind _ _ value =>
@@ -570,7 +790,23 @@ mutual
     | .assign target value | .assignOp target _ value =>
         return mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module value)
     | .effect effect =>
-        surfaceFromEffect module effect
+        match effect with
+        | .eventEmit _ fields =>
+            fields.foldlM (init := ModuleSurface.withEventApi) fun acc field => do
+              let valueSurface ← surfaceFromExpr module field.snd
+              let valueType ← inferExprType module env field.snd
+              return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
+        | .eventEmitIndexed _ indexedFields dataFields => do
+            let indexed ← indexedFields.foldlM (init := ModuleSurface.withEventApi) fun acc field => do
+              let valueSurface ← surfaceFromExpr module field.snd
+              let valueType ← inferExprType module env field.snd
+              return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
+            dataFields.foldlM (init := indexed) fun acc field => do
+              let valueSurface ← surfaceFromExpr module field.snd
+              let valueType ← inferExprType module env field.snd
+              return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
+        | _ =>
+            surfaceFromEffect module effect
     | .assert condition _ _ =>
         surfaceFromExpr module condition
     | .assertEq lhs rhs _ _ =>
@@ -579,24 +815,25 @@ mutual
         .ok ModuleSurface.empty
     | .ifElse condition thenBody elseBody =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module returnType thenBody))
-          (← surfaceFromStatements module returnType elseBody)
+          (mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module env returnType thenBody))
+          (← surfaceFromStatements module env returnType elseBody)
     | .boundedFor _ _ _ body =>
-        surfaceFromStatements module returnType body
+        surfaceFromStatements module env returnType body
     | .whileLoop condition body =>
-        return mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module returnType body)
+        return mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module env returnType body)
     | .return value =>
         return mergeModuleSurfaces (← surfaceFromExpr module value) (ModuleSurface.withReturnType returnType)
 
-  partial def surfaceFromStatements (module : Module) (returnType : ValueType) (statements : Array Statement) :
+  partial def surfaceFromStatements (module : Module) (env : LocalTypeEnv) (returnType : ValueType) (statements : Array Statement) :
       Except PlanError ModuleSurface :=
     statements.foldlM (init := ModuleSurface.empty) fun acc statement =>
-      return mergeModuleSurfaces acc (← surfaceFromStatement module returnType statement)
+      return mergeModuleSurfaces acc (← surfaceFromStatement module env returnType statement)
 end
 
 def surfaceFromModule (module : Module) : Except PlanError ModuleSurface :=
-  module.entrypoints.foldlM (init := ModuleSurface.empty) fun acc entrypoint =>
-    return mergeModuleSurfaces acc (← surfaceFromStatements module entrypoint.returns entrypoint.body)
+  module.entrypoints.foldlM (init := ModuleSurface.empty) fun acc entrypoint => do
+    let env ← collectEntrypointLocalTypes entrypoint
+    return mergeModuleSurfaces acc (← surfaceFromStatements module env entrypoint.returns entrypoint.body)
 
 structure ModulePlan where
   contextOps : Array ContextExprPlan
@@ -607,6 +844,9 @@ structure ModulePlan where
   usesStorageRead : Bool
   usesStorageWrite : Bool
   usesPromiseApi : Bool
+  usesEventApi : Bool
+  usesEventNumeric : Bool
+  usesEventBool : Bool
   u64IndexedReadTypes : Array ValueType
   u64IndexedWriteTypes : Array ValueType
   hashIndexedReadTypes : Array ValueType
@@ -628,6 +868,9 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesStorageRead := surface.usesStorageRead
     usesStorageWrite := surface.usesStorageWrite
     usesPromiseApi := surface.usesPromiseApi
+    usesEventApi := surface.usesEventApi
+    usesEventNumeric := surface.usesEventNumeric
+    usesEventBool := surface.usesEventBool
     u64IndexedReadTypes := surface.u64IndexedReadTypes
     u64IndexedWriteTypes := surface.u64IndexedWriteTypes
     hashIndexedReadTypes := surface.hashIndexedReadTypes

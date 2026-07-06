@@ -695,6 +695,7 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "value_return" => !plan.returnTypes.isEmpty
     | "promise_create" | "promise_then" | "promise_results_count" | "promise_result" | "promise_return" =>
         plan.usesPromiseApi
+    | "log_utf8" => plan.usesEventApi || plan.usesPromiseApi
     | "signer_account_id" => plan.contextOps.contains .origin
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
@@ -792,8 +793,12 @@ def evtLogFunc : Func :=
       .globalGet evtPtrGlobal, .i32Const EVENT_BUF, .plain "i32.sub", .plain "i64.extend_i32_u",
       .i64Const EVENT_BUF, .call "log_utf8" ] } }
 
-def evtHelperFuncs : Array Func :=
-  #[ fmtU64Func, evtStartFunc, evtPutcFunc, evtPutstrFunc, evtPutu64Func, evtPutboolFunc, evtLogFunc ]
+def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
+    (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
+    (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
+    (if plan.usesEventBool then #[evtPutboolFunc] else #[]) ++
+    (if plan.usesEventApi then #[evtLogFunc] else #[])
 def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
 
 -- State layout
@@ -1995,7 +2000,13 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
-  let baseImportsCore := (nearImportsForModulePlan modulePlan).push sha256Import |>.push logUtf8Import |>.push inputImport
+  let baseImportsCore :=
+    (nearImportsForModulePlan modulePlan).push sha256Import |>.push inputImport
+      |> fun imports =>
+        if modulePlan.usesEventApi || modulePlan.usesPromiseApi then
+          imports.push logUtf8Import
+        else
+          imports
   let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
   let extraImports := if isHost then #[allocImport, deallocImport] else #[]
@@ -2005,13 +2016,13 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
       else #[]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ mapHelperFuncsForModulePlan modulePlan ++ mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
+  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncsForModulePlan modulePlan ++ mapHelperFuncsForModulePlan modulePlan ++ mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then
       #[arrPtrGlobalDecl mod.allocator.heapBase, arrFreeGlobalDecl]
     else #[arrPtrGlobalDecl mod.allocator.heapBase]
-  let globals := #[hashPtrGlobalDecl] ++ evtGlobals ++ arrPtrDecls
+  let globals := #[hashPtrGlobalDecl] ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := scalarData ++ mapData ++ boolData ++ #[evtKeyData] ++ stringData ++ (if hasPanic then panicData else #[]) }
