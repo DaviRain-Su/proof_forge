@@ -80,16 +80,49 @@ Unifying the *contract* (not the plan algebra) makes three things possible:
    every backend either delegates to or explicitly overrides, instead of each
    backend reinventing the same checks.
 
-## Three tiers of "semantic unification"
+## Four tiers of "semantic unification"
 
 | Tier | Meaning | Cost | In scope for this RFC? |
 |---|---|---|---|
 | **A** | Shared IR operational semantics (`IR/Semantics.lean`) is the ground truth; every backend passes shared-scenario trace obligations for the IR subset semantics currently covers. | Medium — semantics exists but must grow (FV-2/FV-3). | **No** (acknowledged dependency; tracked by FV workstream). |
 | **B** | Shared lowering *contract*: per-backend `validateModule*` + `*ModulePlan` + `lowerToAst` + plan-driven metadata + golden `*-semantic-plan` smokes. | EVM done; Psy easy–medium; NEAR medium; Solana medium–hard. | **Yes.** |
-| **C** | End-to-end refinement: machine-checked IR-semantics ⟷ on-target behavior per backend. | Hard; research on Solana (FV-4). | **No** (explicit non-goal). |
+| **C-diff** | Differential trace replay: the Quint MBT backend generates ITF traces from `IR.Semantics` and replays them against each backend's actual emitted artifact (bytecode via Foundry for EVM; Mollusk for Solana; offline-host for NEAR). Acts as a pragmatic substitute for a full target-chain formal semantics. | EVM landed (`just quint-evm-backend-replay-gate`); portable to any backend once its `*ModulePlan` exists. | **Partial.** RFC 0014 consumes the Quint backend's traces for end-to-end smoke; it does not redesign the Quint backend itself. |
+| **C-proof** | Machine-checked end-to-end refinement: Lean IR-semantics ⟷ formal target-chain execution model. | Hard. EVM can lean on `powdr-labs/evm-semantics` (a Lean EVM semantics passing `ethereum/tests`). Solana is research (FV-4): no off-the-shelf sBPF Lean semantics exists. | **No** (explicit non-goal). |
 
-This RFC targets **Tier B only**, because Tier B is where the asymmetry hurts
-most and where engineering discipline pays off without new formal models.
+**Splitting the old Tier C into C-diff and C-proof is load-bearing.** It separates
+"we can run the same scenario against the real chain and check the state
+transitions agree" (Tier C-diff — engineering, broadly portable) from "we have a
+machine-checked proof that the IR semantics and the target execution model agree
+on every behavior" (Tier C-proof — research-grade, ecosystem-dependent).
+
+### Role of the Quint verification backend
+
+The Quint backend (`ProofForge/Backend/Quint/*`, see [`docs/quint.md`](../quint.md))
+is the first ProofForge backend whose "artifact" is a **verification artifact**
+rather than a deploy artifact. From portable IR it emits:
+
+- A Quint state-machine model (`.qnt`) used by Apalache for `quint verify`
+  model-checking of `quint_invariant` safety / `quint_liveness` temporal
+  properties — Tier A invariants enforced upstream of every backend.
+- MBT traces (ITF format via `quint run --mbt --out-itf`) that are replayed
+  through `ProofForge.IR.Semantics` (`Tests/Quint/*Replay.lean`) — Tier A
+  differential coverage that grows with the IR subset.
+- EVM backend replay (`just quint-evm-backend-replay-gate`): the same ITF trace
+  is lowered to a Foundry test and replayed against etched runtime bytecode —
+  the current instantiation of **Tier C-diff for EVM**.
+
+Concretely, this RFC's Tier B `*ModulePlan` artifacts are the **bridge** that
+lets Tier C-diff scale beyond EVM: once a backend has an inspectable plan and
+a stable artifact emitter, a `*-quint-backend-replay-gate` analogous to the EVM
+one can replay Quint MBT traces against that backend's output (Mollusk for
+Solana, offline-host for NEAR, `dargo execute` for Psy) without waiting for a
+Lean formal model of the target VM to exist. Tier C-proof remains the path for
+chains with mature Lean semantics (EVM via powdr-style integration); Tier
+C-diff is the pragmatic floor for every other backend.
+
+This RFC targets **Tier B only**. Tier A and Tier C-diff are acknowledged as
+already-shipped dependencies (Quint backend, `IR/Semantics.lean`); Tier C-proof
+remains a non-goal.
 
 ## Design goals
 
@@ -109,8 +142,14 @@ most and where engineering discipline pays off without new formal models.
 
 - A single global `ModulePlan` type shared by all backends. RFC 0004 non-goals
   already rule this out; account/CPI, host-import, and circuit models differ.
-- Machine-checked end-to-end refinement (Tier C), including a Lean model of
-  Solana syscalls or sBPF semantics.
+- Machine-checked end-to-end refinement (Tier C-proof), including a Lean model
+  of Solana syscalls or sBPF semantics, or wiring the EVM backend to
+  `powdr-labs/evm-semantics`. Tier C-diff (differential trace replay via the
+  Quint MBT backend) is in scope as a pragmatic substitute; Tier C-proof
+  remains a non-goal.
+- Redesigning the Quint verification backend. This RFC consumes its traces
+  (Tier A and Tier C-diff for EVM); the Quint backend's own evolution is
+  tracked separately under the Quint workstream.
 - Proving external toolchains (`solc`, `sbpf`, `wat2wasm`, `dargo`, Mollusk).
   These remain outside the proof TCB per `docs/formal-verification.md`.
 - Extending the contract to CosmWasm, Move (Sui/Aptos), Aleo, Cloudflare TS in
@@ -439,27 +478,52 @@ feature-flag strategy as Phase 2.
 
 ### Phase 4 — Refinement seam (ongoing)
 
-**Milestones:**
+Phase 4 splits cleanly into two paths now that the Quint verification backend
+exists as a Tier C-diff vehicle.
+
+**Path 4a — Tier C-diff cross-backend rollout (engineering).**
+
+- Mirror the existing `just quint-evm-backend-replay-gate` pattern on every
+  backend once its `*ModulePlan` lands in Phase 2/3:
+  - Solana: `just quint-solana-backend-replay-gate` — Quint MBT ITF trace →
+    Mollusk invocation against the emitted `.so` (Tier C-diff; avoids needing a
+    Lean sBPF semantics).
+  - NEAR: `just quint-near-backend-replay-gate` — trace → offline-host
+    wasmtime stub (already used by `scripts/near/emitwat-ci-smoke.sh`).
+  - Psy: `just quint-psy-backend-replay-gate` — trace → `dargo execute`.
+- Each gate consumes the same `IR.Semantics`-derived trace; only the replay
+  harness differs per backend. The `*ModulePlan` is what makes the emitted
+  artifact stable enough for trace-level differential testing.
+
+**Path 4b — Tier C-proof seam (research).**
 
 - Add `ProofForge/Backend/Solana/Refinement.lean` skeleton: Counter IR trace
   obligation against the selector-dispatched asm surface (no full sBPF
   semantics).
 - Wire `Tests/NearWasmFormal.lean` to import Solana obligations when non-empty
   (CI build-gated).
+- EVM: investigate projecting `Evm.Refinement.TraceObligation` onto an
+  external Lean EVM semantics (e.g. `powdr-labs/evm-semantics`, which passes
+  the official `ethereum/tests` conformance suites) instead of
+  `Evm.YulSemantics`'s in-tree executable Yul subset. This is a research
+  integration; the seam is sketched here, not delivered.
 - Link [`docs/formal-verification.md`](../formal-verification.md) FV-8
   (ValueVault invariants) to per-backend obligations.
-- Optional Psy: IR trace vs `dargo` vectors as a Lean test.
 
 **Touch list:**
 
-- `ProofForge/Backend/Solana/Refinement.lean` (new)
-- `Tests/NearWasmFormal.lean`
-- `ProofForge/Contract/Examples/ValueVaultInvariant.lean`
+- Path 4a: `scripts/quint/*-backend-replay-gate.sh` (new per backend),
+  `ProofForge/Backend/Quint/{Solana,Near,Psy}Replay.lean` (new, mirroring
+  existing `EvmReplay.lean`), `justfile` recipes.
+- Path 4b: `ProofForge/Backend/Solana/Refinement.lean` (new),
+  `Tests/NearWasmFormal.lean`,
+  `ProofForge/Contract/Examples/ValueVaultInvariant.lean`.
 
-**Risks:** overstating what is "proven" — the RFC is explicit that Phase 4 is a
-*seam* (Counter/ValueVault trace shape), not Tier C completeness.
+**Risks:** overstating what is "proven" — Path 4a is differential testing
+(Tier C-diff), not a proof; Path 4b remains a seam (Counter/ValueVault trace
+shape), not Tier C-proof completeness.
 
-**Scope cut:** Tier C for Solana (full syscall semantics in Lean).
+**Scope cut:** Tier C-proof for Solana (full syscall semantics in Lean).
 
 ### Phase 5–6 (stretch)
 
@@ -555,9 +619,16 @@ feature-flag strategy as Phase 2.
 
 - **Tier A:** grow `IR/Semantics.lean` per FV-2/FV-3 so shared-scenario trace
   obligations cover map/storage/events for every aligned backend.
-- **Tier C:** deepen `Evm.Refinement` and `WasmNear.Refinement`; add
+- **Tier C-diff:** generalize the Quint backend replay harness beyond EVM
+  (Solana via Mollusk, NEAR via offline-host, Psy via `dargo execute`) as each
+  backend's `*ModulePlan` lands. Long-term goal: one
+  `just quint-<target>-backend-replay-gate` per primary backend.
+- **Tier C-proof:** deepen `Evm.Refinement` and `WasmNear.Refinement`; add
   `Solana.Refinement` beyond the Phase 4 Counter seam toward syscall-aware
-  obligations.
+  obligations. Evaluate integrating an external Lean EVM semantics such as
+  `powdr-labs/evm-semantics` as the target execution model for the EVM
+  refinement obligations (replacing or augmenting the in-tree
+  `Evm.YulSemantics` executable subset).
 - **Plan JSON snapshots** for cross-backend plan diffing in CI.
 - **Lean typeclass** for the lowering contract once Phase 0–4 shapes are
   proven.
