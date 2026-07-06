@@ -1,5 +1,6 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Backend.Evm.Names
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.SharedValidate
 import ProofForge.IR.Contract
@@ -211,31 +212,22 @@ def needsCheckedArithmetic (op : AssignOp) : Bool :=
   | _ => false
 
 def arrayLocalElementName (name : String) (index : Nat) : String :=
-  s!"__proof_forge_array_{name}_{index}"
+  ProofForge.Backend.Evm.Names.arrayLocalElementName name index
 
 def arrayStructLocalFieldName (name : String) (index : Nat) (fieldName : String) : String :=
-  s!"__proof_forge_array_struct_{name}_{index}_{fieldName}"
+  ProofForge.Backend.Evm.Names.arrayStructLocalFieldName name index fieldName
 
 def natPathSuffix (path : Array Nat) : String :=
-  Id.run do
-    let mut suffix := ""
-    for h : idx in [0:path.size] do
-      let part := toString path[idx]
-      suffix := if idx == 0 then part else s!"{suffix}_{part}"
-    suffix
+  ProofForge.Backend.Evm.Names.natPathSuffix path
 
 def arrayLocalPathName (name : String) (path : Array Nat) : String :=
-  match path.toList with
-  | [index] => arrayLocalElementName name index
-  | _ => s!"__proof_forge_array_{name}_{natPathSuffix path}"
+  ProofForge.Backend.Evm.Names.arrayLocalPathName name path
 
 def arrayStructLocalPathFieldName (name : String) (path : Array Nat) (fieldName : String) : String :=
-  match path.toList with
-  | [index] => arrayStructLocalFieldName name index fieldName
-  | _ => s!"__proof_forge_array_struct_{name}_{natPathSuffix path}_{fieldName}"
+  ProofForge.Backend.Evm.Names.arrayStructLocalPathFieldName name path fieldName
 
 def structLocalFieldName (name fieldName : String) : String :=
-  s!"__proof_forge_struct_{name}_{fieldName}"
+  ProofForge.Backend.Evm.Names.structLocalFieldName name fieldName
 
 def ensureAbiWordType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with

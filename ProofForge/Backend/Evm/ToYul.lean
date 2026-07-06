@@ -1,3 +1,4 @@
+import ProofForge.Backend.Evm.Names
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Compiler.Yul.AST
 import ProofForge.Util.StringUtil
@@ -350,58 +351,40 @@ def calldataWordExpr (paramIndex : Nat) : Lean.Compiler.Yul.Expr :=
   Lean.Compiler.Yul.builtin "calldataload" #[Lean.Compiler.Yul.Expr.num (4 + paramIndex * 32)]
 
 def arrayLocalElementName (name : String) (index : Nat) : String :=
-  s!"__proof_forge_array_{name}_{index}"
+  ProofForge.Backend.Evm.Names.arrayLocalElementName name index
 
 def natPathSuffix (path : Array Nat) : String :=
-  Id.run do
-    let mut suffix := ""
-    for h : idx in [0:path.size] do
-      let part := toString path[idx]
-      suffix := if idx == 0 then part else s!"{suffix}_{part}"
-    suffix
+  ProofForge.Backend.Evm.Names.natPathSuffix path
 
 def arrayLocalPathName (name : String) (path : Array Nat) : String :=
-  match path.toList with
-  | [index] => arrayLocalElementName name index
-  | _ => s!"__proof_forge_array_{name}_{natPathSuffix path}"
+  ProofForge.Backend.Evm.Names.arrayLocalPathName name path
 
 def arrayStructLocalFieldName (name : String) (index : Nat) (fieldName : String) : String :=
-  s!"__proof_forge_array_struct_{name}_{index}_{fieldName}"
+  ProofForge.Backend.Evm.Names.arrayStructLocalFieldName name index fieldName
 
 def arrayStructLocalPathFieldName (name : String) (path : Array Nat) (fieldName : String) : String :=
-  match path.toList with
-  | [index] => arrayStructLocalFieldName name index fieldName
-  | _ => s!"__proof_forge_array_struct_{name}_{natPathSuffix path}_{fieldName}"
+  ProofForge.Backend.Evm.Names.arrayStructLocalPathFieldName name path fieldName
 
 def structLocalFieldName (name fieldName : String) : String :=
-  s!"__proof_forge_struct_{name}_{fieldName}"
+  ProofForge.Backend.Evm.Names.structLocalFieldName name fieldName
 
 def localArrayGetFunctionName (length : Nat) : String :=
-  s!"__proof_forge_local_array_get_{length}"
+  ProofForge.Backend.Evm.Names.localArrayGetFunctionName length
 
 def nestedLocalArrayGetFunctionName (lengths : Array Nat) : String :=
-  s!"__proof_forge_local_array_get_nested_{natPathSuffix lengths}"
+  ProofForge.Backend.Evm.Names.nestedLocalArrayGetFunctionName lengths
 
 def localArrayGetValueParamName (index : Nat) : String :=
-  s!"value_{index}"
+  ProofForge.Backend.Evm.Names.localArrayGetValueParamName index
 
 def localArrayGetIndexParamName (index : Nat) : String :=
-  s!"index_{index}"
+  ProofForge.Backend.Evm.Names.localArrayGetIndexParamName index
 
 def localArrayGetPathValueParamName (path : Array Nat) : String :=
-  s!"value_{natPathSuffix path}"
+  ProofForge.Backend.Evm.Names.localArrayGetPathValueParamName path
 
 partial def nestedLocalArrayLeafPaths (lengths : Array Nat) : Array (Array Nat) :=
-  match lengths.toList with
-  | [] => #[#[]]
-  | length :: rest =>
-      let nested := nestedLocalArrayLeafPaths rest.toArray
-      Id.run do
-        let mut paths : Array (Array Nat) := #[]
-        for _h : idx in [0:length] do
-          for tail in nested do
-            paths := paths.push (#[idx] ++ tail)
-        paths
+  ProofForge.Backend.Evm.Names.nestedLocalArrayLeafPaths lengths
 
 def localArrayGetFunctionParams (length : Nat) : Array Lean.Compiler.Yul.TypedName :=
   Id.run do
