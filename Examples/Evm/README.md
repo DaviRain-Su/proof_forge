@@ -35,7 +35,7 @@ lake env proof-forge build --target evm \
 ```
 
 `ArrayExample.lean` and the stdlib examples use the same unified path via
-`def spec : ContractSpec` and the Builder API.
+`contract_source` / `def spec : ContractSpec`.
 
 No `.evm-methods` sidecar is required. The CLI loads `spec : ContractSpec` from
 the Lean module and lowers through the portable IR EVM backend.

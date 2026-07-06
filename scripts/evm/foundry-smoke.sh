@@ -431,6 +431,61 @@ contract ProofForgeSmokeTest {
         assertFalse(burnedOwnerOk);
     }
 
+    function testERC1155Lifecycle() public {
+        address token = address(0x1155);
+        address alice = address(0xA11CE);
+        address bob = address(0xB0B);
+        address operator = address(0x0FEE);
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC1155.bin")", token);
+
+        vm.prank(alice);
+        (bool mintOk,) = token.call(abi.encodeWithSignature("mint(address,uint256,uint256)", alice, uint256(7), uint256(100)));
+        assertTrue(mintOk);
+
+        (bool aliceBalOk, bytes memory aliceBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(7)));
+        assertTrue(aliceBalOk);
+        assertEq(abi.decode(aliceBal, (uint256)), 100);
+
+        vm.prank(bob);
+        (bool unauthorizedOk,) =
+            token.call(abi.encodeWithSignature("safeTransferFrom(address,address,uint256,uint256)", alice, bob, uint256(7), uint256(1)));
+        assertFalse(unauthorizedOk);
+
+        vm.prank(alice);
+        (bool approvalOk,) = token.call(abi.encodeWithSignature("setApprovalForAll(address,bool)", operator, true));
+        assertTrue(approvalOk);
+
+        (bool approvedOk, bytes memory approvedResult) =
+            token.call(abi.encodeWithSignature("isApprovedForAll(address,address)", alice, operator));
+        assertTrue(approvedOk);
+        assertTrue(abi.decode(approvedResult, (bool)));
+
+        vm.prank(operator);
+        (bool transferOk,) =
+            token.call(abi.encodeWithSignature("safeTransferFrom(address,address,uint256,uint256)", alice, bob, uint256(7), uint256(40)));
+        assertTrue(transferOk);
+
+        (, aliceBal) = token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(7)));
+        assertEq(abi.decode(aliceBal, (uint256)), 60);
+
+        (bool bobBalOk, bytes memory bobBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", bob, uint256(7)));
+        assertTrue(bobBalOk);
+        assertEq(abi.decode(bobBal, (uint256)), 40);
+
+        vm.prank(bob);
+        (bool burnOk,) = token.call(abi.encodeWithSignature("burn(uint256,uint256)", uint256(7), uint256(10)));
+        assertTrue(burnOk);
+
+        (, bobBal) = token.call(abi.encodeWithSignature("balanceOf(address,uint256)", bob, uint256(7)));
+        assertEq(abi.decode(bobBal, (uint256)), 30);
+
+        vm.prank(bob);
+        (bool overdraftBurnOk,) = token.call(abi.encodeWithSignature("burn(uint256,uint256)", uint256(7), uint256(31)));
+        assertFalse(overdraftBurnOk);
+    }
+
     function testUUPSProxyUpgradeLifecycle() public {
         address admin = address(0xA11CE);
         address proxy = address(0x5005);

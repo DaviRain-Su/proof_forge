@@ -218,7 +218,8 @@ EVM 不支持（设计上针对其他目标）：
 - `SimpleToken.lean` — 带有映射的 ERC-20 风格代币
 - `ArrayExample.lean` — 内存数组
 - `VerifiedVault.lean` — 合约模块中的证明
-- `stdlib/` — ERC20, Ownable, Pausable
+- `stdlib/` — ERC20、ERC1155 单项转账核心、ERC721、ERC165、
+  Ownable、AccessControl、Pausable、ReentrancyGuard、Create2Factory、UUPSProxy
 
 ## 已知限制
 

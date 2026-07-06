@@ -805,6 +805,29 @@ mutual
     expr : ExprPlan
     deriving Repr
 
+  structure NestedFixedArrayAssignmentSourcePlan where
+    path : Array Nat
+    fieldName? : Option String
+    expr : ExprPlan
+    deriving Repr
+
+  structure StructAssignmentSourcePlan where
+    fieldName : String
+    expr : ExprPlan
+    deriving Repr
+
+  structure StructArrayAssignmentSourcePlan where
+    index : Nat
+    fieldName : String
+    expr : ExprPlan
+    deriving Repr
+
+  structure StorageStructWriteFieldPlan where
+    slot : Nat
+    fieldName : String
+    value : ExprPlan
+    deriving Repr
+
   inductive AbiValuePlan where
     | expr (value : ExprPlan)
     | local (name : String) (type : ValueType)

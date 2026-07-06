@@ -68,7 +68,7 @@ def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : E
 
 /-- Build a lookup from sanitized entrypoint name to original entrypoint. -/
 def entrypointMap (module : ProofForge.IR.Module) : Std.HashMap String Entrypoint :=
-  module.entrypoints.foldl (fun m ep => m.insert (Lower.sanitizeName ep.name) ep) {}
+  module.entrypoints.foldl (fun m ep => m.insert (sanitizeName ep.name) ep) {}
 
 /-- Convert ITF nondet picks to IR argument values using the entrypoint's param types. -/
 def buildArgs (entrypoint : Entrypoint) (picks : List (String × ITF.Value)) : Except ReplayError (Array ProofForge.IR.Semantics.Value) := do

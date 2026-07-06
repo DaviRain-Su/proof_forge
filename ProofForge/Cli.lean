@@ -490,6 +490,7 @@ structure CliOptions where
   fixture? : Option String := none
   format? : Option String := none
   reportFormat? : Option String := none
+  scenario? : Option FilePath := none
   mode : EmitMode := .yul
   fromNewSurface : Bool := false
   deriving Inhabited
@@ -2545,6 +2546,10 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with targetId? := some targetId }
   | "--target" :: [], _ =>
       .error "missing value for --target"
+  | "--scenario" :: path :: rest, opts =>
+      parseArgs rest { opts with scenario? := some (FilePath.mk path) }
+  | "--scenario" :: [], _ =>
+      .error "missing value for --scenario"
   | "--evm-chain-profile" :: profile :: rest, opts =>
       parseArgs rest { opts with evmChainProfile? := some profile }
   | "--evm-constructor-args-hex" :: hex :: rest, opts => do
@@ -2878,6 +2883,7 @@ structure NewCommandParseState where
   fixture? : Option String := none
   format? : Option String := none
   reportFormat? : Option String := none
+  scenario? : Option String := none
   out? : Option String := none
   yulOut? : Option String := none
   artifactOut? : Option String := none
@@ -2914,6 +2920,9 @@ partial def parseNewOptions : List String → NewCommandParseState → Except St
   | "--report-format" :: rest, state => do
       let (format, rest) ← takeOption rest "--report-format"
       parseNewOptions rest { state with reportFormat? := some format }
+  | "--scenario" :: rest, state => do
+      let (path, rest) ← takeOption rest "--scenario"
+      parseNewOptions rest { state with scenario? := some path }
   | "-o" :: rest, state => do
       let (out, rest) ← takeOption rest "-o"
       parseNewOptions rest { state with out? := some out }
@@ -3156,52 +3165,52 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
   | t, f, fmt =>
       Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
-def newCommandArgsToLegacy (args : List String) : Except String (List String) := do
-  match args with
-  | "build" :: rest => do
-      let state ← parseNewOptions rest {}
-      let target ← match state.target? with | some t => Except.ok t | none => Except.error "build requires --target <id>"
-      let flag ← buildLegacyFlag target state.input? state.fixture? state.format? state.token
-      let mut legacy := [flag]
-      if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
-      if let some root := state.root? then legacy := legacy ++ ["--root", root]
-      if let some modName := state.module? then legacy := legacy ++ ["--module", modName]
-      if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
-      if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
-      if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
-      for param in state.evmConstructorParams do
-        legacy := legacy ++ ["--evm-constructor-param", s!"{param.name}:{param.abiType}"]
-      for value in state.evmConstructorValues do
-        legacy := legacy ++ ["--evm-constructor-arg", s!"{value.name}={value.value}"]
-      if state.evmConstructorArgsHex != "" then
-        legacy := legacy ++ ["--evm-constructor-args-hex", state.evmConstructorArgsHex]
-      if flag == "--evm-bytecode" || flag.endsWith "-bytecode" then
-        legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
-      if flag == "--learn" || flag == "--learn-token" then
-        legacy := legacy ++ ["--target", target]
-      if target == "solana-sbpf-asm" then
-        if let some arch := state.solanaSbpfArch? then
-          legacy := legacy ++ ["--solana-sbpf-arch", arch]
-      if let some input := state.input? then legacy := legacy ++ [input]
-      Except.ok legacy
-  | "emit" :: rest => do
-      let state ← parseNewOptions rest {}
-      let target ← match state.target? with | some t => Except.ok t | none => Except.error "emit requires --target <id>"
-      let fixture ← match state.fixture? with | some f => Except.ok f | none => Except.error "emit requires --fixture <id>"
-      let flag ← emitLegacyFlag target fixture state.format?
-      let mut legacy := [flag]
-      if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
-      if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
-      if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
-      if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
-      if flag.endsWith "-bytecode" then
-        legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
-      if target == "solana-sbpf-asm" then
-        if let some arch := state.solanaSbpfArch? then
-          legacy := legacy ++ ["--solana-sbpf-arch", arch]
-      Except.ok legacy
-  | "check" :: _ => Except.error "proof-forge check is not yet implemented"
-  | _ => Except.error "expected build, emit, or check"
+def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Except String (List String) := do
+  if cmd == "build" then
+    let target ← match state.target? with | some t => Except.ok t | none => Except.error "build requires --target <id>"
+    let flag ← buildLegacyFlag target state.input? state.fixture? state.format? state.token
+    let mut legacy := [flag]
+    if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
+    if let some root := state.root? then legacy := legacy ++ ["--root", root]
+    if let some modName := state.module? then legacy := legacy ++ ["--module", modName]
+    if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
+    if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
+    if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
+    for param in state.evmConstructorParams do
+      legacy := legacy ++ ["--evm-constructor-param", s!"{param.name}:{param.abiType}"]
+    for value in state.evmConstructorValues do
+      legacy := legacy ++ ["--evm-constructor-arg", s!"{value.name}={value.value}"]
+    if state.evmConstructorArgsHex != "" then
+      legacy := legacy ++ ["--evm-constructor-args-hex", state.evmConstructorArgsHex]
+    if flag == "--evm-bytecode" || flag.endsWith "-bytecode" then
+      legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
+    if flag == "--learn" || flag == "--learn-token" then
+      legacy := legacy ++ ["--target", target]
+    if target == "solana-sbpf-asm" then
+      if let some arch := state.solanaSbpfArch? then
+        legacy := legacy ++ ["--solana-sbpf-arch", arch]
+    if let some input := state.input? then legacy := legacy ++ [input]
+    Except.ok legacy
+  else if cmd == "emit" then
+    let target ← match state.target? with | some t => Except.ok t | none => Except.error "emit requires --target <id>"
+    let fixture ← match state.fixture? with | some f => Except.ok f | none => Except.error "emit requires --fixture <id>"
+    let flag ← emitLegacyFlag target fixture state.format?
+    let mut legacy := [flag]
+    if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
+    if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
+    if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
+    if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
+    if let some scenario := state.scenario? then legacy := legacy ++ ["--scenario", scenario]
+    if flag.endsWith "-bytecode" then
+      legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
+    if target == "solana-sbpf-asm" then
+      if let some arch := state.solanaSbpfArch? then
+        legacy := legacy ++ ["--solana-sbpf-arch", arch]
+    Except.ok legacy
+  else if cmd == "check" then
+    Except.error "proof-forge check is not yet implemented"
+  else
+    Except.error "expected build, emit, or check"
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
@@ -6090,6 +6099,15 @@ def compileCounterIrAptos (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.message
 
+def loadQuintScenarioConfig (opts : CliOptions) : IO ProofForge.Backend.Quint.Scenario.Config := do
+  match opts.scenario? with
+  | none => return {}
+  | some path =>
+      let contents ← IO.FS.readFile path
+      match ProofForge.Backend.Quint.Scenario.parse contents with
+      | .ok cfg => return cfg
+      | .error msg => throw <| IO.userError s!"failed to parse scenario {path}: {msg}"
+
 def compileCounterIrSui (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/sui/counter")
   let module := ProofForge.IR.Examples.Counter.module
@@ -6140,7 +6158,7 @@ def compileCounterIrSui (opts : CliOptions) : IO UInt32 := do
 
 def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/quint/Counter.qnt")
-  let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
+  let scenario ← loadQuintScenarioConfig opts
   match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.Counter.module scenario with
   | .ok source =>
       match output.parent with
@@ -6154,7 +6172,7 @@ def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
 
 def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/quint/ValueVault.qnt")
-  let scenario : ProofForge.Backend.Quint.Scenario.Config := {}
+  let scenario ← loadQuintScenarioConfig opts
   match ProofForge.Backend.Quint.Lower.renderModule ProofForge.IR.Examples.ValueVault.module scenario with
   | .ok source =>
       match output.parent with
@@ -6343,16 +6361,30 @@ unsafe def main (args : List String) : IO UInt32 := do
       match args with
       | "--list-targets" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listTargets }
       | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
-      | "build" :: _ | "emit" :: _ =>
-        match ProofForge.Cli.newCommandArgsToLegacy args with
-        | Except.ok legacyArgs =>
-          match ProofForge.Cli.parseArgs legacyArgs {} with
-          | Except.ok opts => Except.ok { opts with
-              cmd :=
-                match args with
-                | "build" :: _ => ProofForge.Cli.Command.build
-                | _ => ProofForge.Cli.Command.emit,
-              fromNewSurface := true }
+      | "build" :: rest =>
+        match ProofForge.Cli.parseNewOptions rest {} with
+        | Except.ok state =>
+          match ProofForge.Cli.newCommandArgsToLegacy state "build" with
+          | Except.ok legacyArgs =>
+            match ProofForge.Cli.parseArgs legacyArgs {} with
+            | Except.ok opts => Except.ok { opts with
+                cmd := ProofForge.Cli.Command.build,
+                scenario? := state.scenario?.map FilePath.mk,
+                fromNewSurface := true }
+            | Except.error msg => Except.error msg
+          | Except.error msg => Except.error msg
+        | Except.error msg => Except.error msg
+      | "emit" :: rest =>
+        match ProofForge.Cli.parseNewOptions rest {} with
+        | Except.ok state =>
+          match ProofForge.Cli.newCommandArgsToLegacy state "emit" with
+          | Except.ok legacyArgs =>
+            match ProofForge.Cli.parseArgs legacyArgs {} with
+            | Except.ok opts => Except.ok { opts with
+                cmd := ProofForge.Cli.Command.emit,
+                scenario? := state.scenario?.map FilePath.mk,
+                fromNewSurface := true }
+            | Except.error msg => Except.error msg
           | Except.error msg => Except.error msg
         | Except.error msg => Except.error msg
       | "check" :: rest =>
