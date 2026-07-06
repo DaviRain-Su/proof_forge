@@ -9,11 +9,15 @@ Implements the core NEP-141 interface:
 - `ft_balance_of` — balance for an account (query)
 - `ft_transfer` — transfer tokens to receiver (entry, requires caller + amount)
 - `ft_metadata` — token metadata (NEP-148: decimals)
+- `storage_deposit` / `storage_balance_of` / `storage_balance_bounds` — NEP-145
+  starter surface using U64 projected balances
 
 **Limitation:** `ft_transfer_call` requires the NEAR Promise API for
 cross-contract calls. This mixin provides a stub that emits a log but does
 not invoke the receiver's `ft_on_transfer` callback. Full `ft_transfer_call`
 support requires Promise API lowering (deferred — see platform-gaps doc).
+The NEP-145 functions model registration balances as U64 values because the
+current portable ABI does not expose NEAR's JSON object return shape yet.
 -/
 import ProofForge.Contract.Source
 
@@ -45,6 +49,10 @@ def totalSupply : ScalarRef :=
 def tokenDecimals : ScalarRef :=
   ProofForge.Contract.Surface.slot "decimals" .u64
 
+/-- Minimum storage deposit for account registration (U64 projection). -/
+def storageRequired : ScalarRef :=
+  ProofForge.Contract.Surface.slot "storageRequired" .u64
+
 /-- Balance mapping: account hash -> u64 balance. -/
 def balances : MapRef :=
   { id := "balances", keyType := .u64, valueType := .u64 }
@@ -53,16 +61,23 @@ def balances : MapRef :=
 def allowances : MapRef :=
   { id := "allowances", keyType := .u64, valueType := .u64 }
 
+/-- NEP-145 storage deposits: account hash -> U64 projected yoctoNEAR balance. -/
+def storageDeposits : MapRef :=
+  { id := "storageDeposits", keyType := .hash, valueType := .u64 }
+
 contract_mixin NearFungibleTokenMixin do
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar tokenDecimals
+  use ProofForge.Contract.Surface.scalar storageRequired
   use ProofForge.Contract.Surface.mapState balances
   use ProofForge.Contract.Surface.mapState allowances
+  use ProofForge.Contract.Surface.mapState storageDeposits
 
   event FTransfer
   event FMint
   event FBurn
   event FApproval
+  event StorageDeposit
 
   query ft_total_supply returns(.u64) do
     return totalSupply;
@@ -72,6 +87,20 @@ contract_mixin NearFungibleTokenMixin do
 
   query ft_metadata returns(.u64) do
     return tokenDecimals;
+
+  query storage_balance_bounds returns(.u64) do
+    return storageRequired;
+
+  query storage_balance_of (account_id : .hash) returns(.u64) do
+    return mapRead storageDeposits account_id;
+
+  entry storage_deposit (account_id : .hash) do
+    let amount : .u64 := nativeValue;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref amount)
+      (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small";
+    let previous : .u64 := mapRead storageDeposits account_id;
+    do mapWrite storageDeposits account_id (previous +! amount);
+    emit StorageDeposit indexed #[fieldAsName "account" account_id] data #[fieldAsName "amount" amount];
 
   entry ft_transfer (receiver_id : .hash, amount : .u64) do
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
@@ -124,5 +153,6 @@ contract_source NearFungibleToken do
   entry init do
     totalSupply := u64 0;
     tokenDecimals := u64 18;
+    storageRequired := u64 1;
 
 end ProofForge.Contract.Stdlib.NearFungibleToken

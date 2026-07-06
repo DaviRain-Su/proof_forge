@@ -3382,7 +3382,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
-### NEAR SDK blockers (0 open P0, 6 closed, 10 P1)
+### NEAR SDK blockers (0 open P0, 6 closed, 9 P1)
 
 - ✅ P0: Promise API (host imports in HostBridge + EmitWat crosscall stub; full async is P1)
 - ✅ P0: NEP-141 fungible token (NearFungibleToken.lean stdlib mixin)
@@ -3390,6 +3390,9 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
 - ✅ P0: Callback handling (promise_result host import + offline stub)
-- P1: Full Promise async execution, NEP-145 storage management, NEP-148 metadata,
-  NEP-171 NFT, keccak256/crypto, storage_remove, block_timestamp, gas accounting,
-  real NEAR broadcast smoke, near-api-js view/gas/deposit client options
+- ✅ P1: block_timestamp (`block_timestamp` host import + `.contextRead .timestamp` lowering + Surface/Source helpers)
+- ✅ P1: near-api-js client options (`NearViewOptions` for views, gas/attached-deposit `NearCallOptions` for function calls)
+- ✅ P1: NEP-145 storage-management starter (`storage_deposit`/`storage_balance_*` U64 projection + Hash map target-first/offline-host smoke)
+- P1: Full Promise async execution, full NEP-145 JSON balance objects/withdraw/refund/storage byte accounting,
+  NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove, epoch_height/random_seed,
+  gas accounting, real NEAR broadcast smoke

@@ -22,6 +22,9 @@ abbrev ContractSpec := ProofForge.Contract.ContractSpec
 def checkpointId : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.checkpointId
 
+def timestamp : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.timestamp
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.u64 value
 

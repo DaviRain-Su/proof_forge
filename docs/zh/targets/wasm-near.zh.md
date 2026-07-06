@@ -30,7 +30,8 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `hash` / `hashTwoToOne` | `env.sha256` |
 | `contextRead userId` | `env.predecessor_account_id` |
 | `contextRead contractId` | `env.current_account_id` |
-| `contextRead checkpointId` | `env.block_height` |
+| `contextRead checkpointId` | `env.block_index` |
+| `contextRead timestamp` | `env.block_timestamp` |
 | `eventEmit` | `env.log` |
 
 ### 为什么不用 `EmitZig`
@@ -64,7 +65,7 @@ NEAR 通过序列化的 Borsh 传入 entrypoint arguments，并期望序列化�
 | `caller.sender` | Yes | `env::predecessor_account_id()` |
 | `value.native` | Partial | Rust sourcegen 和 EmitWat 将 `nativeValue` 降级为 `env::attached_deposit()` / `attached_deposit` host import，作为 U64 投影 |
 | `events.emit` | Yes | 使用 deterministic JSON lower 到 `near_sdk::log!` |
-| `env.block` | Yes | `env::block_height()` |
+| `env.block` | Yes | EmitWat 使用 `block_index` 和 `block_timestamp` host imports；frozen Rust sourcegen 使用 `env::block_height()` |
 | `crypto.hash` | Yes | 基于 `env::sha256` 的 hash helpers |
 | `assertions.check` | Yes | Lower 到 Rust `assert!`/`assert_eq!` |
 | `account.explicit` | Yes | `env::current_account_id()` |

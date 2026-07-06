@@ -222,8 +222,18 @@ def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
     "  });\n" ++
     "}\n"
   else
-    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
-    "  return await account.viewFunction({ contractId, methodName: \"" ++ entrypoint.name ++ "\", args: " ++ argsObj ++ " }) as " ++ typeToTs entrypoint.returns ++ ";\n" ++
+    let paramsWithOptions :=
+      if params.isEmpty then
+        "options: NearViewOptions = {}"
+      else
+        params ++ ", options: NearViewOptions = {}"
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "  return await account.viewFunction({\n" ++
+    "    ...options,\n" ++
+    "    contractId,\n" ++
+    "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
+    "    args: " ++ argsObj ++ ",\n" ++
+    "  }) as " ++ typeToTs entrypoint.returns ++ ";\n" ++
     "}\n"
 
 def renderNearWrapper (spec : ContractSpec) : String :=
@@ -239,6 +249,12 @@ def renderNearWrapper (spec : ContractSpec) : String :=
     "  gas?: bigint | string | number;",
     "  attachedDeposit?: bigint | string | number;",
     "  deposit?: bigint | string | number;",
+    "};",
+    "",
+    "export type NearViewOptions = {",
+    "  finality?: string;",
+    "  blockId?: string | number;",
+    "  [key: string]: unknown;",
     "};",
     "",
     "let contractId: string;",

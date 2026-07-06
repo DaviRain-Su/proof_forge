@@ -4,7 +4,8 @@ import ProofForge.IR.Contract
 open ProofForge.IR ProofForge.Backend.WasmNear.EmitWat
 
 /-! Context probe: predecessor/contract id determinism (sha256 of account id),
-    block_height (checkpoint), signer (origin), and attached deposit (`nativeValue`). -/
+    block_height (checkpoint), block_timestamp, signer (origin), and attached
+    deposit (`nativeValue`). -/
 
 def callerStable : Entrypoint := {
   name := "callerStable", returns := .u64,
@@ -22,6 +23,10 @@ def checkpoint : Entrypoint := {
   name := "checkpoint", returns := .u64,
   body := #[.return (.effect (.contextRead .checkpointId))] }
 
+def blockTimestamp : Entrypoint := {
+  name := "blockTimestamp", returns := .u64,
+  body := #[.return (.effect (.contextRead .timestamp))] }
+
 def signerStable : Entrypoint := {
   name := "signerStable", returns := .u64,
   body := #[
@@ -34,7 +39,7 @@ def depositProbe : Entrypoint := {
 
 def contextModule : Module := {
   name := "ContextProbe", state := #[],
-  entrypoints := #[callerStable, contractStable, checkpoint, signerStable] }
+  entrypoints := #[callerStable, contractStable, checkpoint, blockTimestamp, signerStable] }
 
 def depositModule : Module := {
   name := "DepositProbe", state := #[],

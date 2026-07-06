@@ -60,6 +60,10 @@ out="$("${HOST[@]}" build/wasm-near/emitwat-deposit.wat depositProbe --attached-
 echo "$out"
 assert_contains "$out" "call 1:depositProbe: return_hex=2a00000000000000 return_u64=42" "attached deposit"
 
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat blockTimestamp --block-timestamp 777)"
+echo "$out"
+assert_contains "$out" "call 1:blockTimestamp: return_hex=0903000000000000 return_u64=777" "block timestamp"
+
 out="$("${HOST[@]}" build/wasm-near/emitwat-path-assign.wat path_assign_lifecycle)"
 echo "$out"
 assert_contains "$out" "call 1:path_assign_lifecycle: return_hex=1e00000000000000 return_u64=30" "path assign"

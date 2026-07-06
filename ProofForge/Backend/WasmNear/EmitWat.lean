@@ -966,6 +966,7 @@ mutual
     | .effect (.contextRead .userId) => .ok (#[.call ctxUserIdName], .u64)
     | .effect (.contextRead .contractId) => .ok (#[.call ctxContractIdName], .u64)
     | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
+    | .effect (.contextRead .timestamp) => .ok (#[.call "block_timestamp"], .u64)
     | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value

@@ -28,6 +28,7 @@ struct Config {
     signer_account_id: Vec<u8>,
     attached_deposit: u64,
     block_index: u64,
+    block_timestamp: u64,
 }
 
 impl Config {
@@ -45,6 +46,7 @@ impl Config {
         let mut signer_account_id = b"alice.testnet".to_vec();
         let mut attached_deposit: u64 = 0;
         let mut block_index = 0;
+        let mut block_timestamp = 0;
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -83,8 +85,7 @@ impl Config {
                         take_arg(&mut args, "--predecessor-account-id")?.into_bytes();
                 }
                 "--signer-account-id" => {
-                    signer_account_id =
-                        take_arg(&mut args, "--signer-account-id")?.into_bytes();
+                    signer_account_id = take_arg(&mut args, "--signer-account-id")?.into_bytes();
                 }
                 "--attached-deposit" => {
                     attached_deposit = take_arg(&mut args, "--attached-deposit")?
@@ -95,6 +96,11 @@ impl Config {
                     block_index = take_arg(&mut args, "--block-index")?
                         .parse()
                         .context("--block-index must be a non-negative integer")?;
+                }
+                "--block-timestamp" => {
+                    block_timestamp = take_arg(&mut args, "--block-timestamp")?
+                        .parse()
+                        .context("--block-timestamp must be a non-negative integer")?;
                 }
                 _ if arg.starts_with('-') => bail!("unknown option `{arg}`"),
                 _ => positionals.push(arg),
@@ -131,6 +137,7 @@ impl Config {
             signer_account_id,
             attached_deposit,
             block_index,
+            block_timestamp,
         })
     }
 }
@@ -157,7 +164,8 @@ fn print_usage() {
            --predecessor-account-id ID   predecessor_account_id stub value\n\
            --signer-account-id ID        signer_account_id stub value\n\
            --attached-deposit N          attached_deposit stub value\n\
-           --block-index N               block_index stub value"
+           --block-index N               block_index stub value\n\
+           --block-timestamp N           block_timestamp stub value"
     );
 }
 
@@ -208,6 +216,7 @@ fn run(config: Config) -> Result<()> {
         config.signer_account_id,
         config.attached_deposit,
         config.block_index,
+        config.block_timestamp,
     );
     let mut store = Store::new(&engine, host);
     let initial_fuel: u64 = 10_000_000_000;
@@ -307,6 +316,7 @@ struct HostState {
     signer_account_id: Vec<u8>,
     attached_deposit: u64,
     block_index: u64,
+    block_timestamp: u64,
     allocator: LinearMemoryAllocator,
     panic_message: Option<String>,
 }
@@ -320,6 +330,7 @@ impl HostState {
         signer_account_id: Vec<u8>,
         attached_deposit: u64,
         block_index: u64,
+        block_timestamp: u64,
     ) -> Self {
         Self {
             registers: HashMap::new(),
@@ -332,6 +343,7 @@ impl HostState {
             signer_account_id,
             attached_deposit,
             block_index,
+            block_timestamp,
             allocator: LinearMemoryAllocator::new(heap_base),
             panic_message: None,
         }
@@ -636,14 +648,30 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> i64 { caller.data().block_index as i64 },
     )?;
 
+    linker.func_wrap(
+        "env",
+        "block_timestamp",
+        |caller: Caller<'_, HostState>| -> i64 { caller.data().block_timestamp as i64 },
+    )?;
+
     // Promise API stubs
-    linker.func_wrap("env", "promise_create",
-        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
-    linker.func_wrap("env", "promise_then",
-        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
-    linker.func_wrap("env", "promise_results_count", |_: Caller<'_, HostState>| -> i64 { 0 })?;
+    linker.func_wrap(
+        "env",
+        "promise_create",
+        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_then",
+        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_results_count",
+        |_: Caller<'_, HostState>| -> i64 { 0 },
+    )?;
     linker.func_wrap("env", "promise_result", |_: i64, _: i64| -> i64 { 2 })?;
-    linker.func_wrap("env", "promise_return", |_: i64| {},)?;
+    linker.func_wrap("env", "promise_return", |_: i64| {})?;
 
     Ok(())
 }

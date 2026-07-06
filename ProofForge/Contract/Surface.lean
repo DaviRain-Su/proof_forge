@@ -177,6 +177,9 @@ def ret (value : ProofForge.IR.Expr) : EntryM Unit :=
 def checkpointId : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .checkpointId
 
+def timestamp : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .timestamp
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.u64 value
 
