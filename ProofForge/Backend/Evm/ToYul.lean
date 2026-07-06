@@ -7,6 +7,7 @@ import ProofForge.Backend.Evm.ToYul.Local
 import ProofForge.Backend.Evm.ToYul.Abi
 import ProofForge.Backend.Evm.ToYul.Event
 import ProofForge.Backend.Evm.ToYul.Effect
+import ProofForge.Backend.Evm.ToYul.Storage
 import ProofForge.Compiler.Yul.AST
 
 namespace ProofForge.Backend.Evm.ToYul
