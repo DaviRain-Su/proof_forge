@@ -4,7 +4,6 @@ import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ArrayUtil
-import ProofForge.Cli.Evm
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.EvmArtifacts
 import ProofForge.Cli.FileUtil
@@ -274,11 +273,8 @@ def tokenEvmArtifactJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
   ]
 
 def renderLearnEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
-    IO (String × ProofForge.IR.Module) := do
-  let module ← hydrateEvmSelectors opts.cast spec.module
-  match ProofForge.Cli.Evm.renderYul module with
-  | .ok yul => return (yul, module)
-  | .error err => throw <| IO.userError err.render
+    IO (String × ProofForge.IR.Module) :=
+  renderContractSpecEvmYul opts spec
 
 def compileLearnYul (opts : CliOptions) : IO UInt32 := do
   let (_input, spec) ← parseLearnInput opts "--learn-yul"

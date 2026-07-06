@@ -4,6 +4,7 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.ConstructorAbi
+import ProofForge.Cli.Evm
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.HexUtil
 import ProofForge.Cli.IrJson
@@ -22,6 +23,13 @@ open ProofForge.Cli.JsonUtil
 open System
 
 namespace ProofForge.Cli
+
+def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
+    IO (String × ProofForge.IR.Module) := do
+  let module ← hydrateEvmSelectors opts.cast spec.module
+  match ProofForge.Cli.Evm.renderYul module with
+  | .ok yul => return (yul, module)
+  | .error err => throw <| IO.userError err.render
 
 def solcVersion? (solc : String) : IO (Option String) := do
   try
