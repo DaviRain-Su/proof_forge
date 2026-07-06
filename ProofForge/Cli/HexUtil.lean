@@ -13,13 +13,20 @@ of truth for CLI-side hex helpers; backend modules keep their own copies for
 now to avoid cross-layer import churn.
 -/
 
+import ProofForge.Util.StringUtil
+
 namespace ProofForge.Cli.HexUtil
 
-def trimAsciiString (s : String) : String :=
-  s.trimAscii.toString
+open ProofForge.Util.StringUtil
 
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then (s.drop 2).toString else s
+/-- Alias re-exported so CLI code that `open HexUtil` keeps seeing `trimAsciiString`.
+The implementation lives in `ProofForge.Util.StringUtil` and is shared with the
+Contract and Backend layers. -/
+def trimAsciiString (s : String) : String := trimAscii s
+
+/-- Alias re-exported so CLI code that `open HexUtil` keeps seeing `stripHexPrefix`.
+The implementation lives in `ProofForge.Util.StringUtil`. -/
+def stripHexPrefix (s : String) : String := ProofForge.Util.StringUtil.stripHexPrefix s
 
 def lowerHexString (s : String) : String :=
   String.intercalate "" <| s.toList.map fun ch =>

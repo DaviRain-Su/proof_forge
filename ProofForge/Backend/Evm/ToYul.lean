@@ -1,10 +1,12 @@
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Compiler.Yul.AST
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Backend.Evm.ToYul
 
 open ProofForge.IR
 open ProofForge.Backend.Evm.Plan
+open ProofForge.Util.StringUtil
 
 def slotExpr (slot : Nat) : Lean.Compiler.Yul.Expr :=
   Lean.Compiler.Yul.Expr.num slot
@@ -630,12 +632,6 @@ def isHexChar (c : Char) : Bool :=
   ('0' <= c && c <= '9') ||
   ('a' <= c && c <= 'f') ||
   ('A' <= c && c <= 'F')
-
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then
-    (s.drop 2).toString
-  else
-    s
 
 def normalizeInitCodeHex {ε : Type} (mkError : String → ε) (context initCodeHex : String) : Except ε String := do
   let raw := stripHexPrefix initCodeHex
