@@ -363,6 +363,10 @@ quint-model-gate:
 quint-mbt-gate:
     scripts/quint/mbt-replay-gate.sh
 
+# Replay a sampled Quint MBT trace through the EVM backend (Counter Foundry smoke).
+quint-evm-backend-replay-gate:
+    scripts/quint/evm-backend-replay-gate.sh
+
 # Run the unified RFC 0007 testkit scenario suite.
 testkit:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run

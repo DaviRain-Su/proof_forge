@@ -219,6 +219,10 @@ Tasks:
   `just quint-mbt-gate`.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
+- Done: replay sampled Quint MBT traces through the EVM backend (Counter v1)
+  via `ProofForge.Backend.Quint.EvmReplay`, `Tests/Quint/CounterEvmReplay.lean`,
+  `scripts/quint/evm-backend-replay-gate.sh`, and `just quint-evm-backend-replay-gate`
+  (also invoked at the end of `just quint-mbt-gate`).
 
 Acceptance criteria:
 
@@ -229,6 +233,8 @@ Acceptance criteria:
   passes.
 - `quint verify` is exercised by `just quint-model-gate` and skips gracefully
   when Java 17+ is missing.
+- `just quint-evm-backend-replay-gate` replays a Counter MBT ITF trace through
+  Foundry-etched EVM bytecode and passes.
 
 ## Workstream 2: Artifact Metadata
 

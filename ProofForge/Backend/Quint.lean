@@ -5,3 +5,4 @@ import ProofForge.Backend.Quint.Invariants
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
+import ProofForge.Backend.Quint.EvmReplay

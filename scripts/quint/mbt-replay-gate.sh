@@ -143,4 +143,7 @@ lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CliC
 lake env proof-forge emit --target quint --fixture assert -o build/quint/CliAssert.qnt
 lake env proof-forge emit --target quint --fixture unbounded-int -o build/quint/CliUnboundedInt.qnt
 
+echo "Running Quint EVM backend MBT replay gate..."
+"${REPO_ROOT}/scripts/quint/evm-backend-replay-gate.sh"
+
 echo "Quint MBT replay gate passed."

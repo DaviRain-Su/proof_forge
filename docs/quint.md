@@ -111,6 +111,19 @@ This lowers Counter, runs `quint run --mbt --out-itf`, parses the generated ITF
 trace, and replays every step against `ProofForge.IR.Semantics` to check that
 the abstract model and the executable IR agree on state transitions.
 
+## EVM backend MBT replay
+
+```sh
+just quint-evm-backend-replay-gate
+```
+
+This runs the Counter MBT flow above, emits portable IR bytecode for EVM,
+generates a Foundry test from the ITF trace (`ProofForge.Backend.Quint.EvmReplay`),
+and replays every `actionTaken` step against the etched runtime bytecode via
+`forge test`. The gate skips gracefully when `quint`, `forge`, or `solc` are
+missing locally; CI treats it as blocking (also invoked at the end of
+`just quint-mbt-gate`).
+
 ## Capabilities
 
 The Quint integration contributes these toolchain capabilities (see
