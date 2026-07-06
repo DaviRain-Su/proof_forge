@@ -161,10 +161,70 @@
 - 已完成：添加 `scripts/quint/model-check-gate.sh` 和
   `scripts/quint/mbt-replay-gate.sh`，当 `quint` 或 Java 17+ 不可用时优雅跳过；
   并通过 `just quint-model-gate` 和 `just quint-mbt-gate` 暴露。
-- 添加 ValueVault IR 固定装置，并扩展生成器/回放门以覆盖它。
-- 从场景 TOML 的 `[invariants]` 下解析手动不变式，并将其作为 Quint `val` 定义发射。
-- 随着相应 IR 语义覆盖范围的扩大，将支持的 IR 子集扩展到 map、数组、结构体和有界循环。
-- 当构建环境中可用 Java 17+ 时，考虑将 `quint verify` 加入默认 CI 路径。
+- 已完成：添加 ValueVault fixture 和 MBT replay gate
+  (`Tests/Quint/ValueVaultReplay.lean`)。
+- 已完成：解析 scenario TOML `[invariants]`，并发射 Quint `val` 定义
+  (`ProofForge.Backend.Quint.Scenario`, `Invariants.lean`)。
+- 已完成：把支持的 IR 子集扩展到 storage arrays、maps (get/has/set)、
+  struct field flattening，以及 `storagePath*` fixtures (`array`, `map`,
+  `map-path`, `map-nested-path`, `map-path-assign`, `struct`, `array-path`,
+  `struct-path`, `struct-dynamic-path`)；这些都接入 `just quint-mbt-gate`。
+- 已完成：标量 local assignment (`letMutBind`, `.assign`, `.assignOp` on
+  `.local` targets)，并用 `assignment` fixture 覆盖 `just quint-mbt-gate`。
+- 已完成：标量 `crosscallInvoke` / `crosscallInvokeTyped`（U64 return stub:
+  `target + method + sum(args)`），并用 `crosscall` fixture 覆盖 gate。
+- 已完成：crosscall args 覆盖 —— `call_with_args` entrypoint 会在
+  `crosscall` fixture 的 Model/Replay gate 中累加 nondet `amount` + `fee`。
+- 已完成：typed crosscall scalar returns —— `crosscallInvokeTyped` Bool/U32/Hash
+  stubs 在 Lower/Semantics 中 cast，并由 `call_remote_bool` /
+  `call_remote_u32` / `call_remote_hash` 覆盖 `crosscall` fixture gate。
+- 已完成：value/static/delegate typed crosscall stubs —— `crosscallInvokeValueTyped`
+  (+ callValue)、`crosscallInvokeStaticTyped` (+1_000_000 tag)、
+  `crosscallInvokeDelegateTyped` (+2_000_000 tag) 覆盖 `crosscall` fixture gate。
+- 已完成：`crosscallCreate` / `crosscallCreate2` stubs —— `callValue + 3_000_000`
+  以及 `callValue + salt + 4_000_000` 在 Lower/Semantics 中实现，并由
+  `deploy_create` / `deploy_create2` 覆盖 `crosscall` fixture gate。
+- 已完成：aggregate crosscall params/returns —— 将 struct 和 fixed-array leaves
+  flatten 成确定性的 sum slots，在 Lower/Semantics 中实现，并由
+  `call_remote_pair` / `call_remote_pair_arg` / `call_remote_array` /
+  `call_remote_array_arg` 覆盖 `crosscall` fixture gate。
+- 已完成：`.assert` / `.assertEq` statement guards，由 `assert` fixture 覆盖
+  `just quint-mbt-gate`；gate 会在 CLI emit smoke 前重建 `proof-forge`。
+- 已完成：hash-valued map `storagePathAssignOp` replace stub，由
+  `map-hash-path-assign` fixture 覆盖 `just quint-mbt-gate`。
+- 已完成：通过 generalized `mapKeyPath` lowering 支持三个及以上连续
+  `mapKey` `storagePath*` paths，并由 `map-triple-path` fixture 覆盖。
+- 已完成：通过 runtime braced segment composition 支持 literal + dynamic nested
+  `mapKey` `storagePath*` paths，并由 `map-nested-dynamic-path` fixture 覆盖。
+- 已完成：通过递归 flattening 和 `storagePath*` lowering 支持嵌套 `#[ref]`
+  struct fields，并由 `nested-struct-ref` fixture 覆盖。
+- 已完成：unbounded integers abstraction —— scenario `unbounded_integers` flag、
+  双域整数边界文档，以及 `unbounded-int` fixture 覆盖 `just quint-mbt-gate`。
+- 已完成：把 `quint verify` 加入默认 CI path：`just quint-model-gate`，并在
+  `.github/workflows/ci.yml` 中使用 Temurin Java 17。
+- 已完成：通过 `ProofForge.Backend.Quint.EvmReplay`、
+  `Tests/Quint/CounterEvmReplay.lean`、`scripts/quint/evm-backend-replay-gate.sh`
+  和 `just quint-evm-backend-replay-gate`，把采样 Quint MBT traces 回放到
+  EVM backend（Counter v1）。
+- 已完成：统一 `quint-ir-model-gate` (`scripts/quint/ir-model-gate.sh`,
+  `Tests/Quint/CounterIrModelGate.lean`, `Tests/Quint/ValueVaultIrModelGate.lean`,
+  `just quint-ir-model-gate`) 在一条 gate 中运行 emit → verify → MBT →
+  IR replay → Counter EVM replay；已接入 `just check` 和 CI（替代 CI 中独立的
+  `quint-model-gate`）。
+- 已完成：在 Counter 和 ValueVault 上支持 `contract_source` 的
+  `quint_invariant` annotations (`ProofForge.Contract.Spec.quintInvariants`,
+  CLI emit merge, `Tests/Quint/ContractSourceInvariants.lean`)；ValueVault
+  scenario TOML `[invariants]` 已移动到 contract source。
+- 已完成：Counter 上的 `contract_source` `quint_liveness` temporal annotations
+  (`ProofForge.Contract.Spec.quintLiveness`, `ProofForge.Backend.Quint.Liveness`,
+  scenario TOML `[liveness]`, `Tests/Quint/ContractSourceLiveness.lean`)。
+- 已完成：统一 testkit Quint ITF replay bridge (`testkit/harness-quint`,
+  `[[quint]]` scenario expectations, `testkit/scenarios/quint-counter.toml`
+  和 `quint-value-vault.toml`, `just testkit-quint`)，并接入
+  `just quint-mbt-gate`。
+- 已完成：通过 `proof-forge emit --target quint --format scenario` 自动生成
+  per-fixture `*.scenario.toml` (`ProofForge.Backend.Quint.Scenario.renderToml`,
+  `Tests/Quint/ScenarioEmit.lean`)。
 
 验收标准：
 
@@ -173,6 +233,10 @@
 - `quint run build/quint/Counter.qnt` 未找到不变式违反。
 - `just quint-mbt-gate` 生成 ITF 追踪并通过 IR 语义回放，测试通过。
 - `just quint-model-gate` 执行 `quint verify`，并在缺少 Java 17+ 时优雅跳过。
+- `just quint-evm-backend-replay-gate` 将 Counter MBT ITF trace 回放到
+  Foundry etched EVM bytecode，并通过。
+- `just quint-ir-model-gate` 在一条 gate 中运行完整的 Counter/ValueVault
+  Quint validation pipeline（emit、verify、MBT、IR replay 和 Counter EVM replay）。
 
 ## 工作流 2：制品元数据
 
