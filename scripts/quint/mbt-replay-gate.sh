@@ -37,6 +37,7 @@ lake env lean --run Tests/Quint/MapModel.lean
 lake env lean --run Tests/Quint/MapPathModel.lean
 lake env lean --run Tests/Quint/MapNestedPathModel.lean
 lake env lean --run Tests/Quint/MapTriplePathModel.lean
+lake env lean --run Tests/Quint/MapNestedDynamicPathModel.lean
 lake env lean --run Tests/Quint/MapPathAssignModel.lean
 lake env lean --run Tests/Quint/MapHashPathAssignModel.lean
 lake env lean --run Tests/Quint/StructModel.lean
@@ -78,6 +79,9 @@ lake env lean --run Tests/Quint/MapNestedPathReplay.lean
 echo "Running MapProbe triple path MBT replay test..."
 lake env lean --run Tests/Quint/MapTriplePathReplay.lean
 
+echo "Running MapProbe nested dynamic path MBT replay test..."
+lake env lean --run Tests/Quint/MapNestedDynamicPathReplay.lean
+
 echo "Running MapProbe path assign MBT replay test..."
 lake env lean --run Tests/Quint/MapPathAssignReplay.lean
 
@@ -118,6 +122,7 @@ lake env proof-forge emit --target quint --fixture map -o build/quint/CliMap.qnt
 lake env proof-forge emit --target quint --fixture map-path -o build/quint/CliMapPath.qnt
 lake env proof-forge emit --target quint --fixture map-nested-path -o build/quint/CliMapNestedPath.qnt
 lake env proof-forge emit --target quint --fixture map-triple-path -o build/quint/CliMapTriplePath.qnt
+lake env proof-forge emit --target quint --fixture map-nested-dynamic-path -o build/quint/CliMapNestedDynamicPath.qnt
 lake env proof-forge emit --target quint --fixture map-path-assign -o build/quint/CliMapPathAssign.qnt
 lake env proof-forge emit --target quint --fixture map-hash-path-assign -o build/quint/CliMapHashPathAssign.qnt
 lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStruct.qnt

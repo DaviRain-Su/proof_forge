@@ -322,6 +322,15 @@ def lowerAssignOp (op : AssignOp) : BinOp :=
   | .shiftLeft => .add
   | .shiftRight => .sub
 
+def hashKeySampleStrs : Array String := #[
+  "hash:1001:0:0:0",
+  "hash:2002:0:0:0",
+  "hash:3003:0:0:0"
+]
+
+def hashKeySamples : Array Expr :=
+  hashKeySampleStrs.map .literalStr
+
 mutual
   partial def lowerExpr (ctx : LowerCtx) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
     match e with
@@ -411,25 +420,74 @@ mutual
     | .literal (.u64 n) => some ("{u64:" ++ toString n ++ "}")
     | _ => none
 
-  partial def mapPathSegmentExpr (_ : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
-    match mapPathSegmentLiteral? key with
-    | some segment => .ok (.literalStr segment)
-    | none =>
-        .error { message := "map path key segments require literal keys in Quint lowering v1" }
+  partial def bracedHashSampleStr (sample : String) : String :=
+    "{" ++ sample ++ "}"
+
+  /-- Split consecutive literal mapKey prefix from a dynamic tail. -/
+  partial def splitLiteralPrefixDynamicTail (keys : Array ProofForge.IR.Expr) :
+      String × Array ProofForge.IR.Expr :=
+    let rec go (i : Nat) (accPrefix : String) (dynamic : Array ProofForge.IR.Expr) (seenDynamic : Bool) :
+        String × Array ProofForge.IR.Expr :=
+      if h : i < keys.size then
+        let key := keys[i]
+        if seenDynamic then
+          go (i + 1) accPrefix (dynamic.push key) true
+        else
+          match mapPathSegmentLiteral? key with
+          | some seg => go (i + 1) (accPrefix ++ seg) dynamic false
+          | none => go (i + 1) accPrefix (dynamic.push key) true
+      else
+        (accPrefix, dynamic)
+    go 0 "" #[] false
+
+  partial def dynamicMapKeyCondition (loweredKey sample : Expr) : Expr :=
+    .binOp .eq loweredKey sample
+
+  /-- Unfold a dynamic mapKey tail over the finite MBT hash sample domain. -/
+  partial def unfoldDynamicCompositeMapKeyExpr (ctx : LowerCtx) (litPrefix : String)
+      (dynKeys : Array ProofForge.IR.Expr) : Except LowerError Expr := do
+    if dynKeys.isEmpty then
+      .error { message := "dynamic map path requires at least one non-literal key segment" }
+    let loweredKeys ← dynKeys.mapM (lowerMapKeyExpr ctx)
+    let defaultComposite := litPrefix ++ bracedHashSampleStr hashKeySampleStrs[0]!
+    let rec buildCombo (idx : Nat) (accCond : Expr) (accSuffix : String) :
+        Except LowerError (Array (Expr × String)) := do
+      if h : idx < dynKeys.size then
+        let mut rows := #[]
+        for sampleStr in hashKeySampleStrs do
+          let sample := .literalStr sampleStr
+          let cond := dynamicMapKeyCondition loweredKeys[idx]! sample
+          let nextRows ← buildCombo (idx + 1) (.binOp .and accCond cond)
+            (accSuffix ++ bracedHashSampleStr sampleStr)
+          rows := rows ++ nextRows
+        pure rows
+      else
+        pure #[(accCond, litPrefix ++ accSuffix)]
+    let rows ← buildCombo 0 (.literalBool true) ""
+    let mut result := .literalStr defaultComposite
+    for (cond, composite) in rows do
+      result := .ite cond (.literalStr composite) result
+    pure result
+
+  partial def literalCompositeMapKey? (keys : Array ProofForge.IR.Expr) : Option String :=
+    let rec go (i : Nat) (acc : String) : Option String :=
+      if h : i < keys.size then
+        match mapPathSegmentLiteral? keys[i] with
+        | some seg => go (i + 1) (acc ++ seg)
+        | none => none
+      else
+        some acc
+    go 0 ""
 
   partial def compositeMapKeyExpr (ctx : LowerCtx) (keys : Array ProofForge.IR.Expr) : Except LowerError Expr := do
-    let some first := keys[0]?
-      | .error { message := "map path requires at least one key segment" }
-    let mut result ← mapPathSegmentExpr ctx first
-    for i in [1:keys.size] do
-      let some key := keys[i]?
-        | .error { message := "map path key segment missing during composition" }
-      let seg ← mapPathSegmentExpr ctx key
-      match result, seg with
-      | .literalStr s1, .literalStr s2 => result := .literalStr (s1 ++ s2)
-      | _, _ =>
-          .error { message := "multi-segment map path keys require literal keys in Quint lowering v1" }
-    pure result
+    match literalCompositeMapKey? keys with
+    | some composite => .ok (.literalStr composite)
+    | none =>
+      let (litPrefix, dynTail) := splitLiteralPrefixDynamicTail keys
+      if dynTail.isEmpty then
+        .error { message := "map path requires at least one key segment" }
+      else
+        unfoldDynamicCompositeMapKeyExpr ctx litPrefix dynTail
 
   /-- Single-segment keys use `u64:n` / `hash:...`; multi-segment keys use braced concatenation. -/
   partial def mapPathKeyExpr (ctx : LowerCtx) (keys : Array ProofForge.IR.Expr) : Except LowerError Expr := do
@@ -1029,12 +1087,6 @@ def initAction (state : Array StateDecl) (structs : Array StructDecl) : Except L
     body := body,
     ret? := none
   }
-
-def hashKeySamples : Array Expr := #[
-  .literalStr "hash:1001:0:0:0",
-  .literalStr "hash:2002:0:0:0",
-  .literalStr "hash:3003:0:0:0"
-]
 
 def paramDomainExpr (scenario : Scenario.Config) (t : QuintType) : Expr :=
   match t with

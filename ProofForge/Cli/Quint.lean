@@ -30,6 +30,7 @@ def supportedFixtureIds : Array String := #[
   "struct-path",
   "map-nested-path",
   "map-triple-path",
+  "map-nested-dynamic-path",
   "map-path-assign",
   "map-hash-path-assign",
   "struct-dynamic-path",
@@ -56,6 +57,7 @@ def outputFileName (fixtureId : String) : String :=
   | "struct-path" => "StructPathProbe.qnt"
   | "map-nested-path" => "MapNestedPathProbe.qnt"
   | "map-triple-path" => "MapTriplePathProbe.qnt"
+  | "map-nested-dynamic-path" => "MapNestedDynamicPathProbe.qnt"
   | "map-path-assign" => "MapPathAssignProbe.qnt"
   | "map-hash-path-assign" => "MapHashPathAssignProbe.qnt"
   | "struct-dynamic-path" => "StructDynamicPathProbe.qnt"
@@ -83,6 +85,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "struct-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintPathModule
   | "map-nested-path" => some ProofForge.IR.Examples.MapProbe.emitQuintNestedPathModule
   | "map-triple-path" => some ProofForge.IR.Examples.MapProbe.emitQuintTriplePathModule
+  | "map-nested-dynamic-path" => some ProofForge.IR.Examples.MapProbe.emitQuintNestedDynamicPathModule
   | "map-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintPathAssignModule
   | "map-hash-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintHashPathAssignModule
   | "struct-dynamic-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintDynamicStructPathModule

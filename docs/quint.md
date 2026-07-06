@@ -35,6 +35,7 @@ Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loo
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on
 maps), `map-nested-path` (two-segment consecutive `mapKey` paths on hash maps),
 `map-triple-path` (three-segment consecutive `mapKey` paths on hash maps),
+`map-nested-dynamic-path` (literal + dynamic nested `mapKey` paths on hash maps),
 `map-path-assign` (single- and nested-mapKey `storagePathAssignOp` on U64 maps),
 `map-hash-path-assign` (hash-valued map `storagePathAssignOp` replace stub),
 `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
@@ -118,8 +119,8 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   `target + method + sum(args)`), and `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
-Still out of scope for the first iteration: nested struct ref fields, dynamic
-nested `mapKey` path keys, value/static/delegate crosscall variants,
+Still out of scope for the first iteration: nested struct ref fields,
+value/static/delegate crosscall variants,
 `crosscallCreate`/`crosscallCreate2`, aggregate crosscall returns,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that

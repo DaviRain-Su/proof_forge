@@ -65,10 +65,12 @@ partial def emitExpr (prec : Nat) (e : Expr) : String :=
       s!"Map({entriesStr})"
   | .methodCall receiver method args =>
       let argsStr := emitList args
+      -- Receiver needs tighter precedence than `ite` (5) so `if ... else k.in(...)` parses correctly.
+      let recv := emitExpr 6 receiver
       if args.isEmpty then
-        s!"{emit receiver}.{method}()"
+        s!"{recv}.{method}()"
       else
-        s!"{emit receiver}.{method}({argsStr})"
+        s!"{recv}.{method}({argsStr})"
   | .ite cond thenExpr elseExpr =>
       wrap 5 s!"if ({emit cond}) {emit thenExpr} else {emit elseExpr}"
 
