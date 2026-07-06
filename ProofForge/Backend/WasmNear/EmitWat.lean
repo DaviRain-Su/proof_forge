@@ -70,6 +70,8 @@ export ProofForge.Backend.WasmNear.Crosscall (
   crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutu64Func
   crosscallArgsPutboolFunc crosscallArgsPuthashFunc
   crosscallArgsHelperFuncsForModulePlan crosscallGlobalsForModulePlan
+  poolLookupSetBody crosscallPoolPtrFunc crosscallPoolLenFunc
+  crosscallPoolHelperFuncs
 )
 
 export ProofForge.Backend.WasmNear.Diagnostics (
@@ -318,37 +320,6 @@ def assignOpName : AssignOp → String
   | .add => "add" | .sub => "sub" | .mul => "mul" | .div => "div_u" | .mod => "rem_u"
   | .bitAnd => "and" | .bitOr => "or" | .bitXor => "xor"
   | .shiftLeft => "shl" | .shiftRight => "shr_u"
-
-def poolLookupSetBody (strings : Array StringInfo) (field : StringInfo → Nat) : Array Insn :=
-  (Array.range strings.size).foldl (fun acc i =>
-    match strings[i]? with
-    | none => acc
-    | some si =>
-      acc ++ #[.localGet "idx", .i64Const i, .plain "i64.eq",
-        .if_ { insns := #[.i64Const (field si), .localSet "result"] } { insns := #[] }]) #[]
-
-def crosscallPoolPtrFunc (strings : Array StringInfo) : Func :=
-  { name := crosscallPoolPtrName,
-    params := #[{ name := "idx", type := .i64 }],
-    results := #[.i64],
-    locals := #[{ name := "result", type := .i64 }],
-    body := { insns :=
-      #[.i64Const 0, .localSet "result"] ++
-        poolLookupSetBody strings (fun si => si.ptr) ++
-        #[.localGet "result"] } }
-
-def crosscallPoolLenFunc (strings : Array StringInfo) : Func :=
-  { name := crosscallPoolLenName,
-    params := #[{ name := "idx", type := .i64 }],
-    results := #[.i64],
-    locals := #[{ name := "result", type := .i64 }],
-    body := { insns :=
-      #[.i64Const 0, .localSet "result"] ++
-        poolLookupSetBody strings (fun si => si.len) ++
-        #[.localGet "result"] } }
-
-def crosscallPoolHelperFuncs (strings : Array StringInfo) : Array Func :=
-  if strings.isEmpty then #[] else #[crosscallPoolPtrFunc strings, crosscallPoolLenFunc strings]
 
 def resolveCrosscallStringRef (ctx : Ctx) (e : Expr) (role : String) : Except EmitError StringInfo :=
   match e with

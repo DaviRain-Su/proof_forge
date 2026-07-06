@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Event
+import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
 
@@ -13,6 +14,7 @@ namespace ProofForge.Backend.WasmNear.Crosscall
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
 open ProofForge.Backend.WasmNear.Event
+open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Plan
 
@@ -90,5 +92,38 @@ def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
 
 def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=
   if plan.usesCrosscallArgs then #[crosscallPtrGlobalDecl] else #[]
+
+/-! Crosscall string-pool lookup helpers. -/
+
+def poolLookupSetBody (strings : Array StringInfo) (field : StringInfo → Nat) : Array Insn :=
+  (Array.range strings.size).foldl (fun acc i =>
+    match strings[i]? with
+    | none => acc
+    | some si =>
+      acc ++ #[.localGet "idx", .i64Const i, .plain "i64.eq",
+        .if_ { insns := #[.i64Const (field si), .localSet "result"] } { insns := #[] }]) #[]
+
+def crosscallPoolPtrFunc (strings : Array StringInfo) : Func :=
+  { name := crosscallPoolPtrName,
+    params := #[{ name := "idx", type := .i64 }],
+    results := #[.i64],
+    locals := #[{ name := "result", type := .i64 }],
+    body := { insns :=
+      #[.i64Const 0, .localSet "result"] ++
+        poolLookupSetBody strings (fun si => si.ptr) ++
+        #[.localGet "result"] } }
+
+def crosscallPoolLenFunc (strings : Array StringInfo) : Func :=
+  { name := crosscallPoolLenName,
+    params := #[{ name := "idx", type := .i64 }],
+    results := #[.i64],
+    locals := #[{ name := "result", type := .i64 }],
+    body := { insns :=
+      #[.i64Const 0, .localSet "result"] ++
+        poolLookupSetBody strings (fun si => si.len) ++
+        #[.localGet "result"] } }
+
+def crosscallPoolHelperFuncs (strings : Array StringInfo) : Array Func :=
+  if strings.isEmpty then #[] else #[crosscallPoolPtrFunc strings, crosscallPoolLenFunc strings]
 
 end ProofForge.Backend.WasmNear.Crosscall
