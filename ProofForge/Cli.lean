@@ -10,8 +10,6 @@ import ProofForge.Contract.Examples.Counter
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
-import ProofForge.Backend.WasmNear
-import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.Aleo.IR
 import ProofForge.Backend.CosmWasm.EmitWat
 import ProofForge.Backend.Move.Aptos
@@ -97,6 +95,7 @@ import ProofForge.Cli.SolanaCommands
 import ProofForge.Cli.FileUtil
 import ProofForge.Cli.PsyArtifacts
 import ProofForge.Cli.EmitWatArtifacts
+import ProofForge.Cli.WasmNearCommands
 import ProofForge.Cli.IrJson
 import ProofForge.Cli.EvmFixtures
 import ProofForge.Cli.LearnArtifacts
@@ -142,50 +141,6 @@ unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
     opts.reportFormat?
     opts.root?
     opts.moduleName?
-
-def compileCounterIrWasmNear (opts : CliOptions) : IO UInt32 := do
-  let some output := opts.output?
-    | throw <| IO.userError "wasm-near package emit mode requires -o output directory"
-  match ProofForge.Backend.WasmNear.IR.renderPackage ProofForge.IR.Examples.Counter.module with
-  | .ok pkg =>
-      writeNearPackage output pkg
-      IO.println s!"wrote wasm-near Counter package to {output}"
-      return 0
-  | .error err =>
-      throw <| IO.userError err.render
-
-def compileContextIrWasmNear (opts : CliOptions) : IO UInt32 := do
-  let some output := opts.output?
-    | throw <| IO.userError "wasm-near package emit mode requires -o output directory"
-  match ProofForge.Backend.WasmNear.IR.renderPackage ProofForge.IR.Examples.ContextProbe.module with
-  | .ok pkg =>
-      writeNearPackage output pkg
-      IO.println s!"wrote wasm-near ContextProbe package to {output}"
-      return 0
-  | .error err =>
-      throw <| IO.userError err.render
-
-def compileHashIrWasmNear (opts : CliOptions) : IO UInt32 := do
-  let some output := opts.output?
-    | throw <| IO.userError "wasm-near package emit mode requires -o output directory"
-  match ProofForge.Backend.WasmNear.IR.renderPackage ProofForge.IR.Examples.HashProbe.module with
-  | .ok pkg =>
-      writeNearPackage output pkg
-      IO.println s!"wrote wasm-near HashProbe package to {output}"
-      return 0
-  | .error err =>
-      throw <| IO.userError err.render
-
-def compileMapIrWasmNear (opts : CliOptions) : IO UInt32 := do
-  let some output := opts.output?
-    | throw <| IO.userError "wasm-near package emit mode requires -o output directory"
-  match ProofForge.Backend.WasmNear.IR.renderPackage ProofForge.IR.Examples.MapProbe.module with
-  | .ok pkg =>
-      writeNearPackage output pkg
-      IO.println s!"wrote wasm-near MapProbe package to {output}"
-      return 0
-  | .error err =>
-      throw <| IO.userError err.render
 
 def compileCounterIrLeo (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/aleo/Counter.leo")
