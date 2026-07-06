@@ -27,7 +27,10 @@ def replayIr (trace : ITF.Trace) : IO Unit :=
   | .ok () => pure ()
 
 def commandAvailable (name : String) : IO Bool := do
-  let out ← IO.Process.output { cmd := "command", args := #["-v", name] }
+  let out ← IO.Process.output {
+    cmd := "bash",
+    args := #["-lc", s!"command -v {name} >/dev/null 2>&1"]
+  }
   pure (out.exitCode == 0)
 
 def emitBytecode : IO Unit := do
