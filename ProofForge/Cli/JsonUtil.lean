@@ -12,7 +12,11 @@ module is the single source of truth. Consumers should `open ProofForge.Cli.Json
 or call qualified names instead of redefining these helpers.
 -/
 
+import ProofForge.Util.Json
+
 namespace ProofForge.Cli.JsonUtil
+
+open ProofForge.Util.Json
 
 /-- Escape a single character for JSON string content. -/
 def escapeJsonChar : Char → String
@@ -23,36 +27,30 @@ def escapeJsonChar : Char → String
   | '\t' => "\\t"
   | ch => ch.toString
 
-/-- Render a string as a JSON string literal (with surrounding quotes and escaping). -/
-def jsonString (value : String) : String :=
-  "\"" ++ String.intercalate "" (value.toList.map escapeJsonChar) ++ "\""
+/-- Re-export `Util.Json.jsonString` so CLI code that `open JsonUtil` keeps
+seeing it. The implementation lives in `ProofForge.Util.Json` and is shared
+with the Contract and Backend layers. -/
+def jsonString (value : String) : String := ProofForge.Util.Json.jsonString value
 
-/-- Render a Bool as a JSON literal. -/
-def jsonBool (value : Bool) : String :=
-  if value then "true" else "false"
+/-- Re-export `Util.Json.jsonBool`. -/
+def jsonBool (value : Bool) : String := ProofForge.Util.Json.jsonBool value
 
-/-- Render an Array of already-rendered JSON values as a JSON array. -/
-def jsonArray (values : Array String) : String :=
-  "[" ++ String.intercalate ", " values.toList ++ "]"
+/-- Re-export `Util.Json.jsonArray`. -/
+def jsonArray (values : Array String) : String := ProofForge.Util.Json.jsonArray values
 
-/-- Render an Array of strings as a JSON array of string literals. -/
-def jsonStringArray (values : Array String) : String :=
-  jsonArray (values.map jsonString)
+/-- Re-export `Util.Json.jsonStringArray`. -/
+def jsonStringArray (values : Array String) : String := ProofForge.Util.Json.jsonStringArray values
 
-/-- Render `some value` as a JSON string literal and `none` as `null`. -/
-def jsonStringOption : Option String → String
-  | some value => jsonString value
-  | none => "null"
+/-- Re-export `Util.Json.jsonStringOption`. -/
+def jsonStringOption : Option String → String := ProofForge.Util.Json.jsonStringOption
 
 /-- Render `some value` as a JSON number and `none` as `null`. -/
 def jsonNatOption : Option Nat → String
   | some value => toString value
   | none => "null"
 
-/-- Render an Array of (key, already-rendered value) pairs as a JSON object.
-The `": "` separator is human-readable and `json.loads`-compatible. -/
-def jsonObject (fields : Array (String × String)) : String :=
-  "{" ++ String.intercalate ", " (fields.toList.map fun field =>
-    jsonString field.fst ++ ": " ++ field.snd) ++ "}"
+/-- Re-export `Util.Json.jsonObject`. The `": "` separator is human-readable
+and `json.loads`-compatible. -/
+def jsonObject (fields : Array (String × String)) : String := ProofForge.Util.Json.jsonObject fields
 
 end ProofForge.Cli.JsonUtil
