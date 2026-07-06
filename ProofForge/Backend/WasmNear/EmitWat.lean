@@ -185,6 +185,7 @@ export ProofForge.Backend.WasmNear.Memory (
 
 export ProofForge.Backend.WasmNear.ModuleAssembly (
   moduleStringPoolEnd loweringCtxForModule dataSegmentsForModulePlan
+  helperFuncsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Params (
@@ -1063,14 +1064,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let hasPanic := !ctx.panics.isEmpty
   let isHost := mod.allocator.requiresHost
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic
-  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
-    powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
-    hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
-    evtHelperFuncsForModulePlan modulePlan ++ crosscallArgsHelperFuncsForModulePlan modulePlan ++
-    promiseHelperFuncsForModulePlan modulePlan ++
-    crosscallPoolHelperFuncs ctx.crosscallStrings ++
-    mapHelperFuncsForModulePlan modulePlan ++
-    mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
+  let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
   let arrPtrDecls :=
     if isHost || !modulePlanUsesArrHeap modulePlan then #[]
     else if mod.allocator.usesMinimalMallocShape then
