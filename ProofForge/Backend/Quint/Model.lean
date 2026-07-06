@@ -29,6 +29,7 @@ inductive BinOp where
   | add | sub | mul | div | mod
   | eq | ne | lt | le | gt | ge
   | and | or
+  deriving BEq
 
 def BinOp.symbol : BinOp → String
   | .add => "+"
@@ -59,6 +60,7 @@ def sanitizeName (name : String) : String :=
 /-- Unary operators supported in generated Quint expressions. -/
 inductive UnOp where
   | not | neg
+  deriving BEq
 
 def UnOp.symbol : UnOp → String
   | .not => "not"
@@ -82,7 +84,7 @@ inductive Expr where
   | mapLit (entries : Array (Expr × Expr))
   | methodCall (receiver : Expr) (method : String) (args : Array Expr)
   | ite (cond thenExpr elseExpr : Expr)
-  deriving Inhabited
+  deriving Inhabited, BEq
 
 /-- A clause inside an action body. -/
 inductive ActionClause where

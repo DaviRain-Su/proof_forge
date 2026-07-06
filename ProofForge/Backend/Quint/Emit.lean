@@ -78,7 +78,7 @@ partial def emitActionClause (depth : Nat) (clause : ActionClause) : String :=
   | .assign target value =>
       s!"{ind}{emitExpr 0 target} = {emitExpr 0 value}"
   | .guard expr =>
-      s!"{ind}{emitExpr 0 expr}"
+      s!"{ind}({emitExpr 0 expr})"
   | .call name args =>
       if args.isEmpty then
         ind ++ name

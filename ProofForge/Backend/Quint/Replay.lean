@@ -279,6 +279,38 @@ def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : E
 def entrypointMap (module : ProofForge.IR.Module) : Std.HashMap String Entrypoint :=
   module.entrypoints.foldl (fun m ep => m.insert (sanitizeName ep.name) ep) {}
 
+/-- Quint MBT sometimes leaves `mbt::actionTaken` empty for `step = any { nondet ... call }`. -/
+def nondetPickPresent (v : ITF.Value) : Bool :=
+  match v with
+  | .map entries =>
+      match entries.find? (fun (k, _) => k == .str "tag") with
+      | some (_, .str "Some") => true
+      | _ => false
+  | _ => false
+
+def inferActionFromPicks (module : ProofForge.IR.Module) (picks : List (String × ITF.Value)) :
+    Except ReplayError String := do
+  let candidates := module.entrypoints.filter (fun ep =>
+    !ep.params.isEmpty &&
+    ep.params.all (fun (n, _) =>
+      match picks.find? (fun (k, _) => k == n) with
+      | some (_, v) => nondetPickPresent v
+      | none => false))
+  match candidates.toList with
+  | [] => .error { message := "cannot infer entrypoint from nondet picks" }
+  | [ep] => .ok (sanitizeName ep.name)
+  | _ => .error { message := "ambiguous entrypoint inference from nondet picks" }
+
+def resolveActionName (module : ProofForge.IR.Module) (actionTaken : Option String)
+    (picks : List (String × ITF.Value)) : Except ReplayError String :=
+  match actionTaken with
+  | some name =>
+      if name.isEmpty then
+        inferActionFromPicks module picks
+      else
+        .ok name
+  | none => .error { message := "missing actionTaken in ITF state" }
+
 /-- Convert ITF nondet picks to IR argument values using the entrypoint's param types. -/
 def buildArgs (entrypoint : Entrypoint) (picks : List (String × ITF.Value)) : Except ReplayError (Array ProofForge.IR.Semantics.Value) := do
   let mut args := #[]
@@ -313,9 +345,7 @@ def replayTrace (module : ProofForge.IR.Module) (trace : ITF.Trace) : Except Rep
     match remaining with
     | [] => .ok ()
     | nextState :: rest => do
-        let actionName ← match nextState.actionTaken with
-          | some n => .ok n
-          | none => .error { message := s!"missing actionTaken at state {nextState.index}" }
+        let actionName ← resolveActionName module nextState.actionTaken nextState.nondetPicks
         let entrypoint ← match Std.HashMap.get? epMap actionName with
           | some ep => .ok ep
           | none => .error { message := s!"unknown entrypoint `{actionName}`" }

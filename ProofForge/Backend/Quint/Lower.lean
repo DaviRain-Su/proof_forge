@@ -38,6 +38,10 @@ def LocalEnv.upsert (name : String) (value : Expr) (env : LocalEnv) : LocalEnv :
 structure LowerCtx where
   locals : LocalEnv := []
   state : LocalEnv := []
+  /-- Parallel slot expressions rebuilt from `.local` bases for return cross-checks. -/
+  mutationTrack : LocalEnv := []
+  /-- Storage-path effects applied in the current entrypoint body (for return expectations). -/
+  effectTrace : Array Effect := #[]
   guards : Array ActionClause := #[]
   stateDecls : Array StateDecl := #[]
   structs : Array StructDecl := #[]
@@ -215,6 +219,11 @@ def isWhileStepLocal (name : String) : Bool :=
 
 def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
   match ctx.state.lookup stateId with
+  | some value => value
+  | none => .local stateId
+
+def LowerCtx.mutationTrackValue (ctx : LowerCtx) (stateId : String) : Expr :=
+  match ctx.mutationTrack.lookup stateId with
   | some value => value
   | none => .local stateId
 
@@ -418,6 +427,16 @@ mutual
       result := .ite cond atI result
     .ok result
 
+  partial def arrayStructFieldTrackReadExpr (ctx : LowerCtx) (stateId : String) (cap : Nat)
+      (index : ProofForge.IR.Expr) (fieldName : String) : Except LowerError Expr := do
+    let idx' ← lowerExpr ctx index
+    let mut result := .literalInt 0
+    for i in [0:cap] do
+      let cond := .binOp .eq idx' (.literalInt (Int.ofNat i))
+      let atI := ctx.mutationTrackValue (arrayStructFieldVarName stateId i fieldName)
+      result := .ite cond atI result
+    .ok result
+
   partial def arrayStructFieldWriteCtx (ctx : LowerCtx) (stateId : String) (cap : Nat)
       (index : ProofForge.IR.Expr) (fieldName : String) (value : ProofForge.IR.Expr)
       (combine : Expr → Expr → Expr → Expr) : Except LowerError LowerCtx := do
@@ -427,9 +446,14 @@ mutual
     for i in [0:cap] do
       let name := arrayStructFieldVarName stateId i fieldName
       let cond := .binOp .eq idx' (.literalInt (Int.ofNat i))
-      let cur := ctx.stateValue name
-      let updated := combine cond value' cur
-      nextCtx := { nextCtx with state := nextCtx.state.upsert name updated }
+      let curState := nextCtx.stateValue name
+      let curTrack := nextCtx.mutationTrackValue name
+      let updatedState := combine cond value' curState
+      let updatedTrack := combine cond value' curTrack
+      nextCtx := {
+        nextCtx with
+        state := nextCtx.state.upsert name updatedState,
+        mutationTrack := nextCtx.mutationTrack.upsert name updatedTrack }
     .ok nextCtx
 
   partial def targetReadExpr (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError Expr :=
@@ -440,6 +464,19 @@ mutual
         .ok (.index (ctx.stateValue stateId) (irIndexToQuint idx'))
     | .arrayStructFieldSlot stateId cap index fieldName =>
         arrayStructFieldReadExpr ctx stateId cap index fieldName
+    | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
+    | .nestedMapSlot stateId key1 key2 => do
+        let key' ← nestedMapKeyExpr ctx key1 key2
+        lowerMapGetAtKey ctx stateId key'
+
+  partial def targetTrackReadExpr (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError Expr :=
+    match target with
+    | .flatVar name => .ok (ctx.mutationTrackValue name)
+    | .arraySlot stateId _ index => do
+        let idx' ← lowerExpr ctx index
+        .ok (.index (ctx.mutationTrackValue stateId) (irIndexToQuint idx'))
+    | .arrayStructFieldSlot stateId cap index fieldName =>
+        arrayStructFieldTrackReadExpr ctx stateId cap index fieldName
     | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
     | .nestedMapSlot stateId key1 key2 => do
         let key' ← nestedMapKeyExpr ctx key1 key2
@@ -568,6 +605,54 @@ mutual
         | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }
 
+  partial def expectedReturnFromEffectTrace (ctx : LowerCtx) (eff : Effect) : Except LowerError (Option Expr) :=
+    match eff with
+    | .storagePathRead stateId _ =>
+        let (base, delta) := ctx.effectTrace.foldl (fun (acc : Option Nat × Nat) traced =>
+          match traced with
+          | .storagePathWrite sid _ value =>
+              if sid == stateId then
+                (irExprNat? value, acc.2)
+              else acc
+          | .storagePathAssignOp sid _ op value =>
+              if sid == stateId then
+                let nextDelta :=
+                  match op, irExprNat? value with
+                  | .add, some n => acc.2 + n
+                  | .sub, some n => acc.2 - n
+                  | _, _ => acc.2
+                (acc.1, nextDelta)
+              else acc
+          | _ => acc) (none, 0)
+        match base with
+        | some b => .ok (some (.literalInt (Int.ofNat (b + delta))))
+        | none => .ok none
+    | _ => .ok none
+
+  partial def lowerMutationTrackEffectExpr (ctx : LowerCtx) (eff : Effect) : Except LowerError Expr :=
+    match eff with
+    | .storageScalarRead stateId => .ok (ctx.mutationTrackValue stateId)
+    | .storageArrayRead stateId key => do
+        let key' ← lowerExpr ctx key
+        .ok (.index (ctx.mutationTrackValue stateId) (irIndexToQuint key'))
+    | .storageMapContains stateId key => do
+        let mapExpr := ctx.mutationTrackValue stateId
+        let key' ← lowerExpr ctx key
+        .ok (mapContainsExpr key' mapExpr)
+    | .storageMapGet stateId key => do
+        let key' ← lowerMapKeyExpr ctx key
+        lowerMapGetAtKey { ctx with state := ctx.mutationTrack } stateId key'
+    | .storagePathRead stateId path =>
+        match ctx.lookupStateDecl stateId with
+        | some decl =>
+            match resolveStoragePathTarget ctx.structs decl path with
+            | .ok target => targetTrackReadExpr ctx target
+            | .error err => .error err
+        | none => .error { message := s!"unknown state `{stateId}` for storagePathRead track read" }
+    | .storageStructFieldRead stateId fieldName =>
+        .ok (ctx.mutationTrackValue (structFieldVarName stateId fieldName))
+    | _ => lowerEffectExpr ctx eff
+
   partial def lowerMutatingEffectBinding (ctx : LowerCtx) (eff : Effect) :
       Except LowerError (LowerCtx × Expr) :=
     match eff with
@@ -629,20 +714,22 @@ mutual
         let value' ← lowerExpr ctx value
         let updated := .methodCall mapExpr "put" #[key', value']
         .ok { ctx with state := ctx.state.upsert stateId updated }
-    | .storagePathWrite stateId path value =>
-        match ctx.lookupStateDecl stateId with
-        | some decl =>
-            match resolveStoragePathTarget ctx.structs decl path with
-            | .ok target => targetWriteCtx ctx target value
-            | .error err => .error err
-        | none => .error { message := s!"unknown state `{stateId}` for storagePathWrite" }
-    | .storagePathAssignOp stateId path op value =>
-        match ctx.lookupStateDecl stateId with
-        | some decl =>
-            match resolveStoragePathTarget ctx.structs decl path with
-            | .ok target => targetAssignOpCtx ctx target op value
-            | .error err => .error err
-        | none => .error { message := s!"unknown state `{stateId}` for storagePathAssignOp" }
+    | .storagePathWrite stateId path value => do
+        let ctx' ← match ctx.lookupStateDecl stateId with
+          | some decl =>
+              match resolveStoragePathTarget ctx.structs decl path with
+              | .ok target => targetWriteCtx ctx target value
+              | .error err => .error err
+          | none => .error { message := s!"unknown state `{stateId}` for storagePathWrite" }
+        .ok { ctx' with effectTrace := ctx'.effectTrace.push (.storagePathWrite stateId path value) }
+    | .storagePathAssignOp stateId path op value => do
+        let ctx' ← match ctx.lookupStateDecl stateId with
+          | some decl =>
+              match resolveStoragePathTarget ctx.structs decl path with
+              | .ok target => targetAssignOpCtx ctx target op value
+              | .error err => .error err
+          | none => .error { message := s!"unknown state `{stateId}` for storagePathAssignOp" }
+        .ok { ctx' with effectTrace := ctx'.effectTrace.push (.storagePathAssignOp stateId path op value) }
     | .storageStructFieldWrite stateId fieldName value => do
         let value' ← lowerExpr ctx value
         .ok { ctx with
@@ -698,9 +785,12 @@ mutual
         let mergedState := mergeBranchState ctx cond thenCtx elseCtx
         let thenWrapped := wrapBranchGuards cond false thenCtx.guards
         let elseWrapped := wrapBranchGuards cond true elseCtx.guards
+        let branchGuards := thenWrapped ++ elseWrapped
+        let branchClause :=
+          if branchGuards.isEmpty then #[] else #[.any branchGuards]
         .ok { ctx with
           state := mergedState,
-          guards := ctx.guards ++ thenWrapped ++ elseWrapped }
+          guards := ctx.guards ++ branchClause }
     | .boundedFor indexName start stopExclusive body =>
         let mut stateAcc := ctx.state
         let mut guardsAcc := ctx.guards
@@ -751,11 +841,28 @@ mutual
           acc.upsert id (.local (whileStepLocalName id ctx.maxLoopUnroll))) []
         .ok { ctx with state := finalState, guards := guardsAcc, pureDefs := pureDefsAcc }
     | .return (.effect eff) => do
+        let (retExpr, expectedExpr) ← lowerReturnGuardPair ctx eff
+        let mut guards := ctx.guards
         match ← effectPresenceGuard ctx eff with
-        | some guard => .ok { ctx with guards := ctx.guards.push (.guard guard) }
-        | none => .ok ctx
-    | .return _ | .release _ =>
+        | some guard => guards := guards.push (.guard guard)
+        | none => pure ()
+        guards := guards.push (.guard (.binOp .eq retExpr expectedExpr))
+        .ok { ctx with guards := guards }
+    | .return value => do
+        let retExpr ← lowerExpr ctx value
+        .ok { ctx with guards := ctx.guards.push (.guard (.binOp .eq retExpr retExpr)) }
+    | .release _ =>
         .ok ctx
+
+  /-- Lower the read expression and its expected value for a return effect guard. -/
+  partial def lowerReturnGuardPair (ctx : LowerCtx) (eff : Effect) : Except LowerError (Expr × Expr) := do
+    let retExpr ← lowerEffectExpr ctx eff
+    let expectedExpr ← do
+      let folded? ← expectedReturnFromEffectTrace ctx eff
+      match folded? with
+      | some folded => pure folded
+      | none => lowerMutationTrackEffectExpr ctx eff
+    pure (retExpr, expectedExpr)
 
 end
 
@@ -864,26 +971,28 @@ def hashKeySamples : Array Expr := #[
   .literalStr "hash:3003:0:0:0"
 ]
 
-def paramDomainExpr (t : QuintType) : Expr :=
+def paramDomainExpr (scenario : Scenario.Config) (t : QuintType) : Expr :=
   match t with
   | .str => .oneOf (.local "USERS")
   | .hashStr => .oneOf (.setLit hashKeySamples)
-  | _ => .oneOf (.range (.literalInt 1) (.local "MAX_UINT"))
+  | _ =>
+      let low := if scenario.indexFromZero then .literalInt 0 else .literalInt 1
+      .oneOf (.range low (.local "MAX_UINT"))
 
-def entrypointStepCall (ep : Entrypoint) (params : Array (String × QuintType)) : ActionClause :=
+def entrypointStepCall (scenario : Scenario.Config) (ep : Entrypoint) (params : Array (String × QuintType)) : ActionClause :=
   let rec buildNondet (remaining : List (String × QuintType)) (call : ActionClause) : ActionClause :=
     match remaining with
     | [] => call
-    | (n, t) :: rest => buildNondet rest (.nondet n (paramDomainExpr t) call)
+    | (n, t) :: rest => buildNondet rest (.nondet n (paramDomainExpr scenario t) call)
   let baseCall := ActionClause.call (sanitizeName ep.name) (params.map (fun (n, _) => .local n))
   if params.isEmpty then
     baseCall
   else
     buildNondet params.toList.reverse baseCall
 
-def stepAction (entrypoints : Array Entrypoint) (loweredParams : Array (Array (String × QuintType))) : Action :=
+def stepAction (scenario : Scenario.Config) (entrypoints : Array Entrypoint) (loweredParams : Array (Array (String × QuintType))) : Action :=
   let pairs := Array.zip entrypoints loweredParams
-  let calls := pairs.map (fun (ep, params) => entrypointStepCall ep params)
+  let calls := pairs.map (fun (ep, params) => entrypointStepCall scenario ep params)
   {
     name := "step",
     body := ActionClause.any calls,
@@ -901,7 +1010,7 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
   let whilePureDefs := loweredEps.foldl (fun acc ep => acc ++ ep.pureDefs) #[]
   let epParams ← module.entrypoints.mapM (fun ep => do
     ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t)))
-  let step := stepAction module.entrypoints epParams
+  let step := stepAction scenario module.entrypoints epParams
   let vals ← match Invariants.derive module scenario with
     | .ok vs => .ok vs
     | .error e => .error { message := e }

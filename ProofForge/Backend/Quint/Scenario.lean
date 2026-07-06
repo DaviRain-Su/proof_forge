@@ -14,6 +14,8 @@ structure Config where
   maxSteps : Nat := 10
   maxLoopUnroll : Nat := 10
   nTraces : Nat := 10
+  /-- When true, nondet integer params sample `0..MAX_UINT` instead of `1..MAX_UINT`. -/
+  indexFromZero : Bool := false
   invariants : Array (String × String) := #[]
   deriving Repr, Inhabited
 

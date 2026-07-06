@@ -51,6 +51,11 @@ max_loop_unroll = 10
 n_traces = 20
 ```
 
+MBT tests that exercise `0..N` index parameters (for example
+`struct-dynamic-path`) set `indexFromZero := true` in
+`ProofForge.Backend.Quint.Scenario.Config` so Quint samples `0.to(MAX_UINT)`
+instead of the default `1.to(MAX_UINT)`.
+
 Scenario support is parsed by `ProofForge.Backend.Quint.Scenario` and is
 intentionally minimal in v1.
 

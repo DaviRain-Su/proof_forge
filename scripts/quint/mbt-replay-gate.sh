@@ -36,6 +36,7 @@ lake env lean --run Tests/Quint/MapPathAssignModel.lean
 lake env lean --run Tests/Quint/StructModel.lean
 lake env lean --run Tests/Quint/ArrayPathModel.lean
 lake env lean --run Tests/Quint/StructPathModel.lean
+lake env lean --run Tests/Quint/StructDynamicPathGuard.lean
 lake env lean --run Tests/Quint/StructDynamicPathModel.lean
 
 echo "Running Counter MBT replay test..."

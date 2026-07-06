@@ -16,6 +16,7 @@ def expectedSubstrings : Array String := #[
   "action increment: bool = all {",
   "count' = count + 1",
   "action get_: bool = all {",
+  "(count == count)",
   "count' = count",
   "action step = any {",
   "initialize",
