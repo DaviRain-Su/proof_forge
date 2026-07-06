@@ -20,7 +20,10 @@ structure Config where
       semantics. Only nondet entrypoint parameters stay bounded by `maxUint` (`MAX_UINT`).
       Set `unbounded_integers = false` in scenario TOML to document strict bounded models. -/
   unboundedIntegers : Bool := true
+  /-- Scenario TOML `[invariants]` entries. -/
   invariants : Array (String × String) := #[]
+  /-- `contract_source` `quint_invariant` annotations merged at emit time. -/
+  contractInvariants : Array (String × String) := #[]
   deriving Repr, Inhabited
 
 def Config.quintPureDefs (cfg : Config) : Array PureDef := #[

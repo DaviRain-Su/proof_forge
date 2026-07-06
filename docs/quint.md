@@ -32,6 +32,23 @@ lake env proof-forge emit --target quint --fixture assert -o build/quint/AssertP
 lake env proof-forge emit --target quint --fixture unbounded-int -o build/quint/UnboundedIntProbe.qnt
 ```
 
+### User invariants in `contract_source`
+
+Declare Quint safety invariants beside contract state:
+
+```lean
+contract_source Counter do
+  state count : .u64
+  quint_invariant countBounded := "count <= MAX_UINT"
+  ...
+end
+```
+
+Expressions use the same small language as scenario TOML `[invariants]`
+(`ProofForge.Backend.Quint.InvExpr`). Unsigned scalar state still gets
+auto-derived non-negativity `val`s. `proof-forge emit --target quint` merges
+`quint_invariant` annotations from the canonical `contract_source` spec.
+
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
 `while`, `array` (fixed-size storage array lifecycle), `map` (hash-keyed storage map
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on

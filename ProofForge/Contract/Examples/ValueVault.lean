@@ -19,6 +19,9 @@ contract_source ValueVault do
   state last_checkpoint : .u64
   state operations : .u64
 
+  quint_invariant totalCoversReleased := "balance + released + fees >= released"
+  quint_invariant totalCoversFees := "balance + released + fees >= fees"
+
   event VaultInitialized
   event ValueDeposited
   event ValueCharged

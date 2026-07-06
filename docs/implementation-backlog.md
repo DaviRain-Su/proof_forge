@@ -227,6 +227,10 @@ Tasks:
   `just quint-ir-model-gate`) runs emit → verify → MBT → IR replay → Counter EVM
   replay in one gate; wired into `just check` and CI (replacing standalone
   `quint-model-gate` in CI).
+- Done: `contract_source` `quint_invariant` annotations on Counter and
+  ValueVault (`ProofForge.Contract.Spec.quintInvariants`, CLI emit merge,
+  `Tests/Quint/ContractSourceInvariants.lean`); ValueVault scenario TOML
+  `[invariants]` moved to contract source.
 
 Acceptance criteria:
 

@@ -1,3 +1,4 @@
+import ProofForge.Contract.Examples.Counter
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
@@ -11,7 +12,8 @@ def scenario : Scenario.Config := {
   maxUint := 3,
   users := #["alice", "bob"],
   maxSteps := 5,
-  nTraces := 1
+  nTraces := 1,
+  contractInvariants := ProofForge.Contract.Examples.Counter.spec.quintInvariants
 }
 
 def generateModel : IO String :=

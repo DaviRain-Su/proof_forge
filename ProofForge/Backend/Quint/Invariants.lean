@@ -28,9 +28,6 @@ def deriveAuto (state : Array StateDecl) : Array Val :=
           none
     | _ => none)
 
-/-- Manual invariants for known fixtures (ValueVault v1).
-    In Phase 3 v1 these are hard-coded in Lean; later they move to
-    scenario config or contract_source annotations. -/
 def isValidQuintIdentifier (s : String) : Bool :=
   let chars := s.toList
   match chars with
@@ -68,11 +65,15 @@ def deriveManual (_module : ProofForge.IR.Module) (scenario : Scenario.Config) (
         vals := vals.push { name := name, body := body }
   .ok vals
 
+def scenarioInvariantEntries (scenario : Scenario.Config) : Array (String × String) :=
+  scenario.contractInvariants ++ scenario.invariants
+
 /-- Derive all invariants for a module. -/
 def derive (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except String (Array Val) := do
   let auto := deriveAuto module.state
   let reserved := reservedNamesForModule module scenario ++ auto.map (fun v => v.name)
-  let manual ← deriveManual module scenario reserved
+  let manualScenario := { scenario with invariants := scenarioInvariantEntries scenario }
+  let manual ← deriveManual module manualScenario reserved
   .ok (auto ++ manual)
 
 end ProofForge.Backend.Quint.Invariants

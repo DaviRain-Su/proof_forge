@@ -1,3 +1,4 @@
+import ProofForge.Contract.Examples.ValueVault
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
@@ -14,7 +15,9 @@ def loadScenario : IO Scenario.Config := do
   | .ok cfg => return cfg
   | .error msg => throw (IO.userError s!"scenario parse failed: {msg}")
 
-def scenario : IO Scenario.Config := loadScenario
+def scenario : IO Scenario.Config := do
+  let cfg ← loadScenario
+  pure { cfg with contractInvariants := ProofForge.Contract.Examples.ValueVault.spec.quintInvariants }
 
 def generateModel : IO String := do
   let s ← scenario

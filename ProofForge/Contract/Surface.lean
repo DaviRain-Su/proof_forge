@@ -51,6 +51,9 @@ def setUpgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit
 def setProxyPattern (pattern : ProofForge.Contract.ProxyPattern) : ModuleM Unit :=
   ProofForge.Contract.Builder.proxyPattern pattern
 
+def declareQuintInvariant (name expr : String) : ModuleM Unit :=
+  ProofForge.Contract.Builder.quintInvariant name expr
+
 def slot (id : String) (type : ValueType) : ScalarRef :=
   { id, type }
 

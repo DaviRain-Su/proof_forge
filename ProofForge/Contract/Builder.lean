@@ -17,6 +17,7 @@ structure ModuleBuilder where
   evmConstructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]
   upgradePolicy? : Option ProofForge.Contract.UpgradePolicy := none
   proxyPattern? : Option ProofForge.Contract.ProxyPattern := none
+  quintInvariants : Array (String × String) := #[]
   deriving Repr
 
 structure EntryBuilder where
@@ -45,6 +46,7 @@ def ModuleBuilder.toSpec (builder : ModuleBuilder) : ContractSpec :=
     proxyPattern? := builder.proxyPattern?
     evmConstructorParams := builder.evmConstructorParams
     evmConstructorInitBindings := builder.evmConstructorInitBindings
+    quintInvariants := builder.quintInvariants
   }
 
 def buildModule (name : String) (body : ModuleM Unit) : Module :=
@@ -108,6 +110,9 @@ def upgradePolicy (policy : ProofForge.Contract.UpgradePolicy) : ModuleM Unit :=
 
 def proxyPattern (pattern : ProofForge.Contract.ProxyPattern) : ModuleM Unit := do
   modify fun builder => { builder with proxyPattern? := some pattern }
+
+def quintInvariant (name expr : String) : ModuleM Unit := do
+  modify fun builder => { builder with quintInvariants := builder.quintInvariants.push (name, expr) }
 
 def mapState (id : String) (keyType type : ValueType) (capacity : Nat) : ModuleM Unit :=
   state id type (.map keyType capacity)

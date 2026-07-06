@@ -21,6 +21,8 @@ structure ContractSpec where
   proxyPattern? : Option ProxyPattern := none
   evmConstructorParams : Array EvmConstructorParam := #[]
   evmConstructorInitBindings : Array EvmConstructorInitBinding := #[]
+  /-- User-authored Quint safety invariants (`name`, expression string). -/
+  quintInvariants : Array (String × String) := #[]
   deriving Repr
 
 def moduleIntent (module : ProofForge.IR.Module) : Intent := {

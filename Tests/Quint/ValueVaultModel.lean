@@ -1,3 +1,4 @@
+import ProofForge.Contract.Examples.ValueVault
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.Quint.Lower
 
@@ -8,10 +9,7 @@ open ProofForge.Backend.Quint
 def scenario : Scenario.Config := {
   maxUint := 5,
   users := #["alice", "bob"],
-  invariants := #[
-    ("totalCoversReleased", "balance + released + fees >= released"),
-    ("totalCoversFees", "balance + released + fees >= fees")
-  ]
+  contractInvariants := ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
 }
 
 def main : IO UInt32 := do
