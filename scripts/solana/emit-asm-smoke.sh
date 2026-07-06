@@ -58,8 +58,10 @@ lake env proof-forge emit --target solana-sbpf-asm --fixture canned-entrypoint -
 [ -f "$ASM_OUTPUT" ] || fail "assembly file not written: $ASM_OUTPUT"
 [ -f "$ARTIFACT_OUTPUT" ] || fail "artifact metadata not written: $ARTIFACT_OUTPUT"
 
-# Verify artifact metadata records the correct target.
-grep -q '"target":"solana-sbpf-asm"' "$ARTIFACT_OUTPUT" \
+# Verify artifact metadata records the correct target. JSON separators
+# include a space after the colon (human-readable style), so match with a
+# flexible whitespace class.
+grep -qE '"target":[[:space:]]*"solana-sbpf-asm"' "$ARTIFACT_OUTPUT" \
   || fail "artifact metadata missing target: solana-sbpf-asm"
 
 echo "  emitted: $ASM_OUTPUT"
