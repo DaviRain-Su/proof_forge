@@ -721,6 +721,10 @@ error_pda_bump:
   mov64 r0, 11
   exit
 
+error_array_bounds:
+  mov64 r0, 12
+  exit
+
 error_syscall:
   mov64 r0, 10
   exit
