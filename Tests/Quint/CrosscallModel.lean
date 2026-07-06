@@ -16,9 +16,13 @@ def main : IO UInt32 := do
       let expected := [
         "module CrosscallProbeModel",
         "action call_remote",
+        "action call_with_args",
         "nondet target",
         "nondet method",
-        "target + method == target + method"
+        "nondet amount",
+        "nondet fee",
+        "target + method",
+        "target + method + amount + fee"
       ]
       for s in expected do
         if !source.contains s then

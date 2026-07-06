@@ -19,10 +19,20 @@ def callRemote : Entrypoint := {
   ]
 }
 
+def callWithArgs : Entrypoint := {
+  name := "call_with_args"
+  returns := .u64
+  params := #[("target", .u64), ("method", .u64), ("amount", .u64), ("fee", .u64)]
+  body := #[
+    .return (.crosscallInvoke (.local "target") (.local "method")
+      #[.local "amount", .local "fee"])
+  ]
+}
+
 def module : Module := {
   name := "CrosscallProbe"
   state := #[stateMarker]
-  entrypoints := #[callRemote]
+  entrypoints := #[callRemote, callWithArgs]
 }
 
 end ProofForge.IR.Examples.CrosscallProbe

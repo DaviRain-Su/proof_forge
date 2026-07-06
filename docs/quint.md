@@ -45,7 +45,8 @@ scalar arrays), `struct-path` (literal index+field `storagePath*` on array-of-st
 storage), `struct-dynamic-path` (dynamic index+field `storagePath*` on
 array-of-struct storage), `nested-struct-ref` (nested `#[ref]` struct fields via
 `storagePath*` on scalar and array-of-struct storage), `assignment` (scalar local `letMutBind`/`.assign`/`.assignOp`),
-`crosscall` (scalar `crosscallInvoke` U64 return stub), `assert` (`.assert` /
+`crosscall` (scalar `crosscallInvoke` U64 return stub with `target + method +
+sum(args)`), `assert` (`.assert` /
 `.assertEq` guards), and `unbounded-int` (U128 literals above `MAX_UINT` with
 bounded nondet parameters). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
