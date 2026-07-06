@@ -234,7 +234,8 @@ export ProofForge.Backend.WasmNear.Statement (
 )
 
 export ProofForge.Backend.WasmNear.Struct (
-  findStruct? structTotalSize structFieldOffset? structFieldType?
+  findStruct? ScalarStructStateInfo scalarStructStateInfo
+  structTotalSize structFieldOffset? structFieldType?
   structLitName isStructStorageFieldType isIndexedStorageValueType
   structStorageFieldsSupported structStorageFieldInfo zeroStructBufInsns readScalarStructBufInsns
   scalarStructFieldReadInsns scalarStructFieldWriteInsns
@@ -655,33 +656,19 @@ mutual
 
   partial def lowerScalarStructFieldRead (ctx : Ctx) (id fieldName : String)
       : Except EmitError (Array Insn × ValueType) := do
-    match findScalarState? ctx.scalars id with
-    | none => err s!"EmitWat: unknown scalar state `{id}`"
-    | some s => match s.type with
-      | .structType typeName =>
-        match findStruct? ctx.structs typeName with
-        | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd => do
-          let (off, ft) ← structStorageFieldInfo sd typeName fieldName "scalar"
-          .ok (scalarStructFieldReadInsns s sd off ft)
-      | _ => err s!"EmitWat: storageStructFieldRead expects a struct state, got `{s.type.name}`"
+    let stateInfo ← scalarStructStateInfo ctx.scalars ctx.structs id "storageStructFieldRead"
+    let (off, ft) ← structStorageFieldInfo stateInfo.structDecl stateInfo.typeName fieldName "scalar"
+    .ok (scalarStructFieldReadInsns stateInfo.state stateInfo.structDecl off ft)
 
   partial def lowerScalarStructFieldWriteValue (ctx : Ctx) (id fieldName : String)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn) := do
-    match findScalarState? ctx.scalars id with
-    | none => err s!"EmitWat: unknown scalar state `{id}`"
-    | some s => match s.type with
-      | .structType typeName =>
-        match findStruct? ctx.structs typeName with
-        | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd => do
-          let (off, ft) ← structStorageFieldInfo sd typeName fieldName "scalar"
-          if valueType != ft then
-            err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
-          else
-            .ok (scalarStructFieldWriteInsns s sd off ft valueInsns)
-      | _ => err s!"EmitWat: storageStructFieldWrite expects a struct state, got `{s.type.name}`"
+    let stateInfo ← scalarStructStateInfo ctx.scalars ctx.structs id "storageStructFieldWrite"
+    let (off, ft) ← structStorageFieldInfo stateInfo.structDecl stateInfo.typeName fieldName "scalar"
+    if valueType != ft then
+      err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+    else
+      .ok (scalarStructFieldWriteInsns stateInfo.state stateInfo.structDecl off ft valueInsns)
 
   partial def lowerScalarStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id fieldName : String) (value : Expr)
       : Except EmitError (Array Insn) := do

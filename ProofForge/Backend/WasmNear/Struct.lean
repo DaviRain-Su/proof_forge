@@ -23,6 +23,23 @@ open ProofForge.Backend.WasmNear.Types
 def findStruct? (structs : Array ProofForge.IR.StructDecl) (name : String) : Option ProofForge.IR.StructDecl :=
   structs.find? (fun s => s.name == name)
 
+structure ScalarStructStateInfo where
+  state : StateInfo
+  typeName : String
+  structDecl : ProofForge.IR.StructDecl
+
+def scalarStructStateInfo (scalars : Array StateInfo) (structs : Array ProofForge.IR.StructDecl)
+    (id operationName : String) : Except EmitError ScalarStructStateInfo :=
+  match findScalarState? scalars id with
+  | none => err s!"EmitWat: unknown scalar state `{id}`"
+  | some stateInfo =>
+    match stateInfo.type with
+    | .structType typeName =>
+      match findStruct? structs typeName with
+      | none => err s!"EmitWat: unknown struct `{typeName}`"
+      | some structDecl => .ok { state := stateInfo, typeName := typeName, structDecl := structDecl }
+    | _ => err s!"EmitWat: {operationName} expects a struct state, got `{stateInfo.type.name}`"
+
 /-- Field offset = prefix sum of `scalarWidth` of preceding fields; total size = sum all. -/
 def structTotalSize (s : ProofForge.IR.StructDecl) : Nat :=
   s.fields.foldl (fun acc f => acc + scalarWidth f.type) 0
