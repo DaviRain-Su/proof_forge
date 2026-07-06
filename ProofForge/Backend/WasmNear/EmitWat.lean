@@ -473,11 +473,8 @@ mutual
     | .shiftLeft a b => lowerNumBin ctx env "shl" a b
     | .shiftRight a b => lowerNumBin ctx env "shr_u" a b
     | .pow a b => do
-      let (la, ta) ← lowerExpr ctx env a
-      let (lb, tb) ← lowerExpr ctx env b
-      if !(isNumeric ta && ta == tb) then
-        err s!"EmitWat: `pow` expected matching U32/U64 operands, got `{ta.name}`/`{tb.name}`"
-      else .ok (la ++ lb ++ #[.call (powName ta)], ta)
+      let (la, lb, t) ← lowerMatchingNumericOperands ctx env "pow" a b
+      .ok (la ++ lb ++ #[.call (powName t)], t)
     | .eq a b => lowerCmp ctx env "eq" a b
     | .ne a b => lowerCmp ctx env "ne" a b
     | .lt a b => lowerCmp ctx env "lt_u" a b
@@ -596,13 +593,19 @@ mutual
       .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
-  partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
-      : Except EmitError (Array Insn × ValueType) := do
+  partial def lowerMatchingNumericOperands (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
+      : Except EmitError (Array Insn × Array Insn × ValueType) := do
     let (la, ta) ← lowerExpr ctx env a
     let (lb, tb) ← lowerExpr ctx env b
     if !(isNumeric ta && ta == tb) then
       err s!"EmitWat: `{op}` expected matching U32/U64 operands, got `{ta.name}`/`{tb.name}`"
-    else .ok (la ++ lb ++ #[.plain (widthOf ta ++ "." ++ op)], ta)
+    else
+      .ok (la, lb, ta)
+
+  partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    let (la, lb, t) ← lowerMatchingNumericOperands ctx env op a b
+    .ok (la ++ lb ++ #[.plain (widthOf t ++ "." ++ op)], t)
 
   partial def lowerCmp (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
       : Except EmitError (Array Insn × ValueType) := do
