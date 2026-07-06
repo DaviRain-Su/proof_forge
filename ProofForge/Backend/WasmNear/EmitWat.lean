@@ -361,15 +361,21 @@ mutual
     else
       .ok depositInsns
 
+  partial def lowerU32OrU64AsI64 (ctx : Ctx) (env : LocalTypes) (label : String) (value : Expr) :
+      Except EmitError (Array Insn) := do
+    let (valueInsns, valueType) ← lowerExpr ctx env value
+    if !(valueType == .u32 || valueType == .u64) then
+      err s!"EmitWat: {label} expected U32/U64, got `{valueType.name}`"
+    else
+      let conv := if valueType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
+      .ok (valueInsns ++ conv)
+
   partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (accountIndex method : Expr)
       (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
       err "EmitWat: NEAR crosscall pool invoke requires `module.nearCrosscallStrings` to be populated"
-    let (accountInsns, accountType) ← lowerExpr ctx env accountIndex
-    if !(accountType == .u32 || accountType == .u64) then
-      err s!"EmitWat: NEAR crosscall pool account index expected U32/U64, got `{accountType.name}`"
+    let accountConv ← lowerU32OrU64AsI64 ctx env "NEAR crosscall pool account index" accountIndex
     requireDuplicableExpr accountIndex "EmitWat: NEAR crosscall pool account index must be duplicable"
-    let accountConv := if accountType == .u64 then accountInsns else accountInsns ++ #[.plain "i64.extend_i32_u"]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
     let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
@@ -425,13 +431,8 @@ mutual
     ], .u64)
 
   partial def lowerNearPromiseResultIndex (ctx : Ctx) (env : LocalTypes) (index : Expr) :
-      Except EmitError (Array Insn) := do
-    let (indexInsns, indexType) ← lowerExpr ctx env index
-    if !(indexType == .u32 || indexType == .u64) then
-      err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
-    else
-      let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
-      .ok (indexInsns ++ conv)
+      Except EmitError (Array Insn) :=
+    lowerU32OrU64AsI64 ctx env "NEAR promise_result index" index
 
   partial def lowerExpr (ctx : Ctx) (env : LocalTypes) (e : Expr)
       : Except EmitError (Array Insn × ValueType) :=
