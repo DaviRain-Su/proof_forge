@@ -153,8 +153,8 @@ jobs:
       - name: Run Quint MBT replay gate
         run: just quint-mbt-gate
 
-      - name: Run Quint model-check gate
-        run: just quint-model-gate
+      - name: Run Quint IR model gate
+        run: just quint-ir-model-gate
 
       - name: Check EVM diagnostics
         run: just evm-diagnostics

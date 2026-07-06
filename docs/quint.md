@@ -100,6 +100,16 @@ quint verify build/quint/Counter.qnt --invariants countNonNegative --max-steps 1
 `just quint-model-gate` script will skip this step gracefully locally; CI
 installs Temurin 17 and runs the gate as a blocking check.
 
+## Unified IR model gate
+
+```sh
+just quint-ir-model-gate
+```
+
+Runs the full design-spec pipeline for Counter and ValueVault: CLI emit,
+`quint verify`, `quint run --mbt`, IR-semantics replay, and (for Counter)
+EVM Foundry backend replay.
+
 ## Model-based testing and IR replay
 
 ```sh
@@ -121,8 +131,9 @@ This runs the Counter MBT flow above, emits portable IR bytecode for EVM,
 generates a Foundry test from the ITF trace (`ProofForge.Backend.Quint.EvmReplay`),
 and replays every `actionTaken` step against the etched runtime bytecode via
 `forge test`. The gate skips gracefully when `quint`, `forge`, or `solc` are
-missing locally; CI treats it as blocking (also invoked at the end of
-`just quint-mbt-gate`).
+missing locally; CI treats it as blocking. The same EVM replay step is also
+available standalone via `just quint-evm-backend-replay-gate` and is included
+in `just quint-ir-model-gate`.
 
 ## Capabilities
 

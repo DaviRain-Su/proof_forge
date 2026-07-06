@@ -221,8 +221,12 @@ Tasks:
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 - Done: replay sampled Quint MBT traces through the EVM backend (Counter v1)
   via `ProofForge.Backend.Quint.EvmReplay`, `Tests/Quint/CounterEvmReplay.lean`,
-  `scripts/quint/evm-backend-replay-gate.sh`, and `just quint-evm-backend-replay-gate`
-  (also invoked at the end of `just quint-mbt-gate`).
+  `scripts/quint/evm-backend-replay-gate.sh`, and `just quint-evm-backend-replay-gate`.
+- Done: unified `quint-ir-model-gate` (`scripts/quint/ir-model-gate.sh`,
+  `Tests/Quint/CounterIrModelGate.lean`, `Tests/Quint/ValueVaultIrModelGate.lean`,
+  `just quint-ir-model-gate`) runs emit → verify → MBT → IR replay → Counter EVM
+  replay in one gate; wired into `just check` and CI (replacing standalone
+  `quint-model-gate` in CI).
 
 Acceptance criteria:
 
@@ -235,6 +239,8 @@ Acceptance criteria:
   when Java 17+ is missing.
 - `just quint-evm-backend-replay-gate` replays a Counter MBT ITF trace through
   Foundry-etched EVM bytecode and passes.
+- `just quint-ir-model-gate` runs the full Counter/ValueVault Quint validation
+  pipeline (emit, verify, MBT, IR replay, and Counter EVM replay) in one step.
 
 ## Workstream 2: Artifact Metadata
 
