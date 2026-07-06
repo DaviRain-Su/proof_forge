@@ -10,3 +10,4 @@ tools/cosmwasm-vm-runner/target/
 !Examples/Evm/Contracts/**/*.golden.yul
 scripts/__pycache__/
 .DS_Store
+.nvimlog
