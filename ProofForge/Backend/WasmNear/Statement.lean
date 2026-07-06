@@ -59,6 +59,9 @@ def storagePathAssignOpValueInsns (op : AssignOp) (currentInsns : Array Insn)
   else
     .ok (currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)])
 
+def dropResultInsns (valueInsns : Array Insn) : Array Insn :=
+  valueInsns ++ #[.drop]
+
 def ifElseInsns (conditionInsns thenInsns elseInsns : Array Insn) : Array Insn :=
   conditionInsns ++ #[.if_ { insns := thenInsns } { insns := elseInsns }]
 

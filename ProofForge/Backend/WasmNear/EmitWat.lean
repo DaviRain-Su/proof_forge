@@ -230,7 +230,7 @@ export ProofForge.Backend.WasmNear.Scalar (
 export ProofForge.Backend.WasmNear.Statement (
   localLetBindInsns localAssignInsns localAssignOpTargetType localAssignOpInsns
   storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
-  ifElseInsns boundedForInsns
+  dropResultInsns ifElseInsns boundedForInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -726,10 +726,10 @@ mutual
     match path.toList with
     | [.mapKey key] => do
       let (is, _) ← lowerMapWrite ctx env id key value
-      .ok (is ++ #[.drop])
+      .ok (dropResultInsns is)
     | [.index index] => do
       let (is, _) ← lowerStorageArrayWrite ctx env id index value
-      .ok (is ++ #[.drop])
+      .ok (dropResultInsns is)
     | [.field fieldName] => do
       if !canDuplicateExpr value then
         err "EmitWat: storagePathWrite field value must be a pure expression while STRUCT_BUF is the field patch buffer"
@@ -738,7 +738,7 @@ mutual
       lowerArrayStructFieldWrite ctx env id index fieldName value
     | [.mapKey key1, .mapKey key2] => do
       let (is, _) ← lowerNestedMapWrite ctx env id key1 key2 value
-      .ok (is ++ #[.drop])
+      .ok (dropResultInsns is)
     | _ => err "EmitWat: storagePathWrite supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
   partial def lowerStoragePathAssignOp (ctx : Ctx) (env : LocalTypes) (id : String) (path : Array StoragePathSegment)
@@ -752,7 +752,7 @@ mutual
       let (valueInsns, valueType) ← lowerExpr ctx env value
       let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerMapWriteValue ctx env id key computed currentType
-      .ok (writeInsns ++ #[.drop])
+      .ok (dropResultInsns writeInsns)
     | [.index index] => do
       if !canDuplicateExpr index then
         err "EmitWat: storagePathAssignOp index must be a pure expression until key temporaries are lowered"
@@ -761,7 +761,7 @@ mutual
       let (valueInsns, valueType) ← lowerExpr ctx env value
       let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerStorageArrayWriteValue ctx env id index computed currentType
-      .ok (writeInsns ++ #[.drop])
+      .ok (dropResultInsns writeInsns)
     | [.field fieldName] => do
       if !canDuplicateExpr value then
         err "EmitWat: storagePathAssignOp field value must be a pure expression while STRUCT_BUF is the field patch buffer"
@@ -784,7 +784,7 @@ mutual
       let (valueInsns, valueType) ← lowerExpr ctx env value
       let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerNestedMapWriteValue ctx env id key1 key2 computed currentType
-      .ok (writeInsns ++ #[.drop])
+      .ok (dropResultInsns writeInsns)
     | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
 end
@@ -837,10 +837,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     storageScalarAssignOpInsns s id op vis vt
   | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) => do
     let (is, _) ← lowerMapWrite ctx env id key value
-    .ok (is ++ #[.drop])
+    .ok (dropResultInsns is)
   | .effect (.storageArrayWrite id index value) => do
     let (is, _) ← lowerStorageArrayWrite ctx env id index value
-    .ok (is ++ #[.drop])
+    .ok (dropResultInsns is)
   | .effect (.storageArrayStructFieldWrite id index fieldName value) => do
     lowerArrayStructFieldWrite ctx env id index fieldName value
   | .effect (.eventEmit name fields) => lowerEventEmit ctx env name fields
