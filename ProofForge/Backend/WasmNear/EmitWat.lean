@@ -230,7 +230,7 @@ export ProofForge.Backend.WasmNear.Scalar (
 export ProofForge.Backend.WasmNear.Statement (
   localLetBindInsns localAssignInsns localAssignOpTargetType localAssignOpInsns
   storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
-  dropResultInsns requireDuplicableExpr ifElseInsns boundedForInsns
+  dropResultInsns appendInsnChunks requireDuplicableExpr ifElseInsns boundedForInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -446,7 +446,7 @@ mutual
         let (is, t) ← lowerExpr ctx env v
         if t != elementType then err s!"EmitWat: arrayLit element expected `{elementType.name}`, got `{t.name}`"
         else .ok is
-      .ok (lowered.foldl (fun acc is => acc ++ is) #[] ++ #[.call (arrayLitName elementType values.size)],
+      .ok (appendInsnChunks lowered ++ #[.call (arrayLitName elementType values.size)],
             .fixedArray elementType values.size)
     | .arrayGet array index => do
       let (pa, ta) ← lowerExpr ctx env array
@@ -478,7 +478,7 @@ mutual
             if vt != f.type then
               err s!"EmitWat: struct field `{typeName}.{f.id}` expected `{f.type.name}`, got `{vt.name}`"
             else .ok vis
-        .ok (argInsns.foldl (fun acc is => acc ++ is) #[] ++ #[.call (structLitName typeName)],
+        .ok (appendInsnChunks argInsns ++ #[.call (structLitName typeName)],
               .structType typeName)
     | .field base fieldName => do
       let (pb, tb) ← lowerExpr ctx env base

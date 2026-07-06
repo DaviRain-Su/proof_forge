@@ -64,6 +64,9 @@ def storagePathAssignOpValueInsns (op : AssignOp) (currentInsns : Array Insn)
 def dropResultInsns (valueInsns : Array Insn) : Array Insn :=
   valueInsns ++ #[.drop]
 
+def appendInsnChunks (chunks : Array (Array Insn)) : Array Insn :=
+  chunks.foldl (fun acc is => acc ++ is) #[]
+
 def requireDuplicableExpr (expr : Expr) (message : String) : Except EmitError Unit :=
   if canDuplicateExpr expr then .ok () else err message
 
