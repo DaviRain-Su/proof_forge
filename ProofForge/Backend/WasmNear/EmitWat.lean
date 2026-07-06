@@ -911,6 +911,7 @@ def crosscallArgsStartName : String := "__pf_crosscall_args_start"
 def crosscallArgsPutcName : String := "__pf_crosscall_args_putc"
 def crosscallArgsPutu64Name : String := "__pf_crosscall_args_putu64"
 def crosscallArgsPutboolName : String := "__pf_crosscall_args_putbool"
+def crosscallArgsPuthashName : String := "__pf_crosscall_args_puthash"
 
 def crosscallPtrGlobalDecl : Global :=
   { name := crosscallPtrGlobal, type := .i32, init := toString CROSSCALL_BUF, isMutable := true }
@@ -948,13 +949,32 @@ def crosscallArgsPutboolFunc : Func :=
       .if_ { insns := #[ .i32Const FALSE_PTR, .i32Const 5, .call crosscallArgsPutstrName ] }
          { insns := #[ .i32Const TRUE_PTR, .i32Const 4, .call crosscallArgsPutstrName ] } ] } }
 
+def crosscallArgsPuthashFunc : Func :=
+  { name := crosscallArgsPuthashName, params := #[{ name := "v", type := .i32 }],
+    locals := #[{ name := "i", type := .i32 }, { name := "b", type := .i32 }, { name := "hi", type := .i32 }, { name := "lo", type := .i32 }],
+    body := { insns := #[
+      .i32Const 0x22, .call crosscallArgsPutcName,
+      .i32Const 0, .localSet "i",
+      .block_ { insns := #[ .loop_ { insns := #[
+        .localGet "i", .i32Const 32, .plain "i32.eq", .brIf 1,
+        .localGet "v", .localGet "i", .plain "i32.add", .load "i32.load8_u" 0, .localSet "b",
+        .localGet "b", .i32Const 4, .plain "i32.shr_u", .i32Const 15, .plain "i32.and", .localSet "hi",
+        .i32Const HEX_LUT_PTR, .localGet "hi", .plain "i32.add", .load "i32.load8_u" 0, .call crosscallArgsPutcName,
+        .localGet "b", .i32Const 15, .plain "i32.and", .localSet "lo",
+        .i32Const HEX_LUT_PTR, .localGet "lo", .plain "i32.add", .load "i32.load8_u" 0, .call crosscallArgsPutcName,
+        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0
+      ] } ] },
+      .i32Const 0x22, .call crosscallArgsPutcName
+    ] } }
+
 def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   if !plan.usesCrosscallArgs then
     #[]
   else
     (if plan.usesEventNumeric then #[] else if plan.usesFmtU64 then #[fmtU64Func] else #[]) ++
       #[crosscallArgsStartFunc, crosscallArgsPutcFunc, crosscallArgsPutstrFunc, crosscallArgsPutu64Func,
-        crosscallArgsPutboolFunc]
+        crosscallArgsPutboolFunc] ++
+      (if plan.usesCrosscallHash then #[crosscallArgsPuthashFunc] else #[])
 
 def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=
   if plan.usesCrosscallArgs then #[crosscallPtrGlobalDecl] else #[]
@@ -1220,6 +1240,7 @@ mutual
     | .u64 => .ok (vis, #[.call crosscallArgsPutu64Name])
     | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
     | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
+    | .hash => .ok (vis, #[.call crosscallArgsPuthashName])
     | _ => err s!"EmitWat: NEAR crosscall argument type `{vt.name}` is not supported yet"
 
   partial def lowerCrosscallArgsJson (ctx : Ctx) (env : LocalTypes) (args : Array Expr) :

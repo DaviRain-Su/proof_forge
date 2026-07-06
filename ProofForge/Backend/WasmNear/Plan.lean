@@ -309,6 +309,7 @@ structure ModuleSurface where
   usesPromiseReturn : Bool := false
   usesPromiseReceiverAccount : Bool := false
   usesCrosscallArgs : Bool := false
+  usesCrosscallHash : Bool := false
   usesFmtU64 : Bool := false
   usesEventApi : Bool := false
   usesEventNumeric : Bool := false
@@ -364,6 +365,7 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
   usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
   usesCrosscallArgs := lhs.usesCrosscallArgs || rhs.usesCrosscallArgs
+  usesCrosscallHash := lhs.usesCrosscallHash || rhs.usesCrosscallHash
   usesFmtU64 := lhs.usesFmtU64 || rhs.usesFmtU64
   usesEventApi := lhs.usesEventApi || rhs.usesEventApi
   usesEventNumeric := lhs.usesEventNumeric || rhs.usesEventNumeric
@@ -460,6 +462,12 @@ def withPromiseResultU64 : ModuleSurface := {
 
 def withCrosscallArgs : ModuleSurface := {
   usesCrosscallArgs := true
+  usesMemcpy := true
+}
+
+def withCrosscallHash : ModuleSurface := {
+  usesCrosscallArgs := true
+  usesCrosscallHash := true
   usesMemcpy := true
 }
 
@@ -601,6 +609,7 @@ def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
   | .u64 | .u32 => mergeModuleSurfaces ModuleSurface.withCrosscallArgs ModuleSurface.withFmtU64
   | .bool => ModuleSurface.withCrosscallArgs
+  | .hash => ModuleSurface.withCrosscallHash
   | _ => ModuleSurface.withCrosscallArgs
 
 def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
@@ -1141,6 +1150,7 @@ structure ModulePlan where
   usesPromiseReturn : Bool
   usesPromiseReceiverAccount : Bool
   usesCrosscallArgs : Bool
+  usesCrosscallHash : Bool
   usesFmtU64 : Bool
   usesEventApi : Bool
   usesEventNumeric : Bool
@@ -1186,6 +1196,7 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesPromiseReturn := surface.usesPromiseReturn
     usesPromiseReceiverAccount := surface.usesPromiseReceiverAccount
     usesCrosscallArgs := surface.usesCrosscallArgs
+    usesCrosscallHash := surface.usesCrosscallHash
     usesFmtU64 := surface.usesFmtU64
     usesEventApi := surface.usesEventApi
     usesEventNumeric := surface.usesEventNumeric

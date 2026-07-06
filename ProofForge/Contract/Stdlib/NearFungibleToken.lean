@@ -179,7 +179,7 @@ contract_mixin NearFungibleTokenMixin do
           (ProofForge.Contract.Surface.cast (ProofForge.Contract.Surface.ref receiver_idx) .u64)
           (u64 ftReceiverBaseIdx))
         (ProofForge.Contract.Surface.nearAddressLit ftMethodOnTransferIdx)
-        #[ProofForge.Contract.Surface.ref amount]
+        #[ProofForge.Contract.Surface.ref sender, ProofForge.Contract.Surface.ref amount]
         (u64 0))
       (ProofForge.Contract.Surface.nearAddressLit ftMethodResolveIdx)
       #[] (u64 0);
@@ -188,8 +188,9 @@ contract_mixin NearFungibleTokenMixin do
     let unused : .u64 := ProofForge.Contract.Surface.nearPromiseResultU64 (u64 0);
     let sender : .hash := pendingSender;
     let receiver : .hash := pendingReceiver;
+    let amount : .u64 := pendingAmount;
     do refundFtUnused (expr sender) (expr receiver) (expr unused);
-    return u64 0;
+    return amount -! unused;
 
 contract_source NearFungibleToken do
   use mixin

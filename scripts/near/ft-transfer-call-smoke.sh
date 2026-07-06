@@ -67,7 +67,7 @@ PY
 
 rm -rf "$OUT_DIR"
 
-lake build proof-forge >/dev/null
+lake build proof-forge ProofForge.Contract.Stdlib.NearFungibleToken >/dev/null
 lake env proof-forge build --target wasm-near --root . -o "$OUT_DIR" \
   Examples/WasmNear/FungibleToken.lean
 test -s "$WAT"
@@ -94,12 +94,12 @@ assert_contains "$out" "call 1:ft_mint: return=<none>" "mint call"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after mint"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"
-assert_contains "$out" "promise_create id=0 account=demo.receiver.testnet method=ft_on_transfer args=[70] deposit=0 gas=50000000000000" "promise_create trace"
+assert_contains "$out" "promise_create id=0 account=demo.receiver.testnet method=ft_on_transfer args=[\"$SENDER_HASH\",70] deposit=0 gas=50000000000000" "promise_create trace"
 assert_contains "$out" "promise_then id=1 parent=0 account=proof-forge.testnet method=ft_resolve_transfer args=[] deposit=0 gas=50000000000000" "promise_then trace"
 assert_contains "$out" "promise_return id=1" "promise_return trace"
 assert_order "$out" "promise_create id=0" "promise_then id=1 parent=0"
 assert_contains "$out" "promise_result index=0 status=1 return_u64=25" "promise result stub"
-assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=0000000000000000 return_u64=0" "resolve return"
+assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=2d00000000000000 return_u64=45" "resolve used amount"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=1e00000000000000 return_u64=30" "sender balance before resolve"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=4600000000000000 return_u64=70" "receiver balance before resolve"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=3700000000000000 return_u64=55" "sender balance after refund"
