@@ -114,10 +114,12 @@ import ProofForge.Solana.Examples.Memory
 import ProofForge.Solana.Examples.Crypto
 import ProofForge.Solana.Examples.ReturnDataCompute
 import ProofForge.Cli.JsonUtil
+import ProofForge.Cli.HexUtil
 
 open Lean
 open System
 open ProofForge.Cli.JsonUtil
+open ProofForge.Cli.HexUtil
 
 namespace ProofForge.Cli
 
@@ -667,25 +669,8 @@ def parseModuleName (s : String) : Name :=
   s.splitOn "." |>.foldl (init := Name.anonymous) fun acc part =>
     if part.isEmpty then acc else acc.str part
 
-def trimAsciiString (s : String) : String :=
-  s.trimAscii.toString
-
 def dropEndString (s : String) (n : Nat) : String :=
   (s.dropEnd n).toString
-
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then (s.drop 2).toString else s
-
-def lowerHexString (s : String) : String :=
-  String.intercalate "" <| s.toList.map fun ch =>
-    match ch with
-    | 'A' => "a"
-    | 'B' => "b"
-    | 'C' => "c"
-    | 'D' => "d"
-    | 'E' => "e"
-    | 'F' => "f"
-    | _ => ch.toString
 
 def leanBaseName (input : FilePath) : String :=
   let fileName := input.fileName.getD input.toString
@@ -705,60 +690,6 @@ def defaultYulOutput (input : FilePath) : FilePath :=
 
 def defaultBytecodeYulOutput (bytecodeOutput : FilePath) : FilePath :=
   bytecodeOutput.withExtension "yul"
-
-def isHexChar (c : Char) : Bool :=
-  c.isDigit || "abcdefABCDEF".contains c
-
-def isHexString (s : String) : Bool :=
-  !s.isEmpty && s.all isHexChar
-
-def repeatString : Nat → String → String
-  | 0, _ => ""
-  | n+1, s => s ++ repeatString n s
-
-def hexDigit (value : Nat) : String :=
-  match value with
-  | 0 => "0"
-  | 1 => "1"
-  | 2 => "2"
-  | 3 => "3"
-  | 4 => "4"
-  | 5 => "5"
-  | 6 => "6"
-  | 7 => "7"
-  | 8 => "8"
-  | 9 => "9"
-  | 10 => "a"
-  | 11 => "b"
-  | 12 => "c"
-  | 13 => "d"
-  | 14 => "e"
-  | _ => "f"
-
-partial def natToHex (value : Nat) : String :=
-  if value < 16 then
-    hexDigit value
-  else
-    natToHex (value / 16) ++ hexDigit (value % 16)
-
-def byteLimit : Nat → Nat
-  | 0 => 1
-  | n+1 => 256 * byteLimit n
-
-def fixedHexBytes (byteCount value : Nat) : String :=
-  let raw := natToHex value
-  repeatString (byteCount * 2 - raw.length) "0" ++ raw
-
-def normalizeConstructorArgsHex (value : String) : Except String String :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.isEmpty then
-    .ok ""
-  else if hex.length % 2 != 0 then
-    .error "--evm-constructor-args-hex must have an even number of hex digits"
-  else if !hex.all isHexChar then
-    .error "--evm-constructor-args-hex must contain only hex digits"
-  else
-    .ok (lowerHexString hex)
 
 def supportedConstructorAbiTypes : Array String :=
   #["uint256", "uint64", "uint32", "bool", "bytes32", "address", "string", "bytes", "uint256[]"]
@@ -808,51 +739,6 @@ def parseConstructorValueSpec (s : String) : Except String ConstructorValueSpec 
   | _ =>
       .error s!"invalid constructor argument spec '{s}', expected name=value"
 
-def hexCharValue! : Char → Nat
-  | '0' => 0
-  | '1' => 1
-  | '2' => 2
-  | '3' => 3
-  | '4' => 4
-  | '5' => 5
-  | '6' => 6
-  | '7' => 7
-  | '8' => 8
-  | '9' => 9
-  | 'a' | 'A' => 10
-  | 'b' | 'B' => 11
-  | 'c' | 'C' => 12
-  | 'd' | 'D' => 13
-  | 'e' | 'E' => 14
-  | _ => 15
-
-def parseHexNat (value name : String) : Except String Nat :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.isEmpty then
-    .error s!"{name} must not be empty"
-  else if !hex.all isHexChar then
-    .error s!"{name} must contain only hex digits"
-  else
-    .ok (hex.toList.foldl (fun acc ch => acc * 16 + hexCharValue! ch) 0)
-
-def parseUnsignedNat (value name : String) : Except String Nat :=
-  let value := trimAsciiString value
-  if value.startsWith "0x" || value.startsWith "0X" then
-    parseHexNat value name
-  else
-    match value.toNat? with
-    | some n => .ok n
-    | none => .error s!"{name} must be an unsigned decimal integer or 0x-prefixed hex integer"
-
-def normalizeExactHexBytes (value name : String) (bytes : Nat) : Except String String :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.length != bytes * 2 then
-    .error s!"{name} must be exactly {bytes} byte(s)"
-  else if !hex.all isHexChar then
-    .error s!"{name} must contain only hex digits"
-  else
-    .ok (lowerHexString hex)
-
 def encodeUintConstructorArg (name value : String) (bytes : Nat) : Except String String := do
   let n ← parseUnsignedNat value s!"constructor argument `{name}`"
   if n < byteLimit bytes then
@@ -865,24 +751,6 @@ def encodeBoolConstructorArg (name value : String) : Except String String :=
   | "true" | "True" | "TRUE" | "1" => .ok (fixedHexBytes 32 1)
   | "false" | "False" | "FALSE" | "0" => .ok (fixedHexBytes 32 0)
   | _ => .error s!"constructor argument `{name}` must be true, false, 1, or 0"
-
-def byteToHex (byte : UInt8) : String :=
-  let value := byte.toNat
-  hexDigit (value / 16) ++ hexDigit (value % 16)
-
-def byteArrayToHex (bytes : ByteArray) : String := Id.run do
-  let mut hex := ""
-  for idx in [0:bytes.size] do
-    hex := hex ++ byteToHex (bytes[idx]!)
-  return hex
-
-def padHexTo32ByteBoundary (hex : String) : String :=
-  let byteCount := hex.length / 2
-  let rem := byteCount % 32
-  if rem == 0 then
-    hex
-  else
-    hex ++ repeatString ((32 - rem) * 2) "0"
 
 def encodeDynamicBytesTail (dataHex : String) (byteLen : Nat) : String :=
   fixedHexBytes 32 byteLen ++ padHexTo32ByteBoundary dataHex

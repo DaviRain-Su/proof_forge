@@ -5,6 +5,7 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.JsonUtil
+import ProofForge.Cli.HexUtil
 import ProofForge.IR.Examples.ContextProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
@@ -14,6 +15,7 @@ import ProofForge.Target.Registry
 
 open System Lean
 open ProofForge.Cli.JsonUtil
+open ProofForge.Cli.HexUtil
 
 namespace ProofForge.Cli.Check
 
@@ -45,9 +47,6 @@ structure Report where
   diagnostics : Array Diagnostic := #[]
   validation : Array (String × String) := #[]
   deriving Inhabited
-
-def trimAsciiString (s : String) : String :=
-  s.trimAscii.toString
 
 def parseDiagnosticSource? (message : String) : Option String :=
   match message.splitOn " at `" with
