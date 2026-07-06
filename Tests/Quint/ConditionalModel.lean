@@ -17,9 +17,8 @@ def main : IO UInt32 := do
         "module ConditionalProbeModel",
         "var count: int",
         "action conditional_lifecycle",
-        "count' = if (1 == 1) 4 else 99",
-        "count' = if (count < 2) 100 else count + 6",
-        "count == 10"
+        "count' = if ((if (1 == 1) 4 else 99) < 2)",
+        "== 10"
       ]
       for s in expected do
         if !source.contains s then

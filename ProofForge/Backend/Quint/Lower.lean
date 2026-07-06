@@ -28,6 +28,23 @@ def LocalEnv.lookup (name : String) (env : LocalEnv) : Option Expr :=
 def LocalEnv.bind (name : String) (value : Expr) (env : LocalEnv) : LocalEnv :=
   (name, value) :: env
 
+def LocalEnv.upsert (name : String) (value : Expr) (env : LocalEnv) : LocalEnv :=
+  match env with
+  | [] => [(name, value)]
+  | (k, v) :: rest =>
+      if k == name then (name, value) :: rest else (k, v) :: LocalEnv.upsert name value rest
+
+/-- Lowering context: local bindings, shadowed state values, and guards. -/
+structure LowerCtx where
+  locals : LocalEnv := []
+  state : LocalEnv := []
+  guards : Array ActionClause := #[]
+
+def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
+  match ctx.state.lookup stateId with
+  | some value => value
+  | none => .local stateId
+
 def lowerType (t : ValueType) : Except LowerError QuintType := do
   match t with
   | .unit => .ok .int
@@ -61,134 +78,129 @@ def lowerAssignOp (op : AssignOp) : BinOp :=
   | .shiftRight => .sub
 
 mutual
-  partial def lowerExpr (env : LocalEnv) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
+  partial def lowerExpr (ctx : LowerCtx) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
     match e with
     | .literal lit => lowerLiteral lit
     | .local name =>
-        match env.lookup name with
+        match ctx.locals.lookup name with
         | some expr => .ok expr
         | none => .ok (.local name)
-    | .add lhs rhs => .ok (.binOp .add (← lowerExpr env lhs) (← lowerExpr env rhs))
+    | .add lhs rhs => .ok (.binOp .add (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
     | .sub lhs rhs =>
-        -- IR semantics uses Nat subtraction (clamps to 0), so mirror that in Quint.
-        let l ← lowerExpr env lhs
-        let r ← lowerExpr env rhs
+        let l ← lowerExpr ctx lhs
+        let r ← lowerExpr ctx rhs
         .ok (.ite (.binOp .ge l r) (.binOp .sub l r) (.literalInt 0))
-    | .mul lhs rhs => .ok (.binOp .mul (← lowerExpr env lhs) (← lowerExpr env rhs))
+    | .mul lhs rhs => .ok (.binOp .mul (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
     | .div lhs rhs =>
-        -- IR semantics returns 0 on division by zero.
-        let l ← lowerExpr env lhs
-        let r ← lowerExpr env rhs
+        let l ← lowerExpr ctx lhs
+        let r ← lowerExpr ctx rhs
         .ok (.ite (.binOp .eq r (.literalInt 0)) (.literalInt 0) (.binOp .div l r))
-    | .mod lhs rhs => .ok (.binOp .mod (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .eq lhs rhs => .ok (.binOp .eq (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .ne lhs rhs => .ok (.binOp .ne (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .lt lhs rhs => .ok (.binOp .lt (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .le lhs rhs => .ok (.binOp .le (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .gt lhs rhs => .ok (.binOp .gt (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .ge lhs rhs => .ok (.binOp .ge (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .boolAnd lhs rhs => .ok (.binOp .and (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .boolOr lhs rhs => .ok (.binOp .or (← lowerExpr env lhs) (← lowerExpr env rhs))
-    | .boolNot value => .ok (.unOp .not (← lowerExpr env value))
-    | .cast value _ => lowerExpr env value
-    | .effect eff => lowerEffectExpr env eff
+    | .mod lhs rhs => .ok (.binOp .mod (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .eq lhs rhs => .ok (.binOp .eq (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .ne lhs rhs => .ok (.binOp .ne (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .lt lhs rhs => .ok (.binOp .lt (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .le lhs rhs => .ok (.binOp .le (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .gt lhs rhs => .ok (.binOp .gt (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .ge lhs rhs => .ok (.binOp .ge (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .boolAnd lhs rhs => .ok (.binOp .and (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .boolOr lhs rhs => .ok (.binOp .or (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .boolNot value => .ok (.unOp .not (← lowerExpr ctx value))
+    | .cast value _ => lowerExpr ctx value
+    | .effect eff => lowerEffectExpr ctx eff
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
-  partial def lowerEffectExpr (env : LocalEnv) (eff : Effect) : Except LowerError Expr :=
+  partial def lowerEffectExpr (ctx : LowerCtx) (eff : Effect) : Except LowerError Expr :=
     match eff with
-    | .storageScalarRead stateId => .ok (.local stateId)
+    | .storageScalarRead stateId => .ok (ctx.stateValue stateId)
     | .contextRead field =>
-        -- Phase 3 v1: the executable IR semantics returns a fixed U64(0) for
-        -- all block/caller context fields. Mirror that in the model so MBT
-        -- traces replay without mismatch.
         match field with
         | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
             .ok (.literalInt 0)
         | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }
 
-  partial def lowerEffectStmt (env : LocalEnv) (eff : Effect) : Except LowerError (Option ActionClause) := do
+  partial def applyEffect (ctx : LowerCtx) (eff : Effect) : Except LowerError LowerCtx := do
     match eff with
     | .storageScalarWrite stateId value =>
-        .ok (some (.assign (.prime (.local stateId)) (← lowerExpr env value)))
+        let value' ← lowerExpr ctx value
+        .ok { ctx with state := ctx.state.upsert stateId value' }
     | .storageScalarAssignOp stateId op value =>
+        let cur := ctx.stateValue stateId
+        let value' ← lowerExpr ctx value
         let qop := lowerAssignOp op
-        .ok (some (.assign (.prime (.local stateId))
-          (.binOp qop (.local stateId) (← lowerExpr env value))))
+        .ok { ctx with state := ctx.state.upsert stateId (.binOp qop cur value') }
     | .eventEmit _ _ =>
-        -- Events are no-ops in the generated model for v1. Keep a `true`
-        -- guard so event-only actions still produce valid (non-empty) `all` blocks.
-        .ok (some (.guard (.literalBool true)))
+        .ok { ctx with guards := ctx.guards.push (.guard (.literalBool true)) }
     | _ => .error { message := "unsupported effect statement for Quint lowering v1" }
 
-  partial def lowerStatements (env : LocalEnv) (stmts : Array Statement) : Except LowerError (LocalEnv × Array ActionClause) := do
-    let (env', clauses) ← stmts.foldlM (fun (env, acc) stmt => do
-      let (env', clause?) ← lowerStatement env stmt
-      pure (env', match clause? with | some c => acc.push c | none => acc)) (env, #[])
-    .ok (env', clauses)
+  partial def mergeBranchState (pre : LowerCtx) (cond : Expr) (thenCtx elseCtx : LowerCtx) : LocalEnv :=
+    let branchIds :=
+      (thenCtx.state ++ elseCtx.state).map Prod.fst |>.eraseDups
+    branchIds.foldl (fun merged stateId =>
+      let preVal := { pre with state := merged }.stateValue stateId
+      let thenVal := match thenCtx.state.lookup stateId with | some v => v | none => preVal
+      let elseVal := match elseCtx.state.lookup stateId with | some v => v | none => preVal
+      merged.upsert stateId (.ite cond thenVal elseVal)) pre.state
 
-  partial def lowerStatement (env : LocalEnv) (s : Statement) : Except LowerError (LocalEnv × Option ActionClause) := do
+  partial def wrapBranchGuards (cond : Expr) (negate : Bool) (guards : Array ActionClause) : Array ActionClause :=
+    if guards.isEmpty then #[] else
+      let guard := if negate then .guard (.unOp .not cond) else .guard cond
+      #[.all (#[guard] ++ guards)]
+
+  partial def lowerStatements (ctx : LowerCtx) (stmts : Array Statement) : Except LowerError LowerCtx := do
+    stmts.foldlM (fun ctx stmt => lowerStatement ctx stmt) ctx
+
+  partial def lowerStatement (ctx : LowerCtx) (s : Statement) : Except LowerError LowerCtx := do
     match s with
     | .letBind name _ value =>
-        .ok (env.bind name (← lowerExpr env value), none)
+        .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
     | .letMutBind name _ value =>
-        .ok (env.bind name (← lowerExpr env value), none)
+        .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
     | .assign _ _ =>
         .error { message := "local assignment not supported in Quint lowering v1" }
     | .assignOp _ _ _ =>
         .error { message := "compound local assignment not supported in Quint lowering v1" }
     | .effect eff =>
-        .ok (env, ← lowerEffectStmt env eff)
+        applyEffect ctx eff
     | .assert condition _ _ =>
-        .ok (env, some (.guard (← lowerExpr env condition)))
+        .ok { ctx with guards := ctx.guards.push (.guard (← lowerExpr ctx condition)) }
     | .assertEq lhs rhs _ _ =>
-        .ok (env, some (.guard (.binOp .eq (← lowerExpr env lhs) (← lowerExpr env rhs))))
+        .ok { ctx with guards := ctx.guards.push (.guard (.binOp .eq (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))) }
     | .revert _ | .revertWithError _ =>
-        .ok (env, some (.guard (.literalBool false)))
+        .ok { ctx with guards := ctx.guards.push (.guard (.literalBool false)) }
     | .ifElse condition thenBody elseBody =>
-        let cond ← lowerExpr env condition
-        let (_, thenClauses) ← lowerStatements env thenBody
-        let (_, elseClauses) ← lowerStatements env elseBody
-        let extractUpdates clauses :=
-          clauses.filterMap (fun c =>
-            match c with
-            | .assign (.prime (.local name)) value => some (name, value)
-            | _ => none)
-        let extractNonAssigns clauses :=
-          clauses.filter (fun c =>
-            match c with
-            | .assign (.prime (.local _)) _ => false
-            | _ => true)
-        let thenUpdates := extractUpdates thenClauses
-        let elseUpdates := extractUpdates elseClauses
-        let thenNonAssigns := extractNonAssigns thenClauses
-        let elseNonAssigns := extractNonAssigns elseClauses
-        let allVars := (thenUpdates ++ elseUpdates).map Prod.fst |>.toList.eraseDups.toArray
-        let mut mergedAssigns : Array ActionClause := #[]
-        for var in allVars do
-          let thenVal := thenUpdates.find? (fun (v, _) => v == var) |>.map Prod.snd |>.getD (.local var)
-          let elseVal := elseUpdates.find? (fun (v, _) => v == var) |>.map Prod.snd |>.getD (.local var)
-          mergedAssigns := mergedAssigns.push (.assign (.prime (.local var)) (.ite cond thenVal elseVal))
-        let wrappedThen := if thenNonAssigns.isEmpty then none else some (.all (#[.guard cond] ++ thenNonAssigns))
-        let wrappedElse := if elseNonAssigns.isEmpty then none else some (.all (#[.guard (.unOp .not cond)] ++ elseNonAssigns))
-        let mut resultClauses := mergedAssigns
-        if let some c := wrappedThen then resultClauses := resultClauses.push c
-        if let some c := wrappedElse then resultClauses := resultClauses.push c
-        .ok (env, some (.all resultClauses))
+        let cond ← lowerExpr ctx condition
+        let thenCtx ← lowerStatements ctx thenBody
+        let elseCtx ← lowerStatements ctx elseBody
+        let mergedState := mergeBranchState ctx cond thenCtx elseCtx
+        let thenWrapped := wrapBranchGuards cond false thenCtx.guards
+        let elseWrapped := wrapBranchGuards cond true elseCtx.guards
+        .ok { ctx with
+          state := mergedState,
+          guards := ctx.guards ++ thenWrapped ++ elseWrapped }
     | .boundedFor indexName start stopExclusive body =>
-        let mut allClauses : Array ActionClause := #[]
+        let mut stateAcc := ctx.state
+        let mut guardsAcc := ctx.guards
         for i in [start:stopExclusive] do
-          let env' := env.bind indexName (.literalInt (Int.ofNat i))
-          let (_, bodyClauses) ← lowerStatements env' body
-          allClauses := allClauses ++ bodyClauses
-        .ok (env, some (.all allClauses))
+          let loopCtx := {
+            ctx with
+            locals := ctx.locals.bind indexName (.literalInt (Int.ofNat i)),
+            state := stateAcc,
+            guards := #[] }
+          let bodyCtx ← lowerStatements loopCtx body
+          stateAcc := bodyCtx.state
+          guardsAcc := guardsAcc ++ bodyCtx.guards
+        .ok { ctx with state := stateAcc, guards := guardsAcc }
     | .whileLoop _ _ =>
         .error { message := "whileLoop not supported in Quint lowering v1" }
-    | .return _ =>
-        .ok (env, none)
-    | .release _ =>
-        .ok (env, none)
+    | .return _ | .release _ =>
+        .ok ctx
 end
+
+def ctxToActionClauses (ctx : LowerCtx) : Array ActionClause :=
+  let assigns := ctx.state.toArray.map (fun (stateId, value) =>
+    ActionClause.assign (.prime (.local stateId)) value)
+  assigns ++ ctx.guards
 
 partial def assignedStateVars (clause : ActionClause) : List String :=
   match clause with
@@ -200,9 +212,8 @@ partial def assignedStateVars (clause : ActionClause) : List String :=
 
 def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) : Except LowerError Action := do
   let params ← ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t))
-  let (_env, clauses) ← ep.body.foldlM (fun (env, acc) stmt => do
-    let (env', clause?) ← lowerStatement env stmt
-    pure (env', match clause? with | some c => acc.push c | none => acc)) ([], #[])
+  let ctx ← lowerStatements {} ep.body
+  let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
     if assigned.contains id then none else some (.assign (.prime (.local id)) (.local id)))

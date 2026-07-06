@@ -17,10 +17,20 @@ if ! command -v quint &>/dev/null; then
   exit 0
 fi
 
+echo "Running Quint control-flow model render tests..."
+lake env lean --run Tests/Quint/ConditionalModel.lean
+lake env lean --run Tests/Quint/LoopModel.lean
+
 echo "Running Counter MBT replay test..."
 lake env lean --run Tests/Quint/CounterReplay.lean
 
 echo "Running ValueVault MBT replay test..."
 lake env lean --run Tests/Quint/ValueVaultReplay.lean
+
+echo "Running ConditionalProbe MBT replay test..."
+lake env lean --run Tests/Quint/ConditionalReplay.lean
+
+echo "Running LoopProbe MBT replay test..."
+lake env lean --run Tests/Quint/LoopReplay.lean
 
 echo "Quint MBT replay gate passed."
