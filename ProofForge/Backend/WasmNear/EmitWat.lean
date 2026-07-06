@@ -45,7 +45,7 @@ open ProofForge.Backend.WasmNear.Scalar
 open ProofForge.Backend.WasmNear.Types
 
 export ProofForge.Backend.WasmNear.Common (
-  memcpyName
+  memcpyName memcpyFunc
 )
 
 export ProofForge.Backend.WasmNear.Diagnostics (
@@ -262,19 +262,6 @@ def hashSFunc : Func :=
       .call hashAllocName, .localSet "p",
       .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
       .localGet "p" ] } }
-
-def memcpyFunc : Func :=
-  { name := memcpyName,
-    params := #[{ name := "dst", type := .i32 }, { name := "src", type := .i32 }, { name := "n", type := .i32 }],
-    locals := #[{ name := "i", type := .i32 }],
-    body := { insns := #[
-      .i32Const 0, .localSet "i",
-      .block_ { insns := #[ .loop_ { insns := #[
-        .localGet "i", .localGet "n", .plain "i32.ge_u", .brIf 1,
-        .localGet "i", .localGet "dst", .plain "i32.add",
-        .localGet "i", .localGet "src", .plain "i32.add", .load "i32.load8_u" 0,
-        .store "i32.store8" 0,
-        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0 ] } ] } ] } }
 
 def hashTwoFunc : Func :=
   { name := hashTwoName,
