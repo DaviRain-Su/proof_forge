@@ -94,7 +94,8 @@ structure State where
 
 structure Frame where
   locals : Bindings := []
-  deriving Repr, BEq
+  structs : Array StructDecl := #[]
+  deriving Repr
 
 def State.empty : State := {}
 
@@ -230,11 +231,11 @@ def structFieldValue (value : Value) (fieldName : String) : Except String Value 
       | none => .error s!"unknown struct field `{fieldName}`"
   | _ => .error "field access expects a struct value"
 
-def bindParams (params : Array (String × ValueType)) (args : Array Value) :
-    Except String Frame := do
+def bindParams (params : Array (String × ValueType)) (args : Array Value)
+    (structs : Array StructDecl := #[]) : Except String Frame := do
   if params.size != args.size then
     .error s!"entrypoint expected {params.size} argument(s), got {args.size}"
-  let mut frame := Frame.empty
+  let mut frame := { Frame.empty with structs := structs }
   for h : idx in [0:params.size] do
     let param := params[idx]
     let some arg := args[idx]?
@@ -350,12 +351,22 @@ def evalAssignOp (op : AssignOp) (lhs rhs : Value) : Except String Value :=
 
 abbrev ExprResult := State × Value
 
-def crosscallArgToNat (value : Value) : Except String Nat :=
+partial def crosscallArgToNat (value : Value) : Except String Nat :=
   match value with
   | .u64 n | .u32 n | .u8 n => pure n
   | .bool b => pure (if b then 1 else 0)
   | .hash a b c d => pure (a + b + c + d)
-  | _ => .error "crosscall argument expected scalar"
+  | .struct _ fields => do
+      let mut sum := 0
+      for (_, fieldValue) in fields do
+        sum := sum + (← crosscallArgToNat fieldValue)
+      pure sum
+  | .array values => do
+      let mut sum := 0
+      for elem in values do
+        sum := sum + (← crosscallArgToNat elem)
+      pure sum
+  | _ => .error "crosscall argument expected scalar or aggregate"
 
 def crosscallHashStubValue (sum : Nat) : Value :=
   match sum % 3 with
@@ -368,13 +379,42 @@ def crosscallDelegateTag : Nat := 2000000
 def crosscallCreateTag : Nat := 3000000
 def crosscallCreate2Tag : Nat := 4000000
 
-def crosscallCastReturn (sum : Nat) (returnType : ValueType) : Except String Value :=
+def lookupStructDecl (structs : Array StructDecl) (name : String) : Option StructDecl :=
+  structs.find? (fun s => s.name == name)
+
+partial def crosscallCastReturnAt (sum offset : Nat) (returnType : ValueType) (structs : Array StructDecl) :
+    Except String (Value × Nat) := do
+  let atSum := sum + offset
   match returnType with
-  | .u64 => .ok (.u64 sum)
-  | .u32 => .ok (.u32 (sum % 4294967296))
-  | .bool => .ok (.bool (sum % 2 == 1))
-  | .hash => .ok (crosscallHashStubValue sum)
-  | _ => .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (Bool/U32/U64/Hash only)"
+  | .u64 => pure (.u64 atSum, offset + 1)
+  | .u32 => pure (.u32 (atSum % 4294967296), offset + 1)
+  | .bool => pure (.bool (atSum % 2 == 1), offset + 1)
+  | .hash => pure (crosscallHashStubValue atSum, offset + 1)
+  | .structType typeName =>
+      match lookupStructDecl structs typeName with
+      | none => .error s!"unknown struct `{typeName}` for crosscall aggregate return"
+      | some structDecl => do
+          let mut off := offset
+          let mut fields := []
+          for field in structDecl.fields do
+            let (fieldValue, nextOff) ← crosscallCastReturnAt sum off field.type structs
+            fields := fields ++ [(field.id, fieldValue)]
+            off := nextOff
+          pure (.struct typeName fields, off)
+  | .fixedArray elem length => do
+    let rec go (i off : Nat) (acc : List Value) : Except String (Value × Nat) := do
+      if i >= length then
+        pure (.array acc, off)
+      else
+        let (elemValue, nextOff) ← crosscallCastReturnAt sum off elem structs
+        go (i + 1) nextOff (acc ++ [elemValue])
+    go 0 offset []
+  | _ => .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics"
+
+def crosscallCastReturn (sum : Nat) (returnType : ValueType) (structs : Array StructDecl := #[]) :
+    Except String Value := do
+  let (value, _) ← crosscallCastReturnAt sum 0 returnType structs
+  pure value
 
 mutual
 partial def evalExpr (state : State) (frame : Frame) : Expr → Except String ExprResult
@@ -545,7 +585,7 @@ partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId
 partial def evalCrosscallInvokeTyped (state : State) (frame : Frame) (target methodId : Expr)
     (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
   let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
-  let value ← crosscallCastReturn sum returnType
+  let value ← crosscallCastReturn sum returnType frame.structs
   .ok (nextState, value)
 
 partial def evalCrosscallInvokeValueTyped (state : State) (frame : Frame) (target methodId callValue : Expr)
@@ -555,19 +595,19 @@ partial def evalCrosscallInvokeValueTyped (state : State) (frame : Frame) (targe
     | .u64 n => pure n
     | _ => .error "value-bearing crosscall callValue expected U64"
   let (nextState, sum) ← evalCrosscallInvokeSum stateAfterValue frame target methodId args
-  let value ← crosscallCastReturn (sum + callNat) returnType
+  let value ← crosscallCastReturn (sum + callNat) returnType frame.structs
   .ok (nextState, value)
 
 partial def evalCrosscallInvokeStaticTyped (state : State) (frame : Frame) (target methodId : Expr)
     (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
   let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
-  let value ← crosscallCastReturn (sum + crosscallStaticTag) returnType
+  let value ← crosscallCastReturn (sum + crosscallStaticTag) returnType frame.structs
   .ok (nextState, value)
 
 partial def evalCrosscallInvokeDelegateTyped (state : State) (frame : Frame) (target methodId : Expr)
     (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
   let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
-  let value ← crosscallCastReturn (sum + crosscallDelegateTag) returnType
+  let value ← crosscallCastReturn (sum + crosscallDelegateTag) returnType frame.structs
   .ok (nextState, value)
 
 partial def evalCrosscallCreate (state : State) (frame : Frame) (callValue : Expr) :
@@ -841,9 +881,9 @@ partial def execWhileLoop
     .ok (stateAfterCond, frame, none)
 end
 
-def runEntrypointWithArgs (state : State) (entrypoint : Entrypoint) (args : Array Value) :
-    Except String (State × Option Value) := do
-  let frame ← bindParams entrypoint.params args
+def runEntrypointWithArgs (state : State) (entrypoint : Entrypoint) (args : Array Value)
+    (structs : Array StructDecl := #[]) : Except String (State × Option Value) := do
+  let frame ← bindParams entrypoint.params args structs
   execStatements entrypoint.body.toList state frame
 
 def runEntrypoint (state : State) (entrypoint : Entrypoint) :

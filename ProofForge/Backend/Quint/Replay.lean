@@ -376,7 +376,7 @@ def replayTrace (module : ProofForge.IR.Module) (trace : ITF.Trace) : Except Rep
             let resetState ← buildInitialState module nextState
             .ok (resetState, none)
           else
-            match runEntrypointWithArgs state entrypoint args with
+            match runEntrypointWithArgs state entrypoint args module.structs with
             | .ok r => .ok r
             | .error e => .error { message := s!"IR execution failed at state {nextState.index}: {e}" }
         let expectedState ← buildInitialState module nextState

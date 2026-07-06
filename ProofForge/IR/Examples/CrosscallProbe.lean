@@ -10,6 +10,20 @@ def stateMarker : StateDecl := {
   type := .u64
 }
 
+def remotePairStruct : StructDecl := {
+  name := "RemotePair"
+  fields := #[
+    { id := "flag", type := .bool },
+    { id := "small", type := .u32 }
+  ]
+}
+
+def pair (flag small : Expr) : Expr :=
+  .structLit "RemotePair" #[
+    ("flag", flag),
+    ("small", small)
+  ]
+
 def callRemote : Entrypoint := {
   name := "call_remote"
   returns := .u64
@@ -105,13 +119,53 @@ def deployCreate2 : Entrypoint := {
   ]
 }
 
+def callRemotePair : Entrypoint := {
+  name := "call_remote_pair"
+  returns := .structType "RemotePair"
+  params := #[("target", .u64), ("method", .u64)]
+  body := #[
+    .return (.crosscallInvokeTyped (.local "target") (.local "method") #[] (.structType "RemotePair"))
+  ]
+}
+
+def callRemotePairArg : Entrypoint := {
+  name := "call_remote_pair_arg"
+  returns := .bool
+  params := #[("target", .u64), ("method", .u64), ("flag", .bool), ("small", .u32)]
+  body := #[
+    .letBind "pair" (.structType "RemotePair") (pair (.local "flag") (.local "small")),
+    .return (.crosscallInvokeTyped (.local "target") (.local "method") #[.local "pair"] .bool)
+  ]
+}
+
+def callRemoteArray : Entrypoint := {
+  name := "call_remote_array"
+  returns := .fixedArray .u64 2
+  params := #[("target", .u64), ("method", .u64)]
+  body := #[
+    .return (.crosscallInvokeTyped (.local "target") (.local "method") #[] (.fixedArray .u64 2))
+  ]
+}
+
+def callRemoteArrayArg : Entrypoint := {
+  name := "call_remote_array_arg"
+  returns := .u64
+  params := #[("target", .u64), ("method", .u64), ("x", .u64), ("y", .u64)]
+  body := #[
+    .letBind "values" (.fixedArray .u64 2) (.arrayLit .u64 #[.local "x", .local "y"]),
+    .return (.crosscallInvokeTyped (.local "target") (.local "method") #[.local "values"] .u64)
+  ]
+}
+
 def module : Module := {
   name := "CrosscallProbe"
+  structs := #[remotePairStruct]
   state := #[stateMarker]
   entrypoints := #[
     callRemote, callWithArgs, callRemoteBool, callRemoteU32, callRemoteHash,
     callRemoteValue, callRemoteStatic, callRemoteDelegate,
-    deployCreate, deployCreate2
+    deployCreate, deployCreate2,
+    callRemotePair, callRemotePairArg, callRemoteArray, callRemoteArrayArg
   ]
 }
 

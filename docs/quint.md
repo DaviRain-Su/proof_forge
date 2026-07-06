@@ -134,14 +134,15 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   assignment (`letMutBind`, `.assign`, `.assignOp` on `.local` targets), and
   scalar `crosscallInvoke` / `crosscallInvokeTyped` / value/static/delegate
   variants (stub: `target + method + sum(args)` with variant tags and
-  Bool/U32/U64/Hash return casts), `crosscallCreate` / `crosscallCreate2`
-  (stub: `callValue + tag` and `callValue + salt + tag`), and
+  Bool/U32/U64/Hash return casts), flat struct and fixed-array aggregate
+  crosscall params/returns (stub: flatten leaves into `sum + offset` slots),
+  `crosscallCreate` / `crosscallCreate2` (stub: `callValue + tag` and
+  `callValue + salt + tag`), and
   `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
 Still out of scope for the first iteration:
-aggregate crosscall returns,
-floating-point, and complex bitwise ops. `whileLoop` is lowered by static
+nested aggregate crosscall shapes, floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
 need more iterations are truncated in the Quint model. Unrolling emits each step
 as a `pure def __while_<state>_<n>` helper and assigns the final state from the

@@ -199,6 +199,10 @@ Tasks:
 - Done: `crosscallCreate` / `crosscallCreate2` stubs — `callValue + 3_000_000` and
   `callValue + salt + 4_000_000` in Lower/Semantics with `deploy_create` /
   `deploy_create2` in the `crosscall` fixture gate.
+- Done: aggregate crosscall params/returns — flatten struct and fixed-array
+  leaves into deterministic sum slots in Lower/Semantics with
+  `call_remote_pair` / `call_remote_pair_arg` / `call_remote_array` /
+  `call_remote_array_arg` in the `crosscall` fixture gate.
 - Done: `.assert` / `.assertEq` statement guards with `assert` fixture in
   `just quint-mbt-gate`; gate rebuilds `proof-forge` before CLI emit smoke.
 - Done: hash-valued map `storagePathAssignOp` replace stub with

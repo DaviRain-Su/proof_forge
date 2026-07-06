@@ -51,6 +51,8 @@ structure LowerCtx where
   expandLocals : Bool := true
   /-- Entrypoint parameter types for crosscall arg coercion during lowering. -/
   paramTypes : Array (String × ValueType) := #[]
+  /-- Local binding types for aggregate crosscall argument flattening. -/
+  localTypes : Array (String × ValueType) := #[]
 
 def hashLiteralStr (a b c d : Nat) : String :=
   s!"hash:{a}:{b}:{c}:{d}"
@@ -401,7 +403,10 @@ def crosscallArgTypeFromExpr (ctx : LowerCtx) (arg : ProofForge.IR.Expr) : Value
   | .literal (.u8 _) => .u8
   | .literal (.hash4 _ _ _ _) => .hash
   | .local name =>
-      ctx.paramTypes.find? (fun (n, _) => n == name) |>.map Prod.snd |>.getD .u64
+      match ctx.localTypes.find? (fun (n, _) => n == name) with
+      | some (_, ty) => ty
+      | none =>
+          ctx.paramTypes.find? (fun (n, _) => n == name) |>.map Prod.snd |>.getD .u64
   | _ => .u64
 
 def hashExprToStubInt (hashExpr : Expr) : Expr :=
@@ -415,6 +420,19 @@ def crosscallArgToIntExpr (raw : Expr) (argType : ValueType) : Expr :=
   | .bool => .ite raw (.literalInt 1) (.literalInt 0)
   | _ => raw
 
+partial def lowerQuintValueToCrosscallInt (expr : Expr) : Expr :=
+  match expr with
+  | .literalBool _ => .ite expr (.literalInt 1) (.literalInt 0)
+  | .literalStr s =>
+      if s.startsWith "hash:" then hashExprToStubInt expr else expr
+  | .mapLit entries =>
+      entries.foldl (fun acc (_, v) => .binOp .add acc (lowerQuintValueToCrosscallInt v)) (.literalInt 0)
+  | .listLit elems =>
+      elems.foldl (fun acc e => .binOp .add acc (lowerQuintValueToCrosscallInt e)) (.literalInt 0)
+  | .ite cond t e =>
+      .ite cond (lowerQuintValueToCrosscallInt t) (lowerQuintValueToCrosscallInt e)
+  | _ => expr
+
 def crosscallHashStubExpr (sum : Expr) : Expr :=
   let mod3 := .binOp .mod sum (.literalInt 3)
   .ite (.binOp .eq mod3 (.literalInt 0)) (.literalStr "hash:1001:0:0:0")
@@ -426,15 +444,50 @@ def crosscallDelegateTagExpr : Expr := .literalInt 2000000
 def crosscallCreateTagExpr : Expr := .literalInt 3000000
 def crosscallCreate2TagExpr : Expr := .literalInt 4000000
 
-def lowerCrosscallCastReturn (sum : Expr) (returnType : ValueType) : Except LowerError Expr :=
+partial def lowerCrosscallCastReturnAt (ctx : LowerCtx) (sum : Expr) (offset : Nat) (returnType : ValueType)
+    (aggregateSlot : Bool := false) : Except LowerError (Expr × Nat) := do
+  let atSum := .binOp .add sum (.literalInt offset)
   match returnType with
-  | .u64 => .ok sum
-  | .u32 => .ok (.binOp .mod sum (.literalInt 4294967296))
-  | .bool => .ok (.binOp .eq (.binOp .mod sum (.literalInt 2)) (.literalInt 1))
-  | .hash => .ok (crosscallHashStubExpr sum)
+  | .u64 => pure (atSum, offset + 1)
+  | .u32 => pure (.binOp .mod atSum (.literalInt 4294967296), offset + 1)
+  | .bool =>
+      let boolExpr := .binOp .eq (.binOp .mod atSum (.literalInt 2)) (.literalInt 1)
+      if aggregateSlot then
+        pure (.ite boolExpr (.literalInt 1) (.literalInt 0), offset + 1)
+      else
+        pure (boolExpr, offset + 1)
+  | .hash =>
+      if aggregateSlot then
+        .error { message := "hash fields in aggregate crosscall returns are not supported in Quint lowering v1" }
+      else
+        pure (crosscallHashStubExpr atSum, offset + 1)
+  | .structType typeName =>
+      match lookupStructDecl ctx.structs typeName with
+      | none =>
+          .error { message := s!"unknown struct `{typeName}` for crosscall aggregate return" }
+      | some structDecl => do
+          let mut off := offset
+          let mut entries := #[]
+          for field in structDecl.fields do
+            let (fieldExpr, nextOff) ← lowerCrosscallCastReturnAt ctx sum off field.type (aggregateSlot := true)
+            entries := entries.push (.literalStr field.id, fieldExpr)
+            off := nextOff
+          pure (.mapLit entries, off)
+  | .fixedArray elem length => do
+    let rec go (i off : Nat) (acc : Array Expr) : Except LowerError (Expr × Nat) := do
+      if i >= length then
+        pure (.listLit acc, off)
+      else
+        let (elemExpr, nextOff) ← lowerCrosscallCastReturnAt ctx sum off elem (aggregateSlot := true)
+        go (i + 1) nextOff (acc.push elemExpr)
+    go 0 offset #[]
   | _ => .error {
       message :=
-        s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (Bool/U32/U64/Hash only)" }
+        s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1" }
+
+def lowerCrosscallCastReturn (ctx : LowerCtx) (sum : Expr) (returnType : ValueType) : Except LowerError Expr := do
+  let (expr, _) ← lowerCrosscallCastReturnAt ctx sum 0 returnType
+  pure expr
 
 mutual
   partial def lowerExpr (ctx : LowerCtx) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
@@ -475,9 +528,16 @@ mutual
         let arr' ← lowerExpr ctx arr
         let idx' ← lowerExpr ctx idx
         .ok (.index arr' (irIndexToQuint idx'))
-    | .structLit _ fields => do
+    | .structLit typeName fields => do
         let entries ← fields.mapM (fun (fieldName, fieldExpr) => do
-          pure (.literalStr fieldName, ← lowerExpr ctx fieldExpr))
+          let lowered ← lowerExpr ctx fieldExpr
+          let value ← match lookupStructDecl ctx.structs typeName with
+            | some structDecl =>
+                match structDecl.fields.find? (fun field => field.id == fieldName) with
+                | some { type := .bool, .. } => pure (.ite lowered (.literalInt 1) (.literalInt 0))
+                | _ => pure lowered
+            | none => pure lowered
+          pure (.literalStr fieldName, value))
         .ok (.mapLit entries)
     | .field base fieldName => do
         let base' ← lowerExpr ctx base
@@ -501,6 +561,75 @@ mutual
         lowerCrosscallCreate2Expr ctx callValue salt
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
+  /-- Flatten one crosscall argument (scalar or aggregate) into a deterministic int contribution. -/
+  partial def lowerCrosscallArgContributionFromIr (ctx : LowerCtx) (arg : ProofForge.IR.Expr) :
+      Except LowerError Expr :=
+    match arg with
+    | .structLit _ fields => do
+        let mut result := .literalInt 0
+        for (_, fieldExpr) in fields do
+          let contrib ← lowerCrosscallArgContributionFromIr ctx fieldExpr
+          result := .binOp .add result contrib
+        pure result
+    | .arrayLit _ elems => do
+        let mut result := .literalInt 0
+        for elem in elems do
+          let contrib ← lowerCrosscallArgContributionFromIr ctx elem
+          result := .binOp .add result contrib
+        pure result
+    | .field base fieldName => do
+        let baseType := crosscallArgTypeFromExpr ctx base
+        match baseType with
+        | .structType typeName =>
+            match lookupStructDecl ctx.structs typeName with
+            | none => .error { message := s!"unknown struct `{typeName}` for crosscall aggregate argument" }
+            | some structDecl =>
+                match structDecl.fields.find? (fun field => field.id == fieldName) with
+                | none => .error { message := s!"unknown struct field `{fieldName}` for crosscall aggregate argument" }
+                | some field => do
+                    let raw ← lowerExpr ctx arg
+                    match field.type with
+                    | .bool => pure raw
+                    | _ => pure (crosscallArgToIntExpr raw field.type)
+        | _ => .error { message := "field access in crosscall argument expects struct base" }
+    | .arrayGet arr index => do
+        let arrType := crosscallArgTypeFromExpr ctx arr
+        match arrType with
+        | .fixedArray elem _ =>
+            let raw ← lowerExpr ctx arg
+            pure (crosscallArgToIntExpr raw elem)
+        | _ => .error { message := "array element in crosscall argument expects fixed array base" }
+    | .local name =>
+        match ctx.localTypes.find? (fun (n, _) => n == name) with
+        | some (_, .structType typeName) =>
+            match lookupStructDecl ctx.structs typeName with
+            | none => .error { message := s!"unknown struct `{typeName}` for crosscall aggregate argument" }
+            | some structDecl => do
+                let mut result := .literalInt 0
+                for field in structDecl.fields do
+                  let contrib ← lowerCrosscallArgContributionFromIr ctx (.field (.local name) field.id)
+                  result := .binOp .add result contrib
+                pure result
+        | some (_, .fixedArray elem length) => do
+            let mut result := .literalInt 0
+            for index in [0:length] do
+              let contrib ← lowerCrosscallArgContributionFromIr ctx
+                (.arrayGet (.local name) (.literal (.u64 index)))
+              result := .binOp .add result contrib
+            pure result
+        | _ => do
+            let raw ← lowerExpr ctx arg
+            let argType := crosscallArgTypeFromExpr ctx arg
+            pure (crosscallArgToIntExpr raw argType)
+    | _ => do
+        let raw ← lowerExpr ctx arg
+        let argType := crosscallArgTypeFromExpr ctx arg
+        pure (crosscallArgToIntExpr raw argType)
+
+  partial def lowerCrosscallArgContributionExpr (ctx : LowerCtx) (arg : ProofForge.IR.Expr) :
+      Except LowerError Expr :=
+    lowerCrosscallArgContributionFromIr ctx arg
+
   /-- Deterministic crosscall stub: sum target, method, and scalar args (MBT/replay aligned with IR semantics). -/
   partial def lowerCrosscallInvokeSumExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) : Except LowerError Expr := do
@@ -508,9 +637,7 @@ mutual
     let method' ← lowerExpr ctx methodId
     let mut result := .binOp .add target' method'
     for arg in args do
-      let argType := crosscallArgTypeFromExpr ctx arg
-      let raw ← lowerExpr ctx arg
-      let arg' := crosscallArgToIntExpr raw argType
+      let arg' ← lowerCrosscallArgContributionExpr ctx arg
       result := .binOp .add result arg'
     pure result
 
@@ -521,23 +648,23 @@ mutual
   partial def lowerCrosscallInvokeTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
-    lowerCrosscallCastReturn sum returnType
+    lowerCrosscallCastReturn ctx sum returnType
 
   partial def lowerCrosscallInvokeValueTypedExpr (ctx : LowerCtx) (target methodId callValue : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
     let callValue' ← lowerExpr ctx callValue
-    lowerCrosscallCastReturn (.binOp .add sum callValue') returnType
+    lowerCrosscallCastReturn ctx (.binOp .add sum callValue') returnType
 
   partial def lowerCrosscallInvokeStaticTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
-    lowerCrosscallCastReturn (.binOp .add sum crosscallStaticTagExpr) returnType
+    lowerCrosscallCastReturn ctx (.binOp .add sum crosscallStaticTagExpr) returnType
 
   partial def lowerCrosscallInvokeDelegateTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
-    lowerCrosscallCastReturn (.binOp .add sum crosscallDelegateTagExpr) returnType
+    lowerCrosscallCastReturn ctx (.binOp .add sum crosscallDelegateTagExpr) returnType
 
   partial def lowerCrosscallCreateExpr (ctx : LowerCtx) (callValue : ProofForge.IR.Expr) :
       Except LowerError Expr := do
@@ -1116,15 +1243,21 @@ mutual
 
   partial def lowerStatement (ctx : LowerCtx) (s : Statement) : Except LowerError LowerCtx := do
     match s with
-    | .letBind name _ value =>
+    | .letBind name ty value =>
         match value with
         | .effect eff =>
             let (ctx', expr) ← lowerMutatingEffectBinding ctx eff
-            .ok { ctx' with locals := ctx'.locals.bind name expr }
+            .ok { ctx' with
+              locals := ctx'.locals.bind name expr,
+              localTypes := ctx'.localTypes.push (name, ty) }
         | _ =>
-            .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
-    | .letMutBind name _ value =>
-        .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
+            .ok { ctx with
+              locals := ctx.locals.bind name (← lowerExpr ctx value),
+              localTypes := ctx.localTypes.push (name, ty) }
+    | .letMutBind name ty value =>
+        .ok { ctx with
+          locals := ctx.locals.bind name (← lowerExpr ctx value),
+          localTypes := ctx.localTypes.push (name, ty) }
     | .assign target value =>
         match target with
         | .local name => do
@@ -1263,7 +1396,8 @@ def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Ar
     stateDecls := stateDecls,
     structs := structs,
     maxLoopUnroll := maxLoopUnroll,
-    paramTypes := ep.params } ep.body
+    paramTypes := ep.params,
+    localTypes := #[] } ep.body
   let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
