@@ -13,6 +13,7 @@ structure Config where
   users : Array String := #["alice", "bob", "charlie"]
   maxSteps : Nat := 10
   nTraces : Nat := 10
+  invariants : Array (String × String) := #[]
   deriving Repr, Inhabited
 
 def Config.quintPureDefs (cfg : Config) : Array PureDef := #[
@@ -44,13 +45,32 @@ private def splitOnComma (chars : List Char) : Array (List Char) :=
     | c :: rest => loop acc (c :: cur) rest
   loop #[] [] chars
 
+private partial def unescapeString (acc : List Char) (cs : List Char) : Except String (List Char) :=
+  match cs with
+  | [] => .ok acc.reverse
+  | '\\' :: c :: rest =>
+      let decoded :=
+        match c with
+        | '"' => '"'
+        | '\\' => '\\'
+        | 'n' => '\n'
+        | 't' => '\t'
+        | 'r' => '\r'
+        | _ => c
+      unescapeString (decoded :: acc) rest
+  | c :: rest => unescapeString (c :: acc) rest
+
 private def charsToQuotedString (chars : List Char) : Except String String :=
   let trimmed := trimChars chars
   match trimmed with
   | '"' :: rest =>
       let rev := rest.reverse
       match rev with
-      | '"' :: bodyRev => .ok (String.ofList bodyRev.reverse)
+      | '"' :: bodyRev =>
+          let body := bodyRev.reverse
+          match unescapeString [] body with
+          | .ok s => .ok (String.ofList s)
+          | .error e => .error e
       | _ => .error s!"expected quoted string, got: {String.ofList chars}"
   | _ => .error s!"expected quoted string, got: {String.ofList chars}"
 
@@ -88,6 +108,16 @@ private def splitOnEq (chars : List Char) : Option (List Char × List Char) :=
     | c :: rest => find (c :: before) rest
   find [] chars
 
+private def parseSectionHeader (chars : List Char) : Option String :=
+  let trimmed := trimChars chars
+  match trimmed with
+  | '[' :: rest =>
+      let rev := rest.reverse
+      match rev with
+      | ']' :: bodyRev => some (String.ofList (trimChars bodyRev.reverse))
+      | _ => none
+  | _ => none
+
 /-- Very small TOML-like parser for scenario files.
     Supports only the keys needed by `Config`:
       max_uint = 3
@@ -97,34 +127,42 @@ private def splitOnEq (chars : List Char) : Option (List Char × List Char) :=
     Lines starting with '#' are ignored. -/
 def parse (input : String) : Except String Config := do
   let mut cfg : Config := {}
+  let mut currentSection := ""
   let lines := splitLines input.toList
   for line in lines do
     let line := trimChars line
     if line.isEmpty || (line.head? == some '#') then
+      continue
+    if let some sec := parseSectionHeader line then
+      currentSection := sec
       continue
     match splitOnEq line with
     | none => .error s!"invalid scenario line: {String.ofList line}"
     | some (keyChars, valueChars) =>
         let key := String.ofList (trimChars keyChars)
         let value := String.ofList (trimChars valueChars)
-        let cfg' ← match key with
-          | "max_uint" =>
-              match charsToNat value.toList with
-              | some n => pure { cfg with maxUint := n }
-              | none => .error s!"expected natural number, got: {value}"
-          | "users" =>
-              let us ← charsToStringArray value.toList
-              pure { cfg with users := us }
-          | "max_steps" =>
-              match charsToNat value.toList with
-              | some n => pure { cfg with maxSteps := n }
-              | none => .error s!"expected natural number, got: {value}"
-          | "n_traces" =>
-              match charsToNat value.toList with
-              | some n => pure { cfg with nTraces := n }
-              | none => .error s!"expected natural number, got: {value}"
-          | _ => .error s!"unknown scenario key: {key}"
-        cfg := cfg'
+        if currentSection == "invariants" then
+          let expr ← charsToQuotedString value.toList
+          cfg := { cfg with invariants := cfg.invariants.push (key, expr) }
+        else
+          let cfg' ← match key with
+            | "max_uint" =>
+                match charsToNat value.toList with
+                | some n => pure { cfg with maxUint := n }
+                | none => .error s!"expected natural number, got: {value}"
+            | "users" =>
+                let us ← charsToStringArray value.toList
+                pure { cfg with users := us }
+            | "max_steps" =>
+                match charsToNat value.toList with
+                | some n => pure { cfg with maxSteps := n }
+                | none => .error s!"expected natural number, got: {value}"
+            | "n_traces" =>
+                match charsToNat value.toList with
+                | some n => pure { cfg with nTraces := n }
+                | none => .error s!"expected natural number, got: {value}"
+            | _ => .error s!"unknown scenario key: {key}"
+          cfg := cfg'
   pure cfg
 
 end ProofForge.Backend.Quint.Scenario

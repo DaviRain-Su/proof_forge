@@ -17,15 +17,6 @@ structure LowerError where
 def LowerError.render (err : LowerError) : String := err.message
 
 /-- Quint reserved words that cannot be used as action or variable names. -/
-def reservedNames : List String := [
-  "action", "all", "and", "any", "bool", "const", "def", "else", "false",
-  "get", "if", "int", "list", "map", "module", "nondet", "not", "oneOf",
-  "or", "pure", "set", "step", "str", "true", "val", "var"
-]
-
-def sanitizeName (name : String) : String :=
-  if reservedNames.contains name then name ++ "_" else name
-
 abbrev LocalEnv := List (String × Expr)
 
 def LocalEnv.lookup (name : String) (env : LocalEnv) : Option Expr :=
@@ -237,13 +228,16 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
   let epParams ← module.entrypoints.mapM (fun ep => do
     ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t)))
   let step := stepAction module.entrypoints epParams
+  let vals ← match Invariants.derive module scenario with
+    | .ok vs => .ok vs
+    | .error e => .error { message := e }
   pure {
     name := s!"{module.name}Model",
     constants := #[],
     vars := vars,
     pureDefs := scenario.quintPureDefs,
     actions := #[init] ++ epActions ++ #[step],
-    vals := Invariants.derive module
+    vals := vals
   }
 
 def renderModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except LowerError String := do

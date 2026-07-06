@@ -8,8 +8,15 @@ def require (condition : Bool) (message : String) : IO Unit :=
   else
     throw <| IO.userError message
 
-def requireLegacy (args expected : List String) : IO Unit :=
-  match ProofForge.Cli.newCommandArgsToLegacy args with
+def requireLegacy (args expected : List String) : IO Unit := do
+  let cmd : String := args.head!
+  let rest : List String := args.tail
+  if cmd.isEmpty then
+    throw <| IO.userError "requireLegacy: empty args"
+  let state ← match ProofForge.Cli.parseNewOptions rest {} with
+    | .ok state => pure state
+    | .error err => throw <| IO.userError s!"unexpected CLI parse error: {err}"
+  match ProofForge.Cli.newCommandArgsToLegacy state cmd with
   | .ok got =>
       require (got == expected) s!"legacy args mismatch: got {repr got}, expected {repr expected}"
   | .error err =>

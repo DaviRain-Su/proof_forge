@@ -43,6 +43,17 @@ def BinOp.symbol : BinOp → String
   | .and => "and"
   | .or => "or"
 
+/-- Quint reserved words that cannot be used as action or variable names. -/
+def reservedNames : List String := [
+  "action", "all", "and", "any", "as", "bool", "const", "def", "else",
+  "export", "false", "from", "get", "if", "import", "int", "list", "map",
+  "module", "nondet", "not", "oneOf", "or", "pure", "set", "step", "str",
+  "true", "type", "val", "var"
+]
+
+def sanitizeName (name : String) : String :=
+  if reservedNames.contains name then name ++ "_" else name
+
 /-- Unary operators supported in generated Quint expressions. -/
 inductive UnOp where
   | not | neg

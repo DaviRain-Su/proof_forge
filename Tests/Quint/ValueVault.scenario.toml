@@ -1,0 +1,11 @@
+# ValueVault scenario: tight bounds for MBT replay and model checking.
+max_uint = 100
+users = ["alice", "bob"]
+max_steps = 5
+n_traces = 10
+
+[invariants]
+# These invariants are deliberately true for the nondeterministic model:
+# every action preserves balance + released + fees >= released and >= fees.
+totalCoversReleased = "balance + released + fees >= released"
+totalCoversFees = "balance + released + fees >= fees"

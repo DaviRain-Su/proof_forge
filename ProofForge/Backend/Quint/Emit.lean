@@ -24,7 +24,14 @@ partial def emitExpr (prec : Nat) (e : Expr) : String :=
   | .literalBool false =>
       "false"
   | .literalStr value =>
-      s!"\"{value}\""
+      let escapeChar
+        | '"' => "\\\""
+        | '\\' => "\\\\"
+        | '\n' => "\\n"
+        | '\t' => "\\t"
+        | '\r' => "\\r"
+        | c => c.toString
+      s!"\"{String.intercalate "" (value.toList.map escapeChar)}\""
   | .local name =>
       name
   | .binOp op lhs rhs =>
