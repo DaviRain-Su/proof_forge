@@ -11,10 +11,41 @@ def requireContains (wat : String) (needle : String) (msg : String) : IO Unit :=
   if wat.contains needle then pure () else
     throw <| IO.userError s!"{msg}: missing `{needle}`"
 
+def requireFtApproveAllowanceShape (module : Module) : IO Unit := do
+  let some allowances := module.state.find? (fun state => state.id == "allowances")
+    | throw <| IO.userError "NearFungibleToken must declare allowances state"
+  match allowances.kind, allowances.type with
+  | .map .hash _, .u64 => pure ()
+  | _, _ => throw <| IO.userError "allowances state must be Map<Hash, U64>"
+  let some approve := module.entrypoints.find? (fun entrypoint => entrypoint.name == "ft_approve")
+    | throw <| IO.userError "NearFungibleToken must expose ft_approve"
+  let hasFlatKey :=
+    approve.body.any fun stmt =>
+      match stmt with
+      | .letBind "allowanceKey" .hash (.hashTwoToOne (.local "ownerAcct") (.local "spender_id")) => true
+      | _ => false
+  if !hasFlatKey then
+    throw <| IO.userError "ft_approve must derive allowanceKey with hashTwoToOne(ownerAcct, spender)"
+  let hasFlatWrite :=
+    approve.body.any fun stmt =>
+      match stmt with
+      | .effect (.storageMapSet "allowances" (.local "allowanceKey") (.local "amount")) => true
+      | _ => false
+  if !hasFlatWrite then
+    throw <| IO.userError "ft_approve must write allowances through storageMapSet"
+  let hasNestedPathWrite :=
+    approve.body.any fun stmt =>
+      match stmt with
+      | .effect (.storagePathWrite "allowances" #[.mapKey _, .mapKey _] _) => true
+      | _ => false
+  if hasNestedPathWrite then
+    throw <| IO.userError "ft_approve must not use nested mapKey allowance paths on wasm-near"
+
 def main : IO UInt32 := do
   let module := ProofForge.Contract.Stdlib.NearFungibleToken.module
   if module.nearCrosscallStrings != #["ft_on_transfer", "ft_resolve_transfer", "demo.receiver.testnet"] then
     throw <| IO.userError "NearFungibleToken must register ft methods and demo receiver in nearCrosscallStrings"
+  requireFtApproveAllowanceShape module
   match ProofForge.Backend.WasmNear.Plan.buildModulePlan module with
   | .ok plan =>
       if !plan.usesPromiseCreate then throw <| IO.userError "FT module must use promise_create"

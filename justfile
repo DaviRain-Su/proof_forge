@@ -178,6 +178,7 @@ near-target-first:
 
 # Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
 wasm-near-ft-transfer-call:
+    lake build proof-forge ProofForge.Contract.Stdlib.NearFungibleToken
     lake env lean --run Tests/WasmNearFtTransferCall.lean
 
 # Run NEAR NEP-141 ft_transfer_call through the offline host promise callback path.

@@ -40,7 +40,9 @@ import struct
 
 sender = hashlib.sha256(b"alice.testnet").digest()
 receiver = hashlib.sha256(b"demo.receiver.testnet").digest()
+spender = hashlib.sha256(b"spender.testnet").digest()
 mint_amount = 100
+approve_amount = 13
 transfer_amount = 70
 receiver_idx = 0
 unused_amount = 25
@@ -48,6 +50,7 @@ unused_amount = 25
 inputs = [
     b"",
     sender + struct.pack("<Q", mint_amount),
+    spender + struct.pack("<Q", approve_amount),
     sender,
     receiver,
     receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", transfer_amount),
@@ -75,6 +78,7 @@ test -s "$WAT"
 out="$("${HOST[@]}" "$WAT" \
   init \
   ft_mint \
+  ft_approve \
   ft_balance_of \
   ft_balance_of \
   ft_transfer_call \
@@ -91,6 +95,7 @@ out="$("${HOST[@]}" "$WAT" \
 echo "$out"
 
 assert_contains "$out" "call 1:ft_mint: return=<none>" "mint call"
+assert_contains "$out" "call 1:ft_approve: return=<none>" "approve call"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after mint"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"

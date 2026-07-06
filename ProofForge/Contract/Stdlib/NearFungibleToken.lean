@@ -8,6 +8,7 @@ Implements the core NEP-141 interface:
 - `ft_total_supply` — total token supply (query)
 - `ft_balance_of` — balance for an account (query)
 - `ft_transfer` — transfer tokens to receiver (entry, requires caller + amount)
+- `ft_approve` — set allowance for a spender using a flat `(owner, spender)` hash key
 - `ft_transfer_call` — transfer with `ft_on_transfer` promise + `ft_resolve_transfer` callback
 - `ft_metadata` — token metadata (NEP-148: decimals)
 - `storage_deposit` / `storage_balance_of` / `storage_balance_bounds` — NEP-145
@@ -67,6 +68,10 @@ def storageRequired : ScalarRef :=
 def balances : MapRef :=
   { id := "balances", keyType := .hash, valueType := .u64 }
 
+/-- Allowance mapping: hashTwoToOne(owner, spender) -> u64 allowance. -/
+def allowances : MapRef :=
+  { id := "allowances", keyType := .hash, valueType := .u64 }
+
 /-- NEP-145 storage deposits: account hash -> U64 projected yoctoNEAR balance. -/
 def storageDeposits : MapRef :=
   { id := "storageDeposits", keyType := .hash, valueType := .u64 }
@@ -102,11 +107,13 @@ contract_mixin NearFungibleTokenMixin do
   use ProofForge.Contract.Surface.scalar pendingReceiver
   use ProofForge.Contract.Surface.scalar pendingAmount
   use ProofForge.Contract.Surface.mapState balances
+  use ProofForge.Contract.Surface.mapState allowances
   use ProofForge.Contract.Surface.mapState storageDeposits
 
   event FTransfer
   event FMint
   event FBurn
+  event FApproval
   event StorageDeposit
 
   query ft_total_supply returns(.u64) do
@@ -159,6 +166,12 @@ contract_mixin NearFungibleTokenMixin do
     let ts : .u64 := totalSupply;
     totalSupply := ts -! amount;
     emit FBurn indexed #[fieldAsName "from" who] data #[fieldAsName "amount" amount];
+
+  entry ft_approve (spender_id : .hash, amount : .u64) do
+    let ownerAcct : .hash := callerHash;
+    let allowanceKey : .hash := ProofForge.IR.Expr.hashTwoToOne (expr ownerAcct) (expr spender_id);
+    do mapWrite allowances allowanceKey amount;
+    emit FApproval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
 
   entry ft_transfer_call (receiver_id : .hash, receiver_idx : .u32, amount : .u64) returns(.u64) do
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
