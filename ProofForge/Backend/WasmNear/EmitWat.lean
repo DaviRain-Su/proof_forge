@@ -19,6 +19,7 @@ import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Backend.WasmNear.Aggregate
 import ProofForge.Backend.WasmNear.ArrayHeap
+import ProofForge.Backend.WasmNear.Capabilities
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Crosscall
@@ -38,7 +39,6 @@ import ProofForge.Backend.WasmNear.Promise
 import ProofForge.Backend.WasmNear.Scalar
 import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
-import ProofForge.Target.Check
 import ProofForge.Target.Plan
 import ProofForge.Target.Registry
 
@@ -48,6 +48,7 @@ open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Aggregate
 open ProofForge.Backend.WasmNear.ArrayHeap
+open ProofForge.Backend.WasmNear.Capabilities
 open ProofForge.Backend.WasmNear.Common
 open ProofForge.Backend.WasmNear.Context
 open ProofForge.Backend.WasmNear.Crosscall
@@ -83,6 +84,10 @@ export ProofForge.Backend.WasmNear.ArrayHeap (
   arrPtrGlobal arrFreeGlobal arrAllocName arrPtrGlobalDecl arrFreeGlobalDecl
   arrAllocFunc arrDeallocFunc modulePlanUsesArrHeap
   arrHeapHelperFuncsForModulePlan
+)
+
+export ProofForge.Backend.WasmNear.Capabilities (
+  emitWatCapabilities checkCapabilities checkTargetPlan
 )
 
 export ProofForge.Backend.WasmNear.Common (
@@ -1104,27 +1109,6 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
         memory := some { min := 1 },
         dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++
           crosscallStringData ++ crosscallArgsData ++ (if hasPanic then panicData else #[]) }
-
-/-! EmitWat supports the same capability surface as the `wasmNear` target profile,
-    plus `controlConditional` and `controlBoundedLoop` (if/else + boundedFor are
-    lowered natively in WAT). This set is intentionally kept in sync with the
-    `wasmNear` profile so that the target-adapter capability gate and EmitWat's
-    own gate reject the same shapes. Aggregate entrypoint params (structs/arrays)
-    and cross-contract calls are enabled for EmitWat via Promise lowering even
-    though wasm-near Rust sourcegen v0 still rejects them. -/
-def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  (ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke).push .nearPromise
-
-def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
-  mod.capabilities.foldlM (fun _ c =>
-    if emitWatCapabilities.contains c then .ok ()
-    else .error { message := s!"EmitWat: capability `{c.id}` is not supported by the EmitWat backend" }) ()
-
-def checkTargetPlan (plan : ProofForge.Target.CapabilityPlan) : Except EmitError Unit :=
-  if plan.targetId == ProofForge.Target.wasmNear.id then
-    .ok ()
-  else
-    .error { message := s!"EmitWat plan requires target `wasm-near`, got `{plan.targetId}`" }
 
 def renderCheckedModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := .near) :
     Except EmitError String := do
