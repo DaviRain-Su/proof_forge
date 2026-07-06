@@ -103,6 +103,9 @@ def structStorageFieldInfo (sd : ProofForge.IR.StructDecl) (typeName fieldName l
 def structBufFieldPtrInsns (offset : Nat) : Array Insn :=
   #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add"]
 
+def mapInfoPrefixInsns (m : MapInfo) : Array Insn :=
+  #[.i32Const m.prefixPtr, .i32Const m.prefixLen]
+
 def zeroStructBufInsns (s : ProofForge.IR.StructDecl) : Array Insn :=
   (s.fields.foldl (fun st f =>
       (st.1 + scalarWidth f.type,
@@ -139,7 +142,7 @@ def readArrayStructBufInsns (m : MapInfo) (s : ProofForge.IR.StructDecl) : Array
 def arrayStructFieldReadInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
     (indexInsns buildKeyCall : Array Insn) (offset : Nat) (fieldType : ValueType) :
     Array Insn × ValueType :=
-  (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ indexInsns ++ buildKeyCall ++
+  (mapInfoPrefixInsns m ++ indexInsns ++ buildKeyCall ++
     readArrayStructBufInsns m sd ++
     structBufFieldPtrInsns offset ++ #[.load (loadOpFor fieldType) 0],
     fieldType)
@@ -147,11 +150,11 @@ def arrayStructFieldReadInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
 def arrayStructFieldWriteInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
     (readKeyInsns writeKeyInsns buildKeyCall valueInsns : Array Insn) (offset : Nat)
     (fieldType : ValueType) : Array Insn :=
-  #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKeyInsns ++ buildKeyCall ++
+  mapInfoPrefixInsns m ++ readKeyInsns ++ buildKeyCall ++
     readArrayStructBufInsns m sd ++
     structBufFieldPtrInsns offset ++ valueInsns ++
     #[.store (storeOpFor fieldType) 0] ++
-    #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKeyInsns ++ buildKeyCall ++
+    mapInfoPrefixInsns m ++ writeKeyInsns ++ buildKeyCall ++
     #[.i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
       .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0,
       .call "storage_write", .drop]
