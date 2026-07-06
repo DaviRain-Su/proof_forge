@@ -1,26 +1,23 @@
 import ProofForge.IR.Examples.MapProbe
 import ProofForge.Backend.Quint.Lower
 
-namespace Tests.Quint.MapModel
+namespace Tests.Quint.MapPathModel
 
 open ProofForge.Backend.Quint
 
 def scenario : Scenario.Config := { maxUint := 10, users := #["alice"] }
 
 def main : IO UInt32 := do
-  match Lower.renderModule ProofForge.IR.Examples.MapProbe.emitQuintStorageModule scenario with
+  match Lower.renderModule ProofForge.IR.Examples.MapProbe.emitQuintPathModule scenario with
   | .error e =>
       IO.eprintln s!"FAIL lower: {e.message}"
       return 1
   | .ok source =>
       let expected := [
         "module MapProbeModel",
-        "var balances: str -> str",
-        "action setBalanceReturn",
+        "action path_lifecycle",
         "balances' = balances.put(",
-        "action getBalance",
-        "key.in(balances.keys())",
-        "action hasBalance"
+        "hash:2002:0:0:0"
       ]
       for s in expected do
         if !source.contains s then
@@ -29,6 +26,6 @@ def main : IO UInt32 := do
       IO.println "PASS"
       return 0
 
-end Tests.Quint.MapModel
+end Tests.Quint.MapPathModel
 
-def main : IO UInt32 := Tests.Quint.MapModel.main
+def main : IO UInt32 := Tests.Quint.MapPathModel.main

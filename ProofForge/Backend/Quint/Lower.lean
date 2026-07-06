@@ -8,7 +8,7 @@ namespace ProofForge.Backend.Quint.Lower
 
 set_option linter.unusedVariables false
 
-open ProofForge.IR (ValueType Literal Statement Entrypoint StateDecl StructDecl Effect AssignOp)
+open ProofForge.IR (ValueType Literal Statement Entrypoint StateDecl StructDecl Effect AssignOp StoragePathSegment)
 open ProofForge.Backend.Quint
 
 structure LowerError where
@@ -66,6 +66,17 @@ def emptyMapExpr : Expr :=
 
 def hashZeroExpr : Expr :=
   .literalStr (hashLiteralStr 0 0 0 0)
+
+/-- v1: only single-segment `mapKey` paths on map-backed state. -/
+def mapKeyOnlyPath? (path : Array StoragePathSegment) : Option ProofForge.IR.Expr :=
+  match path with
+  | #[.mapKey key] => some key
+  | _ => none
+
+def isMapStateDecl (decl : StateDecl) : Bool :=
+  match decl.kind with
+  | ProofForge.IR.StateKind.map _ _ => true
+  | _ => false
 
 def expandedStateIds (state : Array StateDecl) (structs : Array StructDecl) : Array String :=
   state.foldl (fun acc decl =>
@@ -224,6 +235,34 @@ mutual
     | .effect eff => lowerEffectExpr ctx eff
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
+  partial def lowerMapGetExpr (ctx : LowerCtx) (stateId : String) (key : ProofForge.IR.Expr) : Except LowerError Expr := do
+    let mapExpr := ctx.stateValue stateId
+    let key' ← lowerExpr ctx key
+    let present := mapContainsExpr key' mapExpr
+    .ok (.ite present (.methodCall mapExpr "get" #[key']) hashZeroExpr)
+
+  partial def effectPresenceGuard (ctx : LowerCtx) (eff : Effect) : Except LowerError (Option Expr) :=
+    match eff with
+    | .storageMapGet stateId key => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        .ok (some (mapContainsExpr key' mapExpr))
+    | .storagePathRead stateId path =>
+        match ctx.lookupStateDecl stateId with
+        | some decl =>
+            if !isMapStateDecl decl then
+              .error { message := s!"storagePathRead guard on non-map state `{stateId}`" }
+            else
+              match mapKeyOnlyPath? path with
+              | some key => do
+                  let mapExpr := ctx.stateValue stateId
+                  let key' ← lowerExpr ctx key
+                  .ok (some (mapContainsExpr key' mapExpr))
+              | none =>
+                  .error { message := s!"storagePathRead guard requires a single mapKey path on `{stateId}`" }
+        | none => .error { message := s!"unknown state `{stateId}` for storagePathRead guard" }
+    | _ => .ok none
+
   partial def lowerEffectExpr (ctx : LowerCtx) (eff : Effect) : Except LowerError Expr :=
     match eff with
     | .storageScalarRead stateId => .ok (ctx.stateValue stateId)
@@ -234,11 +273,19 @@ mutual
         let mapExpr := ctx.stateValue stateId
         let key' ← lowerExpr ctx key
         .ok (mapContainsExpr key' mapExpr)
-    | .storageMapGet stateId key => do
-        let mapExpr := ctx.stateValue stateId
-        let key' ← lowerExpr ctx key
-        let present := mapContainsExpr key' mapExpr
-        .ok (.ite present (.methodCall mapExpr "get" #[key']) hashZeroExpr)
+    | .storageMapGet stateId key =>
+        lowerMapGetExpr ctx stateId key
+    | .storagePathRead stateId path =>
+        match ctx.lookupStateDecl stateId with
+        | some decl =>
+            if !isMapStateDecl decl then
+              .error { message := s!"storagePathRead on non-map state `{stateId}`" }
+            else
+              match mapKeyOnlyPath? path with
+              | some key => lowerMapGetExpr ctx stateId key
+              | none =>
+                  .error { message := s!"storagePathRead requires a single mapKey path on `{stateId}`" }
+        | none => .error { message := s!"unknown state `{stateId}` for storagePathRead" }
     | .storageStructFieldRead stateId fieldName =>
         .ok (ctx.stateValue (structFieldVarName stateId fieldName))
     | .contextRead field =>
@@ -309,6 +356,17 @@ mutual
         let value' ← lowerExpr ctx value
         let updated := .methodCall mapExpr "put" #[key', value']
         .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .storagePathWrite stateId path value =>
+        match ctx.lookupStateDecl stateId with
+        | some decl =>
+            if !isMapStateDecl decl then
+              .error { message := s!"storagePathWrite on non-map state `{stateId}`" }
+            else
+              match mapKeyOnlyPath? path with
+              | some key => applyEffect ctx (.storageMapSet stateId key value)
+              | none =>
+                  .error { message := s!"storagePathWrite requires a single mapKey path on `{stateId}`" }
+        | none => .error { message := s!"unknown state `{stateId}` for storagePathWrite" }
     | .storageStructFieldWrite stateId fieldName value => do
         let value' ← lowerExpr ctx value
         .ok { ctx with
@@ -416,6 +474,10 @@ mutual
         let finalState := stateIds.foldl (fun (acc : LocalEnv) id =>
           acc.upsert id (.local (whileStepLocalName id ctx.maxLoopUnroll))) []
         .ok { ctx with state := finalState, guards := guardsAcc, pureDefs := pureDefsAcc }
+    | .return (.effect eff) => do
+        match ← effectPresenceGuard ctx eff with
+        | some guard => .ok { ctx with guards := ctx.guards.push (.guard guard) }
+        | none => .ok ctx
     | .return _ | .release _ =>
         .ok ctx
 

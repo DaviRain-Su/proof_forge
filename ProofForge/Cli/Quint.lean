@@ -20,6 +20,7 @@ def supportedFixtureIds : Array String := #[
   "while",
   "array",
   "map",
+  "map-path",
   "struct"
 ]
 
@@ -35,6 +36,7 @@ def outputFileName (fixtureId : String) : String :=
   | "while" => "WhileProbe.qnt"
   | "array" => "ArrayProbe.qnt"
   | "map" => "MapProbe.qnt"
+  | "map-path" => "MapPathProbe.qnt"
   | "struct" => "StructProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
@@ -51,6 +53,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "while" => some ProofForge.IR.Examples.WhileProbe.module
   | "array" => some ProofForge.IR.Examples.ArrayProbe.emitWatStorageModule
   | "map" => some ProofForge.IR.Examples.MapProbe.emitQuintStorageModule
+  | "map-path" => some ProofForge.IR.Examples.MapProbe.emitQuintPathModule
   | "struct" => some ProofForge.IR.Examples.StructProbe.emitWatStorageModule
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none
