@@ -31,6 +31,8 @@ lake env lean --run Tests/Quint/WhileModel.lean
 lake env lean --run Tests/Quint/ArrayModel.lean
 lake env lean --run Tests/Quint/MapModel.lean
 lake env lean --run Tests/Quint/MapPathModel.lean
+lake env lean --run Tests/Quint/MapNestedPathModel.lean
+lake env lean --run Tests/Quint/MapPathAssignModel.lean
 lake env lean --run Tests/Quint/StructModel.lean
 lake env lean --run Tests/Quint/ArrayPathModel.lean
 lake env lean --run Tests/Quint/StructPathModel.lean
@@ -59,6 +61,12 @@ lake env lean --run Tests/Quint/MapReplay.lean
 echo "Running MapProbe path MBT replay test..."
 lake env lean --run Tests/Quint/MapPathReplay.lean
 
+echo "Running MapProbe nested path MBT replay test..."
+lake env lean --run Tests/Quint/MapNestedPathReplay.lean
+
+echo "Running MapProbe path assign MBT replay test..."
+lake env lean --run Tests/Quint/MapPathAssignReplay.lean
+
 echo "Running StructProbe MBT replay test..."
 lake env lean --run Tests/Quint/StructReplay.lean
 
@@ -76,6 +84,8 @@ test "$(wc -c < build/quint/CliWhile.qnt)" -lt 8192
 lake env proof-forge emit --target quint --fixture array -o build/quint/CliArray.qnt
 lake env proof-forge emit --target quint --fixture map -o build/quint/CliMap.qnt
 lake env proof-forge emit --target quint --fixture map-path -o build/quint/CliMapPath.qnt
+lake env proof-forge emit --target quint --fixture map-nested-path -o build/quint/CliMapNestedPath.qnt
+lake env proof-forge emit --target quint --fixture map-path-assign -o build/quint/CliMapPathAssign.qnt
 lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStruct.qnt
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/CliArrayPath.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/CliStructPath.qnt

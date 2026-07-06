@@ -77,6 +77,24 @@ def writeStructStateFromItf (decl : StateDecl) (structDecl : StructDecl) (itfSta
     | none => .error { message := s!"missing ITF field `{fieldVar}` for struct state `{decl.id}`" }
   pure next
 
+def mapEntryStorageKey (declId keyStr : String) : String :=
+  if keyStr.startsWith "{" then
+    declId ++ keyStr
+  else
+    mapKey declId keyStr
+
+def writeMapValueFromItf (valueType : ValueType) (v : ITF.Value) : Except ReplayError ProofForge.IR.Semantics.Value :=
+  match valueType with
+  | .hash =>
+      match v with
+      | .str s => parseHashString s
+      | other => .error { message := s!"expected string hash map value in ITF, got: {repr other}" }
+  | .u64 =>
+      match v with
+      | .int n => .ok (.u64 n)
+      | other => .error { message := s!"expected int u64 map value in ITF, got: {repr other}" }
+  | _ => itfValueToIr valueType v
+
 def writeMapStateFromItf (decl : StateDecl) (v : ITF.Value) (state : State) : Except ReplayError State :=
   match v with
   | .map entries => do
@@ -85,14 +103,10 @@ def writeMapStateFromItf (decl : StateDecl) (v : ITF.Value) (state : State) : Ex
         let keyStr ← match keyValue with
           | .str s => .ok s
           | other => .error { message := s!"expected string map key in ITF, got: {repr other}" }
-        let valueStr ← match valueValue with
-          | .str s => .ok s
-          | other => .error { message := s!"expected string map value in ITF, got: {repr other}" }
-        let irKey ← parseHashString keyStr
-        let irValue ← parseHashString valueStr
-        let key := valueKey irKey
-        next := next.write (mapKey decl.id key) irValue
-        next := next.write (mapPresentKey decl.id key) (.bool true)
+        let irValue ← writeMapValueFromItf decl.type valueValue
+        let storageKey := mapEntryStorageKey decl.id keyStr
+        next := next.write storageKey irValue
+        next := next.write (storageKey ++ ".present") (.bool true)
       pure next
   | _ =>
       .error { message := s!"expected ITF map for state `{decl.id}`" }

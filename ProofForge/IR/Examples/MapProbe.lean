@@ -37,6 +37,18 @@ def pathKey : Expr :=
 def pathValue : Expr :=
   .literal (.hash4 77 88 99 111)
 
+def nestedOuterKey : Expr :=
+  .literal (.hash4 4004 0 0 0)
+
+def nestedInnerKey : Expr :=
+  .literal (.hash4 5005 0 0 0)
+
+def nestedPathValue : Expr :=
+  .literal (.hash4 88 99 111 112)
+
+def pathAssignKey : Expr :=
+  .literal (.u64 3003)
+
 def zeroHash : Expr :=
   .literal (.hash4 0 0 0 0)
 
@@ -86,6 +98,52 @@ def pathLifecycle : Entrypoint := {
     .letBind "value" .hash pathValue,
     .effect (.storagePathWrite "balances" #[.mapKey (.local "key")] (.local "value")),
     .return (.effect (.storagePathRead "balances" #[.mapKey (.local "key")]))
+  ]
+}
+
+def nestedPathLifecycle : Entrypoint := {
+  name := "nested_path_lifecycle"
+  returns := .hash
+  body := #[
+    .effect (.storagePathWrite "balances"
+      #[.mapKey nestedOuterKey, .mapKey nestedInnerKey] nestedPathValue),
+    .return (.effect (.storagePathRead "balances"
+      #[.mapKey nestedOuterKey, .mapKey nestedInnerKey]))
+  ]
+}
+
+def nestedU64OuterKey : Expr :=
+  .literal (.u64 4004)
+
+def nestedU64InnerKey : Expr :=
+  .literal (.u64 5005)
+
+def nestedPathAssignLifecycle : Entrypoint := {
+  name := "nested_path_assign_lifecycle"
+  returns := .u64
+  body := #[
+    .effect (.storagePathWrite "scores"
+      #[.mapKey nestedU64OuterKey, .mapKey nestedU64InnerKey] (.literal (.u64 88))),
+    .effect (.storagePathAssignOp "scores"
+      #[.mapKey nestedU64OuterKey, .mapKey nestedU64InnerKey] .add (.literal (.u64 7))),
+    .return (.effect (.storagePathRead "scores"
+      #[.mapKey nestedU64OuterKey, .mapKey nestedU64InnerKey]))
+  ]
+}
+
+def stateScores : StateDecl := {
+  id := "scores"
+  kind := .map .u64 8
+  type := .u64
+}
+
+def pathAssignLifecycle : Entrypoint := {
+  name := "path_assign_lifecycle"
+  returns := .u64
+  body := #[
+    .effect (.storagePathWrite "scores" #[.mapKey pathAssignKey] (.literal (.u64 10))),
+    .effect (.storagePathAssignOp "scores" #[.mapKey pathAssignKey] .add (.literal (.u64 5))),
+    .return (.effect (.storagePathRead "scores" #[.mapKey pathAssignKey]))
   ]
 }
 
@@ -222,6 +280,20 @@ def emitQuintPathModule : Module := {
   name := "MapProbe",
   state := #[stateBalances],
   entrypoints := #[pathLifecycle]
+}
+
+/-- Quint/MBT subset: nested consecutive `mapKey` `storagePath*` on hash map state. -/
+def emitQuintNestedPathModule : Module := {
+  name := "MapProbe",
+  state := #[stateBalances],
+  entrypoints := #[nestedPathLifecycle]
+}
+
+/-- Quint/MBT subset: `storagePathAssignOp` on single- and nested-mapKey U64 paths. -/
+def emitQuintPathAssignModule : Module := {
+  name := "MapProbe",
+  state := #[stateScores],
+  entrypoints := #[pathAssignLifecycle, nestedPathAssignLifecycle]
 }
 
 /-! EmitWat "full" subset: every MapProbe entrypoint EXCEPT `pathLifecycle` (which

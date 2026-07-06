@@ -25,7 +25,9 @@ def supportedFixtureIds : Array String := #[
   "map-path",
   "struct",
   "array-path",
-  "struct-path"
+  "struct-path",
+  "map-nested-path",
+  "map-path-assign"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -44,6 +46,8 @@ def outputFileName (fixtureId : String) : String :=
   | "struct" => "StructProbe.qnt"
   | "array-path" => "ArrayPathProbe.qnt"
   | "struct-path" => "StructPathProbe.qnt"
+  | "map-nested-path" => "MapNestedPathProbe.qnt"
+  | "map-path-assign" => "MapPathAssignProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -63,6 +67,8 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "struct" => some ProofForge.IR.Examples.StructProbe.emitWatStorageModule
   | "array-path" => some ProofForge.IR.Examples.EvmStorageArrayProbe.emitQuintPathModule
   | "struct-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintPathModule
+  | "map-nested-path" => some ProofForge.IR.Examples.MapProbe.emitQuintNestedPathModule
+  | "map-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintPathAssignModule
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none
 
