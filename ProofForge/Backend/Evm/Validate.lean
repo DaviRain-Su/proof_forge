@@ -1007,6 +1007,10 @@ mutual
         ensureType "contract creation salt" .hash (← inferExprType module env salt)
         discard <| normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType
@@ -1689,6 +1693,11 @@ mutual
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .nearPromiseThen p m args d =>
+        exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
+          args.any exprUsesCheckedArithmetic
+    | .nearPromiseResultsCount => false
+    | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

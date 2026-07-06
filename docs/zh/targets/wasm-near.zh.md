@@ -36,6 +36,31 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
+### NEAR Promise IR（仅 EmitWat v1）
+
+可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。NEAR 专用的 promise 链路与回调内省使用独立的 `Expr` 形式，并打上 `near.promise` capability（尚未加入 `wasm-near` target profile；EmitWat 通过扩展 capability 集接受它们）：
+
+| IR 表达式 | NEAR host import | 作用 |
+|---|---|---|
+| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.nearCrosscallStrings`。 |
+| `nearPromiseResultsCount` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
+| `nearPromiseResultStatus index` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。register payload 解码延后。 |
+
+典型结构：
+
+```text
+entry call_remote_with_callback:
+  return nearPromiseThen(
+    crosscallInvoke(...),
+    callbackMethod = "handle_remote",
+    args = [], deposit = 0)
+
+entry handle_remote:
+  return nearPromiseResultStatus(0)
+```
+
+Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。
+
 ### 为什么不用 `EmitZig`
 
 早期计划（`Lean → EmitZig → Zig → host bridge → Wasm`）已被取代，因为它要求把完整 Lean runtime 移植到 Wasm（libuv / threads / GC），这是已记录的 blocker。`EmitWat` 直接 lower portable IR，完全避开这个 runtime port；它也避免了对 `near-sdk` macros 的耦合（Rust v0 中 E0119 / missing-`&self` bug 的来源）。

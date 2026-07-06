@@ -1323,6 +1323,11 @@ mutual
     | .crosscallCreate callValue _ => contextOpsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         contextOpsFromExpr callValue ++ contextOpsFromExpr salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        contextOpsFromExpr parentPromise ++ contextOpsFromExpr callbackMethod ++ contextOpsFromExpr deposit ++
+          args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=

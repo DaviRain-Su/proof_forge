@@ -1105,6 +1105,10 @@ mutual
           (← buildExprPlan module env callValue)
           (some (← buildExprPlan module env salt))
           initCodeHex)
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => do
         .ok (.effect (← buildEffectPlan module env effect))
 
@@ -1636,6 +1640,7 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ => pure collector
+    | .nearPromiseThen _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
   partial def collectEventPlansFromEffect
@@ -1894,6 +1899,7 @@ mutual
         .ok (mergeCrosscallHelperSpecs
           (← crosscallHelperSpecsFromExpr module env callValue)
           (← crosscallHelperSpecsFromExpr module env salt))
+    | .nearPromiseThen _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ => .ok #[]
     | .effect effect =>
         crosscallHelperSpecsFromEffect module env effect
 
@@ -2334,6 +2340,7 @@ mutual
     | .crosscallCreate2 callValue salt initCodeHex =>
         let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
         pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
+    | .nearPromiseThen _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ => #[]
     | .effect effect =>
         createHelperSpecsFromEffect effect
 
@@ -3857,6 +3864,11 @@ mutual
         localArrayGetLengthsExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
+    | .nearPromiseThen p m args d =>
+        mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
+          (mergeNatSets (localArrayGetLengthsExpr env d) (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus i => localArrayGetLengthsExpr env i
     | .effect effect =>
         localArrayGetLengthsEffect env effect
 
@@ -4013,6 +4025,12 @@ mutual
         nestedLocalArrayGetShapesExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
+    | .nearPromiseThen p m args d =>
+        let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)
+        let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env d)
+        args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus i => nestedLocalArrayGetShapesExpr env i
     | .effect effect =>
         nestedLocalArrayGetShapesEffect env effect
 

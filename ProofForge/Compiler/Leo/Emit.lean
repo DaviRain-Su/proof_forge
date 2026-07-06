@@ -161,6 +161,11 @@ partial def hasEffectExpr : Expr → Bool
   | .crosscallInvokeDelegateTyped t m args _ => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
   | .crosscallCreate cv _ => hasEffectExpr cv
   | .crosscallCreate2 cv s _ => hasEffectExpr cv || hasEffectExpr s
+  | .nearPromiseThen p m args d =>
+      hasEffectExpr p || hasEffectExpr m || hasEffectExpr d ||
+        args.any (fun arg => hasEffectExpr arg)
+  | .nearPromiseResultsCount => false
+  | .nearPromiseResultStatus i => hasEffectExpr i
   | _ => false
 
 mutual

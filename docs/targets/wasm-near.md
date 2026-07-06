@@ -49,6 +49,34 @@ Storage/crypto/context effects lower to these NEAR host imports:
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
+### NEAR Promise IR (EmitWat-only v1)
+
+Portable `crosscallInvoke` lowers to `promise_create` for remote calls. NEAR-specific
+promise chaining and callback introspection use dedicated `Expr` forms tagged with
+the `near.promise` capability (not in the `wasm-near` target profile yet; EmitWat
+accepts them via its extended capability set):
+
+| IR expression | NEAR host import(s) | Role |
+|---|---|---|
+| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.nearCrosscallStrings` via `.literal (.address i)`. |
+| `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
+| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). Register payload decode is deferred. |
+
+Typical shape:
+
+```text
+entry call_remote_with_callback:
+  return nearPromiseThen(
+    crosscallInvoke(...),
+    callbackMethod = "handle_remote",
+    args = [], deposit = 0)
+
+entry handle_remote:
+  return nearPromiseResultStatus(0)
+```
+
+Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.
+
 ### Why not `EmitZig`
 
 The earlier plan (`Lean → EmitZig → Zig → host bridge → Wasm`) is superseded

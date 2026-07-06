@@ -254,6 +254,9 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
+    | .nearPromiseThen _ _ _ _ => .ok .u64
+    | .nearPromiseResultsCount => .ok .u64
+    | .nearPromiseResultStatus _ => .ok .u64
     | .effect effect =>
         inferEffectExprType module env effect
 end
@@ -426,6 +429,19 @@ def withPromiseReturn : ModuleSurface := {
   usesPromiseReturn := true
 }
 
+/-- NEAR `promise_then` on the current contract account. -/
+def withPromiseThen : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseThen := true
+  usesPromiseReceiverAccount := true
+}
+
+/-- NEAR callback result introspection (`promise_results_count` / `promise_result`). -/
+def withPromiseResults : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseResults := true
+}
+
 def withCrosscallArgs : ModuleSurface := {
   usesCrosscallArgs := true
   usesMemcpy := true
@@ -552,9 +568,10 @@ def comparisonSurfaceForType (type : ValueType) : ModuleSurface :=
 
 end ModuleSurface
 
-partial def exprReturnsCrosscallPromise : Expr → Bool
+partial def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | .nearPromiseThen _ _ _ _ => true
   | _ => false
 
 def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
@@ -671,6 +688,15 @@ mutual
         contextOpsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         return mergeContextExprPlans (← contextOpsFromExpr callValue) (← contextOpsFromExpr salt)
+    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+        let base :=
+          mergeContextExprPlans
+            (mergeContextExprPlans (← contextOpsFromExpr parentPromise) (← contextOpsFromExpr callbackMethod))
+            (← contextOpsFromExpr deposit)
+        args.foldlM (init := base) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
+    | .nearPromiseResultsCount => .ok #[]
+    | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .effect effect =>
         contextOpsFromEffect effect
 
@@ -876,6 +902,18 @@ mutual
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
           ModuleSurface.withCrosscallPromise
+    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+        let base :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces
+              (mergeModuleSurfaces (← surfaceFromExpr module env parentPromise) (← surfaceFromExpr module env callbackMethod))
+              (← surfaceFromExpr module env deposit))
+            ModuleSurface.withPromiseThen
+        let argSurface ← surfaceFromCrosscallArgs module env args
+        return mergeModuleSurfaces base argSurface
+    | .nearPromiseResultsCount => .ok ModuleSurface.withPromiseResults
+    | .nearPromiseResultStatus index =>
+        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResults
     | .effect effect =>
         surfaceFromEffect module env effect
 
@@ -1029,7 +1067,7 @@ mutual
     | .return value => do
         let valueSurface ← surfaceFromExpr module env value
         let promiseReturn :=
-          if exprReturnsCrosscallPromise value then ModuleSurface.withPromiseReturn else ModuleSurface.empty
+          if exprReturnsNearPromise value then ModuleSurface.withPromiseReturn else ModuleSurface.empty
         return mergeModuleSurfaces
           (mergeModuleSurfaces valueSurface promiseReturn) (ModuleSurface.withReturnType returnType)
 

@@ -1038,6 +1038,10 @@ mutual
         ensureType "contract creation salt" .hash (← inferExprType module env salt)
         discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType
@@ -2164,6 +2168,10 @@ mutual
         lowerExprThroughPlan module env (.crosscallCreate callValue initCodeHex)
     | .crosscallCreate2 callValue salt initCodeHex => do
         lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
   partial def lowerEffectExprThroughPlan
@@ -2497,6 +2505,9 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .crosscallInvokeDelegateTyped _ _ _ _
   | .crosscallCreate _ _
   | .crosscallCreate2 _ _ _
+  | .nearPromiseThen _ _ _ _
+  | .nearPromiseResultsCount
+  | .nearPromiseResultStatus _
   | .effect _ => false
 
 partial def lowerExprViaPlan
@@ -5623,6 +5634,11 @@ mutual
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .nearPromiseThen p m args d =>
+        exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
+          args.any exprUsesCheckedArithmetic
+    | .nearPromiseResultsCount => false
+    | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

@@ -901,6 +901,21 @@ def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
 def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=
   if plan.usesCrosscallArgs then #[crosscallPtrGlobalDecl] else #[]
 
+def promiseCurrentAccountName : String := "__pf_promise_current_account"
+
+/-- Load the current contract account id into `CTX_BUF` and return its byte length. -/
+def promiseCurrentAccountFunc : Func :=
+  { name := promiseCurrentAccountName, results := #[.i64],
+    locals := #[{ name := "len", type := .i64 }],
+    body := { insns := #[
+      .i64Const 0, .call "current_account_id",
+      .i64Const 0, .call "register_len", .localSet "len",
+      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
+      .localGet "len" ] } }
+
+def promiseHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]
+
 -- State layout
 structure StateInfo where
   id : String
@@ -1083,6 +1098,9 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ _
     | .crosscallCreate _ _
     | .crosscallCreate2 _ _ _
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
     | .effect _ => false
 
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
@@ -1133,6 +1151,33 @@ mutual
     ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
+    ], .u64)
+
+  partial def lowerNearPromiseThen (ctx : Ctx) (env : LocalTypes) (parentPromise callbackMethod : Expr)
+      (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+    if ctx.crosscallStrings.isEmpty then
+      err "EmitWat: NEAR promise_then requires `module.nearCrosscallStrings` for callback method names"
+    let (parentInsns, parentType) ← lowerExpr ctx env parentPromise
+    if parentType != .u64 then
+      err s!"EmitWat: NEAR promise_then parent expected `U64` promise id, got `{parentType.name}`"
+    let methodSi ← resolveCrosscallStringRef ctx callbackMethod "callback method name"
+    let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
+    let (depositInsns, depositType) ← lowerExpr ctx env deposit
+    if depositType != .u64 then
+      err s!"EmitWat: NEAR promise_then deposit expected `U64`, got `{depositType.name}`"
+    let argsLenInsns :=
+      if args.isEmpty then
+        #[.i64Const argsLenMarker]
+      else
+        #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
+    let argsPtrInsns := #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+    .ok (parentInsns ++ argBuildInsns ++ #[
+      .call promiseCurrentAccountName,
+      .i32Const CTX_BUF, .plain "i64.extend_i32_u",
+      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
+    ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+      .i64Const crosscallDefaultGas,
+      .call "promise_then"
     ], .u64)
 
   partial def lowerExpr (ctx : Ctx) (env : LocalTypes) (e : Expr)
@@ -1282,6 +1327,17 @@ mutual
       err (crosscallEvmOnlyMessage "crosscallCreate")
     | .crosscallCreate2 _ _ _ =>
       err (crosscallEvmOnlyMessage "crosscallCreate2")
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+      lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit
+    | .nearPromiseResultsCount =>
+      .ok (#[.call "promise_results_count"], .u64)
+    | .nearPromiseResultStatus index => do
+      let (indexInsns, indexType) ← lowerExpr ctx env index
+      if !(indexType == .u32 || indexType == .u64) then
+        err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
+      else do
+        let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
+        .ok (indexInsns ++ conv ++ #[.i64Const 0, .call "promise_result"], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
@@ -1710,6 +1766,11 @@ mutual
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ collectArrayLitsExpr v ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallCreate value _ => collectArrayLitsExpr value
     | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        collectArrayLitsExpr parentPromise ++ collectArrayLitsExpr callbackMethod ++
+          collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus index => collectArrayLitsExpr index
     | .effect eff => collectArrayLitsEffect eff
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
     match eff with
@@ -1763,6 +1824,11 @@ mutual
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ collectStructLitsExpr v ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallCreate value _ => collectStructLitsExpr value
     | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        collectStructLitsExpr parentPromise ++ collectStructLitsExpr callbackMethod ++
+          collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus index => collectStructLitsExpr index
     | .effect eff => collectStructLitsEffect eff
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=
     match segment with
@@ -1923,16 +1989,17 @@ partial def collectLocalsFrom (acc : LocalTypes) (s : Statement) : Except EmitEr
 def collectLocals (body : Array Statement) : Except EmitError LocalTypes :=
   body.foldlM (init := #[]) collectLocalsFrom
 
-def exprReturnsCrosscallPromise : Expr → Bool
+def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | .nearPromiseThen _ _ _ _ => true
   | _ => false
 
 def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
   if t != expected then err s!"EmitWat: return expected `{expected.name}`, got `{t.name}`"
-  else if exprReturnsCrosscallPromise e then
+  else if exprReturnsNearPromise e then
     .ok (is ++ #[.call "promise_return"])
   else match t with
     | .u64 => .ok (is ++ #[.call returnU64Name])
@@ -2192,8 +2259,9 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let evtKeySegments := if modulePlan.usesEventApi then #[evtKeyData] else #[]
   let crosscallArgsData :=
     if modulePlan.usesPromiseCreate then #[{ offset := CROSSCALL_ARGS_EMPTY_PTR, bytes := "[]" }] else #[]
+  let usesCrosscallStrings := modulePlan.usesPromiseCreate || modulePlan.usesPromiseThen
   let crosscallStringData :=
-    if modulePlan.usesPromiseCreate then
+    if usesCrosscallStrings then
       crosscallStrs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
     else #[]
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
@@ -2218,6 +2286,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
     evtHelperFuncsForModulePlan modulePlan ++ crosscallArgsHelperFuncsForModulePlan modulePlan ++
+    promiseHelperFuncsForModulePlan modulePlan ++
     mapHelperFuncsForModulePlan modulePlan ++
     mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
   let arrPtrDecls :=
@@ -2241,7 +2310,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     and cross-contract calls are enabled for EmitWat via Promise lowering even
     though wasm-near Rust sourcegen v0 still rejects them. -/
 def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke
+  (ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke).push .nearPromise
 
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>

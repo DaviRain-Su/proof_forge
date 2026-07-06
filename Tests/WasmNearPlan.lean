@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmNear.EmitWat
+import ProofForge.Backend.WasmNear.Plan
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.StructProbe
@@ -502,9 +503,16 @@ def testCrosscallRenderEncodesU64ArgsJson : IO Unit := do
   requireContains wat "__pf_fmt_u64" "crosscall-args module must emit decimal formatter helper"
   requireContains wat "(global $crosscall_ptr" "crosscall-args module must emit crosscall_ptr global"
 
+def crosscallCreateOnlyModule : Module := {
+  name := "NearCrosscallCreateOnly"
+  state := #[]
+  entrypoints := #[ProofForge.IR.Examples.NearCrosscallProbe.callRemote]
+  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+}
+
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   let wat ←
-    match renderModule ProofForge.IR.Examples.NearCrosscallProbe.module with
+    match renderModule crosscallCreateOnlyModule with
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat crosscall render failed: {err.message}"
   requireContains wat "(import \"env\" \"promise_create\"" "crosscall module must import promise_create"
@@ -514,11 +522,38 @@ def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   requireContains wat "(data (i32.const 48100) \"[]\")" "crosscall module must emit empty JSON args data"
   requireContains wat "call $promise_create" "crosscall module must call promise_create"
   requireContains wat "call $promise_return" "crosscall module must call promise_return"
-  requireNotContains wat "(import \"env\" \"promise_then\"" "crosscall module should not import promise_then"
-  requireNotContains wat "(import \"env\" \"promise_results_count\"" "crosscall module should not import promise_results_count"
-  requireNotContains wat "(import \"env\" \"promise_result\"" "crosscall module should not import promise_result"
-  requireNotContains wat "(import \"env\" \"log_utf8\"" "crosscall module should not import log_utf8"
-  requireNotContains wat "(import \"env\" \"current_account_id\"" "crosscall module should not import current_account_id"
+  requireNotContains wat "(import \"env\" \"promise_then\"" "create-only crosscall module should not import promise_then"
+  requireNotContains wat "(import \"env\" \"promise_results_count\"" "create-only crosscall module should not import promise_results_count"
+  requireNotContains wat "(import \"env\" \"promise_result\"" "create-only crosscall module should not import promise_result"
+  requireNotContains wat "(import \"env\" \"log_utf8\"" "create-only crosscall module should not import log_utf8"
+  requireNotContains wat "(import \"env\" \"current_account_id\"" "create-only crosscall module should not import current_account_id"
+
+def testNearPromisePlanSurface : IO Unit := do
+  let plan ←
+    match ProofForge.Backend.WasmNear.Plan.buildModulePlan ProofForge.IR.Examples.NearCrosscallProbe.module with
+    | .ok plan => pure plan
+    | .error err => throw <| IO.userError s!"wasm-near plan failed: {err.message}"
+  if !plan.usesPromiseThen then
+    throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseThen"
+  if !plan.usesPromiseResults then
+    throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseResults"
+  if !plan.usesPromiseReceiverAccount then
+    throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseReceiverAccount"
+
+def testNearPromiseRenderChainsCallback : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.NearCrosscallProbe.module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat near-promise render failed: {err.message}"
+  requireContains wat "(import \"env\" \"promise_then\"" "near-promise module must import promise_then"
+  requireContains wat "(import \"env\" \"promise_results_count\"" "near-promise module must import promise_results_count"
+  requireContains wat "(import \"env\" \"promise_result\"" "near-promise module must import promise_result"
+  requireContains wat "(import \"env\" \"current_account_id\"" "near-promise module must import current_account_id"
+  requireContains wat "(data (i32.const 49027) \"handle_remote\")" "near-promise module must emit callback method data"
+  requireContains wat "__pf_promise_current_account" "near-promise module must emit current-account helper"
+  requireContains wat "call $promise_then" "near-promise module must call promise_then"
+  requireContains wat "call $promise_results_count" "near-promise module must call promise_results_count"
+  requireContains wat "call $promise_result" "near-promise module must call promise_result"
 
 def testStructLiteralRenderKeepsOnlyMatchingStructLitSurface : IO Unit := do
   let wat ←
@@ -575,6 +610,8 @@ def main : IO UInt32 := do
   testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports
   testCrosscallRenderEncodesU64ArgsJson
   testCrosscallRenderKeepsOnlyCreatePromiseSurface
+  testNearPromisePlanSurface
+  testNearPromiseRenderChainsCallback
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"

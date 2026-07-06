@@ -673,6 +673,10 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect =>
         inferEffectExprType module env effect
 
@@ -1080,6 +1084,10 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/

@@ -30,11 +30,35 @@ def callRemoteWithAmount : Entrypoint := {
   ]
 }
 
+/-- Chains `promise_create` with `promise_then` onto a local callback entrypoint. -/
+def callRemoteWithCallback : Entrypoint := {
+  name := "call_remote_with_callback"
+  returns := .u64
+  params := #[]
+  body := #[
+    .return (.nearPromiseThen
+      (.crosscallInvoke (.literal (.address 0)) (.literal (.address 1)) #[.literal (.u64 42)])
+      (.literal (.address 2))
+      #[] (.literal (.u64 0)))
+  ]
+}
+
+/-- Promise callback entrypoint: reads the first result status. -/
+def handleRemote : Entrypoint := {
+  name := "handle_remote"
+  returns := .u64
+  params := #[]
+  body := #[
+    .letBind "result_count" .u64 .nearPromiseResultsCount,
+    .return (.nearPromiseResultStatus (.literal (.u64 0)))
+  ]
+}
+
 def module : Module := {
   name := "NearCrosscallProbe"
   state := #[stateMarker]
-  entrypoints := #[callRemote, callRemoteWithAmount]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  entrypoints := #[callRemote, callRemoteWithAmount, callRemoteWithCallback, handleRemote]
+  nearCrosscallStrings := #["callee.testnet", "remote_call", "handle_remote"]
 }
 
 end ProofForge.IR.Examples.NearCrosscallProbe

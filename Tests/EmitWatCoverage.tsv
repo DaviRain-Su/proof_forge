@@ -83,6 +83,9 @@ Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects 
 Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
 Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
+Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen after promise_create, scheduling a local callback method via promise_then on the current account.
+Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count for callback entrypoints.
+Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns status as U64; register payload decode is deferred.
 Expr	effect	lowered	EmitWat lowerExpr delegates expression-position effects to storage/context/map/array/struct effect lowering.
 Effect	storageScalarRead	lowered	EmitWat lowers scalar reads through typed storage_read helpers.
 Effect	storageScalarWrite	lowered	EmitWat lowers scalar writes through typed storage_write helpers, including struct-valued scalar writes.

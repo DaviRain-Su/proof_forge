@@ -177,6 +177,12 @@ mutual
     | crosscallInvokeDelegateTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallCreate (callValue : Expr) (initCodeHex : String)
     | crosscallCreate2 (callValue salt : Expr) (initCodeHex : String)
+    /-- NEAR-only Promise chain: attach a callback method on the current contract. -/
+    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+    /-- NEAR-only: number of completed promise results visible in a callback entrypoint. -/
+    | nearPromiseResultsCount
+    /-- NEAR-only: status of promise result at `index` (1 = success, 2 = failed). -/
+    | nearPromiseResultStatus (index : Expr)
     | effect (effect : Effect)
     deriving Repr
 
@@ -291,7 +297,8 @@ structure Module where
   allocator : AllocatorConfig := defaultAllocator
   /-- When set to `uups`, EVM lowering adds a delegatecall fallback for proxy shells. -/
   evmProxyPattern? : Option String := none
-  /-- NEAR EmitWat crosscall strings indexed by `.literal (.address i)` target/method ids. -/
+  /-- NEAR EmitWat host strings indexed by `.literal (.address i)` (remote account/method
+      names and local promise callback method names). -/
   nearCrosscallStrings : Array String := #[]
   deriving Repr
 
@@ -393,6 +400,11 @@ mutual
         #[.crosscallInvoke] ++ callValue.capabilities
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
+    | .nearPromiseResultsCount => #[.nearPromise]
+    | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

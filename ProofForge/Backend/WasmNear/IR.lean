@@ -419,6 +419,9 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
+    | .nearPromiseThen _ _ _ _ => .ok .u64
+    | .nearPromiseResultsCount => .ok .u64
+    | .nearPromiseResultStatus _ => .ok .u64
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
@@ -781,6 +784,10 @@ mutual
     | .crosscallCreate _ _
     | .crosscallCreate2 _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _ =>
+        .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 
   partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String
