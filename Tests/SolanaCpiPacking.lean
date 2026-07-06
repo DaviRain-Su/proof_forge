@@ -1,6 +1,7 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
 import ProofForge.Solana
+import ProofForge.Solana.Examples.AssociatedTokenCpi
 import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
@@ -695,6 +696,62 @@ def main : IO UInt32 := do
         "assembly missing resume entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 Pausable CPI packing render failed: {err.render}"
+
+  match ProofForge.Backend.Solana.Package.renderPackageForSpec
+      "associated-token-cpi" ProofForge.Solana.Examples.AssociatedTokenCpi.spec with
+  | .ok pkg =>
+      let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
+        | throw <| IO.userError "associated-token package missing sBPF assembly"
+      let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
+        | throw <| IO.userError "associated-token package missing manifest.toml"
+      let asm := asmFile.contents
+      let manifest := manifestFile.contents
+      require (contains manifest "name = \"create_associated\"")
+        "associated-token manifest missing create_associated entrypoint"
+      require (contains manifest "{ name = \"last_created_marker\", index = 0, signer = false, writable = true, owner = \"program\" },")
+        "associated-token manifest missing state account schema"
+      require (contains manifest "{ name = \"payer\", index = 1, signer = true, writable = true, owner = \"any\" },")
+        "associated-token manifest missing payer account schema"
+      require (contains manifest "{ name = \"associated_account\", index = 2, signer = false, writable = true, owner = \"any\" },")
+        "associated-token manifest missing associated account schema"
+      require (contains manifest "{ name = \"wallet\", index = 3, signer = false, writable = false, owner = \"any\" },")
+        "associated-token manifest missing wallet account schema"
+      require (contains manifest "{ name = \"mint\", index = 4, signer = false, writable = false, owner = \"any\" },")
+        "associated-token manifest missing mint account schema"
+      require (contains manifest "{ name = \"system_program\", index = 5, signer = false, writable = false, owner = \"executable\" },")
+        "associated-token manifest missing system program account schema"
+      require (contains manifest "{ name = \"spl_token\", index = 6, signer = false, writable = false, owner = \"executable\" },")
+        "associated-token manifest missing SPL Token program account schema"
+      require (contains manifest "{ name = \"associated_token\", index = 7, signer = false, writable = false, owner = \"executable\" }")
+        "associated-token manifest missing associated token program account schema"
+      require (contains manifest "program = \"associated_token\"")
+        "associated-token manifest missing associated token program"
+      require (contains manifest "instruction = \"create_idempotent\"")
+        "associated-token manifest missing create_idempotent CPI"
+      require (contains manifest "protocol = \"associated-token\"")
+        "associated-token manifest missing protocol metadata"
+      require (contains manifest "token_program = \"spl_token\"")
+        "associated-token manifest missing token program metadata"
+      require (contains manifest "data_layout = \"associated-token.create_idempotent\"")
+        "associated-token manifest missing create_idempotent data layout"
+      require (contains asm "sol_cpi_create_associated_token:")
+        "assembly missing Associated Token helper label"
+      require (contains asm "sub64 r7, 256")
+        "assembly missing separated CPI account-meta frame for 6-account Associated Token CPI"
+      require (contains asm "solana.cpi.data associated-token.create_idempotent: u8 instruction=1")
+        "assembly missing Associated Token create_idempotent data packing"
+      require (contains asm "solana.cpi.account_info associated_account account[2]")
+        "assembly missing associated account info binding"
+      require (contains asm "mov64 r3, 6\n  stxdw [r5+16], r3")
+        "assembly missing associated token instruction account count"
+      require (contains asm "mov64 r3, 1")
+        "assembly missing associated token data length"
+      require (contains asm "stb [r8+0], 1")
+        "assembly missing create_idempotent instruction tag store"
+      require (contains asm "call sol_cpi_create_associated_token")
+        "assembly missing create_associated entrypoint CPI helper call"
+  | .error err =>
+      throw <| IO.userError s!"Solana associated-token CPI packing render failed: {err.render}"
 
   IO.println "solana-cpi-packing: ok"
   return 0

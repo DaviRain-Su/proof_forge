@@ -595,6 +595,11 @@ def tokenMetadata (tokenProgram : String) : Array TargetMetadata :=
 def token2022Metadata : Array TargetMetadata :=
   tokenMetadata splToken2022Program
 
+def associatedTokenMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "associated-token"
+  ]
+
 def systemTransferCall (name fromAccount to lamportsSource : String)
     (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -1014,6 +1019,30 @@ def splTokenSetAuthorityCall (name account authority authorityType newAuthority 
   extraMetadata := tokenMetadata tokenProgram ++ #[
     kv "solana.cpi.authority_type" authorityType,
     kv "solana.cpi.new_authority" newAuthority
+  ]
+}
+
+def associatedTokenCreateCall (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := associatedProgram
+  instruction := if idempotent then "create_idempotent" else "create"
+  accounts := #[
+    signerForSeeds funding .writable signerSeeds,
+    writableAccount account,
+    readonlyAccount wallet,
+    readonlyAccount mint,
+    readonlyAccount systemProgramName,
+    readonlyAccount tokenProgramName
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some (if idempotent then "associated-token.create_idempotent" else "associated-token.create")
+  extraMetadata := associatedTokenMetadata ++ #[
+    kv "solana.cpi.token_program" tokenProgramName
   ]
 }
 
@@ -1828,5 +1857,33 @@ def invokeSplTokenSetAuthority (name account authority authorityType newAuthorit
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splTokenSetAuthorityCall name account authority authorityType newAuthority
     (tokenProgram := tokenProgram) (signerSeeds := signerSeeds))
+
+def associatedTokenCreate (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (associatedTokenCreateCall name funding account wallet mint
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds))
+
+def invokeAssociatedTokenCreate (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (associatedTokenCreateCall name funding account wallet mint
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds))
 
 end ProofForge.Solana

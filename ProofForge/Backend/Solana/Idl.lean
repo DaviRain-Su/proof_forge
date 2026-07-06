@@ -211,6 +211,7 @@ def cpiJson (cpi : CpiInvoke) : String :=
     cpiMetadataJson cpi "solana.cpi.decimals" "decimals",
     cpiMetadataJson cpi "solana.cpi.authority_type" "authorityType",
     cpiMetadataJson cpi "solana.cpi.new_authority" "newAuthority",
+    cpiMetadataJson cpi "solana.cpi.token_program" "tokenProgram",
     cpiMetadataJson cpi "solana.cpi.transfer_fee_config_authority" "transferFeeConfigAuthority",
     cpiMetadataJson cpi "solana.cpi.withdraw_withheld_authority" "withdrawWithheldAuthority",
     cpiMetadataJson cpi "solana.cpi.transfer_fee_basis_points" "transferFeeBasisPoints",

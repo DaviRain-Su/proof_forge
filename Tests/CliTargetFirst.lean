@@ -79,6 +79,12 @@ def main : IO UInt32 := do
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-sdk", "--format", "s"]
     ["--emit-solana-sdk-sbpf"]
   requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "s"]
+    ["--emit-solana-associated-token-cpi-sbpf"]
+  requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "elf"]
+    ["--solana-associated-token-cpi-elf"]
+  requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "value-vault", "--format", "s"]
     ["--emit-value-vault-ir-sbpf"]
   requireLegacy

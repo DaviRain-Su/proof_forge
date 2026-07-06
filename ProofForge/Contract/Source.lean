@@ -139,6 +139,10 @@ scoped syntax "cpi " ident " spl_token_close_account" "(" ident ", " ident ", " 
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "cpi " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "use " term : contractItem
 scoped syntax "compose " ident ";" : contractItem
 scoped syntax "upgrade_policy_immutable;" : contractItem
@@ -177,6 +181,10 @@ scoped syntax "invoke " ident " spl_token_transfer_checked" "(" ident ", " ident
 scoped syntax "invoke " ident " spl_token_close_account" "(" ident ", " ident ", " ident ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
 scoped syntax "invoke " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
 scoped syntax "realloc " ident " to " term ";" : entryStmt
 scoped syntax "do " term ";" : entryStmt
@@ -430,6 +438,20 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt)) :
               $call $tokenAccount $authority $newAuthority
               (authorityType := $authorityType)
               (signerSeeds := $signerSeedArray) *> $acc)
+    | `(entryStmt| invoke $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) =>
+        let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+        acc ←
+          `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+              $call $funding $ataAccount $wallet $mint
+              (idempotent := false)
+              (signerSeeds := $signerSeedArray) *> $acc)
+    | `(entryStmt| invoke $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) =>
+        let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+        acc ←
+          `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+              $call $funding $ataAccount $wallet $mint
+              (idempotent := true)
+              (signerSeeds := $signerSeedArray) *> $acc)
     | `(entryStmt| realloc $accountRef:ident to $newSize:term;) =>
         acc ←
           `(ProofForge.Solana.Surface.reallocAccount $accountRef $newSize *> $acc)
@@ -639,6 +661,22 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
         `(ProofForge.Solana.Surface.splTokenSetAuthority
             $call $tokenAccount $authority $newAuthority
             (authorityType := $authorityType)
+            (signerSeeds := $signerSeedArray))
+      return { action? := some action, binder := mkCpiLet call }
+  | `(contractItem| cpi $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) =>
+      let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+      let action ←
+        `(ProofForge.Solana.Surface.associatedTokenCreate
+            $call $funding $ataAccount $wallet $mint
+            (idempotent := false)
+            (signerSeeds := $signerSeedArray))
+      return { action? := some action, binder := mkCpiLet call }
+  | `(contractItem| cpi $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) =>
+      let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+      let action ←
+        `(ProofForge.Solana.Surface.associatedTokenCreate
+            $call $funding $ataAccount $wallet $mint
+            (idempotent := true)
             (signerSeeds := $signerSeedArray))
       return { action? := some action, binder := mkCpiLet call }
   | `(contractItem| use $action:term) =>

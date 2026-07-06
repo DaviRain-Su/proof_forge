@@ -6,6 +6,7 @@ import ProofForge.Solana.Examples.SplTokenTransferCheckedCpi
 import ProofForge.Solana.Examples.SplTokenOpsCpi
 import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
+import ProofForge.Solana.Examples.AssociatedTokenCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
 import ProofForge.Solana.Examples.SplToken2022PausableCpi
 import ProofForge.Solana.Examples.AccountRealloc

@@ -1513,6 +1513,12 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   `initialize_interest_bearing_mint`、`enable_required_memo_transfers`
   `initialize_transfer_hook`、`initialize_pausable_config`、`pause` 和 `resume`；
   生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态以及 Pausable 的 pause/resume 状态切换。
+- ✅ P1：Associated Token `create_idempotent` CPI 已具备 builder helper、
+  typed `Surface` wrapper、`contract_source` 语法、target-first fixture 路由、
+  manifest/IDL/artifact 元数据（包含所选 token program）、
+  `associated-token.create_idempotent` 的 sBPF 数据打包、独立的 6-account
+  CPI account-meta frame，以及 `just solana-associated-token-cpi-web3`
+  Surfpool/Web3.js 验证：创建规范 ATA，并再次调用 idempotent 路径。
 - P1：Memo/Stake/Vote CPI、confidential_transfer、transfer_hook execute/extra-account-meta 路由、
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables

@@ -101,8 +101,9 @@ missing.
 | SPL Token transfer_checked | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
+| Associated Token create_idempotent | Covered | `associatedTokenCreate` builder/surface helper and `contract_source` `associated_token_create_idempotent` syntax emit the Associated Token Program CPI account order, `associated-token.create_idempotent` data layout, token-program metadata, and separated 6-account CPI frame; `solana-associated-token-cpi-web3` deploys the generated program on Surfpool, creates the canonical ATA, and invokes the idempotent path twice | — |
 | Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Web3.js behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
-| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner/permanent-delegate/interest-bearing/memo-transfer direct CPI subset | P1 |
+| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, Associated Token, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner/permanent-delegate/interest-bearing/memo-transfer direct CPI subset | P1 |
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions
@@ -202,7 +203,7 @@ economics) is almost entirely missing.
 
 **EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
-**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed.
+**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap is also now covered.
 
 **NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
 

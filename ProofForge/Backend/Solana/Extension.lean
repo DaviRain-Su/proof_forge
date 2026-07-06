@@ -1201,7 +1201,7 @@ def pdaMaxSeedLen : Nat := 32
 def pdaMaxSeeds : Nat := 16
 
 def cpiInstructionOffset : Nat := 64
-def cpiAccountMetaOffset : Nat := 128
+def cpiAccountMetaOffset : Nat := 256
 def cpiInstructionDataOffset : Nat := 384
 def cpiProgramIdOffset : Nat := 512
 def cpiPlaceholderPubkeyOffset : Nat := 576
@@ -2320,6 +2320,14 @@ def lowerMemoData (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Ar
   | none =>
       #[.comment "memo.memo: no memo_source metadata — empty data"]
 
+def lowerAssociatedTokenCreateData (layout : String) (tag : Nat) : Array AstNode :=
+  #[
+    .comment s!"solana.cpi.data {layout}: u8 instruction={tag}"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 tag
+  ]
+
 def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
     (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode × Nat :=
   match cpi.dataLayout? with
@@ -2341,6 +2349,10 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerSplTokenCloseAccountData, 1)
   | some "spl-token.set_authority" =>
       (lowerSplTokenSetAuthorityData accountBindings cpi, 35)
+  | some "associated-token.create" =>
+      (lowerAssociatedTokenCreateData "associated-token.create" 0, 1)
+  | some "associated-token.create_idempotent" =>
+      (lowerAssociatedTokenCreateData "associated-token.create_idempotent" 1, 1)
   | some "token-2022.initialize_transfer_fee_config" =>
       (lowerToken2022InitializeTransferFeeConfigData accountBindings valueBindings cpi, 78)
   | some "token-2022.transfer_checked_with_fee" =>

@@ -1963,10 +1963,12 @@ Remaining priority slices:
    module-wide fixed schema with runtime account parsing before dispatch, so
    instruction-data offsets no longer depend on every entrypoint sharing the
    same account list.
-5. Token-2022 and richer SPL coverage (3-5 days per iteration): add checked
-   Token-2022 extension routes, associated-token account setup flows, and
-   remaining SPL variants beyond the covered mint-authority `set_authority`
-   path without moving those details into portable IR.
+5. Token-2022 and richer SPL coverage (3-5 days per iteration): continue
+   checked Token-2022 extension routes and remaining SPL variants beyond the
+   covered mint-authority `set_authority` path. Associated Token account setup
+   now has `create_idempotent` builder/surface/source syntax, sBPF packing,
+   target-first fixture routing, and a Surfpool/Web3.js behavior gate, without
+   moving those details into portable IR.
 6. Developer ergonomics and framework surface (3-5 days per iteration): extend
    the new surface layer toward Lean `.lean`/Lean SDK contract syntax with richer
    typed account/data wrappers, richer generated client APIs, broader
@@ -3386,6 +3388,13 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   `initialize_pausable_config`, `pause`, and `resume`; generated-program
   Token-2022 direct-CPI Surfpool/Web3.js gates verify the initialized extension
   state and Pausable pause/resume transitions.
+- ✅ P1: Associated Token `create_idempotent` CPI now has builder helpers,
+  typed `Surface` wrappers, `contract_source` syntax, target-first fixture
+  routing, manifest/IDL/artifact metadata including the selected token program,
+  sBPF data packing for `associated-token.create_idempotent`, a separated
+  6-account CPI account-meta frame, and `just solana-associated-token-cpi-web3`
+  Surfpool/Web3.js validation that creates the canonical ATA and re-invokes the
+  idempotent path.
 - P1: Memo/Stake/Vote CPI, confidential_transfer, transfer_hook execute/extra-account-meta routing,
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables

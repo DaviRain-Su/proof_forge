@@ -433,6 +433,7 @@ def renderCpi (cpi : CpiInvoke) : String :=
     renderCpiMetadataField cpi "solana.cpi.decimals" "decimals" ++
     renderCpiMetadataField cpi "solana.cpi.authority_type" "authority_type" ++
     renderCpiMetadataField cpi "solana.cpi.new_authority" "new_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.token_program" "token_program" ++
     renderCpiMetadataField cpi "solana.cpi.transfer_fee_config_authority" "transfer_fee_config_authority" ++
     renderCpiMetadataField cpi "solana.cpi.withdraw_withheld_authority" "withdraw_withheld_authority" ++
     renderCpiMetadataField cpi "solana.cpi.transfer_fee_basis_points" "transfer_fee_basis_points" ++

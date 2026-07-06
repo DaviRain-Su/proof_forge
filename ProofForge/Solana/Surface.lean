@@ -439,6 +439,32 @@ def invokeSplTokenSetAuthority (call : CpiRef) (account authority newAuthority :
   ProofForge.Solana.invokeSplTokenSetAuthority call.name account.name authority.name authorityType
     newAuthority.name (tokenProgram := tokenProgram) (signerSeeds := signerSeeds)
 
+def associatedTokenCreate (call : CpiRef) (funding account wallet mint : AccountRef)
+    (idempotent : Bool := true)
+    (associatedProgram : String := ProofForge.Solana.associatedTokenProgram)
+    (systemProgramName : String := ProofForge.Solana.systemProgram)
+    (tokenProgramName : String := ProofForge.Solana.splTokenProgram)
+    (signerSeeds : Array String := #[]) : ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.associatedTokenCreate call.name funding.name account.name wallet.name mint.name
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds)
+
+def invokeAssociatedTokenCreate (call : CpiRef) (funding account wallet mint : AccountRef)
+    (idempotent : Bool := true)
+    (associatedProgram : String := ProofForge.Solana.associatedTokenProgram)
+    (systemProgramName : String := ProofForge.Solana.systemProgram)
+    (tokenProgramName : String := ProofForge.Solana.splTokenProgram)
+    (signerSeeds : Array String := #[]) : ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeAssociatedTokenCreate call.name funding.name account.name wallet.name mint.name
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds)
+
 def reallocAccount (account : AccountRef) (newSize : Nat)
     (name : String := "realloc_" ++ account.name) :
     ProofForge.Contract.Surface.EntryM Unit :=
