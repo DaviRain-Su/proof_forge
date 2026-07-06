@@ -642,17 +642,19 @@ mutual
       | _, _ => err s!"EmitWat: cast from `{src.name}` to `{target.name}` is not supported"
     .ok (is ++ extra, target)
 
-  partial def lowerMapKeyU64 (ctx : Ctx) (env : LocalTypes) (key : Expr)
+  partial def lowerMapKeyTyped (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (key : Expr)
       : Except EmitError (Array Insn) := do
     let (is, t) ← lowerExpr ctx env key
-    if t != .u64 then err s!"EmitWat: map key expected U64, got `{t.name}`"
+    if t != expected then err s!"EmitWat: map key expected {expected.name}, got `{t.name}`"
     else .ok is
 
+  partial def lowerMapKeyU64 (ctx : Ctx) (env : LocalTypes) (key : Expr)
+      : Except EmitError (Array Insn) :=
+    lowerMapKeyTyped ctx env .u64 key
+
   partial def lowerMapKeyHash (ctx : Ctx) (env : LocalTypes) (key : Expr)
-      : Except EmitError (Array Insn) := do
-    let (is, t) ← lowerExpr ctx env key
-    if t != .hash then err s!"EmitWat: map key expected Hash, got `{t.name}`"
-    else .ok is
+      : Except EmitError (Array Insn) :=
+    lowerMapKeyTyped ctx env .hash key
 
   partial def lowerMapKeyFor (ctx : Ctx) (env : LocalTypes) (keyType : ValueType) (key : Expr)
       : Except EmitError (Array Insn) :=
