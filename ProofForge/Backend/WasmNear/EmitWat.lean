@@ -127,7 +127,8 @@ export ProofForge.Backend.WasmNear.Event (
   evtPutu64Name evtPutboolName evtPutHashName evtLogName evtPtrGlobalDecl
   fmtU64Func evtStartFunc evtPutcFunc evtPutstrFunc evtPutu64Func
   evtPutboolFunc evtPutHashFunc evtLogFunc evtHelperFuncsForModulePlan
-  evtGlobals
+  evtGlobals evtPutcInsns evtHeaderInsns evtValueInsnsForType
+  evtFieldInsns evtFooterInsns
 )
 
 export ProofForge.Backend.WasmNear.ExprAnalysis (
@@ -899,24 +900,13 @@ def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
   let some nameSi ← pure (findString? ctx.strings name) | err s!"EmitWat: event name `{name}` not in string pool"
-  let putc (c : Nat) : Array Insn := #[.i32Const c, .call evtPutcName]
-  let header : Array Insn := #[.call evtStartName] ++ putc 0x7B ++ putc 0x22
-    ++ #[.i32Const EVT_KEY_PTR, .i32Const 5, .call evtPutstrName] ++ putc 0x22 ++ putc 0x3A ++ putc 0x22
-    ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName] ++ putc 0x22
+  let header := evtHeaderInsns nameSi
   let fieldInsns ← fields.foldlM (init := #[]) fun acc f => do
     let (fname, vexpr) := f
     let some fsi ← pure (findString? ctx.strings fname) | err s!"EmitWat: field name `{fname}` not in string pool"
     let (vis, vt) ← lowerExpr ctx env vexpr
-    let valInsn ←
-      match vt with
-      | .u64 => .ok #[.call evtPutu64Name]
-      | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
-      | .bool => .ok #[.call evtPutboolName]
-      | .hash => .ok #[.call evtPutHashName]
-      | _ => err s!"EmitWat: event field `{fname}` has unsupported type `{vt.name}`"
-    .ok (acc ++ putc 0x2C ++ putc 0x22 ++ #[.i32Const fsi.ptr, .i32Const fsi.len, .call evtPutstrName]
-            ++ putc 0x22 ++ putc 0x3A ++ vis ++ valInsn)
-  .ok (header ++ fieldInsns ++ putc 0x7D ++ #[.call evtLogName])
+    .ok (acc ++ (← evtFieldInsns fname fsi vis vt))
+  .ok (header ++ fieldInsns ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     (s : Statement) : Except EmitError (Array Insn) :=

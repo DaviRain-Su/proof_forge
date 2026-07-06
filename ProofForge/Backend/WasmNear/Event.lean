@@ -3,14 +3,20 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.Compiler.Wasm.AST
+import ProofForge.IR.Contract
 import ProofForge.Backend.WasmNear.Common
+import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
 
 namespace ProofForge.Backend.WasmNear.Event
 
+open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
+open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Plan
 
@@ -111,5 +117,34 @@ def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
     (if plan.usesEventApi then #[evtLogFunc] else #[])
 
 def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
+
+def evtPutcInsns (c : Nat) : Array Insn :=
+  #[.i32Const c, .call evtPutcName]
+
+def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
+  #[.call evtStartName] ++ evtPutcInsns 0x7B ++ evtPutcInsns 0x22
+    ++ #[.i32Const EVT_KEY_PTR, .i32Const 5, .call evtPutstrName]
+    ++ evtPutcInsns 0x22 ++ evtPutcInsns 0x3A ++ evtPutcInsns 0x22
+    ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName]
+    ++ evtPutcInsns 0x22
+
+def evtValueInsnsForType (fieldName : String) (type : ValueType) :
+    Except EmitError (Array Insn) :=
+  match type with
+  | .u64 => .ok #[.call evtPutu64Name]
+  | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
+  | .bool => .ok #[.call evtPutboolName]
+  | .hash => .ok #[.call evtPutHashName]
+  | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
+
+def evtFieldInsns (fieldName : String) (fieldSi : StringInfo)
+    (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) := do
+  let valInsns ← evtValueInsnsForType fieldName valueType
+  .ok (evtPutcInsns 0x2C ++ evtPutcInsns 0x22
+    ++ #[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
+    ++ evtPutcInsns 0x22 ++ evtPutcInsns 0x3A ++ valueInsns ++ valInsns)
+
+def evtFooterInsns : Array Insn :=
+  evtPutcInsns 0x7D ++ #[.call evtLogName]
 
 end ProofForge.Backend.WasmNear.Event
