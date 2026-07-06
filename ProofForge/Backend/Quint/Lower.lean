@@ -71,9 +71,17 @@ inductive StoragePathTarget where
   | flatVar (name : String)
   | arraySlot (stateId : String) (cap : Nat) (index : ProofForge.IR.Expr)
   | arrayStructFieldSlot (stateId : String) (cap : Nat) (index : ProofForge.IR.Expr) (fieldName : String)
-  | mapSlot (stateId : String) (key : ProofForge.IR.Expr)
-  | nestedMapSlot (stateId : String) (key1 key2 : ProofForge.IR.Expr)
+  | mapKeyPath (stateId : String) (keys : Array ProofForge.IR.Expr)
   deriving Repr, Nonempty
+
+def mapPathKeys? (segments : List StoragePathSegment) : Option (Array ProofForge.IR.Expr) :=
+  let rec go (rest : List StoragePathSegment) (acc : Array ProofForge.IR.Expr) :
+      Option (Array ProofForge.IR.Expr) :=
+    match rest with
+    | [] => some acc
+    | .mapKey key :: rest => go rest (acc.push key)
+    | _ => none
+  go segments #[]
 
 def storagePathStartType (state : StateDecl) (path : Array StoragePathSegment) :
     Except LowerError (ValueType × List StoragePathSegment) :=
@@ -148,17 +156,22 @@ partial def resolveStoragePathSegments (structs : Array StructDecl) (stateId : S
           resolveStoragePathSegments structs stateId element rest
       | other => .error { message := s!"storage path index cannot be selected from `{other.name}`" }
   | .mapKey _ :: _ =>
-      .error { message := "nested map-key storage paths beyond two segments are not supported in Quint lowering v1" }
+      .error { message := "map-key segments on non-map storage paths are not supported in Quint lowering v1" }
 
 def resolveStoragePathTarget (structs : Array StructDecl) (state : StateDecl)
     (path : Array StoragePathSegment) : Except LowerError StoragePathTarget := do
   if path.isEmpty then
     .error { message := s!"storage path for state `{state.id}` must contain at least one segment" }
   match state.kind, path.toList with
-  | .map _ _, [.mapKey key] => .ok (.mapSlot state.id key)
-  | .map _ _, [.mapKey key1, .mapKey key2] => .ok (.nestedMapSlot state.id key1 key2)
-  | .map _ _, _ =>
-      .error { message := s!"map storage path for `{state.id}` must be one or two consecutive mapKey segments" }
+  | .map _ _, segments =>
+      match mapPathKeys? segments with
+      | some keys =>
+          if keys.isEmpty then
+            .error { message := s!"map storage path for `{state.id}` must contain at least one mapKey segment" }
+          else
+            .ok (.mapKeyPath state.id keys)
+      | none =>
+          .error { message := s!"map storage path for `{state.id}` must be consecutive mapKey segments" }
   | _, _ => do
       let (start, segments) ← storagePathStartType state path
       resolveStoragePathSegments structs state.id start segments
@@ -404,13 +417,28 @@ mutual
     | none =>
         .error { message := "map path key segments require literal keys in Quint lowering v1" }
 
-  partial def nestedMapKeyExpr (ctx : LowerCtx) (key1 key2 : ProofForge.IR.Expr) : Except LowerError Expr := do
-    let seg1 ← mapPathSegmentExpr ctx key1
-    let seg2 ← mapPathSegmentExpr ctx key2
-    match seg1, seg2 with
-    | .literalStr s1, .literalStr s2 => .ok (.literalStr (s1 ++ s2))
-    | _, _ =>
-        .error { message := "nested map path keys require literal keys in Quint lowering v1" }
+  partial def compositeMapKeyExpr (ctx : LowerCtx) (keys : Array ProofForge.IR.Expr) : Except LowerError Expr := do
+    let some first := keys[0]?
+      | .error { message := "map path requires at least one key segment" }
+    let mut result ← mapPathSegmentExpr ctx first
+    for i in [1:keys.size] do
+      let some key := keys[i]?
+        | .error { message := "map path key segment missing during composition" }
+      let seg ← mapPathSegmentExpr ctx key
+      match result, seg with
+      | .literalStr s1, .literalStr s2 => result := .literalStr (s1 ++ s2)
+      | _, _ =>
+          .error { message := "multi-segment map path keys require literal keys in Quint lowering v1" }
+    pure result
+
+  /-- Single-segment keys use `u64:n` / `hash:...`; multi-segment keys use braced concatenation. -/
+  partial def mapPathKeyExpr (ctx : LowerCtx) (keys : Array ProofForge.IR.Expr) : Except LowerError Expr := do
+    let some first := keys[0]?
+      | .error { message := "map path requires at least one key segment" }
+    if keys.size == 1 then
+      lowerMapKeyExpr ctx first
+    else
+      compositeMapKeyExpr ctx keys
 
   partial def mapAbsentZero (ctx : LowerCtx) (stateId : String) : Except LowerError Expr :=
     match ctx.lookupStateDecl stateId with
@@ -435,13 +463,9 @@ mutual
 
   partial def targetPresenceGuard (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError (Option Expr) :=
     match target with
-    | .mapSlot stateId key => do
+    | .mapKeyPath stateId keys => do
         let mapExpr := ctx.stateValue stateId
-        let key' ← lowerMapKeyExpr ctx key
-        .ok (some (mapContainsExpr key' mapExpr))
-    | .nestedMapSlot stateId key1 key2 => do
-        let mapExpr := ctx.stateValue stateId
-        let key' ← nestedMapKeyExpr ctx key1 key2
+        let key' ← mapPathKeyExpr ctx keys
         .ok (some (mapContainsExpr key' mapExpr))
     | _ => .ok none
 
@@ -492,9 +516,8 @@ mutual
         .ok (.index (ctx.stateValue stateId) (irIndexToQuint idx'))
     | .arrayStructFieldSlot stateId cap index fieldName =>
         arrayStructFieldReadExpr ctx stateId cap index fieldName
-    | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
-    | .nestedMapSlot stateId key1 key2 => do
-        let key' ← nestedMapKeyExpr ctx key1 key2
+    | .mapKeyPath stateId keys => do
+        let key' ← mapPathKeyExpr ctx keys
         lowerMapGetAtKey ctx stateId key'
 
   partial def targetTrackReadExpr (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError Expr :=
@@ -505,9 +528,8 @@ mutual
         .ok (.index (ctx.mutationTrackValue stateId) (irIndexToQuint idx'))
     | .arrayStructFieldSlot stateId cap index fieldName =>
         arrayStructFieldTrackReadExpr ctx stateId cap index fieldName
-    | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
-    | .nestedMapSlot stateId key1 key2 => do
-        let key' ← nestedMapKeyExpr ctx key1 key2
+    | .mapKeyPath stateId keys => do
+        let key' ← mapPathKeyExpr ctx keys
         lowerMapGetAtKey ctx stateId key'
 
   partial def targetWriteCtx (ctx : LowerCtx) (target : StoragePathTarget) (value : ProofForge.IR.Expr) :
@@ -532,15 +554,9 @@ mutual
     | .arrayStructFieldSlot stateId cap index fieldName =>
         arrayStructFieldWriteCtx ctx stateId cap index fieldName value
           (fun (cond : Expr) (value' : Expr) (cur : Expr) => .ite cond value' cur)
-    | .mapSlot stateId key => do
+    | .mapKeyPath stateId keys => do
         let mapExpr := ctx.stateValue stateId
-        let key' ← lowerMapKeyExpr ctx key
-        let value' ← lowerExpr ctx value
-        let updated := .methodCall mapExpr "put" #[key', value']
-        .ok { ctx with state := ctx.state.upsert stateId updated }
-    | .nestedMapSlot stateId key1 key2 => do
-        let mapExpr := ctx.stateValue stateId
-        let key' ← nestedMapKeyExpr ctx key1 key2
+        let key' ← mapPathKeyExpr ctx keys
         let value' ← lowerExpr ctx value
         let updated := .methodCall mapExpr "put" #[key', value']
         .ok { ctx with state := ctx.state.upsert stateId updated }
@@ -588,11 +604,8 @@ mutual
         let qop := lowerAssignOp op
         arrayStructFieldWriteCtx ctx stateId cap index fieldName value
           (fun (cond : Expr) (_ : Expr) (cur : Expr) => .ite cond (.binOp qop cur value') cur)
-    | .mapSlot stateId key => do
-        let key' ← lowerMapKeyExpr ctx key
-        targetMapAssignOpCtx ctx stateId key' op value
-    | .nestedMapSlot stateId key1 key2 => do
-        let key' ← nestedMapKeyExpr ctx key1 key2
+    | .mapKeyPath stateId keys => do
+        let key' ← mapPathKeyExpr ctx keys
         targetMapAssignOpCtx ctx stateId key' op value
 
   partial def effectPresenceGuard (ctx : LowerCtx) (eff : Effect) : Except LowerError (Option Expr) :=

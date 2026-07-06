@@ -192,8 +192,10 @@ Tasks:
   `just quint-mbt-gate`; gate rebuilds `proof-forge` before CLI emit smoke.
 - Done: hash-valued map `storagePathAssignOp` replace stub with
   `map-hash-path-assign` fixture in `just quint-mbt-gate`.
-- Pending: unbounded integers, more than two consecutive `mapKey` segments,
-  dynamic nested `mapKey` keys, and nested struct ref fields.
+- Done: three+ consecutive `mapKey` `storagePath*` paths via generalized
+  `mapKeyPath` lowering with `map-triple-path` fixture in `just quint-mbt-gate`.
+- Pending: unbounded integers, dynamic nested `mapKey` keys, and nested struct
+  ref fields.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 

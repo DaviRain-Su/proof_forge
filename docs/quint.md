@@ -34,6 +34,7 @@ Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loo
 `while`, `array` (fixed-size storage array lifecycle), `map` (hash-keyed storage map
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on
 maps), `map-nested-path` (two-segment consecutive `mapKey` paths on hash maps),
+`map-triple-path` (three-segment consecutive `mapKey` paths on hash maps),
 `map-path-assign` (single- and nested-mapKey `storagePathAssignOp` on U64 maps),
 `map-hash-path-assign` (hash-valued map `storagePathAssignOp` replace stub),
 `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
@@ -110,15 +111,15 @@ Phase 3 v1 currently lowers a growing portable IR subset:
 - Fixed-size storage arrays (`List[T]` with 0-based Quint list indexing)
 - Storage maps (`str -> str` / `str -> int` with `hash:a:b:c:d` or `u64:n` key encoding)
   and struct fields flattened to per-field state variables (`current_x`, `points_0_x`)
-- Single- and two-segment `mapKey` `storagePath*`, struct/array path shapes,
+- Single- and multi-segment (2+) `mapKey` `storagePath*`, struct/array path shapes,
   dynamic index+field paths on array-of-struct storage, scalar local
   assignment (`letMutBind`, `.assign`, `.assignOp` on `.local` targets), and
   scalar `crosscallInvoke` / `crosscallInvokeTyped` (U64 return stub:
   `target + method + sum(args)`), and `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
-Still out of scope for the first iteration: more than two consecutive `mapKey`
-segments, nested struct ref fields, dynamic nested `mapKey` path keys, value/static/delegate crosscall variants,
+Still out of scope for the first iteration: nested struct ref fields, dynamic
+nested `mapKey` path keys, value/static/delegate crosscall variants,
 `crosscallCreate`/`crosscallCreate2`, aggregate crosscall returns,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that

@@ -112,6 +112,29 @@ def nestedPathLifecycle : Entrypoint := {
   ]
 }
 
+def tripleOuterKey : Expr :=
+  .literal (.hash4 7007 0 0 0)
+
+def tripleMiddleKey : Expr :=
+  .literal (.hash4 8008 0 0 0)
+
+def tripleInnerKey : Expr :=
+  .literal (.hash4 9009 0 0 0)
+
+def triplePathValue : Expr :=
+  .literal (.hash4 10 20 30 40)
+
+def triplePathLifecycle : Entrypoint := {
+  name := "triple_path_lifecycle"
+  returns := .hash
+  body := #[
+    .effect (.storagePathWrite "balances"
+      #[.mapKey tripleOuterKey, .mapKey tripleMiddleKey, .mapKey tripleInnerKey] triplePathValue),
+    .return (.effect (.storagePathRead "balances"
+      #[.mapKey tripleOuterKey, .mapKey tripleMiddleKey, .mapKey tripleInnerKey]))
+  ]
+}
+
 def nestedU64OuterKey : Expr :=
   .literal (.u64 4004)
 
@@ -300,6 +323,13 @@ def emitQuintNestedPathModule : Module := {
   name := "MapProbe",
   state := #[stateBalances],
   entrypoints := #[nestedPathLifecycle]
+}
+
+/-- Quint/MBT subset: three consecutive `mapKey` `storagePath*` on hash map state. -/
+def emitQuintTriplePathModule : Module := {
+  name := "MapProbe",
+  state := #[stateBalances],
+  entrypoints := #[triplePathLifecycle]
 }
 
 /-- Quint/MBT subset: `storagePathAssignOp` on single- and nested-mapKey U64 paths. -/
