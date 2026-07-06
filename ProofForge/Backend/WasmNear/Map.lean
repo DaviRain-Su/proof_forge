@@ -48,6 +48,12 @@ def mapBuildkeyFunc : Func :=
         .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0 ] } ] } ,
       .i32Const MAPKEY_BUF, .localGet "pl", .plain "i32.add", .localGet "k", .store "i64.store" 0 ] } }
 
+def mapKeyByteLenInsns (keyBytes : Nat) : Array Insn :=
+  #[.localGet "pl", .i32Const keyBytes, .plain "i32.add", .plain "i64.extend_i32_u"]
+
+def mapStorageReadHostInsns (keyBytes : Nat) : Array Insn :=
+  mapKeyByteLenInsns keyBytes ++ #[.i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read"]
+
 def mapReadFunc (vt : ValueType) : Func :=
   if vt == .hash then
     { name := mapReadName vt,
@@ -56,9 +62,9 @@ def mapReadFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
       body := { insns := #[
         .i32Const ZERO_HASH_BUF, .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+      ] ++ mapStorageReadHostInsns 8 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
@@ -70,9 +76,9 @@ def mapReadFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
       body := { insns := #[
         .const (wasmTypeOf vt) "0", .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+      ] ++ mapStorageReadHostInsns 8 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
@@ -87,14 +93,14 @@ def mapWriteFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
       body := { insns := #[
         .i32Const ZERO_HASH_BUF, .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+      ] ++ mapStorageReadHostInsns 8 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
                           .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
         .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+      ] ++ mapKeyByteLenInsns 8 ++ #[
         .i64Const MAPKEY_BUF, .i64Const 32, .i64Const KEY_BUF, .i64Const 0,
         .call "storage_write", .drop,
         .localGet "r" ] } }
@@ -106,14 +112,14 @@ def mapWriteFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
       body := { insns := #[
         .const (wasmTypeOf vt) "0", .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+      ] ++ mapStorageReadHostInsns 8 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
         .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0,
-        .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+      ] ++ mapKeyByteLenInsns 8 ++ #[
         .i64Const MAPKEY_BUF, .i64Const (scalarWidth vt), .i64Const KEY_BUF, .i64Const 0,
         .call "storage_write", .drop,
         .localGet "r" ] } }
@@ -123,8 +129,8 @@ def mapContainsFunc : Func :=
     params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
     results := #[.i64],
     body := { insns := #[
-      .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
-      .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
+      .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+    ] ++ mapKeyByteLenInsns 8 ++ #[
       .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
 
 def mapHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
@@ -276,9 +282,9 @@ def mapReadHashFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
       body := { insns := #[
         .i32Const ZERO_HASH_BUF, .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+      ] ++ mapStorageReadHostInsns 32 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
@@ -290,9 +296,9 @@ def mapReadHashFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
       body := { insns := #[
         .const (wasmTypeOf vt) "0", .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+      ] ++ mapStorageReadHostInsns 32 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
@@ -307,14 +313,14 @@ def mapWriteHashFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
       body := { insns := #[
         .i32Const ZERO_HASH_BUF, .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+      ] ++ mapStorageReadHostInsns 32 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
                           .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
         .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
+      ] ++ mapKeyByteLenInsns 32 ++ #[
         .i64Const MAPKEY_BUF, .i64Const 32, .i64Const KEY_BUF, .i64Const 0,
         .call "storage_write", .drop,
         .localGet "r" ] } }
@@ -326,14 +332,14 @@ def mapWriteHashFunc (vt : ValueType) : Func :=
       locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
       body := { insns := #[
         .const (wasmTypeOf vt) "0", .localSet "r",
-        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
-        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read", .localSet "found",
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+      ] ++ mapStorageReadHostInsns 32 ++ #[
+        .localSet "found",
         .localGet "found", .i64Const 0, .plain "i64.ne",
         .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
                           .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
         .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0,
-        .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
+      ] ++ mapKeyByteLenInsns 32 ++ #[
         .i64Const MAPKEY_BUF, .i64Const (scalarWidth vt), .i64Const KEY_BUF, .i64Const 0,
         .call "storage_write", .drop,
         .localGet "r" ] } }
@@ -343,8 +349,8 @@ def mapContainsHashFunc : Func :=
     params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "kp", type := .i32 }],
     results := #[.i64],
     body := { insns := #[
-      .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
-      .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
+      .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+    ] ++ mapKeyByteLenInsns 32 ++ #[
       .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
 
 def mapHashHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
