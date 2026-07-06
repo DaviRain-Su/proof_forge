@@ -5,6 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmNear.Common
+import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Types
@@ -14,6 +16,8 @@ namespace ProofForge.Backend.WasmNear.Map
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
+open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Types
@@ -133,6 +137,44 @@ def mapBuildkeyHashName  : String := "__pf_map_buildkey_hash"
 def mapReadHashName  (vt : ValueType) : String := "__pf_map_read_hash_"  ++ typeSuffix vt
 def mapWriteHashName (vt : ValueType) : String := "__pf_map_write_hash_" ++ typeSuffix vt
 def mapContainsHashName : String := "__pf_map_contains_hash"
+
+def mapWriteStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findMapState? maps id with
+  | none => err s!"EmitWat: unknown map state `{id}`"
+  | some mapInfo =>
+    if mapInfo.isArray then
+      err s!"EmitWat: state `{id}` is an array; use storageArrayWrite or an index storage path"
+    else .ok mapInfo
+
+def mapWriteCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
+  match mapInfo.keyType with
+  | .u64 => .ok #[.call (mapWriteName mapInfo.valueType)]
+  | .hash => .ok #[.call (mapWriteHashName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+
+def mapWriteValueInsns (mapInfo : MapInfo) (id : String) (keyInsns valueInsns writeCall : Array Insn)
+    (valueType : ValueType) : Except EmitError (Array Insn × ValueType) :=
+  if valueType != mapInfo.valueType then
+    err s!"EmitWat: map write `{id}` expected `{mapInfo.valueType.name}`, got `{valueType.name}`"
+  else
+    .ok (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
+      keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
+
+def nestedMapWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : ValueType) :
+    Except EmitError MapInfo := do
+  match findMapState? maps id with
+  | none => err s!"EmitWat: unknown map state `{id}`"
+  | some mapInfo =>
+    if mapInfo.keyType != .u64 then err s!"EmitWat: nested map key must be U64"
+    else if valueType != mapInfo.valueType then
+      err s!"EmitWat: nested map write `{id}` expected `{mapInfo.valueType.name}`, got `{valueType.name}`"
+    else .ok mapInfo
+
+def nestedMapWriteValueInsns (mapInfo : MapInfo) (key1Insns key2Insns valueInsns : Array Insn) :
+    Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
+    key1Insns ++ key2Insns ++ valueInsns ++ #[.call (mapWriteName mapInfo.valueType)],
+    mapInfo.valueType)
 
 def mapBuildkeyHashFunc : Func :=
   { name := mapBuildkeyHashName,

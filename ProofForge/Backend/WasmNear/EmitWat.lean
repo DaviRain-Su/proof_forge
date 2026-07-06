@@ -178,6 +178,8 @@ export ProofForge.Backend.WasmNear.Locals (
 
 export ProofForge.Backend.WasmNear.Map (
   mapReadName mapWriteName mapContainsName mapBuildkeyName mapBuildkeyFunc
+  mapWriteStateInfo mapWriteCall mapWriteValueInsns
+  nestedMapWriteStateInfo nestedMapWriteValueInsns
   mapReadFunc mapWriteFunc mapContainsFunc mapHelperFuncsForModulePlan
   mapBuildkeyHashName mapReadHashName mapWriteHashName mapContainsHashName
   mapBuildkeyHashFunc mapReadHashFunc mapWriteHashFunc mapContainsHashFunc
@@ -620,18 +622,10 @@ mutual
   partial def lowerMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn × ValueType) := do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown map state `{id}`"
-    | some m =>
-      if m.isArray then err s!"EmitWat: state `{id}` is an array; use storageArrayWrite or an index storage path"
-      else do
-        let writeCall ← match m.keyType with
-          | .u64 => pure #[.call (mapWriteName m.valueType)]
-          | .hash => pure #[.call (mapWriteHashName m.valueType)]
-          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
-        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-        if valueType != m.valueType then err s!"EmitWat: map write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
-        else .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ valueInsns ++ writeCall, m.valueType)
+    let mapInfo ← mapWriteStateInfo ctx.maps id
+    let writeCall ← mapWriteCall mapInfo
+    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    mapWriteValueInsns mapInfo id keyInsns valueInsns writeCall valueType
 
   partial def lowerMapWrite (ctx : Ctx) (env : LocalTypes) (id : String) (key value : Expr)
       : Except EmitError (Array Insn × ValueType) := do
@@ -642,16 +636,10 @@ mutual
   partial def lowerNestedMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 : Expr)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn × ValueType) := do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown map state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: nested map key must be U64"
-      else if valueType != m.valueType then err s!"EmitWat: nested map write `{id}` expected `{m.valueType.name}`, got `{valueType.name}`"
-      else do
-        let writeCall := #[.call (mapWriteName m.valueType)]
-        let ki1 ← lowerMapKeyU64 ctx env key1
-        let ki2 ← lowerMapKeyU64 ctx env key2
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ ki1 ++ ki2 ++ valueInsns ++ writeCall, m.valueType)
+    let mapInfo ← nestedMapWriteStateInfo ctx.maps id valueType
+    let key1Insns ← lowerMapKeyU64 ctx env key1
+    let key2Insns ← lowerMapKeyU64 ctx env key2
+    .ok (nestedMapWriteValueInsns mapInfo key1Insns key2Insns valueInsns)
 
   /-- Nested map write: Map<K1, Map<K2, V>>. -/
   partial def lowerNestedMapWrite (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 value : Expr)
