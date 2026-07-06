@@ -98,6 +98,7 @@ import ProofForge.Target
 import ProofForge.Target.Check
 import ProofForge.Solana.Examples.Vault
 import ProofForge.Solana.Examples.SystemCpi
+import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SystemCreateAccountCpi
 import ProofForge.Solana.Examples.SplTokenTransferCheckedCpi
 import ProofForge.Solana.Examples.SplTokenOpsCpi
@@ -243,6 +244,7 @@ inductive EmitMode where
   | solanaElf
   | valueVaultSolanaElf
   | solanaSystemCpiElf
+  | solanaMemoCpiElf
   | solanaSystemCreateAccountCpiElf
   | solanaSplTokenTransferCpiElf
   | solanaSplTokenOpsCpiElf
@@ -415,6 +417,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .solanaElf
   | .valueVaultSolanaElf
   | .solanaSystemCpiElf
+  | .solanaMemoCpiElf
   | .solanaSystemCreateAccountCpiElf
   | .solanaSplTokenTransferCpiElf
   | .solanaSplTokenOpsCpiElf
@@ -620,6 +623,7 @@ def usage : String :=
     "  proof-forge --solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --value-vault-solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-system-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
+    "  proof-forge --solana-memo-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-system-create-account-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-transfer-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-ops-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
@@ -1963,6 +1967,10 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.num_token_accounts" with
       | some value => jsonString value
       | none => "null"),
+    ("memoSource",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_source" with
+      | some value => jsonString value
+      | none => "null"),
     ("signed", jsonBool cpi.signed)
   ]
 
@@ -2797,6 +2805,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .valueVaultSolanaElf }
   | "--solana-system-cpi-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSystemCpiElf }
+  | "--solana-memo-cpi-elf" :: rest, opts =>
+      parseArgs rest { opts with mode := .solanaMemoCpiElf }
   | "--solana-system-create-account-cpi-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSystemCreateAccountCpiElf }
   | "--solana-spl-token-transfer-cpi-elf" :: rest, opts =>
@@ -5890,6 +5900,13 @@ def compileSolanaSystemCpiElf (opts : CliOptions) : IO UInt32 :=
     "solana-system-cpi-elf"
     ProofForge.Solana.Examples.SystemCpi.spec
 
+def compileSolanaMemoCpiElf (opts : CliOptions) : IO UInt32 :=
+  compileSolanaSpecElf opts
+    (FilePath.mk "build/solana/MemoCpi.so")
+    "memo-cpi"
+    "solana-memo-cpi-elf"
+    ProofForge.Solana.Examples.MemoCpi.spec
+
 def compileSolanaSystemCreateAccountCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.so")
@@ -6284,6 +6301,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .solanaElf => compileSolanaElf opts
   | .valueVaultSolanaElf => compileValueVaultSolanaElf opts
   | .solanaSystemCpiElf => compileSolanaSystemCpiElf opts
+  | .solanaMemoCpiElf => compileSolanaMemoCpiElf opts
   | .solanaSystemCreateAccountCpiElf => compileSolanaSystemCreateAccountCpiElf opts
   | .solanaSplTokenTransferCpiElf => compileSolanaSplTokenTransferCpiElf opts
   | .solanaSplTokenOpsCpiElf => compileSolanaSplTokenOpsCpiElf opts

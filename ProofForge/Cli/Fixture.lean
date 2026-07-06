@@ -59,6 +59,7 @@ def ids : Array String := #[
   "solana-epoch-rewards-sysvar",
   "solana-last-restart-slot-sysvar",
   "solana-memory",
+  "solana-memo-cpi",
   "solana-crypto-hash",
   "solana-return-data-compute",
   "spl-token-transfer-cpi",

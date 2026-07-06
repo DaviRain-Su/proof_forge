@@ -1,6 +1,7 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
 import ProofForge.Solana
+import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
 import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
@@ -148,6 +149,48 @@ def main : IO UInt32 := do
         "assembly missing sol_invoke_signed_c syscall"
   | .error err =>
       throw <| IO.userError s!"Solana CPI packing render failed: {err.render}"
+
+  match ProofForge.Backend.Solana.Package.renderPackageForSpec
+      "memo-cpi" ProofForge.Solana.Examples.MemoCpi.spec with
+  | .ok pkg =>
+      let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
+        | throw <| IO.userError "memo-cpi package missing sBPF assembly"
+      let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
+        | throw <| IO.userError "memo-cpi package missing manifest.toml"
+      let asm := asmFile.contents
+      let manifest := manifestFile.contents
+      require (contains manifest "name = \"log_memo\"")
+        "memo manifest missing log_memo instruction"
+      require (contains manifest "min_data_len = 9")
+        "memo manifest missing memoArg instruction-data length"
+      require (contains manifest "{ name = \"memoArg\", type = \"U64\", offset = 1, byte_size = 8, encoding = \"le-u64\" }")
+        "memo manifest missing memoArg parameter schema"
+      require (contains manifest "{ name = \"last_memo_word\", index = 0, signer = false, writable = true, owner = \"program\" },")
+        "memo manifest missing state account schema"
+      require (contains manifest "{ name = \"memo\", index = 1, signer = false, writable = false, owner = \"executable\" }")
+        "memo manifest missing Memo program account schema"
+      require (contains manifest "program = \"memo\"")
+        "memo manifest missing Memo CPI program"
+      require (contains manifest "protocol = \"memo\"")
+        "memo manifest missing Memo CPI protocol"
+      require (contains manifest "data_layout = \"memo.memo\"")
+        "memo manifest missing Memo CPI data layout"
+      require (contains manifest "memo_source = \"memoArg\"")
+        "memo manifest missing memo source metadata"
+      require (contains asm "account.validation[1:memo]: owner=executable")
+        "memo assembly missing executable Memo program validation"
+      require (contains asm "sol_cpi_memo_call:")
+        "memo assembly missing Memo CPI helper label"
+      require (contains asm "solana.cpi.data memo.memo: raw bytes (len=8) from instruction param memoArg")
+        "memo assembly missing raw memo data packing marker"
+      require (contains asm "solana.cpi.program_id memo")
+        "memo assembly missing Memo program id packing marker"
+      require (contains asm "mov64 r3, 8")
+        "memo assembly missing memo data length"
+      require (contains asm "call sol_invoke_signed_c")
+        "memo assembly missing sol_invoke_signed_c syscall"
+  | .error err =>
+      throw <| IO.userError s!"Solana Memo CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec "system-create-cpi" systemCreateAccountSpec with
   | .ok pkg =>

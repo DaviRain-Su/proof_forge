@@ -101,7 +101,8 @@ missing.
 | SPL Token transfer_checked | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
-| Memo / Stake / Vote / Config | Missing | Extension lowering covers System, SPL Token, and the Token-2022 transfer-fee/non-transferable direct CPI subset | P1 |
+| Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Web3.js behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
+| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable direct CPI subset | P1 |
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions

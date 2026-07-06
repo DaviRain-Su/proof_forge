@@ -55,6 +55,9 @@ def main : IO UInt32 := do
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf"]
     ["--solana-system-cpi-elf"]
   requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-memo-cpi", "--format", "elf"]
+    ["--solana-memo-cpi-elf"]
+  requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf", "--solana-sbpf-arch", "v0"]
     ["--solana-system-cpi-elf", "--solana-sbpf-arch", "v0"]
   requireLegacy

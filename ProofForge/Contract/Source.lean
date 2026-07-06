@@ -608,7 +608,7 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       let memoLit := identNameLit memoSource
       let action ←
         `(ProofForge.Solana.memo $callLit $memoLit)
-      return { action? := some action, binder := mkCpiLet call }
+      return { action? := some action }
   | `(contractItem| cpi $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term) =>
       let callLit := identNameLit call
       let payerLit := identNameLit payer

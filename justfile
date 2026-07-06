@@ -236,6 +236,10 @@ solana-pda-web3:
 solana-system-cpi-web3:
     scripts/solana/system-cpi-web3-smoke.sh
 
+# Run a live Memo Program CPI smoke on Surfpool with Web3.js.
+solana-memo-cpi-web3:
+    scripts/solana/memo-cpi-web3-smoke.sh
+
 # Compare the generated System transfer CPI artifact with the Pinocchio reference contract.
 solana-pinocchio-system-transfer-equivalence:
     scripts/solana/pinocchio-system-transfer-equivalence.sh

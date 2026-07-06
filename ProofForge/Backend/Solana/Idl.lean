@@ -216,6 +216,7 @@ def cpiJson (cpi : CpiInvoke) : String :=
     cpiMetadataJson cpi "solana.cpi.transfer_fee_basis_points" "transferFeeBasisPoints",
     cpiMetadataJson cpi "solana.cpi.maximum_fee" "maximumFee",
     cpiMetadataJson cpi "solana.cpi.num_token_accounts" "numTokenAccounts",
+    cpiMetadataJson cpi "solana.cpi.memo_source" "memoSource",
     ("signed", jsonBool cpi.signed),
     ("entrypoint", jsonStringOption cpi.entrypoint?)
   ]
