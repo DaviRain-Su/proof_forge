@@ -4,7 +4,6 @@
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (import "env" "input" (func $input (param i64)))
-  (global $arr_ptr (mut i32) (i32.const 60000))
   (func $__pf_read_u64 (param $kp i32) (param $kl i32) (result i64) (local $found i64) (local $r i64)
     i64.const 0
     local.set $r
@@ -51,15 +50,6 @@
     i64.const 8192
     call $value_return
   )
-  (func $__pf_arr_alloc (param $n i64) (result i32)
-    global.get $arr_ptr
-    global.get $arr_ptr
-    local.get $n
-    i32.wrap_i64
-    i32.add
-    global.set $arr_ptr
-  )
-  (func $__pf_arr_dealloc (param $p i32) (param $n i64))
   (func $initialize (export "initialize")
     i64.const 0
     call $input

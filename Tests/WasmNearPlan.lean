@@ -1,5 +1,7 @@
 import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.IR.Contract
+import ProofForge.IR.Examples.ArrayProbe
+import ProofForge.IR.Examples.StructProbe
 
 namespace ProofForge.Tests.WasmNearPlan
 
@@ -256,6 +258,12 @@ def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   requireNotContains wat "__pf_hash_eq" "counter module should not emit hash equality helper"
   requireNotContains wat "__pf_memcpy" "counter module should not emit memcpy helper"
   requireNotContains wat "(import \"env\" \"sha256\"" "counter module should not import sha256"
+  requireNotContains wat "(global $arr_ptr" "counter module should not emit arr_ptr global"
+  requireNotContains wat "__pf_arr_alloc" "counter module should not emit arr alloc helper"
+  requireNotContains wat "__pf_arr_dealloc" "counter module should not emit arr dealloc helper"
+  requireNotContains wat "__pf_arr_lit_" "counter module should not emit array literal helpers"
+  requireNotContains wat "__pf_arr_eq_" "counter module should not emit array equality helpers"
+  requireNotContains wat "__pf_struct_lit_" "counter module should not emit struct literal helpers"
 
 def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
   let unusedMapWat ←
@@ -411,6 +419,56 @@ def testHashEqRenderKeepsEqualityHelperOnly : IO Unit := do
   requireNotContains wat "__pf_hash_two_to_one" "hash-eq module should not emit hash two-to-one helper"
   requireNotContains wat "__pf_memcpy" "hash-eq module should not emit memcpy helper"
 
+def testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.ArrayProbe.emitWatSumModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat array-literal render failed: {err.message}"
+  requireContains wat "(global $arr_ptr" "array-literal module must emit arr_ptr global"
+  requireContains wat "__pf_arr_alloc" "array-literal module must emit arr alloc helper"
+  requireContains wat "__pf_arr_lit_u64_3" "array-literal module must emit u64[3] literal helper"
+  requireNotContains wat "__pf_arr_eq_u64_3" "array-literal module should not emit array equality helper"
+  requireNotContains wat "__pf_arr_dealloc" "array-literal module should not emit arr dealloc helper"
+  requireNotContains wat "__pf_struct_lit_" "array-literal module should not emit struct literal helpers"
+
+def arrayPredicatesOnlyModule : Module := {
+  name := "ArrayPredicatesProbe",
+  entrypoints := #[ProofForge.IR.Examples.ArrayProbe.arrayPredicates],
+  state := #[] }
+
+def releaseThenSumOnlyModule : Module := {
+  name := "ReleaseThenSumProbe",
+  entrypoints := #[ProofForge.IR.Examples.ArrayProbe.releaseThenSum],
+  state := #[] }
+
+def testArrayPredicateRenderKeepsEqualityAndDeallocSurface : IO Unit := do
+  let eqWat ←
+    match renderModule arrayPredicatesOnlyModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat array-predicate render failed: {err.message}"
+  requireContains eqWat "__pf_arr_lit_u64_3" "array-predicate module must emit u64[3] literal helper"
+  requireContains eqWat "__pf_arr_eq_u64_3" "array-predicate module must emit u64[3] equality helper"
+  requireNotContains eqWat "__pf_arr_dealloc" "array-predicate module should not emit arr dealloc helper"
+  let releaseWat ←
+    match renderModule releaseThenSumOnlyModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat array-release render failed: {err.message}"
+  requireContains releaseWat "__pf_arr_lit_u64_3" "array-release module must emit u64[3] literal helper"
+  requireContains releaseWat "__pf_arr_dealloc" "array-release module must emit arr dealloc helper"
+  requireNotContains releaseWat "__pf_arr_eq_u64_3" "array-release module should not emit array equality helper"
+
+def testStructLiteralRenderKeepsOnlyMatchingStructLitSurface : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.StructProbe.emitWatLocalSumModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat struct-literal render failed: {err.message}"
+  requireContains wat "(global $arr_ptr" "struct-literal module must emit arr_ptr global"
+  requireContains wat "__pf_arr_alloc" "struct-literal module must emit arr alloc helper"
+  requireContains wat "__pf_struct_lit_Point" "struct-literal module must emit Point struct literal helper"
+  requireNotContains wat "__pf_arr_lit_" "struct-literal module should not emit array literal helpers"
+  requireNotContains wat "__pf_arr_eq_" "struct-literal module should not emit array equality helpers"
+  requireNotContains wat "__pf_arr_dealloc" "struct-literal module should not emit arr dealloc helper"
+
 def testPowRenderKeepsOnlyMatchingNumericPowHelper : IO Unit := do
   let u64Wat ←
     match renderModule powU64Module with
@@ -447,6 +505,9 @@ def main : IO UInt32 := do
   testHashPairRenderKeepsTwoToOneAndMemcpySurface
   testHashEqRenderKeepsEqualityHelperOnly
   testPowRenderKeepsOnlyMatchingNumericPowHelper
+  testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface
+  testArrayPredicateRenderKeepsEqualityAndDeallocSurface
+  testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0

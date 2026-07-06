@@ -1737,6 +1737,26 @@ def moduleStructLitNames (mod : ProofForge.IR.Module) : Array String :=
 def structLitHelperFuncs (mod : ProofForge.IR.Module) : Array Func :=
   moduleStructLitNames mod |>.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
 
+def modulePlanUsesArrHeap (plan : ModulePlan) : Bool :=
+  plan.usesArrAlloc || plan.usesArrDealloc
+
+def arrayLitFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  plan.arrayLitShapes.map (fun (elemType, len) => arrLitFunc elemType len)
+
+def arrayEqFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  plan.arrayEqShapes.map (fun (elemType, len) => arrEqFunc elemType len)
+
+def structLitFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
+  plan.structLitNames.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
+
+def arrHeapHelperFuncsForModulePlan (plan : ModulePlan) (cfg : ProofForge.IR.AllocatorConfig) : Array Func :=
+  (if plan.usesArrAlloc then #[arrAllocFunc cfg] else #[]) ++
+    (if plan.usesArrDealloc then #[arrDeallocFunc cfg] else #[])
+
+def aggregateHelperFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
+  arrayLitFuncsForModulePlan plan ++ arrayEqFuncsForModulePlan plan ++
+    structLitFuncsForModulePlan plan mod ++ arrHeapHelperFuncsForModulePlan plan mod.allocator
+
 partial def collectLocalsFrom (acc : LocalTypes) (s : Statement) : Except EmitError LocalTypes := do
   match s with
   | .letBind name t _ | .letMutBind name t _ =>
@@ -2030,15 +2050,13 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
       then #[storageHasKeyImport]
       else #[]) ++ extraImports
-  let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
-    ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
   let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
     evtHelperFuncsForModulePlan modulePlan ++ mapHelperFuncsForModulePlan modulePlan ++
-    mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
+    mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
   let arrPtrDecls :=
-    if isHost then #[]
+    if isHost || !modulePlanUsesArrHeap modulePlan then #[]
     else if mod.allocator.usesMinimalMallocShape then
       #[arrPtrGlobalDecl mod.allocator.heapBase, arrFreeGlobalDecl]
     else #[arrPtrGlobalDecl mod.allocator.heapBase]

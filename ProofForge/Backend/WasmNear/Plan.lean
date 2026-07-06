@@ -312,7 +312,24 @@ structure ModuleSurface where
   usesPowU32 : Bool := false
   usesPowU64 : Bool := false
   usesMemcpy : Bool := false
+  arrayLitShapes : Array (ValueType × Nat) := #[]
+  arrayEqShapes : Array (ValueType × Nat) := #[]
+  structLitNames : Array String := #[]
+  usesArrAlloc : Bool := false
+  usesArrDealloc : Bool := false
   deriving Repr, Inhabited
+
+def pushArrayShapeIfMissing (acc : Array (ValueType × Nat)) (shape : ValueType × Nat) : Array (ValueType × Nat) :=
+  if acc.any (fun existing => existing.1 == shape.1 && existing.2 == shape.2) then acc else acc.push shape
+
+def mergeArrayShapes (lhs rhs : Array (ValueType × Nat)) : Array (ValueType × Nat) :=
+  rhs.foldl pushArrayShapeIfMissing lhs
+
+def pushStringIfMissing (acc : Array String) (value : String) : Array String :=
+  if acc.contains value then acc else acc.push value
+
+def mergeStringSets (lhs rhs : Array String) : Array String :=
+  rhs.foldl pushStringIfMissing lhs
 
 def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   contextOps := mergeContextExprPlans lhs.contextOps rhs.contextOps
@@ -341,6 +358,11 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPowU32 := lhs.usesPowU32 || rhs.usesPowU32
   usesPowU64 := lhs.usesPowU64 || rhs.usesPowU64
   usesMemcpy := lhs.usesMemcpy || rhs.usesMemcpy
+  arrayLitShapes := mergeArrayShapes lhs.arrayLitShapes rhs.arrayLitShapes
+  arrayEqShapes := mergeArrayShapes lhs.arrayEqShapes rhs.arrayEqShapes
+  structLitNames := mergeStringSets lhs.structLitNames rhs.structLitNames
+  usesArrAlloc := lhs.usesArrAlloc || rhs.usesArrAlloc
+  usesArrDealloc := lhs.usesArrDealloc || rhs.usesArrDealloc
 }
 
 namespace ModuleSurface
@@ -465,6 +487,34 @@ def withPowU64 : ModuleSurface := {
 def withMemcpy : ModuleSurface := {
   usesMemcpy := true
 }
+
+def withArrayLitShape (elemType : ValueType) (len : Nat) : ModuleSurface := {
+  arrayLitShapes := #[(elemType, len)]
+  usesArrAlloc := true
+}
+
+def withArrayEqShape (elemType : ValueType) (len : Nat) : ModuleSurface := {
+  arrayEqShapes := #[(elemType, len)]
+}
+
+def withStructLitName (name : String) : ModuleSurface := {
+  structLitNames := #[name]
+  usesArrAlloc := true
+}
+
+def withArrAlloc : ModuleSurface := {
+  usesArrAlloc := true
+}
+
+def withArrDealloc : ModuleSurface := {
+  usesArrDealloc := true
+}
+
+def comparisonSurfaceForType (type : ValueType) : ModuleSurface :=
+  match type with
+  | .fixedArray elemType len => ModuleSurface.withArrayEqShape elemType len
+  | .hash => ModuleSurface.withHashEq
+  | _ => ModuleSurface.empty
 
 end ModuleSurface
 
@@ -668,13 +718,16 @@ partial def surfaceFromValueType (module : Module) (type : ValueType) : ModuleSu
   match type with
   | .hash => ModuleSurface.withMemcpy
   | .fixedArray elemType _ =>
-      if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType
+      mergeModuleSurfaces ModuleSurface.withArrAlloc
+        (if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType)
   | .structType structName =>
-      match findStruct? module structName with
-      | some structDecl =>
-          structDecl.fields.foldl (fun acc field =>
-            mergeModuleSurfaces acc (surfaceFromValueType module field.type)) ModuleSurface.empty
-      | none => ModuleSurface.empty
+      let fieldSurface :=
+        match findStruct? module structName with
+        | some structDecl =>
+            structDecl.fields.foldl (fun acc field =>
+              mergeModuleSurfaces acc (surfaceFromValueType module field.type)) ModuleSurface.empty
+        | none => ModuleSurface.empty
+      mergeModuleSurfaces ModuleSurface.withArrAlloc fieldSurface
   | _ => ModuleSurface.empty
 
 def surfaceFromEntrypointParams (module : Module) (params : Array (String × ValueType)) : ModuleSurface :=
@@ -690,9 +743,14 @@ mutual
         .ok ModuleSurface.empty
     | .nativeValue =>
         .ok ModuleSurface.withNativeValue
-    | .arrayLit _ values =>
-        values.foldlM (init := ModuleSurface.empty) fun acc value =>
+    | .arrayLit elementType values => do
+        let valueSurface ← values.foldlM (init := ModuleSurface.empty) fun acc value =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env value)
+        .ok (mergeModuleSurfaces valueSurface (ModuleSurface.withArrayLitShape elementType values.size))
+    | .structLit typeName fields => do
+        let valueSurface ← fields.foldlM (init := ModuleSurface.empty) fun acc field =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
+        .ok (mergeModuleSurfaces valueSurface (ModuleSurface.withStructLitName typeName))
     | .arrayGet array index =>
         return mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index)
     | .memoryArrayNew _ length =>
@@ -701,9 +759,6 @@ mutual
         surfaceFromExpr module env array
     | .memoryArrayGet array index =>
         return mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index)
-    | .structLit _ fields =>
-        fields.foldlM (init := ModuleSurface.empty) fun acc field =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
     | .field base _ =>
         surfaceFromExpr module env base
     | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
@@ -725,8 +780,7 @@ mutual
         let lhsSurface ← surfaceFromExpr module env lhs
         let rhsSurface ← surfaceFromExpr module env rhs
         let lhsType ← inferExprType module env lhs
-        let eqSurface := if lhsType == .hash then ModuleSurface.withHashEq else ModuleSurface.empty
-        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) eqSurface)
+        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) (ModuleSurface.comparisonSurfaceForType lhsType))
     | .hashTwoToOne lhs rhs => do
         let merged :=
           mergeModuleSurfaces (← surfaceFromExpr module env lhs) (← surfaceFromExpr module env rhs)
@@ -904,9 +958,10 @@ mutual
         let lhsSurface ← surfaceFromExpr module env lhs
         let rhsSurface ← surfaceFromExpr module env rhs
         let lhsType ← inferExprType module env lhs
-        let eqSurface := if lhsType == .hash then ModuleSurface.withHashEq else ModuleSurface.empty
-        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) eqSurface)
-    | .revert _ | .revertWithError _ | .release _ =>
+        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) (ModuleSurface.comparisonSurfaceForType lhsType))
+    | .release _ =>
+        .ok ModuleSurface.withArrDealloc
+    | .revert _ | .revertWithError _ =>
         .ok ModuleSurface.empty
     | .ifElse condition thenBody elseBody =>
         return mergeModuleSurfaces
@@ -959,6 +1014,11 @@ structure ModulePlan where
   usesPowU32 : Bool
   usesPowU64 : Bool
   usesMemcpy : Bool
+  arrayLitShapes : Array (ValueType × Nat)
+  arrayEqShapes : Array (ValueType × Nat)
+  structLitNames : Array String
+  usesArrAlloc : Bool
+  usesArrDealloc : Bool
   deriving Repr
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
@@ -990,6 +1050,11 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesPowU32 := surface.usesPowU32
     usesPowU64 := surface.usesPowU64
     usesMemcpy := surface.usesMemcpy
+    arrayLitShapes := surface.arrayLitShapes
+    arrayEqShapes := surface.arrayEqShapes
+    structLitNames := surface.structLitNames
+    usesArrAlloc := surface.usesArrAlloc
+    usesArrDealloc := surface.usesArrDealloc
   }
 
 end ProofForge.Backend.WasmNear.Plan

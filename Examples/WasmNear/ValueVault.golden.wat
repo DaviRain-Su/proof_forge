@@ -7,7 +7,6 @@
   (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (import "env" "block_index" (func $block_index (result i64)))
   (global $evt_ptr (mut i32) (i32.const 42000))
-  (global $arr_ptr (mut i32) (i32.const 60000))
   (func $__pf_read_u64 (param $kp i32) (param $kl i32) (result i64) (local $found i64) (local $r i64)
     i64.const 0
     local.set $r
@@ -169,15 +168,6 @@
     i64.const 42000
     call $log_utf8
   )
-  (func $__pf_arr_alloc (param $n i64) (result i32)
-    global.get $arr_ptr
-    global.get $arr_ptr
-    local.get $n
-    i32.wrap_i64
-    i32.add
-    global.set $arr_ptr
-  )
-  (func $__pf_arr_dealloc (param $p i32) (param $n i64))
   (func $initialize (export "initialize") (local $initial i64) (local $checkpoint i64)
     i64.const 0
     call $input
