@@ -2580,7 +2580,7 @@ def metadataFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "map" => some ProofForge.IR.Examples.MapProbe.module
   | "event" => some ProofForge.IR.Examples.EventProbe.module
   | "context" => some ProofForge.IR.Examples.ContextProbe.module
-  | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module
+  | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.psyModule
   | "struct" => some ProofForge.IR.Examples.StructProbe.module
   | "struct-array" => some ProofForge.IR.Examples.StructArrayProbe.module
   | "array" => some ProofForge.IR.Examples.ArrayProbe.module
@@ -4083,7 +4083,7 @@ def compileEventIrPsy (opts : CliOptions) : IO UInt32 := do
 
 def compileCrosscallIrPsy (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/psy/CrosscallProbe.psy")
-  match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.CrosscallProbe.module with
+  match ProofForge.Backend.Psy.IR.renderModule ProofForge.IR.Examples.CrosscallProbe.psyModule with
   | .ok source =>
       writeTextFile output source
       IO.println s!"wrote {output}"

@@ -169,4 +169,10 @@ def module : Module := {
   ]
 }
 
+def psyModule : Module := {
+  name := "CrosscallProbe"
+  state := #[stateMarker]
+  entrypoints := #[callRemote]
+}
+
 end ProofForge.IR.Examples.CrosscallProbe
