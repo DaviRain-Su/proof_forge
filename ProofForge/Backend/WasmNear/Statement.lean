@@ -20,6 +20,12 @@ open ProofForge.Backend.WasmNear.Types
 
 /-! Small, non-recursive statement instruction helpers used by EmitWat. -/
 
+def localLetBindInsns (name : String) (expectedType : ValueType)
+    (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) :=
+  if valueType != expectedType then
+    err s!"EmitWat: let `{name}` expected `{expectedType.name}`, got `{valueType.name}`"
+  else .ok (valueInsns ++ #[.localSet name])
+
 def localAssignInsns (env : LocalTypes) (name : String) (valueInsns : Array Insn) :
     Except EmitError (Array Insn) :=
   if (lookupLocal? env name).isNone then err s!"EmitWat: assignment to unknown local `{name}`"
@@ -52,6 +58,16 @@ def storagePathAssignOpValueInsns (op : AssignOp) (currentInsns : Array Insn)
     err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
   else
     .ok (currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)])
+
+def ifElseInsns (conditionInsns thenInsns elseInsns : Array Insn) : Array Insn :=
+  conditionInsns ++ #[.if_ { insns := thenInsns } { insns := elseInsns }]
+
+def boundedForInsns (indexName : String) (start stop : Nat) (bodyInsns : Array Insn) :
+    Array Insn :=
+  #[.i64Const start, .localSet indexName,
+    .block_ { insns := #[ .loop_ { insns := #[
+      .localGet indexName, .i64Const stop, .plain "i64.ge_u", .brIf 1 ] ++ bodyInsns ++ #[
+      .localGet indexName, .i64Const 1, .plain "i64.add", .localSet indexName, .br 0 ] } ] } ]
 
 def releaseInsns (ctx : Ctx) (env : LocalTypes) (name : String) :
     Except EmitError (Array Insn) := do

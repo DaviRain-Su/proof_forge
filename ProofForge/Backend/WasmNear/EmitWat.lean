@@ -219,8 +219,9 @@ export ProofForge.Backend.WasmNear.Scalar (
 )
 
 export ProofForge.Backend.WasmNear.Statement (
-  localAssignInsns localAssignOpTargetType localAssignOpInsns
+  localLetBindInsns localAssignInsns localAssignOpTargetType localAssignOpInsns
   storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
+  ifElseInsns boundedForInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -910,8 +911,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
   match s with
   | .letBind name t e | .letMutBind name t e => do
     let (is, te) ← lowerExpr ctx env e
-    if te != t then err s!"EmitWat: let `{name}` expected `{t.name}`, got `{te.name}`"
-    else .ok (is ++ #[.localSet name])
+    localLetBindInsns name t is te
   | .assign (.local name) e => do
     let (is, _) ← lowerExpr ctx env e
     localAssignInsns env name is
@@ -989,13 +989,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     else do
       let thenInsns ← thenBody.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
       let elseInsns ← elseBody.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
-      .ok (cis ++ #[.if_ { insns := thenInsns } { insns := elseInsns }])
+      .ok (ifElseInsns cis thenInsns elseInsns)
   | .boundedFor indexName start stop body => do
     let bodyInsns ← body.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
-    .ok (#[.i64Const start, .localSet indexName,
-           .block_ { insns := #[ .loop_ { insns := #[
-             .localGet indexName, .i64Const stop, .plain "i64.ge_u", .brIf 1 ] ++ bodyInsns ++ #[
-             .localGet indexName, .i64Const 1, .plain "i64.add", .localSet indexName, .br 0 ] } ] } ])
+    .ok (boundedForInsns indexName start stop bodyInsns)
   | _ => err "EmitWat: this statement form is not yet supported"
 
 def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
