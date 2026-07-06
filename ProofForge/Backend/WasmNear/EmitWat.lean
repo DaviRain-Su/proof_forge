@@ -237,6 +237,7 @@ export ProofForge.Backend.WasmNear.Struct (
   findStruct? structTotalSize structFieldOffset? structFieldType?
   structLitName isStructStorageFieldType isIndexedStorageValueType
   structStorageFieldsSupported zeroStructBufInsns readScalarStructBufInsns
+  scalarStructFieldReadInsns scalarStructFieldWriteInsns
   readArrayStructBufInsns
 )
 
@@ -668,8 +669,7 @@ mutual
               if !isStructStorageFieldType ft then
                 err s!"EmitWat: scalar struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
               else
-                .ok (readScalarStructBufInsns s sd ++
-                  #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0], ft)
+                .ok (scalarStructFieldReadInsns s sd off ft)
             | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: storageStructFieldRead expects a struct state, got `{s.type.name}`"
 
@@ -692,11 +692,7 @@ mutual
               else if valueType != ft then
                 err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
               else
-                .ok (readScalarStructBufInsns s sd ++
-                  #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++
-                  #[.store (storeOpFor ft) 0,
-                    .i64Const s.keyLen, .i64Const s.keyPtr, .i64Const (structTotalSize sd),
-                    .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
+                .ok (scalarStructFieldWriteInsns s sd off ft valueInsns)
             | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: storageStructFieldWrite expects a struct state, got `{s.type.name}`"
 
