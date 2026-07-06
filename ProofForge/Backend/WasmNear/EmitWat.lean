@@ -17,6 +17,7 @@ import ProofForge.IR.Contract
 import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
+import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Types
@@ -28,9 +29,21 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Types
+
+export ProofForge.Backend.WasmNear.Imports (
+  hostImport valTypeOfString hostFunctionImport dedupeImports bridgeBaseImports
+  nearImports storageHasKeyImport sha256Import logUtf8Import inputImport
+  panicImport predecessorImport currentAcctImport signerImport depositImport
+  registerLenImport blockHeightImport epochHeightImport randomSeedImport
+  allocImportName deallocImportName allocImport deallocImport
+  modulePlanUsesSha256 nearImportsForModulePlan ctxImportsForModulePlan
+  promiseCtxImportsForModulePlan promiseResultImportsForModulePlan
+  hostAllocatorImportsForModulePlan importsForModulePlan
+)
 
 export ProofForge.Backend.WasmNear.Memory (
   KEY_BUF RET_BUF TRUE_PTR FALSE_PTR HEX_LUT_PTR MAPKEY_BUF HASH_HEAP ARR_HEAP
@@ -68,28 +81,6 @@ structure EmitError where
   deriving Repr, Inhabited
 
 def err (msg : String) : Except EmitError α := .error { message := msg }
-
--- Host imports
-def hostImport (name : String) (params results : Array ValType) : Import :=
-  { module_ := "env", name := name, funcName := name, type := { params := params, results := results } }
-
-def valTypeOfString : String → ValType
-  | "i32" => .i32 | "i64" => .i64 | _ => .i32
-
-def hostFunctionImport (hf : ProofForge.Target.HostFunction) : Import :=
-  hostImport hf.name (hf.params.map valTypeOfString) (hf.results.map valTypeOfString)
-
-def dedupeImports (imports : Array Import) : Array Import :=
-  imports.foldl (fun acc import_ =>
-    if acc.any (fun existing => existing.module_ == import_.module_ && existing.name == import_.name) then
-      acc
-    else
-      acc.push import_) #[]
-
-def bridgeBaseImports (bridge : ProofForge.Target.HostBridge) : Array Import :=
-  bridge.hostFunctions.map hostFunctionImport
-
-def nearImports : Array Import := bridgeBaseImports .near
 
 -- Helpers (per scalar type)
 def readFunc (vt : ValueType) : Func :=
@@ -176,11 +167,6 @@ def modulePlanUsesHashAlloc (plan : ModulePlan) : Bool :=
   plan.usesHashMake || plan.usesHashPreimage || plan.usesHashTwoToOne ||
     plan.scalarReadTypes.contains .hash || plan.contextOps.contains .randomSeed ||
     plan.contextOps.contains .userIdHash
-
-def modulePlanUsesSha256 (plan : ModulePlan) : Bool :=
-  plan.usesHashPreimage || plan.usesHashTwoToOne ||
-    plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-    plan.contextOps.contains .contractId || plan.contextOps.contains .origin
 
 def powHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.usesPowU32 then #[powFunc .u32] else #[]) ++
@@ -288,10 +274,6 @@ def mapContainsFunc : Func :=
       .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
       .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
       .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
-
-/-- storage_has_key import (added only for contains surfaces; see lowerModule). -/
-def storageHasKeyImport : Import :=
-  hostImport "storage_has_key" #[.i64, .i64] #[.i64]
 
 def mapHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.usesU64IndexedBuildKey then #[mapBuildkeyFunc] else #[]) ++
@@ -419,18 +401,6 @@ def readHashName      : String := "__pf_read_hash"
 def writeHashName     : String := "__pf_write_hash"
 def hashPtrGlobal     : String := "hash_ptr"
 
-def sha256Import : Import := hostImport "sha256" #[.i64, .i64, .i64] #[]
-def logUtf8Import : Import := hostImport "log_utf8" #[.i64, .i64] #[]
-def inputImport : Import := hostImport "input" #[.i64] #[]
-def panicImport : Import := hostImport "panic" #[.i64, .i64] #[]
-def predecessorImport : Import := hostImport "predecessor_account_id" #[.i64] #[]
-def currentAcctImport : Import := hostImport "current_account_id" #[.i64] #[]
-def signerImport : Import := hostImport "signer_account_id" #[.i64] #[]
-def depositImport : Import := hostImport "attached_deposit" #[] #[.i64]
-def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
-def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
-def epochHeightImport : Import := hostImport "epoch_height" #[] #[.i64]
-def randomSeedImport : Import := hostImport "random_seed" #[.i64] #[]
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxUserHashName : String := "__pf_ctx_user_hash"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
@@ -450,8 +420,6 @@ def hashAllocFunc : Func :=
 def arrPtrGlobal     : String := "arr_ptr"
 def arrFreeGlobal    : String := "arr_free"
 def arrAllocName     : String := "__pf_arr_alloc"
-def allocImportName   : String := "pf_alloc"
-def deallocImportName : String := "pf_dealloc"
 def arrayLitName (elemType : ValueType) (len : Nat) : String :=
   "__pf_arr_lit_" ++ typeSuffix elemType ++ "_" ++ toString len
 def arrEqName (elemType : ValueType) (len : Nat) : String :=
@@ -554,14 +522,6 @@ def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
     { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
       results := #[],
       body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
-/-- Host imports for reuse-capable strategies: `pf_alloc` + `pf_dealloc`.
-    `(import "env" "pf_alloc"   (func (param i64) (result i32)))`
-    `(import "env" "pf_dealloc" (func (param i32 i64)))` -/
-def allocImport : Import :=
-  hostImport allocImportName #[.i64] #[.i32]
-def deallocImport : Import :=
-  hostImport deallocImportName #[.i32, .i64] #[]
-
 def hashMakeFunc : Func :=
   { name := hashMakeName,
     params := #[{ name := "a", type := .i64 }, { name := "b", type := .i64 },
@@ -706,64 +666,12 @@ def ctxRandomSeedFunc : Func :=
       .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
       .localGet "p" ] } }
 
-def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  nearImports.filter fun import_ =>
-    match import_.name with
-    | "attached_deposit" => plan.usesNativeValue
-    | "storage_read" => plan.usesStorageRead
-    | "storage_write" => plan.usesStorageWrite
-    | "value_return" => !plan.returnTypes.isEmpty
-    | "promise_create" => plan.usesPromiseCreate
-    | "promise_then" => plan.usesPromiseThen
-    | "promise_results_count" | "promise_result" => plan.usesPromiseResults
-    | "promise_return" => plan.usesPromiseReturn
-    | "log_utf8" => plan.usesEventApi
-    | "signer_account_id" => plan.contextOps.contains .origin
-    | "block_timestamp" => plan.contextOps.contains .timestamp
-    | "epoch_height" => plan.contextOps.contains .epochHeight
-    | "random_seed" => plan.contextOps.contains .randomSeed
-    | _ => true
-
 def ctxHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
     (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
     (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
     (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
     (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
-
-def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash then #[predecessorImport] else #[]) ++
-    (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
-    (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-        plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
-    (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[])
-
-def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  if !plan.usesPromiseReceiverAccount then
-    #[]
-  else
-    (if plan.contextOps.contains .contractId then #[] else #[currentAcctImport]) ++
-      (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
-        #[] else #[registerLenImport])
-
-def promiseResultImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  if !plan.usesPromiseResultU64 then
-    #[]
-  else if plan.contextOps.contains .userId || plan.contextOps.contains .contractId ||
-      plan.contextOps.contains .origin || plan.usesPromiseReceiverAccount then
-    #[]
-  else
-    #[registerLenImport]
-
-/-- Offline host-provided allocators forward heap helpers to `pf_alloc` /
-    `pf_dealloc`. Only emit the imports actually referenced by the planned arr
-    heap surface. -/
-def hostAllocatorImportsForModulePlan (plan : ModulePlan) (cfg : ProofForge.IR.AllocatorConfig) : Array Import :=
-  if !cfg.requiresHost then
-    #[]
-  else
-    (if plan.usesArrAlloc then #[allocImport] else #[]) ++
-      (if plan.usesArrDealloc then #[deallocImport] else #[])
 
 def lowerContextExprPlan :
     ContextExprPlan → Except EmitError (Array Insn × ValueType)
@@ -2419,23 +2327,8 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
-  let sha256Imports := if modulePlanUsesSha256 modulePlan then #[sha256Import] else #[]
-  let baseImportsCore :=
-    (nearImportsForModulePlan modulePlan ++ sha256Imports).push inputImport
-      |> fun imports =>
-        if modulePlan.usesEventApi then
-          imports.push logUtf8Import
-        else
-          imports
-  let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
-  let extraImports := hostAllocatorImportsForModulePlan modulePlan mod.allocator
-  let imports := dedupeImports <|
-    baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
-      promiseResultImportsForModulePlan modulePlan ++
-      (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
-        then #[storageHasKeyImport]
-        else #[]) ++ extraImports
+  let imports := importsForModulePlan modulePlan mod.allocator hasPanic
   let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
