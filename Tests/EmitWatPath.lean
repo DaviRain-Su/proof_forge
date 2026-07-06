@@ -14,7 +14,7 @@ def pathAssignState : StateDecl := {
 def u64 (value : Nat) : Expr :=
   .literal (.u64 value)
 
-def pathAssignLifecycle : Entrypoint := {
+def localPathAssignLifecycle : Entrypoint := {
   name := "path_assign_lifecycle"
   returns := .u64
   body := #[
@@ -28,7 +28,7 @@ def pathAssignLifecycle : Entrypoint := {
 def pathAssignModule : Module := {
   name := "PathAssignProbe"
   state := #[pathAssignState]
-  entrypoints := #[pathAssignLifecycle]
+  entrypoints := #[localPathAssignLifecycle]
 }
 
 def indexPathState : StateDecl := {
