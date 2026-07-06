@@ -3,6 +3,7 @@ import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.ConditionalProbe
 import ProofForge.IR.Examples.LoopProbe
+import ProofForge.IR.Examples.WhileProbe
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.AssertProbe
 
@@ -14,6 +15,7 @@ def supportedFixtureIds : Array String := #[
   "value-vault",
   "conditional",
   "loop",
+  "while",
   "array"
 ]
 
@@ -26,6 +28,7 @@ def outputFileName (fixtureId : String) : String :=
   | "value-vault" => "ValueVault.qnt"
   | "conditional" => "ConditionalProbe.qnt"
   | "loop" => "LoopProbe.qnt"
+  | "while" => "WhileProbe.qnt"
   | "array" => "ArrayProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
@@ -39,6 +42,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "value-vault" => some ProofForge.IR.Examples.ValueVault.module
   | "conditional" => some ProofForge.IR.Examples.ConditionalProbe.module
   | "loop" => some ProofForge.IR.Examples.LoopProbe.module
+  | "while" => some ProofForge.IR.Examples.WhileProbe.module
   | "array" => some ProofForge.IR.Examples.ArrayProbe.emitWatStorageModule
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none

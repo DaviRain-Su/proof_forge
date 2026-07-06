@@ -76,9 +76,11 @@ The Quint integration contributes these toolchain capabilities (see
 
 Phase 3 v1 currently lowers a growing portable IR subset:
 
-- Scalars, `ifElse`, `boundedFor`, and checked arithmetic
+- Scalars, `ifElse`, `boundedFor`, `whileLoop` (statically unrolled), and checked arithmetic
 - Fixed-size storage arrays (`List[T]` with 1-based Quint indexing)
 - Scenario-driven bounds (`MAX_UINT`, `USERS`) and manual invariants
 
-Still out of scope for the first iteration: map/struct storage, `whileLoop`,
-crosscalls, unbounded loops, floating-point, and complex bitwise ops.
+Still out of scope for the first iteration: map/struct storage, crosscalls,
+floating-point, and complex bitwise ops. `whileLoop` is lowered by static
+unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
+need more iterations are truncated in the Quint model.

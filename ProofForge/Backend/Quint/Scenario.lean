@@ -12,6 +12,7 @@ structure Config where
   maxUint : Nat := 3
   users : Array String := #["alice", "bob", "charlie"]
   maxSteps : Nat := 10
+  maxLoopUnroll : Nat := 10
   nTraces : Nat := 10
   invariants : Array (String × String) := #[]
   deriving Repr, Inhabited
@@ -123,6 +124,7 @@ private def parseSectionHeader (chars : List Char) : Option String :=
       max_uint = 3
       users = ["alice", "bob"]
       max_steps = 10
+      max_loop_unroll = 10
       n_traces = 10
     Lines starting with '#' are ignored. -/
 def parse (input : String) : Except String Config := do
@@ -156,6 +158,10 @@ def parse (input : String) : Except String Config := do
             | "max_steps" =>
                 match charsToNat value.toList with
                 | some n => pure { cfg with maxSteps := n }
+                | none => .error s!"expected natural number, got: {value}"
+            | "max_loop_unroll" =>
+                match charsToNat value.toList with
+                | some n => pure { cfg with maxLoopUnroll := n }
                 | none => .error s!"expected natural number, got: {value}"
             | "n_traces" =>
                 match charsToNat value.toList with

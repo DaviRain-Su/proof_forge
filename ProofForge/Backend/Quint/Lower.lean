@@ -40,6 +40,7 @@ structure LowerCtx where
   state : LocalEnv := []
   guards : Array ActionClause := #[]
   stateDecls : Array StateDecl := #[]
+  maxLoopUnroll : Nat := 10
 
 def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
   match ctx.state.lookup stateId with
@@ -256,8 +257,21 @@ mutual
           stateAcc := bodyCtx.state
           guardsAcc := guardsAcc ++ bodyCtx.guards
         .ok { ctx with state := stateAcc, guards := guardsAcc }
-    | .whileLoop _ _ =>
-        .error { message := "whileLoop not supported in Quint lowering v1" }
+    | .whileLoop condition body =>
+        let stateIds := ctx.stateDecls.map (·.id)
+        let mut loopState : LocalEnv :=
+          stateIds.foldl (fun acc id => acc.upsert id (ctx.stateValue id)) []
+        let mut guardsAcc := ctx.guards
+        for _ in [0:ctx.maxLoopUnroll] do
+          let loopCtx := { ctx with state := loopState, guards := #[] }
+          let cond ← lowerExpr loopCtx condition
+          let thenCtx ← lowerStatements loopCtx body
+          loopState := stateIds.foldl (fun acc id =>
+            let preVal := loopCtx.stateValue id
+            let thenVal := match thenCtx.state.lookup id with | some v => v | none => preVal
+            acc.upsert id (.ite cond thenVal preVal)) loopState
+          guardsAcc := guardsAcc ++ wrapBranchGuards cond false thenCtx.guards
+        .ok { ctx with state := loopState, guards := guardsAcc }
     | .return _ | .release _ =>
         .ok ctx
 end
@@ -275,9 +289,10 @@ partial def assignedStateVars (clause : ActionClause) : List String :=
   | .nondet _ _ body => assignedStateVars body
   | _ => []
 
-def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Array StateDecl) : Except LowerError Action := do
+def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Array StateDecl)
+    (maxLoopUnroll : Nat) : Except LowerError Action := do
   let params ← ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t))
-  let ctx ← lowerStatements { stateDecls := stateDecls } ep.body
+  let ctx ← lowerStatements { stateDecls := stateDecls, maxLoopUnroll := maxLoopUnroll } ep.body
   let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
@@ -346,7 +361,8 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
     pure { name := s.id, type := ← lowerStateVarType s })
   let init ← initAction module.state
   let stateIds := module.state.map (fun s => s.id)
-  let epActions ← module.entrypoints.mapM (fun ep => lowerEntrypoint ep stateIds module.state)
+  let epActions ← module.entrypoints.mapM (fun ep =>
+    lowerEntrypoint ep stateIds module.state scenario.maxLoopUnroll)
   let epParams ← module.entrypoints.mapM (fun ep => do
     ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t)))
   let step := stepAction module.entrypoints epParams

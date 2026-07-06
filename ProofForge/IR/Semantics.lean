@@ -667,6 +667,8 @@ partial def execStmt (state : State) (frame : Frame) : Statement →
       .ok (branchState, frame, returnValue?)
   | .boundedFor indexName start stopExclusive body =>
       execBoundedFor indexName start stopExclusive body state frame
+  | .whileLoop condition body =>
+      execWhileLoop condition body state frame
   | .return value => do
       let (nextState, returnValue) ← evalExpr state frame value
       .ok (nextState, frame, some returnValue)
@@ -694,6 +696,20 @@ partial def execBoundedFor
     | none => execBoundedFor indexName (index + 1) stopExclusive body nextState frame
   else
     .ok (state, frame, none)
+
+partial def execWhileLoop
+    (condition : Expr)
+    (body : Array Statement)
+    (state : State)
+    (frame : Frame) : Except String (State × Frame × Option Value) := do
+  let (stateAfterCond, conditionValue) ← evalExpr state frame condition
+  if ← truthy conditionValue then
+    let (bodyState, returnValue?) ← execStatements body.toList stateAfterCond frame
+    match returnValue? with
+    | some value => .ok (bodyState, frame, some value)
+    | none => execWhileLoop condition body bodyState frame
+  else
+    .ok (stateAfterCond, frame, none)
 end
 
 def runEntrypointWithArgs (state : State) (entrypoint : Entrypoint) (args : Array Value) :
