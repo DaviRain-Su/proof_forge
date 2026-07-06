@@ -37,6 +37,7 @@ import ProofForge.Backend.WasmNear.ModuleAssembly
 import ProofForge.Backend.WasmNear.Params
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Promise
+import ProofForge.Backend.WasmNear.Return
 import ProofForge.Backend.WasmNear.Scalar
 import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
@@ -67,6 +68,7 @@ open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.ModuleAssembly
 open ProofForge.Backend.WasmNear.Params
 open ProofForge.Backend.WasmNear.Promise
+open ProofForge.Backend.WasmNear.Return
 open ProofForge.Backend.WasmNear.Scalar
 open ProofForge.Backend.WasmNear.Struct
 open ProofForge.Backend.WasmNear.Types
@@ -195,6 +197,10 @@ export ProofForge.Backend.WasmNear.Params (
 export ProofForge.Backend.WasmNear.Promise (
   promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name
   promiseResultU64Func promiseHelperFuncsForModulePlan
+)
+
+export ProofForge.Backend.WasmNear.Return (
+  returnInsnsForLoweredExpr
 )
 
 export ProofForge.Backend.WasmNear.Scalar (
@@ -888,15 +894,7 @@ end
 def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
-  if t != expected then err s!"EmitWat: return expected `{expected.name}`, got `{t.name}`"
-  else if exprReturnsNearPromise e then
-    .ok (is ++ #[.call "promise_return"])
-  else match t with
-    | .u64 => .ok (is ++ #[.call returnU64Name])
-    | .u32 => .ok (is ++ #[.call returnU32Name])
-    | .bool => .ok (is ++ #[.call returnBoolName])
-    | .hash => .ok (#[.i64Const 32] ++ is ++ #[.plain "i64.extend_i32_u", .call "value_return"])
-    | _ => err s!"EmitWat: return type `{t.name}` is not supported"
+  returnInsnsForLoweredExpr expected e is t
 
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
