@@ -5,6 +5,7 @@ import ProofForge.Backend.Solana.Manifest
 import ProofForge.Contract.Spec.Json
 import ProofForge.IR.Contract
 import ProofForge.Target.Plan
+import ProofForge.Util.Json
 
 namespace ProofForge.Backend.Solana.Idl
 
@@ -12,40 +13,12 @@ open ProofForge.IR
 open ProofForge.Target
 open ProofForge.Backend.Solana.Extension
 open ProofForge.Backend.Solana.Manifest
+open ProofForge.Util.Json
 
 def schema : String := "proof-forge.solana.idl.v0"
 def targetId : String := "solana-sbpf-asm"
 def irVersion : String := "portable-ir-v0"
 def idlPath : String := "proof-forge-idl.json"
-
-def jsonString (value : String) : String :=
-  let escapeChar : Char → String
-    | '"' => "\\\""
-    | '\\' => "\\\\"
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | ch => ch.toString
-  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
-
-def jsonBool (value : Bool) : String :=
-  if value then "true" else "false"
-
-def jsonArray (items : Array String) : String :=
-  "[" ++ String.intercalate ", " items.toList ++ "]"
-
-def jsonObject (fields : Array (String × String)) : String :=
-  "{" ++
-    String.intercalate ", " (fields.toList.map fun field =>
-      jsonString field.fst ++ ": " ++ field.snd) ++
-    "}"
-
-def jsonStringArray (values : Array String) : String :=
-  jsonArray (values.map jsonString)
-
-def jsonStringOption : Option String → String
-  | some value => jsonString value
-  | none => "null"
 
 def jsonNatOption : Option Nat → String
   | some value => toString value

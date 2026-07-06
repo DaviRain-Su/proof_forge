@@ -98,7 +98,6 @@ import ProofForge.Target
 import ProofForge.Target.Check
 import ProofForge.Solana.Examples.Vault
 import ProofForge.Solana.Examples.SystemCpi
-import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SystemCreateAccountCpi
 import ProofForge.Solana.Examples.SplTokenTransferCheckedCpi
 import ProofForge.Solana.Examples.SplTokenOpsCpi
@@ -117,366 +116,31 @@ import ProofForge.Solana.Examples.LastRestartSlot
 import ProofForge.Solana.Examples.Memory
 import ProofForge.Solana.Examples.Crypto
 import ProofForge.Solana.Examples.ReturnDataCompute
+import ProofForge.Cli.JsonUtil
+import ProofForge.Cli.HexUtil
+import ProofForge.Cli.ConstructorAbi
+import ProofForge.Cli.EmitMode
 
 open Lean
 open System
+open ProofForge.Cli.JsonUtil
+open ProofForge.Cli.HexUtil
+open ProofForge.Cli.ConstructorAbi
 
 namespace ProofForge.Cli
 
-structure ConstructorParamSpec where
-  name : String
-  abiType : String
-  deriving Repr, BEq
-
-structure ConstructorValueSpec where
-  name : String
-  value : String
-  deriving Repr
-
-inductive EmitMode where
-  | yul
-  | evmBytecode
-  | counterIrYul
-  | counterIrBytecode
-  | valueVaultIrYul
-  | valueVaultIrBytecode
-  | errorRefIrYul
-  | errorRefIrBytecode
-  | errorRefIrSbpf
-  | errorRefEmitWat
-  | learnYul
-  | learnBytecode
-  | learnSbpf
-  | contractSourceSbpf
-  | contractSourceEmitWat
-  | learnTarget
-  | learnTokenTarget
-  | counterIrTs
-  | abiScalarIrYul
-  | abiScalarIrBytecode
-  | assertIrYul
-  | assertIrBytecode
-  | assignmentIrYul
-  | assignmentIrBytecode
-  | evmAssignOpIrYul
-  | evmAssignOpIrBytecode
-  | conditionalIrYul
-  | conditionalIrBytecode
-  | contextIrYul
-  | contextIrBytecode
-  | evmEventIrYul
-  | evmEventIrBytecode
-  | evmCrosscallIrYul
-  | evmCrosscallIrBytecode
-  | evmExpressionIrYul
-  | evmExpressionIrBytecode
-  | evmHashIrYul
-  | evmHashIrBytecode
-  | evmLoopIrYul
-  | evmLoopIrBytecode
-  | evmMapIrYul
-  | evmMapIrBytecode
-  | evmStorageArrayIrYul
-  | evmStorageArrayIrBytecode
-  | evmStorageStructIrYul
-  | evmStorageStructIrBytecode
-  | evmTypedMapIrYul
-  | evmTypedMapIrBytecode
-  | evmTypedStorageIrYul
-  | evmTypedStorageIrBytecode
-  | evmArrayValueIrYul
-  | evmArrayValueIrBytecode
-  | evmStructArrayValueIrYul
-  | evmStructArrayValueIrBytecode
-  | evmStructValueIrYul
-  | evmStructValueIrBytecode
-  | evmAbiAggregateIrYul
-  | evmAbiAggregateIrBytecode
-  | evmArrayAbiIrYul
-  | evmArrayAbiIrBytecode
-  | evmDynamicAbiIrYul
-  | evmDynamicAbiIrBytecode
-  | evmDynamicArrayIrYul
-  | evmDynamicArrayIrBytecode
-  | evmMemoryArrayIrYul
-  | evmMemoryArrayIrBytecode
-  | evmPackedStorageIrYul
-  | evmPackedStorageIrBytecode
-  | evmErrorsIrYul
-  | evmErrorsIrBytecode
-  | evmFallbackIrYul
-  | evmFallbackIrBytecode
-  | counterIrPsy
-  | eventIrPsy
-  | crosscallIrPsy
-  | expressionPredicateIrPsy
-  | genericEntrypointIrPsy
-  | arithmeticIrPsy
-  | bitwiseIrPsy
-  | boolStorageArrayIrPsy
-  | boolStorageScalarIrPsy
-  | conditionalIrPsy
-  | elseIfIrPsy
-  | contextIrPsy
-  | hashIrPsy
-  | hashStorageIrPsy
-  | mapIrPsy
-  | assertIrPsy
-  | loopIrPsy
-  | arrayIrPsy
-  | structIrPsy
-  | structArrayIrPsy
-  | abiAggregateIrPsy
-  | nestedAggregateIrPsy
-  | storageNestedAggregateIrPsy
-  | u32ArithmeticIrPsy
-  | u32HashPackingIrPsy
-  | u32StorageScalarIrPsy
-  | u32StorageArrayIrPsy
-  | counterIrSbpf
-  | valueVaultIrSbpf
-  | controlIrSbpf
-  | solanaSdkSbpf
-  | solanaSystemCpiSbpf
-  | solanaSystemCreateAccountCpiSbpf
-  | solanaSplTokenTransferCpiSbpf
-  | solanaSplTokenOpsCpiSbpf
-  | solanaSplTokenCloseAccountCpiSbpf
-  | solanaSplTokenAuthorityCpiSbpf
-  | solanaAssociatedTokenCpiSbpf
-  | solanaSplToken2022CpiSbpf
-  | solanaSplToken2022PausableCpiSbpf
-  | solanaSplToken2022TransferHookSbpf
-  | solanaElf
-  | valueVaultSolanaElf
-  | solanaSystemCpiElf
-  | solanaMemoCpiElf
-  | solanaSystemCreateAccountCpiElf
-  | solanaSplTokenTransferCpiElf
-  | solanaSplTokenOpsCpiElf
-  | solanaSplTokenCloseAccountCpiElf
-  | solanaSplTokenAuthorityCpiElf
-  | solanaAssociatedTokenCpiElf
-  | solanaSplToken2022CpiElf
-  | solanaSplToken2022PausableCpiElf
-  | solanaSplToken2022TransferHookElf
-  | solanaLogEventElf
-  | solanaClockSysvarElf
-  | solanaRentSysvarElf
-  | solanaEpochScheduleSysvarElf
-  | solanaEpochRewardsSysvarElf
-  | solanaLastRestartSlotSysvarElf
-  | solanaMemoryElf
-  | solanaCryptoHashElf
-  | solanaReturnDataComputeElf
-  | sbpfAsm
-  | counterIrWasmNear
-  | contextIrWasmNear
-  | hashIrWasmNear
-  | mapIrWasmNear
-  | counterEmitWat
-  | contextEmitWat
-  | hashEmitWat
-  | mapEmitWat
-  | counterIrLeo
-  | pureMathIrLeo
-  | counterIrCosmWasm
-  | counterIrAptos
-  | counterIrSui
-  | counterIrQuint
-  | valueVaultIrQuint
-  deriving BEq, Inhabited
-
-def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
-  | .evmBytecode
-  | .counterIrBytecode
-  | .valueVaultIrBytecode
-  | .errorRefIrBytecode
-  | .learnBytecode
-  | .abiScalarIrBytecode
-  | .assertIrBytecode
-  | .assignmentIrBytecode
-  | .evmAssignOpIrBytecode
-  | .conditionalIrBytecode
-  | .contextIrBytecode
-  | .evmEventIrBytecode
-  | .evmCrosscallIrBytecode
-  | .evmExpressionIrBytecode
-  | .evmHashIrBytecode
-  | .evmLoopIrBytecode
-  | .evmMapIrBytecode
-  | .evmStorageArrayIrBytecode
-  | .evmStorageStructIrBytecode
-  | .evmTypedMapIrBytecode
-  | .evmTypedStorageIrBytecode
-  | .evmArrayValueIrBytecode
-  | .evmStructArrayValueIrBytecode
-  | .evmStructValueIrBytecode
-  | .evmAbiAggregateIrBytecode => true
-  | .evmArrayAbiIrBytecode => true
-  | .evmDynamicAbiIrBytecode => true
-  | .evmDynamicArrayIrBytecode => true
-  | .evmMemoryArrayIrBytecode => true
-  | .evmPackedStorageIrBytecode => true
-  | .evmErrorsIrBytecode => true
-  | .evmFallbackIrBytecode => true
-  | _ => false
-
-def EmitMode.hasBuiltInFixture : EmitMode → Bool
-  | .counterIrYul
-  | .counterIrBytecode
-  | .valueVaultIrYul
-  | .valueVaultIrBytecode
-  | .errorRefIrYul
-  | .errorRefIrBytecode
-  | .errorRefIrSbpf
-  | .errorRefEmitWat
-  | .abiScalarIrYul
-  | .abiScalarIrBytecode
-  | .assertIrYul
-  | .assertIrBytecode
-  | .assignmentIrYul
-  | .assignmentIrBytecode
-  | .evmAssignOpIrYul
-  | .evmAssignOpIrBytecode
-  | .conditionalIrYul
-  | .conditionalIrBytecode
-  | .contextIrYul
-  | .contextIrBytecode
-  | .evmEventIrYul
-  | .evmEventIrBytecode
-  | .evmCrosscallIrYul
-  | .evmCrosscallIrBytecode
-  | .evmExpressionIrYul
-  | .evmExpressionIrBytecode
-  | .evmHashIrYul
-  | .evmHashIrBytecode
-  | .evmLoopIrYul
-  | .evmLoopIrBytecode
-  | .evmMapIrYul
-  | .evmMapIrBytecode
-  | .evmStorageArrayIrYul
-  | .evmStorageArrayIrBytecode
-  | .evmStorageStructIrYul
-  | .evmStorageStructIrBytecode
-  | .evmTypedMapIrYul
-  | .evmTypedMapIrBytecode
-  | .evmTypedStorageIrYul
-  | .evmTypedStorageIrBytecode
-  | .evmArrayValueIrYul
-  | .evmArrayValueIrBytecode
-  | .evmStructArrayValueIrYul
-  | .evmStructArrayValueIrBytecode
-  | .evmStructValueIrYul
-  | .evmStructValueIrBytecode
-  | .evmAbiAggregateIrYul
-  | .evmAbiAggregateIrBytecode
-  | .evmArrayAbiIrYul
-  | .evmArrayAbiIrBytecode
-  | .evmDynamicAbiIrYul
-  | .evmDynamicAbiIrBytecode
-  | .evmDynamicArrayIrYul
-  | .evmDynamicArrayIrBytecode
-  | .evmMemoryArrayIrYul
-  | .evmMemoryArrayIrBytecode
-  | .evmPackedStorageIrYul
-  | .evmPackedStorageIrBytecode
-  | .evmErrorsIrYul
-  | .evmErrorsIrBytecode
-  | .evmFallbackIrYul
-  | .evmFallbackIrBytecode
-  | .counterIrPsy
-  | .eventIrPsy
-  | .crosscallIrPsy
-  | .expressionPredicateIrPsy
-  | .genericEntrypointIrPsy
-  | .arithmeticIrPsy
-  | .bitwiseIrPsy
-  | .boolStorageArrayIrPsy
-  | .boolStorageScalarIrPsy
-  | .conditionalIrPsy
-  | .elseIfIrPsy
-  | .contextIrPsy
-  | .hashIrPsy
-  | .hashStorageIrPsy
-  | .mapIrPsy
-  | .assertIrPsy
-  | .loopIrPsy
-  | .arrayIrPsy
-  | .structIrPsy
-  | .structArrayIrPsy
-  | .abiAggregateIrPsy
-  | .nestedAggregateIrPsy
-  | .storageNestedAggregateIrPsy
-  | .u32ArithmeticIrPsy
-  | .u32HashPackingIrPsy
-  | .u32StorageScalarIrPsy
-  | .u32StorageArrayIrPsy
-  | .counterIrSbpf
-  | .valueVaultIrSbpf
-  | .controlIrSbpf
-  | .solanaSdkSbpf
-  | .solanaSystemCpiSbpf
-  | .solanaSystemCreateAccountCpiSbpf
-  | .solanaSplTokenTransferCpiSbpf
-  | .solanaSplTokenOpsCpiSbpf
-  | .solanaSplTokenCloseAccountCpiSbpf
-  | .solanaSplTokenAuthorityCpiSbpf
-  | .solanaAssociatedTokenCpiSbpf
-  | .solanaSplToken2022CpiSbpf
-  | .solanaSplToken2022PausableCpiSbpf
-  | .solanaSplToken2022TransferHookSbpf
-  | .solanaElf
-  | .valueVaultSolanaElf
-  | .solanaSystemCpiElf
-  | .solanaMemoCpiElf
-  | .solanaSystemCreateAccountCpiElf
-  | .solanaSplTokenTransferCpiElf
-  | .solanaSplTokenOpsCpiElf
-  | .solanaSplTokenCloseAccountCpiElf
-  | .solanaSplTokenAuthorityCpiElf
-  | .solanaAssociatedTokenCpiElf
-  | .solanaSplToken2022CpiElf
-  | .solanaSplToken2022PausableCpiElf
-  | .solanaSplToken2022TransferHookElf
-  | .solanaLogEventElf
-  | .solanaClockSysvarElf
-  | .solanaRentSysvarElf
-  | .solanaEpochScheduleSysvarElf
-  | .solanaEpochRewardsSysvarElf
-  | .solanaLastRestartSlotSysvarElf
-  | .solanaMemoryElf
-  | .solanaCryptoHashElf
-  | .solanaReturnDataComputeElf
-  | .sbpfAsm
-  | .counterIrWasmNear
-  | .contextIrWasmNear
-  | .hashIrWasmNear
-  | .mapIrWasmNear
-  | .counterEmitWat
-  | .contextEmitWat
-  | .hashEmitWat
-  | .mapEmitWat
-  | .counterIrLeo
-  | .pureMathIrLeo
-  | .counterIrTs
-  | .counterIrCosmWasm
-  | .counterIrAptos
-  | .counterIrSui
-  | .counterIrQuint => true
-  | .valueVaultIrQuint => true
-  | _ => false
-
-def EmitMode.isLegacyAlias : EmitMode → Bool
-  | .yul => false
-  | _ => true
-
-def EmitMode.deprecationNote : EmitMode → Option String
-  | mode =>
-      if mode.isLegacyAlias then
-        some "Deprecation warning: this legacy flag is deprecated and will be removed in a future release. Use the target-first CLI surface (`proof-forge build|emit|check --target <id> ...`). See RFC 0009."
-      else
-        none
+export ProofForge.Cli.ConstructorAbi (ConstructorParamSpec ConstructorValueSpec)
+export ProofForge.Cli.ConstructorAbi
+  (supportedConstructorAbiTypes constructorParamIsDynamic constructorParamEncoding
+   constructorAbiTypeSupported supportedConstructorAbiTypesMessage
+   parseConstructorParamSpec parseConstructorValueSpec
+   encodeUintConstructorArg encodeBoolConstructorArg encodeDynamicBytesTail
+   parseCommaSeparatedNatList encodeStringConstructorTail encodeBytesConstructorTail
+   encodeUint256ArrayConstructorTail encodeDynamicConstructorTail encodeStaticConstructorValue
+   constructorParamExists constructorValueCount findConstructorValue?
+   validateConstructorValues validateConstructorValuesAgainstParams
+   encodeConstructorValues constructorSchemaHasDynamic validateConstructorSchemaAndArgs)
+export ProofForge.Cli.EmitMode (EmitMode)
 
 inductive Command where
   | build
@@ -516,16 +180,6 @@ structure CliOptions where
 def CliOptions.emitsEvmDeployManifest (opts : CliOptions) : Bool :=
   opts.mode.emitsEvmDeployManifest ||
     (opts.mode == .learnTarget && opts.targetId? == some ProofForge.Target.evm.id)
-
-def EmitMode.acceptsTarget : EmitMode → Bool
-  | .learnTarget
-  | .learnTokenTarget
-  | .counterEmitWat
-  | .contextEmitWat
-  | .hashEmitWat
-  | .mapEmitWat
-  | .contractSourceEmitWat => true
-  | _ => false
 
 def usage : String :=
   String.intercalate "\n" [
@@ -642,7 +296,6 @@ def usage : String :=
     "  proof-forge --solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --value-vault-solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-system-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
-    "  proof-forge --solana-memo-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-system-create-account-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-transfer-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-ops-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
@@ -690,25 +343,8 @@ def parseModuleName (s : String) : Name :=
   s.splitOn "." |>.foldl (init := Name.anonymous) fun acc part =>
     if part.isEmpty then acc else acc.str part
 
-def trimAsciiString (s : String) : String :=
-  s.trimAscii.toString
-
 def dropEndString (s : String) (n : Nat) : String :=
   (s.dropEnd n).toString
-
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then (s.drop 2).toString else s
-
-def lowerHexString (s : String) : String :=
-  String.intercalate "" <| s.toList.map fun ch =>
-    match ch with
-    | 'A' => "a"
-    | 'B' => "b"
-    | 'C' => "c"
-    | 'D' => "d"
-    | 'E' => "e"
-    | 'F' => "f"
-    | _ => ch.toString
 
 def leanBaseName (input : FilePath) : String :=
   let fileName := input.fileName.getD input.toString
@@ -728,320 +364,6 @@ def defaultYulOutput (input : FilePath) : FilePath :=
 
 def defaultBytecodeYulOutput (bytecodeOutput : FilePath) : FilePath :=
   bytecodeOutput.withExtension "yul"
-
-def isHexChar (c : Char) : Bool :=
-  c.isDigit || "abcdefABCDEF".contains c
-
-def isHexString (s : String) : Bool :=
-  !s.isEmpty && s.all isHexChar
-
-def repeatString : Nat → String → String
-  | 0, _ => ""
-  | n+1, s => s ++ repeatString n s
-
-def hexDigit (value : Nat) : String :=
-  match value with
-  | 0 => "0"
-  | 1 => "1"
-  | 2 => "2"
-  | 3 => "3"
-  | 4 => "4"
-  | 5 => "5"
-  | 6 => "6"
-  | 7 => "7"
-  | 8 => "8"
-  | 9 => "9"
-  | 10 => "a"
-  | 11 => "b"
-  | 12 => "c"
-  | 13 => "d"
-  | 14 => "e"
-  | _ => "f"
-
-partial def natToHex (value : Nat) : String :=
-  if value < 16 then
-    hexDigit value
-  else
-    natToHex (value / 16) ++ hexDigit (value % 16)
-
-def byteLimit : Nat → Nat
-  | 0 => 1
-  | n+1 => 256 * byteLimit n
-
-def fixedHexBytes (byteCount value : Nat) : String :=
-  let raw := natToHex value
-  repeatString (byteCount * 2 - raw.length) "0" ++ raw
-
-def normalizeConstructorArgsHex (value : String) : Except String String :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.isEmpty then
-    .ok ""
-  else if hex.length % 2 != 0 then
-    .error "--evm-constructor-args-hex must have an even number of hex digits"
-  else if !hex.all isHexChar then
-    .error "--evm-constructor-args-hex must contain only hex digits"
-  else
-    .ok (lowerHexString hex)
-
-def supportedConstructorAbiTypes : Array String :=
-  #["uint256", "uint64", "uint32", "bool", "bytes32", "address", "string", "bytes", "uint256[]"]
-
-def constructorParamIsDynamic (abiType : String) : Bool :=
-  abiType == "string" || abiType == "bytes" || abiType == "uint256[]"
-
-def constructorParamEncoding (abiType : String) : String :=
-  match abiType with
-  | "string" | "bytes" => "abi-dynamic-bytes"
-  | "uint256[]" => "abi-dynamic-array"
-  | _ => "abi-static-word"
-
-def constructorAbiTypeSupported (abiType : String) : Bool :=
-  supportedConstructorAbiTypes.contains abiType
-
-def supportedConstructorAbiTypesMessage : String :=
-  String.intercalate ", " supportedConstructorAbiTypes.toList
-
-def parseConstructorParamSpec (s : String) : Except String ConstructorParamSpec := do
-  match s.splitOn ":" with
-  | [name, abiType] =>
-      let name := trimAsciiString name
-      let abiType := trimAsciiString abiType
-      if name.isEmpty then
-        .error s!"invalid constructor parameter spec '{s}': name is empty"
-      else if abiType.isEmpty then
-        .error s!"invalid constructor parameter spec '{s}': type is empty"
-      else if !constructorAbiTypeSupported abiType then
-        .error s!"unsupported constructor ABI type '{abiType}'; supported types: {supportedConstructorAbiTypesMessage}"
-      else
-        .ok { name := name, abiType := abiType }
-  | _ =>
-      .error s!"invalid constructor parameter spec '{s}', expected name:type"
-
-def parseConstructorValueSpec (s : String) : Except String ConstructorValueSpec := do
-  match s.splitOn "=" with
-  | [name, value] =>
-      let name := trimAsciiString name
-      let value := trimAsciiString value
-      if name.isEmpty then
-        .error s!"invalid constructor argument spec '{s}': name is empty"
-      else if value.isEmpty then
-        .error s!"invalid constructor argument spec '{s}': value is empty"
-      else
-        .ok { name := name, value := value }
-  | _ =>
-      .error s!"invalid constructor argument spec '{s}', expected name=value"
-
-def hexCharValue! : Char → Nat
-  | '0' => 0
-  | '1' => 1
-  | '2' => 2
-  | '3' => 3
-  | '4' => 4
-  | '5' => 5
-  | '6' => 6
-  | '7' => 7
-  | '8' => 8
-  | '9' => 9
-  | 'a' | 'A' => 10
-  | 'b' | 'B' => 11
-  | 'c' | 'C' => 12
-  | 'd' | 'D' => 13
-  | 'e' | 'E' => 14
-  | _ => 15
-
-def parseHexNat (value name : String) : Except String Nat :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.isEmpty then
-    .error s!"{name} must not be empty"
-  else if !hex.all isHexChar then
-    .error s!"{name} must contain only hex digits"
-  else
-    .ok (hex.toList.foldl (fun acc ch => acc * 16 + hexCharValue! ch) 0)
-
-def parseUnsignedNat (value name : String) : Except String Nat :=
-  let value := trimAsciiString value
-  if value.startsWith "0x" || value.startsWith "0X" then
-    parseHexNat value name
-  else
-    match value.toNat? with
-    | some n => .ok n
-    | none => .error s!"{name} must be an unsigned decimal integer or 0x-prefixed hex integer"
-
-def normalizeExactHexBytes (value name : String) (bytes : Nat) : Except String String :=
-  let hex := stripHexPrefix (trimAsciiString value)
-  if hex.length != bytes * 2 then
-    .error s!"{name} must be exactly {bytes} byte(s)"
-  else if !hex.all isHexChar then
-    .error s!"{name} must contain only hex digits"
-  else
-    .ok (lowerHexString hex)
-
-def encodeUintConstructorArg (name value : String) (bytes : Nat) : Except String String := do
-  let n ← parseUnsignedNat value s!"constructor argument `{name}`"
-  if n < byteLimit bytes then
-    .ok (fixedHexBytes 32 n)
-  else
-    .error s!"constructor argument `{name}` does not fit in uint{bytes * 8}"
-
-def encodeBoolConstructorArg (name value : String) : Except String String :=
-  match trimAsciiString value with
-  | "true" | "True" | "TRUE" | "1" => .ok (fixedHexBytes 32 1)
-  | "false" | "False" | "FALSE" | "0" => .ok (fixedHexBytes 32 0)
-  | _ => .error s!"constructor argument `{name}` must be true, false, 1, or 0"
-
-def byteToHex (byte : UInt8) : String :=
-  let value := byte.toNat
-  hexDigit (value / 16) ++ hexDigit (value % 16)
-
-def byteArrayToHex (bytes : ByteArray) : String := Id.run do
-  let mut hex := ""
-  for idx in [0:bytes.size] do
-    hex := hex ++ byteToHex (bytes[idx]!)
-  return hex
-
-def padHexTo32ByteBoundary (hex : String) : String :=
-  let byteCount := hex.length / 2
-  let rem := byteCount % 32
-  if rem == 0 then
-    hex
-  else
-    hex ++ repeatString ((32 - rem) * 2) "0"
-
-def encodeDynamicBytesTail (dataHex : String) (byteLen : Nat) : String :=
-  fixedHexBytes 32 byteLen ++ padHexTo32ByteBoundary dataHex
-
-def parseCommaSeparatedNatList (value name : String) : Except String (Array Nat) := do
-  let trimmed := trimAsciiString value
-  if trimmed.isEmpty then
-    .error s!"constructor argument `{name}` must not be empty"
-  let mut nums : Array Nat := #[]
-  for part in trimmed.splitOn "," do
-    let part := trimAsciiString part
-    if part.isEmpty then
-      .error s!"constructor argument `{name}` must not contain empty elements"
-    else
-      let n ← parseUnsignedNat part s!"constructor argument `{name}` element"
-      nums := nums.push n
-  .ok nums
-
-def encodeStringConstructorTail (name value : String) : Except String String := do
-  let trimmed := trimAsciiString value
-  if trimmed.isEmpty then
-    .error s!"constructor argument `{name}` must not be empty"
-  let bytes := trimmed.toUTF8
-  let dataHex := byteArrayToHex bytes
-  .ok (encodeDynamicBytesTail dataHex bytes.size)
-
-def encodeBytesConstructorTail (name value : String) : Except String String := do
-  let hex ← normalizeConstructorArgsHex value
-  if hex.isEmpty then
-    .error s!"constructor argument `{name}` must not be empty"
-  .ok (encodeDynamicBytesTail hex (hex.length / 2))
-
-def encodeUint256ArrayConstructorTail (name value : String) : Except String String := do
-  let nums ← parseCommaSeparatedNatList value name
-  if !nums.all (fun n => n < byteLimit 32) then
-    .error s!"constructor argument `{name}` element does not fit in uint256"
-  else
-    let countWord := fixedHexBytes 32 nums.size
-    let elemWords := String.intercalate "" (nums.toList.map (fixedHexBytes 32))
-    .ok (countWord ++ elemWords)
-
-def encodeDynamicConstructorTail (param : ConstructorParamSpec) (value : String) : Except String String :=
-  match param.abiType with
-  | "string" => encodeStringConstructorTail param.name value
-  | "bytes" => encodeBytesConstructorTail param.name value
-  | "uint256[]" => encodeUint256ArrayConstructorTail param.name value
-  | abiType => .error s!"unsupported dynamic constructor ABI type '{abiType}'"
-
-def encodeStaticConstructorValue (param : ConstructorParamSpec) (value : String) : Except String String := do
-  match param.abiType with
-  | "uint256" => encodeUintConstructorArg param.name value 32
-  | "uint64" => encodeUintConstructorArg param.name value 8
-  | "uint32" => encodeUintConstructorArg param.name value 4
-  | "bool" => encodeBoolConstructorArg param.name value
-  | "bytes32" => normalizeExactHexBytes value s!"constructor argument `{param.name}`" 32
-  | "address" =>
-      let address ← normalizeExactHexBytes value s!"constructor argument `{param.name}`" 20
-      .ok (repeatString 24 "0" ++ address)
-  | abiType => .error s!"unsupported static constructor ABI type '{abiType}'"
-
-def constructorParamExists (params : Array ConstructorParamSpec) (name : String) : Bool :=
-  params.any (fun param => param.name == name)
-
-def constructorValueCount (values : Array ConstructorValueSpec) (name : String) : Nat :=
-  values.foldl (fun count value => if value.name == name then count + 1 else count) 0
-
-def findConstructorValue? (values : Array ConstructorValueSpec) (name : String) : Option String :=
-  values.foldl
-    (fun found value =>
-      match found with
-      | some _ => found
-      | none => if value.name == name then some value.value else none)
-    none
-
-def validateConstructorValues (params : Array ConstructorParamSpec) (values : Array ConstructorValueSpec) : Except String Unit := do
-  for value in values do
-    if constructorValueCount values value.name > 1 then
-      .error s!"duplicate --evm-constructor-arg for `{value.name}`"
-    else
-      pure ()
-
-def validateConstructorValuesAgainstParams
-    (params : Array ConstructorParamSpec) (values : Array ConstructorValueSpec) : Except String Unit := do
-  validateConstructorValues params values
-  for value in values do
-    if !constructorParamExists params value.name then
-      .error s!"--evm-constructor-arg `{value.name}` has no matching --evm-constructor-param"
-    else
-      pure ()
-
-def encodeConstructorValues (params : Array ConstructorParamSpec) (values : Array ConstructorValueSpec) : Except String String := do
-  if params.isEmpty then
-    .error "--evm-constructor-arg requires at least one --evm-constructor-param"
-  validateConstructorValuesAgainstParams params values
-  let headWordCount := params.size
-  let mut headWords : Array String := #[]
-  let mut tailHex := ""
-  let mut tailOffset := headWordCount * 32
-  for param in params do
-    match findConstructorValue? values param.name with
-    | some value =>
-        if constructorParamIsDynamic param.abiType then
-          let tail ← encodeDynamicConstructorTail param value
-          headWords := headWords.push (fixedHexBytes 32 tailOffset)
-          tailHex := tailHex ++ tail
-          tailOffset := tailOffset + tail.length / 2
-        else
-          let word ← encodeStaticConstructorValue param value
-          headWords := headWords.push word
-    | none =>
-        .error s!"missing --evm-constructor-arg for constructor parameter `{param.name}`"
-  .ok (String.intercalate "" headWords.toList ++ tailHex)
-
-def constructorSchemaHasDynamic (params : Array ConstructorParamSpec) : Bool :=
-  params.any (fun param => constructorParamIsDynamic param.abiType)
-
-def validateConstructorSchemaAndArgs (params : Array ConstructorParamSpec) (constructorArgsHex : String) : Except String Unit := do
-  let argsHex ← normalizeConstructorArgsHex constructorArgsHex
-  if params.isEmpty then
-    .ok ()
-  else if argsHex.isEmpty then
-    .ok ()
-  else
-    let actualBytes := argsHex.length / 2
-    if constructorSchemaHasDynamic params then
-      let minBytes := params.size * 32
-      if actualBytes >= minBytes then
-        .ok ()
-      else
-        .error s!"constructor ABI schema expects at least {minBytes} bytes ({params.size} ABI head word(s)), but constructor args have {actualBytes} byte(s)"
-    else
-      let expectedBytes := params.size * 32
-      if actualBytes == expectedBytes then
-        .ok ()
-      else
-        .error s!"constructor ABI schema expects {expectedBytes} bytes ({params.size} static-word parameter(s)), but constructor args have {actualBytes} byte(s)"
 
 def mergeSpecConstructorParams
     (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) : CliOptions :=
@@ -1189,36 +511,6 @@ def sha256HexBytes (hex : String) : IO String := do
     return digest
   else
     throw <| IO.userError s!"python3 returned invalid SHA-256 digest for constructor args: {digest}"
-
-def jsonString (value : String) : String :=
-  let escapeChar : Char → String
-    | '"' => "\\\""
-    | '\\' => "\\\\"
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | ch => ch.toString
-  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
-
-def jsonBool (value : Bool) : String :=
-  if value then "true" else "false"
-
-def jsonObject (fields : Array (String × String)) : String :=
-  "{" ++ String.intercalate "," (fields.toList.map fun field => jsonString field.fst ++ ":" ++ field.snd) ++ "}"
-
-def jsonArray (values : Array String) : String :=
-  "[" ++ String.intercalate "," values.toList ++ "]"
-
-def jsonStringArray (values : Array String) : String :=
-  jsonArray (values.map jsonString)
-
-def jsonStringOption : Option String → String
-  | some value => jsonString value
-  | none => "null"
-
-def jsonNatOption : Option Nat → String
-  | some value => toString value
-  | none => "null"
 
 def storageLayoutJson (module : ProofForge.IR.Module) : String :=
   let layout := ProofForge.Backend.Evm.Plan.storageLayout module
@@ -1969,10 +1261,6 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.new_authority" with
       | some value => jsonString value
       | none => "null"),
-    ("tokenProgram",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.token_program" with
-      | some value => jsonString value
-      | none => "null"),
     ("transferFeeConfigAuthority",
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_fee_config_authority" with
       | some value => jsonString value
@@ -1991,50 +1279,6 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       | none => "null"),
     ("numTokenAccounts",
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.num_token_accounts" with
-      | some value => jsonString value
-      | none => "null"),
-    ("memoSource",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_source" with
-      | some value => jsonString value
-      | none => "null"),
-    ("metadataPointerAuthority",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.metadata_pointer_authority" with
-      | some value => jsonString value
-      | none => "null"),
-    ("metadataAddress",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.metadata_address" with
-      | some value => jsonString value
-      | none => "null"),
-    ("defaultAccountState",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.default_account_state" with
-      | some value => jsonString value
-      | none => "null"),
-    ("permanentDelegate",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.permanent_delegate" with
-      | some value => jsonString value
-      | none => "null"),
-    ("interestRateAuthority",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.interest_rate_authority" with
-      | some value => jsonString value
-      | none => "null"),
-    ("interestRate",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.interest_rate" with
-      | some value => jsonString value
-      | none => "null"),
-    ("memoTransferRequired",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_transfer_required" with
-      | some value => jsonString value
-      | none => "null"),
-    ("transferHookAuthority",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_hook_authority" with
-      | some value => jsonString value
-      | none => "null"),
-    ("transferHookProgram",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_hook_program" with
-      | some value => jsonString value
-      | none => "null"),
-    ("pausableAuthority",
-      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.pausable_authority" with
       | some value => jsonString value
       | none => "null"),
     ("signed", jsonBool cpi.signed)
@@ -2881,8 +2125,6 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .valueVaultSolanaElf }
   | "--solana-system-cpi-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSystemCpiElf }
-  | "--solana-memo-cpi-elf" :: rest, opts =>
-      parseArgs rest { opts with mode := .solanaMemoCpiElf }
   | "--solana-system-create-account-cpi-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSystemCreateAccountCpiElf }
   | "--solana-spl-token-transfer-cpi-elf" :: rest, opts =>
@@ -3204,16 +2446,16 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
           Except.ok s!"--emit-solana-spl-token-{f.drop 10}-sbpf"
         else
           Except.ok s!"--solana-spl-token-{f.drop 10}-elf"
-      else if f.startsWith "system-" then
-        if fmt == "s" || fmt == "" then
-          Except.ok s!"--emit-solana-system-{f.drop 7}-sbpf"
-        else
-          Except.ok s!"--solana-system-{f.drop 7}-elf"
       else if f == "associated-token-cpi" then
         if fmt == "s" || fmt == "" then
           Except.ok "--emit-solana-associated-token-cpi-sbpf"
         else
           Except.ok "--solana-associated-token-cpi-elf"
+      else if f.startsWith "system-" then
+        if fmt == "s" || fmt == "" then
+          Except.ok s!"--emit-solana-system-{f.drop 7}-sbpf"
+        else
+          Except.ok s!"--solana-system-{f.drop 7}-elf"
       else if f == "log-event" then
         if fmt == "s" then
           Except.error s!"emit --target solana-sbpf-asm --fixture {f} --format s is not yet mapped to a legacy flag; use --format elf"
@@ -6009,13 +5251,6 @@ def compileSolanaSystemCpiElf (opts : CliOptions) : IO UInt32 :=
     "solana-system-cpi-elf"
     ProofForge.Solana.Examples.SystemCpi.spec
 
-def compileSolanaMemoCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
-    (FilePath.mk "build/solana/MemoCpi.so")
-    "memo-cpi"
-    "solana-memo-cpi-elf"
-    ProofForge.Solana.Examples.MemoCpi.spec
-
 def compileSolanaSystemCreateAccountCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.so")
@@ -6443,7 +5678,6 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .solanaElf => compileSolanaElf opts
   | .valueVaultSolanaElf => compileValueVaultSolanaElf opts
   | .solanaSystemCpiElf => compileSolanaSystemCpiElf opts
-  | .solanaMemoCpiElf => compileSolanaMemoCpiElf opts
   | .solanaSystemCreateAccountCpiElf => compileSolanaSystemCreateAccountCpiElf opts
   | .solanaSplTokenTransferCpiElf => compileSolanaSplTokenTransferCpiElf opts
   | .solanaSplTokenOpsCpiElf => compileSolanaSplTokenOpsCpiElf opts
@@ -6574,7 +5808,7 @@ unsafe def main (args : List String) : IO UInt32 := do
           ProofForge.Cli.metadataCommand opts
         | _ =>
           if !opts.fromNewSurface then
-            if let some note := ProofForge.Cli.EmitMode.deprecationNote opts.mode then
+            if let some note := opts.mode.deprecationNote then
               IO.eprintln note
           if opts.evmChainProfile?.isSome then
             discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?

@@ -1,8 +1,12 @@
 import Init.Notation
 import Init.System.IO
 import ProofForge.Target.Registry
+import ProofForge.Cli.JsonUtil
+import ProofForge.Cli.HexUtil
 
 open System
+open ProofForge.Cli.JsonUtil
+open ProofForge.Cli.HexUtil
 
 namespace ProofForge.Cli.Deploy
 
@@ -63,19 +67,6 @@ structure DeployOptions where
   maxPriorityFeePerGas? : Option Nat := none
   root : String := "."
   deriving Inhabited
-
-def trimAsciiString (s : String) : String :=
-  s.trimAscii.toString
-
-def jsonString (value : String) : String :=
-  let escapeChar : Char → String
-    | '"' => "\\\""
-    | '\\' => "\\\\"
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | ch => ch.toString
-  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
 
 def joinPath (a b : String) : String :=
   if a.endsWith "/" then s!"{a}{b}" else s!"{a}/{b}"

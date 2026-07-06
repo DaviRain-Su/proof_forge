@@ -170,10 +170,14 @@ for pda in idl.get("pdas", []):
     normalized_idl_pdas.append(normalized)
 if normalized_idl_pdas != pdas:
     raise SystemExit("IDL PDA metadata mismatch")
-normalized_idl_cpis = [
-    {key: value for key, value in cpi.items() if key != "entrypoint"}
-    for cpi in idl.get("cpis", [])
-]
+normalized_idl_cpis = []
+for idx, cpi in enumerate(idl.get("cpis", [])):
+    artifact_keys = set(cpis[idx].keys()) if idx < len(cpis) else set()
+    normalized_idl_cpis.append({
+        key: value
+        for key, value in cpi.items()
+        if key != "entrypoint" and (value is not None or key in artifact_keys)
+    })
 if normalized_idl_cpis != cpis:
     raise SystemExit("IDL CPI metadata mismatch")
 if idl.get("entrypointActions", {}).get("pdas") != pda_actions:

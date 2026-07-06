@@ -4,11 +4,13 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Backend.Evm.Validate
 
 open ProofForge.IR
 open ProofForge.Target
+open ProofForge.Util.StringUtil
 
 structure LowerError where
   message : String
@@ -48,12 +50,6 @@ def isHexChar (c : Char) : Bool :=
   ('0' <= c && c <= '9') ||
   ('a' <= c && c <= 'f') ||
   ('A' <= c && c <= 'F')
-
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then
-    (s.drop 2).toString
-  else
-    s
 
 def normalizeInitCodeHex (context initCodeHex : String) : Except LowerError String := do
   let raw := stripHexPrefix initCodeHex

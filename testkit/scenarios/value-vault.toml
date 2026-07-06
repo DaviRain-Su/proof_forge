@@ -633,9 +633,9 @@ equals = 6
 target = "solana-sbpf-asm"
 name = "metadata"
 contains = [
-  '"fixture":"ValueVault"',
-  '"sourceKind":"contract-sdk"',
-  '"target":"solana-sbpf-asm"',
+  '"fixture": "ValueVault"',
+  '"sourceKind": "contract-sdk"',
+  '"target": "solana-sbpf-asm"',
 ]
 
 [[artifact.json]]
