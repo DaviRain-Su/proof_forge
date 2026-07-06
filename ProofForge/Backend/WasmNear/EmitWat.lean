@@ -17,6 +17,7 @@ import ProofForge.IR.Contract
 import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
+import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
@@ -30,11 +31,18 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Types
+
+export ProofForge.Backend.WasmNear.Diagnostics (
+  nativeValueUnsupportedMessage indexedEventUnsupportedMessage
+  crosscallUnsupportedMessage crosscallEvmOnlyMessage
+  crosscallTypedUnsupportedMessage EmitError err
+)
 
 export ProofForge.Backend.WasmNear.Imports (
   hostImport valTypeOfString hostFunctionImport dedupeImports bridgeBaseImports
@@ -68,27 +76,6 @@ export ProofForge.Backend.WasmNear.Types (
   storeOpFor typeSuffix readName writeName returnU32Name returnU64Name
   returnBoolName
 )
-
-def nativeValueUnsupportedMessage : String :=
-  "EmitWat: NEAR native value (attached deposit) requires an exact U128 projection; IR v0 cannot lower nativeValue yet"
-
-def indexedEventUnsupportedMessage (name : String) : String :=
-  s!"EmitWat: event `{name}` uses indexed fields, but NEAR logs do not support EVM-style topic indexing"
-
-def crosscallUnsupportedMessage : String :=
-  "EmitWat: crosscall.invoke maps to NEAR Promise-based execution, but EmitWat v0 has no Promise lowering yet"
-
-def crosscallEvmOnlyMessage (kind : String) : String :=
-  s!"EmitWat: NEAR crosscall does not support `{kind}`; use `crosscallInvoke` with `nearCrosscallStrings` address literals"
-
-def crosscallTypedUnsupportedMessage : String :=
-  "EmitWat: typed crosscall is not supported on NEAR; use untyped `crosscallInvoke`"
-
-structure EmitError where
-  message : String
-  deriving Repr, Inhabited
-
-def err (msg : String) : Except EmitError α := .error { message := msg }
 
 -- Helpers (per scalar type)
 def readFunc (vt : ValueType) : Func :=
