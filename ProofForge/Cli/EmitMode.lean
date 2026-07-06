@@ -7,12 +7,9 @@ accepts. It is a large flat inductive (~140 constructors) covering EVM, Solana
 sBPF, NEAR Wasm, Move/Sui, Aleo Leo, CosmWasm, Aptos, Quint, and Psy targets
 plus per-fixture IR smokes.
 
-The type itself is dependency-free, so it lives in its own module separate from
-the helper functions in `Cli.lean` (`EmitMode.emitsEvmDeployManifest`,
-`EmitMode.hasBuiltInFixture`, `EmitMode.isLegacyAlias`, `EmitMode.deprecationNote`,
-`EmitMode.acceptsTarget`) which reference `CliOptions` / `Target` and therefore
-cannot move out yet. `Cli.lean` imports this module and `export`s `EmitMode` so
-existing `ProofForge.Cli.EmitMode` references keep resolving.
+The type and target-independent helper functions live here. `Cli.lean` imports
+this module and `export`s `EmitMode` so existing `ProofForge.Cli.EmitMode`
+references keep resolving.
 -/
 
 namespace ProofForge.Cli.EmitMode
