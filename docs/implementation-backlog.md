@@ -234,6 +234,9 @@ Tasks:
 - Done: `contract_source` `quint_liveness` temporal annotations on Counter
   (`ProofForge.Contract.Spec.quintLiveness`, `ProofForge.Backend.Quint.Liveness`,
   scenario TOML `[liveness]`, `Tests/Quint/ContractSourceLiveness.lean`).
+- Done: unified testkit Quint ITF replay bridge (`testkit/harness-quint`,
+  `[[quint]]` scenario expectations, `testkit/scenarios/quint-counter.toml` and
+  `quint-value-vault.toml`, `just testkit-quint`, wired into `just quint-mbt-gate`).
 
 Acceptance criteria:
 

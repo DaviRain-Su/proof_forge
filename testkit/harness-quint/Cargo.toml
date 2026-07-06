@@ -1,0 +1,9 @@
+[package]
+name = "proof-forge-testkit-harness-quint"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+proof-forge-testkit-core = { path = "../core" }

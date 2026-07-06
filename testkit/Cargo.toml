@@ -4,6 +4,7 @@ members = [
   "core",
   "harness-evm",
   "harness-near",
+  "harness-quint",
   "harness-solana",
   "runner",
 ]

@@ -9,6 +9,7 @@ use proof_forge_testkit_core::{
 };
 use proof_forge_testkit_harness_evm::EvmHarness;
 use proof_forge_testkit_harness_near::NearHarness;
+use proof_forge_testkit_harness_quint::{run_mbt, QuintRun};
 use proof_forge_testkit_harness_solana::SolanaHarness;
 
 fn main() -> Result<()> {
@@ -136,7 +137,18 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
     println!("testkit: discovered {} scenario(s)", selected.len());
     let mut target_runs = 0usize;
     let mut diagnostic_runs = 0usize;
+    let mut quint_runs = 0usize;
     let mut skipped_runs = 0usize;
+    let run_quint = args
+        .target
+        .as_deref()
+        .map(|target| target == "quint")
+        .unwrap_or(true);
+    let run_chain_targets = args
+        .target
+        .as_deref()
+        .map(|target| target != "quint")
+        .unwrap_or(true);
     for case in selected {
         let targets: Vec<&str> = case
             .manifest
@@ -151,6 +163,31 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
                 "scenario `{}` has no targets after filtering",
                 case.manifest.scenario.name
             );
+        }
+
+        if run_quint {
+            for quint in &case.manifest.quint {
+                match run_mbt(case, quint, repo_root)? {
+                    QuintRun::Passed => {
+                        println!(
+                            "scenario {} quint {}: ok",
+                            case.manifest.scenario.name, quint.name
+                        );
+                        quint_runs += 1;
+                    }
+                    QuintRun::Skipped { reason } => {
+                        println!(
+                            "scenario {} quint {}: skipped ({reason})",
+                            case.manifest.scenario.name, quint.name
+                        );
+                        skipped_runs += 1;
+                    }
+                }
+            }
+        }
+
+        if !run_chain_targets {
+            continue;
         }
 
         for diagnostic in case.manifest.diagnostics.iter().filter(|diagnostic| {
@@ -239,14 +276,22 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
             );
         }
     }
-    print_summary(target_runs, diagnostic_runs, skipped_runs);
+    print_summary(target_runs, diagnostic_runs, quint_runs, skipped_runs);
     Ok(())
 }
 
-fn print_summary(target_runs: usize, diagnostic_runs: usize, skipped_runs: usize) {
+fn print_summary(
+    target_runs: usize,
+    diagnostic_runs: usize,
+    quint_runs: usize,
+    skipped_runs: usize,
+) {
     let mut parts = vec![format!("{target_runs} target run(s)")];
     if diagnostic_runs > 0 {
         parts.push(format!("{diagnostic_runs} diagnostic run(s)"));
+    }
+    if quint_runs > 0 {
+        parts.push(format!("{quint_runs} quint run(s)"));
     }
     if skipped_runs > 0 {
         parts.push(format!("{skipped_runs} skipped"));

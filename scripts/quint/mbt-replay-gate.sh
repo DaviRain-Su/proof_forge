@@ -149,4 +149,7 @@ lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CliC
 lake env proof-forge emit --target quint --fixture assert -o build/quint/CliAssert.qnt
 lake env proof-forge emit --target quint --fixture unbounded-int -o build/quint/CliUnboundedInt.qnt
 
+echo "Running testkit Quint ITF replay scenarios..."
+cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --target quint
+
 echo "Quint MBT replay gate passed."

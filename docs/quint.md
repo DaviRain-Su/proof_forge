@@ -150,7 +150,15 @@ EVM Foundry backend replay.
 ```sh
 just quint-mbt-gate
 just quint-model-gate
+just testkit-quint
 ```
+
+The unified testkit can also drive Quint MBT ITF replay via `[[quint]]`
+scenario expectations (`testkit/scenarios/quint-counter.toml`). Each
+expectation runs `quint run --mbt`, parses the ITF trace, and replays it
+through Lean IR semantics using the mapped `Tests/Quint/*Replay.lean` harness.
+Use `cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --target quint`
+to run only Quint scenarios.
 
 This lowers Counter, runs `quint run --mbt --out-itf`, parses the generated ITF
 trace, and replays every step against `ProofForge.IR.Semantics` to check that

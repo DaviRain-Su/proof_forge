@@ -1,0 +1,9 @@
+[scenario]
+name = "quint-counter"
+fixture = "counter"
+targets = ["quint"]
+capabilities = ["model.quint", "test.mbt_trace"]
+
+[[quint]]
+name = "ir-replay"
+replay = "Tests/Quint/CounterReplay.lean"

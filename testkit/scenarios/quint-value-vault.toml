@@ -1,0 +1,9 @@
+[scenario]
+name = "quint-value-vault"
+fixture = "value-vault"
+targets = ["quint"]
+capabilities = ["model.quint", "test.mbt_trace"]
+
+[[quint]]
+name = "ir-replay"
+replay = "Tests/Quint/ValueVaultReplay.lean"

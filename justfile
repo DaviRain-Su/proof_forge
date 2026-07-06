@@ -379,6 +379,10 @@ testkit:
 testkit-list:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 
+# Run Quint MBT ITF replay scenarios through the unified testkit harness.
+testkit-quint:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --target quint
+
 # Run contract_source Counter/ValueVault scenarios with budget assertions.
 testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter

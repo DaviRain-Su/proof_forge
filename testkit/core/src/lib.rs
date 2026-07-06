@@ -24,6 +24,8 @@ pub struct ScenarioManifest {
     pub artifacts: Vec<ArtifactExpectation>,
     #[serde(default, rename = "diagnostic")]
     pub diagnostics: Vec<DiagnosticExpectation>,
+    #[serde(default, rename = "quint")]
+    pub quint: Vec<QuintMbtExpectation>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -152,6 +154,53 @@ pub struct DiagnosticExpectation {
     pub name: String,
     #[serde(default)]
     pub contains: Vec<String>,
+}
+
+/// Quint MBT ITF replay expectation. The harness runs `quint run --mbt`, then
+/// replays the generated ITF trace through Lean IR semantics via `replay_test`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuintMbtExpectation {
+    pub name: String,
+    #[serde(default)]
+    pub fixture: Option<String>,
+    #[serde(default)]
+    pub replay: Option<PathBuf>,
+    #[serde(default)]
+    pub contains: Vec<String>,
+}
+
+impl QuintMbtExpectation {
+    pub fn fixture_id<'a>(&'a self, scenario: &'a Scenario) -> &'a str {
+        self.fixture
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(scenario.fixture.as_str())
+    }
+
+    pub fn replay_test_path(&self, scenario: &Scenario) -> PathBuf {
+        self.replay.clone().unwrap_or_else(|| {
+            PathBuf::from(default_quint_replay_test(self.fixture_id(scenario)))
+        })
+    }
+}
+
+/// Map a Quint fixture id to the default Lean ITF replay test path.
+pub fn default_quint_replay_test(fixture: &str) -> String {
+    let pascal = fixture
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first
+                    .to_uppercase()
+                    .chain(chars.flat_map(|ch| ch.to_lowercase()))
+                    .collect(),
+            }
+        })
+        .collect::<String>();
+    format!("Tests/Quint/{pascal}Replay.lean")
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -489,8 +538,10 @@ pub fn discover_scenarios(dir: &Path) -> Result<Vec<ScenarioCase>> {
             );
         }
         ensure!(
-            !manifest.steps.is_empty() || !manifest.diagnostics.is_empty(),
-            "scenario `{}` has no steps or diagnostics",
+            !manifest.steps.is_empty()
+                || !manifest.diagnostics.is_empty()
+                || !manifest.quint.is_empty(),
+            "scenario `{}` has no steps, diagnostics, or quint expectations",
             path.display()
         );
         for step in &manifest.steps {
@@ -614,6 +665,29 @@ pub fn discover_scenarios(dir: &Path) -> Result<Vec<ScenarioCase>> {
                     manifest.scenario.name,
                     diagnostic.name,
                     diagnostic.target
+                );
+            }
+        }
+        for quint in &manifest.quint {
+            ensure!(
+                !quint.name.trim().is_empty(),
+                "scenario `{}` has a quint expectation with an empty name",
+                manifest.scenario.name
+            );
+            if let Some(fixture) = &quint.fixture {
+                ensure!(
+                    !fixture.trim().is_empty(),
+                    "scenario `{}` quint expectation `{}` has an empty fixture override",
+                    manifest.scenario.name,
+                    quint.name
+                );
+            }
+            for needle in &quint.contains {
+                ensure!(
+                    !needle.is_empty(),
+                    "scenario `{}` quint expectation `{}` has an empty contains check",
+                    manifest.scenario.name,
+                    quint.name
                 );
             }
         }
@@ -1981,12 +2055,15 @@ mod tests {
                 scenario: Scenario {
                     name: "counter".to_string(),
                     fixture: "counter".to_string(),
+                    source: None,
                     targets: vec!["wasm-near".to_string(), "evm".to_string()],
                     capabilities: vec!["storage.scalar".to_string()],
+                    reference: None,
                 },
                 steps,
                 artifacts: Vec::new(),
                 diagnostics: Vec::new(),
+                quint: Vec::new(),
             },
         }
     }
@@ -2005,6 +2082,11 @@ mod tests {
                     u32: None,
                     bool: None,
                 }),
+                allocations: None,
+                reuses: None,
+                deallocations: None,
+                budget: None,
+                error: None,
             }),
         }
     }
@@ -2232,6 +2314,53 @@ call = "initialize"
         let err = discover_scenarios(&root).unwrap_err();
 
         assert!(err.to_string().contains("references target `rogue-target`"));
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn default_quint_replay_test_maps_fixture_ids() {
+        assert_eq!(
+            default_quint_replay_test("counter"),
+            "Tests/Quint/CounterReplay.lean"
+        );
+        assert_eq!(
+            default_quint_replay_test("value-vault"),
+            "Tests/Quint/ValueVaultReplay.lean"
+        );
+    }
+
+    #[test]
+    fn discover_scenarios_accepts_quint_only_scenarios() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("proof-forge-testkit-quint-only-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("quint.toml"),
+            r#"[scenario]
+name = "quint-counter"
+fixture = "counter"
+targets = ["quint"]
+
+[[quint]]
+name = "ir-replay"
+"#,
+        )
+        .unwrap();
+
+        let scenarios = discover_scenarios(&root).unwrap();
+
+        assert_eq!(scenarios.len(), 1);
+        assert!(scenarios[0].manifest.steps.is_empty());
+        assert_eq!(scenarios[0].manifest.quint.len(), 1);
+        assert_eq!(
+            scenarios[0].manifest.quint[0]
+                .replay_test_path(&scenarios[0].manifest.scenario)
+                .to_string_lossy(),
+            "Tests/Quint/CounterReplay.lean"
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 

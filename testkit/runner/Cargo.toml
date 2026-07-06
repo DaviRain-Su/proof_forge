@@ -9,4 +9,5 @@ anyhow.workspace = true
 proof-forge-testkit-core = { path = "../core" }
 proof-forge-testkit-harness-evm = { path = "../harness-evm" }
 proof-forge-testkit-harness-near = { path = "../harness-near" }
+proof-forge-testkit-harness-quint = { path = "../harness-quint" }
 proof-forge-testkit-harness-solana = { path = "../harness-solana" }
