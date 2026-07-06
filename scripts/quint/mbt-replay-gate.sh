@@ -13,6 +13,10 @@ mkdir -p "${BUILD_DIR}"
 cd "${REPO_ROOT}"
 
 if ! command -v quint &>/dev/null; then
+  if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "ERROR: quint not found on PATH (required in CI)"
+    exit 1
+  fi
   echo "SKIP: quint not found on PATH"
   exit 0
 fi
