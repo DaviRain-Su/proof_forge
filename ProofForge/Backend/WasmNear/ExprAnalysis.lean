@@ -60,4 +60,11 @@ partial def canDuplicateExpr : Expr → Bool
   | .nearPromiseResultU64 _
   | .effect _ => false
 
+def exprReturnsNearPromise : Expr → Bool
+  | .crosscallInvoke _ _ _ => true
+  | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | .nearCrosscallInvokePool _ _ _ _ => true
+  | .nearPromiseThen _ _ _ _ => true
+  | _ => false
+
 end ProofForge.Backend.WasmNear.ExprAnalysis

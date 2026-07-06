@@ -127,7 +127,7 @@ export ProofForge.Backend.WasmNear.Event (
 )
 
 export ProofForge.Backend.WasmNear.ExprAnalysis (
-  canDuplicateExpr
+  canDuplicateExpr exprReturnsNearPromise
 )
 
 export ProofForge.Backend.WasmNear.Hash (
@@ -877,13 +877,6 @@ mutual
     | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
 end
-
-def exprReturnsNearPromise : Expr → Bool
-  | .crosscallInvoke _ _ _ => true
-  | .crosscallInvokeValueTyped _ _ _ _ _ => true
-  | .nearCrosscallInvokePool _ _ _ _ => true
-  | .nearPromiseThen _ _ _ _ => true
-  | _ => false
 
 def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
     : Except EmitError (Array Insn) := do

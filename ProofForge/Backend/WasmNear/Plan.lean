@@ -1,10 +1,12 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
+import ProofForge.Backend.WasmNear.ExprAnalysis
 
 namespace ProofForge.Backend.WasmNear.Plan
 
 open ProofForge.IR
+open ProofForge.Backend.WasmNear.ExprAnalysis
 
 structure PlanError where
   message : String
@@ -598,13 +600,6 @@ def comparisonSurfaceForType (type : ValueType) : ModuleSurface :=
   | _ => ModuleSurface.empty
 
 end ModuleSurface
-
-partial def exprReturnsNearPromise : Expr → Bool
-  | .crosscallInvoke _ _ _ => true
-  | .crosscallInvokeValueTyped _ _ _ _ _ => true
-  | .nearCrosscallInvokePool _ _ _ _ => true
-  | .nearPromiseThen _ _ _ _ => true
-  | _ => false
 
 def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
