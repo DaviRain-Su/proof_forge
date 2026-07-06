@@ -1,4 +1,6 @@
 module proof_forge::counter {
+    use std::signer;
+
     struct Counter has key {
         count: u64
     }

@@ -97,7 +97,9 @@ def renderSource (mod : ProofForge.IR.Module) : Except EmitError String := do
   let field ← requireScalarState mod
   let eps ← mod.entrypoints.mapM (renderEntrypoint mod.name field)
   let epLines := String.intercalate "\n\n    " eps.toList
-  pure ("module proof_forge::" ++ mod.name.toLower ++ " {\n    " ++ resource ++ "\n\n    " ++ epLines ++ "\n}")
+  pure ("module proof_forge::" ++ mod.name.toLower ++ " {\n" ++
+        "    use std::signer;\n\n" ++
+        "    " ++ resource ++ "\n\n    " ++ epLines ++ "\n}\n")
 
 /-- Render Move unit tests for the Counter lifecycle. -/
 def renderTests (modName : String) : String :=
@@ -105,12 +107,10 @@ def renderTests (modName : String) : String :=
   "#[test_only]\n" ++
   "module proof_forge::" ++ n ++ "_tests {\n" ++
   "    use proof_forge::" ++ n ++ ";\n" ++
-  "    use std::signer;\n" ++
-  "    use aptos_framework::account;\n\n" ++
+  "    use std::signer;\n\n" ++
   "    #[test(account = @0xCAFE)]\n" ++
-  "    fun test_lifecycle(account: &signer) acquires " ++ modName ++ " {\n" ++
+  "    fun test_lifecycle(account: &signer) {\n" ++
   "        let addr = signer::address_of(account);\n" ++
-  "        account::create_account_for_test(addr);\n" ++
   "        " ++ n ++ "::initialize(account);\n" ++
   "        assert!(" ++ n ++ "::value(addr) == 0, 0);\n" ++
   "        " ++ n ++ "::increment(account);\n" ++
@@ -118,7 +118,7 @@ def renderTests (modName : String) : String :=
   "        " ++ n ++ "::increment(account);\n" ++
   "        assert!(" ++ n ++ "::value(addr) == 2, 2);\n" ++
   "    }\n" ++
-  "}"
+  "}\n"
 
 /-- Render Move.toml for the generated package. -/
 def renderMoveToml (modName : String) : String :=
@@ -128,7 +128,7 @@ def renderMoveToml (modName : String) : String :=
   "[addresses]\n" ++
   "proof_forge = \"_\"\n\n" ++
   "[dependencies]\n" ++
-  "AptosFramework = { git = \"https://github.com/aptos-labs/aptos-core.git\", subdir = \"aptos-move/framework/aptos-framework\", rev = \"main\" }\n"
+  "MoveStdlib = { git = \"https://github.com/aptos-labs/aptos-core.git\", subdir = \"aptos-move/framework/move-stdlib\", rev = \"main\" }\n"
 
 structure PackageFile where
   path : String
