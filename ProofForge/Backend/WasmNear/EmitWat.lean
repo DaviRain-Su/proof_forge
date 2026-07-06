@@ -27,6 +27,7 @@ import ProofForge.Backend.WasmNear.Event
 import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
+import ProofForge.Backend.WasmNear.Locals
 import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
@@ -54,6 +55,7 @@ open ProofForge.Backend.WasmNear.Event
 open ProofForge.Backend.WasmNear.Hash
 open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Layout
+open ProofForge.Backend.WasmNear.Locals
 open ProofForge.Backend.WasmNear.LoweringEnv
 open ProofForge.Backend.WasmNear.Map
 open ProofForge.Backend.WasmNear.Plan
@@ -144,6 +146,10 @@ export ProofForge.Backend.WasmNear.Layout (
 
 export ProofForge.Backend.WasmNear.LoweringEnv (
   Ctx LBind LocalTypes lookupLocal? assignOpName resolveCrosscallStringRef
+)
+
+export ProofForge.Backend.WasmNear.Locals (
+  collectLocalsFrom collectLocals
 )
 
 export ProofForge.Backend.WasmNear.Map (
@@ -910,25 +916,6 @@ mutual
     | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
 
 end
-
-partial def collectLocalsFrom (acc : LocalTypes) (s : Statement) : Except EmitError LocalTypes := do
-  match s with
-  | .letBind name t _ | .letMutBind name t _ =>
-    if isNumeric t || t == .bool || t == .hash then .ok (acc.push { name := name, vt := t })
-    else match t with
-      | .fixedArray _ _ | .structType _ => .ok (acc.push { name := name, vt := t })
-      | _ => err s!"EmitWat: only U32/U64/Bool/Hash/FixedArray/Struct locals are supported (got `{t.name}`)"
-  | .ifElse _ thenBody elseBody =>
-    let acc ← thenBody.foldlM (init := acc) collectLocalsFrom
-    elseBody.foldlM (init := acc) collectLocalsFrom
-  | .boundedFor indexName _ _ body =>
-    let acc := acc.push { name := indexName, vt := .u64 }
-    body.foldlM (init := acc) collectLocalsFrom
-  | .release _ => .ok acc
-  | _ => .ok acc
-
-def collectLocals (body : Array Statement) : Except EmitError LocalTypes :=
-  body.foldlM (init := #[]) collectLocalsFrom
 
 def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true

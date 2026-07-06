@@ -10,6 +10,7 @@ import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.IR
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
+import ProofForge.Backend.WasmNear.Locals
 import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
