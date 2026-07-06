@@ -1,4 +1,6 @@
 import ProofForge.Backend.WasmNear.EmitWat
+import ProofForge.Backend.WasmNear.Memory
+import ProofForge.Backend.WasmNear.Types
 import ProofForge.IR.Semantics
 import ProofForge.IR.Examples.Counter
 import ProofForge.Compiler.Wasm.AST
@@ -843,11 +845,11 @@ def counterTraceObligation : TraceObligation := {
   expected := counterExpectedTrace
 }
 
-def emitWatKeyBuf : Nat := ProofForge.Backend.WasmNear.EmitWat.KEY_BUF
-def emitWatRetBuf : Nat := ProofForge.Backend.WasmNear.EmitWat.RET_BUF
-def emitWatEventBuf : Nat := ProofForge.Backend.WasmNear.EmitWat.EVENT_BUF
-def emitWatEvtKeyPtr : Nat := ProofForge.Backend.WasmNear.EmitWat.EVT_KEY_PTR
-def emitWatInputBuf : Nat := ProofForge.Backend.WasmNear.EmitWat.INPUT_BUF
+def emitWatKeyBuf : Nat := ProofForge.Backend.WasmNear.Memory.KEY_BUF
+def emitWatRetBuf : Nat := ProofForge.Backend.WasmNear.Memory.RET_BUF
+def emitWatEventBuf : Nat := ProofForge.Backend.WasmNear.Memory.EVENT_BUF
+def emitWatEvtKeyPtr : Nat := ProofForge.Backend.WasmNear.Memory.EVT_KEY_PTR
+def emitWatInputBuf : Nat := ProofForge.Backend.WasmNear.Memory.INPUT_BUF
 def emitWatEvtPtrGlobal : String := ProofForge.Backend.WasmNear.EmitWat.evtPtrGlobal
 
 def nearHostBufferMemoryRegions : Array WasmMemoryRegionExpectation := #[
@@ -937,7 +939,7 @@ def nearU64ParamLoadFrame (name : String) (offset : Nat) : Array WasmTraceOp := 
 def nearU64StorageReadKeyFrame (keyPtr keyLen : Nat) : Array WasmTraceOp := #[
   .i32Const keyPtr,
   .i32Const keyLen,
-  .call (ProofForge.Backend.WasmNear.EmitWat.readName .u64)
+  .call (ProofForge.Backend.WasmNear.Types.readName .u64)
 ]
 
 def nearU64StorageWriteExprFrame
@@ -945,7 +947,7 @@ def nearU64StorageWriteExprFrame
     (valueOps : Array WasmTraceOp) : Array WasmTraceOp :=
   #[.i32Const keyPtr, .i32Const keyLen] ++
     valueOps ++
-    #[.call (ProofForge.Backend.WasmNear.EmitWat.writeName .u64)]
+    #[.call (ProofForge.Backend.WasmNear.Types.writeName .u64)]
 
 def nearU64StorageWriteLiteralFrame (keyPtr keyLen value : Nat) : Array WasmTraceOp :=
   nearU64StorageWriteExprFrame keyPtr keyLen #[.i64Const value]
@@ -971,15 +973,15 @@ def nearCheckpointBlockIndexFrame (localName : String) : Array WasmTraceOp := #[
 
 def nearU64HostFrameExpectations : Array WasmHostFrameExpectation := #[
   {
-    functionName := ProofForge.Backend.WasmNear.EmitWat.readName .u64
+    functionName := ProofForge.Backend.WasmNear.Types.readName .u64
     expectedOps := nearU64StorageReadFrame
   },
   {
-    functionName := ProofForge.Backend.WasmNear.EmitWat.writeName .u64
+    functionName := ProofForge.Backend.WasmNear.Types.writeName .u64
     expectedOps := nearU64StorageWriteFrame
   },
   {
-    functionName := ProofForge.Backend.WasmNear.EmitWat.returnU64Name
+    functionName := ProofForge.Backend.WasmNear.Types.returnU64Name
     expectedOps := nearU64ValueReturnFrame
   }
 ]
