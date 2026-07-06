@@ -121,6 +121,12 @@ mutual
         .ok (some (.guard (.literalBool true)))
     | _ => .error { message := "unsupported effect statement for Quint lowering v1" }
 
+  partial def lowerStatements (env : LocalEnv) (stmts : Array Statement) : Except LowerError (LocalEnv × Array ActionClause) := do
+    let (env', clauses) ← stmts.foldlM (fun (env, acc) stmt => do
+      let (env', clause?) ← lowerStatement env stmt
+      pure (env', match clause? with | some c => acc.push c | none => acc)) (env, #[])
+    .ok (env', clauses)
+
   partial def lowerStatement (env : LocalEnv) (s : Statement) : Except LowerError (LocalEnv × Option ActionClause) := do
     match s with
     | .letBind name _ value =>
@@ -139,10 +145,43 @@ mutual
         .ok (env, some (.guard (.binOp .eq (← lowerExpr env lhs) (← lowerExpr env rhs))))
     | .revert _ | .revertWithError _ =>
         .ok (env, some (.guard (.literalBool false)))
-    | .ifElse _ _ _ =>
-        .error { message := "if/else not supported in Quint lowering v1" }
-    | .boundedFor _ _ _ _ =>
-        .error { message := "boundedFor not supported in Quint lowering v1" }
+    | .ifElse condition thenBody elseBody =>
+        let cond ← lowerExpr env condition
+        let (_, thenClauses) ← lowerStatements env thenBody
+        let (_, elseClauses) ← lowerStatements env elseBody
+        let extractUpdates clauses :=
+          clauses.filterMap (fun c =>
+            match c with
+            | .assign (.prime (.local name)) value => some (name, value)
+            | _ => none)
+        let extractNonAssigns clauses :=
+          clauses.filter (fun c =>
+            match c with
+            | .assign (.prime (.local _)) _ => false
+            | _ => true)
+        let thenUpdates := extractUpdates thenClauses
+        let elseUpdates := extractUpdates elseClauses
+        let thenNonAssigns := extractNonAssigns thenClauses
+        let elseNonAssigns := extractNonAssigns elseClauses
+        let allVars := (thenUpdates ++ elseUpdates).map Prod.fst |>.toList.eraseDups.toArray
+        let mut mergedAssigns : Array ActionClause := #[]
+        for var in allVars do
+          let thenVal := thenUpdates.find? (fun (v, _) => v == var) |>.map Prod.snd |>.getD (.local var)
+          let elseVal := elseUpdates.find? (fun (v, _) => v == var) |>.map Prod.snd |>.getD (.local var)
+          mergedAssigns := mergedAssigns.push (.assign (.prime (.local var)) (.ite cond thenVal elseVal))
+        let wrappedThen := if thenNonAssigns.isEmpty then none else some (.all (#[.guard cond] ++ thenNonAssigns))
+        let wrappedElse := if elseNonAssigns.isEmpty then none else some (.all (#[.guard (.unOp .not cond)] ++ elseNonAssigns))
+        let mut resultClauses := mergedAssigns
+        if let some c := wrappedThen then resultClauses := resultClauses.push c
+        if let some c := wrappedElse then resultClauses := resultClauses.push c
+        .ok (env, some (.all resultClauses))
+    | .boundedFor indexName start stopExclusive body =>
+        let mut allClauses : Array ActionClause := #[]
+        for i in [start:stopExclusive] do
+          let env' := env.bind indexName (.literalInt (Int.ofNat i))
+          let (_, bodyClauses) ← lowerStatements env' body
+          allClauses := allClauses ++ bodyClauses
+        .ok (env, some (.all allClauses))
     | .whileLoop _ _ =>
         .error { message := "whileLoop not supported in Quint lowering v1" }
     | .return _ =>
