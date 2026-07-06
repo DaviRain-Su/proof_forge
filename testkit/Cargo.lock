@@ -2587,6 +2587,7 @@ dependencies = [
  "proof-forge-testkit-core",
  "proof-forge-testkit-harness-evm",
  "proof-forge-testkit-harness-near",
+ "proof-forge-testkit-harness-quint",
  "proof-forge-testkit-harness-solana",
 ]
 
@@ -2619,6 +2620,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hex",
+ "proof-forge-testkit-core",
+]
+
+[[package]]
+name = "proof-forge-testkit-harness-quint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "proof-forge-testkit-core",
 ]
 
