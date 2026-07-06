@@ -120,7 +120,7 @@ missing.
 | memo_transfer | Covered | `splToken2022EnableRequiredMemoTransfers` builder/surface helper emits `MemoTransferExtension` tag 30 sub-instruction 0 and `solana-spl-token-2022-cpi-web3` verifies `getMemoTransfer(...).requireIncomingTransferMemos` | — |
 | pausable | Covered | `splToken2022InitializePausableConfig`, `splToken2022Pause`, and `splToken2022Resume` builder/surface helpers emit `token-2022.initialize_pausable_config`, `token-2022.pause`, and `token-2022.resume`; sBPF packs `[44,0,authority]`, `[44,1]`, and `[44,2]`, and `solana-spl-token-2022-pausable-cpi-web3` verifies `getPausableConfig(...).paused` transitions false -> true -> false | — |
 | confidential_transfer | Missing | No plan or backend support | P1 |
-| transfer_hook | Partial (init) | `splToken2022InitializeTransferHook` builder/surface helper emits `token-2022.initialize_transfer_hook`; sBPF packs `[36, 0, authority, transfer_hook_program_id]` and `solana-spl-token-2022-cpi-web3` verifies the initialized mint extension through `getTransferHook`. Full hook program `execute` and extra-account-meta routing remain open. | P1 |
+| transfer_hook | Covered | `splToken2022InitializeTransferHook` builder/surface helper emits `token-2022.initialize_transfer_hook`; sBPF packs `[36, 0, authority, transfer_hook_program_id]` and `solana-spl-token-2022-cpi-web3` verifies the initialized mint extension through `getTransferHook`. The generated transfer-hook fixture also lowers the external `Execute` discriminator, initializes the validation PDA with two static extra-account metas, routes those metas through Web3.js `createTransferCheckedWithTransferHookInstruction`, accepts an allowed amount, and rejects an over-limit amount in `just solana-spl-token-2022-transfer-hook-web3`. Dynamic extra-account-list mutation remains future polish. | — |
 
 ### Ecosystem
 
@@ -203,7 +203,7 @@ economics) is almost entirely missing.
 
 **EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
-**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap is also now covered.
+**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
 **NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
 

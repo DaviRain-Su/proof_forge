@@ -191,6 +191,7 @@ scoped syntax "invoke " ident " associated_token_create" "(" ident ", " ident ",
 scoped syntax "invoke " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
 scoped syntax "realloc " ident " to " term ";" : entryStmt
+scoped syntax "init_transfer_hook_extra_meta" "(" ident ", " ident ")" ";" : entryStmt
 scoped syntax "do " term ";" : entryStmt
 scoped syntax "accepts_callvalue;" : entryStmt
 scoped syntax "sendto " ident ident ";" : entryStmt
@@ -459,6 +460,10 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt)) :
     | `(entryStmt| realloc $accountRef:ident to $newSize:term;) =>
         acc ←
           `(ProofForge.Solana.Surface.reallocAccount $accountRef $newSize *> $acc)
+    | `(entryStmt| init_transfer_hook_extra_meta($accountRef:ident, $extraAccountRef:ident);) =>
+        acc ←
+          `(ProofForge.Solana.Surface.initializeTransferHookExtraAccountMetaList
+              $accountRef $extraAccountRef *> $acc)
     | `(entryStmt| do $action:term;) =>
         acc ← `($action *> $acc)
     | `(entryStmt| accepts_callvalue;) =>

@@ -6,6 +6,7 @@ import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
 import ProofForge.Solana.Examples.SplToken2022PausableCpi
+import ProofForge.Solana.Examples.SplToken2022TransferHook
 import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
 import ProofForge.Solana.Examples.SplTokenOpsCpi
 
@@ -696,6 +697,89 @@ def main : IO UInt32 := do
         "assembly missing resume entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 Pausable CPI packing render failed: {err.render}"
+
+  match ProofForge.Backend.Solana.Package.renderPackageForSpec
+      "token-2022-transfer-hook" ProofForge.Solana.Examples.SplToken2022TransferHook.spec with
+  | .ok pkg =>
+      let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
+        | throw <| IO.userError "token-2022 transfer-hook package missing sBPF assembly"
+      let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
+        | throw <| IO.userError "token-2022 transfer-hook package missing manifest.toml"
+      let some idlFile := pkg.files.find? (fun file => file.path == pkg.idlPath)
+        | throw <| IO.userError "token-2022 transfer-hook package missing proof-forge-idl.json"
+      let asm := asmFile.contents
+      let manifest := manifestFile.contents
+      let idl := idlFile.contents
+      require (contains manifest "name = \"initialize_extra_account_meta_list\"")
+        "Token-2022 transfer-hook manifest missing init entrypoint"
+      require (contains manifest "name = \"execute\"")
+        "Token-2022 transfer-hook manifest missing execute entrypoint"
+      require (contains manifest "names = [\"source\", \"mint\", \"destination\", \"authority\", \"extra_account_meta_list\", \"sentinel\", \"system_program\"]")
+        "Token-2022 transfer-hook manifest missing account order"
+      require (contains manifest "{ name = \"source\", index = 0, signer = true, writable = true, owner = \"any\" },")
+        "Token-2022 transfer-hook init manifest missing payer signer/writable source"
+      require (contains manifest "{ name = \"source\", index = 0, signer = false, writable = false, owner = \"any\" },")
+        "Token-2022 transfer-hook execute manifest should not require source signer/writable"
+      require (contains manifest "{ name = \"extra_account_meta_list\", index = 4, signer = false, writable = true, owner = \"any\" },")
+        "Token-2022 transfer-hook init manifest missing writable validation account"
+      require (contains manifest "{ name = \"extra_account_meta_list\", index = 4, signer = false, writable = false, owner = \"any\" },")
+        "Token-2022 transfer-hook execute manifest should not require writable validation account"
+      require (contains manifest "{ name = \"amount\", type = \"U64\", offset = 8, byte_size = 8, encoding = \"le-u64\" }")
+        "Token-2022 transfer-hook manifest missing execute amount offset"
+      require (contains manifest "{ name = \"rent_lamports\", type = \"U64\", offset = 1, byte_size = 8, encoding = \"le-u64\" },")
+        "Token-2022 transfer-hook manifest missing rent_lamports offset"
+      require (contains manifest "{ name = \"extra_meta_space\", type = \"U64\", offset = 9, byte_size = 8, encoding = \"le-u64\" },")
+        "Token-2022 transfer-hook manifest missing extra_meta_space offset"
+      require (contains manifest "{ name = \"extra_meta_bump\", type = \"U64\", offset = 17, byte_size = 8, encoding = \"le-u64\" }")
+        "Token-2022 transfer-hook manifest missing extra_meta_bump offset"
+      require (contains manifest "signer_seeds = [\"utf8:extra-account-metas\", \"account:mint\", \"bump:extra_meta_bump\"]")
+        "Token-2022 transfer-hook manifest missing PDA signer seeds"
+      require (contains manifest "[[solana.entrypoint_transfer_hook_extra_meta]]")
+        "Token-2022 transfer-hook manifest missing extra-meta action"
+      require (contains manifest "extra_accounts = [\"sentinel\", \"system_program\"]")
+        "Token-2022 transfer-hook manifest missing routed extra accounts"
+      require (contains manifest "execute_discriminator = \"692565c54bfb661a\"")
+        "Token-2022 transfer-hook manifest missing execute discriminator"
+      require (contains manifest "extra_account_count = 2")
+        "Token-2022 transfer-hook manifest missing routed account count"
+      require (contains idl "\"extraAccounts\": [\"sentinel\", \"system_program\"]")
+        "Token-2022 transfer-hook IDL missing routed extra accounts"
+      require (contains idl "\"extraAccountCount\": 2")
+        "Token-2022 transfer-hook IDL missing routed account count"
+      require (contains asm "external discriminator dispatch execute: 8 bytes")
+        "assembly missing transfer-hook external discriminator dispatch"
+      require (contains asm "entrypoint.param[execute.amount]: U64 @ instruction_data+8")
+        "assembly missing transfer-hook execute amount decode offset"
+      require (contains asm "sol_execute:\n\n  ; account.validation: generated account schema\n  ; account.validation[6:system_program]: owner=executable")
+        "assembly execute validation should only require routed executable account"
+      require (contains asm "solana.cpi.signer_seed create_extra_account_meta_list[0] \"extra-account-metas\"")
+        "assembly missing transfer-hook literal signer seed"
+      require (contains asm "solana.cpi.signer_seed create_extra_account_meta_list[1] account mint pubkey")
+        "assembly missing transfer-hook account signer seed"
+      require (contains asm "solana.cpi.signer_seed create_extra_account_meta_list[2] bump extra_meta_bump from instruction param")
+        "assembly missing transfer-hook bump signer seed"
+      require (contains asm "sub64 r7, 2352\n  stxdw [r7+0], r8\n  mov64 r3, 32\n  stxdw [r7+8], r3")
+        "assembly should place second signer seed table entry at the next higher stack address"
+      require (contains asm "sub64 r7, 2336\n  stxdw [r7+0], r8\n  mov64 r3, 1\n  stxdw [r7+8], r3")
+        "assembly should place third signer seed table entry at the next higher stack address"
+      require (contains asm "call sol_transfer_hook_extra_meta_write_extra_account_meta_list")
+        "assembly missing transfer-hook extra-meta helper call"
+      require (contains asm "solana.transfer_hook.extra_account_meta_list: TLV ExecuteInstruction, static account metas=2")
+        "assembly missing transfer-hook TLV marker"
+      require (contains asm "stw [r8+8], 74")
+        "assembly missing transfer-hook TLV payload length"
+      require (contains asm "stw [r8+12], 2")
+        "assembly missing transfer-hook extra account count store"
+      require (contains asm "stb [r8+16], 0")
+        "assembly missing transfer-hook first static meta discriminator"
+      require (contains asm "stb [r8+51], 0")
+        "assembly missing transfer-hook second static meta discriminator"
+      require (contains asm "stb [r8+84], 0")
+        "assembly missing transfer-hook second static meta signer byte"
+      require (contains asm "stb [r8+85], 0")
+        "assembly missing transfer-hook second static meta writable byte"
+  | .error err =>
+      throw <| IO.userError s!"Solana Token-2022 transfer-hook packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
       "associated-token-cpi" ProofForge.Solana.Examples.AssociatedTokenCpi.spec with

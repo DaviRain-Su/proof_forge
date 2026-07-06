@@ -470,4 +470,18 @@ def reallocAccount (account : AccountRef) (newSize : Nat)
     ProofForge.Contract.Surface.EntryM Unit :=
   ProofForge.Solana.reallocAccount name account.name newSize
 
+def initializeTransferHookExtraAccountMetaList
+    (account extraAccount : AccountRef)
+    (name : String := "init_transfer_hook_extra_meta") :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.initializeTransferHookExtraAccountMetaList
+    name account.name extraAccount.name
+
+def initializeTransferHookExtraAccountMetaListWithAccounts
+    (account : AccountRef) (extraAccounts : Array AccountRef)
+    (name : String := "init_transfer_hook_extra_meta") :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.initializeTransferHookExtraAccountMetaListWithAccounts
+    name account.name (extraAccounts.map (fun extraAccount => extraAccount.name))
+
 end ProofForge.Solana.Surface

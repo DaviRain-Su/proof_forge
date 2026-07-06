@@ -338,7 +338,15 @@ structure CpiAction where
   entrypoint : String
   deriving Repr, Inhabited
 
+structure TransferHookExtraAccountMetaListAction where
+  name : String
+  account : String
+  extraAccounts : Array String := #[]
+  entrypoint : String
+  deriving Repr, Inhabited
+
 structure ProgramExtensions where
+  accountOrder : Array String := #[]
   accounts : Array DeclaredAccount := #[]
   allocators : Array RuntimeAllocator := #[]
   pdas : Array PdaDerive := #[]
@@ -356,6 +364,7 @@ structure ProgramExtensions where
   pubkeyLogActions : Array PubkeyLogAction := #[]
   dataLogActions : Array DataLogAction := #[]
   accountReallocActions : Array AccountReallocAction := #[]
+  transferHookExtraAccountMetaListActions : Array TransferHookExtraAccountMetaListAction := #[]
   deriving Repr, Inhabited
 
 structure CpiAccountBinding where
@@ -383,6 +392,9 @@ def splitComma (value : String) : Array String :=
   value.splitOn "," |>.foldl
     (fun acc part => if part.isEmpty then acc else acc.push part)
     #[]
+
+def pushUniqueString (values : Array String) (value : String) : Array String :=
+  if values.any (fun existing => existing == value) then values else values.push value
 
 def parseSeedWithPrefix? (kind : PdaSeedKind) (marker raw : String) : Option PdaSeed :=
   if raw.startsWith marker then
@@ -672,6 +684,22 @@ def ProgramExtensions.pushAccountReallocAction (acc : ProgramExtensions)
   else
     { acc with accountReallocActions := acc.accountReallocActions.push action }
 
+def ProgramExtensions.pushTransferHookExtraAccountMetaListAction (acc : ProgramExtensions)
+    (action : TransferHookExtraAccountMetaListAction) : ProgramExtensions :=
+  if acc.transferHookExtraAccountMetaListActions.any (fun existing =>
+      existing.name == action.name &&
+      existing.account == action.account &&
+      existing.extraAccounts == action.extraAccounts &&
+      existing.entrypoint == action.entrypoint) then
+    acc
+  else
+    { acc with transferHookExtraAccountMetaListActions :=
+        acc.transferHookExtraAccountMetaListActions.push action }
+
+def ProgramExtensions.pushAccountOrder (acc : ProgramExtensions)
+    (names : Array String) : ProgramExtensions :=
+  { acc with accountOrder := names.foldl pushUniqueString acc.accountOrder }
+
 def ProgramExtensions.addPda (acc : ProgramExtensions) (pda : PdaDerive) : ProgramExtensions :=
   let acc := acc.pushPdaDefinition pda
   match pda.entrypoint? with
@@ -732,6 +760,14 @@ def ProgramExtensions.addAccountRealloc (acc : ProgramExtensions)
     (action : AccountReallocAction) : ProgramExtensions :=
   acc.pushAccountReallocAction action
 
+def ProgramExtensions.addTransferHookExtraAccountMetaList (acc : ProgramExtensions)
+    (action : TransferHookExtraAccountMetaListAction) : ProgramExtensions :=
+  acc.pushTransferHookExtraAccountMetaListAction action
+
+def ProgramExtensions.addAccountOrder (acc : ProgramExtensions)
+    (names : Array String) : ProgramExtensions :=
+  acc.pushAccountOrder names
+
 def ProgramExtensions.addDeclaredAccount (acc : ProgramExtensions)
     (account : DeclaredAccount) : ProgramExtensions :=
   acc.pushAccountDefinition account
@@ -751,6 +787,13 @@ def declaredAccountFromCall? (call : CapabilityCall) : Option DeclaredAccount :=
       owner := metadataValue? call.metadata "solana.account.owner" |>.getD "program"
       entrypoint? := entrypoint? call
     }
+  else
+    none
+
+def accountOrderFromCall? (call : CapabilityCall) : Option (Array String) :=
+  if call.capability == .accountExplicit &&
+      metadataValue? call.metadata "solana.extension" == some "account_order" then
+    metadataValue? call.metadata "solana.account_order.names" |>.map splitComma
   else
     none
 
@@ -1014,9 +1057,37 @@ def accountReallocFromCall? (call : CapabilityCall) : Option AccountReallocActio
   else
     none
 
+def transferHookExtraAccountMetaListFromCall? (call : CapabilityCall) :
+    Option TransferHookExtraAccountMetaListAction :=
+  if call.capability == .accountExplicit &&
+      metadataValue? call.metadata "solana.extension" == some "transfer_hook_extra_account_meta_list" then
+    match entrypoint? call with
+    | some entrypoint =>
+        let extraAccounts :=
+          match metadataValue? call.metadata "solana.transfer_hook_extra_meta.extra_accounts" with
+          | some value => splitComma value
+          | none =>
+              metadataValue? call.metadata "solana.transfer_hook_extra_meta.extra_account"
+                |>.map splitComma |>.getD #[]
+        some {
+          name := metadataValue? call.metadata "solana.transfer_hook_extra_meta.name"
+            |>.getD call.operation
+          account := metadataValue? call.metadata "solana.transfer_hook_extra_meta.account"
+            |>.getD ""
+          extraAccounts := extraAccounts
+          entrypoint := entrypoint
+        }
+    | none => none
+  else
+    none
+
 def ProgramExtensions.fromPlan (plan : CapabilityPlan) : ProgramExtensions :=
   plan.calls.foldl
     (fun acc call =>
+      let acc :=
+        match accountOrderFromCall? call with
+        | some names => acc.addAccountOrder names
+        | none => acc
       let acc :=
         match declaredAccountFromCall? call with
         | some account => acc.addDeclaredAccount account
@@ -1073,13 +1144,18 @@ def ProgramExtensions.fromPlan (plan : CapabilityPlan) : ProgramExtensions :=
         match dataLogFromCall? call with
         | some action => acc.addDataLog action
         | none => acc
-      match accountReallocFromCall? call with
-      | some action => acc.addAccountRealloc action
+      let acc :=
+        match accountReallocFromCall? call with
+        | some action => acc.addAccountRealloc action
+        | none => acc
+      match transferHookExtraAccountMetaListFromCall? call with
+      | some action => acc.addTransferHookExtraAccountMetaList action
       | none => acc)
     {}
 
 def hasExtensions (extensions : ProgramExtensions) : Bool :=
-  extensions.accounts.size > 0 ||
+  extensions.accountOrder.size > 0 ||
+    extensions.accounts.size > 0 ||
     extensions.allocators.size > 0 ||
     extensions.pdas.size > 0 ||
     extensions.cpis.size > 0 ||
@@ -1093,7 +1169,8 @@ def hasExtensions (extensions : ProgramExtensions) : Bool :=
     extensions.computeBudgetActions.size > 0 ||
     extensions.pubkeyLogActions.size > 0 ||
     extensions.dataLogActions.size > 0 ||
-    extensions.accountReallocActions.size > 0
+    extensions.accountReallocActions.size > 0 ||
+    extensions.transferHookExtraAccountMetaListActions.size > 0
 
 def hasSyscallExtensions (extensions : ProgramExtensions) : Bool :=
   extensions.pdas.size > 0 ||
@@ -1107,7 +1184,8 @@ def hasSyscallExtensions (extensions : ProgramExtensions) : Bool :=
     extensions.computeUnitsLogActions.size > 0 ||
     extensions.pubkeyLogActions.size > 0 ||
     extensions.dataLogActions.size > 0 ||
-    extensions.accountReallocActions.size > 0
+    extensions.accountReallocActions.size > 0 ||
+    extensions.transferHookExtraAccountMetaListActions.size > 0
 
 def hasEntrypointActions (extensions : ProgramExtensions) : Bool :=
   extensions.pdaActions.size > 0 ||
@@ -1121,7 +1199,8 @@ def hasEntrypointActions (extensions : ProgramExtensions) : Bool :=
     extensions.computeUnitsLogActions.size > 0 ||
     extensions.pubkeyLogActions.size > 0 ||
     extensions.dataLogActions.size > 0 ||
-    extensions.accountReallocActions.size > 0
+    extensions.accountReallocActions.size > 0 ||
+    extensions.transferHookExtraAccountMetaListActions.size > 0
 
 def labelPart (name : String) : String :=
   let chars := name.toList.map fun ch =>
@@ -1164,6 +1243,10 @@ def DataLogAction.label (action : DataLogAction) : String :=
 def AccountReallocAction.label (action : AccountReallocAction) : String :=
   "sol_account_realloc_" ++ labelPart action.name
 
+def TransferHookExtraAccountMetaListAction.label
+    (action : TransferHookExtraAccountMetaListAction) : String :=
+  "sol_transfer_hook_extra_meta_" ++ labelPart action.name
+
 def callSyscall (name : String) : AstNode :=
   .instruction { opcode := .call, imm := some (.sym name) }
 
@@ -1195,7 +1278,7 @@ def loadCurrentProgramIdPtr (dst scratch : Reg) : Array AstNode :=
   ]
 
 def pdaResultOffset : Nat := 64
-def pdaSeedTableOffset : Nat := 128
+def pdaSeedTableOffset : Nat := 384
 def pdaSeedDataOffset : Nat := 512
 def pdaMaxSeedLen : Nat := 32
 def pdaMaxSeeds : Nat := 16
@@ -1315,7 +1398,7 @@ def lowerPdaStackSeedPtr (idx : Nat) : Array AstNode :=
   stackPtr .r5 (pdaSeedDataOffset + idx * pdaMaxSeedLen)
 
 def lowerPdaSeedTableEntry (idx len : Nat) : Array AstNode :=
-  let tableOffset := pdaSeedTableOffset + idx * 16
+  let tableOffset := pdaSeedTableOffset - idx * 16
   stackPtr .r6 tableOffset ++ #[
     .instruction { opcode := .stxdw, dst := some .r6, off := some (.num 0), src := some .r5 },
     .instruction { opcode := .mov64, dst := some .r3, imm := some (.num len) },
@@ -1940,29 +2023,148 @@ def lowerCpiPubkeyField (accountBindings : Array CpiAccountBinding)
         .comment s!"solana.cpi.value {fieldName} missing placeholder=zero",
       ] ++ lowerZero32At .r8 fieldOff
 
-def lowerCpiSignerSeed (cpiName : String) (idx : Nat) (seed : String) : Array AstNode :=
+def lowerCpiSignerStackSeedPtr (idx : Nat) : Array AstNode :=
+  stackPtr .r8 (cpiSignerSeedDataOffset + idx * cpiMaxSeedLen)
+
+def lowerInputBytesToCpiSignerSeed (binding : CpiValueBinding) (byteSize : Nat) : Array AstNode :=
+  let base :=
+    if binding.relativeToInstructionData then
+      loadSavedInstructionDataPtr .r7
+    else
+      #[.instruction { opcode := .mov64, dst := some .r7, src := some .r1 }]
+  base ++
+  (List.range byteSize).foldl
+    (fun acc idx =>
+      acc ++ #[
+        .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num (binding.absOff + idx)) },
+        .instruction { opcode := .stxb, dst := some .r8, off := some (.num idx), src := some .r3 }
+      ])
+    #[]
+
+def lowerCpiSignerZeroSeedBytes (byteSize : Nat) : Array AstNode :=
+  (List.range byteSize).foldl
+    (fun acc idx =>
+      acc.push <| .instruction {
+        opcode := .stb,
+        dst := some .r8,
+        off := some (.num idx),
+        imm := some (.num 0)
+      })
+    #[]
+
+def lowerCpiSignerSeedTableEntry (idx len : Nat) : Array AstNode :=
+  let tableOffset := cpiSignerSeedTableOffset - idx * 16
+  stackPtr .r7 tableOffset ++ #[
+    storeReg .stxdw .r7 0 .r8,
+    loadImm .r3 len,
+    storeReg .stxdw .r7 8 .r3
+  ]
+
+def lowerCpiSignerStaticSeed (cpiName : String) (idx : Nat) (seed : String) : Array AstNode :=
   let seedOffset := cpiSignerSeedDataOffset + idx * cpiMaxSeedLen
-  let tableOffset := cpiSignerSeedTableOffset + idx * 16
   let bytes := stringBytes seed
   #[
     .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] \"{seed}\""
   ] ++
   stackPtr .r8 seedOffset ++
   lowerSeedBytes seed .r8 ++
-  stackPtr .r7 tableOffset ++ #[
-    storeReg .stxdw .r7 0 .r8,
-    loadImm .r3 bytes.size,
-    storeReg .stxdw .r7 8 .r3
-  ]
+  lowerCpiSignerSeedTableEntry idx bytes.size
 
-def lowerCpiSignerSeeds (cpi : CpiInvoke) : Array AstNode :=
+def lowerCpiSignerAccountSeed (bindings : Array CpiAccountBinding)
+    (cpiName : String) (idx : Nat) (account : String) : Array AstNode :=
+  match cpiAccountBinding? bindings account with
+  | some binding =>
+      #[
+        .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] account {account} pubkey"
+      ] ++
+      lowerCpiSignerStackSeedPtr idx ++
+      inputAccountFieldPtr .r7 binding.layout binding.layout.keyOff ++
+      (List.range 32).foldl
+        (fun acc byteIdx =>
+          acc ++ #[
+            .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num byteIdx) },
+            .instruction { opcode := .stxb, dst := some .r8, off := some (.num byteIdx), src := some .r3 }
+          ])
+        #[] ++
+      lowerCpiSignerSeedTableEntry idx 32
+  | none =>
+      #[
+        .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] account {account} missing placeholder=zero"
+      ] ++
+      lowerCpiSignerStackSeedPtr idx ++
+      lowerCpiSignerZeroSeedBytes 32 ++
+      lowerCpiSignerSeedTableEntry idx 32
+
+def lowerCpiSignerBumpSeed (bindings : Array CpiValueBinding)
+    (cpiName : String) (idx : Nat) (source : String) : Array AstNode :=
+  match source.toNat? with
+  | some bump =>
+      if bump < 256 then
+        #[
+          .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] bump literal={bump}"
+        ] ++
+        lowerCpiSignerStackSeedPtr idx ++ #[
+          storeImm .stb .r8 0 bump
+        ] ++
+        lowerCpiSignerSeedTableEntry idx 1
+      else
+        #[
+          .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] bump literal={bump} out-of-range (revert)",
+          .instruction { opcode := .ja, off := some (.sym "error_pda_bump") }
+        ]
+  | none =>
+      match cpiValueBinding? bindings source with
+      | some binding =>
+          #[
+            .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] bump {source} from {binding.sourceKind}"
+          ] ++
+          lowerCpiSignerStackSeedPtr idx ++
+          lowerInputBytesToCpiSignerSeed binding 1 ++
+          lowerCpiSignerSeedTableEntry idx 1
+      | none =>
+          #[
+            .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] bump {source} missing (revert)",
+            .instruction { opcode := .ja, off := some (.sym "error_pda_bump") }
+          ]
+
+def lowerCpiSignerInstructionParamSeed (bindings : Array CpiValueBinding)
+    (cpiName : String) (idx : Nat) (source : String) : Array AstNode :=
+  match cpiValueBinding? bindings source with
+  | some binding =>
+      #[
+        .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] instruction-param {source} from {binding.sourceKind}"
+      ] ++
+      lowerCpiSignerStackSeedPtr idx ++
+      lowerInputBytesToCpiSignerSeed binding binding.byteSize ++
+      lowerCpiSignerSeedTableEntry idx binding.byteSize
+  | none =>
+      #[
+        .comment s!"solana.cpi.signer_seed {cpiName}[{idx}] instruction-param {source} missing placeholder=zero"
+      ] ++
+      lowerCpiSignerStackSeedPtr idx ++
+      lowerCpiSignerZeroSeedBytes 1 ++
+      lowerCpiSignerSeedTableEntry idx 1
+
+def lowerCpiSignerSeed (accountBindings : Array CpiAccountBinding)
+    (valueBindings : Array CpiValueBinding) (cpiName : String) (idx : Nat)
+    (raw : String) : Array AstNode :=
+  let seed := parsePdaSeed raw
+  match seed.kind with
+  | .literal => lowerCpiSignerStaticSeed cpiName idx seed.value
+  | .account => lowerCpiSignerAccountSeed accountBindings cpiName idx seed.value
+  | .bump => lowerCpiSignerBumpSeed valueBindings cpiName idx seed.value
+  | .instructionParam => lowerCpiSignerInstructionParamSeed valueBindings cpiName idx seed.value
+
+def lowerCpiSignerSeeds (accountBindings : Array CpiAccountBinding)
+    (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode :=
   if cpi.signerSeeds.isEmpty then
     #[
       .comment "solana.cpi.signer_seeds none"
     ]
   else
     let seedTable :=
-      cpi.signerSeeds.mapIdx (fun idx seed => lowerCpiSignerSeed cpi.name idx seed)
+      cpi.signerSeeds.mapIdx (fun idx seed =>
+        lowerCpiSignerSeed accountBindings valueBindings cpi.name idx seed)
         |>.foldl (fun acc nodes => acc ++ nodes) #[]
     seedTable ++
     stackPtr .r8 cpiSignerEntriesOffset ++
@@ -2453,7 +2655,7 @@ def lowerSystemTransferCpi (accountBindings : Array CpiAccountBinding)
   dataNodes ++
   lowerCpiInstructionRecord cpi dataLen ++
   lowerCpiAccountInfos accountBindings cpi ++
-  lowerCpiSignerSeeds cpi ++
+  lowerCpiSignerSeeds accountBindings valueBindings cpi ++
   lowerCpiCall cpi
 
 def lowerGenericCpiInvoke (accountBindings : Array CpiAccountBinding)
@@ -2469,7 +2671,7 @@ def lowerGenericCpiInvoke (accountBindings : Array CpiAccountBinding)
   dataNodes ++
   lowerCpiInstructionRecord cpi dataLen ++
   lowerCpiAccountInfos accountBindings cpi ++
-  lowerCpiSignerSeeds cpi ++
+  lowerCpiSignerSeeds accountBindings valueBindings cpi ++
   lowerCpiCall cpi
 
 def lowerCpiInvoke (accountBindings : Array CpiAccountBinding)
@@ -3240,6 +3442,78 @@ def lowerAccountReallocHelper (accountBindings : Array CpiAccountBinding)
         .instruction { opcode := .exit }
       ]
 
+def transferHookExecuteDiscriminatorBytes : Array Nat :=
+  #[105, 37, 101, 197, 75, 251, 102, 26]
+
+def lowerCopyAccountKeyToData (sourceLayout : AccountInputLayout) (dataOff : Nat) :
+    Array AstNode :=
+  inputAccountFieldPtr .r7 sourceLayout sourceLayout.keyOff ++
+  (List.range 32).foldl
+    (fun acc idx =>
+      acc ++ #[
+        .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num idx) },
+        storeReg .stxb .r8 (dataOff + idx) .r3
+      ])
+    #[]
+
+def lowerTransferHookExtraAccountMetaListHelper
+    (accountBindings : Array CpiAccountBinding)
+    (action : TransferHookExtraAccountMetaListAction) : Array AstNode :=
+  match cpiAccountBinding? accountBindings action.account with
+  | some accountBinding =>
+      let extraBindings :=
+        action.extraAccounts.map (fun account => cpiAccountBinding? accountBindings account)
+      if extraBindings.any (fun binding => binding.isNone) then
+        #[
+          .blankLine,
+          .comment s!"solana.transfer_hook.extra_account_meta_list {action.name}: missing extra account binding",
+          .label action.label,
+          .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 1) },
+          .instruction { opcode := .exit }
+        ]
+      else
+      let extraBindings := extraBindings.filterMap id
+      let count := extraBindings.size
+      let listLen := 4 + count * 35
+      let metaNodes :=
+        extraBindings.foldl
+          (fun acc binding =>
+            let idx := acc.fst
+            let nodes := acc.snd
+            let metaOff := 16 + idx * 35
+            (idx + 1,
+              nodes ++ #[
+                storeImm .stb .r8 metaOff 0
+              ] ++ lowerCopyAccountKeyToData binding.layout (metaOff + 1) ++ #[
+                storeImm .stb .r8 (metaOff + 33) 0,
+                storeImm .stb .r8 (metaOff + 34) 0
+              ]))
+          (0, #[])
+          |>.snd
+      #[
+        .blankLine,
+        .comment s!"solana.transfer_hook.extra_account_meta_list {action.name}: account={action.account} extra_accounts={String.intercalate "," action.extraAccounts.toList}",
+        .label action.label
+      ] ++
+      inputAccountFieldPtr .r8 accountBinding.layout accountBinding.layout.dataStart ++
+      transferHookExecuteDiscriminatorBytes.mapIdx (fun idx byte => storeImm .stb .r8 idx byte) ++
+      #[
+        .comment s!"solana.transfer_hook.extra_account_meta_list: TLV ExecuteInstruction, static account metas={count}",
+        storeImm .stw .r8 8 listLen,
+        storeImm .stw .r8 12 count
+      ] ++ metaNodes ++ #[
+        .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 0) },
+        .instruction { opcode := .exit }
+      ]
+  | none =>
+      #[
+        .blankLine,
+        .comment s!"solana.transfer_hook.extra_account_meta_list {action.name}: missing account binding",
+        .label action.label,
+        .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 1) },
+        .instruction { opcode := .exit }
+      ]
+
 def lowerPdaAction (action : PdaAction) : Array AstNode :=
   #[
     .comment s!"solana.pda.action {action.name}"
@@ -3259,6 +3533,12 @@ def lowerAccountReallocAction (action : AccountReallocAction) : Array AstNode :=
     .comment s!"solana.account.realloc.action {action.name}"
   ] ++ callHelperPreservingInput action.label "error_realloc"
 
+def lowerTransferHookExtraAccountMetaListAction
+    (action : TransferHookExtraAccountMetaListAction) : Array AstNode :=
+  #[
+    .comment s!"solana.transfer_hook.extra_account_meta_list.action {action.name}"
+  ] ++ callHelperPreservingInput action.label "error_transfer_hook_extra_meta"
+
 def lowerEntrypointActions (extensions : ProgramExtensions) (entrypoint : String) : Array AstNode :=
   let pdaActions := extensions.pdaActions.filter (fun action => action.entrypoint == entrypoint)
   let cpiActions := extensions.cpiActions.filter (fun action => action.entrypoint == entrypoint)
@@ -3272,10 +3552,13 @@ def lowerEntrypointActions (extensions : ProgramExtensions) (entrypoint : String
   let pubkeyLogActions := extensions.pubkeyLogActions.filter (fun action => action.entrypoint == entrypoint)
   let dataLogActions := extensions.dataLogActions.filter (fun action => action.entrypoint == entrypoint)
   let accountReallocActions := extensions.accountReallocActions.filter (fun action => action.entrypoint == entrypoint)
+  let transferHookExtraAccountMetaListActions :=
+    extensions.transferHookExtraAccountMetaListActions.filter (fun action => action.entrypoint == entrypoint)
   if pdaActions.isEmpty && cpiActions.isEmpty && memoryActions.isEmpty && cryptoHashActions.isEmpty &&
       sysvarActions.isEmpty && returnDataActions.isEmpty && returnDataReadActions.isEmpty &&
       computeUnitsActions.isEmpty && computeUnitsLogActions.isEmpty && pubkeyLogActions.isEmpty &&
-      dataLogActions.isEmpty && accountReallocActions.isEmpty then
+      dataLogActions.isEmpty && accountReallocActions.isEmpty &&
+      transferHookExtraAccountMetaListActions.isEmpty then
     #[]
   else
     #[.comment s!"Solana SDK target extension actions for {entrypoint}"] ++
@@ -3290,7 +3573,9 @@ def lowerEntrypointActions (extensions : ProgramExtensions) (entrypoint : String
     computeUnitsLogActions.foldl (fun acc action => acc ++ lowerComputeUnitsLogAction action) #[] ++
     pubkeyLogActions.foldl (fun acc action => acc ++ lowerPubkeyLogAction action) #[] ++
     dataLogActions.foldl (fun acc action => acc ++ lowerDataLogAction action) #[] ++
-    accountReallocActions.foldl (fun acc action => acc ++ lowerAccountReallocAction action) #[]
+    accountReallocActions.foldl (fun acc action => acc ++ lowerAccountReallocAction action) #[] ++
+    transferHookExtraAccountMetaListActions.foldl
+      (fun acc action => acc ++ lowerTransferHookExtraAccountMetaListAction action) #[]
 
 def lowerExtensionErrors : Array AstNode := #[
   .blankLine,
@@ -3312,6 +3597,10 @@ def lowerExtensionErrors : Array AstNode := #[
   .blankLine,
   .label "error_realloc",
   .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) },
+  .instruction { opcode := .exit },
+  .blankLine,
+  .label "error_transfer_hook_extra_meta",
+  .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) },
   .instruction { opcode := .exit }
 ]
 
@@ -3346,6 +3635,8 @@ def lowerProgramExtensionsWithBindings
     (uniquePubkeyLogHelpers extensions).foldl (fun acc action => acc ++ lowerPubkeyLogHelper accountBindings action) #[] ++
     (uniqueDataLogHelpers extensions).foldl (fun acc action => acc ++ lowerDataLogHelper valueBindings action) #[] ++
     (uniqueAccountReallocHelpers extensions).foldl (fun acc action => acc ++ lowerAccountReallocHelper accountBindings action) #[] ++
+    extensions.transferHookExtraAccountMetaListActions.foldl
+      (fun acc action => acc ++ lowerTransferHookExtraAccountMetaListHelper accountBindings action) #[] ++
     lowerExtensionErrors
 
 def lowerProgramExtensionsWithAccountBindings

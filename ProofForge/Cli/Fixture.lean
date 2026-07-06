@@ -69,6 +69,7 @@ def ids : Array String := #[
   "associated-token-cpi",
   "spl-token-2022-cpi",
   "spl-token-2022-pausable-cpi",
+  "spl-token-2022-transfer-hook",
   "system-cpi",
   "system-create-account-cpi",
   "log-event"

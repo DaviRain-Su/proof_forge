@@ -1521,13 +1521,20 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   `initialize_interest_bearing_mint`、`enable_required_memo_transfers`
   `initialize_transfer_hook`、`initialize_pausable_config`、`pause` 和 `resume`；
   生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态以及 Pausable 的 pause/resume 状态切换。
+- ✅ P1：Token-2022 transfer-hook execute/extra-account-meta 路由现在具备生成的
+  hook 程序 fixture、外部 `Execute` discriminator 调度、按 entrypoint 区分的账户约束、
+  validation account 的 PDA signer seeds、静态 extra-account-meta TLV 序列化、
+  manifest/IDL 元数据、target-first fixture 路由，以及
+  `just solana-spl-token-2022-transfer-hook-web3` Surfpool/Web3.js 验证：初始化
+  validation PDA、通过 Web3.js 路由两个静态 extra accounts、接受允许的转账，
+  并拒绝超限转账。
 - ✅ P1：Associated Token `create_idempotent` CPI 已具备 builder helper、
   typed `Surface` wrapper、`contract_source` 语法、target-first fixture 路由、
   manifest/IDL/artifact 元数据（包含所选 token program）、
   `associated-token.create_idempotent` 的 sBPF 数据打包、独立的 6-account
   CPI account-meta frame，以及 `just solana-associated-token-cpi-web3`
   Surfpool/Web3.js 验证：创建规范 ATA，并再次调用 idempotent 路径。
-- P1：Memo/Stake/Vote CPI、confidential_transfer、transfer_hook execute/extra-account-meta 路由、
+- P1：Memo/Stake/Vote CPI、confidential_transfer、
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables
 

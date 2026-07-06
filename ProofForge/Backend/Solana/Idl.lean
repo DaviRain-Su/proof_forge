@@ -280,12 +280,26 @@ def accountReallocActionJson (action : AccountReallocAction) : String :=
       toString ProofForge.Backend.Solana.StateLayout.MAX_PERMITTED_DATA_INCREASE)
   ]
 
+def transferHookExtraAccountMetaListActionJson
+    (action : TransferHookExtraAccountMetaListAction) : String :=
+  jsonObject #[
+    ("entrypoint", jsonString action.entrypoint),
+    ("transferHookExtraMeta", jsonString action.name),
+    ("account", jsonString action.account),
+    ("extraAccounts", jsonStringArray action.extraAccounts),
+    ("executeDiscriminator", jsonString "692565c54bfb661a"),
+    ("extraAccountCount", toString action.extraAccounts.size)
+  ]
+
 def actionsJson (extensions : ProgramExtensions) : String :=
   jsonObject #[
     ("pdas", jsonArray (extensions.pdaActions.map pdaActionJson)),
     ("cpis", jsonArray (extensions.cpiActions.map cpiActionJson)),
     ("computeBudget", jsonArray (extensions.computeBudgetActions.map computeBudgetActionJson)),
-    ("accountReallocs", jsonArray (extensions.accountReallocActions.map accountReallocActionJson))
+    ("accountReallocs", jsonArray (extensions.accountReallocActions.map accountReallocActionJson)),
+    ("transferHookExtraMetas", jsonArray
+      (extensions.transferHookExtraAccountMetaListActions.map
+        transferHookExtraAccountMetaListActionJson))
   ]
 
 def capabilitiesJson (plan : CapabilityPlan) : String :=

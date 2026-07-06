@@ -324,6 +324,10 @@ solana-spl-token-2022-cpi-web3:
 solana-spl-token-2022-pausable-cpi-web3:
     scripts/solana/spl-token-2022-pausable-cpi-web3-smoke.sh
 
+# Run a live Token-2022 transfer-hook execute/extra-account-meta smoke on Surfpool with Web3.js.
+solana-spl-token-2022-transfer-hook-web3:
+    scripts/solana/spl-token-2022-transfer-hook-web3-smoke.sh
+
 # Run a live Solana log/event smoke on Surfpool with Web3.js.
 solana-log-event-web3:
     scripts/solana/log-event-web3-smoke.sh

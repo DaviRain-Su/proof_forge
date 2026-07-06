@@ -278,6 +278,12 @@ structure AccountReallocAction where
   newSize : Nat
   deriving Repr
 
+structure TransferHookExtraAccountMetaListAction where
+  name : String
+  account : String
+  extraAccounts : Array String := #[]
+  deriving Repr
+
 def kv (key value : String) : TargetMetadata := {
   key := key
   value := value
@@ -400,6 +406,14 @@ def signerAccountConstraint (name : String) (access : AccountAccess := .readOnly
 def writableSignerAccountConstraint (name : String) (owner : String := "any") :
     ProofForge.Contract.Builder.ModuleM Unit :=
   accountConstraint name .writable .signer owner
+
+def accountOrder (names : Array String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  ProofForge.Contract.Builder.capability .accountExplicit "solana.account_order"
+    (source? := none)
+    (metadata := #[
+      kv "solana.extension" "account_order",
+      kv "solana.account_order.names" (joinWith "," names)
+    ])
 
 def PdaBinding.metadata (binding : PdaBinding) : Array TargetMetadata :=
   #[
@@ -550,6 +564,15 @@ def AccountReallocAction.metadata (action : AccountReallocAction) : Array Target
     natKv "solana.account_realloc.new_size" action.newSize
   ]
 
+def TransferHookExtraAccountMetaListAction.metadata
+    (action : TransferHookExtraAccountMetaListAction) : Array TargetMetadata :=
+  #[
+    kv "solana.extension" "transfer_hook_extra_account_meta_list",
+    kv "solana.transfer_hook_extra_meta.name" action.name,
+    kv "solana.transfer_hook_extra_meta.account" action.account,
+    kv "solana.transfer_hook_extra_meta.extra_accounts" (joinWith "," action.extraAccounts)
+  ]
+
 def systemProgram : String :=
   "system_program"
 
@@ -631,7 +654,7 @@ def memoCall (name memoSource : String) : CpiCall := {
 }
 
 def systemCreateAccountCall (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : CpiCall := {
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) : CpiCall := {
   name := name
   program := systemProgram
   instruction := "create_account"
@@ -644,7 +667,8 @@ def systemCreateAccountCall (name payer newAccount lamportsSource spaceSource ow
   extraMetadata := systemMetadata ++ #[
     kv "solana.cpi.lamports_source" lamportsSource,
     kv "solana.cpi.space_source" spaceSource,
-    kv "solana.cpi.owner" owner
+    kv "solana.cpi.owner" owner,
+    kv "solana.cpi.require_program_account" (boolValue requireProgramAccount)
   ]
 }
 
@@ -1508,6 +1532,31 @@ def reallocAccount (name account : String) (newSize : Nat) :
     newSize := newSize
   }
 
+def transferHookExtraAccountMetaListEntry
+    (action : TransferHookExtraAccountMetaListAction) :
+    ProofForge.Contract.Builder.EntryM Unit := do
+  ProofForge.Contract.Builder.entryCapability .accountExplicit
+    "solana.transfer_hook.extra_account_meta_list"
+    (source? := some action.name)
+    (metadata := action.metadata)
+
+def initializeTransferHookExtraAccountMetaList
+    (name account extraAccount : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  transferHookExtraAccountMetaListEntry {
+    name := name
+    account := account
+    extraAccounts := #[extraAccount]
+  }
+
+def initializeTransferHookExtraAccountMetaListWithAccounts
+    (name account : String) (extraAccounts : Array String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  transferHookExtraAccountMetaListEntry {
+    name := name
+    account := account
+    extraAccounts := extraAccounts
+  }
+
 def cpi (call : CpiCall) : ProofForge.Contract.Builder.ModuleM Unit := do
   if call.accounts.size > 0 then
     ProofForge.Contract.Builder.capability .accountExplicit "solana.cpi.accounts" (source? := some call.name)
@@ -1591,14 +1640,16 @@ def invokeSystemTransfer (name fromAccount to lamportsSource : String) (signerSe
   cpiEntry (systemTransferCall name fromAccount to lamportsSource (signerSeeds := signerSeeds))
 
 def systemCreateAccount (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : ProofForge.Contract.Builder.ModuleM Unit :=
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
   cpi (systemCreateAccountCall name payer newAccount lamportsSource spaceSource owner
-    (signerSeeds := signerSeeds))
+    (signerSeeds := signerSeeds) (requireProgramAccount := requireProgramAccount))
 
 def invokeSystemCreateAccount (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : ProofForge.Contract.Builder.EntryM Unit :=
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) :
+    ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (systemCreateAccountCall name payer newAccount lamportsSource spaceSource owner
-    (signerSeeds := signerSeeds))
+    (signerSeeds := signerSeeds) (requireProgramAccount := requireProgramAccount))
 
 def memo (name memoSource : String) : ProofForge.Contract.Builder.ModuleM Unit :=
   cpi (memoCall name memoSource)

@@ -3401,6 +3401,14 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   `initialize_pausable_config`, `pause`, and `resume`; generated-program
   Token-2022 direct-CPI Surfpool/Web3.js gates verify the initialized extension
   state and Pausable pause/resume transitions.
+- ✅ P1: Token-2022 transfer-hook execute/extra-account-meta routing now has a
+  generated hook-program fixture with external `Execute` discriminator
+  dispatch, per-entrypoint account constraints, PDA signer seeds for the
+  validation account, static extra-account-meta TLV serialization, manifest/IDL
+  metadata, target-first fixture routing, and
+  `just solana-spl-token-2022-transfer-hook-web3` Surfpool/Web3.js validation
+  for initializing the validation PDA, routing two static extra accounts through
+  Web3.js, accepting an allowed transfer, and rejecting an over-limit transfer.
 - ✅ P1: Associated Token `create_idempotent` CPI now has builder helpers,
   typed `Surface` wrappers, `contract_source` syntax, target-first fixture
   routing, manifest/IDL/artifact metadata including the selected token program,
@@ -3408,7 +3416,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   6-account CPI account-meta frame, and `just solana-associated-token-cpi-web3`
   Surfpool/Web3.js validation that creates the canonical ATA and re-invokes the
   idempotent path.
-- P1: Memo/Stake/Vote CPI, confidential_transfer, transfer_hook execute/extra-account-meta routing,
+- P1: Memo/Stake/Vote CPI, confidential_transfer,
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
