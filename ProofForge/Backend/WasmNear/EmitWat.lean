@@ -353,6 +353,14 @@ mutual
       let body := body ++ #[.i32Const 93, .call crosscallArgsPutcName]
       .ok (body, CROSSCALL_BUF, 0)
 
+  partial def lowerNearDeposit (ctx : Ctx) (env : LocalTypes) (label : String) (deposit : Expr) :
+      Except EmitError (Array Insn) := do
+    let (depositInsns, depositType) ← lowerExpr ctx env deposit
+    if depositType != .u64 then
+      err s!"EmitWat: {label} deposit expected `U64`, got `{depositType.name}`"
+    else
+      .ok depositInsns
+
   partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (accountIndex method : Expr)
       (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
@@ -364,9 +372,7 @@ mutual
     let accountConv := if accountType == .u64 then accountInsns else accountInsns ++ #[.plain "i64.extend_i32_u"]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
-    let (depositInsns, depositType) ← lowerExpr ctx env deposit
-    if depositType != .u64 then
-      err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
+    let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (argBuildInsns ++ accountConv ++ #[
@@ -386,9 +392,7 @@ mutual
     let account ← resolveCrosscallStringRef ctx target "target account id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
-    let (depositInsns, depositType) ← lowerExpr ctx env deposit
-    if depositType != .u64 then
-      err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
+    let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (argBuildInsns ++ #[
@@ -408,9 +412,7 @@ mutual
       err s!"EmitWat: NEAR promise_then parent expected `U64` promise id, got `{parentType.name}`"
     let methodSi ← resolveCrosscallStringRef ctx callbackMethod "callback method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
-    let (depositInsns, depositType) ← lowerExpr ctx env deposit
-    if depositType != .u64 then
-      err s!"EmitWat: NEAR promise_then deposit expected `U64`, got `{depositType.name}`"
+    let depositInsns ← lowerNearDeposit ctx env "NEAR promise_then" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (parentInsns ++ argBuildInsns ++ #[
