@@ -49,6 +49,8 @@ structure LowerCtx where
   maxLoopUnroll : Nat := 10
   /-- When false, `__while_*` step locals stay symbolic during unrolling. -/
   expandLocals : Bool := true
+  /-- Entrypoint parameter types for crosscall arg coercion during lowering. -/
+  paramTypes : Array (String × ValueType) := #[]
 
 def hashLiteralStr (a b c d : Nat) : String :=
   s!"hash:{a}:{b}:{c}:{d}"
@@ -391,6 +393,34 @@ def hashKeySampleStrs : Array String := #[
 def hashKeySamples : Array Expr :=
   hashKeySampleStrs.map .literalStr
 
+def crosscallArgTypeFromExpr (ctx : LowerCtx) (arg : ProofForge.IR.Expr) : ValueType :=
+  match arg with
+  | .literal (.bool _) => .bool
+  | .literal (.u32 _) => .u32
+  | .literal (.u64 _) => .u64
+  | .literal (.u8 _) => .u8
+  | .literal (.hash4 _ _ _ _) => .hash
+  | .local name =>
+      ctx.paramTypes.find? (fun (n, _) => n == name) |>.map Prod.snd |>.getD .u64
+  | _ => .u64
+
+def hashExprToStubInt (hashExpr : Expr) : Expr :=
+  .ite (.binOp .eq hashExpr (.literalStr "hash:1001:0:0:0")) (.literalInt 1001)
+    (.ite (.binOp .eq hashExpr (.literalStr "hash:2002:0:0:0")) (.literalInt 2002)
+      (.literalInt 3003))
+
+def crosscallArgToIntExpr (raw : Expr) (argType : ValueType) : Expr :=
+  match argType with
+  | .hash => hashExprToStubInt raw
+  | .bool => .ite raw (.literalInt 1) (.literalInt 0)
+  | _ => raw
+
+def crosscallHashStubExpr (sum : Expr) : Expr :=
+  let mod3 := .binOp .mod sum (.literalInt 3)
+  .ite (.binOp .eq mod3 (.literalInt 0)) (.literalStr "hash:1001:0:0:0")
+    (.ite (.binOp .eq mod3 (.literalInt 1)) (.literalStr "hash:2002:0:0:0")
+      (.literalStr "hash:3003:0:0:0"))
+
 mutual
   partial def lowerExpr (ctx : LowerCtx) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
     match e with
@@ -441,11 +471,7 @@ mutual
     | .crosscallInvoke target methodId args =>
         lowerCrosscallInvokeExpr ctx target methodId args
     | .crosscallInvokeTyped target methodId args returnType =>
-        match returnType with
-        | .u64 => lowerCrosscallInvokeExpr ctx target methodId args
-        | _ => .error {
-            message :=
-              s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (U64 only)" }
+        lowerCrosscallInvokeTypedExpr ctx target methodId args returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType
     | .crosscallInvokeStaticTyped _ _ _ returnType
     | .crosscallInvokeDelegateTyped _ _ _ returnType =>
@@ -458,15 +484,33 @@ mutual
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
   /-- Deterministic crosscall stub: sum target, method, and scalar args (MBT/replay aligned with IR semantics). -/
-  partial def lowerCrosscallInvokeExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+  partial def lowerCrosscallInvokeSumExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) : Except LowerError Expr := do
     let target' ← lowerExpr ctx target
     let method' ← lowerExpr ctx methodId
     let mut result := .binOp .add target' method'
     for arg in args do
-      let arg' ← lowerExpr ctx arg
+      let argType := crosscallArgTypeFromExpr ctx arg
+      let raw ← lowerExpr ctx arg
+      let arg' := crosscallArgToIntExpr raw argType
       result := .binOp .add result arg'
     pure result
+
+  partial def lowerCrosscallInvokeExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) : Except LowerError Expr :=
+    lowerCrosscallInvokeSumExpr ctx target methodId args
+
+  partial def lowerCrosscallInvokeTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
+    let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
+    match returnType with
+    | .u64 => pure sum
+    | .u32 => pure (.binOp .mod sum (.literalInt 4294967296))
+    | .bool => pure (.binOp .eq (.binOp .mod sum (.literalInt 2)) (.literalInt 1))
+    | .hash => pure (crosscallHashStubExpr sum)
+    | _ => .error {
+        message :=
+          s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (Bool/U32/U64/Hash only)" }
 
   partial def lowerMapKeyExpr (ctx : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
     match key with
@@ -1179,7 +1223,8 @@ def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Ar
   let ctx ← lowerStatements {
     stateDecls := stateDecls,
     structs := structs,
-    maxLoopUnroll := maxLoopUnroll } ep.body
+    maxLoopUnroll := maxLoopUnroll,
+    paramTypes := ep.params } ep.body
   let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
@@ -1244,6 +1289,7 @@ def paramDomainExpr (scenario : Scenario.Config) (t : QuintType) : Expr :=
   match t with
   | .str => .oneOf (.local "USERS")
   | .hashStr => .oneOf (.setLit hashKeySamples)
+  | .bool => .oneOf (.setLit #[.literalBool true, .literalBool false])
   | _ =>
       let low := if scenario.indexFromZero then .literalInt 0 else .literalInt 1
       .oneOf (.range low (.local "MAX_UINT"))

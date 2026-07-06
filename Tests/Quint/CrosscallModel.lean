@@ -17,12 +17,23 @@ def main : IO UInt32 := do
         "module CrosscallProbeModel",
         "action call_remote",
         "action call_with_args",
+        "action call_remote_bool",
+        "action call_remote_u32",
+        "action call_remote_hash",
         "nondet target",
         "nondet method",
         "nondet amount",
         "nondet fee",
+        "nondet flag",
+        "nondet x",
+        "nondet value",
         "target + method",
-        "target + method + amount + fee"
+        "target + method + amount + fee",
+        "% 2",
+        "% 4294967296",
+        "hash:1001:0:0:0",
+        "hash:2002:0:0:0",
+        "hash:3003:0:0:0"
       ]
       for s in expected do
         if !source.contains s then

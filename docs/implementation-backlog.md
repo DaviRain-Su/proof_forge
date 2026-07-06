@@ -190,6 +190,9 @@ Tasks:
   `target + method + sum(args)`) with `crosscall` fixture in `just quint-mbt-gate`.
 - Done: crosscall args coverage — `call_with_args` entrypoint sums nondet
   `amount` + `fee` in the `crosscall` fixture Model/Replay gate.
+- Done: typed crosscall scalar returns — `crosscallInvokeTyped` Bool/U32/Hash
+  stub casts in Lower/Semantics with `call_remote_bool` / `call_remote_u32` /
+  `call_remote_hash` in the `crosscall` fixture gate.
 - Done: `.assert` / `.assertEq` statement guards with `assert` fixture in
   `just quint-mbt-gate`; gate rebuilds `proof-forge` before CLI emit smoke.
 - Done: hash-valued map `storagePathAssignOp` replace stub with

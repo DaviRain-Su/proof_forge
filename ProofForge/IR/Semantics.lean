@@ -350,6 +350,19 @@ def evalAssignOp (op : AssignOp) (lhs rhs : Value) : Except String Value :=
 
 abbrev ExprResult := State × Value
 
+def crosscallArgToNat (value : Value) : Except String Nat :=
+  match value with
+  | .u64 n | .u32 n | .u8 n => pure n
+  | .bool b => pure (if b then 1 else 0)
+  | .hash a b c d => pure (a + b + c + d)
+  | _ => .error "crosscall argument expected scalar"
+
+def crosscallHashStubValue (sum : Nat) : Value :=
+  match sum % 3 with
+  | 0 => .hash 1001 0 0 0
+  | 1 => .hash 2002 0 0 0
+  | _ => .hash 3003 0 0 0
+
 mutual
 partial def evalExpr (state : State) (frame : Frame) : Expr → Except String ExprResult
   | .literal literal => do
@@ -477,10 +490,8 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
       | .bool value => .ok (nextState, .bool (!value))
       | _ => .error "boolNot expects Bool operand"
   | .crosscallInvoke target methodId args => evalCrosscallInvoke state frame target methodId args
-  | .crosscallInvokeTyped target methodId args .u64 =>
-      evalCrosscallInvoke state frame target methodId args
-  | .crosscallInvokeTyped _ _ _ returnType =>
-      .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (U64 only)"
+  | .crosscallInvokeTyped target methodId args returnType =>
+      evalCrosscallInvokeTyped state frame target methodId args returnType
   | .crosscallInvokeValueTyped _ _ _ _ returnType
   | .crosscallInvokeStaticTyped _ _ _ returnType
   | .crosscallInvokeDelegateTyped _ _ _ returnType =>
@@ -491,9 +502,9 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
   | .nativeValue => .ok (state, .u64 0)
   | _ => .error "expression is not supported by the scalar semantics model"
 
-/-- Deterministic crosscall stub: sum target, method, and U64 scalar args (aligned with Quint lowering). -/
-partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId : Expr)
-    (args : Array Expr) : Except String ExprResult := do
+/-- Deterministic crosscall stub: sum target, method, and scalar args (aligned with Quint lowering). -/
+partial def evalCrosscallInvokeSum (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) : Except String (State × Nat) := do
   let (stateAfterTarget, targetValue) ← evalExpr state frame target
   let (stateAfterMethod, methodValue) ← evalExpr stateAfterTarget frame methodId
   let targetU64 ← match targetValue with
@@ -507,11 +518,25 @@ partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId
   for arg in args do
     let (stateAfterArg, argValue) ← evalExpr nextState frame arg
     nextState := stateAfterArg
-    let argU64 ← match argValue with
-      | .u64 value => pure value
-      | _ => .error "crosscall argument expected U64"
-    sum := sum + argU64
+    let argNat ← crosscallArgToNat argValue
+    sum := sum + argNat
+  .ok (nextState, sum)
+
+partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) : Except String ExprResult := do
+  let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
   .ok (nextState, .u64 sum)
+
+partial def evalCrosscallInvokeTyped (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
+  let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
+  let value ← match returnType with
+    | .u64 => .ok (.u64 sum)
+    | .u32 => .ok (.u32 (sum % 4294967296))
+    | .bool => .ok (.bool (sum % 2 == 1))
+    | .hash => .ok (crosscallHashStubValue sum)
+    | _ => .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (Bool/U32/U64/Hash only)"
+  .ok (nextState, value)
 
 partial def evalPathSegmentKey (state : State) (frame : Frame) : StoragePathSegment →
     Except String (State × String)
