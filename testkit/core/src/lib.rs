@@ -178,9 +178,9 @@ impl QuintMbtExpectation {
     }
 
     pub fn replay_test_path(&self, scenario: &Scenario) -> PathBuf {
-        self.replay.clone().unwrap_or_else(|| {
-            PathBuf::from(default_quint_replay_test(self.fixture_id(scenario)))
-        })
+        self.replay
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(default_quint_replay_test(self.fixture_id(scenario))))
     }
 }
 

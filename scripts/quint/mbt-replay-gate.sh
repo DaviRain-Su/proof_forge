@@ -131,6 +131,9 @@ lake env lean --run Tests/Quint/UnboundedIntReplay.lean
 echo "Building proof-forge CLI for emit smoke..."
 lake build proof-forge
 
+echo "Building Quint replay dependencies..."
+lake build ProofForge.Backend.Quint.Replay ProofForge.Backend.Quint.EvmReplay
+
 echo "Running Quint CLI emit smoke..."
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/CliConditional.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/CliLoop.qnt

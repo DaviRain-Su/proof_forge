@@ -47,6 +47,8 @@ pub fn run_mbt(
         .to_str()
         .context("replay test path is not valid UTF-8")?;
 
+    build_replay_dependencies(repo_root)?;
+
     let output = Command::new("lake")
         .current_dir(repo_root)
         .args(["env", "lean", "--run", replay_arg])
@@ -79,6 +81,21 @@ pub fn run_mbt(
     }
 
     Ok(QuintRun::passed())
+}
+
+fn build_replay_dependencies(repo_root: &Path) -> Result<()> {
+    let output = Command::new("lake")
+        .current_dir(repo_root)
+        .args(["build", "ProofForge.Backend.Quint.Replay"])
+        .output()
+        .context("failed to build Quint replay dependencies")?;
+    if !output.status.success() {
+        bail!(
+            "failed to build Quint replay dependencies\n{}",
+            command_output_text(&output)
+        );
+    }
+    Ok(())
 }
 
 fn quint_available() -> bool {

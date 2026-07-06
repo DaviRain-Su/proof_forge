@@ -48,6 +48,9 @@ fi
 echo "Building proof-forge CLI..."
 lake build proof-forge
 
+echo "Building Quint replay dependencies..."
+lake build ProofForge.Backend.Quint.Replay ProofForge.Backend.Quint.EvmReplay
+
 echo "=== Counter: steps 1-5 (emit, verify, mbt, IR replay, EVM replay) ==="
 echo "[1/5] Emit Counter .qnt from portable IR..."
 lake env proof-forge emit --target quint --fixture counter \
