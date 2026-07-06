@@ -82,4 +82,24 @@ def readArrayStructBufInsns (m : MapInfo) (s : ProofForge.IR.StructDecl) : Array
     .if_ { insns := #[.i64Const 0, .i64Const STRUCT_BUF, .call "read_register"] }
          { insns := zeroStructBufInsns s }]
 
+def arrayStructFieldReadInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
+    (indexInsns buildKeyCall : Array Insn) (offset : Nat) (fieldType : ValueType) :
+    Array Insn × ValueType :=
+  (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ indexInsns ++ buildKeyCall ++
+    readArrayStructBufInsns m sd ++
+    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor fieldType) 0],
+    fieldType)
+
+def arrayStructFieldWriteInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
+    (readKeyInsns writeKeyInsns buildKeyCall valueInsns : Array Insn) (offset : Nat)
+    (fieldType : ValueType) : Array Insn :=
+  #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKeyInsns ++ buildKeyCall ++
+    readArrayStructBufInsns m sd ++
+    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++
+    #[.store (storeOpFor fieldType) 0] ++
+    #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKeyInsns ++ buildKeyCall ++
+    #[.i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
+      .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0,
+      .call "storage_write", .drop]
+
 end ProofForge.Backend.WasmNear.Struct

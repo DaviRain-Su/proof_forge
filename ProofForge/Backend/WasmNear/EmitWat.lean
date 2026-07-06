@@ -238,7 +238,7 @@ export ProofForge.Backend.WasmNear.Struct (
   structLitName isStructStorageFieldType isIndexedStorageValueType
   structStorageFieldsSupported zeroStructBufInsns readScalarStructBufInsns
   scalarStructFieldReadInsns scalarStructFieldWriteInsns
-  readArrayStructBufInsns
+  readArrayStructBufInsns arrayStructFieldReadInsns arrayStructFieldWriteInsns
 )
 
 export ProofForge.Backend.WasmNear.Types (
@@ -720,10 +720,7 @@ mutual
                   err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
                 else do
                   let kis ← lowerMapKeyU64 ctx env index
-                  .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ #[.call mapBuildkeyName]
-                        ++ readArrayStructBufInsns m sd
-                        ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor ft) 0],
-                        ft)
+                  .ok (arrayStructFieldReadInsns m sd kis #[.call mapBuildkeyName] off ft)
               | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
         | _ => err s!"EmitWat: storageArrayStructFieldRead expects a struct-valued array, got `{m.valueType.name}`"
 
@@ -752,12 +749,8 @@ mutual
                 else do
                   let readKey ← lowerMapKeyU64 ctx env index
                   let writeKey ← lowerMapKeyU64 ctx env index
-                  .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKey ++ #[.call mapBuildkeyName]
-                        ++ readArrayStructBufInsns m sd
-                        ++ #[.i32Const off, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++ #[.store (storeOpFor ft) 0]
-                        ++ #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKey ++
-                        #[.call mapBuildkeyName, .i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
-                          .i64Const (structTotalSize sd), .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop])
+                  .ok (arrayStructFieldWriteInsns m sd readKey writeKey #[.call mapBuildkeyName]
+                    valueInsns off ft)
               | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
         | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
 
