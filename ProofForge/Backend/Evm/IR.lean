@@ -1032,6 +1032,12 @@ mutual
         ensureType "contract creation salt" .hash (← inferExprType module env salt)
         discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
+    | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType
@@ -1149,7 +1155,10 @@ mutual
         .error { message := "storage.path.write is a statement effect, not an expression" }
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
+    | .contextRead .userIdHash =>
+        .error { message := "EVM context read `userIdHash` is not supported; NEAR-only full predecessor account hash" }
     | .contextRead .origin => .ok .hash
+    | .contextRead .randomSeed => .ok .hash
     | .contextRead .coinbase => .ok .hash
     | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ =>
@@ -2011,6 +2020,12 @@ mutual
         lowerExprThroughPlan module env (.crosscallCreate callValue initCodeHex)
     | .crosscallCreate2 callValue salt initCodeHex => do
         lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
+    | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
   partial def lowerEffectExprThroughPlan
@@ -2397,6 +2412,11 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
+  | .nearPromiseThen _ _ _ _
+  | .nearCrosscallInvokePool _ _ _ _
+  | .nearPromiseResultsCount
+  | .nearPromiseResultStatus _
+  | .nearPromiseResultU64 _
   | .effect _ => false
 
 partial def exprSupportsPlanCrosscallArgYul : ProofForge.IR.Expr → Bool
@@ -4947,6 +4967,15 @@ mutual
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .nearPromiseThen p m args d =>
+        exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
+          args.any exprUsesCheckedArithmetic
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
+          exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
+    | .nearPromiseResultsCount => false
+    | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
+    | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

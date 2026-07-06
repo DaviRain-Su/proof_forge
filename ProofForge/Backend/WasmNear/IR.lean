@@ -419,6 +419,11 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
+    | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
+    | .nearPromiseThen _ _ _ _ => .ok .u64
+    | .nearPromiseResultsCount => .ok .u64
+    | .nearPromiseResultStatus _ => .ok .u64
+    | .nearPromiseResultU64 _ => .ok .u64
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
@@ -469,7 +474,9 @@ mutual
         .error { message := "storage.path.write is a statement effect, not an expression" }
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is not supported by wasm-near IR v0" }
+    | .contextRead .userIdHash => .ok .hash
     | .contextRead .origin => .ok .hash
+    | .contextRead .randomSeed => .ok .hash
     | .contextRead .coinbase => .ok .hash
     | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ => .ok .u64
@@ -780,6 +787,12 @@ mutual
     | .crosscallCreate _ _
     | .crosscallCreate2 _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 
   partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String
@@ -830,6 +843,8 @@ mutual
         .error { message := "storage.path.assign_op is not supported by wasm-near IR v0" }
     | .contextRead .userId =>
         .ok "__pf_account_id_hash_u64(&env::predecessor_account_id())"
+    | .contextRead .userIdHash =>
+        .ok "__pf_predecessor_account_hash(&env::predecessor_account_id())"
     | .contextRead .contractId =>
         .ok "__pf_account_id_hash_u64(&env::current_account_id())"
     | .contextRead .checkpointId =>

@@ -22,14 +22,17 @@ Literal	address	lowered	literal emits Address as a Felt-backed value; Psy backen
 Literal	u8	lowered	literal emits toString value for U8 literals; Psy backend accepts U8 in ABI parameters.
 Literal	u128	unsupported	Psy IR v0 does not support U128 literals; literal function returns placeholder toString value.
 ContextField	userId	lowered	contextFunction lowers to get_user_id and ContextProbe covers it.
+ContextField	userIdHash	unsupported	Psy IR v0 context read catch-all rejects userIdHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	contractId	lowered	contextFunction lowers to get_contract_id and ContextProbe covers it.
 ContextField	checkpointId	lowered	contextFunction lowers to get_checkpoint_id and ContextProbe covers it.
 ContextField	timestamp	unsupported	Psy IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	epochHeight	unsupported	Psy IR v0 context read catch-all rejects epochHeight with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	chainId	unsupported	Psy IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	Psy IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	Psy IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	baseFee	unsupported	Psy IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	Psy IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	randomSeed	unsupported	Psy IR v0 context read catch-all rejects randomSeed with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	origin	unsupported	Psy IR v0 context read catch-all rejects origin with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	coinbase	unsupported	Psy IR v0 context read catch-all rejects coinbase with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	blockHash	unsupported	Psy IR v0 context read catch-all rejects blockHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.
@@ -122,6 +125,11 @@ Expr	crosscallInvokeStaticTyped	unsupported	Psy IR v0 rejects static typed scala
 Expr	crosscallInvokeDelegateTyped	unsupported	Psy IR v0 rejects delegate typed scalar crosscalls with an explicit diagnostic because the current Psy lowering only models untyped Felt-returning __invoke_sync calls.
 Expr	crosscallCreate	unsupported	Psy IR v0 rejects EVM contract creation with an explicit diagnostic because DPN does not expose EVM create semantics.
 Expr	crosscallCreate2	unsupported	Psy IR v0 rejects EVM deterministic contract creation with an explicit diagnostic because DPN does not expose EVM create2 semantics.
+Expr	nearCrosscallInvokePool	unsupported	Psy IR v0 rejects NEAR string-pool promise creation with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
+Expr	nearPromiseThen	unsupported	Psy IR v0 rejects NEAR promise chaining with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
+Expr	nearPromiseResultsCount	unsupported	Psy IR v0 rejects NEAR callback promise-result count reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
+Expr	nearPromiseResultStatus	unsupported	Psy IR v0 rejects NEAR callback promise-result status reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
+Expr	nearPromiseResultU64	unsupported	Psy IR v0 rejects NEAR callback promise-result U64 reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Effect	eventEmit	lowered	lowerEffectStmt emits __emit([fields]) with an event-name comment; EventProbe covers it and Dargo test confirms result_events contains the emitted data.
 Effect	eventEmitIndexed	unsupported	Psy IR v0 rejects indexed events with an explicit diagnostic instead of lowering and silently dropping indexed-topic semantics.
 ValueType	array	unsupported	Psy IR v0 rejects dynamic arrays with explicit diagnostics in validateAbiValueType, validateValueType, and valueTypeName; ValueType.array is recognized but not lowered.

@@ -183,6 +183,17 @@ mutual
           (collectExprEvents (collectExprEvents (collectExprEvents events target) methodId) callValue)
     | .crosscallCreate callValue _ => collectExprEvents events callValue
     | .crosscallCreate2 callValue salt _ => collectExprEvents (collectExprEvents events callValue) salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        let events' := collectExprEvents (collectExprEvents (collectExprEvents events parentPromise) callbackMethod) deposit
+        args.foldl (fun acc arg => collectExprEvents acc arg) events'
+    | .nearPromiseResultsCount => events
+    | .nearPromiseResultStatus index => collectExprEvents events index
+    | .nearPromiseResultU64 index => collectExprEvents events index
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        let events₁ := collectExprEvents events accountIndex
+        let events₂ := collectExprEvents events₁ methodId
+        let events₃ := collectExprEvents events₂ deposit
+        args.foldl collectExprEvents events₃
     | .effect effect => collectEffectEvents events effect
     | .literal _ | .local _ | .nativeValue => events
 

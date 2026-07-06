@@ -156,7 +156,7 @@ economics) is almost entirely missing.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | NEP-141 (fungible token) | Missing | No FT example or fixture | P0 |
-| NEP-145 (storage management) | Missing | No storage-management fixture | P1 |
+| NEP-145 (storage management) | Partial | `Tests/ContractSource/NearStorageDeposit.lean` covers `storage_deposit`, `storage_balance_of`, and `storage_balance_bounds` with U64 projected balances, Hash-key storage, target-first metadata, and offline-host smoke. Full JSON `StorageBalance`, withdraw/refund, and storage byte accounting remain open | P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
 | NEP-171 (NFT) | Missing | No NFT example | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
@@ -166,8 +166,8 @@ economics) is almost entirely missing.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P0 |
-| signer_account_id | Missing | No signer host import | P0 |
+| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P1 |
+| signer_account_id | Covered | `signer_account_id` host import + `ctxSignerFunc` + `Surface.signer` | — |
 | Access keys | Missing | No function-call/full-access key APIs | P1 |
 | Storage staking / byte accounting | Missing | No storage_usage / staking host APIs | P1 |
 
@@ -187,7 +187,9 @@ economics) is almost entirely missing.
 | keccak256 | Missing | No import beyond sha256 | P1 |
 | ripemd160 / ecrecover / ed25519_verify | Missing | No host imports | P1 |
 | block_height | Covered | EmitWat + offline host | — |
-| block_timestamp / epoch_height / random_seed | Missing | Offline host only tracks block_index | P1 |
+| block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
+| epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
+| random_seed | Covered | `random_seed(register_id)` host import + `.contextRead .randomSeed` EmitWat lowering + `Surface.randomSeed`, returning the 32-byte register payload as `Hash` | — |
 | storage_remove | Missing | No remove host import | P1 |
 
 ### Deployment
@@ -195,7 +197,7 @@ economics) is almost entirely missing.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | Real NEAR broadcast smoke | Missing | Deploy metadata is offline-only | P1 |
-| near-api-js client wrapper | Partial | Generic functionCall wrapper; no view/gas/deposit options | P1 |
+| near-api-js client wrapper | Covered | Generated `proof-forge-near.ts` exposes `NearViewOptions` for view calls and `NearCallOptions` for gas/attached-deposit mutating calls | — |
 
 ---
 

@@ -673,6 +673,12 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect =>
         inferEffectExprType module env effect
 
@@ -774,6 +780,7 @@ mutual
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
     | .contextRead .origin => .ok .hash
+    | .contextRead .randomSeed => .ok .hash
     | .contextRead .coinbase => .ok .hash
     | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ =>
@@ -1079,6 +1086,12 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
+    | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/

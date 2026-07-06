@@ -177,6 +177,15 @@ def ret (value : ProofForge.IR.Expr) : EntryM Unit :=
 def checkpointId : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .checkpointId
 
+def timestamp : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .timestamp
+
+def epochHeight : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .epochHeight
+
+def randomSeed : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .randomSeed
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.u64 value
 
@@ -212,6 +221,10 @@ def ge (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 
 def caller : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .userId
+
+/-- NEAR predecessor account id as a full 32-byte hash (sha256 of account id bytes). -/
+def callerHash : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .userIdHash
 
 /-- The transaction signer (EVM `tx.origin` / NEAR `signer_account_id`).
     Distinct from `caller` (the immediate caller / predecessor). -/
@@ -307,5 +320,30 @@ def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
 /-- Deterministic CREATE2 deployment of fixed init-code hex; returns the deployed address word. -/
 def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
   .crosscallCreate2 callValue salt initCodeHex
+
+def registerNearCrosscallString (value : String) : ModuleM Unit := do
+  let _ ← ProofForge.Contract.Builder.nearCrosscallString value
+  pure ()
+
+def nearAddressLit (idx : Nat) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearAddressLit idx
+
+def nearCrosscallPool (accountIndex methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
+    (deposit : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearCrosscallInvokePool accountIndex methodId args deposit
+
+def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
+    (deposit : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearPromiseThen parentPromise callbackMethod args deposit
+
+def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearPromiseResultU64 index
+
+def cast (value : ProofForge.IR.Expr) (target : ValueType) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.cast value target
+
+def whenPositive (value : ProofForge.IR.Expr) (body : EntryM Unit) : EntryM Unit := do
+  let (_, entryBuilder) := body.run {}
+  ProofForge.Contract.Builder.ifElse (ProofForge.Contract.Builder.gt value (u64 0)) entryBuilder.body #[]
 
 end ProofForge.Contract.Surface

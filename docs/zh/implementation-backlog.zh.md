@@ -1549,6 +1549,11 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
 - P0：signer_account_id host import
 - P0：attached_deposit / native value host import
 - P0：Aggregate ABI（entrypoint 参数中的 structs、dynamic arrays）
-- P1：NEP-145 storage management、NEP-148 metadata、NEP-171 NFT、
-  keccak256/crypto、storage_remove、block_timestamp、gas accounting APIs、
-  real NEAR broadcast smoke、near-api-js view/gas/deposit client options
+- ✅ P1：block_timestamp（`block_timestamp` host import + `.contextRead .timestamp` 降级 + Surface/Source 辅助）
+- ✅ P1：epoch_height（`epoch_height` host import + `.contextRead .epochHeight` 降级 + Surface/Source 辅助）
+- ✅ P1：random_seed（`random_seed(register_id)` host import + `.contextRead .randomSeed` 降级 + Surface/Source 辅助，返回 `Hash`）
+- ✅ P1：near-api-js client options（view 调用使用 `NearViewOptions`，function call 使用 gas/attached-deposit `NearCallOptions`）
+- ✅ P1：NEP-145 storage-management starter（`storage_deposit`/`storage_balance_*` 的 U64 投影 + Hash map target-first/offline-host smoke）
+- P1：完整 NEP-145 JSON balance objects/withdraw/refund/storage byte accounting、
+  NEP-148 metadata、NEP-171 NFT、keccak256/crypto、storage_remove、
+  gas accounting APIs、real NEAR broadcast smoke

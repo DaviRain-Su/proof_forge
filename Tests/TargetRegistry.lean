@@ -32,6 +32,16 @@ def main : IO UInt32 := do
     "wasm-near must not advertise jemalloc-shaped host allocation"
   require (nearProfile.hostBridge? == some HostBridge.near)
     "wasm-near must declare the NEAR host bridge"
+  require (HostBridge.requiredImports HostBridge.near |>.contains "env.epoch_height")
+    "NEAR host bridge must declare epoch_height import"
+  require ((HostBridge.hostFunctions HostBridge.near).any (fun fn =>
+    fn.name == "epoch_height" && fn.params.isEmpty && fn.results == #["i64"]))
+    "NEAR host bridge must declare epoch_height host signature"
+  require (HostBridge.requiredImports HostBridge.near |>.contains "env.random_seed")
+    "NEAR host bridge must declare random_seed import"
+  require ((HostBridge.hostFunctions HostBridge.near).any (fun fn =>
+    fn.name == "random_seed" && fn.params == #["i64"] && fn.results.isEmpty))
+    "NEAR host bridge must declare random_seed host signature"
 
   let cosmwasmProfile ← requireSome (find? "wasm-cosmwasm") "missing wasm-cosmwasm target profile"
   require (cosmwasmProfile.hostBridge? == some HostBridge.cosmWasm)

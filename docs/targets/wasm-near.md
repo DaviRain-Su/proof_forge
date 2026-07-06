@@ -42,9 +42,93 @@ Storage/crypto/context effects lower to these NEAR host imports:
 | `storageMapContains` | `env.storage_has_key` |
 | `hash` / `hashTwoToOne` | `env.sha256` |
 | `contextRead userId` | `env.predecessor_account_id` |
+| `contextRead userIdHash` | `env.predecessor_account_id` + `env.sha256` |
 | `contextRead contractId` | `env.current_account_id` |
-| `contextRead checkpointId` | `env.block_height` |
+| `contextRead checkpointId` | `env.block_index` |
+| `contextRead timestamp` | `env.block_timestamp` |
+| `contextRead epochHeight` | `env.epoch_height` |
+| `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
+
+### NEAR Promise IR
+
+Portable `crosscallInvoke` lowers to `promise_create` for remote calls. NEAR-specific
+promise chaining and callback introspection use dedicated `Expr` forms tagged with
+the `near.promise` capability on the canonical EmitWat path:
+
+| IR expression | NEAR host import(s) | Role |
+|---|---|---|
+| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.nearCrosscallStrings` for the account and method names. |
+| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.nearCrosscallStrings` via `.literal (.address i)`. |
+| `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
+| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
+| `nearPromiseResultU64 index` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
+
+Typical shape:
+
+```text
+entry call_remote_with_callback:
+  return nearPromiseThen(
+    crosscallInvoke(...),
+    callbackMethod = "handle_remote",
+    args = [], deposit = 0)
+
+entry handle_remote:
+  return nearPromiseResultU64(0)
+```
+
+Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.
+
+### NEP-141 `ft_transfer_call` example
+
+`Examples/WasmNear/FungibleToken.lean` reuses the
+`ProofForge.Contract.Stdlib.NearFungibleToken` mixin. The generated contract
+exports `ft_transfer_call(receiver_id, receiver_idx, amount)`, with Borsh input
+layout `Hash || U32 || U64`:
+
+- `receiver_id` is the portable `Hash` account key used for token balances.
+- `receiver_idx` selects a registered NEAR account string from
+  `module.nearCrosscallStrings`; the stdlib reserves `0 = "ft_on_transfer"`,
+  `1 = "ft_resolve_transfer"`, and uses `2 + receiver_idx` for remote receiver
+  account ids. In the checked example, `receiver_idx = 0` selects
+  `demo.receiver.testnet`.
+- `amount` is the transferred `U64`.
+
+The promise chain emitted for that entrypoint is:
+
+```text
+ft_transfer_call
+  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
+  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_return(callback promise id)
+
+ft_resolve_transfer
+  -> nearPromiseResultU64(0) as unused
+  -> refund unused balance from receiver back to sender
+  -> return amount - unused
+```
+
+The static gate `just wasm-near-ft-transfer-call` verifies the Plan/EmitWat
+shape, including the `nearCrosscallStrings` layout, hash JSON encoding for the
+`ft_on_transfer` sender argument, and the absence of nested allowance
+`mapKey+mapKey` paths. The behavior gate `just wasm-near-ft-transfer-call-e2e`
+runs the generated WAT in `runtime/offline-host`, stubs the callback result as a
+Borsh `U64`, and checks `promise_create` precedes `promise_then` and the refund
+balances are correct.
+
+### `caller` vs `callerHash`
+
+`ProofForge.Contract.Surface.caller` remains the portable `userId` context
+expression and lowers to a `U64` projection of `predecessor_account_id`. It is
+useful for legacy U64-keyed examples, but it is not wide enough to key NEAR
+account balances safely.
+
+`ProofForge.Contract.Surface.callerHash` lowers `userIdHash` to the full
+32-byte SHA-256 digest of `predecessor_account_id`. The NEP-141 stdlib uses
+`callerHash` for account-keyed balances, allowance owner keys, and the
+`ft_on_transfer` sender argument. `ProofForge.Contract.Surface.signer` is
+separate: it reads `signer_account_id` and models the transaction signer, not
+the immediate predecessor.
 
 ### Why not `EmitZig`
 
@@ -99,14 +183,15 @@ Defined in `ProofForge/Target/Registry.lean` (`def wasmNear`):
 |---|---|---|
 | `storage.scalar` | Yes | u32, u64, bool, hash → Rust struct fields |
 | `storage.map` | Yes | Map<U64, …> and Map<Hash, …> → raw `env::storage_read`/`env::storage_write` |
-| `caller.sender` | Yes | `env::predecessor_account_id()` |
+| `caller.sender` | Yes | EmitWat exposes `caller` as a U64 predecessor projection, `callerHash` as the full predecessor hash, and `signer` via `signer_account_id`; Rust sourcegen v0 keeps its existing account-id hash helper. |
 | `value.native` | Partial | Rust sourcegen and EmitWat lower `nativeValue` to `env::attached_deposit()` / the `attached_deposit` host import as a U64 projection |
 | `events.emit` | Yes | `near_sdk::log!` with deterministic JSON |
-| `env.block` | Yes | `env::block_height()` |
+| `env.block` | Yes | `block_index`, `block_timestamp`, `epoch_height`, and `random_seed` host imports on EmitWat; `env::block_height()` in frozen Rust sourcegen |
 | `crypto.hash` | Yes | `env::sha256`-based hash helpers |
 | `assertions.check` | Yes | Lowered to Rust `assert!`/`assert_eq!` |
 | `account.explicit` | Yes | `env::current_account_id()` |
-| `crosscall.invoke` | No | Not supported in sourcegen v0 |
+| `crosscall.invoke` | Partial | EmitWat lowers untyped NEAR calls to Promise API; Rust sourcegen v0 rejects cross-contract calls. |
+| `near.promise` | Partial | EmitWat lowers Promise chaining/result inspection/return; Rust sourcegen v0 does not. |
 | `storage.array` | Partial | Target profile advertises the capability for the EmitWat path; Rust sourcegen v0 rejects array state |
 | `control.conditional` | Partial | Target profile advertises the capability for EmitWat; Rust sourcegen v0 rejects `if/else` |
 | `control.bounded_loop` | Partial | Target profile advertises the capability for EmitWat; Rust sourcegen v0 rejects bounded loops |

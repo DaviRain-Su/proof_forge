@@ -12,6 +12,7 @@ structure ModuleBuilder where
   structs : Array StructDecl := #[]
   state : Array StateDecl := #[]
   entrypoints : Array Entrypoint := #[]
+  nearCrosscallStrings : Array String := #[]
   intents : Array Intent := #[]
   evmConstructorParams : Array ProofForge.Contract.EvmConstructorParam := #[]
   evmConstructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]
@@ -32,6 +33,7 @@ def ModuleBuilder.toModule (builder : ModuleBuilder) : Module := {
   structs := builder.structs
   state := builder.state
   entrypoints := builder.entrypoints
+  nearCrosscallStrings := builder.nearCrosscallStrings
   evmProxyPattern? := builder.proxyPattern?.map ProofForge.Contract.ProxyPattern.kind
 }
 
@@ -61,6 +63,13 @@ def intent (intent : Intent) : ModuleM Unit := do
 def capability (capability : Capability) (operation : String := capability.id)
     (source? : Option String := none) (metadata : Array TargetMetadata := #[]) : ModuleM Unit :=
   intent (Intent.capability capability operation source? metadata)
+
+/-- Register a compile-time NEAR account/method string for `module.nearCrosscallStrings`. -/
+def nearCrosscallString (value : String) : ModuleM Nat := do
+  let builder ← get
+  let idx := builder.nearCrosscallStrings.size
+  modify fun b => { b with nearCrosscallStrings := b.nearCrosscallStrings.push value }
+  pure idx
 
 def entryIntent (intent : Intent) : EntryM Unit := do
   modify fun builder => { builder with intents := builder.intents.push intent }
@@ -282,5 +291,20 @@ def boolOr (lhs rhs : Expr) : Expr :=
 
 def boolNot (value : Expr) : Expr :=
   .boolNot value
+
+def cast (value : Expr) (target : ValueType) : Expr :=
+  .cast value target
+
+def nearCrosscallInvokePool (accountIndex methodId : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
+  .nearCrosscallInvokePool accountIndex methodId args deposit
+
+def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
+  .nearPromiseThen parentPromise callbackMethod args deposit
+
+def nearPromiseResultU64 (index : Expr) : Expr :=
+  .nearPromiseResultU64 index
+
+def nearAddressLit (idx : Nat) : Expr :=
+  .literal (.address idx)
 
 end ProofForge.Contract.Builder

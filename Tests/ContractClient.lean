@@ -80,10 +80,16 @@ def testNearViewAndCallEntrypoints : IO Unit := do
   let wrapper := ProofForge.Contract.Client.renderNearWrapper counterSpec
   require (contains wrapper "export type NearCallOptions")
     "NEAR Counter wrapper should expose call options"
-  require (contains wrapper "export async function get(): Promise<bigint>")
-    "NEAR Counter wrapper should type get() as view call"
-  require (contains wrapper "account.viewFunction({ contractId, methodName: \"get\", args: {} })")
+  require (contains wrapper "export type NearViewOptions")
+    "NEAR Counter wrapper should expose view options"
+  require (contains wrapper "export async function get(options: NearViewOptions = {}): Promise<bigint>")
+    "NEAR Counter wrapper should type get() as view call with options"
+  require (contains wrapper "account.viewFunction({")
     "NEAR Counter wrapper should use viewFunction for read-only entrypoints"
+  require (contains wrapper "methodName: \"get\"")
+    "NEAR Counter wrapper should pass the view method name"
+  require (contains wrapper "...options")
+    "NEAR Counter wrapper should forward view options"
   require (contains wrapper "export async function initialize(options: NearCallOptions = {}): Promise<void>")
     "NEAR Counter wrapper should type initialize() as mutating call with options"
   require (contains wrapper "export async function increment(options: NearCallOptions = {}): Promise<void>")

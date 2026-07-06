@@ -639,6 +639,14 @@ contains = [
 ]
 
 [[artifact.json]]
+path = "fixture"
+equals = "ValueVault"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
 path = "schemaVersion"
 kind = "integer"
 equals = 1

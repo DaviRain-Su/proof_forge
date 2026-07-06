@@ -28,6 +28,10 @@ struct Config {
     signer_account_id: Vec<u8>,
     attached_deposit: u64,
     block_index: u64,
+    block_timestamp: u64,
+    epoch_height: u64,
+    random_seed: Vec<u8>,
+    promise_result_u64: u64,
 }
 
 impl Config {
@@ -45,6 +49,10 @@ impl Config {
         let mut signer_account_id = b"alice.testnet".to_vec();
         let mut attached_deposit: u64 = 0;
         let mut block_index = 0;
+        let mut block_timestamp = 0;
+        let mut epoch_height = 0;
+        let mut random_seed = vec![0; 32];
+        let mut promise_result_u64 = 42;
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -83,8 +91,7 @@ impl Config {
                         take_arg(&mut args, "--predecessor-account-id")?.into_bytes();
                 }
                 "--signer-account-id" => {
-                    signer_account_id =
-                        take_arg(&mut args, "--signer-account-id")?.into_bytes();
+                    signer_account_id = take_arg(&mut args, "--signer-account-id")?.into_bytes();
                 }
                 "--attached-deposit" => {
                     attached_deposit = take_arg(&mut args, "--attached-deposit")?
@@ -95,6 +102,27 @@ impl Config {
                     block_index = take_arg(&mut args, "--block-index")?
                         .parse()
                         .context("--block-index must be a non-negative integer")?;
+                }
+                "--block-timestamp" => {
+                    block_timestamp = take_arg(&mut args, "--block-timestamp")?
+                        .parse()
+                        .context("--block-timestamp must be a non-negative integer")?;
+                }
+                "--epoch-height" => {
+                    epoch_height = take_arg(&mut args, "--epoch-height")?
+                        .parse()
+                        .context("--epoch-height must be a non-negative integer")?;
+                }
+                "--random-seed-hex" => {
+                    random_seed = parse_hex(&take_arg(&mut args, "--random-seed-hex")?)?;
+                    if random_seed.len() != 32 {
+                        bail!("--random-seed-hex must decode to exactly 32 bytes");
+                    }
+                }
+                "--promise-result-u64" => {
+                    promise_result_u64 = take_arg(&mut args, "--promise-result-u64")?
+                        .parse()
+                        .context("--promise-result-u64 must be a non-negative integer")?;
                 }
                 _ if arg.starts_with('-') => bail!("unknown option `{arg}`"),
                 _ => positionals.push(arg),
@@ -131,6 +159,10 @@ impl Config {
             signer_account_id,
             attached_deposit,
             block_index,
+            block_timestamp,
+            epoch_height,
+            random_seed,
+            promise_result_u64,
         })
     }
 }
@@ -157,7 +189,11 @@ fn print_usage() {
            --predecessor-account-id ID   predecessor_account_id stub value\n\
            --signer-account-id ID        signer_account_id stub value\n\
            --attached-deposit N          attached_deposit stub value\n\
-           --block-index N               block_index stub value"
+           --block-index N               block_index stub value\n\
+           --block-timestamp N           block_timestamp stub value\n\
+           --epoch-height N              epoch_height stub value\n\
+           --random-seed-hex HEX         32-byte random_seed stub value\n\
+           --promise-result-u64 N        Borsh U64 returned by promise_result (default: 42)"
     );
 }
 
@@ -208,6 +244,10 @@ fn run(config: Config) -> Result<()> {
         config.signer_account_id,
         config.attached_deposit,
         config.block_index,
+        config.block_timestamp,
+        config.epoch_height,
+        config.random_seed,
+        config.promise_result_u64,
     );
     let mut store = Store::new(&engine, host);
     let initial_fuel: u64 = 10_000_000_000;
@@ -266,6 +306,9 @@ fn run(config: Config) -> Result<()> {
             for log in &state.logs {
                 println!("  log: {log}");
             }
+            for trace in &state.promise_trace {
+                println!("  promise: {trace}");
+            }
         }
     }
 
@@ -307,6 +350,12 @@ struct HostState {
     signer_account_id: Vec<u8>,
     attached_deposit: u64,
     block_index: u64,
+    block_timestamp: u64,
+    epoch_height: u64,
+    random_seed: Vec<u8>,
+    promise_result_u64: u64,
+    promise_trace: Vec<String>,
+    next_promise_id: u64,
     allocator: LinearMemoryAllocator,
     panic_message: Option<String>,
 }
@@ -320,6 +369,10 @@ impl HostState {
         signer_account_id: Vec<u8>,
         attached_deposit: u64,
         block_index: u64,
+        block_timestamp: u64,
+        epoch_height: u64,
+        random_seed: Vec<u8>,
+        promise_result_u64: u64,
     ) -> Self {
         Self {
             registers: HashMap::new(),
@@ -332,6 +385,12 @@ impl HostState {
             signer_account_id,
             attached_deposit,
             block_index,
+            block_timestamp,
+            epoch_height,
+            random_seed,
+            promise_result_u64,
+            promise_trace: Vec::new(),
+            next_promise_id: 0,
             allocator: LinearMemoryAllocator::new(heap_base),
             panic_message: None,
         }
@@ -341,6 +400,8 @@ impl HostState {
         self.registers.clear();
         self.return_value.clear();
         self.logs.clear();
+        self.promise_trace.clear();
+        self.next_promise_id = 0;
         self.panic_message = None;
     }
 }
@@ -636,14 +697,114 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> i64 { caller.data().block_index as i64 },
     )?;
 
+    linker.func_wrap(
+        "env",
+        "block_timestamp",
+        |caller: Caller<'_, HostState>| -> i64 { caller.data().block_timestamp as i64 },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "epoch_height",
+        |caller: Caller<'_, HostState>| -> i64 { caller.data().epoch_height as i64 },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "random_seed",
+        |mut caller: Caller<'_, HostState>, register_id: i64| -> Result<()> {
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let value = caller.data().random_seed.clone();
+            caller.data_mut().registers.insert(register_id, value);
+            Ok(())
+        },
+    )?;
+
     // Promise API stubs
-    linker.func_wrap("env", "promise_create",
-        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
-    linker.func_wrap("env", "promise_then",
-        |_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64| -> i64 { 0 })?;
-    linker.func_wrap("env", "promise_results_count", |_: Caller<'_, HostState>| -> i64 { 0 })?;
-    linker.func_wrap("env", "promise_result", |_: i64, _: i64| -> i64 { 2 })?;
-    linker.func_wrap("env", "promise_return", |_: i64| {},)?;
+    linker.func_wrap(
+        "env",
+        "promise_create",
+        |mut caller: Caller<'_, HostState>,
+         account_len: i64,
+         account_ptr: i64,
+         method_len: i64,
+         method_ptr: i64,
+         args_len: i64,
+         args_ptr: i64,
+         amount: i64,
+         gas: i64|
+         -> Result<i64> {
+            let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
+            let method = read_utf8_lossy(&mut caller, method_ptr, method_len)?;
+            let args = read_utf8_lossy(&mut caller, args_ptr, args_len)?;
+            let state = caller.data_mut();
+            let id = state.next_promise_id;
+            state.next_promise_id += 1;
+            state.promise_trace.push(format!(
+                "promise_create id={id} account={account} method={method} args={args} deposit={amount} gas={gas}"
+            ));
+            Ok(id as i64)
+        },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_then",
+        |mut caller: Caller<'_, HostState>,
+         parent: i64,
+         account_len: i64,
+         account_ptr: i64,
+         method_len: i64,
+         method_ptr: i64,
+         args_len: i64,
+         args_ptr: i64,
+         amount: i64,
+         gas: i64|
+         -> Result<i64> {
+            let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
+            let method = read_utf8_lossy(&mut caller, method_ptr, method_len)?;
+            let args = read_utf8_lossy(&mut caller, args_ptr, args_len)?;
+            let state = caller.data_mut();
+            let id = state.next_promise_id;
+            state.next_promise_id += 1;
+            state.promise_trace.push(format!(
+                "promise_then id={id} parent={parent} account={account} method={method} args={args} deposit={amount} gas={gas}"
+            ));
+            Ok(id as i64)
+        },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_results_count",
+        |_: Caller<'_, HostState>| -> i64 { 1 },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_result",
+        |mut caller: Caller<'_, HostState>, index: i64, register_id: i64| -> Result<i64> {
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let result = caller.data().promise_result_u64;
+            let state = caller.data_mut();
+            state
+                .registers
+                .insert(register_id, result.to_le_bytes().to_vec());
+            state.promise_trace.push(format!(
+                "promise_result index={index} status=1 return_u64={result}"
+            ));
+            Ok(1)
+        },
+    )?;
+    linker.func_wrap(
+        "env",
+        "promise_return",
+        |mut caller: Caller<'_, HostState>, promise_id: i64| {
+            caller
+                .data_mut()
+                .promise_trace
+                .push(format!("promise_return id={promise_id}"));
+        },
+    )?;
 
     Ok(())
 }
@@ -687,6 +848,11 @@ fn write_memory(caller: &mut Caller<'_, HostState>, ptr: i64, bytes: &[u8]) -> R
     memory
         .write(&mut *caller, ptr, bytes)
         .context("failed to write wasm linear memory")
+}
+
+fn read_utf8_lossy(caller: &mut Caller<'_, HostState>, ptr: i64, len: i64) -> Result<String> {
+    let bytes = read_memory(caller, ptr, len)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn describe_return(bytes: &[u8]) -> String {

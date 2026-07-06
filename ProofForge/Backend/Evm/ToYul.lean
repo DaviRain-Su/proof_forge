@@ -309,18 +309,20 @@ def mapHelperFunctions (assignOps : Array AssignOp) : Array Lean.Compiler.Yul.St
   mapBaseHelperFunctions ++ assignOps.map mapAssignHelperFunction
 
 def contextFieldExpr
-    {ε : Type}
-    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr) :
-    ContextField → Except ε Lean.Compiler.Yul.Expr
+    (lowerExpr : Expr → Except String Lean.Compiler.Yul.Expr) :
+    ContextField → Except String Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
+  | .userIdHash => .error "EVM context read `userIdHash` is not supported; NEAR-only full predecessor account hash"
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])
+  | .epochHeight => .error "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode"
   | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
   | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
   | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
   | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
+  | .randomSeed => .error "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode"
   | .origin => .ok (Lean.Compiler.Yul.builtin "origin" #[])
   | .coinbase => .ok (Lean.Compiler.Yul.builtin "coinbase" #[])
   | .blockHash blockNumber => do

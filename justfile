@@ -176,6 +176,21 @@ solana-token-plan-web3:
 near-target-first:
     scripts/near/target-first-smoke.sh
 
+# Check Wasm-NEAR Plan/EmitWat surface pruning. Builds the NEAR crosscall fixture
+# first so stale oleans cannot turn this gate into a Lean segfault.
+wasm-near-plan:
+    lake build proof-forge ProofForge.IR.Examples.NearCrosscallProbe
+    lake env lean --run Tests/WasmNearPlan.lean
+
+# Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
+wasm-near-ft-transfer-call:
+    lake build proof-forge ProofForge.Contract.Stdlib.NearFungibleToken
+    lake env lean --run Tests/WasmNearFtTransferCall.lean
+
+# Run NEAR NEP-141 ft_transfer_call through the offline host promise callback path.
+wasm-near-ft-transfer-call-e2e:
+    scripts/near/ft-transfer-call-smoke.sh
+
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
@@ -397,7 +412,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
+check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first wasm-near-plan wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

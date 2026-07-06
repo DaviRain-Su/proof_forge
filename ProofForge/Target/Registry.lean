@@ -112,6 +112,8 @@ def wasmNear : TargetProfile := {
     .callerSender,
     .valueNative,
     .eventsEmit,
+    .crosscallInvoke,
+    .nearPromise,
     .envBlock,
     .cryptoHash,
     .accountExplicit,

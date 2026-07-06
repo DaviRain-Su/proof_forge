@@ -22,17 +22,20 @@ Literal	address	lowered	EmitWat emits i64.const for Address literals (same as U6
 Literal	u8	lowered	EmitWat emits i32.const for U8 literals (same as U32); U8 is treated as a u32 scalar.
 Literal	u128	unsupported	EmitWat does not support U128 literals.
 ContextField	userId	lowered	EmitWat lowers userId to predecessor_account_id hashing through the context helper.
+ContextField	userIdHash	lowered	EmitWat lowers userIdHash to __pf_ctx_user_hash, hashing predecessor_account_id bytes into a Hash; NearFungibleToken callerHash covers hash-keyed balance transfers.
 ContextField	contractId	lowered	EmitWat lowers contractId to current_account_id hashing through the context helper.
 ContextField	checkpointId	lowered	EmitWat lowers checkpointId to block_index.
-ContextField	timestamp	unsupported	EmitWat does not lower timestamp context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	chainId	unsupported	EmitWat does not lower chainId context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	gasPrice	unsupported	EmitWat does not lower gasPrice context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	gasLeft	unsupported	EmitWat does not lower gasLeft context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	baseFee	unsupported	EmitWat does not lower baseFee context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	prevRandao	unsupported	EmitWat does not lower prevRandao context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	origin	unsupported	EmitWat does not lower origin context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	coinbase	unsupported	EmitWat does not lower coinbase context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
-ContextField	blockHash	unsupported	EmitWat does not lower blockHash context reads; only userId, contractId, and checkpointId have explicit direct-WAT host mappings.
+ContextField	timestamp	lowered	EmitWat lowers timestamp to the block_timestamp host import; Tests/EmitWatContext.lean and the offline host smoke cover the returned value.
+ContextField	epochHeight	lowered	EmitWat lowers epochHeight to the epoch_height host import; Tests/EmitWatContext.lean and the offline host smoke cover the returned value.
+ContextField	chainId	unsupported	EmitWat does not lower chainId context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	gasPrice	unsupported	EmitWat does not lower gasPrice context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	gasLeft	unsupported	EmitWat does not lower gasLeft context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	baseFee	unsupported	EmitWat does not lower baseFee context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	prevRandao	unsupported	EmitWat does not lower prevRandao context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	randomSeed	lowered	EmitWat lowers randomSeed to the random_seed host import and returns the 32-byte register payload as Hash; Tests/EmitWatContext.lean and offline-host smoke cover the returned bytes.
+ContextField	origin	lowered	EmitWat lowers origin to signer_account_id hashing through the context helper.
+ContextField	coinbase	unsupported	EmitWat does not lower coinbase context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin have explicit direct-WAT host mappings.
+ContextField	blockHash	unsupported	EmitWat does not lower blockHash context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin have explicit direct-WAT host mappings.
 AssignOp	add	lowered	EmitWat lowers local and scalar-storage compound add with the numeric wasm add operator.
 AssignOp	sub	lowered	EmitWat lowers local and scalar-storage compound subtract with the numeric wasm sub operator.
 AssignOp	mul	lowered	EmitWat lowers local and scalar-storage compound multiply with the numeric wasm mul operator.
@@ -74,13 +77,18 @@ Expr	hashValue	lowered	EmitWat lowers four U64 limbs into a hash value helper.
 Expr	hash	lowered	EmitWat lowers hash preimage hashing through the sha256-backed helper.
 Expr	hashTwoToOne	lowered	EmitWat lowers two-to-one hash through the hash concat helper.
 Expr	nativeValue	lowered	EmitWat lowers nativeValue to the attached_deposit host import as a U64 projection; Tests/EmitWatContext.lean and the offline host smoke cover the returned value.
-Expr	crosscallInvoke	unsupported	EmitWat capability checking rejects crosscall.invoke with a NEAR Promise-semantics diagnostic before lowering.
+Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create with compile-time account/method strings from module.nearCrosscallStrings and promise_return when the entrypoint returns the promise.
 Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects static typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
 Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
+Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call covers ft_on_transfer args.
+Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen after promise_create, scheduling a local callback method via promise_then on the current account.
+Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count for callback entrypoints.
+Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns status as U64.
+Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64).
 Expr	effect	lowered	EmitWat lowerExpr delegates expression-position effects to storage/context/map/array/struct effect lowering.
 Effect	storageScalarRead	lowered	EmitWat lowers scalar reads through typed storage_read helpers.
 Effect	storageScalarWrite	lowered	EmitWat lowers scalar writes through typed storage_write helpers, including struct-valued scalar writes.
@@ -104,7 +112,7 @@ Effect	memoryArraySet	unsupported	EmitWat rejects memory.array.set because memor
 Expr	memoryArrayNew	unsupported	EmitWat rejects memory.array.new because memory arrays are not lowered to NEAR/Wasm.
 Expr	memoryArrayLength	unsupported	EmitWat rejects memory.array.length because memory arrays are not lowered to NEAR/Wasm.
 Expr	memoryArrayGet	unsupported	EmitWat rejects memory.array.get because memory arrays are not lowered to NEAR/Wasm.
-Effect	contextRead	lowered	EmitWat lowers userId, contractId, and checkpointId context reads through NEAR host helpers.
+Effect	contextRead	lowered	EmitWat lowers userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin context reads through NEAR host helpers.
 Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
 Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEAR JSON event log because NEAR logs do not provide native EVM-style topics; Tests/EmitWatChainSemantics.lean checks the rendered event fields.
 StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
