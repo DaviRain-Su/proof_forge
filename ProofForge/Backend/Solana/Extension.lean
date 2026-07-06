@@ -1924,6 +1924,22 @@ def lowerCpiOwnerField (accountBindings : Array CpiAccountBinding) (cpi : CpiInv
         .comment "solana.cpi.value owner missing placeholder=zero",
       ] ++ lowerZero32At .r8 fieldOff
 
+def lowerCpiPubkeyField (accountBindings : Array CpiAccountBinding)
+    (cpi : CpiInvoke) (metadataKey fieldName : String) (fieldOff : Nat) : Array AstNode :=
+  match cpiMetadataValue? cpi metadataKey with
+  | some "program" => lowerCurrentProgramIdToData fieldOff
+  | some source =>
+      match cpiAccountBinding? accountBindings source with
+      | some binding => lowerAccountKeyToDataField fieldName source binding.layout fieldOff
+      | none =>
+          #[
+            .comment s!"solana.cpi.value {fieldName} source={source} placeholder=zero",
+          ] ++ lowerZero32At .r8 fieldOff
+  | none =>
+      #[
+        .comment s!"solana.cpi.value {fieldName} missing placeholder=zero",
+      ] ++ lowerZero32At .r8 fieldOff
+
 def lowerCpiSignerSeed (cpiName : String) (idx : Nat) (seed : String) : Array AstNode :=
   let seedOffset := cpiSignerSeedDataOffset + idx * cpiMaxSeedLen
   let tableOffset := cpiSignerSeedTableOffset + idx * 16
@@ -2145,39 +2161,46 @@ def lowerToken2022InitializeNonTransferableMintData : Array AstNode :=
     storeImm .stb .r8 0 32
   ]
 
-/-- Initialize metadata pointer: u8 instruction=39, pubkey metadata_program_id, pubkey metadata_account. -/
+/-- Initialize metadata pointer: u8 instruction=39, u8 sub=0, pubkey authority,
+    pubkey metadata_address. -/
 def lowerToken2022InitializeMetadataPointerData (accountBindings : Array CpiAccountBinding)
     (cpi : CpiInvoke) : Array AstNode :=
   #[
-    .comment "solana.cpi.data token-2022.initialize_metadata_pointer: u8 instruction=39, pubkey metadata_program_id, pubkey metadata_account"
+    .comment "solana.cpi.data token-2022.initialize_metadata_pointer: u8 instruction=39, u8 metadata_pointer_instruction=0, pubkey authority, pubkey metadata_address"
   ] ++
   stackPtr .r8 cpiInstructionDataOffset ++ #[
-    storeImm .stb .r8 0 39
+    storeImm .stb .r8 0 39,
+    storeImm .stb .r8 1 0
   ] ++
-  lowerCpiOwnerField accountBindings cpi 1
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.metadata_pointer_authority" "metadata_pointer_authority" 2 ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.metadata_address" "metadata_address" 34
 
-/-- Initialize default account state: u8 instruction=38, u8 state (0=unfrozen, 1=frozen).
-    The state value comes from `solana.cpi.default_account_state` metadata as a
-    literal string (0 or 1). -/
+/-- Initialize default account state: u8 instruction=28, u8 sub=0, u8 state.
+    SPL Token encodes initialized as 1 and frozen as 2. The state value comes
+    from `solana.cpi.default_account_state` metadata as a literal string. -/
 def lowerToken2022InitializeDefaultAccountStateData (cpi : CpiInvoke) : Array AstNode :=
-  let stateVal := match cpiMetadataValue? cpi "solana.cpi.default_account_state" with
-    | some "1" => 1
-    | _ => 0
+  let stateVal :=
+    match cpiMetadataValue? cpi "solana.cpi.default_account_state" with
+    | some value => value.toNat?.getD 1
+    | none => 1
   #[
-    .comment s!"solana.cpi.data token-2022.initialize_default_account_state: u8 instruction=38, u8 state={stateVal}"
+    .comment s!"solana.cpi.data token-2022.initialize_default_account_state: u8 instruction=28, u8 default_account_state_instruction=0, u8 state={stateVal}"
   ] ++
   stackPtr .r8 cpiInstructionDataOffset ++ #[
-    storeImm .stb .r8 0 38,
-    storeImm .stb .r8 1 stateVal
+    storeImm .stb .r8 0 28,
+    storeImm .stb .r8 1 0,
+    storeImm .stb .r8 2 stateVal
   ]
 
-/-- Initialize immutable owner: u8 instruction=37 (discriminator only, no extra data). -/
+/-- Initialize immutable owner: u8 instruction=22 (discriminator only, no extra data). -/
 def lowerToken2022InitializeImmutableOwnerData : Array AstNode :=
   #[
-    .comment "solana.cpi.data token-2022.initialize_immutable_owner: u8 instruction=37"
+    .comment "solana.cpi.data token-2022.initialize_immutable_owner: u8 instruction=22"
   ] ++
   stackPtr .r8 cpiInstructionDataOffset ++ #[
-    storeImm .stb .r8 0 37
+    storeImm .stb .r8 0 22
   ]
 
 /-- Memo CPI data: raw bytes from the input binding. No discriminator — the
@@ -2246,9 +2269,9 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
   | some "token-2022.initialize_non_transferable_mint" =>
       (lowerToken2022InitializeNonTransferableMintData, 1)
   | some "token-2022.initialize_metadata_pointer" =>
-      (lowerToken2022InitializeMetadataPointerData accountBindings cpi, 1)
+      (lowerToken2022InitializeMetadataPointerData accountBindings cpi, 66)
   | some "token-2022.initialize_default_account_state" =>
-      (lowerToken2022InitializeDefaultAccountStateData cpi, 2)
+      (lowerToken2022InitializeDefaultAccountStateData cpi, 3)
   | some "token-2022.initialize_immutable_owner" =>
       (lowerToken2022InitializeImmutableOwnerData, 1)
   | some "memo.memo" =>

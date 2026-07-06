@@ -1971,6 +1971,18 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_source" with
       | some value => jsonString value
       | none => "null"),
+    ("metadataPointerAuthority",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.metadata_pointer_authority" with
+      | some value => jsonString value
+      | none => "null"),
+    ("metadataAddress",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.metadata_address" with
+      | some value => jsonString value
+      | none => "null"),
+    ("defaultAccountState",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.default_account_state" with
+      | some value => jsonString value
+      | none => "null"),
     ("signed", jsonBool cpi.signed)
   ]
 

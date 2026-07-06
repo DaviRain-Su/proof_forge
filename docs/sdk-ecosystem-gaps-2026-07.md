@@ -102,18 +102,21 @@ missing.
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
 | Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Web3.js behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
-| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable direct CPI subset | P1 |
+| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner direct CPI subset | P1 |
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| transfer_fee | Covered | Plan/Surfpool execution plus direct sBPF CPI layouts for initialize config, transfer_checked_with_fee, withdraw/harvest, and set_transfer_fee; `solana-spl-token-2022-cpi-web3` now deploys the generated program on Surfpool and executes the transfer-fee direct-CPI behavior path | — |
-| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; live generated direct-CPI behavior remains a validation expansion | — |
+| transfer_fee | Covered | Plan/Surfpool execution plus direct sBPF CPI layouts for initialize config, transfer_checked_with_fee, withdraw/harvest, and set_transfer_fee; `solana-spl-token-2022-cpi-web3` deploys the generated program on Surfpool and executes the transfer-fee direct-CPI behavior path | — |
+| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; static packing covers the generated direct-CPI helper | — |
+| metadata_pointer | Covered | `splToken2022InitializeMetadataPointer` builder/surface helper emits `token-2022.initialize_metadata_pointer`; sBPF packs `[39, 0, authority, metadata_address]` and `solana-spl-token-2022-cpi-web3` verifies the initialized extension through `getMetadataPointerState` | — |
+| default_account_state | Covered | `splToken2022InitializeDefaultAccountState` builder/surface helper emits `token-2022.initialize_default_account_state`; sBPF packs `[28, 0, state]` and `solana-spl-token-2022-cpi-web3` verifies the initialized frozen default state through `getDefaultAccountState` | — |
+| immutable_owner | Covered | `splToken2022InitializeImmutableOwner` builder/surface helper emits top-level Token-2022 `InitializeImmutableOwner` tag 22 and `solana-spl-token-2022-cpi-web3` verifies the token-account extension through `getImmutableOwner` | — |
 | confidential_transfer | Missing | No plan or backend support | P1 |
 | transfer_hook | Missing | No plan or backend support | P1 |
-| metadata_pointer / permanent_delegate / interest_bearing / default_account_state / immutable_owner / memo_transfer | Missing | No plan or backend support | P2 |
+| permanent_delegate / interest_bearing / memo_transfer | Missing | No plan or backend support | P2 |
 
 ### Ecosystem
 
@@ -196,7 +199,7 @@ economics) is almost entirely missing.
 
 **EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
-**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable are closed. Live generated-program Token-2022 direct-CPI validation remains a P1 validation expansion.
+**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner are closed.
 
 **NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
 

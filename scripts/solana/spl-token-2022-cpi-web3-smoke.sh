@@ -94,6 +94,9 @@ expected_names = [
     "harvest_to_mint",
     "set_transfer_fee",
     "initialize_non_transferable",
+    "initialize_metadata_pointer",
+    "initialize_default_account_state",
+    "initialize_immutable_owner",
 ]
 names = [instruction.get("name") for instruction in instructions]
 if names != expected_names:
@@ -110,6 +113,11 @@ expected_accounts = [
     "withdraw_withheld_authority",
     "withheld_source",
     "transfer_fee_config_authority",
+    "metadata_pointer_mint",
+    "default_state_mint",
+    "immutable_owner_account",
+    "metadata_pointer_authority",
+    "metadata_address",
 ]
 for instruction in instructions:
     accounts = [account.get("name") for account in instruction.get("accounts", [])]
@@ -144,6 +152,9 @@ expected_cpis = {
     "token_2022_harvest_to_mint": "token-2022.harvest_withheld_tokens_to_mint",
     "token_2022_set_transfer_fee": "token-2022.set_transfer_fee",
     "token_2022_init_non_transferable": "token-2022.initialize_non_transferable_mint",
+    "token_2022_init_metadata_pointer": "token-2022.initialize_metadata_pointer",
+    "token_2022_init_default_account_state": "token-2022.initialize_default_account_state",
+    "token_2022_init_immutable_owner": "token-2022.initialize_immutable_owner",
 }
 if list(cpis) != list(expected_cpis):
     raise SystemExit(f"CPI schema mismatch: {list(cpis)}")
@@ -161,6 +172,12 @@ if cpis["token_2022_transfer_with_fee"].get("decimals") != "9":
     raise SystemExit("transfer_with_fee decimals mismatch")
 if cpis["token_2022_withdraw_from_accounts"].get("numTokenAccounts") != "1":
     raise SystemExit("withdraw_from_accounts token account count mismatch")
+if cpis["token_2022_init_metadata_pointer"].get("metadataPointerAuthority") != "metadata_pointer_authority":
+    raise SystemExit("metadata_pointer authority source mismatch")
+if cpis["token_2022_init_metadata_pointer"].get("metadataAddress") != "metadata_address":
+    raise SystemExit("metadata_pointer address source mismatch")
+if cpis["token_2022_init_default_account_state"].get("defaultAccountState") != "2":
+    raise SystemExit("default_account_state mismatch")
 print("artifact validation: ok")
 PY
 

@@ -22,6 +22,11 @@ def spec : ProofForge.Contract.ContractSpec :=
     signerAccountConstraint "authority"
     writableAccountConstraint "fee_receiver"
     writableAccountConstraint "withheld_source"
+    writableAccountConstraint "metadata_pointer_mint"
+    writableAccountConstraint "default_state_mint"
+    writableAccountConstraint "immutable_owner_account"
+    readonlyAccountConstraint "metadata_pointer_authority"
+    readonlyAccountConstraint "metadata_address"
 
     splToken2022InitializeTransferFeeConfig
       "token_2022_init_fee_config"
@@ -69,6 +74,21 @@ def spec : ProofForge.Contract.ContractSpec :=
     splToken2022InitializeNonTransferableMint
       "token_2022_init_non_transferable"
       "mint"
+
+    splToken2022InitializeMetadataPointer
+      "token_2022_init_metadata_pointer"
+      "metadata_pointer_mint"
+      "metadata_pointer_authority"
+      "metadata_address"
+
+    splToken2022InitializeDefaultAccountState
+      "token_2022_init_default_account_state"
+      "default_state_mint"
+      2
+
+    splToken2022InitializeImmutableOwner
+      "token_2022_init_immutable_owner"
+      "immutable_owner_account"
 
     entrySelectorWithParams "init_fee_config" "08"
         #[("basis_points", .u64), ("maximum_fee", .u64)] .unit do
@@ -136,6 +156,27 @@ def spec : ProofForge.Contract.ContractSpec :=
         "token_2022_init_non_transferable"
         "mint"
       effect (storageScalarWrite "last_marker" (u64 4))
+
+    entrySelector "initialize_metadata_pointer" "0f" do
+      invokeSplToken2022InitializeMetadataPointer
+        "token_2022_init_metadata_pointer"
+        "metadata_pointer_mint"
+        "metadata_pointer_authority"
+        "metadata_address"
+      effect (storageScalarWrite "last_marker" (u64 5))
+
+    entrySelector "initialize_default_account_state" "10" do
+      invokeSplToken2022InitializeDefaultAccountState
+        "token_2022_init_default_account_state"
+        "default_state_mint"
+        2
+      effect (storageScalarWrite "last_marker" (u64 6))
+
+    entrySelector "initialize_immutable_owner" "11" do
+      invokeSplToken2022InitializeImmutableOwner
+        "token_2022_init_immutable_owner"
+        "immutable_owner_account"
+      effect (storageScalarWrite "last_marker" (u64 7))
 
 def module : ProofForge.IR.Module :=
   spec.module

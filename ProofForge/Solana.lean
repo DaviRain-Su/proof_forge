@@ -777,6 +777,47 @@ def splToken2022InitializeNonTransferableMintCall (name mint : String) :
   extraMetadata := token2022Metadata
 }
 
+def splToken2022InitializeMetadataPointerCall
+    (name mint metadataPointerAuthority metadataAddress : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_metadata_pointer"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_metadata_pointer"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.metadata_pointer_authority" metadataPointerAuthority,
+    kv "solana.cpi.metadata_address" metadataAddress
+  ]
+}
+
+def splToken2022InitializeDefaultAccountStateCall
+    (name mint : String) (accountState : Nat) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_default_account_state"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_default_account_state"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.default_account_state" (toString accountState)
+  ]
+}
+
+def splToken2022InitializeImmutableOwnerCall (name account : String) :
+    CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_immutable_owner"
+  accounts := #[
+    writableAccount account
+  ]
+  dataLayout? := some "token-2022.initialize_immutable_owner"
+  extraMetadata := token2022Metadata
+}
+
 def splTokenMintToCall (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -1523,6 +1564,32 @@ def splToken2022InitializeNonTransferableMint (name mint : String) :
 def invokeSplToken2022InitializeNonTransferableMint (name mint : String) :
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splToken2022InitializeNonTransferableMintCall name mint)
+
+def splToken2022InitializeMetadataPointer
+    (name mint metadataPointerAuthority metadataAddress : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeMetadataPointerCall name mint metadataPointerAuthority metadataAddress)
+
+def invokeSplToken2022InitializeMetadataPointer
+    (name mint metadataPointerAuthority metadataAddress : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeMetadataPointerCall name mint metadataPointerAuthority metadataAddress)
+
+def splToken2022InitializeDefaultAccountState
+    (name mint : String) (accountState : Nat) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeDefaultAccountStateCall name mint accountState)
+
+def invokeSplToken2022InitializeDefaultAccountState
+    (name mint : String) (accountState : Nat) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeDefaultAccountStateCall name mint accountState)
+
+def splToken2022InitializeImmutableOwner (name account : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeImmutableOwnerCall name account)
+
+def invokeSplToken2022InitializeImmutableOwner (name account : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeImmutableOwnerCall name account)
 
 def splTokenMintTo (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) :

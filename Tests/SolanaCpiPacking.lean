@@ -433,6 +433,18 @@ def main : IO UInt32 := do
         "Token-2022 manifest missing fee source"
       require (contains manifest "data_layout = \"token-2022.initialize_non_transferable_mint\"")
         "Token-2022 manifest missing non-transferable layout"
+      require (contains manifest "data_layout = \"token-2022.initialize_metadata_pointer\"")
+        "Token-2022 manifest missing metadata-pointer layout"
+      require (contains manifest "metadata_pointer_authority = \"metadata_pointer_authority\"")
+        "Token-2022 manifest missing metadata-pointer authority source"
+      require (contains manifest "metadata_address = \"metadata_address\"")
+        "Token-2022 manifest missing metadata address source"
+      require (contains manifest "data_layout = \"token-2022.initialize_default_account_state\"")
+        "Token-2022 manifest missing default-account-state layout"
+      require (contains manifest "default_account_state = \"2\"")
+        "Token-2022 manifest missing default-account-state metadata"
+      require (contains manifest "data_layout = \"token-2022.initialize_immutable_owner\"")
+        "Token-2022 manifest missing immutable-owner layout"
       require (contains manifest "num_token_accounts = \"1\"")
         "Token-2022 manifest missing withheld source count"
       require (contains idl "\"feeSource\": \"fee\"")
@@ -443,12 +455,24 @@ def main : IO UInt32 := do
         "Token-2022 IDL missing withdrawWithheldAuthority"
       require (contains idl "\"numTokenAccounts\": \"1\"")
         "Token-2022 IDL missing numTokenAccounts"
+      require (contains idl "\"metadataPointerAuthority\": \"metadata_pointer_authority\"")
+        "Token-2022 IDL missing metadataPointerAuthority"
+      require (contains idl "\"metadataAddress\": \"metadata_address\"")
+        "Token-2022 IDL missing metadataAddress"
+      require (contains idl "\"defaultAccountState\": \"2\"")
+        "Token-2022 IDL missing defaultAccountState"
       require (contains asm "sol_cpi_token_2022_init_fee_config:")
         "assembly missing Token-2022 init fee config helper label"
       require (contains asm "sol_cpi_token_2022_transfer_with_fee:")
         "assembly missing Token-2022 transfer-with-fee helper label"
       require (contains asm "sol_cpi_token_2022_init_non_transferable:")
         "assembly missing Token-2022 non-transferable helper label"
+      require (contains asm "sol_cpi_token_2022_init_metadata_pointer:")
+        "assembly missing Token-2022 metadata-pointer helper label"
+      require (contains asm "sol_cpi_token_2022_init_default_account_state:")
+        "assembly missing Token-2022 default-account-state helper label"
+      require (contains asm "sol_cpi_token_2022_init_immutable_owner:")
+        "assembly missing Token-2022 immutable-owner helper label"
       require (contains asm "solana.cpi.program_id spl_token_2022 TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
         "assembly missing Token-2022 program id packing marker"
       require (contains asm "solana.cpi.data token-2022.initialize_transfer_fee_config: u8 instruction=26, u8 transfer_fee_instruction=0")
@@ -475,12 +499,26 @@ def main : IO UInt32 := do
         "assembly missing set-transfer-fee data packing marker"
       require (contains asm "solana.cpi.data token-2022.initialize_non_transferable_mint: u8 instruction=32")
         "assembly missing initialize_non_transferable_mint data packing marker"
+      require (contains asm "solana.cpi.data token-2022.initialize_metadata_pointer: u8 instruction=39, u8 metadata_pointer_instruction=0, pubkey authority, pubkey metadata_address")
+        "assembly missing initialize_metadata_pointer data packing marker"
+      require (contains asm "solana.cpi.value metadata_pointer_authority from account metadata_pointer_authority")
+        "assembly missing metadata-pointer authority pubkey binding"
+      require (contains asm "solana.cpi.value metadata_address from account metadata_address")
+        "assembly missing metadata address pubkey binding"
+      require (contains asm "solana.cpi.data token-2022.initialize_default_account_state: u8 instruction=28, u8 default_account_state_instruction=0, u8 state=2")
+        "assembly missing initialize_default_account_state data packing marker"
+      require (contains asm "solana.cpi.data token-2022.initialize_immutable_owner: u8 instruction=22")
+        "assembly missing initialize_immutable_owner data packing marker"
       require (contains asm "mov64 r3, 78")
         "assembly missing initialize_transfer_fee_config data length"
       require (contains asm "mov64 r3, 19")
         "assembly missing transfer_checked_with_fee data length"
       require (contains asm "mov64 r3, 12")
         "assembly missing set_transfer_fee data length"
+      require (contains asm "mov64 r3, 66")
+        "assembly missing initialize_metadata_pointer data length"
+      require (contains asm "mov64 r3, 3")
+        "assembly missing initialize_default_account_state data length"
       require (contains asm "stb [r8+0], 26")
         "assembly missing Token-2022 extension top-level tag store"
       require (contains asm "stb [r8+1], 1")
@@ -495,10 +533,28 @@ def main : IO UInt32 := do
         "assembly missing set_transfer_fee bps store"
       require (contains asm "stb [r8+0], 32")
         "assembly missing non-transferable instruction tag store"
+      require (contains asm "stb [r8+0], 39")
+        "assembly missing metadata-pointer instruction tag store"
+      require (contains asm "stb [r8+1], 0")
+        "assembly missing metadata/default extension initialize sub-instruction store"
+      require (contains asm "stxdw [r8+34], r3")
+        "assembly missing metadata address pubkey data store"
+      require (contains asm "stb [r8+0], 28")
+        "assembly missing default-account-state instruction tag store"
+      require (contains asm "stb [r8+2], 2")
+        "assembly missing default-account-state frozen state store"
+      require (contains asm "stb [r8+0], 22")
+        "assembly missing immutable-owner instruction tag store"
       require (contains asm "call sol_cpi_token_2022_transfer_with_fee")
         "assembly missing transfer_with_fee entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_2022_init_non_transferable")
         "assembly missing non-transferable entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_metadata_pointer")
+        "assembly missing metadata-pointer entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_default_account_state")
+        "assembly missing default-account-state entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_immutable_owner")
+        "assembly missing immutable-owner entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 CPI packing render failed: {err.render}"
 

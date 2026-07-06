@@ -438,7 +438,10 @@ def renderCpi (cpi : CpiInvoke) : String :=
     renderCpiMetadataField cpi "solana.cpi.transfer_fee_basis_points" "transfer_fee_basis_points" ++
     renderCpiMetadataField cpi "solana.cpi.maximum_fee" "maximum_fee" ++
     renderCpiMetadataField cpi "solana.cpi.num_token_accounts" "num_token_accounts" ++
-    renderCpiMetadataField cpi "solana.cpi.memo_source" "memo_source"
+    renderCpiMetadataField cpi "solana.cpi.memo_source" "memo_source" ++
+    renderCpiMetadataField cpi "solana.cpi.metadata_pointer_authority" "metadata_pointer_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.metadata_address" "metadata_address" ++
+    renderCpiMetadataField cpi "solana.cpi.default_account_state" "default_account_state"
   "[[solana.cpi]]\n" ++
   "name = " ++ tomlString cpi.name ++ "\n" ++
   "program = " ++ tomlString cpi.program ++ "\n" ++

@@ -11,8 +11,13 @@ import {
   ExtensionType,
   TOKEN_2022_PROGRAM_ID,
   calculateEpochFee,
+  createInitializeAccountInstruction,
   createInitializeMintInstruction,
   getAccount,
+  getAccountLen,
+  getDefaultAccountState,
+  getImmutableOwner,
+  getMetadataPointerState,
   getMint,
   getMintLen,
   getOrCreateAssociatedTokenAccount,
@@ -21,6 +26,8 @@ import {
   mintTo,
 } from "@solana/spl-token";
 import fs from "node:fs";
+
+const ACCOUNT_STATE_FROZEN = 2;
 
 function readKeypair(path) {
   const bytes = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -126,6 +133,9 @@ function validateInstructionSchemas(artifact) {
     "harvest_to_mint",
     "set_transfer_fee",
     "initialize_non_transferable",
+    "initialize_metadata_pointer",
+    "initialize_default_account_state",
+    "initialize_immutable_owner",
   ];
   require(JSON.stringify(names) === JSON.stringify(expectedNames), `instruction names mismatch: ${JSON.stringify(names)}`);
 
@@ -140,6 +150,11 @@ function validateInstructionSchemas(artifact) {
     "withdraw_withheld_authority",
     "withheld_source",
     "transfer_fee_config_authority",
+    "metadata_pointer_mint",
+    "default_state_mint",
+    "immutable_owner_account",
+    "metadata_pointer_authority",
+    "metadata_address",
   ];
   for (const instruction of instructions) {
     const accountNames = (instruction.accounts ?? []).map((account) => account.name);
@@ -159,7 +174,15 @@ function validateInstructionSchemas(artifact) {
   require(JSON.stringify(initParams) === JSON.stringify(expectedTwoU64Params("basis_points", "maximum_fee")), `init_fee_config params mismatch: ${JSON.stringify(initParams)}`);
   require(JSON.stringify(transferParams) === JSON.stringify(expectedTwoU64Params("amount", "fee")), `transfer_with_fee params mismatch: ${JSON.stringify(transferParams)}`);
   require(JSON.stringify(setFeeParams) === JSON.stringify(expectedTwoU64Params("basis_points", "maximum_fee")), `set_transfer_fee params mismatch: ${JSON.stringify(setFeeParams)}`);
-  for (const instruction of [instructions[2], instructions[3], instructions[4], instructions[6]]) {
+  for (const instruction of [
+    instructions[2],
+    instructions[3],
+    instructions[4],
+    instructions[6],
+    instructions[7],
+    instructions[8],
+    instructions[9],
+  ]) {
     require((instruction.params ?? []).length === 0, `instruction ${instruction.name} should not declare params`);
   }
 
@@ -172,6 +195,9 @@ function validateInstructionSchemas(artifact) {
     token_2022_harvest_to_mint: "token-2022.harvest_withheld_tokens_to_mint",
     token_2022_set_transfer_fee: "token-2022.set_transfer_fee",
     token_2022_init_non_transferable: "token-2022.initialize_non_transferable_mint",
+    token_2022_init_metadata_pointer: "token-2022.initialize_metadata_pointer",
+    token_2022_init_default_account_state: "token-2022.initialize_default_account_state",
+    token_2022_init_immutable_owner: "token-2022.initialize_immutable_owner",
   };
   require(JSON.stringify(Object.keys(cpis)) === JSON.stringify(Object.keys(expectedCpis)), `CPI names mismatch: ${JSON.stringify(Object.keys(cpis))}`);
   for (const [name, layout] of Object.entries(expectedCpis)) {
@@ -183,6 +209,9 @@ function validateInstructionSchemas(artifact) {
   require(cpis.token_2022_transfer_with_fee.feeSource === "fee", "transfer_with_fee missing feeSource");
   require(cpis.token_2022_transfer_with_fee.decimals === "9", "transfer_with_fee decimals mismatch");
   require(cpis.token_2022_withdraw_from_accounts.numTokenAccounts === "1", "withdraw_from_accounts numTokenAccounts mismatch");
+  require(cpis.token_2022_init_metadata_pointer.metadataPointerAuthority === "metadata_pointer_authority", "metadata_pointer missing authority source");
+  require(cpis.token_2022_init_metadata_pointer.metadataAddress === "metadata_address", "metadata_pointer missing metadata address source");
+  require(cpis.token_2022_init_default_account_state.defaultAccountState === String(ACCOUNT_STATE_FROZEN), "default_account_state mismatch");
   return instructions;
 }
 
@@ -209,9 +238,9 @@ async function invokeGenerated(connection, payer, programId, instruction, pubkey
   return sendAndPollTransaction(connection, new Transaction().add(ix), [payer, ...extraSigners]);
 }
 
-async function createTransferFeeMintAccount(connection, payer) {
+async function createMintAccountWithExtensions(connection, payer, extensions) {
   const mint = Keypair.generate();
-  const mintLen = getMintLen([ExtensionType.TransferFeeConfig]);
+  const mintLen = getMintLen(extensions);
   const mintRent = await connection.getMinimumBalanceForRentExemption(mintLen);
   const ix = SystemProgram.createAccount({
     fromPubkey: payer.publicKey,
@@ -222,6 +251,21 @@ async function createTransferFeeMintAccount(connection, payer) {
   });
   const signature = await sendAndPollTransaction(connection, new Transaction().add(ix), [payer, mint]);
   return { mint, signature };
+}
+
+async function createTokenAccountWithExtensions(connection, payer, extensions) {
+  const account = Keypair.generate();
+  const accountLen = getAccountLen(extensions);
+  const accountRent = await connection.getMinimumBalanceForRentExemption(accountLen);
+  const ix = SystemProgram.createAccount({
+    fromPubkey: payer.publicKey,
+    newAccountPubkey: account.publicKey,
+    lamports: accountRent,
+    space: accountLen,
+    programId: TOKEN_2022_PROGRAM_ID,
+  });
+  const signature = await sendAndPollTransaction(connection, new Transaction().add(ix), [payer, account]);
+  return { account, signature };
 }
 
 async function main() {
@@ -260,10 +304,21 @@ async function main() {
     }
   }
 
-  const { mint, signature: createMintAccountSignature } = await createTransferFeeMintAccount(connection, payer);
+  const { mint, signature: createMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.TransferFeeConfig]);
+  const { mint: metadataPointerMint, signature: createMetadataPointerMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.MetadataPointer]);
+  const { mint: defaultStateMint, signature: createDefaultStateMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.DefaultAccountState]);
+  const { mint: immutableOwnerMint, signature: createImmutableOwnerMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, []);
+  const { account: immutableOwnerAccount, signature: createImmutableOwnerAccountSignature } =
+    await createTokenAccountWithExtensions(connection, payer, [ExtensionType.ImmutableOwner]);
   const tokenOwner = await createScratchAccount(connection, payer);
   const withdrawWithheldAuthority = await createScratchAccount(connection, payer);
   const transferFeeConfigAuthority = await createScratchAccount(connection, payer);
+  const metadataPointerAuthority = await createScratchAccount(connection, payer);
+  const metadataAddress = await createScratchAccount(connection, payer);
   const scratchSource = await createScratchAccount(connection, payer);
   const scratchDestination = await createScratchAccount(connection, payer);
   const scratchFeeReceiver = await createScratchAccount(connection, payer);
@@ -280,6 +335,11 @@ async function main() {
     withdraw_withheld_authority: withdrawWithheldAuthority.publicKey,
     withheld_source: scratchWithheldSource.publicKey,
     transfer_fee_config_authority: transferFeeConfigAuthority.publicKey,
+    metadata_pointer_mint: metadataPointerMint.publicKey,
+    default_state_mint: defaultStateMint.publicKey,
+    immutable_owner_account: immutableOwnerAccount.publicKey,
+    metadata_pointer_authority: metadataPointerAuthority.publicKey,
+    metadata_address: metadataAddress.publicKey,
   });
   const pubkeysFor = (overrides) => ({ ...basePubkeys(), ...overrides });
 
@@ -529,6 +589,107 @@ async function main() {
   assertAmount("state last_basis_points after set", readU64LEAt(stateAccount.data, 16), nextBasisPoints);
   assertAmount("state last_maximum_fee after set", readU64LEAt(stateAccount.data, 24), nextMaximumFee);
 
+  const initMetadataPointerSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_metadata_pointer,
+    pubkeysFor({}),
+    writeData(7),
+    generatedSigners,
+  );
+  const initializeMetadataPointerMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        metadataPointerMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const metadataPointerMintState = await getMint(connection, metadataPointerMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const metadataPointerState = getMetadataPointerState(metadataPointerMintState);
+  require(metadataPointerState !== null, "metadata pointer mint missing MetadataPointer extension");
+  require(metadataPointerState.authority?.equals(metadataPointerAuthority.publicKey), "metadata pointer authority mismatch");
+  require(metadataPointerState.metadataAddress?.equals(metadataAddress.publicKey), "metadata pointer address mismatch");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_metadata_pointer");
+  assertAmount("state marker after initialize_metadata_pointer", readU64LEAt(stateAccount.data, 32), 5n);
+
+  const initDefaultAccountStateSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_default_account_state,
+    pubkeysFor({}),
+    writeData(8),
+    generatedSigners,
+  );
+  const initializeDefaultStateMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        defaultStateMint.publicKey,
+        decimals,
+        payer.publicKey,
+        payer.publicKey,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const defaultStateMintState = await getMint(connection, defaultStateMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const defaultAccountState = getDefaultAccountState(defaultStateMintState);
+  require(defaultAccountState !== null, "default-state mint missing DefaultAccountState extension");
+  require(defaultAccountState.state === ACCOUNT_STATE_FROZEN, `default account state mismatch: ${defaultAccountState.state}`);
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_default_account_state");
+  assertAmount("state marker after initialize_default_account_state", readU64LEAt(stateAccount.data, 32), 6n);
+
+  const initializeImmutableOwnerMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        immutableOwnerMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const initImmutableOwnerSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_immutable_owner,
+    pubkeysFor({}),
+    writeData(9),
+    generatedSigners,
+  );
+  const initializeImmutableOwnerAccountSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeAccountInstruction(
+        immutableOwnerAccount.publicKey,
+        immutableOwnerMint.publicKey,
+        tokenOwner.publicKey,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const immutableOwnerState = await getAccount(connection, immutableOwnerAccount.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  require(getImmutableOwner(immutableOwnerState) !== null, "token account missing ImmutableOwner extension");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_immutable_owner");
+  assertAmount("state marker after initialize_immutable_owner", readU64LEAt(stateAccount.data, 32), 7n);
+
   console.log(JSON.stringify({
     programId: programId.toBase58(),
     state: state.publicKey.toBase58(),
@@ -537,6 +698,12 @@ async function main() {
     withdrawWithheldAuthority: withdrawWithheldAuthority.publicKey.toBase58(),
     transferFeeConfigAuthority: transferFeeConfigAuthority.publicKey.toBase58(),
     mint: mint.publicKey.toBase58(),
+    metadataPointerMint: metadataPointerMint.publicKey.toBase58(),
+    defaultStateMint: defaultStateMint.publicKey.toBase58(),
+    immutableOwnerMint: immutableOwnerMint.publicKey.toBase58(),
+    immutableOwnerAccount: immutableOwnerAccount.publicKey.toBase58(),
+    metadataPointerAuthority: metadataPointerAuthority.publicKey.toBase58(),
+    metadataAddress: metadataAddress.publicKey.toBase58(),
     ownerAta: ownerAta.address.toBase58(),
     recipientAta: recipientAta.address.toBase58(),
     harvestRecipientAta: harvestRecipientAta.address.toBase58(),
@@ -563,6 +730,17 @@ async function main() {
       harvestToMint: harvestToMintSignature,
       withdrawFromMint: withdrawFromMintSignature,
       setFee: setFeeSignature,
+      createMetadataPointerMintAccount: createMetadataPointerMintAccountSignature,
+      initMetadataPointer: initMetadataPointerSignature,
+      initializeMetadataPointerMint: initializeMetadataPointerMintSignature,
+      createDefaultStateMintAccount: createDefaultStateMintAccountSignature,
+      initDefaultAccountState: initDefaultAccountStateSignature,
+      initializeDefaultStateMint: initializeDefaultStateMintSignature,
+      createImmutableOwnerMintAccount: createImmutableOwnerMintAccountSignature,
+      initializeImmutableOwnerMint: initializeImmutableOwnerMintSignature,
+      createImmutableOwnerAccount: createImmutableOwnerAccountSignature,
+      initImmutableOwner: initImmutableOwnerSignature,
+      initializeImmutableOwnerAccount: initializeImmutableOwnerAccountSignature,
     },
   }));
 }

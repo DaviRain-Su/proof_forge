@@ -247,6 +247,36 @@ def invokeSplToken2022InitializeNonTransferableMint (call : CpiRef) (mint : Acco
     ProofForge.Contract.Surface.EntryM Unit :=
   ProofForge.Solana.invokeSplToken2022InitializeNonTransferableMint call.name mint.name
 
+def splToken2022InitializeMetadataPointer
+    (call : CpiRef) (mint metadataPointerAuthority metadataAddress : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeMetadataPointer call.name mint.name
+    metadataPointerAuthority.name metadataAddress.name
+
+def invokeSplToken2022InitializeMetadataPointer
+    (call : CpiRef) (mint metadataPointerAuthority metadataAddress : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeMetadataPointer call.name mint.name
+    metadataPointerAuthority.name metadataAddress.name
+
+def splToken2022InitializeDefaultAccountState
+    (call : CpiRef) (mint : AccountRef) (accountState : Nat) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeDefaultAccountState call.name mint.name accountState
+
+def invokeSplToken2022InitializeDefaultAccountState
+    (call : CpiRef) (mint : AccountRef) (accountState : Nat) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeDefaultAccountState call.name mint.name accountState
+
+def splToken2022InitializeImmutableOwner (call : CpiRef) (account : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeImmutableOwner call.name account.name
+
+def invokeSplToken2022InitializeImmutableOwner (call : CpiRef) (account : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeImmutableOwner call.name account.name
+
 def splTokenMintTo (call : CpiRef) (mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)
