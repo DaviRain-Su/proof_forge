@@ -17,6 +17,7 @@ import ProofForge.IR.Contract
 import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
+import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Target.Check
 import ProofForge.Target.Plan
 import ProofForge.Target.Registry
@@ -25,6 +26,7 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Plan
 
 def nativeValueUnsupportedMessage : String :=
   "EmitWat: NEAR native value (attached deposit) requires an exact U128 projection; IR v0 cannot lower nativeValue yet"
@@ -660,8 +662,36 @@ def ctxRandomSeedFunc : Func :=
       .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
       .localGet "p" ] } }
 
-def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc, ctxSignerFunc, ctxRandomSeedFunc ]
-def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, registerLenImport, blockHeightImport ]
+def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
+  nearImports.filter fun import_ =>
+    match import_.name with
+    | "signer_account_id" => plan.contextOps.contains .origin
+    | "block_timestamp" => plan.contextOps.contains .timestamp
+    | "epoch_height" => plan.contextOps.contains .epochHeight
+    | "random_seed" => plan.contextOps.contains .randomSeed
+    | _ => true
+
+def ctxHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
+    (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
+    (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
+    (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
+
+def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
+  (if plan.contextOps.contains .userId then #[predecessorImport] else #[]) ++
+    (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
+    (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
+    (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[])
+
+def lowerContextExprPlan :
+    ContextExprPlan → Except EmitError (Array Insn × ValueType)
+  | .userId => .ok (#[.call ctxUserIdName], .u64)
+  | .contractId => .ok (#[.call ctxContractIdName], .u64)
+  | .checkpointId => .ok (#[.call "block_index"], .u64)
+  | .timestamp => .ok (#[.call "block_timestamp"], .u64)
+  | .epochHeight => .ok (#[.call "epoch_height"], .u64)
+  | .randomSeed => .ok (#[.call ctxRandomSeedName], .hash)
+  | .origin => .ok (#[.call ctxSignerName], .u64)
 
 -- Event helpers --------------------------------------------------------
 -- Build a JSON event string in EVENT_BUF via an append pointer, then log_utf8.
@@ -974,13 +1004,10 @@ mutual
       | none => err s!"EmitWat: unknown scalar state `{id}`"
     | .effect (.storageMapGet id key) => lowerMapGet ctx env id key
     | .effect (.storageMapContains id key) => lowerMapContains ctx env id key
-    | .effect (.contextRead .userId) => .ok (#[.call ctxUserIdName], .u64)
-    | .effect (.contextRead .contractId) => .ok (#[.call ctxContractIdName], .u64)
-    | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
-    | .effect (.contextRead .timestamp) => .ok (#[.call "block_timestamp"], .u64)
-    | .effect (.contextRead .epochHeight) => .ok (#[.call "epoch_height"], .u64)
-    | .effect (.contextRead .randomSeed) => .ok (#[.call ctxRandomSeedName], .hash)
-    | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
+    | .effect (.contextRead field) =>
+      match buildContextExprPlan field with
+      | .ok plan => lowerContextExprPlan plan
+      | .error planErr => err s!"EmitWat: {planErr.message}"
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value
     | .effect (.storageArrayRead id index) => lowerStorageArrayRead ctx env id index
@@ -1914,11 +1941,15 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
     else #[]
   .ok { name := ep.name, locals := locals, body := { insns := resetPrefix ++ paramPrologue ++ bodyInsns }, exportName := ep.name }
 
-def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := .near) : Except EmitError ProofForge.Compiler.Wasm.Module := do
-  if bridge == .cosmWasm then
+def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := ProofForge.Target.HostBridge.near) : Except EmitError ProofForge.Compiler.Wasm.Module := do
+  if bridge == ProofForge.Target.HostBridge.cosmWasm then
     err "EmitWat: CosmWasm bridge lowering is implemented in Backend.CosmWasm.EmitWat; use that module for wasm-cosmwasm"
   if mod.allocator.isCosmWasmRegion then
     err "EmitWat: alloc.cosmwasm_region is for the CosmWasm adapter, not wasm-near EmitWat"
+  let modulePlan ←
+    match buildModulePlan mod with
+    | .ok plan => pure plan
+    | .error planErr => err s!"EmitWat: {planErr.message}"
   let scalars := stateLayout mod
   let maps := mapLayout mod
   let strs := stringPool mod
@@ -1934,13 +1965,14 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
-  let baseImports := (nearImports.push sha256Import |>.push logUtf8Import |>.push inputImport) ++ (if hasPanic then #[panicImport] else #[])
+  let baseImportsCore := (nearImportsForModulePlan modulePlan).push sha256Import |>.push logUtf8Import |>.push inputImport
+  let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
   let extraImports := if isHost then #[allocImport, deallocImport] else #[]
-  let imports := baseImports ++ ctxImports ++ (if maps.isEmpty then #[] else #[storageHasKeyImport]) ++ extraImports
+  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ (if maps.isEmpty then #[] else #[storageHasKeyImport]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := helperFuncs ++ hashHelperFuncs ++ ctxHelperFuncs ++ evtHelperFuncs ++ (if maps.isEmpty then #[] else mapHelperFuncs) ++ (if maps.any (fun m => m.keyType == .hash) then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
+  let funcs := helperFuncs ++ hashHelperFuncs ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if maps.isEmpty then #[] else mapHelperFuncs) ++ (if maps.any (fun m => m.keyType == .hash) then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then

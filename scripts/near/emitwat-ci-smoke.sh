@@ -13,6 +13,7 @@ lake env lean --run Tests/EmitWatFeatures.lean
 lake env lean --run Tests/EmitWatArith.lean
 lake env lean --run Tests/EmitWatHash.lean
 lake env lean --run Tests/EmitWatContext.lean
+lake env lean --run Tests/WasmNearPlan.lean
 lake env lean --run Tests/EmitWatMap.lean
 lake env lean --run Tests/EmitWatHashmap.lean
 lake env lean --run Tests/EmitWatPath.lean
