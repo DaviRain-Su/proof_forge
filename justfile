@@ -180,6 +180,10 @@ near-target-first:
 wasm-near-ft-transfer-call:
     lake env lean --run Tests/WasmNearFtTransferCall.lean
 
+# Run NEAR NEP-141 ft_transfer_call through the offline host promise callback path.
+wasm-near-ft-transfer-call-e2e:
+    scripts/near/ft-transfer-call-smoke.sh
+
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh

@@ -108,6 +108,13 @@ def valTypeOfString : String → ValType
 def hostFunctionImport (hf : ProofForge.Target.HostFunction) : Import :=
   hostImport hf.name (hf.params.map valTypeOfString) (hf.results.map valTypeOfString)
 
+def dedupeImports (imports : Array Import) : Array Import :=
+  imports.foldl (fun acc import_ =>
+    if acc.any (fun existing => existing.module_ == import_.module_ && existing.name == import_.name) then
+      acc
+    else
+      acc.push import_) #[]
+
 def bridgeBaseImports (bridge : ProofForge.Target.HostBridge) : Array Import :=
   bridge.hostFunctions.map hostFunctionImport
 
@@ -1114,37 +1121,33 @@ def assignOpName : AssignOp → String
   | .bitAnd => "and" | .bitOr => "or" | .bitXor => "xor"
   | .shiftLeft => "shl" | .shiftRight => "shr_u"
 
-partial def poolLookupBody (strings : Array StringInfo) (field : StringInfo → Nat) (i fallback : Nat) : Array Insn :=
-  if i == 0 then
-    match strings[0]? with
-    | none => #[.i64Const fallback]
-    | some si =>
-      #[.localGet "idx", .i64Const 0, .plain "i64.eq",
-        .if_ { insns := #[.i32Const (field si), .plain "i64.extend_i32_u"] }
-             { insns := #[.i64Const fallback] }]
-  else
+def poolLookupSetBody (strings : Array StringInfo) (field : StringInfo → Nat) : Array Insn :=
+  (Array.range strings.size).foldl (fun acc i =>
     match strings[i]? with
-    | none => poolLookupBody strings field (i - 1) fallback
+    | none => acc
     | some si =>
-      #[.localGet "idx", .i64Const i, .plain "i64.eq",
-        .if_ { insns := #[.i32Const (field si), .plain "i64.extend_i32_u"] }
-             { insns := poolLookupBody strings field (i - 1) fallback }]
+      acc ++ #[.localGet "idx", .i64Const i, .plain "i64.eq",
+        .if_ { insns := #[.i64Const (field si), .localSet "result"] } { insns := #[] }]) #[]
 
 def crosscallPoolPtrFunc (strings : Array StringInfo) : Func :=
   { name := crosscallPoolPtrName,
     params := #[{ name := "idx", type := .i64 }],
     results := #[.i64],
+    locals := #[{ name := "result", type := .i64 }],
     body := { insns :=
-      if strings.isEmpty then #[.i64Const 0]
-      else poolLookupBody strings (fun si => si.ptr) (strings.size - 1) 0 } }
+      #[.i64Const 0, .localSet "result"] ++
+        poolLookupSetBody strings (fun si => si.ptr) ++
+        #[.localGet "result"] } }
 
 def crosscallPoolLenFunc (strings : Array StringInfo) : Func :=
   { name := crosscallPoolLenName,
     params := #[{ name := "idx", type := .i64 }],
     results := #[.i64],
+    locals := #[{ name := "result", type := .i64 }],
     body := { insns :=
-      if strings.isEmpty then #[.i64Const 0]
-      else poolLookupBody strings (fun si => si.len) (strings.size - 1) 0 } }
+      #[.i64Const 0, .localSet "result"] ++
+        poolLookupSetBody strings (fun si => si.len) ++
+        #[.localGet "result"] } }
 
 def crosscallPoolHelperFuncs (strings : Array StringInfo) : Array Func :=
   if strings.isEmpty then #[] else #[crosscallPoolPtrFunc strings, crosscallPoolLenFunc strings]
@@ -1239,6 +1242,8 @@ mutual
     let (accountInsns, accountType) ← lowerExpr ctx env accountIndex
     if !(accountType == .u32 || accountType == .u64) then
       err s!"EmitWat: NEAR crosscall pool account index expected U32/U64, got `{accountType.name}`"
+    if !canDuplicateExpr accountIndex then
+      err "EmitWat: NEAR crosscall pool account index must be duplicable"
     let accountConv := if accountType == .u64 then accountInsns else accountInsns ++ #[.plain "i64.extend_i32_u"]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
@@ -1252,9 +1257,9 @@ mutual
         #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
     let argsPtrInsns := #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
     .ok (argBuildInsns ++ accountConv ++ #[
-      .call crosscallPoolPtrName,
       .call crosscallPoolLenName
-    ] ++ #[
+    ] ++ accountConv ++ #[
+      .call crosscallPoolPtrName,
       .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
     ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
@@ -2435,11 +2440,12 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
   let extraImports := hostAllocatorImportsForModulePlan modulePlan mod.allocator
-  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
-    promiseResultImportsForModulePlan modulePlan ++
-    (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
-      then #[storageHasKeyImport]
-      else #[]) ++ extraImports
+  let imports := dedupeImports <|
+    baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
+      promiseResultImportsForModulePlan modulePlan ++
+      (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
+        then #[storageHasKeyImport]
+        else #[]) ++ extraImports
   let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
