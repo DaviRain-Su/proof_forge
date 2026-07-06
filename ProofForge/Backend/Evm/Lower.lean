@@ -4430,11 +4430,12 @@ def buildNestedLocalArrayGetShapes (module : Module) : Except LowerError (Array 
 
 /-! ## Module plan assembly -/
 
-def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
-  let basePlan ←
-    match buildModulePlan module with
-    | .ok plan => .ok plan
-    | .error err => .error (planError err)
+/-- Assemble the final `ModulePlan` from a precomputed `basePlan` (produced by
+either `buildModulePlan` or `buildModulePlanWithTargetPlan`) plus the
+entrypoint/event/helper analysis that is independent of how the base plan was
+built. Both `buildFullModulePlan` and `buildFullModulePlanWithTargetPlan` route
+through this to avoid duplicating the ~45-line assembly body. -/
+def assembleFullPlan (basePlan : ModulePlan) (module : Module) : Except LowerError ModulePlan := do
   let entrypointPlans ← buildEntrypointPlans module
   let dispatchEntrypointPlans := entrypointPlans.filterMap fun plan =>
     match module.entrypoints.find? (fun ep => ep.name == plan.name) with
@@ -4482,6 +4483,13 @@ def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
     metadata := metadata
   }
 
+def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
+  let basePlan ←
+    match buildModulePlan module with
+    | .ok plan => .ok plan
+    | .error err => .error (planError err)
+  assembleFullPlan basePlan module
+
 def buildFullModulePlanWithTargetPlan
     (module : Module)
     (targetPlan : CapabilityPlan) :
@@ -4490,51 +4498,6 @@ def buildFullModulePlanWithTargetPlan
     match buildModulePlanWithTargetPlan module targetPlan with
     | .ok plan => .ok plan
     | .error err => .error (planError err)
-  let entrypointPlans ← buildEntrypointPlans module
-  let dispatchEntrypointPlans := entrypointPlans.filterMap fun plan =>
-    match module.entrypoints.find? (fun ep => ep.name == plan.name) with
-    | some ep => if ep.kind == .fallback || ep.kind == .receive then none else some plan
-    | none => some plan
-  let dispatchPlan := moduleDispatchPlan module dispatchEntrypointPlans
-  let eventPlans ← buildEventPlans module
-  let crosscallPlans ← buildCrosscallHelperPlansFromEntrypoints module entrypointPlans
-  let createPlans := buildCreateHelperPlansFromEntrypoints entrypointPlans
-  let localArrayRequirements := buildLocalArrayHelperRequirementsFromEntrypoints entrypointPlans
-  let localArrayGetLengths := localArrayRequirements.fst
-  let nestedLocalArrayGetShapes := localArrayRequirements.snd
-  let usesCheckedArithmetic := entrypointsUseCheckedArithmetic entrypointPlans
-  let contextOps := buildContextOpsFromEntrypoints entrypointPlans
-  let memoryArrayHelpers := buildMemoryArrayHelpersFromEntrypoints entrypointPlans
-  let hashHelpers := buildHashHelpersFromEntrypoints entrypointPlans
-  let storageArrayHelpers := buildStorageArrayHelpersFromEntrypoints entrypointPlans
-  let mapHelpers := buildMapHelpersFromEntrypoints entrypointPlans
-  let helpers := replaceHashHelpers
-    (replaceMemoryArrayHelpers
-      (replaceStorageArrayHelpers
-        (replaceMapHelpers basePlan.helpers mapHelpers)
-        storageArrayHelpers)
-      memoryArrayHelpers)
-    hashHelpers
-  let mapAssignOps := helperMapAssignOps helpers
-  let metadata := {
-    moduleName := module.name
-    entrypoints := entrypointPlans
-    events := eventPlans
-    capabilities := basePlan.targetPlan.capabilities
-  }
-  .ok { basePlan with
-    entrypoints := entrypointPlans
-    dispatch := dispatchPlan
-    events := eventPlans
-    crosscalls := crosscallPlans
-    creates := createPlans
-    localArrayGetLengths := localArrayGetLengths
-    nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
-    usesCheckedArithmetic := usesCheckedArithmetic
-    contextOps := contextOps
-    helpers := helpers
-    mapAssignOps := mapAssignOps
-    metadata := metadata
-  }
+  assembleFullPlan basePlan module
 
 end ProofForge.Backend.Evm.Lower

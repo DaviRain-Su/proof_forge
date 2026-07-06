@@ -48,7 +48,12 @@ structure TargetProfile where
   requiredTools : Array String := #[]
   /-- Host bridge for Wasm-family targets. Ignored for non-Wasm families. -/
   hostBridge? : Option HostBridge := none
-  deriving Repr
+  /-- True for profiles kept only as historical reference (D-026). Deprecated
+  profiles are excluded from `all`, `find?`, `knownIds`, and `--list-targets`,
+  but the underlying constants (`solanaSbpfLinker`, `solanaZigFork`) remain
+  importable for tests that exercise legacy routing. -/
+  deprecated : Bool := false
+  deriving Repr, BEq
 
 structure EvmChainProfile where
   id : String
@@ -164,6 +169,7 @@ def wasmCloudflareWorkers : TargetProfile := {
 
 def solanaSbpfLinker : TargetProfile := {
   -- Superseded by solanaSbpfAsm (D-026). Kept as historical reference.
+  -- Excluded from `all`/`find?`/`knownIds` via deprecated := true.
   id := "solana-sbpf-linker"
   family := .solana
   artifactKind := .solanaElf
@@ -185,6 +191,7 @@ def solanaSbpfLinker : TargetProfile := {
     .crosscallCpi
   ]
   requiredTools := #["zig", "sbpf-linker"]
+  deprecated := true
 }
 
 def solanaSbpfAsm : TargetProfile := {
@@ -221,11 +228,14 @@ def solanaSbpfAsm : TargetProfile := {
 }
 
 def solanaZigFork : TargetProfile := {
+  -- Fallback/reference track (D-005), not the primary product path.
+  -- Excluded from `all`/`find?`/`knownIds` via deprecated := true.
   id := "solana-zig-fork"
   family := .solana
   artifactKind := .solanaElf
   capabilities := solanaSbpfLinker.capabilities
   requiredTools := #["solana-zig"]
+  deprecated := true
 }
 
 def moveAptos : TargetProfile := {
@@ -284,7 +294,10 @@ def psyDpn : TargetProfile := {
   requiredTools := #["dargo"]
 }
 
-def all : Array TargetProfile := #[
+/-- All defined profiles, including deprecated ones. Tests that exercise
+legacy routing (e.g. `Tests/ValueVaultExample`) import the individual
+constants and may use this. -/
+def allIncludingDeprecated : Array TargetProfile := #[
   evm,
   wasmNear,
   wasmCosmWasm,
@@ -296,6 +309,12 @@ def all : Array TargetProfile := #[
   moveSui,
   psyDpn
 ]
+
+/-- Active (non-deprecated) profiles. This is the public target surface:
+`--list-targets`, `find?`, and `knownIds` only expose these. Deprecated
+profiles (D-026) stay importable as constants but are hidden from routing. -/
+def all : Array TargetProfile :=
+  allIncludingDeprecated.filter (fun profile => !profile.deprecated)
 
 def find? (id : String) : Option TargetProfile :=
   all.find? (fun profile => profile.id == id)

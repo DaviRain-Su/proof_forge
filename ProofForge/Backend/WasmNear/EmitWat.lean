@@ -41,24 +41,95 @@ structure EmitError where
 
 def err (msg : String) : Except EmitError α := .error { message := msg }
 
+/-! ## NEAR Wasm linear-memory scratch layout
+
+These constants carve fixed, non-overlapping regions out of the Wasm linear
+memory for EmitWat codegen. The layout is a frozen contract between the
+emitter and the runtime host imports (`read_register`/`storage_read`/...).
+
+Region map (base → base+size, all bytes are exclusive scratch space):
+
+| Region          | Base   | Size   | End    | Purpose |
+|-----------------|--------|--------|--------|---------|
+| `KEY_BUF`       | 4096   | 4096   | 8192   | input register read buffer |
+| `RET_BUF`       | 8192   | 3808   | 12000  | `value_return` payload (U64/U32/Bool) |
+| `TRUE_PTR`      | 12000  | 6      | 12006  | canonical `true` byte (1) |
+| `FALSE_PTR`     | 12006  | 494    | 12500  | canonical `false` byte (0) + pad |
+| `MAPKEY_BUF`    | 12500  | ~17500 | 30000  | scratch for map storage keys (prefix ++ key) |
+| `HASH_CONCAT_BUF`| 40000 | 64     | 40064  | `hash_two_to_one` 64-byte input |
+| `CTX_BUF`       | 41000  | 128    | 41128  | account-id → sha256 → u64 |
+| `EVENT_BUF`     | 42000  | 256    | 42256  | event JSON scratch |
+| `EVT_KEY_PTR`   | 42800  | 5      | 42805  | fixed "event" key string |
+| `STRING_BASE`   | 43000  | ~1000  | 44000  | event/field name string pool |
+| `INPUT_BUF`     | 44000  | ~2000  | 46000  | Borsh input args (1 KB headroom) |
+| `PARAM_HASH_BUF`| 46000  | ~4000  | 50000  | 32-byte slots for decoded hash params |
+| `ZERO_HASH_BUF` | 50000  | 32     | 50032  | 32 zero bytes for missing hash map entries |
+| `OLD_HASH_BUF`  | 50500  | 32     | 50532  | previous value for hash map set/insert |
+| `STRUCT_BUF`    | 52000  | ...    | ...    | struct-valued scalar state read/write |
+| `HASH_HEAP`     | 30000  | ~10000 | 40000  | bump-alloc base for 32-byte hash temporaries |
+| `ARR_HEAP`      | 60000  | ...    | ...    | bump-alloc base for array-value temporaries |
+
+The bump heaps (`HASH_HEAP`, `ARR_HEAP`) grow upward and are reset per
+entrypoint by the prologue. Their high-water marks must stay below the next
+fixed region: `HASH_HEAP` must stay below `HASH_CONCAT_BUF` (40000), and
+`ARR_HEAP` must stay below the Wasm memory limit configured by the host.
+The fixed scratch regions above 40000 are never touched by the bump heaps.
+
+Note: this is a codegen-only layout, separate from the `AllocatorConfig`
+bound to the `wasm-near` target profile (`nearWeeModel`, used for IR-level
+storage slot assignment). The two do not overlap because `AllocatorConfig`
+addresses storage keys, not linear memory. -/
+
 -- Memory layout
 def KEY_BUF   : Nat := 4096
 def RET_BUF   : Nat := 8192
 def TRUE_PTR  : Nat := 12000
 def FALSE_PTR : Nat := 12006
-def MAPKEY_BUF : Nat := 12500    -- scratch for building map storage keys (prefix ++ key bytes)
-def HASH_HEAP : Nat := 30000       -- bump-allocator base for hash (32-byte) temporaries
-def ARR_HEAP : Nat := 60000       -- bump-allocator base for array-value temporaries
-def HASH_CONCAT_BUF : Nat := 40000 -- 64-byte scratch for hash_two_to_one
-def CTX_BUF : Nat := 41000          -- 128-byte scratch for account-id → sha256 → u64
-def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
-def EVT_KEY_PTR : Nat := 42800     -- fixed "event" key string (5 bytes)
-def STRING_BASE : Nat := 43000     -- event/field name string pool base
-def INPUT_BUF : Nat := 44000       -- 1 KB scratch for Borsh input args
-def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one per hash param)
-def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-valued map entries
-def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
-def STRUCT_BUF      : Nat := 52000  -- buffer for reading/writing struct-valued scalar state
+def MAPKEY_BUF : Nat := 12500
+def HASH_HEAP : Nat := 30000
+def ARR_HEAP : Nat := 60000
+def HASH_CONCAT_BUF : Nat := 40000
+def CTX_BUF : Nat := 41000
+def EVENT_BUF : Nat := 42000
+def EVT_KEY_PTR : Nat := 42800
+def STRING_BASE : Nat := 43000
+def INPUT_BUF : Nat := 44000
+def PARAM_HASH_BUF : Nat := 46000
+def ZERO_HASH_BUF : Nat := 50000
+def OLD_HASH_BUF   : Nat := 50500
+def STRUCT_BUF      : Nat := 52000
+
+/-- Assert two half-open intervals `[a0, a0+aSz)` and `[b0, b0+bSz)` do not
+overlap. Used by `memoryLayoutNonoverlap` below to make the frozen layout
+machine-checked at build time. -/
+def disjointRegions (a0 aSz b0 bSz : Nat) : Bool :=
+  a0 + aSz ≤ b0 ∨ b0 + bSz ≤ a0
+
+/-- Build-time check that the fixed scratch regions are pairwise disjoint.
+Evaluated by `memoryLayoutNonoverlap_valid` below; a failure means someone
+added or moved a constant without leaving a gap, which would silently
+corrupt runtime scratch state. -/
+def memoryLayoutNonoverlap : Bool :=
+  let regions := #[
+    (KEY_BUF, 4096), (RET_BUF, 3808), (TRUE_PTR, 6), (FALSE_PTR, 494),
+    (MAPKEY_BUF, 17500), (HASH_CONCAT_BUF, 64), (CTX_BUF, 128),
+    (EVENT_BUF, 256), (EVT_KEY_PTR, 5), (STRING_BASE, 1000),
+    (INPUT_BUF, 2000), (PARAM_HASH_BUF, 4000), (ZERO_HASH_BUF, 32),
+    (OLD_HASH_BUF, 32), (STRUCT_BUF, 4000)
+  ]
+  regions.all (fun (a0, aSz) =>
+    regions.all (fun (b0, bSz) =>
+      a0 == b0 ∨ disjointRegions a0 aSz b0 bSz))
+
+/-- Decidable proof that the fixed EmitWat scratch regions are pairwise
+disjoint. If this theorem fails to elaborate, the memory layout constants
+above have been edited into an overlapping state and codegen would silently
+corrupt runtime scratch buffers. `native_decide` is used because the
+check folds `Array.all` over a literal array, which the kernel's `decide`
+reduction does not fully evaluate, while native evaluation handles it
+trivially. -/
+theorem memoryLayoutNonoverlap_valid : memoryLayoutNonoverlap = true := by
+  native_decide
 
 -- Value type → Wasm
 def wasmTypeOf : ValueType → ValType

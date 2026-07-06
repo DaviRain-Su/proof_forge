@@ -85,6 +85,21 @@ def main : IO UInt32 := do
   require (knownEvmChainProfileIds.contains "anvil-local")
     "Anvil local profile id missing from known ids"
 
+  -- D-026: superseded Solana profiles stay importable as constants but must
+  -- not appear on the active target surface.
+  require (find? "solana-sbpf-linker" |>.isNone)
+    "solana-sbpf-linker is deprecated (D-026) and must be hidden from find?"
+  require (find? "solana-zig-fork" |>.isNone)
+    "solana-zig-fork is deprecated (D-005) and must be hidden from find?"
+  require (!knownIds.contains "solana-sbpf-linker")
+    "solana-sbpf-linker must not appear in knownIds"
+  require (!knownIds.contains "solana-zig-fork")
+    "solana-zig-fork must not appear in knownIds"
+  require (allIncludingDeprecated.contains solanaSbpfLinker)
+    "solanaSbpfLinker constant must remain in allIncludingDeprecated"
+  require (allIncludingDeprecated.contains solanaZigFork)
+    "solanaZigFork constant must remain in allIncludingDeprecated"
+
   IO.println "target-registry: ok"
   return 0
 
