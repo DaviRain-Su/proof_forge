@@ -65,6 +65,89 @@ def mergeContextExprPlans (acc next : Array ContextExprPlan) : Array ContextExpr
       if merged.contains item then merged else merged.push item)
     acc
 
+def pushValueTypeIfMissing (acc : Array ValueType) (type : ValueType) : Array ValueType :=
+  if acc.contains type then acc else acc.push type
+
+def mergeValueTypeSets (acc next : Array ValueType) : Array ValueType :=
+  next.foldl pushValueTypeIfMissing acc
+
+def stateTypeOf (module : Module) (stateId : String) : Except PlanError ValueType :=
+  match module.state.find? (fun state => state.id == stateId) with
+  | some state => .ok state.type
+  | none => err s!"wasm-near plan references unknown state `{stateId}`"
+
+def scalarHelperType (type : ValueType) : Option ValueType :=
+  match type with
+  | .u32 | .u64 | .bool | .hash => some type
+  | _ => none
+
+def moduleUsesIndexedStorage (module : Module) : Bool :=
+  module.state.any fun state =>
+    match state.kind with
+    | .map _ _ | .array _ => true
+    | .scalar | .dynamicArray => false
+
+structure ModuleSurface where
+  contextOps : Array ContextExprPlan := #[]
+  scalarReadTypes : Array ValueType := #[]
+  scalarWriteTypes : Array ValueType := #[]
+  returnTypes : Array ValueType := #[]
+  usesNativeValue : Bool := false
+  usesStorageRead : Bool := false
+  usesStorageWrite : Bool := false
+  usesPromiseApi : Bool := false
+  deriving Repr
+
+def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
+  contextOps := mergeContextExprPlans lhs.contextOps rhs.contextOps
+  scalarReadTypes := mergeValueTypeSets lhs.scalarReadTypes rhs.scalarReadTypes
+  scalarWriteTypes := mergeValueTypeSets lhs.scalarWriteTypes rhs.scalarWriteTypes
+  returnTypes := mergeValueTypeSets lhs.returnTypes rhs.returnTypes
+  usesNativeValue := lhs.usesNativeValue || rhs.usesNativeValue
+  usesStorageRead := lhs.usesStorageRead || rhs.usesStorageRead
+  usesStorageWrite := lhs.usesStorageWrite || rhs.usesStorageWrite
+  usesPromiseApi := lhs.usesPromiseApi || rhs.usesPromiseApi
+}
+
+namespace ModuleSurface
+
+def empty : ModuleSurface := {}
+
+def withContext (plan : ContextExprPlan) : ModuleSurface := {
+  contextOps := #[plan]
+}
+
+def withScalarReadType (type : ValueType) : ModuleSurface := {
+  scalarReadTypes := #[type]
+}
+
+def withScalarWriteType (type : ValueType) : ModuleSurface := {
+  scalarWriteTypes := #[type]
+}
+
+def withReturnType (type : ValueType) : ModuleSurface :=
+  match type with
+  | .u32 | .u64 | .bool | .hash => { returnTypes := #[type] }
+  | _ => empty
+
+def withNativeValue : ModuleSurface := {
+  usesNativeValue := true
+}
+
+def withStorageRead : ModuleSurface := {
+  usesStorageRead := true
+}
+
+def withStorageWrite : ModuleSurface := {
+  usesStorageWrite := true
+}
+
+def withPromiseApi : ModuleSurface := {
+  usesPromiseApi := true
+}
+
+end ModuleSurface
+
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Except PlanError (Array ContextExprPlan) :=
     match expr with
@@ -204,11 +287,220 @@ def contextOpsFromModule (module : Module) : Except PlanError (Array ContextExpr
   module.entrypoints.foldlM (init := #[]) fun acc entrypoint =>
     return mergeContextExprPlans acc (← contextOpsFromStatements entrypoint.body)
 
+mutual
+  partial def surfaceFromExpr (module : Module) (expr : Expr) : Except PlanError ModuleSurface :=
+    match expr with
+    | .literal _ | .local _ =>
+        .ok ModuleSurface.empty
+    | .nativeValue =>
+        .ok ModuleSurface.withNativeValue
+    | .arrayLit _ values =>
+        values.foldlM (init := ModuleSurface.empty) fun acc value =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module value)
+    | .arrayGet array index =>
+        return mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index)
+    | .memoryArrayNew _ length =>
+        surfaceFromExpr module length
+    | .memoryArrayLength array =>
+        surfaceFromExpr module array
+    | .memoryArrayGet array index =>
+        return mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index)
+    | .structLit _ fields =>
+        fields.foldlM (init := ModuleSurface.empty) fun acc field =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+    | .field base _ =>
+        surfaceFromExpr module base
+    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
+    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
+        return mergeModuleSurfaces (← surfaceFromExpr module lhs) (← surfaceFromExpr module rhs)
+    | .cast value _ | .boolNot value | .hash value =>
+        surfaceFromExpr module value
+    | .hashValue a b c d =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module a) (← surfaceFromExpr module b))
+          (mergeModuleSurfaces (← surfaceFromExpr module c) (← surfaceFromExpr module d))
+    | .crosscallInvoke target methodId args
+    | .crosscallInvokeTyped target methodId args _
+    | .crosscallInvokeStaticTyped target methodId args _
+    | .crosscallInvokeDelegateTyped target methodId args _ => do
+        let base :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module methodId))
+            ModuleSurface.withPromiseApi
+        args.foldlM (init := base) fun acc arg =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module arg)
+    | .crosscallInvokeValueTyped target methodId callValue args _ => do
+        let base :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces
+              (mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module methodId))
+              (← surfaceFromExpr module callValue))
+            ModuleSurface.withPromiseApi
+        args.foldlM (init := base) fun acc arg =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module arg)
+    | .crosscallCreate callValue _ => do
+        return mergeModuleSurfaces (← surfaceFromExpr module callValue) ModuleSurface.withPromiseApi
+    | .crosscallCreate2 callValue salt _ =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module callValue) (← surfaceFromExpr module salt))
+          ModuleSurface.withPromiseApi
+    | .effect effect =>
+        surfaceFromEffect module effect
+
+  partial def surfaceFromEffect (module : Module) (effect : Effect) : Except PlanError ModuleSurface :=
+    match effect with
+    | .storageScalarRead stateId => do
+        let type ← stateTypeOf module stateId
+        let base := ModuleSurface.withStorageRead
+        match scalarHelperType type with
+        | some scalarType =>
+            .ok <| mergeModuleSurfaces base (ModuleSurface.withScalarReadType scalarType)
+        | none =>
+            .ok base
+    | .storageScalarWrite stateId value => do
+        let type ← stateTypeOf module stateId
+        let valueSurface ← surfaceFromExpr module value
+        let base := mergeModuleSurfaces valueSurface ModuleSurface.withStorageWrite
+        match scalarHelperType type with
+        | some scalarType =>
+            .ok <| mergeModuleSurfaces base (ModuleSurface.withScalarWriteType scalarType)
+        | none =>
+            .ok base
+    | .storageScalarAssignOp stateId _ value => do
+        let type ← stateTypeOf module stateId
+        let valueSurface ← surfaceFromExpr module value
+        let base :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces valueSurface ModuleSurface.withStorageRead)
+            ModuleSurface.withStorageWrite
+        match scalarHelperType type with
+        | some scalarType =>
+            .ok <| mergeModuleSurfaces
+              (mergeModuleSurfaces base (ModuleSurface.withScalarReadType scalarType))
+              (ModuleSurface.withScalarWriteType scalarType)
+        | none =>
+            .ok base
+    | .storageMapContains _ key =>
+        surfaceFromExpr module key
+    | .storageMapGet _ key => do
+        return mergeModuleSurfaces (← surfaceFromExpr module key) ModuleSurface.withStorageRead
+    | .storageMapInsert _ key value | .storageMapSet _ key value => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module key) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
+    | .storageArrayRead _ index
+    | .storageArrayStructFieldRead _ index _ => do
+        return mergeModuleSurfaces (← surfaceFromExpr module index) ModuleSurface.withStorageRead
+    | .storageArrayWrite _ index value
+    | .storageArrayStructFieldWrite _ index _ value => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module index) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
+    | .storageDynamicArrayPush _ value =>
+        surfaceFromExpr module value
+    | .storageDynamicArrayPop _ =>
+        .ok ModuleSurface.empty
+    | .memoryArraySet array index value =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index))
+          (← surfaceFromExpr module value)
+    | .storageStructFieldRead _ _ =>
+        .ok ModuleSurface.withStorageRead
+    | .storageStructFieldWrite _ _ value =>
+        return mergeModuleSurfaces
+          (← surfaceFromExpr module value)
+          (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
+    | .storagePathRead _ path =>
+        return mergeModuleSurfaces (← surfaceFromPath module path) ModuleSurface.withStorageRead
+    | .storagePathWrite _ path value
+    | .storagePathAssignOp _ path _ value =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromPath module path) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
+    | .contextRead field => do
+        .ok <| ModuleSurface.withContext (← buildContextExprPlan field)
+    | .eventEmit _ fields =>
+        fields.foldlM (init := ModuleSurface.empty) fun acc field =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+    | .eventEmitIndexed _ indexedFields dataFields => do
+        let indexed ← indexedFields.foldlM (init := ModuleSurface.empty) fun acc field =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+        dataFields.foldlM (init := indexed) fun acc field =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+
+  partial def surfaceFromPath (module : Module) (path : Array StoragePathSegment) :
+      Except PlanError ModuleSurface :=
+    path.foldlM (init := ModuleSurface.empty) fun acc segment =>
+      match segment with
+      | .field _ => pure acc
+      | .index index | .mapKey index =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module index)
+
+  partial def surfaceFromStatement (module : Module) (returnType : ValueType) (statement : Statement) :
+      Except PlanError ModuleSurface :=
+    match statement with
+    | .letBind _ _ value | .letMutBind _ _ value =>
+        surfaceFromExpr module value
+    | .assign target value | .assignOp target _ value =>
+        return mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module value)
+    | .effect effect =>
+        surfaceFromEffect module effect
+    | .assert condition _ _ =>
+        surfaceFromExpr module condition
+    | .assertEq lhs rhs _ _ =>
+        return mergeModuleSurfaces (← surfaceFromExpr module lhs) (← surfaceFromExpr module rhs)
+    | .revert _ | .revertWithError _ | .release _ =>
+        .ok ModuleSurface.empty
+    | .ifElse condition thenBody elseBody =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module returnType thenBody))
+          (← surfaceFromStatements module returnType elseBody)
+    | .boundedFor _ _ _ body =>
+        surfaceFromStatements module returnType body
+    | .whileLoop condition body =>
+        return mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module returnType body)
+    | .return value =>
+        return mergeModuleSurfaces (← surfaceFromExpr module value) (ModuleSurface.withReturnType returnType)
+
+  partial def surfaceFromStatements (module : Module) (returnType : ValueType) (statements : Array Statement) :
+      Except PlanError ModuleSurface :=
+    statements.foldlM (init := ModuleSurface.empty) fun acc statement =>
+      return mergeModuleSurfaces acc (← surfaceFromStatement module returnType statement)
+end
+
+def surfaceFromModule (module : Module) : Except PlanError ModuleSurface :=
+  let base : ModuleSurface := {
+    usesStorageRead := moduleUsesIndexedStorage module
+    usesStorageWrite := moduleUsesIndexedStorage module
+  }
+  module.entrypoints.foldlM (init := base) fun acc entrypoint =>
+    return mergeModuleSurfaces acc (← surfaceFromStatements module entrypoint.returns entrypoint.body)
+
 structure ModulePlan where
   contextOps : Array ContextExprPlan
+  scalarReadTypes : Array ValueType
+  scalarWriteTypes : Array ValueType
+  returnTypes : Array ValueType
+  usesNativeValue : Bool
+  usesStorageRead : Bool
+  usesStorageWrite : Bool
+  usesPromiseApi : Bool
   deriving Repr
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
-  .ok { contextOps := ← contextOpsFromModule module }
+  let surface ← surfaceFromModule module
+  .ok {
+    contextOps := surface.contextOps
+    scalarReadTypes := surface.scalarReadTypes
+    scalarWriteTypes := surface.scalarWriteTypes
+    returnTypes := surface.returnTypes
+    usesNativeValue := surface.usesNativeValue
+    usesStorageRead := surface.usesStorageRead
+    usesStorageWrite := surface.usesStorageWrite
+    usesPromiseApi := surface.usesPromiseApi
+  }
 
 end ProofForge.Backend.WasmNear.Plan

@@ -162,10 +162,27 @@ def powFunc (vt : ValueType) : Func :=
         .br 0 ] } ] },
       .localGet "r" ] } }
 
-def helperFuncs : Array Func :=
-  #[ readFunc .u32, writeFunc .u32, readFunc .u64, writeFunc .u64,
-     readFunc .bool, writeFunc .bool, returnU64Func, returnU32Func, returnBoolFunc,
-     powFunc .u32, powFunc .u64 ]
+def scalarStorageHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  let scalarTypes : Array ValueType := #[.u32, .u64, .bool]
+  let funcs := scalarTypes.foldl (init := #[]) fun acc type =>
+    let acc :=
+      if plan.scalarReadTypes.contains type then
+        acc.push (readFunc type)
+      else
+        acc
+    if plan.scalarWriteTypes.contains type then
+      acc.push (writeFunc type)
+    else
+      acc
+  funcs
+
+def returnHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.returnTypes.contains .u64 then #[returnU64Func] else #[]) ++
+    (if plan.returnTypes.contains .u32 then #[returnU32Func] else #[]) ++
+    (if plan.returnTypes.contains .bool then #[returnBoolFunc] else #[])
+
+def powHelperFuncs : Array Func :=
+  #[powFunc .u32, powFunc .u64]
 
 -- Map helpers ----------------------------------------------------------
 -- Map<U64, T>: storage key = prefix(stateId ++ ":") ++ 8 key bytes.
@@ -614,8 +631,11 @@ def writeHashFunc : Func :=
       .i64Const 32, .localGet "v", .plain "i64.extend_i32_u", .i64Const 0, .call "storage_write", .drop ] } }
 
 def hashHelperFuncs : Array Func :=
-  #[ hashAllocFunc, hashMakeFunc, hashSFunc, memcpyFunc, hashTwoFunc, hashEqFunc,
-     readHashFunc, writeHashFunc ]
+  #[ hashAllocFunc, hashMakeFunc, hashSFunc, memcpyFunc, hashTwoFunc, hashEqFunc ]
+
+def hashStorageHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.scalarReadTypes.contains .hash then #[readHashFunc] else #[]) ++
+    (if plan.scalarWriteTypes.contains .hash then #[writeHashFunc] else #[])
 
 -- Context helpers ------------------------------------------------------
 -- userId/contractId: sha256(account_id_bytes)[0..8] as u64.
@@ -665,6 +685,12 @@ def ctxRandomSeedFunc : Func :=
 def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
   nearImports.filter fun import_ =>
     match import_.name with
+    | "attached_deposit" => plan.usesNativeValue
+    | "storage_read" => plan.usesStorageRead
+    | "storage_write" => plan.usesStorageWrite
+    | "value_return" => !plan.returnTypes.isEmpty
+    | "promise_create" | "promise_then" | "promise_results_count" | "promise_result" | "promise_return" =>
+        plan.usesPromiseApi
     | "signer_account_id" => plan.contextOps.contains .origin
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
@@ -1972,7 +1998,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ (if maps.isEmpty then #[] else #[storageHasKeyImport]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := helperFuncs ++ hashHelperFuncs ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if maps.isEmpty then #[] else mapHelperFuncs) ++ (if maps.any (fun m => m.keyType == .hash) then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
+  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if maps.isEmpty then #[] else mapHelperFuncs) ++ (if maps.any (fun m => m.keyType == .hash) then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then

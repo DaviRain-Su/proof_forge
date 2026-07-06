@@ -34,16 +34,39 @@ def depositModule : Module := {
   name := "DepositProbe", state := #[],
   entrypoints := #[depositProbe] }
 
+def counterGet : Entrypoint := {
+  name := "get", returns := .u64,
+  body := #[.return (.effect (.storageScalarRead "count"))] }
+
+def counterBump : Entrypoint := {
+  name := "bump", returns := .unit,
+  body := #[.effect (.storageScalarAssignOp "count" .add (.literal (.u64 1)))] }
+
+def counterModule : Module := {
+  name := "CounterPlanProbe",
+  state := #[{ id := "count", kind := .scalar, type := .u64 }],
+  entrypoints := #[counterGet, counterBump] }
+
 def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   let wat ←
     match renderModule depositModule with
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat deposit render failed: {err.message}"
   requireContains wat "(import \"env\" \"attached_deposit\"" "deposit module must import attached_deposit"
+  requireContains wat "(import \"env\" \"value_return\"" "deposit module must import value_return for U64 returns"
+  requireContains wat "__pf_return_u64" "deposit module must emit the U64 return helper"
   requireNotContains wat "__pf_ctx_user_id" "deposit module should not emit caller context helper"
   requireNotContains wat "__pf_ctx_contract_id" "deposit module should not emit contract context helper"
   requireNotContains wat "__pf_ctx_signer_id" "deposit module should not emit signer context helper"
   requireNotContains wat "__pf_ctx_random_seed" "deposit module should not emit random-seed context helper"
+  requireNotContains wat "__pf_read_u32" "deposit module should not emit U32 scalar read helper"
+  requireNotContains wat "__pf_write_u32" "deposit module should not emit U32 scalar write helper"
+  requireNotContains wat "__pf_read_u64" "deposit module should not emit U64 scalar read helper"
+  requireNotContains wat "__pf_write_u64" "deposit module should not emit U64 scalar write helper"
+  requireNotContains wat "__pf_read_bool" "deposit module should not emit Bool scalar read helper"
+  requireNotContains wat "__pf_write_bool" "deposit module should not emit Bool scalar write helper"
+  requireNotContains wat "__pf_read_hash" "deposit module should not emit Hash scalar read helper"
+  requireNotContains wat "__pf_write_hash" "deposit module should not emit Hash scalar write helper"
   requireNotContains wat "(import \"env\" \"predecessor_account_id\"" "deposit module should not import predecessor_account_id"
   requireNotContains wat "(import \"env\" \"current_account_id\"" "deposit module should not import current_account_id"
   requireNotContains wat "(import \"env\" \"register_len\"" "deposit module should not import register_len"
@@ -52,6 +75,38 @@ def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   requireNotContains wat "(import \"env\" \"block_timestamp\"" "deposit module should not import block_timestamp"
   requireNotContains wat "(import \"env\" \"epoch_height\"" "deposit module should not import epoch_height"
   requireNotContains wat "(import \"env\" \"random_seed\"" "deposit module should not import random_seed"
+  requireNotContains wat "(import \"env\" \"storage_read\"" "deposit module should not import storage_read"
+  requireNotContains wat "(import \"env\" \"storage_write\"" "deposit module should not import storage_write"
+  requireNotContains wat "(import \"env\" \"promise_create\"" "deposit module should not import promise_create"
+  requireNotContains wat "(import \"env\" \"promise_then\"" "deposit module should not import promise_then"
+  requireNotContains wat "(import \"env\" \"promise_results_count\"" "deposit module should not import promise_results_count"
+  requireNotContains wat "(import \"env\" \"promise_result\"" "deposit module should not import promise_result"
+  requireNotContains wat "(import \"env\" \"promise_return\"" "deposit module should not import promise_return"
+
+def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
+  let wat ←
+    match renderModule counterModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat counter render failed: {err.message}"
+  requireContains wat "(import \"env\" \"storage_read\"" "counter module must import storage_read"
+  requireContains wat "(import \"env\" \"storage_write\"" "counter module must import storage_write"
+  requireContains wat "(import \"env\" \"value_return\"" "counter module must import value_return"
+  requireContains wat "__pf_read_u64" "counter module must emit U64 scalar read helper"
+  requireContains wat "__pf_write_u64" "counter module must emit U64 scalar write helper"
+  requireContains wat "__pf_return_u64" "counter module must emit U64 return helper"
+  requireNotContains wat "__pf_read_u32" "counter module should not emit U32 scalar read helper"
+  requireNotContains wat "__pf_write_u32" "counter module should not emit U32 scalar write helper"
+  requireNotContains wat "__pf_read_bool" "counter module should not emit Bool scalar read helper"
+  requireNotContains wat "__pf_write_bool" "counter module should not emit Bool scalar write helper"
+  requireNotContains wat "__pf_return_u32" "counter module should not emit U32 return helper"
+  requireNotContains wat "__pf_return_bool" "counter module should not emit Bool return helper"
+  requireNotContains wat "__pf_read_hash" "counter module should not emit Hash scalar read helper"
+  requireNotContains wat "__pf_write_hash" "counter module should not emit Hash scalar write helper"
+  requireNotContains wat "(import \"env\" \"promise_create\"" "counter module should not import promise_create"
+  requireNotContains wat "(import \"env\" \"promise_then\"" "counter module should not import promise_then"
+  requireNotContains wat "(import \"env\" \"promise_results_count\"" "counter module should not import promise_results_count"
+  requireNotContains wat "(import \"env\" \"promise_result\"" "counter module should not import promise_result"
+  requireNotContains wat "(import \"env\" \"promise_return\"" "counter module should not import promise_return"
 
 def testUnsupportedContextDiagnostic : IO Unit := do
   match renderModule unsupportedChainIdModule with
@@ -63,6 +118,7 @@ def testUnsupportedContextDiagnostic : IO Unit := do
 
 def main : IO UInt32 := do
   testDepositRenderPrunesUnusedContextSurface
+  testCounterRenderKeepsOnlyU64ScalarHelpers
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0
