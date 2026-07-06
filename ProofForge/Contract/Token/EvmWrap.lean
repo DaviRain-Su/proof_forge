@@ -25,10 +25,13 @@ private def decimalsLiteral (spec : TokenSpec) : String :=
   toString spec.decimals
 
 /-- Wrap a lowered runtime Yul object with ERC-20 creation initialization.
-    Storage layout matches `ProofForge.Contract.Stdlib.ERC20`:
-    slot 0 = totalSupply, slot 1 = decimals, slot 2 root = balances, slot 3 root = allowances. -/
+    Storage layout matches `ProofForge.Contract.Stdlib.ERC20` after IR lowering:
+    slot 0 packs totalSupply and decimals as u64 scalar fields, slot 1 roots
+    balances, and slot 2 roots allowances. -/
 def wrapRuntimeObject (objectName runtimeName : String) (runtimeObject : Object) (spec : TokenSpec) : String :=
   let runtimeYul := Printer.renderCode 2 runtimeObject.code
+  let packedScalarSlot :=
+    "or(shl(192, " ++ initialSupplyLiteral spec ++ "), shl(128, " ++ decimalsLiteral spec ++ "))"
   let datacopyLine :=
     "  datacopy(0x00, dataoffset(\"" ++ runtimeName ++ "\"), datasize(\"" ++ runtimeName ++ "\"))"
   let returnLine := "  return(0x00, datasize(\"" ++ runtimeName ++ "\"))"
@@ -40,9 +43,8 @@ def wrapRuntimeObject (objectName runtimeName : String) (runtimeObject : Object)
       "    mstore(0x20, root)",
       "    slot := keccak256(0x00, 0x40)",
       "  }",
-      "  sstore(0, " ++ initialSupplyLiteral spec ++ ")",
-      "  sstore(1, " ++ decimalsLiteral spec ++ ")",
-      "  sstore(mapSlot(2, caller()), " ++ initialSupplyLiteral spec ++ ")",
+      "  sstore(0, " ++ packedScalarSlot ++ ")",
+      "  sstore(mapSlot(1, caller()), " ++ initialSupplyLiteral spec ++ ")",
       datacopyLine,
       returnLine,
       "}"

@@ -32,8 +32,9 @@ def main : IO UInt32 := do
   let yul ← renderLearnTokenYul proofToken
 
   require (yul.contains "object \"ProofToken\"") "ERC-20 Yul missing token object"
-  require (yul.contains "sstore(0, 1000000)") "ERC-20 Yul missing initial supply storage"
-  require (yul.contains "sstore(mapSlot(2, caller()), 1000000)")
+  require (yul.contains "sstore(0, or(shl(192, 1000000), shl(128, 9)))")
+    "ERC-20 Yul missing packed initial scalar storage"
+  require (yul.contains "sstore(mapSlot(1, caller()), 1000000)")
     "ERC-20 Yul missing deployer initial balance"
   require (yul.contains "case 0x18160ddd") "ERC-20 Yul missing totalSupply selector"
   require (yul.contains "case 0x70a08231") "ERC-20 Yul missing balanceOf(address) selector"
