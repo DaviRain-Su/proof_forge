@@ -58,6 +58,8 @@ partial def emitExpr (prec : Nat) (e : Expr) : String :=
       s!"Set({emitList values})"
   | .listLit values =>
       s!"[{emitList values}]"
+  | .index list index =>
+      s!"{emit list}[{emit index}]"
   | .mapLit entries =>
       let entriesStr := String.intercalate ", " (entries.map (fun (k, v) => s!"{emit k} -> {emit v}")).toList
       s!"Map({entriesStr})"

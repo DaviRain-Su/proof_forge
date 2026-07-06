@@ -44,6 +44,48 @@ def itfValueToIr (t : ValueType) : ITF.Value → Except ReplayError ProofForge.I
   | .str s => .ok (.string s)
   | other => .error { message := s!"cannot convert ITF value to IR: {repr other}" }
 
+/-- Write one state declaration from an ITF value into IR storage. -/
+def writeStateDeclFromItf (decl : StateDecl) (v : ITF.Value) (state : State) : Except ReplayError State :=
+  match decl.kind with
+  | .array cap =>
+      match v with
+      | .list values =>
+          if values.length != cap then
+            .error { message := s!"ITF list length {values.length} != array capacity {cap} for `{decl.id}`" }
+          else
+            (values.zip (List.range values.length)).foldlM (fun st (elem, index) => do
+              let irv ← itfValueToIr decl.type elem
+              pure (st.write (arrayKey decl.id index) irv)) state
+      | _ =>
+          .error { message := s!"expected ITF list for array state `{decl.id}`" }
+  | _ => do
+      let irv ← itfValueToIr decl.type v
+      .ok (state.write decl.id irv)
+
+def zeroStateDecl (decl : StateDecl) : Except ReplayError State :=
+  match decl.kind with
+  | .array cap => do
+      let mut st := State.empty
+      for index in [0:cap] do
+        let irv ← match decl.type with
+          | .bool => .ok (.bool false)
+          | .u8 => .ok (.u8 0)
+          | .u32 => .ok (.u32 0)
+          | .u64 => .ok (.u64 0)
+          | .u128 => .ok (.u128 0)
+          | _ => .error { message := s!"cannot zero-initialize array element type for `{decl.id}`" }
+        st := st.write (arrayKey decl.id index) irv
+      .ok st
+  | _ => do
+      let irv ← match decl.type with
+        | .bool => .ok (.bool false)
+        | .u8 => .ok (.u8 0)
+        | .u32 => .ok (.u32 0)
+        | .u64 => .ok (.u64 0)
+        | .u128 => .ok (.u128 0)
+        | _ => .error { message := s!"cannot zero-initialize state variable `{decl.id}` of type {decl.type.name}" }
+      .ok (State.empty.write decl.id irv)
+
 /-- Build the initial IR state from the first ITF state using the IR module's
     state declarations to determine types. -/
 def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : Except ReplayError State := do
@@ -52,18 +94,11 @@ def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : E
     match itfState.vars.find? (fun (k, _) => k == decl.id) with
     | some (_, v) =>
         let v ← unwrapItfOption v
-        let irv ← itfValueToIr decl.type v
-        state := state.write decl.id irv
+        state ← writeStateDeclFromItf decl v state
     | none =>
-        -- State variable not present in ITF; zero-initialize.
-        let irv ← match decl.type with
-          | .bool => .ok (.bool false)
-          | .u8 => .ok (.u8 0)
-          | .u32 => .ok (.u32 0)
-          | .u64 => .ok (.u64 0)
-          | .u128 => .ok (.u128 0)
-          | _ => .error { message := s!"cannot zero-initialize state variable `{decl.id}` of type {decl.type.name}" }
-        state := state.write decl.id irv
+        let zeroed ← zeroStateDecl decl
+        for (key, value) in zeroed.storage do
+          state := state.write key value
   pure state
 
 /-- Build a lookup from sanitized entrypoint name to original entrypoint. -/

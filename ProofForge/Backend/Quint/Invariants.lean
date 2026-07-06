@@ -17,13 +17,16 @@ def isUnsignedInt (t : ValueType) : Bool :=
 /-- Auto-derive non-negativity invariants for every unsigned scalar state variable. -/
 def deriveAuto (state : Array StateDecl) : Array Val :=
   state.filterMap (fun s =>
-    if isUnsignedInt s.type then
-      some {
-        name := s!"{s.id}NonNegative",
-        body := .binOp .ge (.local s.id) (.literalInt 0)
-      }
-    else
-      none)
+    match s.kind with
+    | .scalar =>
+        if isUnsignedInt s.type then
+          some {
+            name := s!"{s.id}NonNegative",
+            body := .binOp .ge (.local s.id) (.literalInt 0)
+          }
+        else
+          none
+    | _ => none)
 
 /-- Manual invariants for known fixtures (ValueVault v1).
     In Phase 3 v1 these are hard-coded in Lean; later they move to

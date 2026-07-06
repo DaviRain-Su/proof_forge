@@ -13,7 +13,15 @@ Lean authoring and backend-verification chain, not as a replacement for them.
 
 ```sh
 lake env proof-forge emit --target quint --fixture counter -o build/quint/Counter.qnt
+lake env proof-forge emit --target quint --fixture conditional -o build/quint/ConditionalProbe.qnt
+lake env proof-forge emit --target quint --fixture loop -o build/quint/LoopProbe.qnt
+lake env proof-forge emit --target quint --fixture array -o build/quint/ArrayProbe.qnt
 ```
+
+Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
+and `array` (fixed-size storage array lifecycle). The generator reads **portable
+IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
+intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
 
 The default scenario uses small integer bounds (`MAX_UINT = 3`) and a finite
 caller set (`USERS = {"alice", "bob", "charlie"}`). You can override them
@@ -66,7 +74,11 @@ The Quint integration contributes these toolchain capabilities (see
 
 ## Limitations
 
-Phase 3 v1 supports only the bounded scalar IR subset: scalars, maps, arrays,
-structs, bounded loops, and basic arithmetic. Crosscalls, unbounded loops,
-floating-point, and complex bitwise ops are out of scope for the first
-iteration.
+Phase 3 v1 currently lowers a growing portable IR subset:
+
+- Scalars, `ifElse`, `boundedFor`, and checked arithmetic
+- Fixed-size storage arrays (`List[T]` with 1-based Quint indexing)
+- Scenario-driven bounds (`MAX_UINT`, `USERS`) and manual invariants
+
+Still out of scope for the first iteration: map/struct storage, `whileLoop`,
+crosscalls, unbounded loops, floating-point, and complex bitwise ops.

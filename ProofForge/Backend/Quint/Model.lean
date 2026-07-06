@@ -76,6 +76,7 @@ inductive Expr where
   | range (low high : Expr)
   | setLit (values : Array Expr)
   | listLit (values : Array Expr)
+  | index (list index : Expr)
   | mapLit (entries : Array (Expr × Expr))
   | ite (cond thenExpr elseExpr : Expr)
   deriving Inhabited

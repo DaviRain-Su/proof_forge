@@ -39,11 +39,44 @@ structure LowerCtx where
   locals : LocalEnv := []
   state : LocalEnv := []
   guards : Array ActionClause := #[]
+  stateDecls : Array StateDecl := #[]
 
 def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
   match ctx.state.lookup stateId with
   | some value => value
   | none => .local stateId
+
+def LowerCtx.lookupStateDecl (ctx : LowerCtx) (stateId : String) : Option StateDecl :=
+  ctx.stateDecls.find? (fun s => s.id == stateId)
+
+/-- IR array indices are 0-based; Quint list indices are 1-based. -/
+def irIndexToQuint (idx : Expr) : Expr :=
+  match idx with
+  | .literalInt n => .literalInt (n + 1)
+  | other => .binOp .add other (.literalInt 1)
+
+partial def listGetAt (current : Expr) (quintPos : Nat) : Expr :=
+  match current with
+  | .listLit elems =>
+      match elems[quintPos - 1]? with
+      | some elem => elem
+      | none => .literalInt 0
+  | _ =>
+      .index current (.literalInt (Int.ofNat quintPos))
+
+def listSetAtLiteral (current : Expr) (cap : Nat) (idx : Nat) (value : Expr) : Expr :=
+  let elems := (List.range cap).map (fun pos =>
+    if pos == idx then value
+    else listGetAt current (pos + 1))
+  .listLit elems.toArray
+
+def listSetAtExpr (current : Expr) (cap : Nat) (idx : Expr) (value : Expr) : Expr :=
+  let quintIdx := irIndexToQuint idx
+  let elems := (List.range cap).map (fun pos =>
+    let quintPos := .literalInt (Int.ofNat (pos + 1))
+    let atPos := listGetAt current (pos + 1)
+    .ite (.binOp .eq quintIdx quintPos) value atPos)
+  .listLit elems.toArray
 
 def lowerType (t : ValueType) : Except LowerError QuintType := do
   match t with
@@ -56,6 +89,11 @@ def lowerType (t : ValueType) : Except LowerError QuintType := do
   | .structType name => .ok (.custom name)
   | .bytes | .string | .hash =>
       .error { message := s!"unsupported IR value type for Quint lowering: {t.name}" }
+
+def lowerStateVarType (s : StateDecl) : Except LowerError QuintType := do
+  match s.kind with
+  | .array _ => .ok (.list (← lowerType s.type))
+  | _ => lowerType s.type
 
 def lowerLiteral (lit : Literal) : Except LowerError Expr :=
   match lit with
@@ -106,12 +144,22 @@ mutual
     | .boolOr lhs rhs => .ok (.binOp .or (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
     | .boolNot value => .ok (.unOp .not (← lowerExpr ctx value))
     | .cast value _ => lowerExpr ctx value
+    | .arrayLit _ values => do
+        let elems ← values.mapM (lowerExpr ctx)
+        .ok (.listLit elems)
+    | .arrayGet arr idx => do
+        let arr' ← lowerExpr ctx arr
+        let idx' ← lowerExpr ctx idx
+        .ok (.index arr' (irIndexToQuint idx'))
     | .effect eff => lowerEffectExpr ctx eff
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
   partial def lowerEffectExpr (ctx : LowerCtx) (eff : Effect) : Except LowerError Expr :=
     match eff with
     | .storageScalarRead stateId => .ok (ctx.stateValue stateId)
+    | .storageArrayRead stateId key => do
+        let key' ← lowerExpr ctx key
+        .ok (.index (ctx.stateValue stateId) (irIndexToQuint key'))
     | .contextRead field =>
         match field with
         | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
@@ -129,6 +177,23 @@ mutual
         let value' ← lowerExpr ctx value
         let qop := lowerAssignOp op
         .ok { ctx with state := ctx.state.upsert stateId (.binOp qop cur value') }
+    | .storageArrayWrite stateId key value =>
+        match ctx.lookupStateDecl stateId with
+        | some { kind := .array cap, .. } =>
+            let current := ctx.stateValue stateId
+            let key' ← lowerExpr ctx key
+            let value' ← lowerExpr ctx value
+            let updated :=
+              match key' with
+              | .literalInt n =>
+                  if n >= 0 && n.toNat < cap then
+                    listSetAtLiteral current cap n.toNat value'
+                  else
+                    listSetAtExpr current cap key' value'
+              | _ => listSetAtExpr current cap key' value'
+            .ok { ctx with state := ctx.state.upsert stateId updated }
+        | _ =>
+            .error { message := s!"storageArrayWrite on unknown or non-array state `{stateId}`" }
     | .eventEmit _ _ =>
         .ok { ctx with guards := ctx.guards.push (.guard (.literalBool true)) }
     | _ => .error { message := "unsupported effect statement for Quint lowering v1" }
@@ -210,9 +275,9 @@ partial def assignedStateVars (clause : ActionClause) : List String :=
   | .nondet _ _ body => assignedStateVars body
   | _ => []
 
-def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) : Except LowerError Action := do
+def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Array StateDecl) : Except LowerError Action := do
   let params ← ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t))
-  let ctx ← lowerStatements {} ep.body
+  let ctx ← lowerStatements { stateDecls := stateDecls } ep.body
   let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
@@ -235,9 +300,16 @@ def zeroExpr (t : ValueType) : Except LowerError Expr :=
   | .bytes | .string | .hash =>
       .error { message := s!"cannot zero-initialize type for Quint: {t.name}" }
 
+def zeroExprForState (s : StateDecl) : Except LowerError Expr := do
+  match s.kind with
+  | .array cap =>
+      let z ← zeroExpr s.type
+      .ok (.listLit (Array.replicate cap z))
+  | _ => zeroExpr s.type
+
 def initAction (state : Array StateDecl) : Except LowerError Action := do
   let clauses ← state.mapM (fun s => do
-    pure (.assign (.prime (.local s.id)) (← zeroExpr s.type)))
+    pure (.assign (.prime (.local s.id)) (← zeroExprForState s)))
   pure {
     name := "init",
     body := ActionClause.all clauses,
@@ -271,10 +343,10 @@ def stepAction (entrypoints : Array Entrypoint) (loweredParams : Array (Array (S
 
 def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except LowerError Module := do
   let vars ← module.state.mapM (fun s => do
-    pure { name := s.id, type := ← lowerType s.type })
+    pure { name := s.id, type := ← lowerStateVarType s })
   let init ← initAction module.state
   let stateIds := module.state.map (fun s => s.id)
-  let epActions ← module.entrypoints.mapM (fun ep => lowerEntrypoint ep stateIds)
+  let epActions ← module.entrypoints.mapM (fun ep => lowerEntrypoint ep stateIds module.state)
   let epParams ← module.entrypoints.mapM (fun ep => do
     ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t)))
   let step := stepAction module.entrypoints epParams
