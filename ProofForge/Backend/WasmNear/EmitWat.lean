@@ -40,6 +40,7 @@ import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Promise
 import ProofForge.Backend.WasmNear.Return
 import ProofForge.Backend.WasmNear.Scalar
+import ProofForge.Backend.WasmNear.Statement
 import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
 import ProofForge.Target.Plan
@@ -72,6 +73,7 @@ open ProofForge.Backend.WasmNear.Params
 open ProofForge.Backend.WasmNear.Promise
 open ProofForge.Backend.WasmNear.Return
 open ProofForge.Backend.WasmNear.Scalar
+open ProofForge.Backend.WasmNear.Statement
 open ProofForge.Backend.WasmNear.Struct
 open ProofForge.Backend.WasmNear.Types
 
@@ -214,6 +216,10 @@ export ProofForge.Backend.WasmNear.Scalar (
   readFunc writeFunc returnU64Func returnU32Func returnBoolFunc powName
   powFunc scalarStorageHelperFuncsForModulePlan returnHelperFuncsForModulePlan
   powHelperFuncsForModulePlan
+)
+
+export ProofForge.Backend.WasmNear.Statement (
+  localAssignInsns localAssignOpTargetType localAssignOpInsns releaseInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -923,16 +929,12 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     else .ok (is ++ #[.localSet name])
   | .assign (.local name) e => do
     let (is, _) ← lowerExpr ctx env e
-    if (lookupLocal? env name).isNone then err s!"EmitWat: assignment to unknown local `{name}`"
-    else .ok (is ++ #[.localSet name])
+    localAssignInsns env name is
   | .assign _ _ => err "EmitWat: assignment target must be a local"
   | .assignOp (.local name) op e => do
-    let some lt ← pure (lookupLocal? env name) | err s!"EmitWat: compound assignment to unknown local `{name}`"
-    if !(isNumeric lt) then err "EmitWat: compound assignment requires U32/U64 local"
-    else do
-      let (is, t) ← lowerExpr ctx env e
-      if t != lt then err s!"EmitWat: compound `{assignOpName op}` expected `{lt.name}`, got `{t.name}`"
-      else .ok (#[.localGet name] ++ is ++ #[.plain (widthOf lt ++ "." ++ assignOpName op), .localSet name])
+    let localType ← localAssignOpTargetType env name
+    let (is, t) ← lowerExpr ctx env e
+    localAssignOpInsns name op localType is t
   | .assignOp _ _ _ => err "EmitWat: compound assignment target must be a local"
   | .effect (.storageScalarWrite id e) => do
     let some s ← pure (findScalarState? ctx.scalars id) | err s!"EmitWat: unknown scalar state `{id}`"
@@ -994,15 +996,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
       .ok (la ++ lb ++ eqInsn ++ #[.plain "i32.eqz",
                             .if_ { insns := failInsns } { insns := #[] }])
   | .release name => do
-    let some vt ← pure (lookupLocal? env name) | err s!"EmitWat: release of unknown local `{name}`"
-    match vt with
-    | .fixedArray elemType len =>
-      .ok #[.localGet name, .i64Const (len * scalarWidth elemType), .call "__pf_arr_dealloc"]
-    | .structType typeName =>
-      match findStruct? ctx.structs typeName with
-      | none => err s!"EmitWat: release refers to unknown struct `{typeName}`"
-      | some sd => .ok #[.localGet name, .i64Const (structTotalSize sd), .call "__pf_arr_dealloc"]
-    | _ => err s!"EmitWat: release expects a heap-backed FixedArray/Struct local, got `{vt.name}`"
+    releaseInsns ctx env name
   | .return e => lowerReturn ctx env returns e
   | .ifElse cond thenBody elseBody => do
     let (cis, ct) ← lowerExpr ctx env cond

@@ -1,0 +1,55 @@
+/-
+Copyright (c) 2026 DaviRain. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
+import ProofForge.IR.Contract
+import ProofForge.Compiler.Wasm.AST
+import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.LoweringEnv
+import ProofForge.Backend.WasmNear.Struct
+import ProofForge.Backend.WasmNear.Types
+
+namespace ProofForge.Backend.WasmNear.Statement
+
+open ProofForge.IR
+open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.LoweringEnv
+open ProofForge.Backend.WasmNear.Struct
+open ProofForge.Backend.WasmNear.Types
+
+/-! Small, non-recursive statement instruction helpers used by EmitWat. -/
+
+def localAssignInsns (env : LocalTypes) (name : String) (valueInsns : Array Insn) :
+    Except EmitError (Array Insn) :=
+  if (lookupLocal? env name).isNone then err s!"EmitWat: assignment to unknown local `{name}`"
+  else .ok (valueInsns ++ #[.localSet name])
+
+def localAssignOpTargetType (env : LocalTypes) (name : String) : Except EmitError ValueType := do
+  let some localType ← pure (lookupLocal? env name) |
+    err s!"EmitWat: compound assignment to unknown local `{name}`"
+  if !(isNumeric localType) then err "EmitWat: compound assignment requires U32/U64 local"
+  else .ok localType
+
+def localAssignOpInsns (name : String) (op : AssignOp) (localType : ValueType)
+    (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) :=
+  if valueType != localType then
+    err s!"EmitWat: compound `{assignOpName op}` expected `{localType.name}`, got `{valueType.name}`"
+  else
+    .ok (#[.localGet name] ++ valueInsns ++
+      #[.plain (widthOf localType ++ "." ++ assignOpName op), .localSet name])
+
+def releaseInsns (ctx : Ctx) (env : LocalTypes) (name : String) :
+    Except EmitError (Array Insn) := do
+  let some valueType ← pure (lookupLocal? env name) |
+    err s!"EmitWat: release of unknown local `{name}`"
+  match valueType with
+  | .fixedArray elemType len =>
+    .ok #[.localGet name, .i64Const (len * scalarWidth elemType), .call "__pf_arr_dealloc"]
+  | .structType typeName =>
+    match findStruct? ctx.structs typeName with
+    | none => err s!"EmitWat: release refers to unknown struct `{typeName}`"
+    | some sd => .ok #[.localGet name, .i64Const (structTotalSize sd), .call "__pf_arr_dealloc"]
+  | _ => err s!"EmitWat: release expects a heap-backed FixedArray/Struct local, got `{valueType.name}`"
+
+end ProofForge.Backend.WasmNear.Statement
