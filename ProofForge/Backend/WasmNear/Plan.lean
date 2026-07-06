@@ -305,7 +305,14 @@ structure ModuleSurface where
   usesHashIndexedBuildKey : Bool := false
   usesU64IndexedContains : Bool := false
   usesHashIndexedContains : Bool := false
-  deriving Repr
+  usesHashMake : Bool := false
+  usesHashPreimage : Bool := false
+  usesHashTwoToOne : Bool := false
+  usesHashEq : Bool := false
+  usesPowU32 : Bool := false
+  usesPowU64 : Bool := false
+  usesMemcpy : Bool := false
+  deriving Repr, Inhabited
 
 def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   contextOps := mergeContextExprPlans lhs.contextOps rhs.contextOps
@@ -327,6 +334,13 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesHashIndexedBuildKey := lhs.usesHashIndexedBuildKey || rhs.usesHashIndexedBuildKey
   usesU64IndexedContains := lhs.usesU64IndexedContains || rhs.usesU64IndexedContains
   usesHashIndexedContains := lhs.usesHashIndexedContains || rhs.usesHashIndexedContains
+  usesHashMake := lhs.usesHashMake || rhs.usesHashMake
+  usesHashPreimage := lhs.usesHashPreimage || rhs.usesHashPreimage
+  usesHashTwoToOne := lhs.usesHashTwoToOne || rhs.usesHashTwoToOne
+  usesHashEq := lhs.usesHashEq || rhs.usesHashEq
+  usesPowU32 := lhs.usesPowU32 || rhs.usesPowU32
+  usesPowU64 := lhs.usesPowU64 || rhs.usesPowU64
+  usesMemcpy := lhs.usesMemcpy || rhs.usesMemcpy
 }
 
 namespace ModuleSurface
@@ -368,16 +382,19 @@ def withPromiseApi : ModuleSurface := {
 
 def withEventApi : ModuleSurface := {
   usesEventApi := true
+  usesMemcpy := true
 }
 
 def withEventNumeric : ModuleSurface := {
   usesEventApi := true
   usesEventNumeric := true
+  usesMemcpy := true
 }
 
 def withEventBool : ModuleSurface := {
   usesEventApi := true
   usesEventBool := true
+  usesMemcpy := true
 }
 
 def withU64IndexedBuildKey : ModuleSurface := {
@@ -386,6 +403,7 @@ def withU64IndexedBuildKey : ModuleSurface := {
 
 def withHashIndexedBuildKey : ModuleSurface := {
   usesHashIndexedBuildKey := true
+  usesMemcpy := true
 }
 
 def withU64IndexedReadType (type : ValueType) : ModuleSurface := {
@@ -406,6 +424,7 @@ def withHashIndexedReadType (type : ValueType) : ModuleSurface := {
 def withHashIndexedWriteType (type : ValueType) : ModuleSurface := {
   usesHashIndexedBuildKey := true
   hashIndexedWriteTypes := #[type]
+  usesMemcpy := type == .hash
 }
 
 def withU64IndexedContains : ModuleSurface := {
@@ -416,6 +435,35 @@ def withU64IndexedContains : ModuleSurface := {
 def withHashIndexedContains : ModuleSurface := {
   usesHashIndexedBuildKey := true
   usesHashIndexedContains := true
+}
+
+def withHashMake : ModuleSurface := {
+  usesHashMake := true
+}
+
+def withHashPreimage : ModuleSurface := {
+  usesHashPreimage := true
+}
+
+def withHashTwoToOne : ModuleSurface := {
+  usesHashTwoToOne := true
+  usesMemcpy := true
+}
+
+def withHashEq : ModuleSurface := {
+  usesHashEq := true
+}
+
+def withPowU32 : ModuleSurface := {
+  usesPowU32 := true
+}
+
+def withPowU64 : ModuleSurface := {
+  usesPowU64 := true
+}
+
+def withMemcpy : ModuleSurface := {
+  usesMemcpy := true
 }
 
 end ModuleSurface
@@ -616,70 +664,113 @@ def contextOpsFromModule (module : Module) : Except PlanError (Array ContextExpr
   module.entrypoints.foldlM (init := #[]) fun acc entrypoint =>
     return mergeContextExprPlans acc (← contextOpsFromStatements entrypoint.body)
 
+partial def surfaceFromValueType (module : Module) (type : ValueType) : ModuleSurface :=
+  match type with
+  | .hash => ModuleSurface.withMemcpy
+  | .fixedArray elemType _ =>
+      if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType
+  | .structType structName =>
+      match findStruct? module structName with
+      | some structDecl =>
+          structDecl.fields.foldl (fun acc field =>
+            mergeModuleSurfaces acc (surfaceFromValueType module field.type)) ModuleSurface.empty
+      | none => ModuleSurface.empty
+  | _ => ModuleSurface.empty
+
+def surfaceFromEntrypointParams (module : Module) (params : Array (String × ValueType)) : ModuleSurface :=
+  params.foldl (fun acc (_, type) =>
+    mergeModuleSurfaces acc (surfaceFromValueType module type)) ModuleSurface.empty
+
 mutual
-  partial def surfaceFromExpr (module : Module) (expr : Expr) : Except PlanError ModuleSurface :=
+  partial def surfaceFromExpr (module : Module) (env : LocalTypeEnv) (expr : Expr) : Except PlanError ModuleSurface :=
     match expr with
+    | .literal (.hash4 ..) =>
+        .ok ModuleSurface.withHashMake
     | .literal _ | .local _ =>
         .ok ModuleSurface.empty
     | .nativeValue =>
         .ok ModuleSurface.withNativeValue
     | .arrayLit _ values =>
         values.foldlM (init := ModuleSurface.empty) fun acc value =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module value)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env value)
     | .arrayGet array index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index)
+        return mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index)
     | .memoryArrayNew _ length =>
-        surfaceFromExpr module length
+        surfaceFromExpr module env length
     | .memoryArrayLength array =>
-        surfaceFromExpr module array
+        surfaceFromExpr module env array
     | .memoryArrayGet array index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index)
+        return mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index)
     | .structLit _ fields =>
         fields.foldlM (init := ModuleSurface.empty) fun acc field =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
     | .field base _ =>
-        surfaceFromExpr module base
+        surfaceFromExpr module env base
     | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
-    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
-    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
+    | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shiftLeft lhs rhs | .shiftRight lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
-    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
-        return mergeModuleSurfaces (← surfaceFromExpr module lhs) (← surfaceFromExpr module rhs)
-    | .cast value _ | .boolNot value | .hash value =>
-        surfaceFromExpr module value
-    | .hashValue a b c d =>
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module a) (← surfaceFromExpr module b))
-          (mergeModuleSurfaces (← surfaceFromExpr module c) (← surfaceFromExpr module d))
+    | .boolAnd lhs rhs | .boolOr lhs rhs =>
+        return mergeModuleSurfaces (← surfaceFromExpr module env lhs) (← surfaceFromExpr module env rhs)
+    | .pow lhs rhs => do
+        let lhsSurface ← surfaceFromExpr module env lhs
+        let rhsSurface ← surfaceFromExpr module env rhs
+        let lhsType ← inferExprType module env lhs
+        let powSurface :=
+          if lhsType == .u32 then ModuleSurface.withPowU32
+          else if lhsType == .u64 then ModuleSurface.withPowU64
+          else ModuleSurface.empty
+        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) powSurface)
+    | .eq lhs rhs | .ne lhs rhs => do
+        let lhsSurface ← surfaceFromExpr module env lhs
+        let rhsSurface ← surfaceFromExpr module env rhs
+        let lhsType ← inferExprType module env lhs
+        let eqSurface := if lhsType == .hash then ModuleSurface.withHashEq else ModuleSurface.empty
+        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) eqSurface)
+    | .hashTwoToOne lhs rhs => do
+        let merged :=
+          mergeModuleSurfaces (← surfaceFromExpr module env lhs) (← surfaceFromExpr module env rhs)
+        .ok (mergeModuleSurfaces merged ModuleSurface.withHashTwoToOne)
+    | .cast value _ | .boolNot value =>
+        surfaceFromExpr module env value
+    | .hash preimage => do
+        let preimageSurface ← surfaceFromExpr module env preimage
+        .ok (mergeModuleSurfaces preimageSurface ModuleSurface.withHashPreimage)
+    | .hashValue a b c d => do
+        let merged :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromExpr module env a) (← surfaceFromExpr module env b))
+            (mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d))
+        .ok (mergeModuleSurfaces merged ModuleSurface.withHashMake)
     | .crosscallInvoke target methodId args
     | .crosscallInvokeTyped target methodId args _
     | .crosscallInvokeStaticTyped target methodId args _
     | .crosscallInvokeDelegateTyped target methodId args _ => do
         let base :=
           mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module methodId))
+            (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
             ModuleSurface.withPromiseApi
         args.foldlM (init := base) fun acc arg =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module arg)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallInvokeValueTyped target methodId callValue args _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces
-              (mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module methodId))
-              (← surfaceFromExpr module callValue))
+              (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
+              (← surfaceFromExpr module env callValue))
             ModuleSurface.withPromiseApi
         args.foldlM (init := base) fun acc arg =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module arg)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallCreate callValue _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module callValue) ModuleSurface.withPromiseApi
+        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withPromiseApi
     | .crosscallCreate2 callValue salt _ =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module callValue) (← surfaceFromExpr module salt))
+          (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
           ModuleSurface.withPromiseApi
     | .effect effect =>
-        surfaceFromEffect module effect
+        surfaceFromEffect module env effect
 
-  partial def surfaceFromEffect (module : Module) (effect : Effect) : Except PlanError ModuleSurface :=
+  partial def surfaceFromEffect (module : Module) (env : LocalTypeEnv) (effect : Effect) : Except PlanError ModuleSurface :=
     match effect with
     | .storageScalarRead stateId => do
         let type ← stateTypeOf module stateId
@@ -691,7 +782,7 @@ mutual
             .ok base
     | .storageScalarWrite stateId value => do
         let type ← stateTypeOf module stateId
-        let valueSurface ← surfaceFromExpr module value
+        let valueSurface ← surfaceFromExpr module env value
         let base := mergeModuleSurfaces valueSurface ModuleSurface.withStorageWrite
         match scalarHelperType type with
         | some scalarType =>
@@ -700,7 +791,7 @@ mutual
             .ok base
     | .storageScalarAssignOp stateId _ value => do
         let type ← stateTypeOf module stateId
-        let valueSurface ← surfaceFromExpr module value
+        let valueSurface ← surfaceFromExpr module env value
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces valueSurface ModuleSurface.withStorageRead)
@@ -714,115 +805,119 @@ mutual
             .ok base
     | .storageMapContains stateId key => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageContainsSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromExpr module env key) (← indexedStorageContainsSurfaceSummary module stateId))
           ModuleSurface.empty
     | .storageMapGet stateId key => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageReadSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromExpr module env key) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
         return mergeModuleSurfaces
           (mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromExpr module key) (← surfaceFromExpr module value))
+            (mergeModuleSurfaces (← surfaceFromExpr module env key) (← surfaceFromExpr module env value))
             (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageArrayRead stateId index
     | .storageArrayStructFieldRead stateId index _ => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module index) (← indexedStorageReadSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromExpr module env index) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storageArrayWrite stateId index value
     | .storageArrayStructFieldWrite stateId index _ value => do
         return mergeModuleSurfaces
           (mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromExpr module index) (← surfaceFromExpr module value))
+            (mergeModuleSurfaces (← surfaceFromExpr module env index) (← surfaceFromExpr module env value))
             (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageDynamicArrayPush _ value =>
-        surfaceFromExpr module value
+        surfaceFromExpr module env value
     | .storageDynamicArrayPop _ =>
         .ok ModuleSurface.empty
     | .memoryArraySet array index value =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module array) (← surfaceFromExpr module index))
-          (← surfaceFromExpr module value)
+          (mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index))
+          (← surfaceFromExpr module env value)
     | .storageStructFieldRead _ _ =>
         .ok ModuleSurface.withStorageRead
     | .storageStructFieldWrite _ _ value =>
         return mergeModuleSurfaces
-          (← surfaceFromExpr module value)
+          (← surfaceFromExpr module env value)
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storagePathRead stateId path =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromPath module path) (← indexedStorageReadSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromPath module env path) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storagePathWrite stateId path value
     | .storagePathAssignOp stateId path _ value =>
         return mergeModuleSurfaces
           (mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromPath module path) (← surfaceFromExpr module value))
+            (mergeModuleSurfaces (← surfaceFromPath module env path) (← surfaceFromExpr module env value))
             (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .contextRead field => do
         .ok <| ModuleSurface.withContext (← buildContextExprPlan field)
     | .eventEmit _ fields =>
         fields.foldlM (init := ModuleSurface.withEventApi) fun acc field =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
     | .eventEmitIndexed _ indexedFields dataFields => do
         let indexed ← indexedFields.foldlM (init := ModuleSurface.withEventApi) fun acc field =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module field.snd)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
 
-  partial def surfaceFromPath (module : Module) (path : Array StoragePathSegment) :
+  partial def surfaceFromPath (module : Module) (env : LocalTypeEnv) (path : Array StoragePathSegment) :
       Except PlanError ModuleSurface :=
     path.foldlM (init := ModuleSurface.empty) fun acc segment =>
       match segment with
       | .field _ => pure acc
       | .index index | .mapKey index =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module index)
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env index)
 
   partial def surfaceFromStatement (module : Module) (env : LocalTypeEnv) (returnType : ValueType) (statement : Statement) :
       Except PlanError ModuleSurface :=
     match statement with
     | .letBind _ _ value | .letMutBind _ _ value =>
-        surfaceFromExpr module value
+        surfaceFromExpr module env value
     | .assign target value | .assignOp target _ value =>
-        return mergeModuleSurfaces (← surfaceFromExpr module target) (← surfaceFromExpr module value)
+        return mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env value)
     | .effect effect =>
         match effect with
         | .eventEmit _ fields =>
             fields.foldlM (init := ModuleSurface.withEventApi) fun acc field => do
-              let valueSurface ← surfaceFromExpr module field.snd
+              let valueSurface ← surfaceFromExpr module env field.snd
               let valueType ← inferExprType module env field.snd
               return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
         | .eventEmitIndexed _ indexedFields dataFields => do
             let indexed ← indexedFields.foldlM (init := ModuleSurface.withEventApi) fun acc field => do
-              let valueSurface ← surfaceFromExpr module field.snd
+              let valueSurface ← surfaceFromExpr module env field.snd
               let valueType ← inferExprType module env field.snd
               return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
             dataFields.foldlM (init := indexed) fun acc field => do
-              let valueSurface ← surfaceFromExpr module field.snd
+              let valueSurface ← surfaceFromExpr module env field.snd
               let valueType ← inferExprType module env field.snd
               return mergeModuleSurfaces acc (mergeModuleSurfaces valueSurface (eventFieldSurfaceForType valueType))
         | _ =>
-            surfaceFromEffect module effect
+            surfaceFromEffect module env effect
     | .assert condition _ _ =>
-        surfaceFromExpr module condition
-    | .assertEq lhs rhs _ _ =>
-        return mergeModuleSurfaces (← surfaceFromExpr module lhs) (← surfaceFromExpr module rhs)
+        surfaceFromExpr module env condition
+    | .assertEq lhs rhs _ _ => do
+        let lhsSurface ← surfaceFromExpr module env lhs
+        let rhsSurface ← surfaceFromExpr module env rhs
+        let lhsType ← inferExprType module env lhs
+        let eqSurface := if lhsType == .hash then ModuleSurface.withHashEq else ModuleSurface.empty
+        .ok (mergeModuleSurfaces (mergeModuleSurfaces lhsSurface rhsSurface) eqSurface)
     | .revert _ | .revertWithError _ | .release _ =>
         .ok ModuleSurface.empty
     | .ifElse condition thenBody elseBody =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module env returnType thenBody))
+          (mergeModuleSurfaces (← surfaceFromExpr module env condition) (← surfaceFromStatements module env returnType thenBody))
           (← surfaceFromStatements module env returnType elseBody)
     | .boundedFor _ _ _ body =>
         surfaceFromStatements module env returnType body
     | .whileLoop condition body =>
-        return mergeModuleSurfaces (← surfaceFromExpr module condition) (← surfaceFromStatements module env returnType body)
+        return mergeModuleSurfaces (← surfaceFromExpr module env condition) (← surfaceFromStatements module env returnType body)
     | .return value =>
-        return mergeModuleSurfaces (← surfaceFromExpr module value) (ModuleSurface.withReturnType returnType)
+        return mergeModuleSurfaces (← surfaceFromExpr module env value) (ModuleSurface.withReturnType returnType)
 
   partial def surfaceFromStatements (module : Module) (env : LocalTypeEnv) (returnType : ValueType) (statements : Array Statement) :
       Except PlanError ModuleSurface :=
@@ -833,7 +928,9 @@ end
 def surfaceFromModule (module : Module) : Except PlanError ModuleSurface :=
   module.entrypoints.foldlM (init := ModuleSurface.empty) fun acc entrypoint => do
     let env ← collectEntrypointLocalTypes entrypoint
-    return mergeModuleSurfaces acc (← surfaceFromStatements module env entrypoint.returns entrypoint.body)
+    let paramSurface := surfaceFromEntrypointParams module entrypoint.params
+    let bodySurface ← surfaceFromStatements module env entrypoint.returns entrypoint.body
+    return mergeModuleSurfaces acc (mergeModuleSurfaces paramSurface bodySurface)
 
 structure ModulePlan where
   contextOps : Array ContextExprPlan
@@ -855,6 +952,13 @@ structure ModulePlan where
   usesHashIndexedBuildKey : Bool
   usesU64IndexedContains : Bool
   usesHashIndexedContains : Bool
+  usesHashMake : Bool
+  usesHashPreimage : Bool
+  usesHashTwoToOne : Bool
+  usesHashEq : Bool
+  usesPowU32 : Bool
+  usesPowU64 : Bool
+  usesMemcpy : Bool
   deriving Repr
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
@@ -879,6 +983,13 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesHashIndexedBuildKey := surface.usesHashIndexedBuildKey
     usesU64IndexedContains := surface.usesU64IndexedContains
     usesHashIndexedContains := surface.usesHashIndexedContains
+    usesHashMake := surface.usesHashMake
+    usesHashPreimage := surface.usesHashPreimage
+    usesHashTwoToOne := surface.usesHashTwoToOne
+    usesHashEq := surface.usesHashEq
+    usesPowU32 := surface.usesPowU32
+    usesPowU64 := surface.usesPowU64
+    usesMemcpy := surface.usesMemcpy
   }
 
 end ProofForge.Backend.WasmNear.Plan

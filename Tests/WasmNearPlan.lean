@@ -120,6 +120,67 @@ def u64EventModule : Module := {
   entrypoints := #[emitU64Event],
   state := #[] }
 
+def hashLiteralGet : Entrypoint := {
+  name := "hashLiteralGet", returns := .hash,
+  body := #[.return (.literal (.hash4 1 2 3 4))] }
+
+def hashPreimageGet : Entrypoint := {
+  name := "hashPreimageGet", returns := .hash,
+  body := #[
+    .letBind "data" .hash (.literal (.hash4 1 2 3 4)),
+    .return (.hash (.local "data"))] }
+
+def hashPairGet : Entrypoint := {
+  name := "hashPairGet", returns := .hash,
+  body := #[
+    .letBind "left" .hash (.literal (.hash4 1 2 3 4)),
+    .letBind "right" .hash (.literal (.hash4 5 6 7 8)),
+    .return (.hashTwoToOne (.local "left") (.local "right"))] }
+
+def hashEqProbe : Entrypoint := {
+  name := "hashEqProbe", returns := .u64,
+  body := #[
+    .assertEq (.literal (.hash4 1 2 3 4)) (.literal (.hash4 1 2 3 4)) "hash mismatch",
+    .return (.literal (.u64 1))] }
+
+def hashLiteralModule : Module := {
+  name := "HashLiteralProbe",
+  entrypoints := #[hashLiteralGet],
+  state := #[] }
+
+def hashPreimageModule : Module := {
+  name := "HashPreimageProbe",
+  entrypoints := #[hashPreimageGet],
+  state := #[] }
+
+def hashPairModule : Module := {
+  name := "HashPairProbe",
+  entrypoints := #[hashPairGet],
+  state := #[] }
+
+def hashEqModule : Module := {
+  name := "HashEqProbe",
+  entrypoints := #[hashEqProbe],
+  state := #[] }
+
+def powU64Probe : Entrypoint := {
+  name := "powU64", returns := .u64,
+  body := #[.return (.pow (.literal (.u64 17)) (.literal (.u64 2)))] }
+
+def powU32Probe : Entrypoint := {
+  name := "powU32", returns := .u32,
+  body := #[.return (.pow (.literal (.u32 17)) (.literal (.u32 2)))] }
+
+def powU64Module : Module := {
+  name := "PowU64Probe",
+  entrypoints := #[powU64Probe],
+  state := #[] }
+
+def powU32Module : Module := {
+  name := "PowU32Probe",
+  entrypoints := #[powU32Probe],
+  state := #[] }
+
 def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   let wat ←
     match renderModule depositModule with
@@ -186,6 +247,15 @@ def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   requireNotContains wat "(import \"env\" \"promise_return\"" "counter module should not import promise_return"
   requireNotContains wat "__pf_evt_start" "counter module should not emit event helpers"
   requireNotContains wat "__pf_evt_log" "counter module should not emit event logging helpers"
+  requireNotContains wat "__pf_pow_u32" "counter module should not emit U32 pow helper"
+  requireNotContains wat "__pf_pow_u64" "counter module should not emit U64 pow helper"
+  requireNotContains wat "__pf_hash_alloc" "counter module should not emit hash alloc helper"
+  requireNotContains wat "__pf_hash_make" "counter module should not emit hash make helper"
+  requireNotContains wat "(func $__pf_hash " "counter module should not emit hash preimage helper"
+  requireNotContains wat "__pf_hash_two_to_one" "counter module should not emit hash two-to-one helper"
+  requireNotContains wat "__pf_hash_eq" "counter module should not emit hash equality helper"
+  requireNotContains wat "__pf_memcpy" "counter module should not emit memcpy helper"
+  requireNotContains wat "(import \"env\" \"sha256\"" "counter module should not import sha256"
 
 def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
   let unusedMapWat ←
@@ -290,6 +360,73 @@ def testEventRenderKeepsOnlyNeededEventSurface : IO Unit := do
   requireContains u64EventWat "__pf_evt_log" "u64-event module must emit event log helper"
   requireNotContains u64EventWat "__pf_evt_putbool" "u64-event module should not emit bool event helper"
 
+def testHashLiteralRenderKeepsMakeSurfaceOnly : IO Unit := do
+  let wat ←
+    match renderModule hashLiteralModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat hash-literal render failed: {err.message}"
+  requireNotContains wat "(import \"env\" \"sha256\"" "hash-literal module should not import sha256"
+  requireContains wat "__pf_hash_alloc" "hash-literal module must emit hash alloc helper"
+  requireContains wat "__pf_hash_make" "hash-literal module must emit hash make helper"
+  requireNotContains wat "(func $__pf_hash " "hash-literal module should not emit hash preimage helper"
+  requireNotContains wat "__pf_hash_two_to_one" "hash-literal module should not emit hash two-to-one helper"
+  requireNotContains wat "__pf_hash_eq" "hash-literal module should not emit hash equality helper"
+  requireNotContains wat "__pf_memcpy" "hash-literal module should not emit memcpy helper"
+
+def testHashPreimageRenderKeepsSha256AndPreimageHelper : IO Unit := do
+  let wat ←
+    match renderModule hashPreimageModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat hash-preimage render failed: {err.message}"
+  requireContains wat "(import \"env\" \"sha256\"" "hash-preimage module must import sha256"
+  requireContains wat "__pf_hash_alloc" "hash-preimage module must emit hash alloc helper"
+  requireContains wat "__pf_hash_make" "hash-preimage module must emit hash make helper"
+  requireContains wat "(func $__pf_hash " "hash-preimage module must emit hash preimage helper"
+  requireNotContains wat "__pf_hash_two_to_one" "hash-preimage module should not emit hash two-to-one helper"
+  requireNotContains wat "__pf_hash_eq" "hash-preimage module should not emit hash equality helper"
+
+def testHashPairRenderKeepsTwoToOneAndMemcpySurface : IO Unit := do
+  let wat ←
+    match renderModule hashPairModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat hash-pair render failed: {err.message}"
+  requireContains wat "(import \"env\" \"sha256\"" "hash-pair module must import sha256"
+  requireContains wat "__pf_hash_alloc" "hash-pair module must emit hash alloc helper"
+  requireContains wat "__pf_hash_make" "hash-pair module must emit hash make helper"
+  requireContains wat "__pf_hash_two_to_one" "hash-pair module must emit hash two-to-one helper"
+  requireContains wat "__pf_memcpy" "hash-pair module must emit memcpy helper"
+  requireNotContains wat "(func $__pf_hash " "hash-pair module should not emit hash preimage helper"
+  requireNotContains wat "__pf_hash_eq" "hash-pair module should not emit hash equality helper"
+
+def testHashEqRenderKeepsEqualityHelperOnly : IO Unit := do
+  let wat ←
+    match renderModule hashEqModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat hash-eq render failed: {err.message}"
+  requireContains wat "__pf_hash_alloc" "hash-eq module must emit hash alloc helper"
+  requireContains wat "__pf_hash_make" "hash-eq module must emit hash make helper"
+  requireContains wat "__pf_hash_eq" "hash-eq module must emit hash equality helper"
+  requireNotContains wat "(import \"env\" \"sha256\"" "hash-eq module should not import sha256"
+  requireNotContains wat "(func $__pf_hash " "hash-eq module should not emit hash preimage helper"
+  requireNotContains wat "__pf_hash_two_to_one" "hash-eq module should not emit hash two-to-one helper"
+  requireNotContains wat "__pf_memcpy" "hash-eq module should not emit memcpy helper"
+
+def testPowRenderKeepsOnlyMatchingNumericPowHelper : IO Unit := do
+  let u64Wat ←
+    match renderModule powU64Module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat pow-u64 render failed: {err.message}"
+  requireContains u64Wat "__pf_pow_u64" "pow-u64 module must emit U64 pow helper"
+  requireNotContains u64Wat "__pf_pow_u32" "pow-u64 module should not emit U32 pow helper"
+  requireNotContains u64Wat "__pf_hash_alloc" "pow-u64 module should not emit hash alloc helper"
+  let u32Wat ←
+    match renderModule powU32Module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat pow-u32 render failed: {err.message}"
+  requireContains u32Wat "__pf_pow_u32" "pow-u32 module must emit U32 pow helper"
+  requireNotContains u32Wat "__pf_pow_u64" "pow-u32 module should not emit U64 pow helper"
+  requireNotContains u32Wat "__pf_hash_alloc" "pow-u32 module should not emit hash alloc helper"
+
 def testUnsupportedContextDiagnostic : IO Unit := do
   match renderModule unsupportedChainIdModule with
   | .ok _ =>
@@ -305,6 +442,11 @@ def main : IO UInt32 := do
   testContainsOnlyMapRenderKeepsContainsSurface
   testIndexedStorageRenderKeepsOnlyReadWriteHelperSurface
   testEventRenderKeepsOnlyNeededEventSurface
+  testHashLiteralRenderKeepsMakeSurfaceOnly
+  testHashPreimageRenderKeepsSha256AndPreimageHelper
+  testHashPairRenderKeepsTwoToOneAndMemcpySurface
+  testHashEqRenderKeepsEqualityHelperOnly
+  testPowRenderKeepsOnlyMatchingNumericPowHelper
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0

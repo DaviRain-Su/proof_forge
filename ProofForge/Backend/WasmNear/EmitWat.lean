@@ -181,8 +181,18 @@ def returnHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
     (if plan.returnTypes.contains .u32 then #[returnU32Func] else #[]) ++
     (if plan.returnTypes.contains .bool then #[returnBoolFunc] else #[])
 
-def powHelperFuncs : Array Func :=
-  #[powFunc .u32, powFunc .u64]
+def modulePlanUsesHashAlloc (plan : ModulePlan) : Bool :=
+  plan.usesHashMake || plan.usesHashPreimage || plan.usesHashTwoToOne ||
+    plan.scalarReadTypes.contains .hash || plan.contextOps.contains .randomSeed
+
+def modulePlanUsesSha256 (plan : ModulePlan) : Bool :=
+  plan.usesHashPreimage || plan.usesHashTwoToOne ||
+    plan.contextOps.contains .userId || plan.contextOps.contains .contractId ||
+    plan.contextOps.contains .origin
+
+def powHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.usesPowU32 then #[powFunc .u32] else #[]) ++
+    (if plan.usesPowU64 then #[powFunc .u64] else #[])
 
 -- Map helpers ----------------------------------------------------------
 -- Map<U64, T>: storage key = prefix(stateId ++ ":") ++ 8 key bytes.
@@ -634,8 +644,13 @@ def writeHashFunc : Func :=
       .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
       .i64Const 32, .localGet "v", .plain "i64.extend_i32_u", .i64Const 0, .call "storage_write", .drop ] } }
 
-def hashHelperFuncs : Array Func :=
-  #[ hashAllocFunc, hashMakeFunc, hashSFunc, memcpyFunc, hashTwoFunc, hashEqFunc ]
+def hashExprHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if modulePlanUsesHashAlloc plan then #[hashAllocFunc] else #[]) ++
+    (if plan.usesHashMake then #[hashMakeFunc] else #[]) ++
+    (if plan.usesHashPreimage then #[hashSFunc] else #[]) ++
+    (if plan.usesMemcpy then #[memcpyFunc] else #[]) ++
+    (if plan.usesHashTwoToOne then #[hashTwoFunc] else #[]) ++
+    (if plan.usesHashEq then #[hashEqFunc] else #[])
 
 def hashStorageHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.scalarReadTypes.contains .hash then #[readHashFunc] else #[]) ++
@@ -2000,8 +2015,9 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
+  let sha256Imports := if modulePlanUsesSha256 modulePlan then #[sha256Import] else #[]
   let baseImportsCore :=
-    (nearImportsForModulePlan modulePlan).push sha256Import |>.push inputImport
+    (nearImportsForModulePlan modulePlan ++ sha256Imports).push inputImport
       |> fun imports =>
         if modulePlan.usesEventApi || modulePlan.usesPromiseApi then
           imports.push logUtf8Import
@@ -2016,13 +2032,18 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
       else #[]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncsForModulePlan modulePlan ++ mapHelperFuncsForModulePlan modulePlan ++ mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
+  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
+    powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
+    hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
+    evtHelperFuncsForModulePlan modulePlan ++ mapHelperFuncsForModulePlan modulePlan ++
+    mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then
       #[arrPtrGlobalDecl mod.allocator.heapBase, arrFreeGlobalDecl]
     else #[arrPtrGlobalDecl mod.allocator.heapBase]
-  let globals := #[hashPtrGlobalDecl] ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
+  let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
+  let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := scalarData ++ mapData ++ boolData ++ #[evtKeyData] ++ stringData ++ (if hasPanic then panicData else #[]) }
