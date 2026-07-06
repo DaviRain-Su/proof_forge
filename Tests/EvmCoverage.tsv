@@ -27,6 +27,7 @@ ContextField	userId	validated	ContextProbe lowers userId context reads to Yul ca
 ContextField	contractId	validated	ContextProbe lowers contractId context reads to Yul address() and Foundry verifies the etched runtime address.
 ContextField	checkpointId	validated	ContextProbe lowers checkpointId context reads to Yul number() and Foundry verifies a vm.roll block number.
 ContextField	timestamp	validated	ContextProbe lowers timestamp context reads to Yul timestamp() and Foundry verifies a vm.warp timestamp.
+ContextField	epochHeight	unsupported	EVM has no epoch-height opcode; buildContextExprPlan rejects epochHeight with an explicit unsupported diagnostic.
 ContextField	chainId	validated	ContextProbe lowers chainId context reads to Yul chainid() and Foundry verifies a vm.chainId chain id.
 ContextField	gasPrice	validated	ContextProbe lowers gasPrice context reads to Yul gasprice() and Foundry verifies a vm.txGasPrice gas price.
 ContextField	gasLeft	validated	ContextProbe lowers gasLeft context reads to Yul gas() and Foundry verifies a non-zero gas left value.

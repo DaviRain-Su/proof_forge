@@ -25,6 +25,9 @@ def checkpointId : ProofForge.IR.Expr :=
 def timestamp : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.timestamp
 
+def epochHeight : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.epochHeight
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.u64 value
 

@@ -404,6 +404,7 @@ def signerImport : Import := hostImport "signer_account_id" #[.i64] #[]
 def depositImport : Import := hostImport "attached_deposit" #[] #[.i64]
 def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
 def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
+def epochHeightImport : Import := hostImport "epoch_height" #[] #[.i64]
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
 def ctxSignerName : String := "__pf_ctx_signer_id"
@@ -967,6 +968,7 @@ mutual
     | .effect (.contextRead .contractId) => .ok (#[.call ctxContractIdName], .u64)
     | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
     | .effect (.contextRead .timestamp) => .ok (#[.call "block_timestamp"], .u64)
+    | .effect (.contextRead .epochHeight) => .ok (#[.call "epoch_height"], .u64)
     | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value

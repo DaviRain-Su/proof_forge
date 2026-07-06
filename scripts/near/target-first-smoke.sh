@@ -8,6 +8,7 @@ OUT_ROOT="${PROOF_FORGE_NEAR_TARGET_FIRST_OUT:-build/wasm-near-target-first}"
 COUNTER_DIR="$OUT_ROOT/counter-emit"
 CONTEXT_DIR="$OUT_ROOT/context-build"
 TIMESTAMP_DIR="$OUT_ROOT/timestamp-build"
+EPOCH_DIR="$OUT_ROOT/epoch-build"
 STORAGE_DIR="$OUT_ROOT/storage-deposit-build"
 HOST=(cargo run --quiet --manifest-path runtime/offline-host/Cargo.toml -- run)
 
@@ -95,6 +96,29 @@ python3 scripts/sdk/validate-sdk-artifact-refs.py \
 out="$("${HOST[@]}" "$TIMESTAMP_DIR/neartimestamp.wat" now --block-timestamp 123456789)"
 echo "$out"
 assert_contains "$out" "call 1:now: return_hex=15cd5b0700000000 return_u64=123456789" "contract_source timestamp"
+
+lake env proof-forge build --target wasm-near --root . -o "$EPOCH_DIR" \
+  Tests/ContractSource/NearEpochHeight.lean
+
+python3 scripts/near/validate-emitwat-metadata.py \
+  "$EPOCH_DIR/proof-forge-artifact.json" \
+  --expected-fixture nearepochheight \
+  --expected-module NearEpochHeight \
+  --expected-entrypoints epoch \
+  --expected-source-kind contract-sdk
+python3 scripts/sdk/validate-sdk-schema.py \
+  "$EPOCH_DIR/proof-forge-sdk.json" \
+  --expect-schema proof-forge.sdk-schema.v0 \
+  --expect-ir portable-ir-v0 \
+  --expect-target wasm-near
+python3 scripts/sdk/validate-sdk-artifact-refs.py \
+  --require-relative \
+  --reject-absolute \
+  "$EPOCH_DIR/proof-forge-sdk.json"
+
+out="$("${HOST[@]}" "$EPOCH_DIR/nearepochheight.wat" epoch --epoch-height 321)"
+echo "$out"
+assert_contains "$out" "call 1:epoch: return_hex=4101000000000000 return_u64=321" "contract_source epoch height"
 
 lake env proof-forge build --target wasm-near --root . -o "$STORAGE_DIR" \
   Tests/ContractSource/NearStorageDeposit.lean

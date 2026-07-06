@@ -64,6 +64,10 @@ out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat blockTimestamp --block-t
 echo "$out"
 assert_contains "$out" "call 1:blockTimestamp: return_hex=0903000000000000 return_u64=777" "block timestamp"
 
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat epochHeight --epoch-height 88)"
+echo "$out"
+assert_contains "$out" "call 1:epochHeight: return_hex=5800000000000000 return_u64=88" "epoch height"
+
 out="$("${HOST[@]}" build/wasm-near/emitwat-path-assign.wat path_assign_lifecycle)"
 echo "$out"
 assert_contains "$out" "call 1:path_assign_lifecycle: return_hex=1e00000000000000 return_u64=30" "path assign"

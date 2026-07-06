@@ -123,6 +123,7 @@ mutual
     | contractId
     | checkpointId
     | timestamp
+    | epochHeight
     | chainId
     | gasPrice
     | gasLeft
@@ -215,6 +216,7 @@ def ContextField.name : ContextField → String
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
   | .timestamp => "timestamp"
+  | .epochHeight => "epochHeight"
   | .chainId => "chainId"
   | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
@@ -227,7 +229,7 @@ def ContextField.name : ContextField → String
 def ContextField.capability : ContextField → ProofForge.Target.Capability
   | .userId | .origin => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .coinbase | .blockHash _ => .envBlock
 
 structure ErrorRef where
   assertionId : UInt32

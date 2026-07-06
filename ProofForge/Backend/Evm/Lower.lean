@@ -1196,6 +1196,7 @@ mutual
     | .contractId => .ok .contractId
     | .checkpointId => .ok .checkpointId
     | .timestamp => .ok .timestamp
+    | .epochHeight => .error { message := "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode" }
     | .chainId => .ok .chainId
     | .gasPrice => .ok .gasPrice
     | .gasLeft => .ok .gasLeft

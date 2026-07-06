@@ -25,6 +25,7 @@ ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env:
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
 ContextField	checkpointId	lowered	lowerEffectExpr emits env::block_height(); capability envBlock is present in the wasm-near profile.
 ContextField	timestamp	unsupported	wasm-near IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	epochHeight	unsupported	wasm-near IR v0 sourcegen is frozen and rejects epochHeight with an explicit diagnostic; EmitWat is the canonical path for env.epoch_height.
 ContextField	chainId	unsupported	wasm-near IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	wasm-near IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	wasm-near IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.

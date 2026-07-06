@@ -307,13 +307,13 @@ def mapHelperFunctions (assignOps : Array AssignOp) : Array Lean.Compiler.Yul.St
   mapBaseHelperFunctions ++ assignOps.map mapAssignHelperFunction
 
 def contextFieldExpr
-    {ε : Type}
-    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr) :
-    ContextField → Except ε Lean.Compiler.Yul.Expr
+    (lowerExpr : Expr → Except String Lean.Compiler.Yul.Expr) :
+    ContextField → Except String Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])
+  | .epochHeight => .error "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode"
   | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
   | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])

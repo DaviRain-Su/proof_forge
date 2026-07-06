@@ -25,6 +25,7 @@ ContextField	userId	lowered	contextFunction lowers to get_user_id and ContextPro
 ContextField	contractId	lowered	contextFunction lowers to get_contract_id and ContextProbe covers it.
 ContextField	checkpointId	lowered	contextFunction lowers to get_checkpoint_id and ContextProbe covers it.
 ContextField	timestamp	unsupported	Psy IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	epochHeight	unsupported	Psy IR v0 context read catch-all rejects epochHeight with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	chainId	unsupported	Psy IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	Psy IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	Psy IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.

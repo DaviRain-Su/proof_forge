@@ -608,7 +608,7 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       .ok (stateAfterValue.write key value, value)
   | .contextRead field =>
       match field with
-      | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
+      | .userId | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
           .ok (state, .u64 0)
       | .origin | .coinbase | .blockHash _ =>
           .ok (state, .hash 0 0 0 0)

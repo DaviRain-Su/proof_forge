@@ -180,7 +180,8 @@ economics) is almost entirely missing.
 | ripemd160 / ecrecover / ed25519_verify | Missing | No host imports | P1 |
 | block_height | Covered | EmitWat + offline host | — |
 | block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
-| epoch_height / random_seed | Missing | Offline host only tracks `block_index` and `block_timestamp` | P1 |
+| epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
+| random_seed | Missing | No `random_seed` host import or hash-returning context field yet | P1 |
 | storage_remove | Missing | No remove host import | P1 |
 
 ### Deployment

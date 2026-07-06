@@ -29,6 +29,7 @@ struct Config {
     attached_deposit: u64,
     block_index: u64,
     block_timestamp: u64,
+    epoch_height: u64,
 }
 
 impl Config {
@@ -47,6 +48,7 @@ impl Config {
         let mut attached_deposit: u64 = 0;
         let mut block_index = 0;
         let mut block_timestamp = 0;
+        let mut epoch_height = 0;
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -102,6 +104,11 @@ impl Config {
                         .parse()
                         .context("--block-timestamp must be a non-negative integer")?;
                 }
+                "--epoch-height" => {
+                    epoch_height = take_arg(&mut args, "--epoch-height")?
+                        .parse()
+                        .context("--epoch-height must be a non-negative integer")?;
+                }
                 _ if arg.starts_with('-') => bail!("unknown option `{arg}`"),
                 _ => positionals.push(arg),
             }
@@ -138,6 +145,7 @@ impl Config {
             attached_deposit,
             block_index,
             block_timestamp,
+            epoch_height,
         })
     }
 }
@@ -165,7 +173,8 @@ fn print_usage() {
            --signer-account-id ID        signer_account_id stub value\n\
            --attached-deposit N          attached_deposit stub value\n\
            --block-index N               block_index stub value\n\
-           --block-timestamp N           block_timestamp stub value"
+           --block-timestamp N           block_timestamp stub value\n\
+           --epoch-height N              epoch_height stub value"
     );
 }
 
@@ -217,6 +226,7 @@ fn run(config: Config) -> Result<()> {
         config.attached_deposit,
         config.block_index,
         config.block_timestamp,
+        config.epoch_height,
     );
     let mut store = Store::new(&engine, host);
     let initial_fuel: u64 = 10_000_000_000;
@@ -317,6 +327,7 @@ struct HostState {
     attached_deposit: u64,
     block_index: u64,
     block_timestamp: u64,
+    epoch_height: u64,
     allocator: LinearMemoryAllocator,
     panic_message: Option<String>,
 }
@@ -331,6 +342,7 @@ impl HostState {
         attached_deposit: u64,
         block_index: u64,
         block_timestamp: u64,
+        epoch_height: u64,
     ) -> Self {
         Self {
             registers: HashMap::new(),
@@ -344,6 +356,7 @@ impl HostState {
             attached_deposit,
             block_index,
             block_timestamp,
+            epoch_height,
             allocator: LinearMemoryAllocator::new(heap_base),
             panic_message: None,
         }
@@ -652,6 +665,12 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         "env",
         "block_timestamp",
         |caller: Caller<'_, HostState>| -> i64 { caller.data().block_timestamp as i64 },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "epoch_height",
+        |caller: Caller<'_, HostState>| -> i64 { caller.data().epoch_height as i64 },
     )?;
 
     // Promise API stubs
