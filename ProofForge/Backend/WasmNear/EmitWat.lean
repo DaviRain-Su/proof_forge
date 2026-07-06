@@ -33,6 +33,7 @@ import ProofForge.Backend.WasmNear.Locals
 import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
+import ProofForge.Backend.WasmNear.ModuleAssembly
 import ProofForge.Backend.WasmNear.Params
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Promise
@@ -63,6 +64,7 @@ open ProofForge.Backend.WasmNear.LoweringEnv
 open ProofForge.Backend.WasmNear.Map
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Memory
+open ProofForge.Backend.WasmNear.ModuleAssembly
 open ProofForge.Backend.WasmNear.Params
 open ProofForge.Backend.WasmNear.Promise
 open ProofForge.Backend.WasmNear.Scalar
@@ -179,6 +181,10 @@ export ProofForge.Backend.WasmNear.Memory (
   OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF crosscallPoolPtrName
   crosscallPoolLenName disjointRegions memoryLayoutNonoverlap
   memoryLayoutNonoverlap_valid
+)
+
+export ProofForge.Backend.WasmNear.ModuleAssembly (
+  moduleStringPoolEnd loweringCtxForModule
 )
 
 export ProofForge.Backend.WasmNear.Params (
@@ -1052,18 +1058,10 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     match buildModulePlan mod with
     | .ok plan => pure plan
     | .error planErr => err s!"EmitWat: {planErr.message}"
-  let scalars := stateLayout mod
-  let maps := mapLayout mod
-  let strs := stringPool mod
-  let stringPoolEnd := strs.foldl (init := STRING_BASE) fun acc s => max acc (s.ptr + s.len + 1)
-  let panics := panicPool mod stringPoolEnd
-  let crosscallStrs := crosscallStringInfos mod.nearCrosscallStrings CROSSCALL_STRING_BASE
-  let ctx := {
-    scalars := scalars, maps := maps, strings := strs, panics := panics,
-    crosscallStrings := crosscallStrs, structs := mod.structs, allocator := mod.allocator : Ctx }
+  let ctx := loweringCtxForModule mod
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
-  let scalarData := scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
-  let mapData := maps.map fun m => { offset := m.prefixPtr, bytes := m.id ++ ":" : DataSegment }
+  let scalarData := ctx.scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
+  let mapData := ctx.maps.map fun m => { offset := m.prefixPtr, bytes := m.id ++ ":" : DataSegment }
   let boolData : Array DataSegment :=
     #[{ offset := TRUE_PTR, bytes := "true" },
       { offset := FALSE_PTR, bytes := "false" },
@@ -1075,11 +1073,11 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let usesCrosscallStrings := modulePlan.usesPromiseCreate || modulePlan.usesPromiseThen
   let crosscallStringData :=
     if usesCrosscallStrings then
-      crosscallStrs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
+      ctx.crosscallStrings.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
     else #[]
-  let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
-  let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
-  let hasPanic := !panics.isEmpty
+  let stringData := ctx.strings.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
+  let panicData := ctx.panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
+  let hasPanic := !ctx.panics.isEmpty
   let isHost := mod.allocator.requiresHost
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic
   let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
@@ -1087,7 +1085,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
     evtHelperFuncsForModulePlan modulePlan ++ crosscallArgsHelperFuncsForModulePlan modulePlan ++
     promiseHelperFuncsForModulePlan modulePlan ++
-    crosscallPoolHelperFuncs crosscallStrs ++
+    crosscallPoolHelperFuncs ctx.crosscallStrings ++
     mapHelperFuncsForModulePlan modulePlan ++
     mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
   let arrPtrDecls :=
