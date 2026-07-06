@@ -708,9 +708,11 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "storage_read" => plan.usesStorageRead
     | "storage_write" => plan.usesStorageWrite
     | "value_return" => !plan.returnTypes.isEmpty
-    | "promise_create" | "promise_then" | "promise_results_count" | "promise_result" | "promise_return" =>
-        plan.usesPromiseApi
-    | "log_utf8" => plan.usesEventApi || plan.usesPromiseApi
+    | "promise_create" => plan.usesPromiseCreate
+    | "promise_then" => plan.usesPromiseThen
+    | "promise_results_count" | "promise_result" => plan.usesPromiseResults
+    | "promise_return" => plan.usesPromiseReturn
+    | "log_utf8" => plan.usesEventApi || plan.usesPromiseCreate
     | "signer_account_id" => plan.contextOps.contains .origin
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
@@ -728,6 +730,14 @@ def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
     (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
     (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
     (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[])
+
+def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
+  if !plan.usesPromiseReceiverAccount then
+    #[]
+  else
+    (if plan.contextOps.contains .contractId then #[] else #[currentAcctImport]) ++
+      (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
+        #[] else #[registerLenImport])
 
 def lowerContextExprPlan :
     ContextExprPlan → Except EmitError (Array Insn × ValueType)
@@ -2032,6 +2042,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let boolData : Array DataSegment :=
     #[{ offset := TRUE_PTR, bytes := "true" }, { offset := FALSE_PTR, bytes := "false" }]
   let evtKeyData : DataSegment := { offset := EVT_KEY_PTR, bytes := "event" }
+  let evtKeySegments := if modulePlan.usesEventApi || modulePlan.usesPromiseCreate then #[evtKeyData] else #[]
   let stringData := strs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let panicData := panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !panics.isEmpty
@@ -2039,14 +2050,14 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let baseImportsCore :=
     (nearImportsForModulePlan modulePlan ++ sha256Imports).push inputImport
       |> fun imports =>
-        if modulePlan.usesEventApi || modulePlan.usesPromiseApi then
+        if modulePlan.usesEventApi || modulePlan.usesPromiseCreate then
           imports.push logUtf8Import
         else
           imports
   let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
   let extraImports := if isHost then #[allocImport, deallocImport] else #[]
-  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++
+  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
     (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
       then #[storageHasKeyImport]
       else #[]) ++ extraImports
@@ -2064,7 +2075,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
-        dataSegments := scalarData ++ mapData ++ boolData ++ #[evtKeyData] ++ stringData ++ (if hasPanic then panicData else #[]) }
+        dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++ (if hasPanic then panicData else #[]) }
 
 /-! EmitWat supports the same capability surface as the `wasmNear` target profile,
     plus `controlConditional` and `controlBoundedLoop` (if/else + boundedFor are

@@ -2,6 +2,7 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.StructProbe
+import ProofForge.IR.Examples.CrosscallProbe
 
 namespace ProofForge.Tests.WasmNearPlan
 
@@ -457,6 +458,22 @@ def testArrayPredicateRenderKeepsEqualityAndDeallocSurface : IO Unit := do
   requireContains releaseWat "__pf_arr_dealloc" "array-release module must emit arr dealloc helper"
   requireNotContains releaseWat "__pf_arr_eq_u64_3" "array-release module should not emit array equality helper"
 
+def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
+  -- Crosscall is not in the wasm-near target profile yet; test the v0 stub lowering path directly.
+  let wat ←
+    match renderCheckedModule ProofForge.IR.Examples.CrosscallProbe.module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat crosscall render failed: {err.message}"
+  requireContains wat "(import \"env\" \"promise_create\"" "crosscall module must import promise_create"
+  requireContains wat "(import \"env\" \"current_account_id\"" "crosscall module must import current_account_id"
+  requireContains wat "(import \"env\" \"register_len\"" "crosscall module must import register_len"
+  requireContains wat "(import \"env\" \"log_utf8\"" "crosscall module must import log_utf8"
+  requireContains wat "(data (i32.const 42800) \"event\")" "crosscall module must retain event key data"
+  requireNotContains wat "(import \"env\" \"promise_then\"" "crosscall module should not import promise_then"
+  requireNotContains wat "(import \"env\" \"promise_results_count\"" "crosscall module should not import promise_results_count"
+  requireNotContains wat "(import \"env\" \"promise_result\"" "crosscall module should not import promise_result"
+  requireNotContains wat "(import \"env\" \"promise_return\"" "crosscall module should not import promise_return"
+
 def testStructLiteralRenderKeepsOnlyMatchingStructLitSurface : IO Unit := do
   let wat ←
     match renderModule ProofForge.IR.Examples.StructProbe.emitWatLocalSumModule with
@@ -507,6 +524,7 @@ def main : IO UInt32 := do
   testPowRenderKeepsOnlyMatchingNumericPowHelper
   testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface
   testArrayPredicateRenderKeepsEqualityAndDeallocSurface
+  testCrosscallRenderKeepsOnlyCreatePromiseSurface
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"

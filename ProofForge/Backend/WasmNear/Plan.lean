@@ -294,6 +294,11 @@ structure ModuleSurface where
   usesStorageRead : Bool := false
   usesStorageWrite : Bool := false
   usesPromiseApi : Bool := false
+  usesPromiseCreate : Bool := false
+  usesPromiseThen : Bool := false
+  usesPromiseResults : Bool := false
+  usesPromiseReturn : Bool := false
+  usesPromiseReceiverAccount : Bool := false
   usesEventApi : Bool := false
   usesEventNumeric : Bool := false
   usesEventBool : Bool := false
@@ -340,6 +345,11 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesStorageRead := lhs.usesStorageRead || rhs.usesStorageRead
   usesStorageWrite := lhs.usesStorageWrite || rhs.usesStorageWrite
   usesPromiseApi := lhs.usesPromiseApi || rhs.usesPromiseApi
+  usesPromiseCreate := lhs.usesPromiseCreate || rhs.usesPromiseCreate
+  usesPromiseThen := lhs.usesPromiseThen || rhs.usesPromiseThen
+  usesPromiseResults := lhs.usesPromiseResults || rhs.usesPromiseResults
+  usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
+  usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
   usesEventApi := lhs.usesEventApi || rhs.usesEventApi
   usesEventNumeric := lhs.usesEventNumeric || rhs.usesEventNumeric
   usesEventBool := lhs.usesEventBool || rhs.usesEventBool
@@ -400,6 +410,14 @@ def withStorageWrite : ModuleSurface := {
 
 def withPromiseApi : ModuleSurface := {
   usesPromiseApi := true
+}
+
+/-- EmitWat v0 crosscall lowering currently builds a `promise_create` stub and
+    reads the receiver account id from `current_account_id`. -/
+def withCrosscallStub : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseCreate := true
+  usesPromiseReceiverAccount := true
 }
 
 def withEventApi : ModuleSurface := {
@@ -803,7 +821,7 @@ mutual
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
-            ModuleSurface.withPromiseApi
+            ModuleSurface.withCrosscallStub
         args.foldlM (init := base) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallInvokeValueTyped target methodId callValue args _ => do
@@ -812,15 +830,15 @@ mutual
             (mergeModuleSurfaces
               (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
               (← surfaceFromExpr module env callValue))
-            ModuleSurface.withPromiseApi
+            ModuleSurface.withCrosscallStub
         args.foldlM (init := base) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
     | .crosscallCreate callValue _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withPromiseApi
+        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallStub
     | .crosscallCreate2 callValue salt _ =>
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
-          ModuleSurface.withPromiseApi
+          ModuleSurface.withCrosscallStub
     | .effect effect =>
         surfaceFromEffect module env effect
 
@@ -996,6 +1014,11 @@ structure ModulePlan where
   usesStorageRead : Bool
   usesStorageWrite : Bool
   usesPromiseApi : Bool
+  usesPromiseCreate : Bool
+  usesPromiseThen : Bool
+  usesPromiseResults : Bool
+  usesPromiseReturn : Bool
+  usesPromiseReceiverAccount : Bool
   usesEventApi : Bool
   usesEventNumeric : Bool
   usesEventBool : Bool
@@ -1032,6 +1055,11 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesStorageRead := surface.usesStorageRead
     usesStorageWrite := surface.usesStorageWrite
     usesPromiseApi := surface.usesPromiseApi
+    usesPromiseCreate := surface.usesPromiseCreate
+    usesPromiseThen := surface.usesPromiseThen
+    usesPromiseResults := surface.usesPromiseResults
+    usesPromiseReturn := surface.usesPromiseReturn
+    usesPromiseReceiverAccount := surface.usesPromiseReceiverAccount
     usesEventApi := surface.usesEventApi
     usesEventNumeric := surface.usesEventNumeric
     usesEventBool := surface.usesEventBool

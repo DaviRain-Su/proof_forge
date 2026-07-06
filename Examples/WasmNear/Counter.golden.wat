@@ -93,5 +93,4 @@
   (data (i32.const 0) "count")
   (data (i32.const 12000) "true")
   (data (i32.const 12006) "false")
-  (data (i32.const 42800) "event")
 )
