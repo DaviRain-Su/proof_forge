@@ -1,3 +1,4 @@
+import ProofForge.Backend.WasmNear.ArrayHeap
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Crosscall

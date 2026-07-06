@@ -17,6 +17,7 @@ import ProofForge.IR.Contract
 import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
+import ProofForge.Backend.WasmNear.ArrayHeap
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Crosscall
@@ -39,6 +40,7 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.ArrayHeap
 open ProofForge.Backend.WasmNear.Common
 open ProofForge.Backend.WasmNear.Context
 open ProofForge.Backend.WasmNear.Crosscall
@@ -53,6 +55,12 @@ open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Promise
 open ProofForge.Backend.WasmNear.Scalar
 open ProofForge.Backend.WasmNear.Types
+
+export ProofForge.Backend.WasmNear.ArrayHeap (
+  arrPtrGlobal arrFreeGlobal arrAllocName arrPtrGlobalDecl arrFreeGlobalDecl
+  arrAllocFunc arrDeallocFunc modulePlanUsesArrHeap
+  arrHeapHelperFuncsForModulePlan
+)
 
 export ProofForge.Backend.WasmNear.Common (
   memcpyName memcpyFunc
@@ -150,11 +158,6 @@ export ProofForge.Backend.WasmNear.Types (
   returnBoolName
 )
 
--- Array-value bump allocator (for arrayLit temporaries). Returns current ptr and
--- advances by the byte count; the caller stores elements into [ptr, ptr+n).
-def arrPtrGlobal     : String := "arr_ptr"
-def arrFreeGlobal    : String := "arr_free"
-def arrAllocName     : String := "__pf_arr_alloc"
 def arrayLitName (elemType : ValueType) (len : Nat) : String :=
   "__pf_arr_lit_" ++ typeSuffix elemType ++ "_" ++ toString len
 def arrEqName (elemType : ValueType) (len : Nat) : String :=
@@ -188,75 +191,7 @@ def zeroStructBufInsns (s : ProofForge.IR.StructDecl) : Array Insn :=
        st.2 ++ #[.i32Const st.1, .i32Const STRUCT_BUF, .plain "i32.add",
                  .const (wasmTypeOf f.type) "0", .store (storeOpFor f.type) 0]))
     (0, (#[] : Array Insn))).2
-/-- The `arr_ptr` mutable global holds the bump frontier; only emitted for
-    chain-deployment allocators (offline imported allocators have no frontier). -/
-def arrPtrGlobalDecl (heapBase : Nat) : Global :=
-  { name := arrPtrGlobal, type := .i32, init := toString heapBase, isMutable := true }
-def arrFreeGlobalDecl : Global :=
-  { name := arrFreeGlobal, type := .i32, init := "0", isMutable := true }
-/-- `__pf_arr_alloc(n) -> i32` lowered per allocator mode: no-free deployment
-    advances the frontier; NEAR/minimal deployment emits a wasm-internal
-    first-fit allocator; offline experiments forward to `pf_alloc`. -/
-def arrAllocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
-  if cfg.usesMinimalMallocShape then
-    { name := arrAllocName, params := #[{ name := "n", type := .i64 }], results := #[.i32],
-      locals := #[{ name := "need", type := .i32 }, { name := "prev", type := .i32 },
-                  { name := "curr", type := .i32 }, { name := "next", type := .i32 },
-                  { name := "block", type := .i32 }, { name := "end", type := .i32 }],
-      body := { insns := #[
-        -- total block size = align8(payload bytes + 8-byte header)
-        .localGet "n", .i64Const 15, .plain "i64.add", .const .i64 "-8", .plain "i64.and",
-        .plain "i32.wrap_i64", .localSet "need",
-        .i32Const 0, .localSet "prev",
-        .globalGet arrFreeGlobal, .localSet "curr",
-        .block_ { insns := #[ .loop_ { insns := #[
-          .localGet "curr", .plain "i32.eqz", .brIf 1,
-          .localGet "curr", .load "i32.load" 0, .localGet "need", .plain "i32.ge_u",
-          .if_ { insns := #[
-            .localGet "curr", .load "i32.load" 4, .localSet "next",
-            .localGet "prev", .plain "i32.eqz",
-            .if_ { insns := #[ .localGet "next", .globalSet arrFreeGlobal ] }
-                 { insns := #[ .localGet "prev", .localGet "next", .store "i32.store" 4 ] },
-            .localGet "curr", .i32Const 8, .plain "i32.add", .return_ ] } { insns := #[] },
-          .localGet "curr", .localSet "prev",
-          .localGet "curr", .load "i32.load" 4, .localSet "curr",
-          .br 0 ] } ] },
-        .globalGet arrPtrGlobal, .localSet "block",
-        .localGet "block", .localGet "need", .plain "i32.add", .localSet "end",
-        .localGet "end", .plain "memory.size", .i32Const 65536, .plain "i32.mul", .plain "i32.gt_u",
-        .if_ { insns := #[
-          .localGet "end", .plain "memory.size", .i32Const 65536, .plain "i32.mul", .plain "i32.sub",
-          .i32Const 65535, .plain "i32.add", .i32Const 16, .plain "i32.shr_u",
-          .plain "memory.grow", .const .i32 "-1", .plain "i32.eq",
-          .if_ { insns := #[.unreachable] } { insns := #[] } ] } { insns := #[] },
-        .localGet "end", .globalSet arrPtrGlobal,
-        .localGet "block", .localGet "need", .store "i32.store" 0,
-        .localGet "block", .i32Const 0, .store "i32.store" 4,
-        .localGet "block", .i32Const 8, .plain "i32.add" ] } }
-  else
-    { name := arrAllocName, params := #[{ name := "n", type := .i64 }], results := #[.i32],
-      body := { insns :=
-        if cfg.requiresHost then #[.localGet "n", .call allocImportName]
-        else #[ .globalGet arrPtrGlobal,
-          .globalGet arrPtrGlobal, .localGet "n", .plain "i32.wrap_i64", .plain "i32.add", .globalSet arrPtrGlobal ] } }
-/-- `__pf_arr_dealloc(ptr, n)`: no-op for no-free deployment strategies, host
-    forwarder for offline experiments, and wasm-internal free-list update for
-    chain deployment allocators with reuse. `Statement.release` lowers to this
-    helper for heap-backed locals. -/
-def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
-  if cfg.usesMinimalMallocShape then
-    { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
-      results := #[], locals := #[{ name := "block", type := .i32 }],
-      body := { insns := #[
-        .localGet "p", .plain "i32.eqz",
-        .if_ { insns := #[.return_] } { insns := #[] },
-        .localGet "p", .i32Const 8, .plain "i32.sub", .localSet "block",
-        .localGet "block", .globalGet arrFreeGlobal, .store "i32.store" 4,
-        .localGet "block", .globalSet arrFreeGlobal ] } }
-  else
-    { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
-      results := #[],
-      body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
+
 def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
   #[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read",
     .i64Const 0, .plain "i64.ne",
@@ -1251,9 +1186,6 @@ def moduleStructLitNames (mod : ProofForge.IR.Module) : Array String :=
 def structLitHelperFuncs (mod : ProofForge.IR.Module) : Array Func :=
   moduleStructLitNames mod |>.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
 
-def modulePlanUsesArrHeap (plan : ModulePlan) : Bool :=
-  plan.usesArrAlloc || plan.usesArrDealloc
-
 def arrayLitFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   plan.arrayLitShapes.map (fun (elemType, len) => arrLitFunc elemType len)
 
@@ -1262,10 +1194,6 @@ def arrayEqFuncsForModulePlan (plan : ModulePlan) : Array Func :=
 
 def structLitFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
   plan.structLitNames.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
-
-def arrHeapHelperFuncsForModulePlan (plan : ModulePlan) (cfg : ProofForge.IR.AllocatorConfig) : Array Func :=
-  (if plan.usesArrAlloc then #[arrAllocFunc cfg] else #[]) ++
-    (if plan.usesArrDealloc then #[arrDeallocFunc cfg] else #[])
 
 def aggregateHelperFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
   arrayLitFuncsForModulePlan plan ++ arrayEqFuncsForModulePlan plan ++
