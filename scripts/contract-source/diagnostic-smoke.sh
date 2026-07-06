@@ -47,8 +47,8 @@ require_stderr() {
   fi
 }
 
-require_stderr "target \`wasm-near\` does not support capability \`crosscall.invoke\`"
-require_stderr "on operation \`contract_source.crosscall\`"
+require_stderr "target \`wasm-near\` does not support capability \`crosscall.cpi\`"
+require_stderr "on operation \`contract_source.solana_cpi\`"
 require_stderr "Tests/ContractSource/UnsupportedNear.lean:contract_source.use"
 
 echo "contract-source-diagnostics: ok"

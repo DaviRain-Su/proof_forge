@@ -24,6 +24,7 @@ ValueType	address	validated	Address is a static single-word EVM type (like Hash)
 ValueType	bytes	validated	Bytes is a dynamic ABI type requiring head-tail encoding; EvmDynamicAbiProbe Foundry test validates bytes ABI round-trip via echo_bytes(bytes) including empty, short, multi-word, and padded data; pattern match exhaustiveness verified across EVM backend.
 ValueType	string	validated	String is a dynamic ABI type requiring head-tail encoding; EvmDynamicAbiProbe Foundry test validates string ABI round-trip via echo_string(string) including empty, short, multi-word, and special-character data; pattern match exhaustiveness verified across EVM backend.
 ContextField	userId	validated	ContextProbe lowers userId context reads to Yul caller() and Foundry verifies a vm.prank sender.
+ContextField	userIdHash	unsupported	EVM has no NEAR predecessor-account hash context; EVM Lower/IR/ToYul reject userIdHash with explicit diagnostics and keep userId/origin as EVM account context fields.
 ContextField	contractId	validated	ContextProbe lowers contractId context reads to Yul address() and Foundry verifies the etched runtime address.
 ContextField	checkpointId	validated	ContextProbe lowers checkpointId context reads to Yul number() and Foundry verifies a vm.roll block number.
 ContextField	timestamp	validated	ContextProbe lowers timestamp context reads to Yul timestamp() and Foundry verifies a vm.warp timestamp.

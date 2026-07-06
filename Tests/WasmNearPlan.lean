@@ -591,7 +591,7 @@ def testUnsupportedContextDiagnostic : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "chainId context read should not lower on wasm-near EmitWat"
   | .error err =>
-      require (err.message == "EmitWat: wasm-near context read `chainId` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin")
+      require (err.message == "EmitWat: wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin")
         s!"unsupported context diagnostic mismatch: {err.message}"
 
 def main : IO UInt32 := do

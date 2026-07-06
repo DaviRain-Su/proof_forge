@@ -70,6 +70,12 @@ mutual
         .ok (.call ⟨#["Mapping", "get_or_use"], #[], #[.identifier stateId, .literal (.integer .u64 0), .literal (.integer .u64 0)]⟩)
     | .effect ef =>
         .error { message := s!"Leo emitter does not support effect: {repr ef}" }
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _
+    | .nearCrosscallInvokePool _ _ _ _ =>
+        .error { message := "Leo emitter does not support NEAR promise expressions" }
     | other =>
         .error { message := s!"Leo emitter does not support expression: {repr other}" }
 

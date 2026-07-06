@@ -739,6 +739,7 @@
   (data (i32.const 49) "operations")
   (data (i32.const 12000) "true")
   (data (i32.const 12006) "false")
+  (data (i32.const 12012) "0123456789abcdef")
   (data (i32.const 42800) "event")
   (data (i32.const 43000) "VaultInitialized")
   (data (i32.const 43017) "initial")

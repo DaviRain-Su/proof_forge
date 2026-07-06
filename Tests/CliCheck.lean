@@ -29,15 +29,15 @@ def main : IO UInt32 := do
     diagnostics := #[{
       severity := .error
       code := "capability.unsupported"
-      message := "target `wasm-near` does not support capability `crosscall.invoke` on operation `contract_source.crosscall` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`"
-      file? := ProofForge.Cli.Check.parseDiagnosticSource? "target `wasm-near` does not support capability `crosscall.invoke` on operation `contract_source.crosscall` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`"
+      message := "target `wasm-near` does not support capability `crosscall.cpi` on operation `contract_source.solana_cpi` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`"
+      file? := ProofForge.Cli.Check.parseDiagnosticSource? "target `wasm-near` does not support capability `crosscall.cpi` on operation `contract_source.solana_cpi` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`"
     }]
     validation := #[("capabilities", "failed"), ("status", "failed")]
   }
   require (ProofForge.Cli.Check.hasErrors failed) "failed report should have errors"
   require (ProofForge.Cli.Check.reportJson failed |>.contains "\"status\": \"failed\"") "failed json status"
   match ProofForge.Cli.Check.parseDiagnosticSource?
-      "target `wasm-near` does not support capability `crosscall.invoke` on operation `contract_source.crosscall` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`" with
+      "target `wasm-near` does not support capability `crosscall.cpi` on operation `contract_source.solana_cpi` at `Tests/ContractSource/UnsupportedNear.lean:contract_source.use`" with
   | some loc =>
       require (loc == "Tests/ContractSource/UnsupportedNear.lean:contract_source.use") "source parse"
   | none => throw <| IO.userError "source parse failed"
