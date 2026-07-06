@@ -11,6 +11,7 @@ import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
+import ProofForge.Backend.WasmNear.Promise
 import ProofForge.Backend.WasmNear.Refinement
 import ProofForge.Backend.WasmNear.Scalar
 import ProofForge.Backend.WasmNear.Types

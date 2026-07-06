@@ -28,6 +28,7 @@ import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
+import ProofForge.Backend.WasmNear.Promise
 import ProofForge.Backend.WasmNear.Scalar
 import ProofForge.Backend.WasmNear.Types
 import ProofForge.Target.Check
@@ -49,6 +50,7 @@ open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Map
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Memory
+open ProofForge.Backend.WasmNear.Promise
 open ProofForge.Backend.WasmNear.Scalar
 open ProofForge.Backend.WasmNear.Types
 
@@ -129,6 +131,11 @@ export ProofForge.Backend.WasmNear.Memory (
   OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF crosscallPoolPtrName
   crosscallPoolLenName disjointRegions memoryLayoutNonoverlap
   memoryLayoutNonoverlap_valid
+)
+
+export ProofForge.Backend.WasmNear.Promise (
+  promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name
+  promiseResultU64Func promiseHelperFuncsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Scalar (
@@ -250,40 +257,6 @@ def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
     { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
       results := #[],
       body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
-def promiseCurrentAccountName : String := "__pf_promise_current_account"
-
-/-- Load the current contract account id into `CTX_BUF` and return its byte length. -/
-def promiseCurrentAccountFunc : Func :=
-  { name := promiseCurrentAccountName, results := #[.i64],
-    locals := #[{ name := "len", type := .i64 }],
-    body := { insns := #[
-      .i64Const 0, .call "current_account_id",
-      .i64Const 0, .call "register_len", .localSet "len",
-      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
-      .localGet "len" ] } }
-
-def promiseResultU64Name : String := "__pf_promise_result_u64"
-
-/-- Read promise result at `idx`, Borsh-decode register 0 as U64 (0 on failure). -/
-def promiseResultU64Func : Func :=
-  { name := promiseResultU64Name,
-    params := #[{ name := "idx", type := .i64 }],
-    results := #[.i64],
-    locals := #[{ name := "status", type := .i64 }, { name := "r", type := .i64 }],
-    body := { insns := #[
-      .localGet "idx", .i64Const 0, .call "promise_result", .localSet "status",
-      .i64Const 0, .localSet "r",
-      .localGet "status", .i64Const 1, .plain "i64.eq",
-      .if_ { insns := #[
-        .i64Const 0, .i64Const PROMISE_RESULT_BUF, .call "read_register",
-        .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0, .localSet "r"
-      ] } { insns := #[] },
-      .localGet "r" ] } }
-
-def promiseHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]) ++
-    (if plan.usesPromiseResultU64 then #[promiseResultU64Func] else #[])
-
 def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
   #[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read",
     .i64Const 0, .plain "i64.ne",
