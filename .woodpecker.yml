@@ -1,0 +1,20 @@
+# Codeberg Woodpecker CI for proof_forge.
+#
+# One-time setup (repo owner):
+#   1. Request access: https://codeberg.org/Codeberg-e.V./requests/issues/new?template=ISSUE_TEMPLATE%2fWoodpecker-CI.yaml
+#   2. Log in at https://ci.codeberg.org with your Codeberg account
+#   3. Enable this repo at https://ci.codeberg.org/repos/add
+#
+# Triggers: push and pull_request (all branches).
+# Gate: `just check` — the fast static baseline tracked by the project.
+
+when:
+  - event: [push, pull_request]
+
+steps:
+  - name: proof-forge-check
+    image: ubuntu:24.04
+    commands:
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+      - scripts/ci/woodpecker-setup.sh
+      - just check

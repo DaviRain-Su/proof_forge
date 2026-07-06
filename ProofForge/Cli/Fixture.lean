@@ -60,13 +60,17 @@ def ids : Array String := #[
   "solana-epoch-rewards-sysvar",
   "solana-last-restart-slot-sysvar",
   "solana-memory",
+  "solana-memo-cpi",
   "solana-crypto-hash",
   "solana-return-data-compute",
   "spl-token-transfer-cpi",
   "spl-token-ops-cpi",
   "spl-token-close-account-cpi",
   "spl-token-authority-cpi",
+  "associated-token-cpi",
   "spl-token-2022-cpi",
+  "spl-token-2022-pausable-cpi",
+  "spl-token-2022-transfer-hook",
   "system-cpi",
   "system-create-account-cpi",
   "log-event"
@@ -176,7 +180,8 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "solana-sbpf-asm", "error-ref", _ => true
   | "solana-sbpf-asm", "control", _ => true
   | "solana-sbpf-asm", f, _ =>
-      f.startsWith "solana-" || f.startsWith "spl-token-" || f.startsWith "system-" || f == "log-event" || f == "canned-entrypoint"
+      f.startsWith "solana-" || f.startsWith "spl-token-" || f.startsWith "system-" ||
+      f == "associated-token-cpi" || f == "log-event" || f == "canned-entrypoint"
   | "wasm-near", "counter", _ => true
   | "wasm-near", "error-ref", _ => true
   | "wasm-near", "context", _ => true
@@ -223,7 +228,8 @@ def capabilitiesFor (id : String) : Array ProofForge.Target.Capability :=
   | "nested-aggregate" | "storage-nested-aggregate" => #[.dataFixedArray, .dataStruct]
   | "control" => #[.controlConditional, .controlBoundedLoop]
   | f =>
-      if f.startsWith "solana-" || f.startsWith "spl-token-" || f.startsWith "system-" || f == "log-event" then
+      if f.startsWith "solana-" || f.startsWith "spl-token-" || f.startsWith "system-" ||
+         f == "associated-token-cpi" || f == "log-event" then
         #[.crosscallCpi, .storagePda, .runtimeMemory, .runtimeComputeUnits, .runtimeReturnData]
       else
         #[]

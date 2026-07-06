@@ -22,6 +22,15 @@ abbrev ContractSpec := ProofForge.Contract.ContractSpec
 def checkpointId : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.checkpointId
 
+def timestamp : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.timestamp
+
+def epochHeight : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.epochHeight
+
+def randomSeed : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.randomSeed
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.u64 value
 
@@ -139,6 +148,10 @@ scoped syntax "cpi " ident " spl_token_close_account" "(" ident ", " ident ", " 
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "cpi " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "use " term : contractItem
 scoped syntax "compose " ident ";" : contractItem
 scoped syntax "upgrade_policy_immutable;" : contractItem
@@ -147,12 +160,14 @@ scoped syntax "proxy_pattern_uups;" : contractItem
 scoped syntax "proxy_pattern_transparent;" : contractItem
 scoped syntax "import " ident ";" : contractItem
 scoped syntax "open " ident ";" : contractItem
+scoped syntax "do " term ";" : contractItem
 scoped syntax "constructor_param " ident " : " term ";" : contractItem
 scoped syntax "constructor_param " ident " : " "cstring" ";" : contractItem
 scoped syntax "constructor_param " ident " : " "cbytes" ";" : contractItem
 scoped syntax "constructor_param " ident " : " "u256array" ";" : contractItem
 scoped syntax "quint_invariant " ident " := " str : contractItem
 scoped syntax "quint_liveness " ident " := " str : contractItem
+scoped syntax "do " term ";" : contractItem
 scoped syntax "entry " ident " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident "(" ident " : " term ")" " do" ppLine entryStmt* : contractItem
@@ -184,7 +199,12 @@ scoped syntax "invoke " ident " spl_token_close_account" "(" ident ", " ident ",
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
 scoped syntax "invoke " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
   " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
 scoped syntax "realloc " ident " to " term ";" : entryStmt
+scoped syntax "init_transfer_hook_extra_meta" "(" ident ", " ident ")" ";" : entryStmt
 scoped syntax "do " term ";" : entryStmt
 scoped syntax "accepts_callvalue;" : entryStmt
 scoped syntax "sendto " ident ident ";" : entryStmt
@@ -436,9 +456,27 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt)) :
               $call $tokenAccount $authority $newAuthority
               (authorityType := $authorityType)
               (signerSeeds := $signerSeedArray) *> $acc)
+    | `(entryStmt| invoke $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) =>
+        let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+        acc ←
+          `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+              $call $funding $ataAccount $wallet $mint
+              (idempotent := false)
+              (signerSeeds := $signerSeedArray) *> $acc)
+    | `(entryStmt| invoke $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) =>
+        let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+        acc ←
+          `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+              $call $funding $ataAccount $wallet $mint
+              (idempotent := true)
+              (signerSeeds := $signerSeedArray) *> $acc)
     | `(entryStmt| realloc $accountRef:ident to $newSize:term;) =>
         acc ←
           `(ProofForge.Solana.Surface.reallocAccount $accountRef $newSize *> $acc)
+    | `(entryStmt| init_transfer_hook_extra_meta($accountRef:ident, $extraAccountRef:ident);) =>
+        acc ←
+          `(ProofForge.Solana.Surface.initializeTransferHookExtraAccountMetaList
+              $accountRef $extraAccountRef *> $acc)
     | `(entryStmt| do $action:term;) =>
         acc ← `($action *> $acc)
     | `(entryStmt| accepts_callvalue;) =>
@@ -573,6 +611,8 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       let exprLit := Syntax.mkStrLit exprStr
       let action ← `(ProofForge.Contract.Surface.declareQuintLiveness $nameLit $exprLit)
       return { action? := some action }
+  | `(contractItem| do $action:term;) =>
+      return { action? := some action }
   | `(contractItem| constructor_param $name:ident : $type:term;) =>
       let nameLit := identNameLit name
       match type with
@@ -645,7 +685,7 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       let memoLit := identNameLit memoSource
       let action ←
         `(ProofForge.Solana.memo $callLit $memoLit)
-      return { action? := some action, binder := mkCpiLet call }
+      return { action? := some action }
   | `(contractItem| cpi $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term) =>
       let callLit := identNameLit call
       let payerLit := identNameLit payer
@@ -676,6 +716,22 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
         `(ProofForge.Solana.Surface.splTokenSetAuthority
             $call $tokenAccount $authority $newAuthority
             (authorityType := $authorityType)
+            (signerSeeds := $signerSeedArray))
+      return { action? := some action, binder := mkCpiLet call }
+  | `(contractItem| cpi $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) =>
+      let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+      let action ←
+        `(ProofForge.Solana.Surface.associatedTokenCreate
+            $call $funding $ataAccount $wallet $mint
+            (idempotent := false)
+            (signerSeeds := $signerSeedArray))
+      return { action? := some action, binder := mkCpiLet call }
+  | `(contractItem| cpi $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) =>
+      let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
+      let action ←
+        `(ProofForge.Solana.Surface.associatedTokenCreate
+            $call $funding $ataAccount $wallet $mint
+            (idempotent := true)
             (signerSeeds := $signerSeedArray))
       return { action? := some action, binder := mkCpiLet call }
   | `(contractItem| use $action:term) =>
@@ -819,6 +875,9 @@ def pathWrite2 [ToExpr α] [ToExpr β] [ToExpr γ]
 
 def caller : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.caller
+
+def callerHash : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.callerHash
 
 def nativeValue : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.nativeValue

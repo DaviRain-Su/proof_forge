@@ -17,6 +17,392 @@ Each entry should include:
 
 ## 2026-07-06
 
+### EVM Dynamic Aggregate Assignment Compatibility Retirement
+
+Work range: dynamic aggregate field assignment IR-local helper removal
+
+Summary:
+
+- Added `ToYul.dynamicAggregateScalarAssignmentStmtPlanStatements` so dynamic
+  local fixed-array and struct-array field assignment targets lower through
+  `buildStaticAggregateScalarTargetPlan? -> StmtPlan.assign/assignOp -> ToYul`.
+- Unified static and dynamic aggregate scalar assignment behind
+  `lowerAggregateScalarAssignmentStmt` in `IR.lean`.
+- Simplified `lowerAssignStmt` and `lowerAssignOpStmt` aggregate-target dispatch
+  to a single planned path for non-whole-local targets.
+- Removed IR-local dynamic assignment helpers:
+  `lowerDynamicLocalExprPlanExpr`, `lowerDynamicLocalFixedArrayAssignStmt`,
+  `lowerDynamicLocalFixedArrayAssignOpStmt`,
+  `lowerDynamicLocalStructArrayFieldAssignStmt`,
+  `lowerDynamicLocalStructArrayFieldAssignOpStmt`,
+  `lowerDynamicLocalFixedArrayPathAssignBody`,
+  `lowerDynamicLocalFixedArrayPathAssignStmt`,
+  `lowerDynamicLocalFixedArrayPathFieldAssignBody`, and
+  `lowerDynamicLocalFixedArrayPathFieldAssignStmt`.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerDynamicLocal|lowerStaticAggregateScalarAssignmentStmt" ProofForge
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.ToYul
+just evm-smoke array-value struct-array-value assignment assign-op
+just evm-semantic-plan
+just evm-diagnostics
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-aggregate compound assignment on local fixed-array/struct bindings still
+  uses `lowerAssignTargetName` outside the scalar `StmtPlan.assign` surface.
+
+Next step:
+
+- Continue moving whole-aggregate compound assignment behind `StmtPlan -> ToYul`.
+
+### EVM Static Aggregate Assignment Target Fallback Retirement
+
+Work range: `lowerAssignStmt` static aggregate target fallback removal
+
+Summary:
+
+- Renamed `lowerStaticAggregateScalarAssignmentPlan?` to unconditional
+  `lowerStaticAggregateScalarAssignmentStmt`.
+- Removed `lowerAssignTargetName` + `lowerAssignmentValueExpr` fallbacks from
+  `lowerAssignStmt` and `lowerAssignOpStmt` static aggregate target branches.
+- Unsupported static aggregate assignment targets now fail explicitly when
+  target planning or static index validation does not apply.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerStaticAggregateScalarAssignmentPlan\\?|lowerAssignTargetName \"assignment target\" target" ProofForge/Backend/Evm/IR.lean
+lake build ProofForge.Backend.Evm.IR
+just evm-smoke assignment assign-op struct-value struct-array-value array-value
+just evm-semantic-plan
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-aggregate compound assignment on local fixed-array/struct bindings still
+  uses `lowerAssignTargetName` outside the scalar `StmtPlan.assign` surface.
+
+Next step:
+
+- Continue moving whole-aggregate compound assignment behind `StmtPlan -> ToYul`.
+
+### EVM Whole-Aggregate Local Assignment Fallback Retirement
+
+Work range: whole-aggregate struct assignment expr fallback removal
+
+Summary:
+
+- Made `lowerWholeStructAssignStmt` always consume
+  `Lower.structAssignmentSourcePlans -> ToYul.wholeStructAssignStmtFromPlan`.
+- Removed the IR-local `lowerStructAssignmentSourceExprs` compatibility helper
+  that duplicated planned source expansion with `lowerExpr` fallbacks.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerStructAssignmentSourceExprs" ProofForge Tests
+lake build ProofForge.Backend.Evm.IR
+just evm-smoke struct-value struct-array-value array-value storage-struct assignment
+just evm-semantic-plan
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-aggregate fixed-array/struct-array assignment still uses dedicated
+  `ToYul.whole*AssignStmtFromPlan` helpers outside the scalar `StmtPlan.assign`
+  surface.
+- Dynamic aggregate field assignment frames still use dedicated IR-local helpers.
+
+Next step:
+
+- Continue moving whole-aggregate compound assignment behind `StmtPlan -> ToYul`
+  or shrink dynamic aggregate field assignment compatibility helpers.
+
+### EVM Return-Word Scalar Fallback Retirement
+
+Work range: `lowerReturnWords` scalar compatibility path removal
+
+Summary:
+
+- Removed `lowerReturnWords` and the last `lowerScalarPlanExprOrFallback` helper.
+- Made `lowerReturnAssignments` fail explicitly when neither aggregate crosscall
+  return planning nor `ReturnValueWordPlan` applies.
+- Updated the nested dynamic local-array semantic-plan integration test to use
+  `lowerAssignmentValueExpr`.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerReturnWords|lowerScalarPlanExprOrFallback" ProofForge Tests
+lake build ProofForge.Backend.Evm.IR
+just evm-smoke abi-aggregate crosscall struct-value array-value ir-counter
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-aggregate local assignment snapshots still use dedicated IR-local helpers
+  outside the scalar assignment StmtPlan surface.
+- `exprSupportsPlanScalarYul` remains for planned-body capability gating and
+  semantic-plan gate tests.
+
+Next step:
+
+- Continue moving recursive body lowering gaps behind `StmtPlan -> ToYul` or shrink
+  whole-aggregate local assignment compatibility helpers.
+
+### EVM Assignment/Control-Flow Fallback Retirement
+
+Work range: assignment/control-flow fallback removal
+
+Summary:
+
+- Made scalar local `assign`/`assignOp` always route through
+  `Lower.buildExprPlan -> ToYul.scalarAssignmentStmtPlanStatements`.
+- Replaced static aggregate assignment RHS fallback lowering with
+  `lowerAssignmentValueExpr` (`buildExprPlan -> lowerExprPlanExpr`).
+- Removed the `exprSupportsPlanScalarYul` gate from
+  `lowerStaticAggregateScalarAssignmentPlan?`.
+- Removed the `ifElse` compatibility `switchStmt` fallback; unsupported
+  condition shapes now fail through `Lower.buildExprPlan` instead of
+  `lowerScalarPlanExprOrFallback`.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerExpr module env value\\)|switchStmt \\(← lowerScalarPlanExprOrFallback|exprSupportsPlanScalarYul value then" ProofForge/Backend/Evm/IR.lean
+lake build ProofForge.Backend.Evm.IR
+just evm-smoke assignment assign-op conditional loop array-value struct-value
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-aggregate local assignment snapshots still use dedicated IR-local helpers
+  outside the scalar assignment StmtPlan surface.
+
+Next step:
+
+- Continue moving recursive body lowering gaps behind `StmtPlan -> ToYul` or shrink
+  whole-aggregate local assignment compatibility helpers.
+
+### EVM Binding/Assert/Return Fallback Retirement
+
+Work range: binding/assert/return PlanOrFallback removal
+
+Summary:
+
+- Made scalar `let`/`let mut` bindings always route through
+  `Lower.buildExprPlan -> ToYul.scalarBindingStmtPlanStatements`.
+- Made scalar `assert`/`assertEq` statements always route through
+  `Lower.buildExprPlan -> ToYul.scalarAssertStmtPlanStatements`.
+- Restructured return lowering into unconditional `lowerReturnStmtPlan`:
+  local dynamic returns use `dynamicReturnStmtPlanStatements`, aggregate returns
+  keep `lowerReturnAssignments`, scalar returns always use
+  `scalarReturnExprPlanStatements`, and non-local dynamic returns fail
+  explicitly.
+- Removed the now-unused `lowerAssertStmt` compatibility helper and renamed
+  active helpers to drop the `PlanOrFallback` suffix.
+- Updated semantic-plan gate tests to call the renamed helpers.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerScalarBindingStmtPlanOrFallback|lowerScalarAssertStmtPlanOrFallback|lowerScalarReturnStmtPlanOrFallback|lowerReturnStmtPlanOrFallback|lowerAssertStmt\\b" ProofForge Tests
+lake build ProofForge.Backend.Evm.IR
+just evm-smoke ir-counter assert struct-value array-value crosscall abi-aggregate storage-struct assignment
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Scalar assignment/control-flow `ifElse` fallback branches still use
+  `lowerScalarPlanExprOrFallback` when planned-body construction is unavailable.
+- Aggregate return assignment still uses `lowerReturnAssignments` as the active
+  aggregate path rather than a dedicated `StmtPlan.return` ExprPlan surface.
+
+Next step:
+
+- Continue shrinking assignment/control-flow fallback surfaces or move the next
+  recursive body lowering gap behind `StmtPlan -> ToYul`.
+
+### EVM Storage Write Fallback Retirement
+
+Work range: storage write PlanOrFallback removal
+
+Summary:
+
+- Made statement-position map/array/struct-field/struct-array-field/scalar storage
+  write and assign-op effects always route through `Lower.buildEffectPlan` before
+  final `ToYul` assembly.
+- Removed IR-local write fallback helpers:
+  `lowerMapWriteStmt`, `lowerArrayWriteStmt`, `lowerStructFieldWriteStmt`,
+  `lowerStorageStructWriteSourceExprs`, `lowerStorageStructWriteStmt`,
+  `lowerStructArrayFieldWriteStmt`, `lowerMapScalarPlanExprOrFallback`,
+  `lowerArraySlotExpr`, and `lowerStructArrayFieldSlotExpr`.
+- Renamed active write helpers to drop the `PlanOrFallback` suffix.
+- Extended `Lower.buildExprPlan` so `.field (.effect (.storageScalarRead _))`
+  lowers to planned `storageLoad` field slots, preserving struct-literal storage
+  writes that swap fields from a storage struct read.
+- Added semantic-plan coverage for storage struct field reads inside struct
+  literal writes.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "lowerMapWriteStmt\\b|lowerArrayWriteStmt\\b|lowerStructFieldWriteStmt\\b|lowerStorageStructWriteStmt\\b|lowerStorageStructWriteSourceExprs|storageStructWriteSupportsPlan|lowerStructArrayFieldWriteStmt\\b|lowerMapScalarPlanExprOrFallback|lowerArraySlotExpr|lowerStructArrayFieldSlotExpr|WriteStmtPlanOrFallback|lowerScalarStorageEffectStmtPlanOrFallback" ProofForge Tests
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.ToYul
+just evm-smoke map typed-map storage-array storage-struct typed-storage packed-storage
+scripts/i18n/check-sync.sh
+git diff --check
+```
+
+Known limitations:
+
+- Whole-struct assignment and remaining binding/assert/return `PlanOrFallback`
+  surfaces still retain IR-local fallback selection before `ToYul`.
+- `testSemanticPlanRender` still fails on storage-struct return plan-driven
+  lowering until aggregate storage-return ExprPlan lowering is widened.
+
+Next step:
+
+- Continue shrinking remaining binding/assert/return fallback surfaces or move the
+  next recursive body lowering gap behind `StmtPlan -> ToYul`.
+
+### EVM Struct-Array Assignment Source Plans
+
+Work range: struct-array assignment Lower migration
+
+Summary:
+
+- Added `StructArrayAssignmentSourcePlan` so whole local struct-array assignment
+  sources can be represented as semantic `ExprPlan`s before Yul emission.
+- Added `Lower.structArrayAssignmentSourcePlans` for local and array-literal
+  struct-array sources.
+- Added `ToYul.wholeStructArrayAssignStmtFromPlan`, then routed the active
+  struct-array whole-assignment path through `Lower -> Plan -> ToYul`.
+- Removed the IR-local `lowerStructArrayAssignmentSourceExprs` helper.
+- Added semantic-plan coverage for Lower source plans, ToYul snapshot blocks, and
+  whole local struct-array assignment integration.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Plan ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-semantic-plan
+scripts/evm/struct-array-value-ir-smoke.sh
+```
+
+Known limitations:
+
+- Whole-struct assignment and remaining storage write fallback surfaces still
+  retain IR-local expansion or fallback selection before `ToYul`.
+
+Next step:
+
+- Continue shrinking remaining storage write fallback surfaces or move the next
+  recursive body lowering gap behind `StmtPlan -> ToYul`.
+
+### EVM Nested Fixed-Array Assignment Source Plans
+
+Work range: nested fixed-array assignment Lower migration
+
+Summary:
+
+- Added `NestedFixedArrayAssignmentSourcePlan` so nested local fixed-array whole
+  assignment sources can be represented as semantic `ExprPlan`s before Yul
+  emission.
+- Added `Lower.nestedFixedArrayAssignmentSourcePlans` for local and array-literal
+  nested fixed-array sources, including flat-struct leaves at nested paths.
+- Added `ToYul.wholeNestedFixedArrayAssignStmtFromPlan`, then routed the active
+  nested fixed-array whole-assignment path through `Lower -> Plan -> ToYul`.
+- Removed the IR-local nested fixed-array assignment source expansion helpers and
+  `NestedFixedArraySourceExpr`.
+- Added semantic-plan coverage for Lower source plans, ToYul snapshot blocks, and
+  whole nested local fixed-array assignment integration.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Plan ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-semantic-plan
+scripts/evm/array-value-ir-smoke.sh
+```
+
+Known limitations:
+
+- Struct-array and whole-struct assignment source expansion still lives in
+  `IR.lean` before delegating final block assembly to `ToYul`.
+
+Next step:
+
+- Move struct-array whole-assignment source expansion into `Lower`, or continue
+  shrinking remaining storage write fallback surfaces.
+
+### EVM Crosscall Provider Surface Retirement
+
+Work range: crosscall provider helper removal
+
+Summary:
+
+- Removed provider-backed crosscall ToYul helpers:
+  `crosscallArgWordPlanExprs`, `crosscallExprPlanExpr`,
+  `crosscallAggregateReturnAssignmentPlanStatement`, and `localCrosscallWords`.
+- Removed IR compatibility helpers that only existed for those provider
+  surfaces: `lowerLocalCrosscallWords`, `lowerStorageCrosscallWords`,
+  `lowerCrosscallArgWordPlanExprs`, and `lowerCrosscallArgWordsMany`.
+- Updated semantic-plan tests to cover only the expanded-word path through
+  `Lower.buildCrosscallArgWordPlansMany` / `Lower.localCrosscallWordPlans`
+  plus `ToYul.crosscallExpandedArgWordPlanExprs` /
+  `ToYul.crosscallExpandedExprPlanExpr`.
+- Updated backlog docs and Chinese backlog docs.
+
+Validation run:
+
+```sh
+! rg -n "crosscallArgWordPlanExprs|crosscallExprPlanExpr|crosscallAggregateReturnAssignmentPlanStatement|localCrosscallWords|lowerLocalCrosscallWords|lowerStorageCrosscallWords|lowerCrosscallArgWordPlanExprs|lowerCrosscallArgWordsMany" ProofForge Tests
+lake build ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-semantic-plan
+just evm-all
+```
+
+Known limitations:
+
+- Nested fixed-array, struct-array, and whole-struct assignment source
+  expansion still lives in `IR.lean` before delegating final block assembly to
+  `ToYul`.
+
+Next step:
+
+- Move the next aggregate assignment source expansion slice into `Lower`,
+  prioritizing nested fixed-array sources because the final Yul frame is
+  already behind `ToYul`.
+
 ### EVM Expanded Crosscall Word Plan Boundary
 
 Work range: `codex/evm-crosscall-expanded-word-plan`

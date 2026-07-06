@@ -32,6 +32,16 @@ def main : IO UInt32 := do
     "wasm-near must not advertise jemalloc-shaped host allocation"
   require (nearProfile.hostBridge? == some HostBridge.near)
     "wasm-near must declare the NEAR host bridge"
+  require (HostBridge.requiredImports HostBridge.near |>.contains "env.epoch_height")
+    "NEAR host bridge must declare epoch_height import"
+  require ((HostBridge.hostFunctions HostBridge.near).any (fun fn =>
+    fn.name == "epoch_height" && fn.params.isEmpty && fn.results == #["i64"]))
+    "NEAR host bridge must declare epoch_height host signature"
+  require (HostBridge.requiredImports HostBridge.near |>.contains "env.random_seed")
+    "NEAR host bridge must declare random_seed import"
+  require ((HostBridge.hostFunctions HostBridge.near).any (fun fn =>
+    fn.name == "random_seed" && fn.params == #["i64"] && fn.results.isEmpty))
+    "NEAR host bridge must declare random_seed host signature"
 
   let cosmwasmProfile ← requireSome (find? "wasm-cosmwasm") "missing wasm-cosmwasm target profile"
   require (cosmwasmProfile.hostBridge? == some HostBridge.cosmWasm)
@@ -84,6 +94,21 @@ def main : IO UInt32 := do
     "Anvil local chain id lookup failed"
   require (knownEvmChainProfileIds.contains "anvil-local")
     "Anvil local profile id missing from known ids"
+
+  -- D-026: superseded Solana profiles stay importable as constants but must
+  -- not appear on the active target surface.
+  require (find? "solana-sbpf-linker" |>.isNone)
+    "solana-sbpf-linker is deprecated (D-026) and must be hidden from find?"
+  require (find? "solana-zig-fork" |>.isNone)
+    "solana-zig-fork is deprecated (D-005) and must be hidden from find?"
+  require (!knownIds.contains "solana-sbpf-linker")
+    "solana-sbpf-linker must not appear in knownIds"
+  require (!knownIds.contains "solana-zig-fork")
+    "solana-zig-fork must not appear in knownIds"
+  require (allIncludingDeprecated.contains solanaSbpfLinker)
+    "solanaSbpfLinker constant must remain in allIncludingDeprecated"
+  require (allIncludingDeprecated.contains solanaZigFork)
+    "solanaZigFork constant must remain in allIncludingDeprecated"
 
   IO.println "target-registry: ok"
   return 0

@@ -247,6 +247,118 @@ def invokeSplToken2022InitializeNonTransferableMint (call : CpiRef) (mint : Acco
     ProofForge.Contract.Surface.EntryM Unit :=
   ProofForge.Solana.invokeSplToken2022InitializeNonTransferableMint call.name mint.name
 
+def splToken2022InitializeMetadataPointer
+    (call : CpiRef) (mint metadataPointerAuthority metadataAddress : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeMetadataPointer call.name mint.name
+    metadataPointerAuthority.name metadataAddress.name
+
+def invokeSplToken2022InitializeMetadataPointer
+    (call : CpiRef) (mint metadataPointerAuthority metadataAddress : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeMetadataPointer call.name mint.name
+    metadataPointerAuthority.name metadataAddress.name
+
+def splToken2022InitializeDefaultAccountState
+    (call : CpiRef) (mint : AccountRef) (accountState : Nat) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeDefaultAccountState call.name mint.name accountState
+
+def invokeSplToken2022InitializeDefaultAccountState
+    (call : CpiRef) (mint : AccountRef) (accountState : Nat) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeDefaultAccountState call.name mint.name accountState
+
+def splToken2022InitializeImmutableOwner (call : CpiRef) (account : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeImmutableOwner call.name account.name
+
+def invokeSplToken2022InitializeImmutableOwner (call : CpiRef) (account : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeImmutableOwner call.name account.name
+
+def splToken2022InitializePermanentDelegate
+    (call : CpiRef) (mint permanentDelegate : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializePermanentDelegate call.name mint.name
+    permanentDelegate.name
+
+def invokeSplToken2022InitializePermanentDelegate
+    (call : CpiRef) (mint permanentDelegate : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializePermanentDelegate call.name mint.name
+    permanentDelegate.name
+
+def splToken2022InitializeInterestBearingMint
+    (call : CpiRef) (mint rateAuthority : AccountRef) (rate : Nat) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeInterestBearingMint call.name mint.name
+    rateAuthority.name rate
+
+def invokeSplToken2022InitializeInterestBearingMint
+    (call : CpiRef) (mint rateAuthority : AccountRef) (rate : Nat) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeInterestBearingMint call.name mint.name
+    rateAuthority.name rate
+
+def splToken2022EnableRequiredMemoTransfers
+    (call : CpiRef) (account authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022EnableRequiredMemoTransfers call.name account.name
+    authority.name (signerSeeds := signerSeeds)
+
+def invokeSplToken2022EnableRequiredMemoTransfers
+    (call : CpiRef) (account authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022EnableRequiredMemoTransfers call.name account.name
+    authority.name (signerSeeds := signerSeeds)
+
+def splToken2022InitializeTransferHook
+    (call : CpiRef) (mint authority transferHookProgram : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeTransferHook call.name mint.name
+    authority.name transferHookProgram.name
+
+def invokeSplToken2022InitializeTransferHook
+    (call : CpiRef) (mint authority transferHookProgram : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeTransferHook call.name mint.name
+    authority.name transferHookProgram.name
+
+def splToken2022InitializePausableConfig
+    (call : CpiRef) (mint authority : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializePausableConfig call.name mint.name authority.name
+
+def invokeSplToken2022InitializePausableConfig
+    (call : CpiRef) (mint authority : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializePausableConfig call.name mint.name authority.name
+
+def splToken2022Pause
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022Pause call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def invokeSplToken2022Pause
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022Pause call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def splToken2022Resume
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022Resume call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def invokeSplToken2022Resume
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022Resume call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
 def splTokenMintTo (call : CpiRef) (mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)
@@ -327,9 +439,49 @@ def invokeSplTokenSetAuthority (call : CpiRef) (account authority newAuthority :
   ProofForge.Solana.invokeSplTokenSetAuthority call.name account.name authority.name authorityType
     newAuthority.name (tokenProgram := tokenProgram) (signerSeeds := signerSeeds)
 
+def associatedTokenCreate (call : CpiRef) (funding account wallet mint : AccountRef)
+    (idempotent : Bool := true)
+    (associatedProgram : String := ProofForge.Solana.associatedTokenProgram)
+    (systemProgramName : String := ProofForge.Solana.systemProgram)
+    (tokenProgramName : String := ProofForge.Solana.splTokenProgram)
+    (signerSeeds : Array String := #[]) : ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.associatedTokenCreate call.name funding.name account.name wallet.name mint.name
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds)
+
+def invokeAssociatedTokenCreate (call : CpiRef) (funding account wallet mint : AccountRef)
+    (idempotent : Bool := true)
+    (associatedProgram : String := ProofForge.Solana.associatedTokenProgram)
+    (systemProgramName : String := ProofForge.Solana.systemProgram)
+    (tokenProgramName : String := ProofForge.Solana.splTokenProgram)
+    (signerSeeds : Array String := #[]) : ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeAssociatedTokenCreate call.name funding.name account.name wallet.name mint.name
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds)
+
 def reallocAccount (account : AccountRef) (newSize : Nat)
     (name : String := "realloc_" ++ account.name) :
     ProofForge.Contract.Surface.EntryM Unit :=
   ProofForge.Solana.reallocAccount name account.name newSize
+
+def initializeTransferHookExtraAccountMetaList
+    (account extraAccount : AccountRef)
+    (name : String := "init_transfer_hook_extra_meta") :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.initializeTransferHookExtraAccountMetaList
+    name account.name extraAccount.name
+
+def initializeTransferHookExtraAccountMetaListWithAccounts
+    (account : AccountRef) (extraAccounts : Array AccountRef)
+    (name : String := "init_transfer_hook_extra_meta") :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.initializeTransferHookExtraAccountMetaListWithAccounts
+    name account.name (extraAccounts.map (fun extraAccount => extraAccount.name))
 
 end ProofForge.Solana.Surface

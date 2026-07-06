@@ -1,8 +1,10 @@
 import ProofForge.Compiler.Yul.AST
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Backend.Evm.YulSemantics
 
 open Lean.Compiler.Yul
+open ProofForge.Util.StringUtil
 
 /-! A narrow executable Yul model for EVM refinement obligations.
 
@@ -144,12 +146,6 @@ def parseDigits (base : Nat) (digit? : Char → Option Nat) (chars : List Char) 
             .error s!"digit `{c}` is out of range for base {base}"
       | none => .error s!"invalid digit `{c}`")
     0
-
-def stripHexPrefix (value : String) : String :=
-  if value.startsWith "0x" || value.startsWith "0X" then
-    (value.drop 2).toString
-  else
-    value
 
 def parseDecimalNat (value : String) : Except String Nat :=
   parseDigits 10 decimalDigit? value.toList

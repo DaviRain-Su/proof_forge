@@ -22,14 +22,17 @@ Literal	address	lowered	literal emits {value}u64 and is covered by validateLiter
 Literal	u8	lowered	wasm-near IR v0 emits i32.const for U8 literals (same as U32); covered by literalType and checkLiteralBounds with max 255.
 Literal	u128	unsupported	wasm-near IR v0 does not support U128 literals; literal function returns placeholder, literalType maps to .u128 but valueTypeName rejects it.
 ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::predecessor_account_id()); Hasher fixture covers it and the context-as-statement diagnostic guards misuse.
+ContextField	userIdHash	lowered	EmitWat lowers contextRead userIdHash to __pf_ctx_user_hash (sha256 predecessor account id bytes); NearFungibleToken callerHash covers hash-keyed balance transfers.
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
 ContextField	checkpointId	lowered	lowerEffectExpr emits env::block_height(); capability envBlock is present in the wasm-near profile.
 ContextField	timestamp	unsupported	wasm-near IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	epochHeight	unsupported	wasm-near IR v0 sourcegen is frozen and rejects epochHeight with an explicit diagnostic; EmitWat is the canonical path for env.epoch_height.
 ContextField	chainId	unsupported	wasm-near IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	wasm-near IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	wasm-near IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	baseFee	unsupported	wasm-near IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	wasm-near IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	randomSeed	unsupported	wasm-near IR v0 sourcegen is frozen and rejects randomSeed with an explicit diagnostic; EmitWat is the canonical path for env.random_seed.
 ContextField	origin	unsupported	wasm-near IR v0 context read catch-all rejects origin with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	coinbase	unsupported	wasm-near IR v0 context read catch-all rejects coinbase with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	blockHash	unsupported	wasm-near IR v0 context read catch-all rejects blockHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.
@@ -75,13 +78,18 @@ Expr	hash	lowered	lowerExpr emits __pf_hash(preimage) and moduleHelpers emits th
 Expr	hashTwoToOne	lowered	lowerExpr emits __pf_hash_two_to_one(lhs, rhs) and moduleHelpers emits the sha256-backed helper when cryptoHash is used.
 Expr	effect	lowered	lowerExpr delegates to lowerEffectExpr, which validates expression-only effects and rejects statement-only effects; fixtures and diagnostics cover the split.
 Expr	nativeValue	lowered	inferExprType types nativeValue as U64 and Rust sourcegen lowers it to env::attached_deposit(); Tests/WasmNearDiagnostics.lean covers the rendered expression.
-Expr	crosscallInvoke	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering.
-Expr	crosscallInvokeTyped	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects typed cross-contract calls.
-Expr	crosscallInvokeValueTyped	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects value-bearing typed cross-contract calls.
-Expr	crosscallInvokeStaticTyped	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects static typed cross-contract calls.
-Expr	crosscallInvokeDelegateTyped	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects delegate typed cross-contract calls.
-Expr	crosscallCreate	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects contract creation.
-Expr	crosscallCreate2	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects create2 contract creation.
+Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create/promise_return using module.nearCrosscallStrings address literals; wasm-near target profile admits crosscall.invoke for the canonical EmitWat path while Rust sourcegen remains frozen.
+Expr	crosscallInvokeTyped	unsupported	EmitWat rejects typed cross-contract calls with an explicit NEAR diagnostic; use untyped crosscallInvoke / nearCrosscallInvokePool with string-pool literals.
+Expr	crosscallInvokeValueTyped	unsupported	EmitWat rejects value-bearing typed cross-contract calls; NEAR value transfer is modeled on nearCrosscallInvokePool/crosscallInvoke deposit operands.
+Expr	crosscallInvokeStaticTyped	unsupported	EmitWat rejects static typed cross-contract calls as EVM-only.
+Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat rejects delegate typed cross-contract calls as EVM-only.
+Expr	crosscallCreate	unsupported	EmitWat rejects contract creation as EVM-only.
+Expr	crosscallCreate2	unsupported	EmitWat rejects create2 contract creation as EVM-only.
+Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call fixture covers sender-hash plus amount ft_on_transfer args.
+Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on the current contract account using module.nearCrosscallStrings callback method literals; wasm-near target profile admits near.promise for the canonical EmitWat path.
+Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
+Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.
+Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64); NearFungibleToken ft_resolve_transfer returns pending amount minus unused callback amount.
 Effect	storageScalarRead	lowered	lowerEffectExpr emits self.<id>; Counter get covers it and the read-as-statement diagnostic guards misuse.
 Effect	storageScalarWrite	lowered	lowerEffectStmt emits self.<id> = value;; Counter increment covers it and the write-as-expression diagnostic guards misuse.
 Effect	storageScalarAssignOp	unsupported	validateEffectStmtTypes and lowerEffectStmt both reject storage.scalar.assign_op in wasm-near IR v0; diagnostic covers it.

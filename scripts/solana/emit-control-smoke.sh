@@ -89,11 +89,14 @@ SHA1=$(shasum -a 256 "$ASM_OUTPUT" | cut -d' ' -f1)
 echo "  deterministic: sha256=$SHA1"
 
 # --- Artifact metadata ----------------------------------------------------
-grep -q '"target":"solana-sbpf-asm"' "$ARTIFACT_OUTPUT" \
+# JSON separators include a space after the colon (human-readable style), so
+# match the key/value pair with a flexible whitespace class rather than a
+# literal "key":"value" substring.
+grep -qE '"target":[[:space:]]*"solana-sbpf-asm"' "$ARTIFACT_OUTPUT" \
   || fail "artifact missing target: solana-sbpf-asm"
-grep -q '"fixture":"control-ir-sbpf"' "$ARTIFACT_OUTPUT" \
+grep -qE '"fixture":[[:space:]]*"control-ir-sbpf"' "$ARTIFACT_OUTPUT" \
   || fail "artifact missing fixture: control-ir-sbpf"
-grep -q '"sourceModule":"ControlFlowAssertProbe"' "$ARTIFACT_OUTPUT" \
+grep -qE '"sourceModule":[[:space:]]*"ControlFlowAssertProbe"' "$ARTIFACT_OUTPUT" \
   || fail "artifact missing sourceModule: ControlFlowAssertProbe"
 grep -q '"control.conditional"' "$ARTIFACT_OUTPUT" \
   || fail "artifact capabilities missing control.conditional"

@@ -278,6 +278,12 @@ structure AccountReallocAction where
   newSize : Nat
   deriving Repr
 
+structure TransferHookExtraAccountMetaListAction where
+  name : String
+  account : String
+  extraAccounts : Array String := #[]
+  deriving Repr
+
 def kv (key value : String) : TargetMetadata := {
   key := key
   value := value
@@ -400,6 +406,14 @@ def signerAccountConstraint (name : String) (access : AccountAccess := .readOnly
 def writableSignerAccountConstraint (name : String) (owner : String := "any") :
     ProofForge.Contract.Builder.ModuleM Unit :=
   accountConstraint name .writable .signer owner
+
+def accountOrder (names : Array String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  ProofForge.Contract.Builder.capability .accountExplicit "solana.account_order"
+    (source? := none)
+    (metadata := #[
+      kv "solana.extension" "account_order",
+      kv "solana.account_order.names" (joinWith "," names)
+    ])
 
 def PdaBinding.metadata (binding : PdaBinding) : Array TargetMetadata :=
   #[
@@ -550,6 +564,15 @@ def AccountReallocAction.metadata (action : AccountReallocAction) : Array Target
     natKv "solana.account_realloc.new_size" action.newSize
   ]
 
+def TransferHookExtraAccountMetaListAction.metadata
+    (action : TransferHookExtraAccountMetaListAction) : Array TargetMetadata :=
+  #[
+    kv "solana.extension" "transfer_hook_extra_account_meta_list",
+    kv "solana.transfer_hook_extra_meta.name" action.name,
+    kv "solana.transfer_hook_extra_meta.account" action.account,
+    kv "solana.transfer_hook_extra_meta.extra_accounts" (joinWith "," action.extraAccounts)
+  ]
+
 def systemProgram : String :=
   "system_program"
 
@@ -595,6 +618,11 @@ def tokenMetadata (tokenProgram : String) : Array TargetMetadata :=
 def token2022Metadata : Array TargetMetadata :=
   tokenMetadata splToken2022Program
 
+def associatedTokenMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "associated-token"
+  ]
+
 def systemTransferCall (name fromAccount to lamportsSource : String)
     (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -626,7 +654,7 @@ def memoCall (name memoSource : String) : CpiCall := {
 }
 
 def systemCreateAccountCall (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : CpiCall := {
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) : CpiCall := {
   name := name
   program := systemProgram
   instruction := "create_account"
@@ -639,7 +667,8 @@ def systemCreateAccountCall (name payer newAccount lamportsSource spaceSource ow
   extraMetadata := systemMetadata ++ #[
     kv "solana.cpi.lamports_source" lamportsSource,
     kv "solana.cpi.space_source" spaceSource,
-    kv "solana.cpi.owner" owner
+    kv "solana.cpi.owner" owner,
+    kv "solana.cpi.require_program_account" (boolValue requireProgramAccount)
   ]
 }
 
@@ -777,6 +806,149 @@ def splToken2022InitializeNonTransferableMintCall (name mint : String) :
   extraMetadata := token2022Metadata
 }
 
+def splToken2022InitializeMetadataPointerCall
+    (name mint metadataPointerAuthority metadataAddress : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_metadata_pointer"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_metadata_pointer"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.metadata_pointer_authority" metadataPointerAuthority,
+    kv "solana.cpi.metadata_address" metadataAddress
+  ]
+}
+
+def splToken2022InitializeDefaultAccountStateCall
+    (name mint : String) (accountState : Nat) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_default_account_state"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_default_account_state"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.default_account_state" (toString accountState)
+  ]
+}
+
+def splToken2022InitializeImmutableOwnerCall (name account : String) :
+    CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_immutable_owner"
+  accounts := #[
+    writableAccount account
+  ]
+  dataLayout? := some "token-2022.initialize_immutable_owner"
+  extraMetadata := token2022Metadata
+}
+
+def splToken2022InitializePermanentDelegateCall
+    (name mint permanentDelegate : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_permanent_delegate"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_permanent_delegate"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.permanent_delegate" permanentDelegate
+  ]
+}
+
+def splToken2022InitializeInterestBearingMintCall
+    (name mint rateAuthority : String) (rate : Nat) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_interest_bearing_mint"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_interest_bearing_mint"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.interest_rate_authority" rateAuthority,
+    kv "solana.cpi.interest_rate" (toString rate)
+  ]
+}
+
+def splToken2022EnableRequiredMemoTransfersCall
+    (name account authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "enable_required_memo_transfers"
+  accounts := #[
+    writableAccount account,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.enable_required_memo_transfers"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.memo_transfer_required" "true"
+  ]
+}
+
+def splToken2022InitializeTransferHookCall
+    (name mint authority transferHookProgram : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_transfer_hook"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_transfer_hook"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.transfer_hook_authority" authority,
+    kv "solana.cpi.transfer_hook_program" transferHookProgram
+  ]
+}
+
+def splToken2022InitializePausableConfigCall
+    (name mint authority : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_pausable_config"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_pausable_config"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.pausable_authority" authority
+  ]
+}
+
+def splToken2022PauseCall
+    (name mint authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "pause"
+  accounts := #[
+    writableAccount mint,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.pause"
+  extraMetadata := token2022Metadata
+}
+
+def splToken2022ResumeCall
+    (name mint authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "resume"
+  accounts := #[
+    writableAccount mint,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.resume"
+  extraMetadata := token2022Metadata
+}
+
 def splTokenMintToCall (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -871,6 +1043,30 @@ def splTokenSetAuthorityCall (name account authority authorityType newAuthority 
   extraMetadata := tokenMetadata tokenProgram ++ #[
     kv "solana.cpi.authority_type" authorityType,
     kv "solana.cpi.new_authority" newAuthority
+  ]
+}
+
+def associatedTokenCreateCall (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := associatedProgram
+  instruction := if idempotent then "create_idempotent" else "create"
+  accounts := #[
+    signerForSeeds funding .writable signerSeeds,
+    writableAccount account,
+    readonlyAccount wallet,
+    readonlyAccount mint,
+    readonlyAccount systemProgramName,
+    readonlyAccount tokenProgramName
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some (if idempotent then "associated-token.create_idempotent" else "associated-token.create")
+  extraMetadata := associatedTokenMetadata ++ #[
+    kv "solana.cpi.token_program" tokenProgramName
   ]
 }
 
@@ -1336,6 +1532,31 @@ def reallocAccount (name account : String) (newSize : Nat) :
     newSize := newSize
   }
 
+def transferHookExtraAccountMetaListEntry
+    (action : TransferHookExtraAccountMetaListAction) :
+    ProofForge.Contract.Builder.EntryM Unit := do
+  ProofForge.Contract.Builder.entryCapability .accountExplicit
+    "solana.transfer_hook.extra_account_meta_list"
+    (source? := some action.name)
+    (metadata := action.metadata)
+
+def initializeTransferHookExtraAccountMetaList
+    (name account extraAccount : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  transferHookExtraAccountMetaListEntry {
+    name := name
+    account := account
+    extraAccounts := #[extraAccount]
+  }
+
+def initializeTransferHookExtraAccountMetaListWithAccounts
+    (name account : String) (extraAccounts : Array String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  transferHookExtraAccountMetaListEntry {
+    name := name
+    account := account
+    extraAccounts := extraAccounts
+  }
+
 def cpi (call : CpiCall) : ProofForge.Contract.Builder.ModuleM Unit := do
   if call.accounts.size > 0 then
     ProofForge.Contract.Builder.capability .accountExplicit "solana.cpi.accounts" (source? := some call.name)
@@ -1419,14 +1640,16 @@ def invokeSystemTransfer (name fromAccount to lamportsSource : String) (signerSe
   cpiEntry (systemTransferCall name fromAccount to lamportsSource (signerSeeds := signerSeeds))
 
 def systemCreateAccount (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : ProofForge.Contract.Builder.ModuleM Unit :=
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
   cpi (systemCreateAccountCall name payer newAccount lamportsSource spaceSource owner
-    (signerSeeds := signerSeeds))
+    (signerSeeds := signerSeeds) (requireProgramAccount := requireProgramAccount))
 
 def invokeSystemCreateAccount (name payer newAccount lamportsSource spaceSource owner : String)
-    (signerSeeds : Array String := #[]) : ProofForge.Contract.Builder.EntryM Unit :=
+    (signerSeeds : Array String := #[]) (requireProgramAccount : Bool := true) :
+    ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (systemCreateAccountCall name payer newAccount lamportsSource spaceSource owner
-    (signerSeeds := signerSeeds))
+    (signerSeeds := signerSeeds) (requireProgramAccount := requireProgramAccount))
 
 def memo (name memoSource : String) : ProofForge.Contract.Builder.ModuleM Unit :=
   cpi (memoCall name memoSource)
@@ -1524,6 +1747,98 @@ def invokeSplToken2022InitializeNonTransferableMint (name mint : String) :
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splToken2022InitializeNonTransferableMintCall name mint)
 
+def splToken2022InitializeMetadataPointer
+    (name mint metadataPointerAuthority metadataAddress : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeMetadataPointerCall name mint metadataPointerAuthority metadataAddress)
+
+def invokeSplToken2022InitializeMetadataPointer
+    (name mint metadataPointerAuthority metadataAddress : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeMetadataPointerCall name mint metadataPointerAuthority metadataAddress)
+
+def splToken2022InitializeDefaultAccountState
+    (name mint : String) (accountState : Nat) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeDefaultAccountStateCall name mint accountState)
+
+def invokeSplToken2022InitializeDefaultAccountState
+    (name mint : String) (accountState : Nat) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeDefaultAccountStateCall name mint accountState)
+
+def splToken2022InitializeImmutableOwner (name account : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeImmutableOwnerCall name account)
+
+def invokeSplToken2022InitializeImmutableOwner (name account : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeImmutableOwnerCall name account)
+
+def splToken2022InitializePermanentDelegate
+    (name mint permanentDelegate : String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializePermanentDelegateCall name mint permanentDelegate)
+
+def invokeSplToken2022InitializePermanentDelegate
+    (name mint permanentDelegate : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializePermanentDelegateCall name mint permanentDelegate)
+
+def splToken2022InitializeInterestBearingMint
+    (name mint rateAuthority : String) (rate : Nat) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeInterestBearingMintCall name mint rateAuthority rate)
+
+def invokeSplToken2022InitializeInterestBearingMint
+    (name mint rateAuthority : String) (rate : Nat) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeInterestBearingMintCall name mint rateAuthority rate)
+
+def splToken2022EnableRequiredMemoTransfers
+    (name account authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022EnableRequiredMemoTransfersCall name account authority
+    (signerSeeds := signerSeeds))
+
+def invokeSplToken2022EnableRequiredMemoTransfers
+    (name account authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022EnableRequiredMemoTransfersCall name account authority
+    (signerSeeds := signerSeeds))
+
+def splToken2022InitializeTransferHook
+    (name mint authority transferHookProgram : String) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeTransferHookCall name mint authority transferHookProgram)
+
+def invokeSplToken2022InitializeTransferHook
+    (name mint authority transferHookProgram : String) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeTransferHookCall name mint authority transferHookProgram)
+
+def splToken2022InitializePausableConfig
+    (name mint authority : String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializePausableConfigCall name mint authority)
+
+def invokeSplToken2022InitializePausableConfig
+    (name mint authority : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializePausableConfigCall name mint authority)
+
+def splToken2022Pause
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022PauseCall name mint authority (signerSeeds := signerSeeds))
+
+def invokeSplToken2022Pause
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022PauseCall name mint authority (signerSeeds := signerSeeds))
+
+def splToken2022Resume
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022ResumeCall name mint authority (signerSeeds := signerSeeds))
+
+def invokeSplToken2022Resume
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022ResumeCall name mint authority (signerSeeds := signerSeeds))
+
 def splTokenMintTo (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) :
     ProofForge.Contract.Builder.ModuleM Unit :=
@@ -1593,5 +1908,33 @@ def invokeSplTokenSetAuthority (name account authority authorityType newAuthorit
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splTokenSetAuthorityCall name account authority authorityType newAuthority
     (tokenProgram := tokenProgram) (signerSeeds := signerSeeds))
+
+def associatedTokenCreate (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (associatedTokenCreateCall name funding account wallet mint
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds))
+
+def invokeAssociatedTokenCreate (name funding account wallet mint : String)
+    (idempotent : Bool := true)
+    (associatedProgram : String := associatedTokenProgram)
+    (systemProgramName : String := systemProgram)
+    (tokenProgramName : String := splTokenProgram)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (associatedTokenCreateCall name funding account wallet mint
+    (idempotent := idempotent)
+    (associatedProgram := associatedProgram)
+    (systemProgramName := systemProgramName)
+    (tokenProgramName := tokenProgramName)
+    (signerSeeds := signerSeeds))
 
 end ProofForge.Solana

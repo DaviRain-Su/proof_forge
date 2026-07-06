@@ -1,38 +1,29 @@
 import ProofForge.Contract.Spec
 import ProofForge.IR.Contract
+import ProofForge.Util.Json
 
 namespace ProofForge.Contract.Spec.Json
 
 open ProofForge.IR
 
-def jsonString (value : String) : String :=
-  let escapeChar : Char → String
-    | '"' => "\\\""
-    | '\\' => "\\\\"
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | ch => ch.toString
-  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
+/-- Re-export `Util.Json.jsonString`. The implementation lives in
+`ProofForge.Util.Json` and is shared with the CLI and Backend layers. -/
+def jsonString (value : String) : String := ProofForge.Util.Json.jsonString value
 
-def jsonBool (value : Bool) : String :=
-  if value then "true" else "false"
+/-- Re-export `Util.Json.jsonBool`. -/
+def jsonBool (value : Bool) : String := ProofForge.Util.Json.jsonBool value
 
-def jsonArray (items : Array String) : String :=
-  "[" ++ String.intercalate ", " items.toList ++ "]"
+/-- Re-export `Util.Json.jsonArray`. -/
+def jsonArray (items : Array String) : String := ProofForge.Util.Json.jsonArray items
 
-def jsonObject (fields : Array (String × String)) : String :=
-  "{" ++
-    String.intercalate ", " (fields.toList.map fun field =>
-      jsonString field.fst ++ ": " ++ field.snd) ++
-  "}"
+/-- Re-export `Util.Json.jsonObject`. -/
+def jsonObject (fields : Array (String × String)) : String := ProofForge.Util.Json.jsonObject fields
 
-def jsonStringOption : Option String → String
-  | some value => jsonString value
-  | none => "null"
+/-- Re-export `Util.Json.jsonStringOption`. -/
+def jsonStringOption : Option String → String := ProofForge.Util.Json.jsonStringOption
 
-def jsonStringArray (values : Array String) : String :=
-  jsonArray (values.map jsonString)
+/-- Re-export `Util.Json.jsonStringArray`. -/
+def jsonStringArray (values : Array String) : String := ProofForge.Util.Json.jsonStringArray values
 
 def jsonUInt32 (value : UInt32) : String :=
   toString value.toNat

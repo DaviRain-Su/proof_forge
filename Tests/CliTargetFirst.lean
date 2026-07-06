@@ -69,6 +69,9 @@ def main : IO UInt32 := do
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf"]
     ["--solana-system-cpi-elf"]
   requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-memo-cpi", "--format", "elf"]
+    ["--solana-memo-cpi-elf"]
+  requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf", "--solana-sbpf-arch", "v0"]
     ["--solana-system-cpi-elf", "--solana-sbpf-arch", "v0"]
   requireLegacy
@@ -84,11 +87,23 @@ def main : IO UInt32 := do
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-close-account-cpi", "--format", "elf"]
     ["--solana-spl-token-close-account-cpi-elf"]
   requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-2022-transfer-hook", "--format", "s"]
+    ["--emit-solana-spl-token-2022-transfer-hook-sbpf"]
+  requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-2022-transfer-hook", "--format", "elf"]
+    ["--solana-spl-token-2022-transfer-hook-elf"]
+  requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "counter", "--format", "elf"]
     ["--solana-elf"]
   requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-sdk", "--format", "s"]
     ["--emit-solana-sdk-sbpf"]
+  requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "s"]
+    ["--emit-solana-associated-token-cpi-sbpf"]
+  requireLegacy
+    ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "elf"]
+    ["--solana-associated-token-cpi-elf"]
   requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "value-vault", "--format", "s"]
     ["--emit-value-vault-ir-sbpf"]
@@ -143,4 +158,9 @@ def main : IO UInt32 := do
 
 end ProofForge.Tests.CliTargetFirst
 
-#eval ProofForge.Tests.CliTargetFirst.main
+-- This test imports the executable CLI module, whose root `main` would otherwise
+-- run after elaboration and print usage. Exit from the test result instead.
+#eval (do
+  let exitCode ← ProofForge.Tests.CliTargetFirst.main
+  IO.Process.exit exitCode.toUInt8
+  pure () : IO Unit)

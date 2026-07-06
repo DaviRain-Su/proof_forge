@@ -100,6 +100,11 @@ evm-semantic-plan:
     lake build ProofForge.Backend.Evm.IR ProofForge.IR.Examples.Counter ProofForge.IR.Examples.EvmMapProbe ProofForge.IR.Examples.EvmStorageArrayProbe ProofForge.IR.Examples.EvmStorageStructProbe ProofForge.IR.Examples.EventProbe
     lake env lean --run Tests/EvmSemanticPlan.lean
 
+# Check the RFC 0014 Phase 1 shared validate subset (identifiers, return-path predicate, type-check helpers).
+shared-validate-smoke:
+    lake build ProofForge.Backend.SharedValidate
+    lake env lean --run Tests/SharedValidate.lean
+
 # Check that executable scripts/testkit callers use target-first CLI commands.
 cli-target-first:
     python3 scripts/cli/check-target-first-migration.py
@@ -176,6 +181,21 @@ solana-token-plan-web3:
 near-target-first:
     scripts/near/target-first-smoke.sh
 
+# Check Wasm-NEAR Plan/EmitWat surface pruning. Builds the NEAR crosscall fixture
+# first so stale oleans cannot turn this gate into a Lean segfault.
+wasm-near-plan:
+    lake build proof-forge ProofForge.IR.Examples.NearCrosscallProbe
+    lake env lean --run Tests/WasmNearPlan.lean
+
+# Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
+wasm-near-ft-transfer-call:
+    lake build proof-forge ProofForge.Contract.Stdlib.NearFungibleToken
+    lake env lean --run Tests/WasmNearFtTransferCall.lean
+
+# Run NEAR NEP-141 ft_transfer_call through the offline host promise callback path.
+wasm-near-ft-transfer-call-e2e:
+    scripts/near/ft-transfer-call-smoke.sh
+
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
@@ -235,6 +255,10 @@ solana-pda-web3:
 # Run a live System Program transfer CPI smoke on Surfpool with Web3.js.
 solana-system-cpi-web3:
     scripts/solana/system-cpi-web3-smoke.sh
+
+# Run a live Memo Program CPI smoke on Surfpool with Web3.js.
+solana-memo-cpi-web3:
+    scripts/solana/memo-cpi-web3-smoke.sh
 
 # Compare the generated System transfer CPI artifact with the Pinocchio reference contract.
 solana-pinocchio-system-transfer-equivalence:
@@ -304,9 +328,25 @@ solana-spl-token-ops-cpi-web3:
 solana-spl-token-authority-cpi-web3:
     scripts/solana/spl-token-authority-cpi-web3-smoke.sh
 
+# Run a live SPL Token close_account CPI smoke on Surfpool with Web3.js.
+solana-spl-token-close-account-cpi-web3:
+    scripts/solana/spl-token-close-account-cpi-web3-smoke.sh
+
+# Run a live Associated Token create_idempotent CPI smoke on Surfpool with Web3.js.
+solana-associated-token-cpi-web3:
+    scripts/solana/associated-token-cpi-web3-smoke.sh
+
 # Run a live Token-2022 transfer-fee direct CPI smoke on Surfpool with Web3.js.
 solana-spl-token-2022-cpi-web3:
     scripts/solana/spl-token-2022-cpi-web3-smoke.sh
+
+# Run a live Token-2022 Pausable direct CPI smoke on Surfpool with Web3.js.
+solana-spl-token-2022-pausable-cpi-web3:
+    scripts/solana/spl-token-2022-pausable-cpi-web3-smoke.sh
+
+# Run a live Token-2022 transfer-hook execute/extra-account-meta smoke on Surfpool with Web3.js.
+solana-spl-token-2022-transfer-hook-web3:
+    scripts/solana/spl-token-2022-transfer-hook-web3-smoke.sh
 
 # Run a live Solana log/event smoke on Surfpool with Web3.js.
 solana-log-event-web3:
@@ -389,7 +429,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate
+check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first wasm-near-plan wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

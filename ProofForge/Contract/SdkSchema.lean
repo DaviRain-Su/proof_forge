@@ -1,10 +1,12 @@
 import ProofForge.Contract.Spec.Json
 import ProofForge.Target.Registry
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Contract.SdkSchema
 
 open ProofForge.IR
 open ProofForge.Target
+open ProofForge.Util.StringUtil
 
 def schemaId : String := "proof-forge.sdk-schema.v0"
 
@@ -41,14 +43,11 @@ def stringOption := ProofForge.Contract.Spec.Json.jsonStringOption
 
 end Json
 
-def trimAsciiString (value : String) : String :=
-  value.trimAscii.toString
-
 def runProcess (cmd : String) (args : Array String) : IO String := do
   let output ← IO.Process.output { cmd := cmd, args := args }
   if output.exitCode != 0 then
-    let stderr := trimAsciiString output.stderr
-    let stdout := trimAsciiString output.stdout
+    let stderr := trimAscii output.stderr
+    let stdout := trimAscii output.stdout
     let detail := if stderr.isEmpty then stdout else stderr
     throw <| IO.userError s!"{cmd} failed: {detail}"
   return output.stdout
@@ -61,7 +60,7 @@ def joinPath (dir rel : String) : String :=
 def fileDigestAndBytes (path : String) : IO (String × Nat) := do
   let script := "import hashlib, pathlib, sys; data = pathlib.Path(sys.argv[1]).read_bytes(); print(hashlib.sha256(data).hexdigest(), len(data))"
   let stdout ← runProcess "python3" #["-c", script, path]
-  match (trimAsciiString stdout).splitOn " " with
+  match (trimAscii stdout).splitOn " " with
   | [digest, byteCount] =>
       match byteCount.toNat? with
       | some bytes => return (digest, bytes)
@@ -184,6 +183,17 @@ mutual
           (collectExprEvents (collectExprEvents (collectExprEvents events target) methodId) callValue)
     | .crosscallCreate callValue _ => collectExprEvents events callValue
     | .crosscallCreate2 callValue salt _ => collectExprEvents (collectExprEvents events callValue) salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        let events' := collectExprEvents (collectExprEvents (collectExprEvents events parentPromise) callbackMethod) deposit
+        args.foldl (fun acc arg => collectExprEvents acc arg) events'
+    | .nearPromiseResultsCount => events
+    | .nearPromiseResultStatus index => collectExprEvents events index
+    | .nearPromiseResultU64 index => collectExprEvents events index
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        let events₁ := collectExprEvents events accountIndex
+        let events₂ := collectExprEvents events₁ methodId
+        let events₃ := collectExprEvents events₂ deposit
+        args.foldl collectExprEvents events₃
     | .effect effect => collectEffectEvents events effect
     | .literal _ | .local _ | .nativeValue => events
 

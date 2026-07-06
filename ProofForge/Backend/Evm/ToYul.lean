@@ -1,10 +1,12 @@
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Compiler.Yul.AST
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Backend.Evm.ToYul
 
 open ProofForge.IR
 open ProofForge.Backend.Evm.Plan
+open ProofForge.Util.StringUtil
 
 def slotExpr (slot : Nat) : Lean.Compiler.Yul.Expr :=
   Lean.Compiler.Yul.Expr.num slot
@@ -307,18 +309,20 @@ def mapHelperFunctions (assignOps : Array AssignOp) : Array Lean.Compiler.Yul.St
   mapBaseHelperFunctions ++ assignOps.map mapAssignHelperFunction
 
 def contextFieldExpr
-    {ε : Type}
-    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr) :
-    ContextField → Except ε Lean.Compiler.Yul.Expr
+    (lowerExpr : Expr → Except String Lean.Compiler.Yul.Expr) :
+    ContextField → Except String Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
+  | .userIdHash => .error "EVM context read `userIdHash` is not supported; NEAR-only full predecessor account hash"
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])
+  | .epochHeight => .error "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode"
   | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
   | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
   | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
   | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
+  | .randomSeed => .error "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode"
   | .origin => .ok (Lean.Compiler.Yul.builtin "origin" #[])
   | .coinbase => .ok (Lean.Compiler.Yul.builtin "coinbase" #[])
   | .blockHash blockNumber => do
@@ -630,12 +634,6 @@ def isHexChar (c : Char) : Bool :=
   ('0' <= c && c <= '9') ||
   ('a' <= c && c <= 'f') ||
   ('A' <= c && c <= 'F')
-
-def stripHexPrefix (s : String) : String :=
-  if s.startsWith "0x" || s.startsWith "0X" then
-    (s.drop 2).toString
-  else
-    s
 
 def normalizeInitCodeHex {ε : Type} (mkError : String → ε) (context initCodeHex : String) : Except ε String := do
   let raw := stripHexPrefix initCodeHex
@@ -1400,63 +1398,6 @@ def returnValueWordPlanAssignments
     plan
   returnValueWordAssignments mkError context plan.returns words
 
-partial def localCrosscallWordsAt
-    {ε : Type}
-    (mkError : String → ε)
-    (structFieldIds : String → Except ε (Array String))
-    (context name : String)
-    (path : Array Nat) : ValueType → Except ε (Array Lean.Compiler.Yul.Expr)
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
-      if path.isEmpty then
-        .ok #[Lean.Compiler.Yul.Expr.id name]
-      else
-        .ok #[Lean.Compiler.Yul.Expr.id (arrayLocalPathName name path)]
-  | .unit | .bytes | .string | .array _ =>
-      .error (mkError s!"{context} uses Unit; IR EVM v0 crosscall values must use U32, U64, Bool, Hash, fixed arrays, or structs")
-  | .fixedArray elementType length => do
-      if length == 0 then
-        .error (mkError s!"{context} uses Array<{elementType.name},0>; IR EVM v0 crosscall fixed arrays must have non-zero length")
-      let mut words : Array Lean.Compiler.Yul.Expr := #[]
-      for _h : idx in [0:length] do
-        words := words ++ (← localCrosscallWordsAt mkError structFieldIds context name (path.push idx) elementType)
-      .ok words
-  | .structType typeName => do
-      let fieldIds ← structFieldIds typeName
-      let mut words : Array Lean.Compiler.Yul.Expr := #[]
-      for fieldId in fieldIds do
-        let fieldName :=
-          if path.isEmpty then
-            structLocalFieldName name fieldId
-          else
-            arrayStructLocalPathFieldName name path fieldId
-        words := words.push (Lean.Compiler.Yul.Expr.id fieldName)
-      .ok words
-
-def localCrosscallWords
-    {ε : Type}
-    (mkError : String → ε)
-    (structFieldIds : String → Except ε (Array String))
-    (context name : String)
-    (type : ValueType) : Except ε (Array Lean.Compiler.Yul.Expr) :=
-  localCrosscallWordsAt mkError structFieldIds context name #[] type
-
-partial def crosscallArgWordPlanExprs
-    {ε : Type}
-    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
-    (localWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (storageWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (plans : Array CrosscallArgWordPlan) : Except ε (Array Lean.Compiler.Yul.Expr) := do
-  let mut words : Array Lean.Compiler.Yul.Expr := #[]
-  for plan in plans do
-    match plan with
-    | .local name type =>
-        words := words ++ (← localWords name type)
-    | .storage stateId type =>
-        words := words ++ (← storageWords stateId type)
-    | .expr exprPlan =>
-        words := words.push (← lowerPlanExpr exprPlan)
-  .ok words
-
 partial def crosscallExpandedArgWordPlanExprs
     {ε : Type}
     (mkError : String → ε)
@@ -1470,29 +1411,6 @@ partial def crosscallExpandedArgWordPlanExprs
     | .local .. | .storage .. =>
         .error (mkError "EVM crosscall lowering expected pre-expanded argument word plans")
   .ok words
-
-def crosscallAggregateReturnAssignmentPlanStatement
-    {ε : Type}
-    (mkError : String → ε)
-    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
-    (localWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (storageWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (plan : CrosscallReturnAssignmentPlan) :
-    Except ε Lean.Compiler.Yul.Statement := do
-  let target ← lowerPlanExpr plan.target
-  let methodId ← lowerPlanExpr plan.methodId
-  let callValue? ← plan.callValue?.mapM lowerPlanExpr
-  let argWords ← crosscallArgWordPlanExprs lowerPlanExpr localWords storageWords plan.args
-  crosscallAggregateReturnAssignment
-    mkError
-    plan.returns.localNames
-    plan.mode
-    target
-    methodId
-    callValue?
-    argWords
-    plan.returns.returnType
-    plan.returns.wordTypes
 
 def crosscallAggregateReturnAssignmentExpandedPlanStatement
     {ε : Type}
@@ -1514,36 +1432,6 @@ def crosscallAggregateReturnAssignmentExpandedPlanStatement
     argWords
     plan.returns.returnType
     plan.returns.wordTypes
-
-partial def crosscallExprPlanExpr
-    {ε : Type}
-    (mkError : String → ε)
-    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
-    (localWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (storageWords : String → ValueType → Except ε (Array Lean.Compiler.Yul.Expr))
-    (mode : CrosscallMode)
-    (target methodId : ExprPlan)
-    (callValue? : Option ExprPlan)
-    (args : Array CrosscallArgWordPlan)
-    (returnType : ValueType) : Except ε Lean.Compiler.Yul.Expr := do
-  let targetExpr ← lowerPlanExpr target
-  let methodIdExpr ← lowerPlanExpr methodId
-  let callValueExpr? ← callValue?.mapM lowerPlanExpr
-  let argExprs ← crosscallArgWordPlanExprs lowerPlanExpr localWords storageWords args
-  let plainTransfer :=
-    mode == .callValue && argExprs.isEmpty &&
-      match methodId with
-      | .literalWord 0 => true
-      | _ => false
-  crosscallScalarHelperCallExpr
-    mkError
-    mode
-    targetExpr
-    methodIdExpr
-    callValueExpr?
-    argExprs
-    returnType
-    plainTransfer
 
 partial def crosscallExpandedExprPlanExpr
     {ε : Type}
@@ -2751,6 +2639,25 @@ def wholeStructArrayAssignStmt
     (sources : Array StructArrayAssignmentSource) : Lean.Compiler.Yul.Statement :=
   .block { statements := structArrayAssignmentStatements name sources }
 
+def structArrayAssignmentSourceFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (source : StructArrayAssignmentSourcePlan) :
+    Except ε StructArrayAssignmentSource := do
+  .ok {
+    index := source.index,
+    fieldName := source.fieldName,
+    expr := ← lowerPlanExpr source.expr
+  }
+
+def wholeStructArrayAssignStmtFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (name : String)
+    (sources : Array StructArrayAssignmentSourcePlan) :
+    Except ε Lean.Compiler.Yul.Statement := do
+  .ok <| wholeStructArrayAssignStmt name (← sources.mapM (structArrayAssignmentSourceFromPlan lowerPlanExpr))
+
 def nestedFixedArrayAssignmentStatements
     (name : String)
     (sources : Array NestedFixedArrayAssignmentSource) : Array Lean.Compiler.Yul.Statement :=
@@ -2772,6 +2679,25 @@ def wholeNestedFixedArrayAssignStmt
     (name : String)
     (sources : Array NestedFixedArrayAssignmentSource) : Lean.Compiler.Yul.Statement :=
   .block { statements := nestedFixedArrayAssignmentStatements name sources }
+
+def nestedFixedArrayAssignmentSourceFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (source : NestedFixedArrayAssignmentSourcePlan) :
+    Except ε NestedFixedArrayAssignmentSource := do
+  .ok {
+    path := source.path,
+    fieldName? := source.fieldName?,
+    expr := ← lowerPlanExpr source.expr
+  }
+
+def wholeNestedFixedArrayAssignStmtFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (name : String)
+    (sources : Array NestedFixedArrayAssignmentSourcePlan) :
+    Except ε Lean.Compiler.Yul.Statement := do
+  .ok <| wholeNestedFixedArrayAssignStmt name (← sources.mapM (nestedFixedArrayAssignmentSourceFromPlan lowerPlanExpr))
 
 def structAssignmentStatements
     (name : String)
@@ -2889,6 +2815,141 @@ def dynamicLocalValueBlock
       .varDecl #[{ name := dynamicArrayValueLocalName }] (some valueExpr)
     ] ++ body
   }
+
+def dynamicAggregateAssignmentLeafName
+    (name : String) (pathPrefix : Array Nat) (fieldName? : Option String) : String :=
+  match fieldName? with
+  | some fieldName => arrayStructLocalPathFieldName name pathPrefix fieldName
+  | none => arrayLocalPathName name pathPrefix
+
+def dynamicAggregateScalarAssignmentTarget?
+    (target : ExprPlan) : Option (String × Array ExprPlan × Array Nat × Option String) :=
+  match target with
+  | .localArrayGet name path lengths =>
+      some (name, path, lengths, none)
+  | .structField (.localArrayGet name path lengths) fieldName =>
+      some (name, path, lengths, some fieldName)
+  | _ =>
+      none
+
+partial def dynamicAggregateAssignmentPathBody
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerPlan : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (name : String)
+    (pathPlans : Array ExprPlan)
+    (lengths : Array Nat)
+    (pathPrefix : Array Nat)
+    (fieldName? : Option String)
+    (op? : Option AssignOp) :
+    Except ε (Array Lean.Compiler.Yul.Statement) := do
+  if pathPrefix.size == pathPlans.size then
+    let targetName := dynamicAggregateAssignmentLeafName name pathPrefix fieldName?
+    .ok #[dynamicAssignmentStatement targetName op?]
+  else
+    let depth := pathPrefix.size
+    let some length := lengths[depth]?
+      | .error (mkError s!"EVM StmtPlan-to-Yul dynamic aggregate assignment missing length at path depth {depth}")
+    let some indexPlan := pathPlans[depth]?
+      | .error (mkError s!"EVM StmtPlan-to-Yul dynamic aggregate assignment missing path index at depth {depth}")
+    match indexPlan with
+    | .literalWord indexValue =>
+        if indexValue >= length then
+          .error (mkError s!"EVM StmtPlan-to-Yul dynamic aggregate assignment index {indexValue} is out of bounds for length {length}")
+        else
+          dynamicAggregateAssignmentPathBody
+            mkError
+            lowerPlan
+            name
+            pathPlans
+            lengths
+            (pathPrefix.push indexValue)
+            fieldName?
+            op?
+    | _ =>
+        let indexExpr ← lowerPlan indexPlan
+        let mut cases : Array Lean.Compiler.Yul.Case := #[]
+        for _h : idx in [0:length] do
+          cases := cases.push <|
+            dynamicLocalSwitchCase idx
+              (← dynamicAggregateAssignmentPathBody
+                mkError
+                lowerPlan
+                name
+                pathPlans
+                lengths
+                (pathPrefix.push idx)
+                fieldName?
+                op?)
+        cases := cases.push dynamicLocalSwitchDefaultCase
+        .ok #[dynamicLocalPathSwitchBlock depth indexExpr cases]
+
+def dynamicAggregateScalarAssignmentFromTarget
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (target value : ExprPlan)
+    (op? : Option AssignOp) : Except ε (Array Lean.Compiler.Yul.Statement) := do
+  let some (name, pathPlans, lengths, fieldName?) := dynamicAggregateScalarAssignmentTarget? target
+    | .error (mkError "EVM StmtPlan-to-Yul dynamic aggregate assignment lowering expected a dynamic local-array or struct-array field target")
+  if (localArrayStaticPath? pathPlans).isSome then
+    .error (mkError "EVM StmtPlan-to-Yul dynamic aggregate assignment lowering expected a dynamic local-array path")
+  let lowerPlan := fun plan => exprPlanExpr mkError lowerExpr lowerEffect plan
+  let valueExpr ← lowerPlan value
+  match pathPlans with
+  | #[indexPlan] =>
+      match indexPlan with
+      | .literalWord _ =>
+          let body ←
+            dynamicAggregateAssignmentPathBody
+              mkError
+              lowerPlan
+              name
+              pathPlans
+              lengths
+              #[]
+              fieldName?
+              op?
+          .ok #[dynamicLocalValueBlock valueExpr body]
+      | _ => do
+          let indexExpr ← lowerPlan indexPlan
+          let some length := lengths[0]?
+            | .error (mkError "EVM StmtPlan-to-Yul dynamic aggregate assignment missing array length")
+          .ok #[
+            dynamicLocalValueSwitchBlock
+              indexExpr
+              valueExpr
+              length
+              (fun idx =>
+                #[dynamicAssignmentStatement (dynamicAggregateAssignmentLeafName name #[idx] fieldName?) op?])
+          ]
+  | _ =>
+    do
+      let body ←
+        dynamicAggregateAssignmentPathBody
+          mkError
+          lowerPlan
+          name
+          pathPlans
+          lengths
+          #[]
+          fieldName?
+          op?
+      .ok #[dynamicLocalValueBlock valueExpr body]
+
+def dynamicAggregateScalarAssignmentStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .assign target value =>
+      dynamicAggregateScalarAssignmentFromTarget mkError lowerExpr lowerEffect target value none
+  | .assignOp target op value =>
+      dynamicAggregateScalarAssignmentFromTarget mkError lowerExpr lowerEffect target value (some op)
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul dynamic aggregate assignment lowering expected assign/assignOp")
 
 def ifElseStmtPlanStatements
     {ε : Type}

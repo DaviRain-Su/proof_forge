@@ -88,7 +88,7 @@ missing.
 | PDA derivation | Covered | `Surface.lean` typed seeds; `pda-web3-smoke.sh` validates | — |
 | Account constraints (signer/writable/owner) | Covered | Signer/writable checks lower to the sBPF prologue; owner checks now cover current-program ownership, executable program accounts, and named owner-account references, with missing owner references rejected during lowering | — |
 | Multi-account schemas | Covered | Manifest composes state + PDA + CPI + declared accounts | — |
-| Close account | Covered | `spl_token_close_account` builder/surface/Learn syntax and CLI fixture routes lower to `spl-token.close_account` metadata and sBPF instruction tag `9`; live Surfpool/Pinocchio equivalence remains a validation follow-up | — |
+| Close account | Covered | `spl_token_close_account` builder/surface/Learn syntax and CLI fixture routes lower to `spl-token.close_account` metadata and sBPF instruction tag `9`; `just solana-spl-token-close-account-cpi-web3` deploys the generated program on Surfpool, closes an empty SPL Token account through CPI, verifies the account is removed, destination lamports receive rent, and marker state is recorded. Pinocchio equivalence remains a reference-breadth follow-up | — |
 | Reallocation | Covered | `reallocAccount` builder/surface helpers and `contract_source` `realloc account to N;` statements emit `solana.account_realloc` metadata, manifest/IDL action records, static `new_size` checks against `MAX_PERMITTED_DATA_INCREASE`, and sBPF data-length stores; Surfpool behavior remains a live validation follow-up | — |
 | Address lookup tables | Missing | No ALT support in client or examples | P2 |
 
@@ -101,18 +101,26 @@ missing.
 | SPL Token transfer_checked | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
-| Memo / Stake / Vote / Config | Missing | Extension lowering covers System, SPL Token, and the Token-2022 transfer-fee/non-transferable direct CPI subset | P1 |
+| Associated Token create_idempotent | Covered | `associatedTokenCreate` builder/surface helper and `contract_source` `associated_token_create_idempotent` syntax emit the Associated Token Program CPI account order, `associated-token.create_idempotent` data layout, token-program metadata, and separated 6-account CPI frame; `solana-associated-token-cpi-web3` deploys the generated program on Surfpool, creates the canonical ATA, and invokes the idempotent path twice | — |
+| Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Web3.js behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
+| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, Associated Token, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner/permanent-delegate/interest-bearing/memo-transfer direct CPI subset | P1 |
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| transfer_fee | Covered | Plan/Surfpool execution plus direct sBPF CPI layouts for initialize config, transfer_checked_with_fee, withdraw/harvest, and set_transfer_fee; `solana-spl-token-2022-cpi-web3` now deploys the generated program on Surfpool and executes the transfer-fee direct-CPI behavior path | — |
-| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; live generated direct-CPI behavior remains a validation expansion | — |
+| transfer_fee | Covered | Plan/Surfpool execution plus direct sBPF CPI layouts for initialize config, transfer_checked_with_fee, withdraw/harvest, and set_transfer_fee; `solana-spl-token-2022-cpi-web3` deploys the generated program on Surfpool and executes the transfer-fee direct-CPI behavior path | — |
+| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; `solana-spl-token-2022-cpi-web3` verifies the generated direct-CPI helper through `getNonTransferable` | — |
+| metadata_pointer | Covered | `splToken2022InitializeMetadataPointer` builder/surface helper emits `token-2022.initialize_metadata_pointer`; sBPF packs `[39, 0, authority, metadata_address]` and `solana-spl-token-2022-cpi-web3` verifies the initialized extension through `getMetadataPointerState` | — |
+| default_account_state | Covered | `splToken2022InitializeDefaultAccountState` builder/surface helper emits `token-2022.initialize_default_account_state`; sBPF packs `[28, 0, state]` and `solana-spl-token-2022-cpi-web3` verifies the initialized frozen default state through `getDefaultAccountState` | — |
+| immutable_owner | Covered | `splToken2022InitializeImmutableOwner` builder/surface helper emits top-level Token-2022 `InitializeImmutableOwner` tag 22 and `solana-spl-token-2022-cpi-web3` verifies the token-account extension through `getImmutableOwner` | — |
+| permanent_delegate | Covered | `splToken2022InitializePermanentDelegate` builder/surface helper emits top-level Token-2022 `InitializePermanentDelegate` tag 35, packs the delegate pubkey, and `solana-spl-token-2022-cpi-web3` verifies the mint extension through `getPermanentDelegate` | — |
+| interest_bearing | Covered | `splToken2022InitializeInterestBearingMint` builder/surface helper emits `InterestBearingMintExtension` tag 33 sub-instruction 0, packs the rate authority pubkey plus initial i16 rate, and `solana-spl-token-2022-cpi-web3` verifies `getInterestBearingMintConfigState` | — |
+| memo_transfer | Covered | `splToken2022EnableRequiredMemoTransfers` builder/surface helper emits `MemoTransferExtension` tag 30 sub-instruction 0 and `solana-spl-token-2022-cpi-web3` verifies `getMemoTransfer(...).requireIncomingTransferMemos` | — |
+| pausable | Covered | `splToken2022InitializePausableConfig`, `splToken2022Pause`, and `splToken2022Resume` builder/surface helpers emit `token-2022.initialize_pausable_config`, `token-2022.pause`, and `token-2022.resume`; sBPF packs `[44,0,authority]`, `[44,1]`, and `[44,2]`, and `solana-spl-token-2022-pausable-cpi-web3` verifies `getPausableConfig(...).paused` transitions false -> true -> false | — |
 | confidential_transfer | Missing | No plan or backend support | P1 |
-| transfer_hook | Missing | No plan or backend support | P1 |
-| metadata_pointer / permanent_delegate / interest_bearing / default_account_state / immutable_owner / memo_transfer | Missing | No plan or backend support | P2 |
+| transfer_hook | Covered | `splToken2022InitializeTransferHook` builder/surface helper emits `token-2022.initialize_transfer_hook`; sBPF packs `[36, 0, authority, transfer_hook_program_id]` and `solana-spl-token-2022-cpi-web3` verifies the initialized mint extension through `getTransferHook`. The generated transfer-hook fixture also lowers the external `Execute` discriminator, initializes the validation PDA with two static extra-account metas, routes those metas through Web3.js `createTransferCheckedWithTransferHookInstruction`, accepts an allowed amount, and rejects an over-limit amount in `just solana-spl-token-2022-transfer-hook-web3`. Dynamic extra-account-list mutation remains future polish. | — |
 
 ### Ecosystem
 
@@ -148,7 +156,7 @@ economics) is almost entirely missing.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | NEP-141 (fungible token) | Missing | No FT example or fixture | P0 |
-| NEP-145 (storage management) | Missing | No storage-management fixture | P1 |
+| NEP-145 (storage management) | Partial | `Tests/ContractSource/NearStorageDeposit.lean` covers `storage_deposit`, `storage_balance_of`, and `storage_balance_bounds` with U64 projected balances, Hash-key storage, target-first metadata, and offline-host smoke. Full JSON `StorageBalance`, withdraw/refund, and storage byte accounting remain open | P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
 | NEP-171 (NFT) | Missing | No NFT example | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
@@ -158,8 +166,8 @@ economics) is almost entirely missing.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P0 |
-| signer_account_id | Missing | No signer host import | P0 |
+| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P1 |
+| signer_account_id | Covered | `signer_account_id` host import + `ctxSignerFunc` + `Surface.signer` | — |
 | Access keys | Missing | No function-call/full-access key APIs | P1 |
 | Storage staking / byte accounting | Missing | No storage_usage / staking host APIs | P1 |
 
@@ -179,7 +187,9 @@ economics) is almost entirely missing.
 | keccak256 | Missing | No import beyond sha256 | P1 |
 | ripemd160 / ecrecover / ed25519_verify | Missing | No host imports | P1 |
 | block_height | Covered | EmitWat + offline host | — |
-| block_timestamp / epoch_height / random_seed | Missing | Offline host only tracks block_index | P1 |
+| block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
+| epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
+| random_seed | Covered | `random_seed(register_id)` host import + `.contextRead .randomSeed` EmitWat lowering + `Surface.randomSeed`, returning the 32-byte register payload as `Hash` | — |
 | storage_remove | Missing | No remove host import | P1 |
 
 ### Deployment
@@ -187,7 +197,7 @@ economics) is almost entirely missing.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | Real NEAR broadcast smoke | Missing | Deploy metadata is offline-only | P1 |
-| near-api-js client wrapper | Partial | Generic functionCall wrapper; no view/gas/deposit options | P1 |
+| near-api-js client wrapper | Covered | Generated `proof-forge-near.ts` exposes `NearViewOptions` for view calls and `NearCallOptions` for gas/attached-deposit mutating calls | — |
 
 ---
 
@@ -195,7 +205,7 @@ economics) is almost entirely missing.
 
 **EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
 
-**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable are closed. Live generated-program Token-2022 direct-CPI validation remains a P1 validation expansion.
+**Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
 **NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
 

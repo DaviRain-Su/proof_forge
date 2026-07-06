@@ -1006,9 +1006,15 @@ mutual
           planned := planned.push (field.fst, ← buildExprPlan module env field.snd)
         .ok (.structLit typeName planned)
     | .field base fieldName => do
-        match ← localArrayStructFieldExprPlan? module env base fieldName with
-        | some plan => .ok plan
-        | none => .ok (.structField (← buildExprPlan module env base) fieldName)
+        match base with
+        | .effect (.storageScalarRead stateId) => do
+            let slotPlan ← lowerPlan <|
+              ProofForge.Backend.Evm.Plan.structFieldSlotPlan module stateId fieldName
+            .ok (.storageLoad slotPlan)
+        | _ =>
+            match ← localArrayStructFieldExprPlan? module env base fieldName with
+            | some plan => .ok plan
+            | none => .ok (.structField (← buildExprPlan module env base) fieldName)
     | .add lhs rhs => do
         .ok (assignExprPlan .add (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
     | .sub lhs rhs => do
@@ -1105,6 +1111,12 @@ mutual
           (← buildExprPlan module env callValue)
           (some (← buildExprPlan module env salt))
           initCodeHex)
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _
+    | .nearCrosscallInvokePool _ _ _ _ =>
+        .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => do
         .ok (.effect (← buildEffectPlan module env effect))
 
@@ -1193,14 +1205,18 @@ mutual
       (env : TypeEnv) :
       ContextField → Except LowerError ContextExprPlan
     | .userId => .ok .userId
+    | .userIdHash =>
+        .error { message := "EVM context read `userIdHash` is not supported; use `origin` or account hash parameters on EVM" }
     | .contractId => .ok .contractId
     | .checkpointId => .ok .checkpointId
     | .timestamp => .ok .timestamp
+    | .epochHeight => .error { message := "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode" }
     | .chainId => .ok .chainId
     | .gasPrice => .ok .gasPrice
     | .gasLeft => .ok .gasLeft
     | .baseFee => .ok .baseFee
     | .prevRandao => .ok .prevRandao
+    | .randomSeed => .error { message := "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode" }
     | .origin => .ok .origin
     | .coinbase => .ok .coinbase
     | .blockHash blockNumber => do
@@ -1447,6 +1463,199 @@ def fixedArrayAssignmentSourcePlans
       .ok sources
   | _ =>
       .error { message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0" }
+
+partial def nestedFixedArrayValueFieldPlans
+    (module : Module)
+    (env : TypeEnv)
+    (context typeName : String)
+    (value : Expr) : Except LowerError (Array (String × ExprPlan)) := do
+  let decl ← ensureLocalFlatStructType module context typeName
+  match value with
+  | .local sourceName => do
+      let some binding := findLocal? env sourceName
+        | .error { message := s!"unknown local `{sourceName}`" }
+      ensureType context (.structType typeName) binding.type
+      let mut fields : Array (String × ExprPlan) := #[]
+      for fieldDecl in decl.fields do
+        fields := fields.push (fieldDecl.id, .local (structLocalFieldName sourceName fieldDecl.id))
+      .ok fields
+  | .structLit literalTypeName fields => do
+      if literalTypeName != typeName then
+        .error { message := s!"{context} expected struct `{typeName}`, got `{literalTypeName}`" }
+      let mut fieldPlans : Array (String × ExprPlan) := #[]
+      for fieldDecl in decl.fields do
+        let some field := fields.find? fun field => field.fst == fieldDecl.id
+          | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
+        fieldPlans := fieldPlans.push (fieldDecl.id, ← buildExprPlan module env field.snd)
+      .ok fieldPlans
+  | .effect (.storageScalarRead stateId) => do
+      let (slot, stateTypeName, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireStructState module stateId
+      ensureType context (.structType typeName) (.structType stateTypeName)
+      let mut fieldPlans : Array (String × ExprPlan) := #[]
+      for h : idx in [0:decl.fields.size] do
+        let fieldDecl := decl.fields[idx]
+        ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
+        fieldPlans := fieldPlans.push (fieldDecl.id, .storageLoad (.scalarSlot (slot + idx)))
+      .ok fieldPlans
+  | _ =>
+      .error {
+        message := s!"{context} supports local struct values, struct literals, or storage scalar struct reads in IR EVM v0"
+      }
+
+partial def nestedFixedArrayLocalSourcePlansAt
+    (module : Module)
+    (sourceName : String)
+    (path : Array Nat) : ValueType → Except LowerError (Array NestedFixedArrayAssignmentSourcePlan)
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      let localName :=
+        if path.isEmpty then
+          sourceName
+        else
+          arrayLocalPathName sourceName path
+      .ok #[{ path := path, fieldName? := none, expr := .local localName }]
+  | .structType typeName => do
+      let decl ← ensureLocalFlatStructType module s!"assignment value `{sourceName}` nested fixed-array leaf" typeName
+      let mut sources : Array NestedFixedArrayAssignmentSourcePlan := #[]
+      for fieldDecl in decl.fields do
+        let fieldName :=
+          if path.isEmpty then
+            structLocalFieldName sourceName fieldDecl.id
+          else
+            arrayStructLocalPathFieldName sourceName path fieldDecl.id
+        sources := sources.push {
+          path := path,
+          fieldName? := some fieldDecl.id,
+          expr := .local fieldName
+        }
+      .ok sources
+  | .fixedArray elementType length => do
+      ensureLocalNestedFixedArrayValueType module "assignment value" sourceName elementType
+      let mut sources : Array NestedFixedArrayAssignmentSourcePlan := #[]
+      for _h : idx in [0:length] do
+        sources := sources ++ (← nestedFixedArrayLocalSourcePlansAt module sourceName (path.push idx) elementType)
+      .ok sources
+  | .unit | .bytes | .string | .array _ =>
+      .error {
+        message := s!"assignment value `{sourceName}` has unsupported EVM IR v0 nested fixed-array leaf type `Unit`; nested local fixed arrays support U32, U64, Bool, Hash, Address, or flat struct leaves"
+      }
+
+partial def nestedFixedArrayLiteralSourcePlansAt
+    (module : Module)
+    (env : TypeEnv)
+    (name : String)
+    (path : Array Nat)
+    (expectedType : ValueType)
+    (value : Expr) : Except LowerError (Array NestedFixedArrayAssignmentSourcePlan) := do
+  match expectedType with
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address =>
+      .ok #[{ path := path, fieldName? := none, expr := ← buildExprPlan module env value }]
+  | .structType typeName => do
+      let fields ←
+        nestedFixedArrayValueFieldPlans
+          module
+          env
+          s!"assignment target `{name}` nested fixed-array leaf"
+          typeName
+          value
+      let mut sources : Array NestedFixedArrayAssignmentSourcePlan := #[]
+      for field in fields do
+        sources := sources.push {
+          path := path,
+          fieldName? := some field.fst,
+          expr := field.snd
+        }
+      .ok sources
+  | .fixedArray elementType length => do
+      ensureLocalNestedFixedArrayValueType module "assignment target" name elementType
+      match value with
+      | .arrayLit literalElementType values => do
+          ensureType s!"assignment target `{name}` fixed-array element type" elementType literalElementType
+          if values.size != length then
+            .error { message := s!"assignment target `{name}` expected fixed array length {length}, got {values.size}" }
+          let mut sources : Array NestedFixedArrayAssignmentSourcePlan := #[]
+          for h : idx in [0:values.size] do
+            sources := sources ++
+              (← nestedFixedArrayLiteralSourcePlansAt module env name (path.push idx) elementType values[idx])
+          .ok sources
+      | _ =>
+          .error {
+            message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0"
+          }
+  | .unit | .bytes | .string | .array _ =>
+      .error {
+        message := s!"assignment target `{name}` has unsupported EVM IR v0 nested fixed-array leaf type `{expectedType.name}`; nested local fixed arrays support U32, U64, Bool, Hash, Address, or flat struct leaves"
+      }
+
+def nestedFixedArrayAssignmentSourcePlans
+    (module : Module)
+    (env : TypeEnv)
+    (name : String)
+    (expectedType : ValueType)
+    (value : Expr) : Except LowerError (Array NestedFixedArrayAssignmentSourcePlan) := do
+  ensureLocalNestedFixedArrayValueType module "assignment target" name expectedType
+  match value with
+  | .local sourceName => do
+      let some binding := findLocal? env sourceName
+        | .error { message := s!"unknown local `{sourceName}`" }
+      ensureType s!"assignment target `{name}` fixed-array type" expectedType binding.type
+      nestedFixedArrayLocalSourcePlansAt module sourceName #[] expectedType
+  | .arrayLit _ _ =>
+      nestedFixedArrayLiteralSourcePlansAt module env name #[] expectedType value
+  | _ =>
+      .error {
+        message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0"
+      }
+
+def structArrayAssignmentSourcePlans
+    (module : Module)
+    (env : TypeEnv)
+    (name typeName : String)
+    (length : Nat)
+    (value : Expr) : Except LowerError (Array StructArrayAssignmentSourcePlan) := do
+  let decl ← ensureLocalFlatStructType module s!"assignment target `{name}` fixed-array element" typeName
+  match value with
+  | .local sourceName => do
+      let (sourceElementType, sourceLength) ← requireLocalFixedArray "assignment value" env sourceName
+      ensureType s!"assignment target `{name}` fixed-array element type" (.structType typeName) sourceElementType
+      if sourceLength != length then
+        .error { message := s!"assignment target `{name}` expected fixed array length {length}, got {sourceLength}" }
+      let mut sources : Array StructArrayAssignmentSourcePlan := #[]
+      for _h : idx in [0:length] do
+        for fieldDecl in decl.fields do
+          sources := sources.push {
+            index := idx,
+            fieldName := fieldDecl.id,
+            expr := .local (arrayStructLocalFieldName sourceName idx fieldDecl.id)
+          }
+      .ok sources
+  | .arrayLit literalElementType literalValues => do
+      ensureType s!"assignment target `{name}` fixed-array element type" (.structType typeName) literalElementType
+      if literalValues.size != length then
+        .error { message := s!"assignment target `{name}` expected fixed array length {length}, got {literalValues.size}" }
+      let mut sources : Array StructArrayAssignmentSourcePlan := #[]
+      for h : idx in [0:literalValues.size] do
+        match literalValues[idx] with
+        | .structLit literalTypeName fields => do
+            if literalTypeName != typeName then
+              .error { message := s!"assignment target `{name}` expected struct `{typeName}`, got `{literalTypeName}`" }
+            for fieldDecl in decl.fields do
+              let some field := fields.find? fun field => field.fst == fieldDecl.id
+                | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
+              sources := sources.push {
+                index := idx,
+                fieldName := fieldDecl.id,
+                expr := ← buildExprPlan module env field.snd
+              }
+        | other =>
+            let actualType ← inferExprType module env other
+            .error {
+              message := s!"assignment target `{name}` fixed-array element {idx} expected struct literal `{typeName}`, got `{actualType.name}`"
+            }
+      .ok sources
+  | _ =>
+      .error {
+        message := s!"assignment target `{name}` struct-array whole assignment supports local fixed-array values or array literals in IR EVM v0"
+      }
 
 def structAssignmentSourcePlans
     (module : Module)
@@ -1736,6 +1945,7 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ => pure collector
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
   partial def collectEventPlansFromEffect
@@ -1994,6 +2204,7 @@ mutual
         .ok (mergeCrosscallHelperSpecs
           (← crosscallHelperSpecsFromExpr module env callValue)
           (← crosscallHelperSpecsFromExpr module env salt))
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => .ok #[]
     | .effect effect =>
         crosscallHelperSpecsFromEffect module env effect
 
@@ -2434,6 +2645,7 @@ mutual
     | .crosscallCreate2 callValue salt initCodeHex =>
         let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
         pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => #[]
     | .effect effect =>
         createHelperSpecsFromEffect effect
 
@@ -3957,6 +4169,16 @@ mutual
         localArrayGetLengthsExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
+    | .nearPromiseThen p m args d =>
+        mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
+          (mergeNatSets (localArrayGetLengthsExpr env d) (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env accountIndex) (localArrayGetLengthsExpr env methodId))
+          (mergeNatSets (localArrayGetLengthsExpr env deposit)
+            (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus i => localArrayGetLengthsExpr env i
+    | .nearPromiseResultU64 i => localArrayGetLengthsExpr env i
     | .effect effect =>
         localArrayGetLengthsEffect env effect
 
@@ -4113,6 +4335,17 @@ mutual
         nestedLocalArrayGetShapesExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
+    | .nearPromiseThen p m args d =>
+        let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)
+        let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env d)
+        args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env accountIndex) (nestedLocalArrayGetShapesExpr env methodId)
+        let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env deposit)
+        args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
+    | .nearPromiseResultsCount => #[]
+    | .nearPromiseResultStatus i => nestedLocalArrayGetShapesExpr env i
+    | .nearPromiseResultU64 i => nestedLocalArrayGetShapesExpr env i
     | .effect effect =>
         nestedLocalArrayGetShapesEffect env effect
 
@@ -4231,11 +4464,12 @@ def buildNestedLocalArrayGetShapes (module : Module) : Except LowerError (Array 
 
 /-! ## Module plan assembly -/
 
-def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
-  let basePlan ←
-    match buildModulePlan module with
-    | .ok plan => .ok plan
-    | .error err => .error (planError err)
+/-- Assemble the final `ModulePlan` from a precomputed `basePlan` (produced by
+either `buildModulePlan` or `buildModulePlanWithTargetPlan`) plus the
+entrypoint/event/helper analysis that is independent of how the base plan was
+built. Both `buildFullModulePlan` and `buildFullModulePlanWithTargetPlan` route
+through this to avoid duplicating the ~45-line assembly body. -/
+def assembleFullPlan (basePlan : ModulePlan) (module : Module) : Except LowerError ModulePlan := do
   let entrypointPlans ← buildEntrypointPlans module
   let dispatchEntrypointPlans := entrypointPlans.filterMap fun plan =>
     match module.entrypoints.find? (fun ep => ep.name == plan.name) with
@@ -4283,6 +4517,13 @@ def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
     metadata := metadata
   }
 
+def buildFullModulePlan (module : Module) : Except LowerError ModulePlan := do
+  let basePlan ←
+    match buildModulePlan module with
+    | .ok plan => .ok plan
+    | .error err => .error (planError err)
+  assembleFullPlan basePlan module
+
 def buildFullModulePlanWithTargetPlan
     (module : Module)
     (targetPlan : CapabilityPlan) :
@@ -4291,51 +4532,6 @@ def buildFullModulePlanWithTargetPlan
     match buildModulePlanWithTargetPlan module targetPlan with
     | .ok plan => .ok plan
     | .error err => .error (planError err)
-  let entrypointPlans ← buildEntrypointPlans module
-  let dispatchEntrypointPlans := entrypointPlans.filterMap fun plan =>
-    match module.entrypoints.find? (fun ep => ep.name == plan.name) with
-    | some ep => if ep.kind == .fallback || ep.kind == .receive then none else some plan
-    | none => some plan
-  let dispatchPlan := moduleDispatchPlan module dispatchEntrypointPlans
-  let eventPlans ← buildEventPlans module
-  let crosscallPlans ← buildCrosscallHelperPlansFromEntrypoints module entrypointPlans
-  let createPlans := buildCreateHelperPlansFromEntrypoints entrypointPlans
-  let localArrayRequirements := buildLocalArrayHelperRequirementsFromEntrypoints entrypointPlans
-  let localArrayGetLengths := localArrayRequirements.fst
-  let nestedLocalArrayGetShapes := localArrayRequirements.snd
-  let usesCheckedArithmetic := entrypointsUseCheckedArithmetic entrypointPlans
-  let contextOps := buildContextOpsFromEntrypoints entrypointPlans
-  let memoryArrayHelpers := buildMemoryArrayHelpersFromEntrypoints entrypointPlans
-  let hashHelpers := buildHashHelpersFromEntrypoints entrypointPlans
-  let storageArrayHelpers := buildStorageArrayHelpersFromEntrypoints entrypointPlans
-  let mapHelpers := buildMapHelpersFromEntrypoints entrypointPlans
-  let helpers := replaceHashHelpers
-    (replaceMemoryArrayHelpers
-      (replaceStorageArrayHelpers
-        (replaceMapHelpers basePlan.helpers mapHelpers)
-        storageArrayHelpers)
-      memoryArrayHelpers)
-    hashHelpers
-  let mapAssignOps := helperMapAssignOps helpers
-  let metadata := {
-    moduleName := module.name
-    entrypoints := entrypointPlans
-    events := eventPlans
-    capabilities := basePlan.targetPlan.capabilities
-  }
-  .ok { basePlan with
-    entrypoints := entrypointPlans
-    dispatch := dispatchPlan
-    events := eventPlans
-    crosscalls := crosscallPlans
-    creates := createPlans
-    localArrayGetLengths := localArrayGetLengths
-    nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
-    usesCheckedArithmetic := usesCheckedArithmetic
-    contextOps := contextOps
-    helpers := helpers
-    mapAssignOps := mapAssignOps
-    metadata := metadata
-  }
+  assembleFullPlan basePlan module
 
 end ProofForge.Backend.Evm.Lower

@@ -68,6 +68,31 @@ def requireValidateErrorContains {α : Type}
       require (err.message.contains expected)
         s!"{message}: expected `{expected}`, got `{err.message}`"
 
+def lowerExpandedCrosscallArgWordsMany
+    (module : Module)
+    (env : TypeEnv)
+    (context : String)
+    (args : Array Expr) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
+  let plans ←
+    match ProofForge.Backend.Evm.Lower.buildCrosscallArgWordPlansMany module (toValidateTypeEnv env) context args with
+    | .ok plans => .ok plans
+    | .error err => .error { message := err.message }
+  ProofForge.Backend.Evm.ToYul.crosscallExpandedArgWordPlanExprs
+    toYulError
+    (lowerExprPlanExpr module env)
+    plans
+
+def lowerExpandedLocalCrosscallWords
+    (module : Module)
+    (env : TypeEnv)
+    (context name : String)
+    (expectedType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
+  let plans ←
+    match ProofForge.Backend.Evm.Lower.localCrosscallWordPlans module (toValidateTypeEnv env) context name expectedType with
+    | .ok plans => .ok plans
+    | .error err => .error { message := err.message }
+  plans.mapM (lowerExprPlanExpr module env)
+
 def statementFunctionName? : Lean.Compiler.Yul.Statement → Option String
   | .funcDef name _ _ _ => some name
   | _ => none
@@ -3967,7 +3992,7 @@ def testScalarExprPlanToYul : IO Unit := do
     { name := "col", type := .u64, isMutable := false }
   ]
   let nestedDynamicLocalArrayExpr ← requireOk
-    (lowerScalarPlanExprOrFallback
+    (lowerAssignmentValueExpr
       ProofForge.IR.Examples.EvmArrayValueProbe.module
       matrixEnv
       (.arrayGet (.arrayGet (.local "matrix") (.local "row")) (.local "col")))
@@ -4217,7 +4242,7 @@ def testScalarFallbackGateAggregateLiteralPlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul arrayExpr)
     "array literal read must be accepted by scalar plan gate"
   let arrayReturnStmts ← requireOk
-    (lowerScalarReturnStmtPlanOrFallback
+    (lowerReturnStmtPlan
       ProofForge.IR.Examples.Counter.module
       arrayEnv
       "scalar_array_literal_return"
@@ -4247,7 +4272,7 @@ def testScalarFallbackGateAggregateLiteralPlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul structExpr)
     "struct literal field read must be accepted by scalar plan gate"
   let structReturnStmts ← requireOk
-    (lowerScalarReturnStmtPlanOrFallback
+    (lowerReturnStmtPlan
       ProofForge.IR.Examples.EvmStructValueProbe.module
       structEnv
       "scalar_struct_literal_return"
@@ -4274,7 +4299,7 @@ def testScalarFallbackGateLocalAggregatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul arrayExpr)
     "local array read must be accepted by scalar plan gate"
   let arrayReturnStmts ← requireOk
-    (lowerScalarReturnStmtPlanOrFallback
+    (lowerReturnStmtPlan
       ProofForge.IR.Examples.EvmArrayValueProbe.module
       arrayEnv
       "scalar_local_array_return"
@@ -4298,7 +4323,7 @@ def testScalarFallbackGateLocalAggregatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul structExpr)
     "local struct field read must be accepted by scalar plan gate"
   let structBindingStmts ← requireOk
-    (lowerScalarBindingStmtPlanOrFallback
+    (lowerScalarBindingStmtPlan
       ProofForge.IR.Examples.EvmStructValueProbe.module
       structEnv
       "head"
@@ -4323,7 +4348,7 @@ def testScalarFallbackGateLocalAggregatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul structArrayExpr)
     "local struct-array field read must be accepted by scalar plan gate"
   let structArrayAssertStmts ← requireOk
-    (lowerScalarAssertStmtPlanOrFallback
+    (lowerScalarAssertStmtPlan
       ProofForge.IR.Examples.EvmStructArrayValueProbe.module
       structArrayEnv
       (.assert structArrayExpr "enabled" none))
@@ -4349,7 +4374,7 @@ def testScalarFallbackGateMemoryArrayPlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul lengthExpr)
     "memory array length over new array must be accepted by scalar plan gate"
   let lengthBindingStmts ← requireOk
-    (lowerScalarBindingStmtPlanOrFallback
+    (lowerScalarBindingStmtPlan
       ProofForge.IR.Examples.Counter.module
       memoryEnv
       "len"
@@ -4371,7 +4396,7 @@ def testScalarFallbackGateMemoryArrayPlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul getExpr)
     "memory array get over local array must be accepted by scalar plan gate"
   let getReturnStmts ← requireOk
-    (lowerScalarReturnStmtPlanOrFallback
+    (lowerReturnStmtPlan
       ProofForge.IR.Examples.Counter.module
       memoryEnv
       "memory_array_get_return"
@@ -4404,7 +4429,7 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul scalarCrosscallExpr)
     "scalar crosscall return must be accepted by scalar plan gate"
   let crosscallBindingStmts ← requireOk
-    (lowerScalarBindingStmtPlanOrFallback
+    (lowerScalarBindingStmtPlan
       ProofForge.IR.Examples.EvmCrosscallProbe.module
       crosscallEnv
       "remote"
@@ -4443,7 +4468,7 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul aggregateArgExpr)
     "aggregate crosscall argument with scalar return must be accepted by scalar plan gate"
   let aggregateArgBindingStmts ← requireOk
-    (lowerScalarBindingStmtPlanOrFallback
+    (lowerScalarBindingStmtPlan
       ProofForge.IR.Examples.EvmStructValueProbe.module
       crosscallEnv
       "remote_pair"
@@ -4476,7 +4501,7 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul createExpr)
     "create expression must be accepted by scalar plan gate"
   let createReturnStmts ← requireOk
-    (lowerScalarReturnStmtPlanOrFallback
+    (lowerReturnStmtPlan
       ProofForge.IR.Examples.EvmCrosscallProbe.module
       createEnv
       "scalar_create_return"
@@ -4501,7 +4526,7 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
     (exprSupportsPlanScalarYul create2Expr)
     "create2 expression must be accepted by scalar plan gate"
   let create2BindingStmts ← requireOk
-    (lowerScalarBindingStmtPlanOrFallback
+    (lowerScalarBindingStmtPlan
       ProofForge.IR.Examples.EvmCrosscallProbe.module
       createEnv
       "deployed2"
@@ -4521,11 +4546,6 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
   | _ => throw <| IO.userError "create2 scalar binding must use planned helper call"
 
 def testLocalCrosscallWordsToYul : IO Unit := do
-  let simpleStructFields (typeName : String) : Except LowerError (Array String) :=
-    if typeName == "Point" then
-      .ok #["x", "y"]
-    else
-      .error { message := s!"unknown struct `{typeName}`" }
   let lowerStructFields ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.localCrosscallStructFieldIds
       ProofForge.IR.Examples.EvmStructValueProbe.module
@@ -4533,61 +4553,6 @@ def testLocalCrosscallWordsToYul : IO Unit := do
       "Point")
     "Lower local crosscall struct fields"
   require (lowerStructFields == #["x", "y"]) "Lower local crosscall struct field order"
-  let directStructWords ← requireOk
-    (ProofForge.Backend.Evm.ToYul.localCrosscallWords
-      toYulError
-      simpleStructFields
-      "crosscall argument"
-      "p"
-      (.structType "Point"))
-    "direct local crosscall struct words ToYul"
-  require (directStructWords.size == 2) "direct local crosscall struct words count"
-  requireIdentExpr directStructWords[0]! "__proof_forge_struct_p_x" "direct local crosscall struct word 0"
-  requireIdentExpr directStructWords[1]! "__proof_forge_struct_p_y" "direct local crosscall struct word 1"
-  let directArrayWords ← requireOk
-    (ProofForge.Backend.Evm.ToYul.localCrosscallWords
-      toYulError
-      simpleStructFields
-      "crosscall argument"
-      "xs"
-      (.fixedArray .u64 2))
-    "direct local crosscall fixed-array words ToYul"
-  require (directArrayWords.size == 2) "direct local crosscall fixed-array words count"
-  requireIdentExpr directArrayWords[0]! "__proof_forge_array_xs_0" "direct local crosscall fixed-array word 0"
-  requireIdentExpr directArrayWords[1]! "__proof_forge_array_xs_1" "direct local crosscall fixed-array word 1"
-  let directArgWords ← requireOk
-    (ProofForge.Backend.Evm.ToYul.crosscallArgWordPlanExprs
-      (fun
-        | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
-        | _ => .error { message := "direct crosscall arg word plan test only lowers literal scalar plans" })
-      (fun name type =>
-        ProofForge.Backend.Evm.ToYul.localCrosscallWords
-          toYulError
-          simpleStructFields
-          "crosscall argument"
-          name
-          type)
-      (fun stateId type =>
-        if stateId == "current" && type == .structType "Point" then
-          .ok #[Lean.Compiler.Yul.Expr.id "current_x", Lean.Compiler.Yul.Expr.id "current_y"]
-        else
-          .error { message := "direct crosscall arg word plan test unexpected storage plan" })
-      #[
-        CrosscallArgWordPlan.local "p" (.structType "Point"),
-        CrosscallArgWordPlan.expr (.literalWord 9),
-        CrosscallArgWordPlan.storage "current" (.structType "Point")
-      ])
-    "direct crosscall arg word plan ToYul"
-  require (directArgWords.size == 5) "direct crosscall arg word plan word count"
-  requireIdentExpr directArgWords[0]! "__proof_forge_struct_p_x" "direct crosscall arg word plan local word 0"
-  requireIdentExpr directArgWords[1]! "__proof_forge_struct_p_y" "direct crosscall arg word plan local word 1"
-  match directArgWords[2]! with
-  | Lean.Compiler.Yul.Expr.lit value =>
-      require (value.value == "9") "direct crosscall arg word plan scalar word"
-  | _ =>
-      throw <| IO.userError "direct crosscall arg word plan scalar word must be numeric"
-  requireIdentExpr directArgWords[3]! "current_x" "direct crosscall arg word plan storage word 0"
-  requireIdentExpr directArgWords[4]! "current_y" "direct crosscall arg word plan storage word 1"
   let expandedArgWords ← requireOk
     (ProofForge.Backend.Evm.ToYul.crosscallExpandedArgWordPlanExprs
       toYulError
@@ -4618,41 +4583,6 @@ def testLocalCrosscallWordsToYul : IO Unit := do
       #[CrosscallArgWordPlan.local "p" (.structType "Point")])
     "pre-expanded argument word plans"
     "expanded crosscall arg word plan rejects provider source"
-  let directCrosscallExpr ← requireOk
-    (ProofForge.Backend.Evm.ToYul.crosscallExprPlanExpr
-      toYulError
-      (fun
-        | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
-        | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
-        | _ => .error { message := "direct crosscall expression test only lowers literal/local scalar plans" })
-      (fun name type =>
-        ProofForge.Backend.Evm.ToYul.localCrosscallWords
-          toYulError
-          simpleStructFields
-          "crosscall argument"
-          name
-          type)
-      (fun stateId type =>
-        if stateId == "current" && type == .structType "Point" then
-          .ok #[Lean.Compiler.Yul.Expr.id "current_x", Lean.Compiler.Yul.Expr.id "current_y"]
-        else
-          .error { message := "direct crosscall expression test unexpected storage plan" })
-      ProofForge.Backend.Evm.Plan.CrosscallMode.call
-      (.local "target")
-      (.literalWord 305419896)
-      none
-      #[
-        CrosscallArgWordPlan.local "p" (.structType "Point"),
-        CrosscallArgWordPlan.expr (.literalWord 9),
-        CrosscallArgWordPlan.storage "current" (.structType "Point")
-      ]
-      .u64)
-    "direct provider-backed crosscall ExprPlan-to-Yul"
-  requireCallExpr
-    directCrosscallExpr
-    "__proof_forge_crosscall_5"
-    7
-    "direct provider-backed crosscall ExprPlan-to-Yul"
   let expandedCrosscallExpr ← requireOk
     (ProofForge.Backend.Evm.ToYul.crosscallExpandedExprPlanExpr
       toYulError
@@ -4699,17 +4629,17 @@ def testLocalCrosscallWordsToYul : IO Unit := do
     "unknown local `missing`"
     "Lower local crosscall word unknown local diagnostic"
   let plannedStructArgWords ← requireOk
-    (lowerCrosscallArgWordsMany
+    (lowerExpandedCrosscallArgWordsMany
       ProofForge.IR.Examples.EvmStructValueProbe.module
       structEnv
       "typed crosscall argument"
       #[.local "p"])
-    "planned local crosscall struct words via IR facade"
+    "planned local crosscall struct words via expanded word plans"
   require (plannedStructArgWords.size == 2) "planned local crosscall struct words count"
   requireIdentExpr plannedStructArgWords[0]! "__proof_forge_struct_p_x" "planned local crosscall struct word 0"
   requireIdentExpr plannedStructArgWords[1]! "__proof_forge_struct_p_y" "planned local crosscall struct word 1"
   let loweredStructWords ← requireOk
-    (lowerLocalCrosscallWords
+    (lowerExpandedLocalCrosscallWords
       ProofForge.IR.Examples.EvmStructValueProbe.module
       structEnv
       "crosscall argument"
@@ -4719,21 +4649,11 @@ def testLocalCrosscallWordsToYul : IO Unit := do
   require (loweredStructWords.size == 2) "planned local crosscall struct words count"
   requireIdentExpr loweredStructWords[0]! "__proof_forge_struct_p_x" "planned local crosscall struct word 0"
   requireIdentExpr loweredStructWords[1]! "__proof_forge_struct_p_y" "planned local crosscall struct word 1"
-  let providerLocalStructWords ← requireOk
-    (lowerCrosscallArgWordPlanExprs
-      ProofForge.IR.Examples.EvmStructValueProbe.module
-      structEnv
-      "crosscall argument"
-      #[CrosscallArgWordPlan.local "p" (.structType "Point")])
-    "planned provider local crosscall struct words ToYul"
-  require (providerLocalStructWords.size == 2) "planned provider local crosscall struct words count"
-  requireIdentExpr providerLocalStructWords[0]! "__proof_forge_struct_p_x" "planned provider local crosscall struct word 0"
-  requireIdentExpr providerLocalStructWords[1]! "__proof_forge_struct_p_y" "planned provider local crosscall struct word 1"
   let arrayEnv : TypeEnv := #[
     { name := "xs", type := .fixedArray .u64 3, isMutable := false }
   ]
   let loweredArrayWords ← requireOk
-    (lowerLocalCrosscallWords
+    (lowerExpandedLocalCrosscallWords
       ProofForge.IR.Examples.EvmArrayValueProbe.module
       arrayEnv
       "crosscall argument"
@@ -5321,6 +5241,117 @@ def testAggregateAssignmentPlanToYul : IO Unit := do
           require (sourceName == "__proof_forge_array_ys_0") "whole local fixed-array assignment integration source"
       | _ => throw <| IO.userError "whole local fixed-array assignment integration must snapshot source first"
   | _ => throw <| IO.userError "whole local fixed-array assignment integration must lower to ToYul block"
+  let nestedAssignEnv : TypeEnv := #[
+    { name := "matrix", type := .fixedArray (.fixedArray .u64 2) 2, isMutable := true },
+    { name := "other", type := .fixedArray (.fixedArray .u64 2) 2, isMutable := false }
+  ]
+  let nestedSourcePlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.nestedFixedArrayAssignmentSourcePlans
+      ProofForge.IR.Examples.EvmArrayValueProbe.module
+      (toValidateTypeEnv nestedAssignEnv)
+      "matrix"
+      (.fixedArray (.fixedArray .u64 2) 2)
+      (.local "other"))
+    "Lower nested fixed-array assignment source plans"
+  require (nestedSourcePlans.size == 4) "Lower nested fixed-array assignment source plan count"
+  let nestedSourcePlan10 ← requireAt nestedSourcePlans 2 "Lower nested fixed-array assignment source plan missing path 1,0"
+  require (nestedSourcePlan10.path == #[1, 0]) "Lower nested fixed-array assignment source plan path"
+  require nestedSourcePlan10.fieldName?.isNone "Lower nested fixed-array assignment source plan scalar leaf"
+  match nestedSourcePlan10.expr with
+  | ExprPlan.local name =>
+      require (name == "__proof_forge_array_other_1_0") "Lower nested fixed-array assignment source plan local"
+  | _ => throw <| IO.userError "Lower nested fixed-array assignment source plan must use planned local expression"
+  let nestedPlanStmt ← requireOk
+    (ProofForge.Backend.Evm.ToYul.wholeNestedFixedArrayAssignStmtFromPlan
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmArrayValueProbe.module nestedAssignEnv)
+      "matrix"
+      nestedSourcePlans)
+    "nested fixed-array assignment source plan ToYul helper"
+  match nestedPlanStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 8) "nested fixed-array assignment source plan ToYul statement count"
+      match block.statements[7]! with
+      | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+          require (names == #["__proof_forge_array_matrix_1_1"]) "nested fixed-array assignment source plan ToYul final target"
+          require (valueName == "__proof_forge_assign_array_matrix_1_1") "nested fixed-array assignment source plan ToYul final snapshot"
+      | _ => throw <| IO.userError "nested fixed-array assignment source plan ToYul final statement must assign snapshot"
+  | _ => throw <| IO.userError "nested fixed-array assignment source plan ToYul helper must produce block"
+  let nestedAssignStmts ← requireOk
+    (lowerAssignStmt
+      ProofForge.IR.Examples.EvmArrayValueProbe.module
+      nestedAssignEnv
+      (.local "matrix")
+      (.local "other"))
+    "whole nested local fixed-array assignment integration"
+  require (nestedAssignStmts.size == 1) "whole nested local fixed-array assignment integration statement count"
+  match nestedAssignStmts[0]! with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 8) "whole nested local fixed-array assignment integration block count"
+      match block.statements[0]! with
+      | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.ident sourceName)) => do
+          let firstVar ← requireAt vars 0 "whole nested local fixed-array assignment integration missing temp"
+          require (firstVar.name == "__proof_forge_assign_array_matrix_0_0") "whole nested local fixed-array assignment integration temp"
+          require (sourceName == "__proof_forge_array_other_0_0") "whole nested local fixed-array assignment integration source"
+      | _ => throw <| IO.userError "whole nested local fixed-array assignment integration must snapshot source first"
+  | _ => throw <| IO.userError "whole nested local fixed-array assignment integration must lower to ToYul block"
+  let structArrayAssignEnv : TypeEnv := #[
+    { name := "people", type := .fixedArray (.structType "Person") 2, isMutable := true },
+    { name := "next", type := .fixedArray (.structType "Person") 2, isMutable := false }
+  ]
+  let structArraySourcePlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.structArrayAssignmentSourcePlans
+      ProofForge.IR.Examples.EvmStructArrayValueProbe.module
+      (toValidateTypeEnv structArrayAssignEnv)
+      "people"
+      "Person"
+      2
+      (.local "next"))
+    "Lower struct-array assignment source plans"
+  require (structArraySourcePlans.size == 4) "Lower struct-array assignment source plan count"
+  let structArraySourcePlan01 ← requireAt structArraySourcePlans 1 "Lower struct-array assignment source plan missing index 0 score"
+  require (structArraySourcePlan01.index == 0) "Lower struct-array assignment source plan index"
+  require (structArraySourcePlan01.fieldName == "score") "Lower struct-array assignment source plan field"
+  match structArraySourcePlan01.expr with
+  | ExprPlan.local name =>
+      require (name == "__proof_forge_array_struct_next_0_score") "Lower struct-array assignment source plan local"
+  | _ => throw <| IO.userError "Lower struct-array assignment source plan must use planned local expression"
+  let structArrayPlanStmt ← requireOk
+    (ProofForge.Backend.Evm.ToYul.wholeStructArrayAssignStmtFromPlan
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmStructArrayValueProbe.module structArrayAssignEnv)
+      "people"
+      structArraySourcePlans)
+    "struct-array assignment source plan ToYul helper"
+  match structArrayPlanStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 8) "struct-array assignment source plan ToYul statement count"
+      match block.statements[7]! with
+      | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+          require (names == #["__proof_forge_array_struct_people_1_score"])
+            "struct-array assignment source plan ToYul final target"
+          require (valueName == "__proof_forge_assign_array_struct_people_1_score")
+            "struct-array assignment source plan ToYul final snapshot"
+      | _ => throw <| IO.userError "struct-array assignment source plan ToYul final statement must assign snapshot"
+  | _ => throw <| IO.userError "struct-array assignment source plan ToYul helper must produce block"
+  let structArrayAssignStmts ← requireOk
+    (lowerAssignStmt
+      ProofForge.IR.Examples.EvmStructArrayValueProbe.module
+      structArrayAssignEnv
+      (.local "people")
+      (.local "next"))
+    "whole local struct-array assignment integration"
+  require (structArrayAssignStmts.size == 1) "whole local struct-array assignment integration statement count"
+  match structArrayAssignStmts[0]! with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 8) "whole local struct-array assignment integration block count"
+      match block.statements[0]! with
+      | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.ident sourceName)) => do
+          let firstVar ← requireAt vars 0 "whole local struct-array assignment integration missing temp"
+          require (firstVar.name == "__proof_forge_assign_array_struct_people_0_age")
+            "whole local struct-array assignment integration temp"
+          require (sourceName == "__proof_forge_array_struct_next_0_age")
+            "whole local struct-array assignment integration source"
+      | _ => throw <| IO.userError "whole local struct-array assignment integration must snapshot source first"
+  | _ => throw <| IO.userError "whole local struct-array assignment integration must lower to ToYul block"
   let structAssignEnv : TypeEnv := #[
     { name := "p", type := .structType "Point", isMutable := true },
     { name := "q", type := .structType "Point", isMutable := false },
@@ -9149,6 +9180,32 @@ def testWholeStructStorageWritePlanToYul : IO Unit := do
       require foundStoreX "whole struct storage write must store x temp"
       require foundStoreY "whole struct storage write must store y temp"
   | _ => throw <| IO.userError "whole struct storage write plan-to-yul must lower to block"
+  let swappedFieldPlan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildExprPlan
+      module
+      (toValidateTypeEnv env)
+      (.field (.effect (.storageScalarRead "current")) "y"))
+    "Lower storage struct field read from storage scalar read"
+  match swappedFieldPlan with
+  | .storageLoad (.scalarSlot slot) =>
+      require (slot == 2) "storage struct field read from storage scalar read must target field slot"
+  | _ => throw <| IO.userError "storage struct field read from storage scalar read must lower to storageLoad"
+  let swappedWriteStmt ← requireOk
+    (lowerEffectStmt
+      module
+      env
+      (.storageScalarWrite
+        "current"
+        (.structLit "Point" #[
+          ("x", .field (.effect (.storageScalarRead "current")) "y"),
+          ("y", .field (.effect (.storageScalarRead "current")) "x")
+        ])))
+    "storage struct literal field swap write plan-to-yul"
+  match swappedWriteStmt with
+  | Lean.Compiler.Yul.Statement.block block =>
+      require (block.statements.size >= 4)
+        "storage struct literal field swap write must snapshot and store both fields"
+  | _ => throw <| IO.userError "storage struct literal field swap write must lower to block"
 
 def testStoragePathReadPlanToYul : IO Unit := do
   let arrayEnv : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]

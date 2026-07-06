@@ -302,7 +302,7 @@ def extensionAccountDataSize (extensions : ProgramExtensions) (account : Account
     0
 
 def accountDataSize (module : Module) (extensions : ProgramExtensions) (account : AccountEntry) : Nat :=
-  if account.index == 0 then
+  if !module.state.isEmpty && account.index == 0 && account.name == defaultStateAccountName module then
     moduleDataSize module
   else
     extensionAccountDataSize extensions account
@@ -1425,11 +1425,35 @@ def lowerInstructionDataLengthCheck (requiredLen : Nat) : Array AstNode :=
       .instruction { opcode := .jlt, dst := some .r2, imm := some (.num requiredLen), off := some (.sym "error_instruction_data") }
     ]
 
+def lowerExternalDiscriminatorDispatch (ep : IR.Entrypoint) : Array AstNode :=
+  match externalDiscriminatorBytes? ep with
+  | none => #[]
+  | some bytes =>
+      let nextLabel := s!"dispatch_external_next_{ep.name}"
+      let byteChecks :=
+        bytes.mapIdx (fun idx byte =>
+          #[
+            .instruction { opcode := .ldxb, dst := some .r4, src := some .r3, off := some (.num idx) },
+            .instruction { opcode := .jne, dst := some .r4, imm := some (.num byte), off := some (.sym nextLabel) }
+          ])
+          |>.foldl (fun acc nodes => acc ++ nodes) #[]
+      #[
+        .comment s!"external discriminator dispatch {ep.name}: {bytes.size} bytes",
+        .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num entryInstructionDataSaveOffset) },
+        .instruction { opcode := .sub64, dst := some .r3, imm := some (.num 8) },
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r3, off := some (.num 0) },
+        .instruction { opcode := .jlt, dst := some .r2, imm := some (.num bytes.size), off := some (.sym nextLabel) },
+        .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num entryInstructionDataSaveOffset) }
+      ] ++ byteChecks ++ #[
+        .instruction { opcode := .ja, off := some (.sym s!"sol_{ep.name}") },
+        .label nextLabel
+      ]
+
 def lowerEntrypointParamDecoding (ctx : LowerCtx) (ep : IR.Entrypoint) :
     Except LowerError (LowerCtx × Array AstNode) := do
   let mut ctx := ctx
   let mut nodes := #[]
-  let mut payloadOff := 1
+  let mut payloadOff := entrypointDiscriminatorSize ep
   for param in ep.params do
     let (name, ty) := param
     let some byteSize := scalarParamSize? ty
@@ -1518,7 +1542,7 @@ def buildEntrypointParamCpiValueBindings (module : IR.Module) :
   let mut bindings := #[]
   let mut ambiguous : Array String := #[]
   for ep in module.entrypoints do
-    let mut payloadOff := 1
+    let mut payloadOff := entrypointDiscriminatorSize ep
     for param in ep.params do
       let (name, ty) := param
       match scalarParamSize? ty with
@@ -1570,9 +1594,12 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
   let accounts := schema.accounts
   let inputLayout := schema.inputLayout
   let stateDataOff ←
-    match inputLayout.accounts[0]? with
-    | some accountLayout => .ok accountLayout.dataStart
-    | none => .error { message := "Solana account schema must contain at least one state account" }
+    if module.state.isEmpty then
+      .ok 0
+    else
+      match inputLayout.accounts[0]? with
+      | some accountLayout => .ok accountLayout.dataStart
+      | none => .error { message := "Solana account schema must contain at least one state account" }
   let ctx ← buildCtx module stateDataOff
 
   let mut nodes := #[
@@ -1599,11 +1626,20 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
     .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num entryInstructionDataSaveOffset) },
     .instruction { opcode := .ldxb, dst := some .r2, src := some .r3, off := some (.num 0) }
   ]
+  let hasExternalDiscriminators :=
+    module.entrypoints.any (fun ep => (externalDiscriminatorBytes? ep).isSome)
+  if hasExternalDiscriminators then
+    for ep in module.entrypoints do
+      nodes := nodes ++ lowerExternalDiscriminatorDispatch ep
+    nodes := nodes ++ loadSavedInstructionDataPtr .r3 ++ #[
+      .instruction { opcode := .ldxb, dst := some .r2, src := some .r3, off := some (.num 0) }
+    ]
   let mut idx := 0
   for ep in module.entrypoints do
-    nodes := nodes.push (.instruction {
-      opcode := .jeq, dst := some .r2, imm := some (.num idx), off := some (.sym s!"sol_{ep.name}")
-    })
+    if (externalDiscriminatorBytes? ep).isNone then
+      nodes := nodes.push (.instruction {
+        opcode := .jeq, dst := some .r2, imm := some (.num idx), off := some (.sym s!"sol_{ep.name}")
+      })
     idx := idx + 1
   nodes := nodes ++ #[
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 1) },
@@ -1614,8 +1650,9 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
   for ep in module.entrypoints do
     nodes := nodes.push .blankLine
     let epCtx := ctx.resetLocals
+    let epAccounts := buildEntrypointAccounts module extensions accounts ep.name
     let (ctx', block) ←
-      lowerEntrypoint epCtx accounts inputLayout.accounts extensions ep
+      lowerEntrypoint epCtx epAccounts inputLayout.accounts extensions ep
     ctx := { ctx with nextLabel := ctx'.nextLabel }
     nodes := nodes ++ block
 

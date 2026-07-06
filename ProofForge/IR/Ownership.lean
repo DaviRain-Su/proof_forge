@@ -152,6 +152,19 @@ mutual
     | .crosscallCreate2 callValue salt _ => do
         checkExpr entrypoint env callValue
         checkExpr entrypoint env salt
+    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+        checkExpr entrypoint env parentPromise
+        checkExpr entrypoint env callbackMethod
+        checkExpr entrypoint env deposit
+        args.foldlM (init := ()) fun _ arg => checkExpr entrypoint env arg
+    | .nearPromiseResultsCount => pure ()
+    | .nearPromiseResultStatus index => checkExpr entrypoint env index
+    | .nearPromiseResultU64 index => checkExpr entrypoint env index
+    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+        checkExpr entrypoint env accountIndex
+        checkExpr entrypoint env methodId
+        checkExpr entrypoint env deposit
+        args.forM fun arg => checkExpr entrypoint env arg
     | .effect effect => checkEffect entrypoint env effect
 
   partial def checkEffect (entrypoint : String) (env : Env) : Effect →

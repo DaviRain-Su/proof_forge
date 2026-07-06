@@ -70,6 +70,12 @@ mutual
         .ok (.call ⟨#["Mapping", "get_or_use"], #[], #[.identifier stateId, .literal (.integer .u64 0), .literal (.integer .u64 0)]⟩)
     | .effect ef =>
         .error { message := s!"Leo emitter does not support effect: {repr ef}" }
+    | .nearPromiseThen _ _ _ _
+    | .nearPromiseResultsCount
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _
+    | .nearCrosscallInvokePool _ _ _ _ =>
+        .error { message := "Leo emitter does not support NEAR promise expressions" }
     | other =>
         .error { message := s!"Leo emitter does not support expression: {repr other}" }
 
@@ -161,6 +167,15 @@ partial def hasEffectExpr : Expr → Bool
   | .crosscallInvokeDelegateTyped t m args _ => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
   | .crosscallCreate cv _ => hasEffectExpr cv
   | .crosscallCreate2 cv s _ => hasEffectExpr cv || hasEffectExpr s
+  | .nearPromiseThen p m args d =>
+      hasEffectExpr p || hasEffectExpr m || hasEffectExpr d ||
+        args.any (fun arg => hasEffectExpr arg)
+  | .nearPromiseResultsCount => false
+  | .nearPromiseResultStatus i => hasEffectExpr i
+  | .nearPromiseResultU64 i => hasEffectExpr i
+  | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+      hasEffectExpr accountIndex || hasEffectExpr methodId || hasEffectExpr deposit ||
+        args.any (hasEffectExpr ·)
   | _ => false
 
 mutual

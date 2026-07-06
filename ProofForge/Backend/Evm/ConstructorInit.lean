@@ -3,11 +3,13 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Contract.EvmConstructorInit
 import ProofForge.Contract.Spec
 import ProofForge.IR.Contract
+import ProofForge.Util.StringUtil
 
 namespace ProofForge.Backend.Evm.ConstructorInit
 
 open ProofForge.IR
 open ProofForge.Contract
+open ProofForge.Util.StringUtil
 open ProofForge.Backend.Evm.Plan
 
 structure InitError where
@@ -111,9 +113,6 @@ def genInitBody
     let line ← genBindingInit params layout binding
     lines := lines.push line
   .ok (String.intercalate "\n    " lines.toList)
-
-def stripHexPrefix (hex : String) : String :=
-  if hex.startsWith "0x" || hex.startsWith "0X" then (hex.drop 2).toString else hex
 
 def renderDeployObject
     (moduleName : String)

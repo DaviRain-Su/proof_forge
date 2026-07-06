@@ -39,6 +39,53 @@ structure InstructionParamEntry where
   encoding : String
   deriving Repr, Inhabited
 
+def stripHexPrefix (value : String) : String :=
+  if value.startsWith "0x" || value.startsWith "0X" then
+    (value.drop 2).toString
+  else
+    value
+
+def hexValue? : Char → Option Nat
+  | '0' => some 0
+  | '1' => some 1
+  | '2' => some 2
+  | '3' => some 3
+  | '4' => some 4
+  | '5' => some 5
+  | '6' => some 6
+  | '7' => some 7
+  | '8' => some 8
+  | '9' => some 9
+  | 'a' | 'A' => some 10
+  | 'b' | 'B' => some 11
+  | 'c' | 'C' => some 12
+  | 'd' | 'D' => some 13
+  | 'e' | 'E' => some 14
+  | 'f' | 'F' => some 15
+  | _ => none
+
+partial def parseHexBytePairs : List Char → Option (Array Nat)
+  | [] => some #[]
+  | hi :: lo :: rest => do
+      let hi ← hexValue? hi
+      let lo ← hexValue? lo
+      let tail ← parseHexBytePairs rest
+      some (#[hi * 16 + lo] ++ tail)
+  | _ => none
+
+def externalDiscriminatorBytes? (entrypoint : Entrypoint) : Option (Array Nat) := do
+  let selector ← entrypoint.selector?
+  let hex := stripHexPrefix selector
+  if hex.length == 16 then
+    parseHexBytePairs hex.toList
+  else
+    none
+
+def entrypointDiscriminatorSize (entrypoint : Entrypoint) : Nat :=
+  match externalDiscriminatorBytes? entrypoint with
+  | some bytes => bytes.size
+  | none => 1
+
 /-- One instruction table entry. -/
 structure InstructionEntry where
   name : String
@@ -78,7 +125,7 @@ def instructionParamEncoding : ValueType → String
 
 def buildInstructionParams (ep : Entrypoint) : Array InstructionParamEntry := Id.run do
   let mut params := #[]
-  let mut payloadOff := 1
+  let mut payloadOff := entrypointDiscriminatorSize ep
   for param in ep.params do
     let (name, type) := param
     let byteSize := (instructionParamByteSize? type).getD 0
@@ -96,7 +143,7 @@ def instructionParamPayloadSize (ep : Entrypoint) : Nat :=
   (buildInstructionParams ep).foldl (fun acc param => acc + param.byteSize) 0
 
 def instructionDataMinLen (ep : Entrypoint) : Nat :=
-  1 + instructionParamPayloadSize ep
+  entrypointDiscriminatorSize ep + instructionParamPayloadSize ep
 
 def InstructionParamEntry.render (param : InstructionParamEntry) : String :=
   "  { name = " ++ tomlString param.name ++
@@ -139,6 +186,15 @@ def defaultStateAccount (module : Module) : AccountEntry := {
   owner := "program"
 }
 
+/-- Default account schema for portable IR modules that actually carry state:
+state lives in account 0. Stateless Solana SDK programs can use only their
+declared target accounts, which is required for callbacks with fixed ABIs. -/
+def buildDefaultAccounts (module : Module) : Array AccountEntry :=
+  if module.state.isEmpty then
+    #[]
+  else
+    #[defaultStateAccount module]
+
 def mergeOwner (existing incoming : String) : String :=
   if existing == incoming then
     existing
@@ -165,6 +221,37 @@ def pushAccount (accounts : Array AccountEntry) (account : AccountEntry) : Array
         existing
   else
     accounts.push { account with index := accounts.size }
+
+def accountByName? (accounts : Array AccountEntry) (name : String) : Option AccountEntry :=
+  accounts.find? (fun account => account.name == name)
+
+def reindexAccounts (accounts : Array AccountEntry) : Array AccountEntry :=
+  accounts.mapIdx fun idx account => { account with index := idx }
+
+def applyAccountOrder (order : Array String) (accounts : Array AccountEntry) :
+    Array AccountEntry :=
+  if order.isEmpty then
+    accounts
+  else
+    let ordered :=
+      order.foldl
+        (fun acc name =>
+          if acc.any (fun account => account.name == name) then
+            acc
+          else
+            match accountByName? accounts name with
+            | some account => acc.push account
+            | none => acc)
+        #[]
+    let merged :=
+      accounts.foldl
+        (fun acc account =>
+          if acc.any (fun existing => existing.name == account.name) then
+            acc
+          else
+            acc.push account)
+        ordered
+    reindexAccounts merged
 
 def pdaInstructionAccount (pda : PdaDerive) : AccountEntry := {
   name := pda.account?.getD pda.name
@@ -201,8 +288,8 @@ def cpiProgramAccount (cpi : CpiInvoke) : AccountEntry := {
   owner := "executable"
 }
 
-def cpiProgramAccountRequired (_cpi : CpiInvoke) : Bool :=
-  true
+def cpiProgramAccountRequired (cpi : CpiInvoke) : Bool :=
+  metadataValue? cpi.metadata "solana.cpi.require_program_account" != some "false"
 
 def declaredInstructionSigner (account : DeclaredAccount) : Bool :=
   account.signer == "signer"
@@ -327,16 +414,29 @@ def pushCpiAccounts (accounts : Array AccountEntry) (cpi : CpiInvoke) : Array Ac
 
 def buildInstructionAccounts (module : Module) (extensions : ProgramExtensions)
     (entrypoint : String) : Array AccountEntry :=
-  let accounts := pushAccount #[] (defaultStateAccount module)
+  let accounts := buildDefaultAccounts module
   let accounts := pushEntrypointPdaAccounts extensions entrypoint accounts
   let accounts := pushEntrypointCpiAccounts extensions entrypoint accounts
   let accounts := pushEntrypointPubkeyLogAccounts extensions entrypoint accounts
   let accounts := pushEntrypointAccountReallocAccounts extensions entrypoint accounts
   let accounts := pushEntrypointPdaSeedAccounts extensions entrypoint accounts
-  pushDeclaredAccounts accounts extensions.accounts
+  let accounts := pushDeclaredAccounts accounts extensions.accounts
+  applyAccountOrder extensions.accountOrder accounts
+
+def alignInstructionAccountsWithModuleOrder
+    (moduleAccounts instructionAccounts : Array AccountEntry) : Array AccountEntry :=
+  moduleAccounts.map fun moduleAccount =>
+    match accountByName? instructionAccounts moduleAccount.name with
+    | some instructionAccount => { instructionAccount with index := moduleAccount.index }
+    | none => moduleAccount
+
+def buildEntrypointAccounts (module : Module) (extensions : ProgramExtensions)
+    (moduleAccounts : Array AccountEntry) (entrypoint : String) : Array AccountEntry :=
+  alignInstructionAccountsWithModuleOrder moduleAccounts
+    (buildInstructionAccounts module extensions entrypoint)
 
 def buildModuleAccounts (module : Module) (extensions : ProgramExtensions) : Array AccountEntry :=
-  let accounts := pushAccount #[] (defaultStateAccount module)
+  let accounts := buildDefaultAccounts module
   let accounts :=
     extensions.pdas.foldl
       (fun accounts pda => pushAccount accounts (pdaInstructionAccount pda))
@@ -351,7 +451,8 @@ def buildModuleAccounts (module : Module) (extensions : ProgramExtensions) : Arr
       if action.account.isEmpty then accounts else pushAccount accounts (accountReallocAccount action))
     accounts
   let accounts := extensions.pdas.foldl pushPdaSeedAccounts accounts
-  pushDeclaredAccounts accounts extensions.accounts
+  let accounts := pushDeclaredAccounts accounts extensions.accounts
+  applyAccountOrder extensions.accountOrder accounts
 
 def tomlBool (value : Bool) : String :=
   if value then "true" else "false"
@@ -386,6 +487,13 @@ def renderAllocator (allocator : RuntimeAllocator) : String :=
   "model = " ++ tomlString allocator.model ++ "\n" ++
   "heap_start = " ++ tomlString allocator.heapStart ++ "\n" ++
   "heap_bytes = " ++ allocator.heapBytes ++ "\n"
+
+def renderAccountOrder (names : Array String) : String :=
+  if names.isEmpty then
+    ""
+  else
+    "[solana.account_order]\n" ++
+    "names = " ++ tomlStringArray names ++ "\n"
 
 def renderDeclaredAccount (account : DeclaredAccount) : String :=
   "[[solana.account]]\n" ++
@@ -433,11 +541,24 @@ def renderCpi (cpi : CpiInvoke) : String :=
     renderCpiMetadataField cpi "solana.cpi.decimals" "decimals" ++
     renderCpiMetadataField cpi "solana.cpi.authority_type" "authority_type" ++
     renderCpiMetadataField cpi "solana.cpi.new_authority" "new_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.token_program" "token_program" ++
     renderCpiMetadataField cpi "solana.cpi.transfer_fee_config_authority" "transfer_fee_config_authority" ++
     renderCpiMetadataField cpi "solana.cpi.withdraw_withheld_authority" "withdraw_withheld_authority" ++
     renderCpiMetadataField cpi "solana.cpi.transfer_fee_basis_points" "transfer_fee_basis_points" ++
     renderCpiMetadataField cpi "solana.cpi.maximum_fee" "maximum_fee" ++
-    renderCpiMetadataField cpi "solana.cpi.num_token_accounts" "num_token_accounts"
+    renderCpiMetadataField cpi "solana.cpi.num_token_accounts" "num_token_accounts" ++
+    renderCpiMetadataField cpi "solana.cpi.memo_source" "memo_source" ++
+    renderCpiMetadataField cpi "solana.cpi.metadata_pointer_authority" "metadata_pointer_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.metadata_address" "metadata_address" ++
+    renderCpiMetadataField cpi "solana.cpi.default_account_state" "default_account_state" ++
+    renderCpiMetadataField cpi "solana.cpi.permanent_delegate" "permanent_delegate" ++
+    renderCpiMetadataField cpi "solana.cpi.interest_rate_authority" "interest_rate_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.interest_rate" "interest_rate" ++
+    renderCpiMetadataField cpi "solana.cpi.memo_transfer_required" "memo_transfer_required" ++
+    renderCpiMetadataField cpi "solana.cpi.transfer_hook_authority" "transfer_hook_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.transfer_hook_program" "transfer_hook_program" ++
+    renderCpiMetadataField cpi "solana.cpi.pausable_authority" "pausable_authority" ++
+    renderCpiMetadataField cpi "solana.cpi.require_program_account" "require_program_account"
   "[[solana.cpi]]\n" ++
   "name = " ++ tomlString cpi.name ++ "\n" ++
   "program = " ++ tomlString cpi.program ++ "\n" ++
@@ -576,6 +697,16 @@ def renderAccountReallocAction (action : AccountReallocAction) : String :=
   "max_permitted_data_increase = " ++
     toString ProofForge.Backend.Solana.StateLayout.MAX_PERMITTED_DATA_INCREASE ++ "\n"
 
+def renderTransferHookExtraAccountMetaListAction
+    (action : TransferHookExtraAccountMetaListAction) : String :=
+  "[[solana.entrypoint_transfer_hook_extra_meta]]\n" ++
+  "entrypoint = " ++ tomlString action.entrypoint ++ "\n" ++
+  "transfer_hook_extra_meta = " ++ tomlString action.name ++ "\n" ++
+  "account = " ++ tomlString action.account ++ "\n" ++
+  "extra_accounts = " ++ tomlStringArray action.extraAccounts ++ "\n" ++
+  "execute_discriminator = \"692565c54bfb661a\"\n" ++
+  "extra_account_count = " ++ toString action.extraAccounts.size ++ "\n"
+
 def hasManifestActions (extensions : ProgramExtensions) : Bool :=
   hasEntrypointActions extensions ||
     extensions.computeBudgetActions.size > 0
@@ -597,7 +728,9 @@ def renderActions (extensions : ProgramExtensions) : String :=
       extensions.computeBudgetActions.map renderComputeBudgetAdvice ++
       extensions.pubkeyLogActions.map renderPubkeyLogAction ++
       extensions.dataLogActions.map renderDataLogAction ++
-      extensions.accountReallocActions.map renderAccountReallocAction
+      extensions.accountReallocActions.map renderAccountReallocAction ++
+      extensions.transferHookExtraAccountMetaListActions.map
+        renderTransferHookExtraAccountMetaListAction
     "\n# Solana SDK entrypoint actions\n" ++
     String.intercalate "\n" actionBlocks.toList
 
@@ -606,6 +739,8 @@ def renderExtensions (extensions : ProgramExtensions) : String :=
     ""
   else
     "\n# Solana SDK target extension metadata\n" ++
+    renderAccountOrder extensions.accountOrder ++
+    (if extensions.accountOrder.size > 0 && (extensions.accounts.size > 0 || extensions.allocators.size > 0 || extensions.pdas.size > 0 || extensions.cpis.size > 0 || hasManifestActions extensions) then "\n" else "") ++
     String.intercalate "\n" (extensions.accounts.map renderDeclaredAccount).toList ++
     (if extensions.accounts.size > 0 && (extensions.allocators.size > 0 || extensions.pdas.size > 0 || extensions.cpis.size > 0 || hasManifestActions extensions) then "\n" else "") ++
     String.intercalate "\n" (extensions.allocators.map renderAllocator).toList ++
@@ -615,11 +750,6 @@ def renderExtensions (extensions : ProgramExtensions) : String :=
     String.intercalate "\n" (extensions.cpis.map renderCpi).toList ++
     (if extensions.cpis.size > 0 && hasManifestActions extensions then "\n" else "") ++
     renderActions extensions
-
-/-- Default account schema for portable IR modules without Solana SDK target
-extensions: a single writable account owned by the current program. -/
-def buildDefaultAccounts (module : Module) : Array AccountEntry :=
-  #[defaultStateAccount module]
 
 /-- Build instruction entries from the IR module. -/
 def buildInstructions (module : Module) : Array InstructionEntry :=
@@ -636,15 +766,13 @@ def buildInstructions (module : Module) : Array InstructionEntry :=
 
 def buildInstructionsWithExtensions (module : Module) (extensions : ProgramExtensions) :
     Array InstructionEntry :=
-  -- The current dispatcher still uses a fixed instruction-data offset, so SDK
-  -- modules use the union of all declared accounts for every entrypoint.
   let accounts := buildModuleAccounts module extensions
   module.entrypoints.mapIdx fun idx ep =>
     {
       name := ep.name
       tag := idx
       handler := "sol_" ++ ep.name
-      accounts := accounts
+      accounts := buildEntrypointAccounts module extensions accounts ep.name
       params := buildInstructionParams ep
       minDataLen := instructionDataMinLen ep
     }

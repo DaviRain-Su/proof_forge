@@ -105,6 +105,12 @@ def crosscallModule : Module :=
   module1 "BadCrosscall" #[markerState] <|
     returnEntrypoint "bad" .u64 crosscallBody
 
+def nearPromiseBody : Array Statement := #[.return .nearPromiseResultsCount]
+
+def nearPromiseModule : Module :=
+  module1 "BadNearPromise" #[markerState] <|
+    returnEntrypoint "bad" .u64 nearPromiseBody
+
 -- ---------------------------------------------------------------------------
 -- State validation cases
 -- ---------------------------------------------------------------------------
@@ -371,8 +377,10 @@ def cases : Array (String × Module × String) := #[
     "entrypoint `bad` parameter `point` uses `Point`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address"),
   ("storage array sourcegen unsupported", storageArrayModule,
     "state `values` is storage.array; wasm-near IR v0 does not lower portable array storage"),
-  ("crosscall capability unsupported", crosscallModule,
-    "target `wasm-near` does not support capability `crosscall.invoke`: capability is not present in the target profile"),
+  ("crosscall Rust sourcegen unsupported", crosscallModule,
+    "cross-contract calls are not supported by wasm-near Rust sourcegen v0"),
+  ("near promise Rust sourcegen unsupported", nearPromiseModule,
+    "NEAR promise API is not supported by wasm-near Rust sourcegen v0"),
   ("unit scalar state unsupported", unitScalarStateModule,
     "state `flag` has unsupported wasm-near IR v0 scalar type `Unit`; only U32, U64, Bool, and Hash are supported"),
   ("zero capacity map unsupported", zeroCapacityMapModule,

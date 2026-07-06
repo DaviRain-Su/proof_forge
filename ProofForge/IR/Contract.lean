@@ -120,14 +120,17 @@ inductive AssignOp where
 mutual
   inductive ContextField where
     | userId
+    | userIdHash
     | contractId
     | checkpointId
     | timestamp
+    | epochHeight
     | chainId
     | gasPrice
     | gasLeft
     | baseFee
     | prevRandao
+    | randomSeed
     | origin
     | coinbase
     | blockHash (blockNumber : Expr)
@@ -175,6 +178,16 @@ mutual
     | crosscallInvokeDelegateTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallCreate (callValue : Expr) (initCodeHex : String)
     | crosscallCreate2 (callValue salt : Expr) (initCodeHex : String)
+    /-- NEAR-only: `promise_create` with runtime index into `module.nearCrosscallStrings`. -/
+    | nearCrosscallInvokePool (accountIndex : Expr) (methodId : Expr) (args : Array Expr) (deposit : Expr)
+    /-- NEAR-only Promise chain: attach a callback method on the current contract. -/
+    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+    /-- NEAR-only: number of completed promise results visible in a callback entrypoint. -/
+    | nearPromiseResultsCount
+    /-- NEAR-only: status of promise result at `index` (1 = success, 2 = failed). -/
+    | nearPromiseResultStatus (index : Expr)
+    /-- NEAR-only: Borsh-decoded U64 payload from promise result at `index` (0 on failure). -/
+    | nearPromiseResultU64 (index : Expr)
     | effect (effect : Effect)
     deriving Repr
 
@@ -212,22 +225,25 @@ end
 
 def ContextField.name : ContextField → String
   | .userId => "userId"
+  | .userIdHash => "userIdHash"
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
   | .timestamp => "timestamp"
+  | .epochHeight => "epochHeight"
   | .chainId => "chainId"
   | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
   | .baseFee => "baseFee"
   | .prevRandao => "prevRandao"
+  | .randomSeed => "randomSeed"
   | .origin => "origin"
   | .coinbase => "coinbase"
   | .blockHash _ => "blockHash"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
-  | .userId | .origin => .callerSender
+  | .userId | .userIdHash | .origin => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
 structure ErrorRef where
   assertionId : UInt32
@@ -287,6 +303,9 @@ structure Module where
   allocator : AllocatorConfig := defaultAllocator
   /-- When set to `uups`, EVM lowering adds a delegatecall fallback for proxy shells. -/
   evmProxyPattern? : Option String := none
+  /-- NEAR EmitWat host strings indexed by `.literal (.address i)` (remote account/method
+      names and local promise callback method names). -/
+  nearCrosscallStrings : Array String := #[]
   deriving Repr
 
 def Effect.capability : Effect → ProofForge.Target.Capability
@@ -387,6 +406,15 @@ mutual
         #[.crosscallInvoke] ++ callValue.capabilities
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
+    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+        #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
+    | .nearPromiseResultsCount => #[.nearPromise]
+    | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
+    | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

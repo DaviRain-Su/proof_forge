@@ -6,8 +6,8 @@ open ProofForge.Contract.Source
 
 contract_source UnsupportedNear do
   use ProofForge.Contract.Builder.capability
-    ProofForge.Target.Capability.crosscallInvoke
-    "contract_source.crosscall"
+    ProofForge.Target.Capability.crosscallCpi
+    "contract_source.solana_cpi"
     (source? := some "Tests/ContractSource/UnsupportedNear.lean:contract_source.use")
 
   state count : .u64

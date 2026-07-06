@@ -13,6 +13,8 @@ lake env lean --run Tests/EmitWatFeatures.lean
 lake env lean --run Tests/EmitWatArith.lean
 lake env lean --run Tests/EmitWatHash.lean
 lake env lean --run Tests/EmitWatContext.lean
+lake build ProofForge.IR.Examples.NearCrosscallProbe
+lake env lean --run Tests/WasmNearPlan.lean
 lake env lean --run Tests/EmitWatMap.lean
 lake env lean --run Tests/EmitWatHashmap.lean
 lake env lean --run Tests/EmitWatPath.lean
@@ -59,6 +61,19 @@ assert_contains "$out" "call 1:array_lifecycle: return_hex=370000000000000042000
 out="$("${HOST[@]}" build/wasm-near/emitwat-deposit.wat depositProbe --attached-deposit 42)"
 echo "$out"
 assert_contains "$out" "call 1:depositProbe: return_hex=2a00000000000000 return_u64=42" "attached deposit"
+
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat blockTimestamp --block-timestamp 777)"
+echo "$out"
+assert_contains "$out" "call 1:blockTimestamp: return_hex=0903000000000000 return_u64=777" "block timestamp"
+
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat epochHeight --epoch-height 88)"
+echo "$out"
+assert_contains "$out" "call 1:epochHeight: return_hex=5800000000000000 return_u64=88" "epoch height"
+
+SEED_HEX="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat randomSeed --random-seed-hex "$SEED_HEX")"
+echo "$out"
+assert_contains "$out" "call 1:randomSeed: return_hex=$SEED_HEX return_len=32" "random seed"
 
 out="$("${HOST[@]}" build/wasm-near/emitwat-path-assign.wat path_assign_lifecycle)"
 echo "$out"
