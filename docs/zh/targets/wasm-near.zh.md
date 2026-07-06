@@ -29,6 +29,7 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `storageMapContains` | `env.storage_has_key` |
 | `hash` / `hashTwoToOne` | `env.sha256` |
 | `contextRead userId` | `env.predecessor_account_id` |
+| `contextRead userIdHash` | `env.predecessor_account_id` + `env.sha256` |
 | `contextRead contractId` | `env.current_account_id` |
 | `contextRead checkpointId` | `env.block_index` |
 | `contextRead timestamp` | `env.block_timestamp` |
@@ -36,12 +37,13 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
-### NEAR Promise IR（仅 EmitWat v1）
+### NEAR Promise IR
 
-可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。NEAR 专用的 promise 链路与回调内省使用独立的 `Expr` 形式，并打上 `near.promise` capability（尚未加入 `wasm-near` target profile；EmitWat 通过扩展 capability 集接受它们）：
+可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。NEAR 专用的 promise 链路与回调内省使用独立的 `Expr` 形式，并在 canonical EmitWat 路径上打上 `near.promise` capability：
 
 | IR 表达式 | NEAR host import | 作用 |
 |---|---|---|
+| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.nearCrosscallStrings` 取 account 与 method 字符串并创建 promise。 |
 | `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.nearCrosscallStrings`。 |
 | `nearPromiseResultsCount` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
 | `nearPromiseResultStatus index` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
@@ -61,6 +63,53 @@ entry handle_remote:
 ```
 
 Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。
+
+### NEP-141 `ft_transfer_call` 示例
+
+`Examples/WasmNear/FungibleToken.lean` 复用
+`ProofForge.Contract.Stdlib.NearFungibleToken` mixin。生成的合约导出
+`ft_transfer_call(receiver_id, receiver_idx, amount)`，Borsh 输入布局为
+`Hash || U32 || U64`：
+
+- `receiver_id` 是 portable `Hash` account key，用于 token balance 映射。
+- `receiver_idx` 从 `module.nearCrosscallStrings` 中选择已注册的 NEAR account
+  字符串；stdlib 保留 `0 = "ft_on_transfer"`、`1 = "ft_resolve_transfer"`，
+  并使用 `2 + receiver_idx` 访问远端 receiver account id。在已检查的示例中，
+  `receiver_idx = 0` 选择 `demo.receiver.testnet`。
+- `amount` 是转账的 `U64`。
+
+该 entrypoint 发出的 promise 链如下：
+
+```text
+ft_transfer_call
+  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
+  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_return(callback promise id)
+
+ft_resolve_transfer
+  -> nearPromiseResultU64(0) as unused
+  -> refund unused balance from receiver back to sender
+  -> return amount - unused
+```
+
+静态门控 `just wasm-near-ft-transfer-call` 验证 Plan/EmitWat 形状，包括
+`nearCrosscallStrings` 布局、`ft_on_transfer` sender 参数的 hash JSON 编码，以及
+allowance 不再使用嵌套 `mapKey+mapKey` path。行为门控
+`just wasm-near-ft-transfer-call-e2e` 会在 `runtime/offline-host` 中运行生成的 WAT，
+将 callback 结果 stub 成 Borsh `U64`，并检查 `promise_create` 先于
+`promise_then`，以及 refund 后余额正确。
+
+### `caller` vs `callerHash`
+
+`ProofForge.Contract.Surface.caller` 仍然是 portable `userId` context 表达式，
+lower 为 `predecessor_account_id` 的 `U64` 投影。它适合 legacy U64-keyed 示例，
+但不够宽，不能安全地作为 NEAR account balance 的 key。
+
+`ProofForge.Contract.Surface.callerHash` 将 `userIdHash` lower 为
+`predecessor_account_id` 的完整 32-byte SHA-256 digest。NEP-141 stdlib 使用
+`callerHash` 作为 account-keyed balances、allowance owner key，以及
+`ft_on_transfer` sender 参数。`ProofForge.Contract.Surface.signer` 是独立语义：
+它读取 `signer_account_id`，表示交易 signer，而不是 immediate predecessor。
 
 ### 为什么不用 `EmitZig`
 
@@ -90,14 +139,15 @@ NEAR 通过序列化的 Borsh 传入 entrypoint arguments，并期望序列化�
 |---|---|---|
 | `storage.scalar` | Yes | u32、u64、bool、hash → Rust struct fields |
 | `storage.map` | Yes | Map<U64, …> 和 Map<Hash, …> → raw `env::storage_read`/`env::storage_write` |
-| `caller.sender` | Yes | `env::predecessor_account_id()` |
+| `caller.sender` | Yes | EmitWat 将 `caller` 暴露为 predecessor 的 U64 投影，将 `callerHash` 暴露为完整 predecessor hash，并通过 `signer_account_id` 暴露 `signer`；Rust sourcegen v0 保留现有 account-id hash helper。 |
 | `value.native` | Partial | Rust sourcegen 和 EmitWat 将 `nativeValue` 降级为 `env::attached_deposit()` / `attached_deposit` host import，作为 U64 投影 |
 | `events.emit` | Yes | 使用 deterministic JSON lower 到 `near_sdk::log!` |
 | `env.block` | Yes | EmitWat 使用 `block_index`、`block_timestamp`、`epoch_height` 和 `random_seed` host imports；frozen Rust sourcegen 使用 `env::block_height()` |
 | `crypto.hash` | Yes | 基于 `env::sha256` 的 hash helpers |
 | `assertions.check` | Yes | Lower 到 Rust `assert!`/`assert_eq!` |
 | `account.explicit` | Yes | `env::current_account_id()` |
-| `crosscall.invoke` | No | sourcegen v0 不支持 |
+| `crosscall.invoke` | Partial | EmitWat 将 untyped NEAR call lower 到 Promise API；Rust sourcegen v0 拒绝 cross-contract calls。 |
+| `near.promise` | Partial | EmitWat lower Promise chaining/result inspection/return；Rust sourcegen v0 不支持。 |
 | `storage.array` | Partial | target profile 为 EmitWat 路径声明该能力；Rust sourcegen v0 拒绝 array state |
 | `control.conditional` | Partial | target profile 为 EmitWat 声明该能力；Rust sourcegen v0 拒绝 `if/else` |
 | `control.bounded_loop` | Partial | target profile 为 EmitWat 声明该能力；Rust sourcegen v0 拒绝 bounded loop |
