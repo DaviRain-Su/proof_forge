@@ -69,6 +69,8 @@ def main : IO UInt32 := do
       require (asm.contains "solana.storage.array_struct_field_read people.score") "missing array_struct_field_read comment"
       require (asm.contains "solana.storage.array_struct_field_write people.age") "missing array_struct_field_write age comment"
       require (asm.contains "solana.storage.array_struct_field_write people.score") "missing array_struct_field_write score comment"
+      require (asm.contains "error_array_bounds") "missing array struct bounds guard"
+      require (asm.contains "error_array_bounds:") "missing array bounds error handler"
       require (asm.contains "mul64 r2, r3") "missing index scaling"
       require (asm.contains "add64 r2, r1") "missing base pointer add"
       require (asm.contains "add64 r2, 8") "missing score field offset" -- score offset = 8

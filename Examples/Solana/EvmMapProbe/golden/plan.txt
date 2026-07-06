@@ -1,0 +1,28 @@
+targetId: solana-sbpf-asm
+artifactKind: solana-elf
+irVersion: portable-ir-v0
+moduleName: EvmMapProbe
+programId: (none)
+stateDataSize: 2064
+stateFields:
+  before: kind=scalar type=U64 byteSize=8 absOff=96
+  balances: kind=map type=U64 byteSize=2048 absOff=104
+  after: kind=scalar type=U64 byteSize=8 absOff=2152
+accounts:
+  before: index=0 signer=false writable=true owner="program" dataSize=2064
+entrypoints:
+set_balance: returns=Unit hasReturn=false instructionDataMinLen=17
+  discriminator: kind=internal bytes=[0]
+  params:
+    key: type=U64 offset=1 byteSize=8
+    value: type=U64 offset=9 byteSize=8
+
+read_balance: returns=U64 hasReturn=true instructionDataMinLen=9
+  discriminator: kind=internal bytes=[1]
+  params:
+    key: type=U64 offset=1 byteSize=8
+extensions:
+cpis: []
+syscalls: []
+memoryOps: []
+pdas: []

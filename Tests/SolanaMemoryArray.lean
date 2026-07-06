@@ -62,6 +62,8 @@ def main : IO UInt32 := do
       require (asm.contains "memory.array.length: load length from header") "missing array length comment"
       require (asm.contains "memory.array.get") "missing array get comment"
       require (asm.contains "memory.array.set") "missing array set comment"
+      require (asm.contains "error_array_bounds") "missing memory array bounds guard"
+      require (asm.contains "error_array_bounds:") "missing array bounds error handler"
       require (asm.contains "memory.release arr: free heap array") "missing release comment"
       require (asm.contains "sol_alloc_free_") "missing sol_alloc_free_ syscall"
       require (asm.contains "add64 r2, 8") "missing data pointer adjustment"

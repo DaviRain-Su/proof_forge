@@ -140,6 +140,7 @@ solana-lean:
     lake env lean --run Tests/SolanaFixedArrayStruct.lean
     lake env lean --run Tests/SolanaHash.lean
     lake env lean --run Tests/SolanaMemoryArray.lean
+    lake env lean --run Tests/SolanaMapContextSafety.lean
     lake env lean --run Tests/LearnSource.lean
     lake env lean --run Tests/SharedContractSource.lean
     lake env lean --run Tests/LearnDiagnostics.lean
@@ -388,8 +389,12 @@ solana-return-data-compute-web3:
 solana-emit-asm:
     scripts/solana/emit-asm-smoke.sh
 
+# Run the SolanaModulePlan golden smoke for the Counter fixture (Tier B gate).
+solana-plan-smoke:
+    scripts/solana/plan-smoke.sh
+
 # Run all Solana gates that are safe for default CI.
-solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-pinocchio-reference-equivalence
+solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-pinocchio-reference-equivalence
 
 # Check translated documentation freshness.
 docs-check:
@@ -637,8 +642,47 @@ evm-ir-smokes:
 # Run all EVM gates that CI tracks locally.
 evm-all: evm-diagnostics evm-coverage evm-semantic-plan evm-ir-smokes evm-build-examples evm-mixin-compose evm-foundry evm-anvil-deploy evm-broadcast-smoke evm-dynamic-constructor-anvil
 
-# Run the current GitHub CI build-test sequence locally.
-ci: build target-registry evm-plan evm-semantic-plan solana-light portable-counter-multi-target portable-role-gated-token-multi-target portable-staking-vault-multi-target docs-check testkit psy-golden-sources psy-diagnostics psy-coverage evm-all
+# Mirror the GitHub build-test job locally. Keep this recipe aligned with .github/workflows/ci.yml.
+github-build-test:
+    just build
+    just target-registry
+    just contract-spec-json
+    just contract-client
+    just evm-plan
+    just solana-light
+    just docs-check
+    scripts/near/diagnostic-smoke.sh
+    scripts/near/check-ir-coverage-manifest.py
+    scripts/near/check-ir-coverage-manifest.py --manifest Tests/EmitWatCoverage.tsv --label emitwat-ir-coverage
+    lake env lean --run Tests/IROwnership.lean
+    lake build ProofForge.Backend.Evm.Refinement
+    lake build ProofForge.Contract.Examples.ValueVaultInvariant
+    lake env lean --run Tests/NearWasmFormal.lean
+    scripts/near/emitwat-ci-smoke.sh
+    just near-target-first
+    just contract-source-diagnostics
+    just testkit
+    just psy-golden-sources
+    just psy-diagnostics
+    just psy-coverage
+    just psy-metadata
+    just psy-metadata-validation
+    just psy-metadata-cli
+    just quint-mbt-gate
+    just quint-ir-model-gate
+    just evm-diagnostics
+    just evm-coverage
+    just evm-ir-smokes
+    just evm-build-examples
+    just evm-foundry
+    just evm-anvil-deploy
+    just evm-dynamic-constructor-anvil
+    just portable-counter-multi-target
+    just portable-role-gated-token-multi-target
+    just portable-staking-vault-multi-target
+
+# Run the GitHub build-test mirror plus local EVM extensions not wired into that job.
+ci: github-build-test evm-mixin-compose evm-broadcast-smoke
 
 # Check for whitespace errors before committing.
 diff-check:

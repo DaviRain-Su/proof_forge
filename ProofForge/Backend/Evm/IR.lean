@@ -5149,8 +5149,15 @@ def buildSemanticPlanBestEffort (module : Module) : ProofForge.Backend.Evm.Plan.
       contextOps := ProofForge.Backend.Evm.Plan.contextOpsFromModule module
     }
 
-def lowerModule (module : Module) : Except LowerError Lean.Compiler.Yul.Object := do
+def lowerModuleBestEffort (module : Module) : Except LowerError Lean.Compiler.Yul.Object := do
   let fullPlan := buildSemanticPlanBestEffort module
+  lowerModuleWithPlan module fullPlan
+
+def renderModuleBestEffort (module : Module) : Except LowerError String := do
+  .ok (Lean.Compiler.Yul.Printer.render (← lowerModuleBestEffort module))
+
+def lowerModule (module : Module) : Except LowerError Lean.Compiler.Yul.Object := do
+  let fullPlan ← buildSemanticPlan module
   lowerModuleWithPlan module fullPlan
 
 def renderModule (module : Module) : Except LowerError String := do

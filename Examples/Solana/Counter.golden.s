@@ -198,3 +198,7 @@ error_instruction_data:
 error_pda_bump:
   mov64 r0, 11
   exit
+
+error_array_bounds:
+  mov64 r0, 12
+  exit

@@ -249,6 +249,76 @@ export ProofForge.Backend.WasmNear.Types (
   returnBoolName
 )
 
+def stringInfoEnd (base : Nat) (strings : Array StringInfo) : Nat :=
+  strings.foldl (init := base) fun acc s => max acc (s.ptr + s.len + 1)
+
+def borshFlatWidth (ty : ProofForge.IR.ValueType) : Nat :=
+  match ty with
+  | .u32 => 4
+  | .u64 => 8
+  | .bool => 1
+  | .hash => 32
+  | .fixedArray elem n => scalarWidth elem * n
+  | .structType _ => 512
+  | _ => 0
+
+def entrypointInputBytes (_structs : Array ProofForge.IR.StructDecl) (ep : ProofForge.IR.Entrypoint) : Nat :=
+  ep.params.foldl (fun acc param => acc + borshFlatWidth param.snd) 0
+
+def entrypointHashParamCount (ep : ProofForge.IR.Entrypoint) : Nat :=
+  ep.params.foldl (fun acc param => if param.snd == ProofForge.IR.ValueType.hash then acc + 1 else acc) 0
+
+def eventPayloadBound (name : String) (fieldCount : Nat) (fieldNameBytes : Nat) : Nat :=
+  16 + name.length + fieldNameBytes + fieldCount * 96
+
+def crosscallArgsBound (argCount : Nat) : Nat :=
+  2 + argCount * 96
+
+def validateScratchCapacities
+    (mod : ProofForge.IR.Module)
+    (strs panics crosscallStrs : Array StringInfo) : Except EmitError Unit := do
+  let stringEnd := stringInfoEnd STRING_BASE (strs ++ panics)
+  if stringEnd > INPUT_BUF then
+    err s!"EmitWat: event/panic string pool requires {stringEnd - STRING_BASE} bytes, limit is {INPUT_BUF - STRING_BASE}"
+  let crosscallStringEnd := stringInfoEnd CROSSCALL_STRING_BASE crosscallStrs
+  if crosscallStringEnd > ZERO_HASH_BUF then
+    err s!"EmitWat: NEAR crosscall string pool requires {crosscallStringEnd - CROSSCALL_STRING_BASE} bytes, limit is {ZERO_HASH_BUF - CROSSCALL_STRING_BASE}"
+  for ep in mod.entrypoints do
+    let inputBytes := entrypointInputBytes mod.structs ep
+    if inputBytes > PARAM_HASH_BUF - INPUT_BUF then
+      err s!"EmitWat: entrypoint `{ep.name}` Borsh input requires {inputBytes} bytes, limit is {PARAM_HASH_BUF - INPUT_BUF}"
+    let hashSlots := entrypointHashParamCount ep
+    if hashSlots * 32 > CROSSCALL_BUF - PARAM_HASH_BUF then
+      err s!"EmitWat: entrypoint `{ep.name}` hash params require {hashSlots * 32} bytes, limit is {CROSSCALL_BUF - PARAM_HASH_BUF}"
+    for stmt in ep.body do
+      match stmt with
+      | .effect (.eventEmit name fields) =>
+          let fieldNameBytes := fields.foldl (fun acc field => acc + field.fst.length) 0
+          let required := eventPayloadBound name fields.size fieldNameBytes
+          if required > EVT_KEY_PTR - EVENT_BUF then
+            err s!"EmitWat: event `{name}` JSON scratch requires up to {required} bytes, limit is {EVT_KEY_PTR - EVENT_BUF}"
+      | .effect (.eventEmitIndexed name indexedFields dataFields) =>
+          let fieldNameBytes :=
+            indexedFields.foldl (fun acc field => acc + field.fst.length) 0 +
+              dataFields.foldl (fun acc field => acc + field.fst.length) 0
+          let fieldCount := indexedFields.size + dataFields.size
+          let required := eventPayloadBound name fieldCount fieldNameBytes
+          if required > EVT_KEY_PTR - EVENT_BUF then
+            err s!"EmitWat: event `{name}` JSON scratch requires up to {required} bytes, limit is {EVT_KEY_PTR - EVENT_BUF}"
+      | .letBind _ _ (.nearCrosscallInvokePool _ _ args _)
+      | .letMutBind _ _ (.nearCrosscallInvokePool _ _ args _)
+      | .return (.nearCrosscallInvokePool _ _ args _) =>
+          let required := crosscallArgsBound args.size
+          if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
+            err s!"EmitWat: NEAR crosscall args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
+      | .letBind _ _ (.nearPromiseThen _ _ args _)
+      | .letMutBind _ _ (.nearPromiseThen _ _ args _)
+      | .return (.nearPromiseThen _ _ args _) =>
+          let required := crosscallArgsBound args.size
+          if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
+            err s!"EmitWat: NEAR promise callback args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
+      | _ => pure ()
+
 -- Type-directed expression lowering (mutually recursive)
 mutual
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
@@ -899,6 +969,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     | .ok plan => pure plan
     | .error planErr => err s!"EmitWat: {planErr.message}"
   let ctx := loweringCtxForModule mod
+  validateScratchCapacities mod ctx.strings ctx.panics ctx.crosscallStrings
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let hasPanic := !ctx.panics.isEmpty
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic

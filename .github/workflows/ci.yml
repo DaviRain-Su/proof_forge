@@ -162,65 +162,8 @@ jobs:
       - name: Check EVM IR coverage manifest
         run: just evm-coverage
 
-      - name: Run EVM ABI scalar IR smoke
-        run: just evm-smoke abi-scalar
-
-      - name: Run EVM AssertProbe IR smoke
-        run: just evm-smoke assert
-
-      - name: Run EVM AssignmentProbe IR smoke
-        run: just evm-smoke assignment
-
-      - name: Run EVM AssignOpProbe IR smoke
-        run: just evm-smoke assign-op
-
-      - name: Run EVM ConditionalProbe IR smoke
-        run: just evm-smoke conditional
-
-      - name: Run EVM LoopProbe IR smoke
-        run: just evm-smoke loop
-
-      - name: Run EVM ContextProbe IR smoke
-        run: just evm-smoke context
-
-      - name: Run EVM EventProbe IR smoke
-        run: just evm-smoke event
-
-      - name: Run EVM CrosscallProbe IR smoke
-        run: just evm-smoke crosscall
-
-      - name: Run EVM ExpressionProbe IR smoke
-        run: just evm-smoke expression
-
-      - name: Run EVM HashProbe IR smoke
-        run: just evm-smoke hash
-
-      - name: Run EVM MapProbe IR smoke
-        run: just evm-smoke map
-
-      - name: Run EVM TypedMapProbe IR smoke
-        run: just evm-smoke typed-map
-
-      - name: Run EVM StorageArrayProbe IR smoke
-        run: just evm-smoke storage-array
-
-      - name: Run EVM StorageStructProbe IR smoke
-        run: just evm-smoke storage-struct
-
-      - name: Run EVM TypedStorageProbe IR smoke
-        run: just evm-smoke typed-storage
-
-      - name: Run EVM ArrayValueProbe IR smoke
-        run: just evm-smoke array-value
-
-      - name: Run EVM StructArrayValueProbe IR smoke
-        run: just evm-smoke struct-array-value
-
-      - name: Run EVM StructValueProbe IR smoke
-        run: just evm-smoke struct-value
-
-      - name: Run EVM AbiAggregateProbe IR smoke
-        run: just evm-smoke abi-aggregate
+      - name: Run EVM IR smoke suite
+        run: just evm-ir-smokes
 
       - name: Build EVM examples
         run: just evm-build-examples

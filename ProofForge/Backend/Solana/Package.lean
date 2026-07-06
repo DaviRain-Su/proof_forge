@@ -17,6 +17,7 @@ import ProofForge.Backend.Solana.Client
 import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.Solana.Plan
 
 namespace ProofForge.Backend.Solana.Package
 
@@ -58,7 +59,10 @@ def renderCargoToml (projectName : String) : String :=
 
 /-- Render the sbpf project file set for a module. -/
 def renderPackage (projectName : String) (module : Module) : Except SbpfAsm.LowerError RenderedPackage := do
-  let nodes ← SbpfAsm.lowerModule module
+  let plan ← match Plan.buildSolanaModulePlan module none with
+    | .error err => .error { message := err.message }
+    | .ok plan => .ok plan
+  let nodes ← Plan.lowerModuleFromPlan module plan
   let asm := ProofForge.Backend.Solana.Asm.renderNodes nodes
   let manifest := Manifest.renderManifest module ++ "\n"
   let idl := Idl.render module ++ "\n"

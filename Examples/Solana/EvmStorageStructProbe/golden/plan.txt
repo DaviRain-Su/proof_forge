@@ -1,0 +1,21 @@
+targetId: solana-sbpf-asm
+artifactKind: solana-elf
+irVersion: portable-ir-v0
+moduleName: EvmStorageStructProbe
+programId: (none)
+stateDataSize: 24
+stateFields:
+  before: kind=scalar type=U64 byteSize=8 absOff=96
+  current: kind=scalar type=Point byteSize=8 absOff=104
+  after: kind=scalar type=U64 byteSize=8 absOff=112
+accounts:
+  before: index=0 signer=false writable=true owner="program" dataSize=24
+entrypoints:
+struct_lifecycle: returns=U64 hasReturn=true instructionDataMinLen=1
+  discriminator: kind=internal bytes=[0]
+  params: []
+extensions:
+cpis: []
+syscalls: []
+memoryOps: []
+pdas: []

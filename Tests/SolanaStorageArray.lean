@@ -57,6 +57,8 @@ def main : IO UInt32 := do
   | .ok asm =>
       require (asm.contains "solana.storage.array_read values") "missing array_read comment"
       require (asm.contains "solana.storage.array_write values") "missing array_write comment"
+      require (asm.contains "error_array_bounds") "missing array bounds guard"
+      require (asm.contains "error_array_bounds:") "missing array bounds error handler"
       require (asm.contains "mul64 r2, r3") "missing index scaling"
       require (asm.contains "add64 r2, r1") "missing base pointer add"
       require (asm.contains "ldxdw r2, [r2+0]") "missing array load"

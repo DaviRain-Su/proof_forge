@@ -38,6 +38,7 @@ import ProofForge.Cli.Deploy
 import ProofForge.Cli.Check
 import ProofForge.Cli.Metadata
 import ProofForge.Cli.Quint
+import ProofForge.Cli.Evm
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -2952,7 +2953,7 @@ def compileMapEmitWat      (opts : CliOptions) : IO UInt32 := compileEmitWat opt
 
 def compileCounterIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/Counter.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.Counter.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.Counter.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -2962,7 +2963,7 @@ def compileCounterIrYul (opts : CliOptions) : IO UInt32 := do
 
 def compileErrorRefIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ErrorRefProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.ErrorRefProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.ErrorRefProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -2971,7 +2972,7 @@ def compileErrorRefIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderCounterIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.Counter.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.Counter.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -2999,7 +3000,7 @@ def compileCounterIrBytecode (opts : CliOptions) : IO UInt32 := do
   return 0
 
 def renderErrorRefIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.ErrorRefProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.ErrorRefProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3024,7 +3025,7 @@ def compileErrorRefIrBytecode (opts : CliOptions) : IO UInt32 := do
 def compileValueVaultIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ValueVault.yul")
   let module ← hydrateEvmSelectors opts.cast ProofForge.Contract.Examples.ValueVault.module
-  match ProofForge.Backend.Evm.IR.renderModule module with
+  match ProofForge.Cli.Evm.renderYul module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3034,7 +3035,7 @@ def compileValueVaultIrYul (opts : CliOptions) : IO UInt32 := do
 
 def renderValueVaultIrYul (opts : CliOptions) : IO (String × ProofForge.IR.Module) := do
   let module ← hydrateEvmSelectors opts.cast ProofForge.Contract.Examples.ValueVault.module
-  match ProofForge.Backend.Evm.IR.renderModule module with
+  match ProofForge.Cli.Evm.renderYul module with
   | .ok yul => return (yul, module)
   | .error err => throw <| IO.userError err.render
 
@@ -3301,7 +3302,7 @@ def tokenEvmArtifactJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
 def renderLearnEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
   let module ← hydrateEvmSelectors opts.cast spec.module
-  match ProofForge.Backend.Evm.IR.renderModule module with
+  match ProofForge.Cli.Evm.renderYul module with
   | .ok yul => return (yul, module)
   | .error err => throw <| IO.userError err.render
 
@@ -3361,7 +3362,7 @@ def compileLearnBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileAbiScalarIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/AbiScalarProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AbiScalarProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AbiScalarProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3370,7 +3371,7 @@ def compileAbiScalarIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderAbiScalarIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AbiScalarProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AbiScalarProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3387,7 +3388,7 @@ def compileAbiScalarIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileAssertIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/AssertProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AssertProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AssertProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3396,7 +3397,7 @@ def compileAssertIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderAssertIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AssertProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AssertProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3413,7 +3414,7 @@ def compileAssertIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileAssignmentIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/AssignmentProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AssignmentProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AssignmentProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3422,7 +3423,7 @@ def compileAssignmentIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderAssignmentIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.AssignmentProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.AssignmentProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3439,7 +3440,7 @@ def compileAssignmentIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmAssignOpIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmAssignOpProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmAssignOpProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmAssignOpProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3448,7 +3449,7 @@ def compileEvmAssignOpIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmAssignOpIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmAssignOpProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmAssignOpProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3465,7 +3466,7 @@ def compileEvmAssignOpIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileConditionalIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ConditionalProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.ConditionalProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.ConditionalProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3474,7 +3475,7 @@ def compileConditionalIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderConditionalIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.ConditionalProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.ConditionalProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3491,7 +3492,7 @@ def compileConditionalIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileContextIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ContextProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmContextProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmContextProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3500,7 +3501,7 @@ def compileContextIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderContextIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmContextProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmContextProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3517,7 +3518,7 @@ def compileContextIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmEventIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EventProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EventProbe.evmModule with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EventProbe.evmModule with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3526,7 +3527,7 @@ def compileEvmEventIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmEventIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EventProbe.evmModule with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EventProbe.evmModule with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3543,7 +3544,7 @@ def compileEvmEventIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmCrosscallIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmCrosscallProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmCrosscallProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmCrosscallProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3552,7 +3553,7 @@ def compileEvmCrosscallIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmCrosscallIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmCrosscallProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmCrosscallProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3569,7 +3570,7 @@ def compileEvmCrosscallIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmExpressionIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmExpressionProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmExpressionProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmExpressionProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3578,7 +3579,7 @@ def compileEvmExpressionIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmExpressionIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmExpressionProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmExpressionProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3595,7 +3596,7 @@ def compileEvmExpressionIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmHashIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmHashProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmHashProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmHashProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3604,7 +3605,7 @@ def compileEvmHashIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmHashIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmHashProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmHashProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3621,7 +3622,7 @@ def compileEvmHashIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmLoopIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmLoopProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmLoopProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmLoopProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3630,7 +3631,7 @@ def compileEvmLoopIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmLoopIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmLoopProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmLoopProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3647,7 +3648,7 @@ def compileEvmLoopIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmMapIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmMapProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMapProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmMapProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3656,7 +3657,7 @@ def compileEvmMapIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmMapIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMapProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmMapProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3673,7 +3674,7 @@ def compileEvmMapIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmStorageArrayIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmStorageArrayProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStorageArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStorageArrayProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3682,7 +3683,7 @@ def compileEvmStorageArrayIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmStorageArrayIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStorageArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStorageArrayProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3699,7 +3700,7 @@ def compileEvmStorageArrayIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmStorageStructIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmStorageStructProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStorageStructProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStorageStructProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3708,7 +3709,7 @@ def compileEvmStorageStructIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmStorageStructIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStorageStructProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStorageStructProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3725,7 +3726,7 @@ def compileEvmStorageStructIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmTypedMapIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmTypedMapProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmTypedMapProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmTypedMapProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3734,7 +3735,7 @@ def compileEvmTypedMapIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmTypedMapIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmTypedMapProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmTypedMapProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3751,7 +3752,7 @@ def compileEvmTypedMapIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmTypedStorageIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmTypedStorageProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmTypedStorageProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmTypedStorageProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3760,7 +3761,7 @@ def compileEvmTypedStorageIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmTypedStorageIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmTypedStorageProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmTypedStorageProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3777,7 +3778,7 @@ def compileEvmTypedStorageIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmArrayValueIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmArrayValueProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmArrayValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmArrayValueProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3786,7 +3787,7 @@ def compileEvmArrayValueIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmArrayValueIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmArrayValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmArrayValueProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3803,7 +3804,7 @@ def compileEvmArrayValueIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmStructArrayValueIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmStructArrayValueProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStructArrayValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStructArrayValueProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3812,7 +3813,7 @@ def compileEvmStructArrayValueIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmStructArrayValueIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStructArrayValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStructArrayValueProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3829,7 +3830,7 @@ def compileEvmStructArrayValueIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmStructValueIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmStructValueProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStructValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStructValueProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3838,7 +3839,7 @@ def compileEvmStructValueIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmStructValueIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmStructValueProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmStructValueProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3855,7 +3856,7 @@ def compileEvmStructValueIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmAbiAggregateIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmAbiAggregateProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmAbiAggregateProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmAbiAggregateProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3864,7 +3865,7 @@ def compileEvmAbiAggregateIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmAbiAggregateIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmAbiAggregateProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmAbiAggregateProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3881,7 +3882,7 @@ def compileEvmAbiAggregateIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmDynamicAbiIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmDynamicAbiProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3890,7 +3891,7 @@ def compileEvmDynamicAbiIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmDynamicAbiIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmDynamicAbiProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3907,7 +3908,7 @@ def compileEvmDynamicAbiIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmArrayAbiIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmArrayAbiProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmArrayAbiProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmArrayAbiProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3916,7 +3917,7 @@ def compileEvmArrayAbiIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmArrayAbiIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmArrayAbiProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmArrayAbiProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3933,7 +3934,7 @@ def compileEvmArrayAbiIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmDynamicArrayIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmDynamicArrayProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmDynamicArrayProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3942,7 +3943,7 @@ def compileEvmDynamicArrayIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmDynamicArrayIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmDynamicArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmDynamicArrayProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3959,7 +3960,7 @@ def compileEvmDynamicArrayIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmMemoryArrayIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmMemoryArrayProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3968,7 +3969,7 @@ def compileEvmMemoryArrayIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmMemoryArrayIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmMemoryArrayProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -3985,7 +3986,7 @@ def compileEvmMemoryArrayIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmPackedStorageIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmPackedStorageProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmPackedStorageProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmPackedStorageProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -3994,7 +3995,7 @@ def compileEvmPackedStorageIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmPackedStorageIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmPackedStorageProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmPackedStorageProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -4011,7 +4012,7 @@ def compileEvmPackedStorageIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmErrorsIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmErrorsProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmErrorsProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -4020,7 +4021,7 @@ def compileEvmErrorsIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmErrorsIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmErrorsProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 
@@ -4037,7 +4038,7 @@ def compileEvmErrorsIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileEvmFallbackIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmFallbackProbe.yul")
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmFallbackProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmFallbackProbe.module with
   | .ok yul =>
       writeTextFile output yul
       IO.println s!"wrote {output}"
@@ -4046,7 +4047,7 @@ def compileEvmFallbackIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderEvmFallbackIrYul : IO String := do
-  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmFallbackProbe.module with
+  match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.EvmFallbackProbe.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
 

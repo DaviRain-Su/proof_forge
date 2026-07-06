@@ -1,0 +1,27 @@
+targetId: solana-sbpf-asm
+artifactKind: solana-elf
+irVersion: portable-ir-v0
+moduleName: Counter
+programId: (none)
+stateDataSize: 8
+stateFields:
+  count: kind=scalar type=U64 byteSize=8 absOff=96
+accounts:
+  count: index=0 signer=false writable=true owner="program" dataSize=8
+entrypoints:
+initialize: returns=Unit hasReturn=false instructionDataMinLen=1
+  discriminator: kind=internal bytes=[0]
+  params: []
+
+increment: returns=Unit hasReturn=false instructionDataMinLen=1
+  discriminator: kind=internal bytes=[1]
+  params: []
+
+get: returns=U64 hasReturn=true instructionDataMinLen=1
+  discriminator: kind=internal bytes=[2]
+  params: []
+extensions:
+cpis: []
+syscalls: []
+memoryOps: []
+pdas: []

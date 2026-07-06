@@ -603,6 +603,26 @@ def testUnsupportedContextDiagnostic : IO Unit := do
       require (err.message == "EmitWat: wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin")
         s!"unsupported context diagnostic mismatch: {err.message}"
 
+def oversizedEventName : String := String.mk (List.replicate 1200 'x')
+
+def oversizedEventModule : Module := {
+  name := "OversizedEventProbe"
+  state := #[]
+  entrypoints := #[{
+    name := "emitHuge"
+    returns := .unit
+    body := #[.effect (.eventEmit oversizedEventName #[("value", .literal (.u64 1))])]
+  }]
+}
+
+def testScratchCapacityDiagnostics : IO Unit := do
+  match renderModule oversizedEventModule with
+  | .ok _ =>
+      throw <| IO.userError "oversized event should fail EmitWat scratch capacity validation"
+  | .error err =>
+      require (err.message.contains "EmitWat: event/panic string pool requires")
+        s!"scratch capacity diagnostic mismatch: {err.message}"
+
 def main : IO UInt32 := do
   testDepositRenderPrunesUnusedContextSurface
   testCounterRenderKeepsOnlyU64ScalarHelpers
@@ -627,6 +647,7 @@ def main : IO UInt32 := do
   testNearPromiseRenderChainsCallback
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic
+  testScratchCapacityDiagnostics
   IO.println "wasm-near-plan: ok"
   return 0
 

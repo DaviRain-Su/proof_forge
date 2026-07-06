@@ -10126,6 +10126,31 @@ def testContextPlanToYul : IO Unit := do
       requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash effect planned argument"
   | _ => throw <| IO.userError "context blockhash effect must lower through target plan"
 
+def unsupportedCrosscallModule : Module := {
+  name := "UnsupportedCrosscall"
+  state := #[]
+  entrypoints := #[{
+    name := "callOther"
+    selector? := some "00000000"
+    returns := .unit
+    params := #[]
+    body := #[
+      .letBind "result" .u64 (.nearPromiseResultsCount)
+    ]
+  }]
+}
+
+def testStrictRenderRejectsUnsupportedCapabilities : IO Unit := do
+  requireErrorContains
+    (renderModule unsupportedCrosscallModule)
+    "does not support capability `near.promise`"
+    "strict EVM render must reject unsupported capabilities"
+  let fallbackPlan := buildSemanticPlanBestEffort unsupportedCrosscallModule
+  require (fallbackPlan.name == "UnsupportedCrosscall")
+    "best-effort EVM semantic plan should remain available for diagnostic callers"
+  require (fallbackPlan.capabilities.isEmpty)
+    "best-effort EVM fallback plan should not fabricate unsupported capabilities"
+
 def main : IO UInt32 := do
   testCounterSemanticPlan
   testEventSemanticPlan
@@ -10184,6 +10209,7 @@ def main : IO UInt32 := do
   testStoragePathWritePlanToYul
   testLegacyWriteEffectFacadePlanToYul
   testContextPlanToYul
+  testStrictRenderRejectsUnsupportedCapabilities
   IO.println "evm-semantic-plan: ok"
   return 0
 

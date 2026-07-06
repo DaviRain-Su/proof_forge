@@ -131,15 +131,34 @@ def isOwnedHeapBacked (ty : ValueType) : Bool :=
   | .fixedArray _ _ | .structType _ | .array _ => true
   | _ => false
 
+/-- Extract the declared capacity of a map state. -/
+def mapStateCapacity? (stateDecls : Array StateDecl) (stateId : String) : Option Nat :=
+  match stateDecls.find? (fun s => s.id == stateId) with
+  | some { kind := .map _ capacity, .. } => some capacity
+  | _ => none
+
+/-- Extract the declared length of a fixed-size array state. -/
+def arrayStateLength? (stateDecls : Array StateDecl) (stateId : String) : Option Nat :=
+  match stateDecls.find? (fun s => s.id == stateId) with
+  | some { kind := .array length, .. } => some length
+  | some { type := .fixedArray _ length, .. } => some length
+  | _ => none
+
 /-- Extract the element type of a state declared as an array. -/
 def arrayStateElementType? (stateDecls : Array StateDecl) (stateId : String) : Option ValueType :=
   match stateDecls.find? (fun s => s.id == stateId) with
   | none => none
   | some decl =>
-      match decl.type with
-      | .fixedArray element _ => some element
-      | .array element => some element
-      | _ => none
+      match decl.kind with
+      | .array _ =>
+          match decl.type with
+          | .fixedArray element _ => some element
+          | ty => some ty
+      | _ =>
+          match decl.type with
+          | .fixedArray element _ => some element
+          | .array element => some element
+          | _ => none
 
 /-- Compute the byte offset of a field inside an array-of-struct element. -/
 def arrayStructFieldInfo? (ctx : LowerCtx) (stateId fieldName : String) : Option (Nat × Nat) :=
@@ -517,63 +536,63 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     | some absOff => .ok (#[ .instruction (res .ldxdw (src := some .r1) (off := some (.num absOff))) ], ctx)
     | none => .error { message := s!"unknown state: {stateId}" }
   | .effect (.storageMapGet stateId key) => do
-    -- Linear search the map region: entries of (key:u64, value:u64) = 16 bytes each.
-    -- key is lowered into r2; we search mapBase[i].key == r2.
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown map state: {stateId}" }
     | some mapBase =>
+      let maxEntries ←
+        match mapStateCapacity? ctx.stateDecls stateId with
+        | some capacity => .ok capacity
+        | none => .error { message := s!"state `{stateId}` is not a map state" }
       let (kn, ctx') ← lowerExpr ctx key
       let (keyScratch, ctx') := ctx'.allocScratch
-      let (idxScratch, ctx') := ctx'.allocScratch
-      let (foundLabel, ctx') := ctx'.freshLabel
-      let (notFoundLabel, ctx') := ctx'.freshLabel
+      let (resultScratch, ctx') := ctx'.allocScratch
+      let (loopLabel, ctx') := ctx'.freshLabel
+      let (continueLabel, ctx') := ctx'.freshLabel
+      let (missLabel, ctx') := ctx'.freshLabel
       let (endLabel, ctx') := ctx'.freshLabel
-      let entrySize := 16  -- key(8) + value(8)
-      let maxEntries := 256  -- default capacity
+      let entrySize := 16
       .ok (kn ++ #[
         .comment s!"solana.storage.map_get {stateId}: linear search {maxEntries} entries at base={mapBase}",
-        -- Save key to scratch
         .instruction { opcode := .stxdw, dst := some .r10, off := some (.num keyScratch), src := some .r2 },
-        -- r3 = index counter = 0
         .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 0) },
-        .label foundLabel,
-        -- Check if we've exhausted the map
+        .label loopLabel,
         .instruction { opcode := .mov64, dst := some .r4, imm := some (.num maxEntries) },
-        .instruction { opcode := .jge, dst := some .r3, src := some .r4, off := some (.sym notFoundLabel) },
-        -- Compute entry address: r5 = r1 + mapBase + r3 * entrySize
+        .instruction { opcode := .jge, dst := some .r3, src := some .r4, off := some (.sym missLabel) },
         .instruction { opcode := .mov64, dst := some .r5, imm := some (.num entrySize) },
         .instruction { opcode := .mul64, dst := some .r5, src := some .r3 },
         .instruction { opcode := .add64, dst := some .r5, imm := some (.num mapBase) },
         .instruction { opcode := .add64, dst := some .r5, src := some .r1 },
-        -- Load entry key: r6 = *(u64*)(r5 + 0)
         .instruction { opcode := .ldxdw, dst := some .r6, src := some .r5, off := some (.num 0) },
-        -- Load saved key: r7 = scratch
         .instruction { opcode := .ldxdw, dst := some .r7, src := some .r10, off := some (.num keyScratch) },
-        -- Compare: if key matches, load value
-        .instruction { opcode := .jne, dst := some .r6, src := some .r7, off := some (.sym notFoundLabel) },
-        -- Found! Load value: r1 = *(u64*)(r5 + 8)
-        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r5, off := some (.num 8) },
+        .instruction { opcode := .jne, dst := some .r6, src := some .r7, off := some (.sym continueLabel) },
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r5, off := some (.num 8) },
         .instruction { opcode := .ja, off := some (.sym endLabel) },
-        .label notFoundLabel,
-        -- Not found (or continue): increment index, loop
+        .label continueLabel,
         .instruction { opcode := .add64, dst := some .r3, imm := some (.num 1) },
-        .instruction { opcode := .ja, off := some (.sym foundLabel) },
+        .instruction { opcode := .ja, off := some (.sym loopLabel) },
+        .label missLabel,
+        .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 0) },
         .label endLabel,
-        -- Result in r1; save and reload to preserve caller r1
-        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num idxScratch), src := some .r1 },
-        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num idxScratch) }
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num resultScratch), src := some .r2 },
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num resultScratch) }
       ], ctx')
   | .effect (.storageArrayRead stateId index) => do
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown array state: {stateId}" }
     | some base =>
-      let elementSize :=
+      let length ←
+        match arrayStateLength? ctx.stateDecls stateId with
+        | some length => .ok length
+        | none => .error { message := s!"state `{stateId}` is not a fixed array state" }
+      let elementSize ←
         match arrayStateElementType? ctx.stateDecls stateId with
-        | some ty => valueTypeByteSize ty
-        | none => 8
+        | some ty => .ok (valueTypeByteSize ty)
+        | none => .error { message := s!"cannot resolve element type for array state `{stateId}`" }
       let (idxNodes, ctx') ← lowerExpr ctx index
       .ok (idxNodes ++ #[
         .comment s!"solana.storage.array_read {stateId}",
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num length) },
+        .instruction { opcode := .jge, dst := some .r2, src := some .r3, off := some (.sym "error_array_bounds") },
         .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
         .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
         .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
@@ -584,12 +603,18 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown array state: {stateId}" }
     | some base =>
+      let length ←
+        match arrayStateLength? ctx.stateDecls stateId with
+        | some length => .ok length
+        | none => .error { message := s!"state `{stateId}` is not a fixed array state" }
       match arrayStructFieldInfo? ctx stateId fieldName with
       | none => .error { message := s!"cannot resolve field `{fieldName}` for array state `{stateId}`" }
       | some (elementSize, fieldOff) =>
         let (idxNodes, ctx') ← lowerExpr ctx index
         .ok (idxNodes ++ #[
           .comment s!"solana.storage.array_struct_field_read {stateId}.{fieldName}",
+          .instruction { opcode := .mov64, dst := some .r3, imm := some (.num length) },
+          .instruction { opcode := .jge, dst := some .r2, src := some .r3, off := some (.sym "error_array_bounds") },
           .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
           .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
           .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
@@ -634,19 +659,14 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
     ], ctx)
   | .effect (.contextRead .userId) =>
-    -- On Solana, the "caller" maps to account[0] (the fee payer / first signer).
-    -- Return the first 8 bytes of the pubkey as a u64 identifier.
-    let (inputPtrScratch, ctx) := ctx.allocScratch
     .ok (#[
       .comment "solana.context.userId: read account[0] pubkey first 8 bytes as u64",
-      .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 16) }
     ], ctx)
   | .effect (.contextRead .origin) =>
-    -- tx.origin maps to account[0] on Solana (same as userId)
-    let (inputPtrScratch, ctx) := ctx.allocScratch
     .ok (#[
       .comment "solana.context.origin: read account[0] pubkey first 8 bytes as u64",
-      .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num inputPtrScratch) }
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 16) }
     ], ctx)
   | .effect (.contextRead field) =>
     .error { message := s!"Solana context read `{field.name}` is not supported; userId/origin map to account[0], checkpointId maps to Clock.slot" }
@@ -818,9 +838,13 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .instruction { opcode := .stxdw, dst := some .r10, off := some (.num arrScratch), src := some .r2 }
     ] ++ idxNodes ++ #[
       .comment "memory.array.get",
-      .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
-      .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
       .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num arrScratch) },
+      .instruction { opcode := .mov64, dst := some .r4, src := some .r3 },
+      .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 8) },
+      .instruction { opcode := .ldxdw, dst := some .r4, src := some .r4, off := some (.num 0) },
+      .instruction { opcode := .jge, dst := some .r2, src := some .r4, off := some (.sym "error_array_bounds") },
+      .instruction { opcode := .mov64, dst := some .r4, imm := some (.num elementSize) },
+      .instruction { opcode := .mul64, dst := some .r2, src := some .r4 },
       .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
       .instruction { opcode := .ldxdw, dst := some .r2, src := some .r3, off := some (.num 0) }
     ], ctx)
@@ -952,10 +976,14 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown array state: {stateId}" }
     | some base => do
-      let elementSize :=
+      let length ←
+        match arrayStateLength? ctx.stateDecls stateId with
+        | some length => .ok length
+        | none => .error { message := s!"state `{stateId}` is not a fixed array state" }
+      let elementSize ←
         match arrayStateElementType? ctx.stateDecls stateId with
-        | some ty => valueTypeByteSize ty
-        | none => 8
+        | some ty => .ok (valueTypeByteSize ty)
+        | none => .error { message := s!"cannot resolve element type for array state `{stateId}`" }
       let (valNodes, ctx') ← lowerExpr ctx value
       let (valScratch, ctx') := ctx'.allocScratch
       let (idxNodes, ctx') ← lowerExpr ctx' index
@@ -964,6 +992,8 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
         .instruction { opcode := .stxdw, dst := some .r10, off := some (.num valScratch), src := some .r2 }
       ] ++ idxNodes ++ #[
         .comment s!"solana.storage.array_write {stateId}: compute address and store",
+        .instruction { opcode := .mov64, dst := some .r3, imm := some (.num length) },
+        .instruction { opcode := .jge, dst := some .r2, src := some .r3, off := some (.sym "error_array_bounds") },
         .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
         .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
         .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
@@ -975,6 +1005,10 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown array state: {stateId}" }
     | some base => do
+      let length ←
+        match arrayStateLength? ctx.stateDecls stateId with
+        | some length => .ok length
+        | none => .error { message := s!"state `{stateId}` is not a fixed array state" }
       match arrayStructFieldInfo? ctx stateId fieldName with
       | none => .error { message := s!"cannot resolve field `{fieldName}` for array state `{stateId}`" }
       | some (elementSize, fieldOff) =>
@@ -986,6 +1020,8 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
           .instruction { opcode := .stxdw, dst := some .r10, off := some (.num valScratch), src := some .r2 }
         ] ++ idxNodes ++ #[
           .comment s!"solana.storage.array_struct_field_write {stateId}.{fieldName}: compute address and store",
+          .instruction { opcode := .mov64, dst := some .r3, imm := some (.num length) },
+          .instruction { opcode := .jge, dst := some .r2, src := some .r3, off := some (.sym "error_array_bounds") },
           .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
           .instruction { opcode := .mul64, dst := some .r2, src := some .r3 },
           .instruction { opcode := .add64, dst := some .r2, imm := some (.num base) },
@@ -1240,11 +1276,15 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       .instruction { opcode := .stxdw, dst := some .r10, off := some (.num idxScratch), src := some .r2 }
     ] ++ valNodes ++ #[
       .comment "memory.array.set",
-      .instruction { opcode := .ldxdw, dst := some .r4, src := some .r10, off := some (.num idxScratch) },
-      .instruction { opcode := .mov64, dst := some .r3, imm := some (.num elementSize) },
-      .instruction { opcode := .mul64, dst := some .r4, src := some .r3 },
       .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num arrScratch) },
-      .instruction { opcode := .add64, dst := some .r3, src := some .r4 },
+      .instruction { opcode := .mov64, dst := some .r4, src := some .r3 },
+      .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 8) },
+      .instruction { opcode := .ldxdw, dst := some .r4, src := some .r4, off := some (.num 0) },
+      .instruction { opcode := .ldxdw, dst := some .r5, src := some .r10, off := some (.num idxScratch) },
+      .instruction { opcode := .jge, dst := some .r5, src := some .r4, off := some (.sym "error_array_bounds") },
+      .instruction { opcode := .mov64, dst := some .r4, imm := some (.num elementSize) },
+      .instruction { opcode := .mul64, dst := some .r5, src := some .r4 },
+      .instruction { opcode := .add64, dst := some .r3, src := some .r5 },
       .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 }
     ], ctx)
   | .release name =>
@@ -1587,21 +1627,14 @@ def lowerInstructionDataPointerSetup (accountCount : Nat) : Array AstNode :=
     .instruction { opcode := .stxdw, dst := some .r10, off := some (.num entryInstructionDataSaveOffset), src := some entryInstructionDataReg }
   ]
 
-partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions) :
+/-- Core lowering body once the account schema, input layout, and lowering
+context have been derived. Exposed so the plan-driven path
+(`ProofForge.Backend.Solana.Plan.lowerModuleFromPlan`) can reuse the exact same
+body without re-deriving the schema from the IR module. -/
+partial def lowerModuleCoreWithSeed (module : IR.Module)
+    (accounts : Array AccountEntry) (inputLayout : InputLayout)
+    (extensions : ProgramExtensions) (ctx : LowerCtx) :
     Except LowerError (Array AstNode) := do
-  validateCapabilities module
-  let schema := buildModuleInputSchema module extensions
-  let accounts := schema.accounts
-  let inputLayout := schema.inputLayout
-  let stateDataOff ←
-    if module.state.isEmpty then
-      .ok 0
-    else
-      match inputLayout.accounts[0]? with
-      | some accountLayout => .ok accountLayout.dataStart
-      | none => .error { message := "Solana account schema must contain at least one state account" }
-  let ctx ← buildCtx module stateDataOff
-
   let mut nodes := #[
     .comment s!"ProofForge generated sBPF — {module.name} (Phase 1)",
     .comment "Target: solana-sbpf-asm (D-026)",
@@ -1684,6 +1717,10 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
     .blankLine,
     .label "error_pda_bump",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 11) },
+    .instruction { opcode := .exit },
+    .blankLine,
+    .label "error_array_bounds",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 12) },
     .instruction { opcode := .exit }
   ]
   if moduleNeedsSyscallError module then
@@ -1694,6 +1731,20 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
       .instruction { opcode := .exit }
     ]
   .ok nodes
+
+partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions) :
+    Except LowerError (Array AstNode) := do
+  validateCapabilities module
+  let schema := buildModuleInputSchema module extensions
+  let stateDataOff ←
+    if module.state.isEmpty then
+      .ok 0
+    else
+      match schema.inputLayout.accounts[0]? with
+      | some accountLayout => .ok accountLayout.dataStart
+      | none => .error { message := "Solana account schema must contain at least one state account" }
+  let ctx ← buildCtx module stateDataOff
+  lowerModuleCoreWithSeed module schema.accounts schema.inputLayout extensions ctx
 
 partial def lowerModule (module : IR.Module) : Except LowerError (Array AstNode) :=
   lowerModuleCore module {}
