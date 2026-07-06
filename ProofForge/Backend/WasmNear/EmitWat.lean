@@ -230,7 +230,7 @@ export ProofForge.Backend.WasmNear.Scalar (
 export ProofForge.Backend.WasmNear.Statement (
   localLetBindInsns localAssignInsns localAssignOpTargetType localAssignOpInsns
   storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
-  dropResultInsns appendInsnChunks requireDuplicableExpr ifElseInsns boundedForInsns
+  dropResultInsns appendInsnChunks appendInsnChunksM requireDuplicableExpr ifElseInsns boundedForInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -793,11 +793,11 @@ partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (field
     : Except EmitError (Array Insn) := do
   let some nameSi ← pure (findString? ctx.strings name) | err s!"EmitWat: event name `{name}` not in string pool"
   let header := evtHeaderInsns nameSi
-  let fieldInsns ← fields.foldlM (init := #[]) fun acc f => do
+  let fieldInsns ← appendInsnChunksM fields fun f => do
     let (fname, vexpr) := f
     let some fsi ← pure (findString? ctx.strings fname) | err s!"EmitWat: field name `{fname}` not in string pool"
     let (vis, vt) ← lowerExpr ctx env vexpr
-    .ok (acc ++ (← evtFieldInsns fname fsi vis vt))
+    evtFieldInsns fname fsi vis vt
   .ok (header ++ fieldInsns ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
@@ -868,11 +868,11 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     let (cis, ct) ← lowerExpr ctx env cond
     if ct != .bool then err "EmitWat: if/else condition must be Bool"
     else do
-      let thenInsns ← thenBody.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
-      let elseInsns ← elseBody.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
+      let thenInsns ← appendInsnChunksM thenBody fun s => lowerStmt ctx env returns s
+      let elseInsns ← appendInsnChunksM elseBody fun s => lowerStmt ctx env returns s
       .ok (ifElseInsns cis thenInsns elseInsns)
   | .boundedFor indexName start stop body => do
-    let bodyInsns ← body.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx env returns s)
+    let bodyInsns ← appendInsnChunksM body fun s => lowerStmt ctx env returns s
     .ok (boundedForInsns indexName start stop bodyInsns)
   | _ => err "EmitWat: this statement form is not yet supported"
 
@@ -882,7 +882,7 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
   let allLocalTypes : LocalTypes :=
     (ep.params.map (fun (n, t) => { name := n, vt := t : LBind })) ++ bodyLocals
   let locals := paramLocals ++ bodyLocals.map (fun b => { name := b.name, type := wasmTypeOf b.vt : Local })
-  let bodyInsns ← ep.body.foldlM (init := #[]) fun acc s => return acc ++ (← lowerStmt ctx allLocalTypes ep.returns s)
+  let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s
   let resetPrefix : Array Insn :=
     if ctx.allocator.usesEntryReset then
       #[.i32Const ctx.allocator.heapBase, .globalSet arrPtrGlobal]

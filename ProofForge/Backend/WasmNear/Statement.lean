@@ -67,6 +67,12 @@ def dropResultInsns (valueInsns : Array Insn) : Array Insn :=
 def appendInsnChunks (chunks : Array (Array Insn)) : Array Insn :=
   chunks.foldl (fun acc is => acc ++ is) #[]
 
+def appendInsnChunksM {m : Type -> Type} [Monad m] {α : Type}
+    (items : Array α) (lower : α -> m (Array Insn)) : m (Array Insn) :=
+  items.foldlM (init := #[]) fun acc item => do
+    let is ← lower item
+    pure (acc ++ is)
+
 def requireDuplicableExpr (expr : Expr) (message : String) : Except EmitError Unit :=
   if canDuplicateExpr expr then .ok () else err message
 
