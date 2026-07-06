@@ -30,6 +30,7 @@ struct Config {
     block_index: u64,
     block_timestamp: u64,
     epoch_height: u64,
+    random_seed: Vec<u8>,
 }
 
 impl Config {
@@ -49,6 +50,7 @@ impl Config {
         let mut block_index = 0;
         let mut block_timestamp = 0;
         let mut epoch_height = 0;
+        let mut random_seed = vec![0; 32];
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -109,6 +111,12 @@ impl Config {
                         .parse()
                         .context("--epoch-height must be a non-negative integer")?;
                 }
+                "--random-seed-hex" => {
+                    random_seed = parse_hex(&take_arg(&mut args, "--random-seed-hex")?)?;
+                    if random_seed.len() != 32 {
+                        bail!("--random-seed-hex must decode to exactly 32 bytes");
+                    }
+                }
                 _ if arg.starts_with('-') => bail!("unknown option `{arg}`"),
                 _ => positionals.push(arg),
             }
@@ -146,6 +154,7 @@ impl Config {
             block_index,
             block_timestamp,
             epoch_height,
+            random_seed,
         })
     }
 }
@@ -174,7 +183,8 @@ fn print_usage() {
            --attached-deposit N          attached_deposit stub value\n\
            --block-index N               block_index stub value\n\
            --block-timestamp N           block_timestamp stub value\n\
-           --epoch-height N              epoch_height stub value"
+           --epoch-height N              epoch_height stub value\n\
+           --random-seed-hex HEX         32-byte random_seed stub value"
     );
 }
 
@@ -227,6 +237,7 @@ fn run(config: Config) -> Result<()> {
         config.block_index,
         config.block_timestamp,
         config.epoch_height,
+        config.random_seed,
     );
     let mut store = Store::new(&engine, host);
     let initial_fuel: u64 = 10_000_000_000;
@@ -328,6 +339,7 @@ struct HostState {
     block_index: u64,
     block_timestamp: u64,
     epoch_height: u64,
+    random_seed: Vec<u8>,
     allocator: LinearMemoryAllocator,
     panic_message: Option<String>,
 }
@@ -343,6 +355,7 @@ impl HostState {
         block_index: u64,
         block_timestamp: u64,
         epoch_height: u64,
+        random_seed: Vec<u8>,
     ) -> Self {
         Self {
             registers: HashMap::new(),
@@ -357,6 +370,7 @@ impl HostState {
             block_index,
             block_timestamp,
             epoch_height,
+            random_seed,
             allocator: LinearMemoryAllocator::new(heap_base),
             panic_message: None,
         }
@@ -671,6 +685,18 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         "env",
         "epoch_height",
         |caller: Caller<'_, HostState>| -> i64 { caller.data().epoch_height as i64 },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "random_seed",
+        |mut caller: Caller<'_, HostState>, register_id: i64| -> Result<()> {
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let value = caller.data().random_seed.clone();
+            caller.data_mut().registers.insert(register_id, value);
+            Ok(())
+        },
     )?;
 
     // Promise API stubs

@@ -31,6 +31,7 @@ ContextField	gasPrice	unsupported	Psy IR v0 context read catch-all rejects gasPr
 ContextField	gasLeft	unsupported	Psy IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	baseFee	unsupported	Psy IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	Psy IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	randomSeed	unsupported	Psy IR v0 context read catch-all rejects randomSeed with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	origin	unsupported	Psy IR v0 context read catch-all rejects origin with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	coinbase	unsupported	Psy IR v0 context read catch-all rejects coinbase with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	blockHash	unsupported	Psy IR v0 context read catch-all rejects blockHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.

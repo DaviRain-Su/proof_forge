@@ -9,6 +9,7 @@ COUNTER_DIR="$OUT_ROOT/counter-emit"
 CONTEXT_DIR="$OUT_ROOT/context-build"
 TIMESTAMP_DIR="$OUT_ROOT/timestamp-build"
 EPOCH_DIR="$OUT_ROOT/epoch-build"
+RANDOM_DIR="$OUT_ROOT/random-seed-build"
 STORAGE_DIR="$OUT_ROOT/storage-deposit-build"
 HOST=(cargo run --quiet --manifest-path runtime/offline-host/Cargo.toml -- run)
 
@@ -119,6 +120,30 @@ python3 scripts/sdk/validate-sdk-artifact-refs.py \
 out="$("${HOST[@]}" "$EPOCH_DIR/nearepochheight.wat" epoch --epoch-height 321)"
 echo "$out"
 assert_contains "$out" "call 1:epoch: return_hex=4101000000000000 return_u64=321" "contract_source epoch height"
+
+lake env proof-forge build --target wasm-near --root . -o "$RANDOM_DIR" \
+  Tests/ContractSource/NearRandomSeed.lean
+
+python3 scripts/near/validate-emitwat-metadata.py \
+  "$RANDOM_DIR/proof-forge-artifact.json" \
+  --expected-fixture nearrandomseed \
+  --expected-module NearRandomSeed \
+  --expected-entrypoints seed \
+  --expected-source-kind contract-sdk
+python3 scripts/sdk/validate-sdk-schema.py \
+  "$RANDOM_DIR/proof-forge-sdk.json" \
+  --expect-schema proof-forge.sdk-schema.v0 \
+  --expect-ir portable-ir-v0 \
+  --expect-target wasm-near
+python3 scripts/sdk/validate-sdk-artifact-refs.py \
+  --require-relative \
+  --reject-absolute \
+  "$RANDOM_DIR/proof-forge-sdk.json"
+
+SEED_HEX="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+out="$("${HOST[@]}" "$RANDOM_DIR/nearrandomseed.wat" seed --random-seed-hex "$SEED_HEX")"
+echo "$out"
+assert_contains "$out" "call 1:seed: return_hex=$SEED_HEX return_len=32" "contract_source random seed"
 
 lake env proof-forge build --target wasm-near --root . -o "$STORAGE_DIR" \
   Tests/ContractSource/NearStorageDeposit.lean

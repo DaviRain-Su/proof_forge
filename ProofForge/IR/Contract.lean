@@ -129,6 +129,7 @@ mutual
     | gasLeft
     | baseFee
     | prevRandao
+    | randomSeed
     | origin
     | coinbase
     | blockHash (blockNumber : Expr)
@@ -222,6 +223,7 @@ def ContextField.name : ContextField → String
   | .gasLeft => "gasLeft"
   | .baseFee => "baseFee"
   | .prevRandao => "prevRandao"
+  | .randomSeed => "randomSeed"
   | .origin => "origin"
   | .coinbase => "coinbase"
   | .blockHash _ => "blockHash"
@@ -229,7 +231,7 @@ def ContextField.name : ContextField → String
 def ContextField.capability : ContextField → ProofForge.Target.Capability
   | .userId | .origin => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
 structure ErrorRef where
   assertionId : UInt32

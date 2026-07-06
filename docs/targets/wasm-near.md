@@ -46,6 +46,7 @@ Storage/crypto/context effects lower to these NEAR host imports:
 | `contextRead checkpointId` | `env.block_index` |
 | `contextRead timestamp` | `env.block_timestamp` |
 | `contextRead epochHeight` | `env.epoch_height` |
+| `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
 ### Why not `EmitZig`
@@ -104,7 +105,7 @@ Defined in `ProofForge/Target/Registry.lean` (`def wasmNear`):
 | `caller.sender` | Yes | `env::predecessor_account_id()` |
 | `value.native` | Partial | Rust sourcegen and EmitWat lower `nativeValue` to `env::attached_deposit()` / the `attached_deposit` host import as a U64 projection |
 | `events.emit` | Yes | `near_sdk::log!` with deterministic JSON |
-| `env.block` | Yes | `block_index`, `block_timestamp`, and `epoch_height` host imports on EmitWat; `env::block_height()` in frozen Rust sourcegen |
+| `env.block` | Yes | `block_index`, `block_timestamp`, `epoch_height`, and `random_seed` host imports on EmitWat; `env::block_height()` in frozen Rust sourcegen |
 | `crypto.hash` | Yes | `env::sha256`-based hash helpers |
 | `assertions.check` | Yes | Lowered to Rust `assert!`/`assert_eq!` |
 | `account.explicit` | Yes | `env::current_account_id()` |

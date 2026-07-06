@@ -68,6 +68,11 @@ out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat epochHeight --epoch-heig
 echo "$out"
 assert_contains "$out" "call 1:epochHeight: return_hex=5800000000000000 return_u64=88" "epoch height"
 
+SEED_HEX="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+out="$("${HOST[@]}" build/wasm-near/emitwat-context.wat randomSeed --random-seed-hex "$SEED_HEX")"
+echo "$out"
+assert_contains "$out" "call 1:randomSeed: return_hex=$SEED_HEX return_len=32" "random seed"
+
 out="$("${HOST[@]}" build/wasm-near/emitwat-path-assign.wat path_assign_lifecycle)"
 echo "$out"
 assert_contains "$out" "call 1:path_assign_lifecycle: return_hex=1e00000000000000 return_u64=30" "path assign"

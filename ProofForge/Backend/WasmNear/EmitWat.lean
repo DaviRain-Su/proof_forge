@@ -405,9 +405,11 @@ def depositImport : Import := hostImport "attached_deposit" #[] #[.i64]
 def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
 def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
 def epochHeightImport : Import := hostImport "epoch_height" #[] #[.i64]
+def randomSeedImport : Import := hostImport "random_seed" #[.i64] #[]
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
 def ctxSignerName : String := "__pf_ctx_signer_id"
+def ctxRandomSeedName : String := "__pf_ctx_random_seed"
 
 def hashPtrGlobalDecl : Global :=
   { name := hashPtrGlobal, type := .i32, init := toString HASH_HEAP, isMutable := true }
@@ -650,7 +652,15 @@ def ctxSignerFunc : Func :=
       .i64Const 1, .i64Const CTX_BUF, .call "read_register",
       .i32Const CTX_BUF, .load "i64.load" 0 ] } }
 
-def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc, ctxSignerFunc ]
+def ctxRandomSeedFunc : Func :=
+  { name := ctxRandomSeedName, results := #[.i32], locals := #[{ name := "p", type := .i32 }],
+    body := { insns := #[
+      .i64Const 0, .call "random_seed",
+      .call hashAllocName, .localSet "p",
+      .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
+      .localGet "p" ] } }
+
+def ctxHelperFuncs : Array Func := #[ ctxUserIdFunc, ctxContractIdFunc, ctxSignerFunc, ctxRandomSeedFunc ]
 def ctxImports : Array Import := #[ predecessorImport, currentAcctImport, registerLenImport, blockHeightImport ]
 
 -- Event helpers --------------------------------------------------------
@@ -969,6 +979,7 @@ mutual
     | .effect (.contextRead .checkpointId) => .ok (#[.call "block_index"], .u64)
     | .effect (.contextRead .timestamp) => .ok (#[.call "block_timestamp"], .u64)
     | .effect (.contextRead .epochHeight) => .ok (#[.call "epoch_height"], .u64)
+    | .effect (.contextRead .randomSeed) => .ok (#[.call ctxRandomSeedName], .hash)
     | .effect (.contextRead .origin) => .ok (#[.call ctxSignerName], .u64)
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value

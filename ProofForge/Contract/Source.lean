@@ -28,6 +28,9 @@ def timestamp : ProofForge.IR.Expr :=
 def epochHeight : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.epochHeight
 
+def randomSeed : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.randomSeed
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.u64 value
 

@@ -3392,8 +3392,9 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
 - ✅ P0: Callback handling (promise_result host import + offline stub)
 - ✅ P1: block_timestamp (`block_timestamp` host import + `.contextRead .timestamp` lowering + Surface/Source helpers)
 - ✅ P1: epoch_height (`epoch_height` host import + `.contextRead .epochHeight` lowering + Surface/Source helpers)
+- ✅ P1: random_seed (`random_seed(register_id)` host import + `.contextRead .randomSeed` lowering + Surface/Source helpers returning `Hash`)
 - ✅ P1: near-api-js client options (`NearViewOptions` for views, gas/attached-deposit `NearCallOptions` for function calls)
 - ✅ P1: NEP-145 storage-management starter (`storage_deposit`/`storage_balance_*` U64 projection + Hash map target-first/offline-host smoke)
 - P1: Full Promise async execution, full NEP-145 JSON balance objects/withdraw/refund/storage byte accounting,
-  NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove, random_seed,
+  NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove,
   gas accounting, real NEAR broadcast smoke

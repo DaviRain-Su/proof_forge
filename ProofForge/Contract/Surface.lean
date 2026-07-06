@@ -183,6 +183,9 @@ def timestamp : ProofForge.IR.Expr :=
 def epochHeight : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .epochHeight
 
+def randomSeed : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .randomSeed
+
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.u64 value
 

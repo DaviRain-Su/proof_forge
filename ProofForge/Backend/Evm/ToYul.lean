@@ -319,6 +319,7 @@ def contextFieldExpr
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
   | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
   | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
+  | .randomSeed => .error "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode"
   | .origin => .ok (Lean.Compiler.Yul.builtin "origin" #[])
   | .coinbase => .ok (Lean.Compiler.Yul.builtin "coinbase" #[])
   | .blockHash blockNumber => do

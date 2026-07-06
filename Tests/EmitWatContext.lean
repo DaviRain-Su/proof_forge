@@ -31,6 +31,10 @@ def epochHeight : Entrypoint := {
   name := "epochHeight", returns := .u64,
   body := #[.return (.effect (.contextRead .epochHeight))] }
 
+def randomSeed : Entrypoint := {
+  name := "randomSeed", returns := .hash,
+  body := #[.return (.effect (.contextRead .randomSeed))] }
+
 def signerStable : Entrypoint := {
   name := "signerStable", returns := .u64,
   body := #[
@@ -43,7 +47,7 @@ def depositProbe : Entrypoint := {
 
 def contextModule : Module := {
   name := "ContextProbe", state := #[],
-  entrypoints := #[callerStable, contractStable, checkpoint, blockTimestamp, epochHeight, signerStable] }
+  entrypoints := #[callerStable, contractStable, checkpoint, blockTimestamp, epochHeight, randomSeed, signerStable] }
 
 def depositModule : Module := {
   name := "DepositProbe", state := #[],

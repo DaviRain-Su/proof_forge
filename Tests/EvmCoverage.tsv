@@ -33,6 +33,7 @@ ContextField	gasPrice	validated	ContextProbe lowers gasPrice context reads to Yu
 ContextField	gasLeft	validated	ContextProbe lowers gasLeft context reads to Yul gas() and Foundry verifies a non-zero gas left value.
 ContextField	baseFee	validated	ContextProbe lowers baseFee context reads to Yul basefee() and Foundry verifies a vm.fee base fee.
 ContextField	prevRandao	validated	ContextProbe lowers prevrandao context reads to Yul prevrandao() and Foundry verifies a vm.prevrandao random value.
+ContextField	randomSeed	unsupported	EVM has no 32-byte NEAR-style random_seed host register; buildContextExprPlan rejects randomSeed with an explicit unsupported diagnostic and keeps prevRandao as the EVM randomness opcode.
 ContextField	origin	validated	ContextProbe lowers origin context reads to Yul origin() and Foundry verifies tx.origin through vm.startPrank(sender, originAddr).
 ContextField	coinbase	validated	ContextProbe lowers coinbase context reads to Yul coinbase() and Foundry verifies vm.coinbase.
 ContextField	blockHash	validated	ContextProbe lowers blockHash context reads to Yul blockhash(n) and Foundry verifies against Solidity blockhash(1).

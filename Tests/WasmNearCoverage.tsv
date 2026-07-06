@@ -31,6 +31,7 @@ ContextField	gasPrice	unsupported	wasm-near IR v0 context read catch-all rejects
 ContextField	gasLeft	unsupported	wasm-near IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	baseFee	unsupported	wasm-near IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	wasm-near IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	randomSeed	unsupported	wasm-near IR v0 sourcegen is frozen and rejects randomSeed with an explicit diagnostic; EmitWat is the canonical path for env.random_seed.
 ContextField	origin	unsupported	wasm-near IR v0 context read catch-all rejects origin with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	coinbase	unsupported	wasm-near IR v0 context read catch-all rejects coinbase with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	blockHash	unsupported	wasm-near IR v0 context read catch-all rejects blockHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.

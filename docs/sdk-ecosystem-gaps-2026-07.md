@@ -181,7 +181,7 @@ economics) is almost entirely missing.
 | block_height | Covered | EmitWat + offline host | — |
 | block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
 | epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
-| random_seed | Missing | No `random_seed` host import or hash-returning context field yet | P1 |
+| random_seed | Covered | `random_seed(register_id)` host import + `.contextRead .randomSeed` EmitWat lowering + `Surface.randomSeed`, returning the 32-byte register payload as `Hash` | — |
 | storage_remove | Missing | No remove host import | P1 |
 
 ### Deployment
