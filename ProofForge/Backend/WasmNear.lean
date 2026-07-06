@@ -1,6 +1,7 @@
 import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.WasmNear.IR
 import ProofForge.Backend.WasmNear.Imports
+import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Refinement
