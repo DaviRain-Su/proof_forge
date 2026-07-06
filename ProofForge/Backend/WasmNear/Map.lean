@@ -162,6 +162,44 @@ def mapWriteValueInsns (mapInfo : MapInfo) (id : String) (keyInsns valueInsns wr
     .ok (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
       keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
 
+def mapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findMapState? maps id with
+  | none => err s!"EmitWat: unknown map state `{id}`"
+  | some mapInfo =>
+    if mapInfo.isArray then
+      err s!"EmitWat: state `{id}` is an array; use storageArrayRead or an index storage path"
+    else .ok mapInfo
+
+def mapReadCall (mapInfo : MapInfo) (id : String) : Except EmitError (Array Insn) :=
+  match mapInfo.keyType with
+  | .u64 => .ok #[.call (mapReadName mapInfo.valueType)]
+  | .hash => .ok #[.call (mapReadHashName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported (`{id}` has key `{mapInfo.keyType.name}`)"
+
+def mapReadValueInsns (mapInfo : MapInfo) (keyInsns readCall : Array Insn) :
+    Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ keyInsns ++
+    readCall, mapInfo.valueType)
+
+def mapContainsStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findMapState? maps id with
+  | none => err s!"EmitWat: unknown map state `{id}`"
+  | some mapInfo =>
+    if mapInfo.isArray then
+      err s!"EmitWat: state `{id}` is an array; map contains is only valid for map state"
+    else .ok mapInfo
+
+def mapContainsCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
+  match mapInfo.keyType with
+  | .u64 => .ok #[.call mapContainsName]
+  | .hash => .ok #[.call mapContainsHashName]
+  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+
+def mapContainsValueInsns (mapInfo : MapInfo) (keyInsns containsCall : Array Insn) :
+    Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ keyInsns ++
+    containsCall ++ #[.plain "i32.wrap_i64"], .bool)
+
 def storageArrayStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findArrayState? maps id with
   | none => err s!"EmitWat: unknown array state `{id}`"

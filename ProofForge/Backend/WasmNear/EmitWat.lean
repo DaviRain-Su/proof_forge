@@ -179,6 +179,8 @@ export ProofForge.Backend.WasmNear.Locals (
 export ProofForge.Backend.WasmNear.Map (
   mapReadName mapWriteName mapContainsName mapBuildkeyName mapBuildkeyFunc
   mapWriteStateInfo mapWriteCall mapWriteValueInsns
+  mapReadStateInfo mapReadCall mapReadValueInsns
+  mapContainsStateInfo mapContainsCall mapContainsValueInsns
   storageArrayStateInfo storageArrayReadInsns
   storageArrayWriteStateInfo storageArrayWriteInsns
   nestedMapWriteStateInfo nestedMapWriteValueInsns
@@ -580,17 +582,10 @@ mutual
 
   partial def lowerMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown map state `{id}`"
-    | some m =>
-      if m.isArray then err s!"EmitWat: state `{id}` is an array; use storageArrayRead or an index storage path"
-      else do
-        let readCall ← match m.keyType with
-          | .u64 => do pure #[.call (mapReadName m.valueType)]
-          | .hash => do pure #[.call (mapReadHashName m.valueType)]
-          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported (`{id}` has key `{m.keyType.name}`)"
-        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ readCall, m.valueType)
+    let mapInfo ← mapReadStateInfo ctx.maps id
+    let readCall ← mapReadCall mapInfo id
+    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    .ok (mapReadValueInsns mapInfo keyInsns readCall)
 
   /-- Nested map read: Map<K1, Map<K2, V>>. Builds compound key:
       mapBuildkey writes prefix + key1 to MAPKEY_BUF, then we manually
@@ -610,17 +605,11 @@ mutual
 
   partial def lowerMapContains (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown map state `{id}`"
-    | some m =>
-      if m.isArray then err s!"EmitWat: state `{id}` is an array; map contains is only valid for map state"
-      else do
-        let containsCall ← match m.keyType with
-          | .u64 => do pure #[.call mapContainsName]
-          | .hash => do pure #[.call mapContainsHashName]
-          | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
-        let kis ← if m.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ kis ++ containsCall ++ #[.plain "i32.wrap_i64"], .bool)
+    let mapInfo ← mapContainsStateInfo ctx.maps id
+    let containsCall ← mapContainsCall mapInfo
+    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    .ok (mapContainsValueInsns mapInfo keyInsns containsCall)
+
   partial def lowerMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn × ValueType) := do
