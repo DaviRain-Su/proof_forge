@@ -230,7 +230,7 @@ export ProofForge.Backend.WasmNear.Scalar (
 export ProofForge.Backend.WasmNear.Statement (
   localLetBindInsns localAssignInsns localAssignOpTargetType localAssignOpInsns
   storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
-  dropResultInsns ifElseInsns boundedForInsns
+  dropResultInsns requireDuplicableExpr ifElseInsns boundedForInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -281,8 +281,7 @@ mutual
     let (accountInsns, accountType) ← lowerExpr ctx env accountIndex
     if !(accountType == .u32 || accountType == .u64) then
       err s!"EmitWat: NEAR crosscall pool account index expected U32/U64, got `{accountType.name}`"
-    if !canDuplicateExpr accountIndex then
-      err "EmitWat: NEAR crosscall pool account index must be duplicable"
+    requireDuplicableExpr accountIndex "EmitWat: NEAR crosscall pool account index must be duplicable"
     let accountConv := if accountType == .u64 then accountInsns else accountInsns ++ #[.plain "i64.extend_i32_u"]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
@@ -688,23 +687,20 @@ mutual
       (valueInsns : Array Insn) (valueType : ValueType)
       : Except EmitError (Array Insn) := do
     let mapInfo ← arrayStructMapInfo ctx.maps id
-    if !canDuplicateExpr index then
-      err "EmitWat: storage array struct field path index must be a pure expression until key temporaries are lowered"
-    else
-      let structInfo ← arrayStructInfo ctx.structs mapInfo "storageArrayStructFieldWrite"
-      let (off, ft) ← structStorageFieldInfo structInfo.structDecl structInfo.typeName fieldName "array"
-      if valueType != ft then
-        err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
-      else do
-        let readKey ← lowerMapKeyU64 ctx env index
-        let writeKey ← lowerMapKeyU64 ctx env index
-        .ok (arrayStructFieldWriteInsns structInfo.mapInfo structInfo.structDecl readKey writeKey
-          #[.call mapBuildkeyName] valueInsns off ft)
+    requireDuplicableExpr index "EmitWat: storage array struct field path index must be a pure expression until key temporaries are lowered"
+    let structInfo ← arrayStructInfo ctx.structs mapInfo "storageArrayStructFieldWrite"
+    let (off, ft) ← structStorageFieldInfo structInfo.structDecl structInfo.typeName fieldName "array"
+    if valueType != ft then
+      err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+    else do
+      let readKey ← lowerMapKeyU64 ctx env index
+      let writeKey ← lowerMapKeyU64 ctx env index
+      .ok (arrayStructFieldWriteInsns structInfo.mapInfo structInfo.structDecl readKey writeKey
+        #[.call mapBuildkeyName] valueInsns off ft)
 
   partial def lowerArrayStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String) (value : Expr)
       : Except EmitError (Array Insn) := do
-    if !canDuplicateExpr value then
-      err "EmitWat: storageArrayStructFieldWrite value must be a pure expression while STRUCT_BUF is the field patch buffer"
+    requireDuplicableExpr value "EmitWat: storageArrayStructFieldWrite value must be a pure expression while STRUCT_BUF is the field patch buffer"
     let (vis, vt) ← lowerExpr ctx env value
     lowerArrayStructFieldWriteValue ctx env id index fieldName vis vt
 
@@ -731,8 +727,7 @@ mutual
       let (is, _) ← lowerStorageArrayWrite ctx env id index value
       .ok (dropResultInsns is)
     | [.field fieldName] => do
-      if !canDuplicateExpr value then
-        err "EmitWat: storagePathWrite field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      requireDuplicableExpr value "EmitWat: storagePathWrite field value must be a pure expression while STRUCT_BUF is the field patch buffer"
       lowerScalarStructFieldWrite ctx env id fieldName value
     | [.index index, .field fieldName] =>
       lowerArrayStructFieldWrite ctx env id index fieldName value
@@ -745,8 +740,7 @@ mutual
       (op : AssignOp) (value : Expr) : Except EmitError (Array Insn) := do
     match path.toList with
     | [.mapKey key] => do
-      if !canDuplicateExpr key then
-        err "EmitWat: storagePathAssignOp mapKey must be a pure expression until key temporaries are lowered"
+      requireDuplicableExpr key "EmitWat: storagePathAssignOp mapKey must be a pure expression until key temporaries are lowered"
       let (currentInsns, currentType) ← lowerMapGet ctx env id key
       let currentType ← storagePathAssignOpTargetType "map values" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
@@ -754,8 +748,7 @@ mutual
       let (writeInsns, _) ← lowerMapWriteValue ctx env id key computed currentType
       .ok (dropResultInsns writeInsns)
     | [.index index] => do
-      if !canDuplicateExpr index then
-        err "EmitWat: storagePathAssignOp index must be a pure expression until key temporaries are lowered"
+      requireDuplicableExpr index "EmitWat: storagePathAssignOp index must be a pure expression until key temporaries are lowered"
       let (currentInsns, currentType) ← lowerStorageArrayRead ctx env id index
       let currentType ← storagePathAssignOpTargetType "array values" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
@@ -763,16 +756,14 @@ mutual
       let (writeInsns, _) ← lowerStorageArrayWriteValue ctx env id index computed currentType
       .ok (dropResultInsns writeInsns)
     | [.field fieldName] => do
-      if !canDuplicateExpr value then
-        err "EmitWat: storagePathAssignOp field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      requireDuplicableExpr value "EmitWat: storagePathAssignOp field value must be a pure expression while STRUCT_BUF is the field patch buffer"
       let (currentInsns, currentType) ← lowerScalarStructFieldRead ctx id fieldName
       let currentType ← storagePathAssignOpTargetType "struct fields" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
       let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       lowerScalarStructFieldWriteValue ctx id fieldName computed currentType
     | [.index index, .field fieldName] => do
-      if !canDuplicateExpr value then
-        err "EmitWat: storagePathAssignOp index+field value must be a pure expression while STRUCT_BUF is the field patch buffer"
+      requireDuplicableExpr value "EmitWat: storagePathAssignOp index+field value must be a pure expression while STRUCT_BUF is the field patch buffer"
       let (currentInsns, currentType) ← lowerArrayStructFieldRead ctx env id index fieldName
       let currentType ← storagePathAssignOpTargetType "array struct fields" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value

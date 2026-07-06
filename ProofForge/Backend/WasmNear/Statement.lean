@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.ExprAnalysis
 import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
@@ -14,6 +15,7 @@ namespace ProofForge.Backend.WasmNear.Statement
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.ExprAnalysis
 open ProofForge.Backend.WasmNear.LoweringEnv
 open ProofForge.Backend.WasmNear.Struct
 open ProofForge.Backend.WasmNear.Types
@@ -61,6 +63,9 @@ def storagePathAssignOpValueInsns (op : AssignOp) (currentInsns : Array Insn)
 
 def dropResultInsns (valueInsns : Array Insn) : Array Insn :=
   valueInsns ++ #[.drop]
+
+def requireDuplicableExpr (expr : Expr) (message : String) : Except EmitError Unit :=
+  if canDuplicateExpr expr then .ok () else err message
 
 def ifElseInsns (conditionInsns thenInsns elseInsns : Array Insn) : Array Insn :=
   conditionInsns ++ #[.if_ { insns := thenInsns } { insns := elseInsns }]
