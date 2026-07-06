@@ -100,11 +100,14 @@ def structStorageFieldInfo (sd : ProofForge.IR.StructDecl) (typeName fieldName l
       else .ok (offset, fieldType)
     | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
 
+def structBufFieldPtrInsns (offset : Nat) : Array Insn :=
+  #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add"]
+
 def zeroStructBufInsns (s : ProofForge.IR.StructDecl) : Array Insn :=
   (s.fields.foldl (fun st f =>
       (st.1 + scalarWidth f.type,
-       st.2 ++ #[.i32Const st.1, .i32Const STRUCT_BUF, .plain "i32.add",
-                 .const (wasmTypeOf f.type) "0", .store (storeOpFor f.type) 0]))
+       st.2 ++ structBufFieldPtrInsns st.1 ++
+         #[.const (wasmTypeOf f.type) "0", .store (storeOpFor f.type) 0]))
     (0, (#[] : Array Insn))).2
 
 def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
@@ -116,13 +119,13 @@ def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : A
 def scalarStructFieldReadInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) (offset : Nat)
     (fieldType : ValueType) : Array Insn × ValueType :=
   (readScalarStructBufInsns s sd ++
-    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor fieldType) 0],
+    structBufFieldPtrInsns offset ++ #[.load (loadOpFor fieldType) 0],
     fieldType)
 
 def scalarStructFieldWriteInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) (offset : Nat)
     (fieldType : ValueType) (valueInsns : Array Insn) : Array Insn :=
   readScalarStructBufInsns s sd ++
-    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++
+    structBufFieldPtrInsns offset ++ valueInsns ++
     #[.store (storeOpFor fieldType) 0,
       .i64Const s.keyLen, .i64Const s.keyPtr, .i64Const (structTotalSize sd),
       .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop]
@@ -138,7 +141,7 @@ def arrayStructFieldReadInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
     Array Insn × ValueType :=
   (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ indexInsns ++ buildKeyCall ++
     readArrayStructBufInsns m sd ++
-    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add", .load (loadOpFor fieldType) 0],
+    structBufFieldPtrInsns offset ++ #[.load (loadOpFor fieldType) 0],
     fieldType)
 
 def arrayStructFieldWriteInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
@@ -146,7 +149,7 @@ def arrayStructFieldWriteInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
     (fieldType : ValueType) : Array Insn :=
   #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ readKeyInsns ++ buildKeyCall ++
     readArrayStructBufInsns m sd ++
-    #[.i32Const offset, .i32Const STRUCT_BUF, .plain "i32.add"] ++ valueInsns ++
+    structBufFieldPtrInsns offset ++ valueInsns ++
     #[.store (storeOpFor fieldType) 0] ++
     #[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ writeKeyInsns ++ buildKeyCall ++
     #[.i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF,
