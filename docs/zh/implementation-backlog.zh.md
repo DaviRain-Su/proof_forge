@@ -1505,14 +1505,14 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   typed `Surface` wrapper、manifest/IDL 元数据以及 sBPF instruction-data
   packing 中的 transfer-fee、non-transferable、metadata-pointer、
   default-account-state、immutable-owner、permanent-delegate、
-  interest-bearing、memo-transfer 和 transfer-hook 初始化指令布局。已覆盖
+  interest-bearing、memo-transfer、transfer-hook 初始化以及 pausable 指令布局。已覆盖
   `initialize_transfer_fee_config`、`transfer_checked_with_fee`、费用
   withdraw/harvest、`set_transfer_fee`、`initialize_non_transferable_mint`、
   `initialize_metadata_pointer`、`initialize_default_account_state`、
   `initialize_immutable_owner`、`initialize_permanent_delegate`、
   `initialize_interest_bearing_mint`、`enable_required_memo_transfers`
-  和 `initialize_transfer_hook`；
-  生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态。
+  `initialize_transfer_hook`、`initialize_pausable_config`、`pause` 和 `resume`；
+  生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态以及 Pausable 的 pause/resume 状态切换。
 - P1：Memo/Stake/Vote CPI、confidential_transfer、transfer_hook execute/extra-account-meta 路由、
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables

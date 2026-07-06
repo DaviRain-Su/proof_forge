@@ -4,8 +4,11 @@ import ProofForge.Solana
 import ProofForge.Solana.Examples.MemoCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
+import ProofForge.Solana.Examples.SplToken2022PausableCpi
 import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
 import ProofForge.Solana.Examples.SplTokenOpsCpi
+
+set_option maxRecDepth 2048
 
 namespace ProofForge.Tests.SolanaCpiPacking
 
@@ -639,6 +642,59 @@ def main : IO UInt32 := do
         "assembly missing transfer-hook entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 CPI packing render failed: {err.render}"
+
+  match ProofForge.Backend.Solana.Package.renderPackageForSpec
+      "token-2022-pausable-cpi" ProofForge.Solana.Examples.SplToken2022PausableCpi.spec with
+  | .ok pkg =>
+      let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
+        | throw <| IO.userError "token-2022 pausable package missing sBPF assembly"
+      let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
+        | throw <| IO.userError "token-2022 pausable package missing manifest.toml"
+      let some idlFile := pkg.files.find? (fun file => file.path == pkg.idlPath)
+        | throw <| IO.userError "token-2022 pausable package missing proof-forge-idl.json"
+      let asm := asmFile.contents
+      let manifest := manifestFile.contents
+      let idl := idlFile.contents
+      require (contains manifest "data_layout = \"token-2022.initialize_pausable_config\"")
+        "Token-2022 pausable manifest missing pausable-config layout"
+      require (contains manifest "pausable_authority = \"pausable_authority\"")
+        "Token-2022 pausable manifest missing pausable authority metadata"
+      require (contains manifest "data_layout = \"token-2022.pause\"")
+        "Token-2022 pausable manifest missing pause layout"
+      require (contains manifest "data_layout = \"token-2022.resume\"")
+        "Token-2022 pausable manifest missing resume layout"
+      require (contains idl "\"pausableAuthority\": \"pausable_authority\"")
+        "Token-2022 pausable IDL missing pausableAuthority"
+      require (contains asm "sol_cpi_token_2022_init_pausable_config:")
+        "assembly missing Token-2022 pausable-config helper label"
+      require (contains asm "sol_cpi_token_2022_pause:")
+        "assembly missing Token-2022 pause helper label"
+      require (contains asm "sol_cpi_token_2022_resume:")
+        "assembly missing Token-2022 resume helper label"
+      require (contains asm "solana.cpi.data token-2022.initialize_pausable_config: u8 instruction=44, u8 pausable_instruction=0, pubkey authority")
+        "assembly missing initialize_pausable_config data packing marker"
+      require (contains asm "solana.cpi.value pausable_authority from account pausable_authority")
+        "assembly missing pausable authority pubkey binding"
+      require (contains asm "solana.cpi.data token-2022.pause: u8 instruction=44, u8 pausable_instruction=1")
+        "assembly missing pause data packing marker"
+      require (contains asm "solana.cpi.data token-2022.resume: u8 instruction=44, u8 pausable_instruction=2")
+        "assembly missing resume data packing marker"
+      require (contains asm "mov64 r3, 34")
+        "assembly missing initialize_pausable_config data length"
+      require (contains asm "mov64 r3, 2")
+        "assembly missing pause/resume data length"
+      require (contains asm "stb [r8+0], 44")
+        "assembly missing pausable instruction tag store"
+      require (contains asm "stb [r8+1], 2")
+        "assembly missing pausable resume sub-instruction store"
+      require (contains asm "call sol_cpi_token_2022_init_pausable_config")
+        "assembly missing pausable-config entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_pause")
+        "assembly missing pause entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_resume")
+        "assembly missing resume entrypoint CPI helper call"
+  | .error err =>
+      throw <| IO.userError s!"Solana Token-2022 Pausable CPI packing render failed: {err.render}"
 
   IO.println "solana-cpi-packing: ok"
   return 0

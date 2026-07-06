@@ -2269,6 +2269,27 @@ def lowerToken2022InitializeTransferHookData
   lowerCpiPubkeyField accountBindings cpi
     "solana.cpi.transfer_hook_program" "transfer_hook_program" 34
 
+def lowerToken2022InitializePausableConfigData
+    (accountBindings : Array CpiAccountBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data token-2022.initialize_pausable_config: u8 instruction=44, u8 pausable_instruction=0, pubkey authority"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 44,
+    storeImm .stb .r8 1 0
+  ] ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.pausable_authority" "pausable_authority" 2
+
+def lowerToken2022PausableTagData (layoutName : String) (subTag : Nat) : Array AstNode :=
+  #[
+    .comment s!"solana.cpi.data {layoutName}: u8 instruction=44, u8 pausable_instruction={subTag}"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 44,
+    storeImm .stb .r8 1 subTag
+  ]
+
 /-- Memo CPI data: raw bytes from the input binding. No discriminator — the
     Memo program accepts arbitrary bytes as instruction data. This initial
     lowering copies up to 8 bytes (one u64 word) from the binding's offset;
@@ -2348,6 +2369,12 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerToken2022MemoTransferData cpi, 2)
   | some "token-2022.initialize_transfer_hook" =>
       (lowerToken2022InitializeTransferHookData accountBindings cpi, 66)
+  | some "token-2022.initialize_pausable_config" =>
+      (lowerToken2022InitializePausableConfigData accountBindings cpi, 34)
+  | some "token-2022.pause" =>
+      (lowerToken2022PausableTagData "token-2022.pause" 1, 2)
+  | some "token-2022.resume" =>
+      (lowerToken2022PausableTagData "token-2022.resume" 2, 2)
   | some "memo.memo" =>
       (lowerMemoData valueBindings cpi, 8)
   | some dl =>

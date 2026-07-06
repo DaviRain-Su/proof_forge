@@ -325,6 +325,40 @@ def invokeSplToken2022InitializeTransferHook
   ProofForge.Solana.invokeSplToken2022InitializeTransferHook call.name mint.name
     authority.name transferHookProgram.name
 
+def splToken2022InitializePausableConfig
+    (call : CpiRef) (mint authority : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializePausableConfig call.name mint.name authority.name
+
+def invokeSplToken2022InitializePausableConfig
+    (call : CpiRef) (mint authority : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializePausableConfig call.name mint.name authority.name
+
+def splToken2022Pause
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022Pause call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def invokeSplToken2022Pause
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022Pause call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def splToken2022Resume
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022Resume call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
+def invokeSplToken2022Resume
+    (call : CpiRef) (mint authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022Resume call.name mint.name authority.name
+    (signerSeeds := signerSeeds)
+
 def splTokenMintTo (call : CpiRef) (mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)

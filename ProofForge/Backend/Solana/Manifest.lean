@@ -447,7 +447,8 @@ def renderCpi (cpi : CpiInvoke) : String :=
     renderCpiMetadataField cpi "solana.cpi.interest_rate" "interest_rate" ++
     renderCpiMetadataField cpi "solana.cpi.memo_transfer_required" "memo_transfer_required" ++
     renderCpiMetadataField cpi "solana.cpi.transfer_hook_authority" "transfer_hook_authority" ++
-    renderCpiMetadataField cpi "solana.cpi.transfer_hook_program" "transfer_hook_program"
+    renderCpiMetadataField cpi "solana.cpi.transfer_hook_program" "transfer_hook_program" ++
+    renderCpiMetadataField cpi "solana.cpi.pausable_authority" "pausable_authority"
   "[[solana.cpi]]\n" ++
   "name = " ++ tomlString cpi.name ++ "\n" ++
   "program = " ++ tomlString cpi.program ++ "\n" ++

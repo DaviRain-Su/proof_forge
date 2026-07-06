@@ -105,6 +105,7 @@ import ProofForge.Solana.Examples.SplTokenOpsCpi
 import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
 import ProofForge.Solana.Examples.SplTokenAuthorityCpi
 import ProofForge.Solana.Examples.SplToken2022Cpi
+import ProofForge.Solana.Examples.SplToken2022PausableCpi
 import ProofForge.Solana.Examples.LogEvent
 import ProofForge.Solana.Examples.Clock
 import ProofForge.Solana.Examples.Rent
@@ -241,6 +242,7 @@ inductive EmitMode where
   | solanaSplTokenCloseAccountCpiSbpf
   | solanaSplTokenAuthorityCpiSbpf
   | solanaSplToken2022CpiSbpf
+  | solanaSplToken2022PausableCpiSbpf
   | solanaElf
   | valueVaultSolanaElf
   | solanaSystemCpiElf
@@ -251,6 +253,7 @@ inductive EmitMode where
   | solanaSplTokenCloseAccountCpiElf
   | solanaSplTokenAuthorityCpiElf
   | solanaSplToken2022CpiElf
+  | solanaSplToken2022PausableCpiElf
   | solanaLogEventElf
   | solanaClockSysvarElf
   | solanaRentSysvarElf
@@ -414,6 +417,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .solanaSplTokenCloseAccountCpiSbpf
   | .solanaSplTokenAuthorityCpiSbpf
   | .solanaSplToken2022CpiSbpf
+  | .solanaSplToken2022PausableCpiSbpf
   | .solanaElf
   | .valueVaultSolanaElf
   | .solanaSystemCpiElf
@@ -424,6 +428,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .solanaSplTokenCloseAccountCpiElf
   | .solanaSplTokenAuthorityCpiElf
   | .solanaSplToken2022CpiElf
+  | .solanaSplToken2022PausableCpiElf
   | .solanaLogEventElf
   | .solanaClockSysvarElf
   | .solanaRentSysvarElf
@@ -620,6 +625,7 @@ def usage : String :=
     "  proof-forge --emit-solana-spl-token-close-account-cpi-sbpf [-o output.s] [--artifact-output file]",
     "  proof-forge --emit-solana-spl-token-authority-cpi-sbpf [-o output.s] [--artifact-output file]",
     "  proof-forge --emit-solana-spl-token-2022-cpi-sbpf [-o output.s] [--artifact-output file]",
+    "  proof-forge --emit-solana-spl-token-2022-pausable-cpi-sbpf [-o output.s] [--artifact-output file]",
     "  proof-forge --solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --value-vault-solana-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-system-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
@@ -630,6 +636,7 @@ def usage : String :=
     "  proof-forge --solana-spl-token-close-account-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-authority-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-spl-token-2022-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
+    "  proof-forge --solana-spl-token-2022-pausable-cpi-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-log-event-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-clock-sysvar-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
     "  proof-forge --solana-rent-sysvar-elf [-o output.so] [--artifact-output file] [--solana-sbpf-arch v0|v3]",
@@ -2007,6 +2014,10 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.transfer_hook_program" with
       | some value => jsonString value
       | none => "null"),
+    ("pausableAuthority",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.pausable_authority" with
+      | some value => jsonString value
+      | none => "null"),
     ("signed", jsonBool cpi.signed)
   ]
 
@@ -2833,6 +2844,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .solanaSplTokenAuthorityCpiSbpf }
   | "--emit-solana-spl-token-2022-cpi-sbpf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSplToken2022CpiSbpf }
+  | "--emit-solana-spl-token-2022-pausable-cpi-sbpf" :: rest, opts =>
+      parseArgs rest { opts with mode := .solanaSplToken2022PausableCpiSbpf }
   | "--solana-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaElf }
   | "--value-vault-solana-elf" :: rest, opts =>
@@ -2855,6 +2868,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .solanaSplTokenAuthorityCpiElf }
   | "--solana-spl-token-2022-cpi-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaSplToken2022CpiElf }
+  | "--solana-spl-token-2022-pausable-cpi-elf" :: rest, opts =>
+      parseArgs rest { opts with mode := .solanaSplToken2022PausableCpiElf }
   | "--solana-log-event-elf" :: rest, opts =>
       parseArgs rest { opts with mode := .solanaLogEventElf }
   | "--solana-clock-sysvar-elf" :: rest, opts =>
@@ -5922,6 +5937,12 @@ def compileSolanaSplToken2022CpiSbpf (opts : CliOptions) : IO UInt32 :=
     "solana-spl-token-2022-cpi-sbpf"
     ProofForge.Solana.Examples.SplToken2022Cpi.spec
 
+def compileSolanaSplToken2022PausableCpiSbpf (opts : CliOptions) : IO UInt32 :=
+  compileSolanaSpecSbpf opts
+    (FilePath.mk "build/solana/SplToken2022PausableCpi.s")
+    "solana-spl-token-2022-pausable-cpi-sbpf"
+    ProofForge.Solana.Examples.SplToken2022PausableCpi.spec
+
 def compileValueVaultSolanaElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/ValueVault.so")
@@ -5984,6 +6005,13 @@ def compileSolanaSplToken2022CpiElf (opts : CliOptions) : IO UInt32 :=
     "spl-token-2022-cpi"
     "solana-spl-token-2022-cpi-elf"
     ProofForge.Solana.Examples.SplToken2022Cpi.spec
+
+def compileSolanaSplToken2022PausableCpiElf (opts : CliOptions) : IO UInt32 :=
+  compileSolanaSpecElf opts
+    (FilePath.mk "build/solana/SplToken2022PausableCpi.so")
+    "spl-token-2022-pausable-cpi"
+    "solana-spl-token-2022-pausable-cpi-elf"
+    ProofForge.Solana.Examples.SplToken2022PausableCpi.spec
 
 def compileSolanaLogEventElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
@@ -6334,6 +6362,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .solanaSplTokenCloseAccountCpiSbpf => compileSolanaSplTokenCloseAccountCpiSbpf opts
   | .solanaSplTokenAuthorityCpiSbpf => compileSolanaSplTokenAuthorityCpiSbpf opts
   | .solanaSplToken2022CpiSbpf => compileSolanaSplToken2022CpiSbpf opts
+  | .solanaSplToken2022PausableCpiSbpf => compileSolanaSplToken2022PausableCpiSbpf opts
   | .solanaElf => compileSolanaElf opts
   | .valueVaultSolanaElf => compileValueVaultSolanaElf opts
   | .solanaSystemCpiElf => compileSolanaSystemCpiElf opts
@@ -6344,6 +6373,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .solanaSplTokenCloseAccountCpiElf => compileSolanaSplTokenCloseAccountCpiElf opts
   | .solanaSplTokenAuthorityCpiElf => compileSolanaSplTokenAuthorityCpiElf opts
   | .solanaSplToken2022CpiElf => compileSolanaSplToken2022CpiElf opts
+  | .solanaSplToken2022PausableCpiElf => compileSolanaSplToken2022PausableCpiElf opts
   | .solanaLogEventElf => compileSolanaLogEventElf opts
   | .solanaClockSysvarElf => compileSolanaClockSysvarElf opts
   | .solanaRentSysvarElf => compileSolanaRentSysvarElf opts

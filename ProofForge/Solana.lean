@@ -878,6 +878,48 @@ def splToken2022InitializeTransferHookCall
   ]
 }
 
+def splToken2022InitializePausableConfigCall
+    (name mint authority : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_pausable_config"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_pausable_config"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.pausable_authority" authority
+  ]
+}
+
+def splToken2022PauseCall
+    (name mint authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "pause"
+  accounts := #[
+    writableAccount mint,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.pause"
+  extraMetadata := token2022Metadata
+}
+
+def splToken2022ResumeCall
+    (name mint authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "resume"
+  accounts := #[
+    writableAccount mint,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.resume"
+  extraMetadata := token2022Metadata
+}
+
 def splTokenMintToCall (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -1688,6 +1730,34 @@ def invokeSplToken2022InitializeTransferHook
     (name mint authority transferHookProgram : String) :
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splToken2022InitializeTransferHookCall name mint authority transferHookProgram)
+
+def splToken2022InitializePausableConfig
+    (name mint authority : String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializePausableConfigCall name mint authority)
+
+def invokeSplToken2022InitializePausableConfig
+    (name mint authority : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializePausableConfigCall name mint authority)
+
+def splToken2022Pause
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022PauseCall name mint authority (signerSeeds := signerSeeds))
+
+def invokeSplToken2022Pause
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022PauseCall name mint authority (signerSeeds := signerSeeds))
+
+def splToken2022Resume
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022ResumeCall name mint authority (signerSeeds := signerSeeds))
+
+def invokeSplToken2022Resume
+    (name mint authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022ResumeCall name mint authority (signerSeeds := signerSeeds))
 
 def splTokenMintTo (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) :
