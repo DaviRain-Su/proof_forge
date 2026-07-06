@@ -7,7 +7,7 @@ namespace Tests.Quint.WhileReplay
 
 open ProofForge.Backend.Quint
 
-def scenario : Scenario.Config := { maxUint := 5, users := #["alice"], maxLoopUnroll := 4 }
+def scenario : Scenario.Config := { maxUint := 5, users := #["alice"] }
 
 def generateModel : IO String :=
   match Lower.renderModule ProofForge.IR.Examples.WhileProbe.module scenario with

@@ -52,6 +52,7 @@ echo "Running Quint CLI emit smoke..."
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/CliConditional.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/CliLoop.qnt
 lake env proof-forge emit --target quint --fixture while -o build/quint/CliWhile.qnt
+test "$(wc -c < build/quint/CliWhile.qnt)" -lt 8192
 lake env proof-forge emit --target quint --fixture array -o build/quint/CliArray.qnt
 
 echo "Quint MBT replay gate passed."

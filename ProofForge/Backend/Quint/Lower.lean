@@ -40,7 +40,16 @@ structure LowerCtx where
   state : LocalEnv := []
   guards : Array ActionClause := #[]
   stateDecls : Array StateDecl := #[]
+  pureDefs : Array PureDef := #[]
   maxLoopUnroll : Nat := 10
+  /-- When false, `__while_*` step locals stay symbolic during unrolling. -/
+  expandLocals : Bool := true
+
+def whileStepLocalName (stateId : String) (step : Nat) : String :=
+  s!"__while_{stateId}_{step}"
+
+def isWhileStepLocal (name : String) : Bool :=
+  name.startsWith "__while_"
 
 def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
   match ctx.state.lookup stateId with
@@ -121,9 +130,12 @@ mutual
     match e with
     | .literal lit => lowerLiteral lit
     | .local name =>
-        match ctx.locals.lookup name with
-        | some expr => .ok expr
-        | none => .ok (.local name)
+        if !ctx.expandLocals && isWhileStepLocal name then
+          .ok (.local name)
+        else
+          match ctx.locals.lookup name with
+          | some expr => .ok expr
+          | none => .ok (.local name)
     | .add lhs rhs => .ok (.binOp .add (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
     | .sub lhs rhs =>
         let l ← lowerExpr ctx lhs
@@ -259,22 +271,48 @@ mutual
         .ok { ctx with state := stateAcc, guards := guardsAcc }
     | .whileLoop condition body =>
         let stateIds := ctx.stateDecls.map (·.id)
-        let mut loopState : LocalEnv :=
-          stateIds.foldl (fun acc id => acc.upsert id (ctx.stateValue id)) []
+        let mut stepLocals : LocalEnv :=
+          stateIds.foldl (fun (acc : LocalEnv) id =>
+            acc.upsert (whileStepLocalName id 0) (ctx.stateValue id)) []
+        let mut pureDefsAcc := ctx.pureDefs
+        for id in stateIds do
+          pureDefsAcc := pureDefsAcc.push {
+            name := whileStepLocalName id 0,
+            ret := .int,
+            body := ctx.stateValue id }
         let mut guardsAcc := ctx.guards
-        for _ in [0:ctx.maxLoopUnroll] do
-          let loopCtx := { ctx with state := loopState, guards := #[] }
+        for step in [0:ctx.maxLoopUnroll] do
+          let loopState := stateIds.foldl (fun (acc : LocalEnv) id =>
+            acc.upsert id (.local (whileStepLocalName id step))) []
+          let loopCtx := {
+            ctx with
+            locals := stepLocals,
+            state := loopState,
+            guards := #[],
+            expandLocals := false }
           let cond ← lowerExpr loopCtx condition
           let thenCtx ← lowerStatements loopCtx body
-          loopState := stateIds.foldl (fun acc id =>
-            let preVal := loopCtx.stateValue id
+          for id in stateIds do
+            let preVal := .local (whileStepLocalName id step)
             let thenVal := match thenCtx.state.lookup id with | some v => v | none => preVal
-            acc.upsert id (.ite cond thenVal preVal)) loopState
+            let binding := .ite cond thenVal preVal
+            stepLocals := stepLocals.upsert (whileStepLocalName id (step + 1)) binding
+            pureDefsAcc := pureDefsAcc.push {
+              name := whileStepLocalName id (step + 1),
+              ret := .int,
+              body := binding }
           guardsAcc := guardsAcc ++ wrapBranchGuards cond false thenCtx.guards
-        .ok { ctx with state := loopState, guards := guardsAcc }
+        let finalState := stateIds.foldl (fun (acc : LocalEnv) id =>
+          acc.upsert id (.local (whileStepLocalName id ctx.maxLoopUnroll))) []
+        .ok { ctx with state := finalState, guards := guardsAcc, pureDefs := pureDefsAcc }
     | .return _ | .release _ =>
         .ok ctx
+
 end
+
+structure LoweredEntrypoint where
+  action : Action
+  pureDefs : Array PureDef := #[]
 
 def ctxToActionClauses (ctx : LowerCtx) : Array ActionClause :=
   let assigns := ctx.state.toArray.map (fun (stateId, value) =>
@@ -290,7 +328,7 @@ partial def assignedStateVars (clause : ActionClause) : List String :=
   | _ => []
 
 def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Array StateDecl)
-    (maxLoopUnroll : Nat) : Except LowerError Action := do
+    (maxLoopUnroll : Nat) : Except LowerError LoweredEntrypoint := do
   let params ← ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t))
   let ctx ← lowerStatements { stateDecls := stateDecls, maxLoopUnroll := maxLoopUnroll } ep.body
   let clauses := ctxToActionClauses ctx
@@ -299,10 +337,12 @@ def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Ar
     if assigned.contains id then none else some (.assign (.prime (.local id)) (.local id)))
   let body := ActionClause.all (clauses ++ identityClauses)
   pure {
-    name := sanitizeName ep.name,
-    params := params,
-    ret? := some .bool,
-    body := body
+    action := {
+      name := sanitizeName ep.name,
+      params := params,
+      ret? := some .bool,
+      body := body },
+    pureDefs := ctx.pureDefs
   }
 
 def zeroExpr (t : ValueType) : Except LowerError Expr :=
@@ -361,8 +401,10 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
     pure { name := s.id, type := ← lowerStateVarType s })
   let init ← initAction module.state
   let stateIds := module.state.map (fun s => s.id)
-  let epActions ← module.entrypoints.mapM (fun ep =>
+  let loweredEps ← module.entrypoints.mapM (fun ep =>
     lowerEntrypoint ep stateIds module.state scenario.maxLoopUnroll)
+  let epActions := loweredEps.map (·.action)
+  let whilePureDefs := loweredEps.foldl (fun acc ep => acc ++ ep.pureDefs) #[]
   let epParams ← module.entrypoints.mapM (fun ep => do
     ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t)))
   let step := stepAction module.entrypoints epParams
@@ -373,7 +415,7 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
     name := s!"{module.name}Model",
     constants := #[],
     vars := vars,
-    pureDefs := scenario.quintPureDefs,
+    pureDefs := scenario.quintPureDefs ++ whilePureDefs,
     actions := #[init] ++ epActions ++ #[step],
     vals := vals
   }

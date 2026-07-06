@@ -15,11 +15,12 @@ Lean authoring and backend-verification chain, not as a replacement for them.
 lake env proof-forge emit --target quint --fixture counter -o build/quint/Counter.qnt
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/ConditionalProbe.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/LoopProbe.qnt
+lake env proof-forge emit --target quint --fixture while -o build/quint/WhileProbe.qnt
 lake env proof-forge emit --target quint --fixture array -o build/quint/ArrayProbe.qnt
 ```
 
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
-and `array` (fixed-size storage array lifecycle). The generator reads **portable
+`while`, and `array` (fixed-size storage array lifecycle). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
 intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
 
@@ -31,6 +32,7 @@ with a TOML scenario file:
 max_uint = 5
 users = ["alice", "bob"]
 max_steps = 10
+max_loop_unroll = 10
 n_traces = 20
 ```
 
@@ -85,4 +87,6 @@ Phase 3 v1 currently lowers a growing portable IR subset:
 Still out of scope for the first iteration: map/struct storage, crosscalls,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
-need more iterations are truncated in the Quint model.
+need more iterations are truncated in the Quint model. Unrolling emits each step
+as a `pure def __while_<state>_<n>` helper and assigns the final state from the
+last helper, keeping model size linear in the unroll bound.
