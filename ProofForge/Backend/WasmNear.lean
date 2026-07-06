@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmNear.Aggregate
+import ProofForge.Backend.WasmNear.Assert
 import ProofForge.Backend.WasmNear.ArrayHeap
 import ProofForge.Backend.WasmNear.Capabilities
 import ProofForge.Backend.WasmNear.Common

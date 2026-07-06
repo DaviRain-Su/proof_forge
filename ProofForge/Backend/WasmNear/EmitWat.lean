@@ -18,6 +18,7 @@ import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Backend.WasmNear.Aggregate
+import ProofForge.Backend.WasmNear.Assert
 import ProofForge.Backend.WasmNear.ArrayHeap
 import ProofForge.Backend.WasmNear.Capabilities
 import ProofForge.Backend.WasmNear.Common
@@ -49,6 +50,7 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Aggregate
+open ProofForge.Backend.WasmNear.Assert
 open ProofForge.Backend.WasmNear.ArrayHeap
 open ProofForge.Backend.WasmNear.Capabilities
 open ProofForge.Backend.WasmNear.Common
@@ -82,6 +84,10 @@ export ProofForge.Backend.WasmNear.Aggregate (
   collectStructLitsStmt dedupStrings moduleStructLitNames
   structLitHelperFuncs arrayLitFuncsForModulePlan arrayEqFuncsForModulePlan
   structLitFuncsForModulePlan aggregateHelperFuncsForModulePlan
+)
+
+export ProofForge.Backend.WasmNear.Assert (
+  assertFailInsns
 )
 
 export ProofForge.Backend.WasmNear.ArrayHeap (
@@ -973,13 +979,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     let (is, t) ← lowerExpr ctx env cond
     if t != .bool then err "EmitWat: assert condition must be Bool"
     else
-      let failInsns := match errorRef? with
-        | none => #[.unreachable]
-        | some ref =>
-          let msg := panicMessage ref
-          match ctx.panics.find? (fun si => si.str == msg) with
-          | none => #[.unreachable]
-          | some si => #[.i64Const si.len, .i64Const si.ptr, .call "panic"]
+      let failInsns := assertFailInsns ctx.panics errorRef?
       .ok (is ++ #[.plain "i32.eqz", .if_ { insns := failInsns } { insns := #[] }])
   | .assertEq a b _ errorRef? => do
     let (la, ta) ← lowerExpr ctx env a
@@ -990,13 +990,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
         | .hash => #[.call hashEqName]
         | .fixedArray elemType len => #[.call (arrEqName elemType len)]
         | _ => #[.plain (widthOf ta ++ ".eq")]
-      let failInsns := match errorRef? with
-        | none => #[.unreachable]
-        | some ref =>
-          let msg := panicMessage ref
-          match ctx.panics.find? (fun si => si.str == msg) with
-          | none => #[.unreachable]
-          | some si => #[.i64Const si.len, .i64Const si.ptr, .call "panic"]
+      let failInsns := assertFailInsns ctx.panics errorRef?
       .ok (la ++ lb ++ eqInsn ++ #[.plain "i32.eqz",
                             .if_ { insns := failInsns } { insns := #[] }])
   | .release name => do
