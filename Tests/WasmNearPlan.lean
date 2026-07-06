@@ -2,6 +2,7 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.WasmNear.Plan
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
+import ProofForge.IR.Examples.HashStorageProbe
 import ProofForge.IR.Examples.StructProbe
 import ProofForge.IR.Examples.NearCrosscallProbe
 
@@ -423,6 +424,14 @@ def testHashEqRenderKeepsEqualityHelperOnly : IO Unit := do
   requireNotContains wat "__pf_hash_two_to_one" "hash-eq module should not emit hash two-to-one helper"
   requireNotContains wat "__pf_memcpy" "hash-eq module should not emit memcpy helper"
 
+def testHashStorageRenderKeepsMemcpyForHashArrayWrites : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.HashStorageProbe.module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat hash-storage render failed: {err.message}"
+  requireContains wat "__pf_map_write_hash" "hash-storage module must emit hash-valued indexed-storage write helper"
+  requireContains wat "__pf_memcpy" "hash-storage module must emit memcpy helper for hash-valued indexed-storage writes"
+
 def testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface : IO Unit := do
   let wat ←
     match renderModule ProofForge.IR.Examples.ArrayProbe.emitWatSumModule with
@@ -605,6 +614,7 @@ def main : IO UInt32 := do
   testHashPreimageRenderKeepsSha256AndPreimageHelper
   testHashPairRenderKeepsTwoToOneAndMemcpySurface
   testHashEqRenderKeepsEqualityHelperOnly
+  testHashStorageRenderKeepsMemcpyForHashArrayWrites
   testPowRenderKeepsOnlyMatchingNumericPowHelper
   testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface
   testArrayPredicateRenderKeepsEqualityAndDeallocSurface

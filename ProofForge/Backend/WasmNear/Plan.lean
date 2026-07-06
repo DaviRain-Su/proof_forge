@@ -516,6 +516,7 @@ def withU64IndexedReadType (type : ValueType) : ModuleSurface := {
 def withU64IndexedWriteType (type : ValueType) : ModuleSurface := {
   usesU64IndexedBuildKey := true
   u64IndexedWriteTypes := #[type]
+  usesMemcpy := type == .hash
 }
 
 def withHashIndexedReadType (type : ValueType) : ModuleSurface := {
