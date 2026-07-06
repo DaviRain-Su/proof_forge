@@ -1008,6 +1008,7 @@ mutual
         discard <| normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
     | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _ =>
@@ -1697,6 +1698,9 @@ mutual
     | .nearPromiseThen p m args d =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
+          exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i

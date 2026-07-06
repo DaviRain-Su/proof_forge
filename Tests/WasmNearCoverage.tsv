@@ -22,6 +22,7 @@ Literal	address	lowered	literal emits {value}u64 and is covered by validateLiter
 Literal	u8	lowered	wasm-near IR v0 emits i32.const for U8 literals (same as U32); covered by literalType and checkLiteralBounds with max 255.
 Literal	u128	unsupported	wasm-near IR v0 does not support U128 literals; literal function returns placeholder, literalType maps to .u128 but valueTypeName rejects it.
 ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::predecessor_account_id()); Hasher fixture covers it and the context-as-statement diagnostic guards misuse.
+ContextField	userIdHash	lowered	EmitWat lowers contextRead userIdHash to __pf_ctx_user_hash (sha256 predecessor account id bytes); NearFungibleToken callerHash covers hash-keyed balance transfers.
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
 ContextField	checkpointId	lowered	lowerEffectExpr emits env::block_height(); capability envBlock is present in the wasm-near profile.
 ContextField	timestamp	unsupported	wasm-near IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
@@ -84,6 +85,7 @@ Expr	crosscallInvokeStaticTyped	unsupported	wasm-near target profile rejects cro
 Expr	crosscallInvokeDelegateTyped	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects delegate typed cross-contract calls.
 Expr	crosscallCreate	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects contract creation.
 Expr	crosscallCreate2	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects create2 contract creation.
+Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call fixture covers it.
 Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on the current contract account using module.nearCrosscallStrings callback method literals; wasm-near target profile still rejects near.promise.
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
 Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.

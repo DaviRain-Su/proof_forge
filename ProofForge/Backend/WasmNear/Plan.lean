@@ -15,6 +15,7 @@ def err (message : String) : Except PlanError α :=
 
 inductive ContextExprPlan where
   | userId
+  | userIdHash
   | contractId
   | checkpointId
   | timestamp
@@ -25,6 +26,7 @@ inductive ContextExprPlan where
 
 def ContextExprPlan.field : ContextExprPlan → ContextField
   | .userId => .userId
+  | .userIdHash => .userIdHash
   | .contractId => .contractId
   | .checkpointId => .checkpointId
   | .timestamp => .timestamp
@@ -33,11 +35,12 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
   | .origin => .origin
 
 def ContextExprPlan.resultType : ContextExprPlan → ValueType
-  | .randomSeed => .hash
+  | .randomSeed | .userIdHash => .hash
   | _ => .u64
 
 def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .userId => .ok .userId
+  | .userIdHash => .ok .userIdHash
   | .contractId => .ok .contractId
   | .checkpointId => .ok .checkpointId
   | .timestamp => .ok .timestamp
@@ -45,19 +48,19 @@ def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .randomSeed => .ok .randomSeed
   | .origin => .ok .origin
   | .chainId =>
-      err "wasm-near context read `chainId` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .gasPrice =>
-      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .gasLeft =>
-      err "wasm-near context read `gasLeft` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `gasLeft` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .baseFee =>
-      err "wasm-near context read `baseFee` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `baseFee` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .prevRandao =>
-      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .coinbase =>
-      err "wasm-near context read `coinbase` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `coinbase` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
   | .blockHash _ =>
-      err "wasm-near context read `blockHash` is not supported; supported fields are userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `blockHash` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
 
 def mergeContextExprPlans (acc next : Array ContextExprPlan) : Array ContextExprPlan :=
   next.foldl
@@ -254,6 +257,7 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
+    | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
     | .nearPromiseThen _ _ _ _ => .ok .u64
     | .nearPromiseResultsCount => .ok .u64
     | .nearPromiseResultStatus _ => .ok .u64
@@ -309,6 +313,7 @@ structure ModuleSurface where
   usesEventApi : Bool := false
   usesEventNumeric : Bool := false
   usesEventBool : Bool := false
+  usesEventHash : Bool := false
   u64IndexedReadTypes : Array ValueType := #[]
   u64IndexedWriteTypes : Array ValueType := #[]
   hashIndexedReadTypes : Array ValueType := #[]
@@ -363,6 +368,7 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesEventApi := lhs.usesEventApi || rhs.usesEventApi
   usesEventNumeric := lhs.usesEventNumeric || rhs.usesEventNumeric
   usesEventBool := lhs.usesEventBool || rhs.usesEventBool
+  usesEventHash := lhs.usesEventHash || rhs.usesEventHash
   u64IndexedReadTypes := mergeValueTypeSets lhs.u64IndexedReadTypes rhs.u64IndexedReadTypes
   u64IndexedWriteTypes := mergeValueTypeSets lhs.u64IndexedWriteTypes rhs.u64IndexedWriteTypes
   hashIndexedReadTypes := mergeValueTypeSets lhs.hashIndexedReadTypes rhs.hashIndexedReadTypes
@@ -479,6 +485,12 @@ def withEventBool : ModuleSurface := {
   usesMemcpy := true
 }
 
+def withEventHash : ModuleSurface := {
+  usesEventApi := true
+  usesEventHash := true
+  usesMemcpy := true
+}
+
 def withU64IndexedBuildKey : ModuleSurface := {
   usesU64IndexedBuildKey := true
 }
@@ -581,6 +593,7 @@ end ModuleSurface
 partial def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
+  | .nearCrosscallInvokePool _ _ _ _ => true
   | .nearPromiseThen _ _ _ _ => true
   | _ => false
 
@@ -594,6 +607,7 @@ def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
   | .u64 | .u32 => ModuleSurface.withEventNumeric
   | .bool => ModuleSurface.withEventBool
+  | .hash => ModuleSurface.withEventHash
   | _ => ModuleSurface.withEventApi
 
 partial def collectLocalTypesFrom (env : LocalTypeEnv) (statement : Statement) : Except PlanError LocalTypeEnv := do
@@ -698,6 +712,13 @@ mutual
         contextOpsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         return mergeContextExprPlans (← contextOpsFromExpr callValue) (← contextOpsFromExpr salt)
+    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+        let base :=
+          mergeContextExprPlans
+            (mergeContextExprPlans (← contextOpsFromExpr accountIndex) (← contextOpsFromExpr methodId))
+            (← contextOpsFromExpr deposit)
+        args.foldlM (init := base) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .nearPromiseThen parentPromise callbackMethod args deposit => do
         let base :=
           mergeContextExprPlans
@@ -913,6 +934,13 @@ mutual
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
           ModuleSurface.withCrosscallPromise
+    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+        let base :=
+          mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromExpr module env accountIndex) (← surfaceFromExpr module env methodId))
+            (← surfaceFromExpr module env deposit)
+        let argSurface ← surfaceFromCrosscallArgs module env args
+        return mergeModuleSurfaces (mergeModuleSurfaces base argSurface) ModuleSurface.withCrosscallPromise
     | .nearPromiseThen parentPromise callbackMethod args deposit => do
         let base :=
           mergeModuleSurfaces
@@ -1117,6 +1145,7 @@ structure ModulePlan where
   usesEventApi : Bool
   usesEventNumeric : Bool
   usesEventBool : Bool
+  usesEventHash : Bool
   u64IndexedReadTypes : Array ValueType
   u64IndexedWriteTypes : Array ValueType
   hashIndexedReadTypes : Array ValueType
@@ -1161,6 +1190,7 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesEventApi := surface.usesEventApi
     usesEventNumeric := surface.usesEventNumeric
     usesEventBool := surface.usesEventBool
+    usesEventHash := surface.usesEventHash
     u64IndexedReadTypes := surface.u64IndexedReadTypes
     u64IndexedWriteTypes := surface.u64IndexedWriteTypes
     hashIndexedReadTypes := surface.hashIndexedReadTypes

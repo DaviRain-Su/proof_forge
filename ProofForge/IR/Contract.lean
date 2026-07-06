@@ -120,6 +120,7 @@ inductive AssignOp where
 mutual
   inductive ContextField where
     | userId
+    | userIdHash
     | contractId
     | checkpointId
     | timestamp
@@ -177,6 +178,8 @@ mutual
     | crosscallInvokeDelegateTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallCreate (callValue : Expr) (initCodeHex : String)
     | crosscallCreate2 (callValue salt : Expr) (initCodeHex : String)
+    /-- NEAR-only: `promise_create` with runtime index into `module.nearCrosscallStrings`. -/
+    | nearCrosscallInvokePool (accountIndex : Expr) (methodId : Expr) (args : Array Expr) (deposit : Expr)
     /-- NEAR-only Promise chain: attach a callback method on the current contract. -/
     | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
     /-- NEAR-only: number of completed promise results visible in a callback entrypoint. -/
@@ -222,6 +225,7 @@ end
 
 def ContextField.name : ContextField → String
   | .userId => "userId"
+  | .userIdHash => "userIdHash"
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
   | .timestamp => "timestamp"
@@ -237,7 +241,7 @@ def ContextField.name : ContextField → String
   | .blockHash _ => "blockHash"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
-  | .userId | .origin => .callerSender
+  | .userId | .userIdHash | .origin => .callerSender
   | .contractId => .accountExplicit
   | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
@@ -402,6 +406,9 @@ mutual
         #[.crosscallInvoke] ++ callValue.capabilities
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .nearPromiseThen parentPromise callbackMethod args deposit =>
         #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]

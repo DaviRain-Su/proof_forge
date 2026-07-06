@@ -160,6 +160,11 @@ mutual
     | .nearPromiseResultsCount => pure ()
     | .nearPromiseResultStatus index => checkExpr entrypoint env index
     | .nearPromiseResultU64 index => checkExpr entrypoint env index
+    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+        checkExpr entrypoint env accountIndex
+        checkExpr entrypoint env methodId
+        checkExpr entrypoint env deposit
+        args.forM fun arg => checkExpr entrypoint env arg
     | .effect effect => checkEffect entrypoint env effect
 
   partial def checkEffect (entrypoint : String) (env : Env) : Effect →

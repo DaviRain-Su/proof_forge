@@ -190,6 +190,11 @@ mutual
     | .nearPromiseResultsCount => events
     | .nearPromiseResultStatus index => collectExprEvents events index
     | .nearPromiseResultU64 index => collectExprEvents events index
+    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+        let events₁ := collectExprEvents events accountIndex
+        let events₂ := collectExprEvents events₁ methodId
+        let events₃ := collectExprEvents events₂ deposit
+        args.foldl collectExprEvents events₃
     | .effect effect => collectEffectEvents events effect
     | .literal _ | .local _ | .nativeValue => events
 

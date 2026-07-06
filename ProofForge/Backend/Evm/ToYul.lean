@@ -310,6 +310,7 @@ def contextFieldExpr
     (lowerExpr : Expr → Except String Lean.Compiler.Yul.Expr) :
     ContextField → Except String Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
+  | .userIdHash => .error "EVM context read `userIdHash` is not supported; NEAR-only full predecessor account hash"
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])

@@ -167,6 +167,9 @@ partial def hasEffectExpr : Expr → Bool
   | .nearPromiseResultsCount => false
   | .nearPromiseResultStatus i => hasEffectExpr i
   | .nearPromiseResultU64 i => hasEffectExpr i
+  | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+      hasEffectExpr accountIndex || hasEffectExpr methodId || hasEffectExpr deposit ||
+        args.any (hasEffectExpr ·)
   | _ => false
 
 mutual

@@ -674,6 +674,7 @@ mutual
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _ =>
@@ -1086,6 +1087,7 @@ mutual
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .nearPromiseThen _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _ =>

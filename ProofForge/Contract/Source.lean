@@ -156,6 +156,7 @@ scoped syntax "proxy_pattern_uups;" : contractItem
 scoped syntax "proxy_pattern_transparent;" : contractItem
 scoped syntax "import " ident ";" : contractItem
 scoped syntax "open " ident ";" : contractItem
+scoped syntax "do " term ";" : contractItem
 scoped syntax "constructor_param " ident " : " term ";" : contractItem
 scoped syntax "constructor_param " ident " : " "cstring" ";" : contractItem
 scoped syntax "constructor_param " ident " : " "cbytes" ";" : contractItem
@@ -545,6 +546,8 @@ private def lowerItem (item : TSyntax `contractItem) : MacroM LoweredItem := do
       let nameLit := identNameLit name
       let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "uint256[]")
       return { action? := some action }
+  | `(contractItem| do $action:term;) =>
+      return { action? := some action }
   | `(contractItem| constructor_param $name:ident : $type:term;) =>
       let nameLit := identNameLit name
       match type with
@@ -771,6 +774,9 @@ def pathWriteRole [ToExpr α] [ToExpr β] [ToExpr γ]
 
 def caller : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.caller
+
+def callerHash : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.callerHash
 
 def nativeValue : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.nativeValue
