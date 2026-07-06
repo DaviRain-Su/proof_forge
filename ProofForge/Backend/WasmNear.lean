@@ -1,6 +1,7 @@
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.EmitWat
+import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.IR
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout

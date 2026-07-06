@@ -19,6 +19,7 @@ import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Map
@@ -36,6 +37,7 @@ open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
 open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.Hash
 open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Map
@@ -52,6 +54,14 @@ export ProofForge.Backend.WasmNear.Diagnostics (
   nativeValueUnsupportedMessage indexedEventUnsupportedMessage
   crosscallUnsupportedMessage crosscallEvmOnlyMessage
   crosscallTypedUnsupportedMessage EmitError err
+)
+
+export ProofForge.Backend.WasmNear.Hash (
+  modulePlanUsesHashAlloc hashAllocName hashMakeName hashSName hashTwoName
+  hashEqName readHashName writeHashName hashPtrGlobal hashPtrGlobalDecl
+  hashAllocFunc hashMakeFunc hashSFunc hashTwoFunc hashEqFunc readHashFunc
+  writeHashFunc hashExprHelperFuncsForModulePlan
+  hashStorageHelperFuncsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Imports (
@@ -101,38 +111,11 @@ export ProofForge.Backend.WasmNear.Types (
   returnBoolName
 )
 
-def modulePlanUsesHashAlloc (plan : ModulePlan) : Bool :=
-  plan.usesHashMake || plan.usesHashPreimage || plan.usesHashTwoToOne ||
-    plan.scalarReadTypes.contains .hash || plan.contextOps.contains .randomSeed ||
-    plan.contextOps.contains .userIdHash
-
--- Hash helpers ---------------------------------------------------------
--- Hash = 32-byte memory region (4×u64), referenced by an i32 pointer. A
--- mutable global `hash_ptr` bump-allocates a fresh 32-byte slot per temp
--- (reset each NEAR call since the instance is fresh).
-
-def hashAllocName    : String := "__pf_hash_alloc"
-def hashMakeName      : String := "__pf_hash_make"
-def hashSName         : String := "__pf_hash"
-def hashTwoName       : String := "__pf_hash_two_to_one"
-def hashEqName        : String := "__pf_hash_eq"
-def readHashName      : String := "__pf_read_hash"
-def writeHashName     : String := "__pf_write_hash"
-def hashPtrGlobal     : String := "hash_ptr"
-
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxUserHashName : String := "__pf_ctx_user_hash"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
 def ctxSignerName : String := "__pf_ctx_signer_id"
 def ctxRandomSeedName : String := "__pf_ctx_random_seed"
-
-def hashPtrGlobalDecl : Global :=
-  { name := hashPtrGlobal, type := .i32, init := toString HASH_HEAP, isMutable := true }
-
-def hashAllocFunc : Func :=
-  { name := hashAllocName, results := #[.i32],
-    body := { insns := #[ .globalGet hashPtrGlobal,
-      .globalGet hashPtrGlobal, .i32Const 32, .plain "i32.add", .globalSet hashPtrGlobal ] } }
 
 -- Array-value bump allocator (for arrayLit temporaries). Returns current ptr and
 -- advances by the byte count; the caller stores elements into [ptr, ptr+n).
@@ -241,79 +224,6 @@ def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
     { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
       results := #[],
       body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
-def hashMakeFunc : Func :=
-  { name := hashMakeName,
-    params := #[{ name := "a", type := .i64 }, { name := "b", type := .i64 },
-                { name := "c", type := .i64 }, { name := "d", type := .i64 }],
-    results := #[.i32], locals := #[{ name := "p", type := .i32 }],
-    body := { insns := #[
-      .call hashAllocName, .localSet "p",
-      .localGet "p", .localGet "a", .store "i64.store" 0,
-      .localGet "p", .localGet "b", .store "i64.store" 8,
-      .localGet "p", .localGet "c", .store "i64.store" 16,
-      .localGet "p", .localGet "d", .store "i64.store" 24,
-      .localGet "p" ] } }
-
-def hashSFunc : Func :=
-  { name := hashSName, params := #[{ name := "preimage", type := .i32 }], results := #[.i32],
-    locals := #[{ name := "p", type := .i32 }],
-    body := { insns := #[
-      .i64Const 32, .localGet "preimage", .plain "i64.extend_i32_u", .i64Const 0, .call "sha256",
-      .call hashAllocName, .localSet "p",
-      .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
-      .localGet "p" ] } }
-
-def hashTwoFunc : Func :=
-  { name := hashTwoName,
-    params := #[{ name := "l", type := .i32 }, { name := "r", type := .i32 }], results := #[.i32],
-    locals := #[{ name := "p", type := .i32 }],
-    body := { insns := #[
-      .i32Const HASH_CONCAT_BUF, .localGet "l", .i32Const 32, .call memcpyName,
-      .i32Const (HASH_CONCAT_BUF + 32), .localGet "r", .i32Const 32, .call memcpyName,
-      .i64Const 64, .i64Const HASH_CONCAT_BUF, .i64Const 0, .call "sha256",
-      .call hashAllocName, .localSet "p",
-      .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
-      .localGet "p" ] } }
-
-def hashEqFunc : Func :=
-  { name := hashEqName,
-    params := #[{ name := "a", type := .i32 }, { name := "b", type := .i32 }], results := #[.i32],
-    body := { insns := #[
-      .localGet "a", .load "i64.load" 0, .localGet "b", .load "i64.load" 0, .plain "i64.eq",
-      .localGet "a", .load "i64.load" 8, .localGet "b", .load "i64.load" 8, .plain "i64.eq", .plain "i32.and",
-      .localGet "a", .load "i64.load" 16, .localGet "b", .load "i64.load" 16, .plain "i64.eq", .plain "i32.and",
-      .localGet "a", .load "i64.load" 24, .localGet "b", .load "i64.load" 24, .plain "i64.eq", .plain "i32.and" ] } }
-
-def readHashFunc : Func :=
-  { name := readHashName,
-    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }], results := #[.i32],
-    locals := #[{ name := "found", type := .i64 }, { name := "p", type := .i32 }],
-    body := { insns := #[
-      .call hashAllocName, .localSet "p",
-      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
-      .i64Const 0, .call "storage_read", .localSet "found",
-      .localGet "found", .i64Const 0, .plain "i64.ne",
-      .if_ { insns := #[ .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register" ] } { insns := #[] },
-      .localGet "p" ] } }
-
-def writeHashFunc : Func :=
-  { name := writeHashName,
-    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }, { name := "v", type := .i32 }],
-    body := { insns := #[
-      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
-      .i64Const 32, .localGet "v", .plain "i64.extend_i32_u", .i64Const 0, .call "storage_write", .drop ] } }
-
-def hashExprHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if modulePlanUsesHashAlloc plan then #[hashAllocFunc] else #[]) ++
-    (if plan.usesHashMake then #[hashMakeFunc] else #[]) ++
-    (if plan.usesHashPreimage then #[hashSFunc] else #[]) ++
-    (if plan.usesMemcpy then #[memcpyFunc] else #[]) ++
-    (if plan.usesHashTwoToOne then #[hashTwoFunc] else #[]) ++
-    (if plan.usesHashEq then #[hashEqFunc] else #[])
-
-def hashStorageHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if plan.scalarReadTypes.contains .hash then #[readHashFunc] else #[]) ++
-    (if plan.scalarWriteTypes.contains .hash then #[writeHashFunc] else #[])
 
 -- Context helpers ------------------------------------------------------
 -- userId/contractId: sha256(account_id_bytes)[0..8] as u64.
