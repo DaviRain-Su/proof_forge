@@ -200,6 +200,19 @@ def mapContainsValueInsns (mapInfo : MapInfo) (keyInsns containsCall : Array Ins
   (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ keyInsns ++
     containsCall ++ #[.plain "i32.wrap_i64"], .bool)
 
+def nestedMapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
+  match findMapState? maps id with
+  | none => err s!"EmitWat: unknown map state `{id}`"
+  | some mapInfo =>
+    if mapInfo.keyType != .u64 then
+      err s!"EmitWat: nested map key must be U64 (`{id}` has key `{mapInfo.keyType.name}`)"
+    else .ok mapInfo
+
+def nestedMapReadValueInsns (mapInfo : MapInfo) (key1Insns key2Insns : Array Insn) :
+    Array Insn × ValueType :=
+  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
+    key1Insns ++ key2Insns ++ #[.call (mapReadName mapInfo.valueType)], mapInfo.valueType)
+
 def storageArrayStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findArrayState? maps id with
   | none => err s!"EmitWat: unknown array state `{id}`"

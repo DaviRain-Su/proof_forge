@@ -183,6 +183,7 @@ export ProofForge.Backend.WasmNear.Map (
   mapContainsStateInfo mapContainsCall mapContainsValueInsns
   storageArrayStateInfo storageArrayReadInsns
   storageArrayWriteStateInfo storageArrayWriteInsns
+  nestedMapReadStateInfo nestedMapReadValueInsns
   nestedMapWriteStateInfo nestedMapWriteValueInsns
   mapReadFunc mapWriteFunc mapContainsFunc mapHelperFuncsForModulePlan
   mapBuildkeyHashName mapReadHashName mapWriteHashName mapContainsHashName
@@ -593,15 +594,10 @@ mutual
       Then call storage_read with extended key length = prefixLen + 16. -/
   partial def lowerNestedMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 : Expr)
       : Except EmitError (Array Insn × ValueType) := do
-    match findMapState? ctx.maps id with
-    | none => err s!"EmitWat: unknown map state `{id}`"
-    | some m =>
-      if m.keyType != .u64 then err s!"EmitWat: nested map key must be U64 (`{id}` has key `{m.keyType.name}`)"
-      else do
-        let readCall := #[.call (mapReadName m.valueType)]
-        let ki1 ← lowerMapKeyU64 ctx env key1
-        let ki2 ← lowerMapKeyU64 ctx env key2
-        .ok (#[.i32Const m.prefixPtr, .i32Const m.prefixLen] ++ ki1 ++ ki2 ++ readCall, m.valueType)
+    let mapInfo ← nestedMapReadStateInfo ctx.maps id
+    let key1Insns ← lowerMapKeyU64 ctx env key1
+    let key2Insns ← lowerMapKeyU64 ctx env key2
+    .ok (nestedMapReadValueInsns mapInfo key1Insns key2Insns)
 
   partial def lowerMapContains (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
