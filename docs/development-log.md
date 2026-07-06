@@ -16950,7 +16950,7 @@ Result:
   diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
   checks passed locally.
 - The full Lake build still reports pre-existing unused-variable warnings in
-  `ConstructorInit`, `Quint`, and `Cli`.
+  `ConstructorInit` and `Cli`.
 
 ### EVM Planned Create Helper Discovery Slice
 
@@ -16997,6 +16997,96 @@ Result:
 - EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
   i18n sync, JSON validation, full Lake build, and whitespace checks passed
   locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Storage Struct Assignment Source Plan Slice
+
+Commit: feature commit for EVM storage struct assignment source plans
+
+Summary:
+
+- Extended `Lower.structAssignmentSourcePlans` to accept storage-backed scalar
+  struct reads and expand them into explicit `ExprPlan.storageLoad` word
+  expressions using the same `Plan.requireStructState` layout source as ABI and
+  crosscall storage aggregate expansion.
+- Routed whole local struct assignment from `.effect (.storageScalarRead ...)`
+  through the source-plan boundary before `ToYul.wholeStructAssignStmtFromPlan`
+  emits the snapshot block.
+- Added semantic-plan coverage for the Lower source plan, direct ToYul helper,
+  and integrated `lowerAssignStmt` path.
+- Updated the implementation backlog and Chinese backlog note to record that
+  storage-backed scalar struct assignment sources no longer stay in the
+  `IR.lean` direct-Yul compatibility path.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke storage-struct
+```
+
+Result:
+
+- Storage-backed scalar struct assignment now enters ToYul as planned
+  storage-load word expressions instead of direct `IR.lean`-assembled `sload`
+  expressions on the active whole local struct assignment path.
+- EVM semantic-plan tests, EVM plan tests, storage-struct IR smoke, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Struct Assignment Source Plan Slice
+
+Commit: feature commit for EVM struct assignment source plans
+
+Summary:
+
+- Added `StructAssignmentSourcePlan` so flat struct whole-assignment sources can
+  enter the EVM semantic-plan layer before final Yul AST construction.
+- Added `Lower.structAssignmentSourcePlans` for local struct sources and struct
+  literals, preserving existing validation messages and representing field
+  source expressions as `ExprPlan`s.
+- Added `ToYul.wholeStructAssignStmtFromPlan` and routed compatible
+  `IR.lean` whole local struct assignment through that boundary.
+- Kept storage-backed struct assignment sources in the compatibility facade for
+  a later storage-source migration slice.
+- Updated semantic-plan coverage for direct Lower source planning, direct
+  ToYul snapshot-block construction from plans, and real `lowerAssignStmt`
+  whole struct assignment integration.
+- Updated the implementation backlog and Chinese backlog note to document the
+  new struct assignment source-plan boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke struct-value
+```
+
+Result:
+
+- Local struct and struct-literal whole assignment sources now enter ToYul as
+  planned field expressions instead of direct Yul expressions assembled by the
+  compatibility facade.
+- EVM semantic-plan tests, EVM plan tests, struct-value IR smoke, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
 - The full Lake build still reports pre-existing unused-variable warnings in
   `ConstructorInit`, `Quint`, and `Cli`.
 

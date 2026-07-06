@@ -26,7 +26,7 @@ gaps.
 |---|---|---|---|
 | ERC-20 | Covered | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `learn-token-erc20-vm-smoke.sh` exercises the Token SDK path; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | — |
 | ERC-721 (NFT) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **Limitation:** `safeTransferFrom` does not invoke `onERC721Received` (documented in stdlib header) | P1 |
-| ERC-1155 (multi-token) | Missing | No batch receiver or multi-token path | P1 |
+| ERC-1155 (multi-token) | Partial | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, and single `safeTransferFrom`; `Examples/Evm/Contracts/stdlib/ERC1155.lean` golden Yul; `foundry-smoke.sh` exercises mint/approval/transfer/burn. **Gap:** batch operations and receiver callbacks remain open | P1 |
 | ERC-4626 (vault standard) | Missing | VerifiedVault is custom, not ERC-4626 interface | P1 |
 | ERC-2612 (permit) | Missing | TokenSpec advertises `erc20.permit` but no EVM lowering | P1 |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
@@ -69,7 +69,7 @@ gaps.
 | Structured events | Covered | Named events, indexed topics, aggregate data — all lowered | — |
 | Constructor args | Covered | CLI ABI-encodes static words and dynamic types (`string`/`bytes`/`uint256[]`, CS-3.4) into the initcode tail; deploy manifest records the schema; `DynamicConstructorProbe` exercises `cstring`/`cbytes`/`u256array` with `evmConstructorInitBindings`; deploy-object initcode reads the tail via `codesize()-argsSize` and binds storage at deploy time; Foundry (`foundry-smoke.sh`) and Anvil (`dynamic-constructor-anvil-smoke.sh`) positive smokes | — |
 | Storage packing | Missing | One slot per field; no packing/layout optimizer | P1 |
-| Batch operations | Missing | No multicall / batch mint/transfer pattern | P1 |
+| Batch operations | Missing | No multicall or ERC-1155 batch mint/transfer pattern | P1 |
 | Factory deployment | Partial | Foundry deploys init code; no reusable factory contract | P1 |
 
 ---
@@ -209,4 +209,5 @@ economics) is almost entirely missing.
 
 Total: 0 open P0 blockers across three chains (0 EVM + 0 Solana + 0 NEAR).
 All three primary chains now have zero open P0 blockers. Remaining work is
-P1 feature expansion.
+P1 feature expansion; the latest EVM slice moves ERC-1155 single-transfer core
+out of "missing" while leaving batch operations and receiver callbacks open.

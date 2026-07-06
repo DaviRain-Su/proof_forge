@@ -1448,6 +1448,51 @@ def fixedArrayAssignmentSourcePlans
   | _ =>
       .error { message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0" }
 
+def structAssignmentSourcePlans
+    (module : Module)
+    (env : TypeEnv)
+    (name typeName : String)
+    (value : Expr) : Except LowerError (Array StructAssignmentSourcePlan) := do
+  let decl ← ensureLocalFlatStructType module s!"assignment target `{name}` struct type" typeName
+  match value with
+  | .local sourceName => do
+      let some binding := findLocal? env sourceName
+        | .error { message := s!"unknown local `{sourceName}`" }
+      ensureType s!"assignment target `{name}` struct type" (.structType typeName) binding.type
+      let mut sources : Array StructAssignmentSourcePlan := #[]
+      for fieldDecl in decl.fields do
+        sources := sources.push {
+          fieldName := fieldDecl.id
+          expr := .local (structLocalFieldName sourceName fieldDecl.id)
+        }
+      .ok sources
+  | .structLit literalTypeName fields => do
+      if literalTypeName != typeName then
+        .error { message := s!"assignment target `{name}` expected struct `{typeName}`, got `{literalTypeName}`" }
+      let mut sources : Array StructAssignmentSourcePlan := #[]
+      for fieldDecl in decl.fields do
+        let some field := fields.find? fun field => field.fst == fieldDecl.id
+          | .error { message := s!"struct literal `{typeName}` is missing field `{fieldDecl.id}`" }
+        sources := sources.push {
+          fieldName := fieldDecl.id
+          expr := ← buildExprPlan module env field.snd
+        }
+      .ok sources
+  | .effect (.storageScalarRead stateId) => do
+      let (slot, stateTypeName, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireStructState module stateId
+      ensureType s!"assignment target `{name}` struct type" (.structType typeName) (.structType stateTypeName)
+      let mut sources : Array StructAssignmentSourcePlan := #[]
+      for h : idx in [0:decl.fields.size] do
+        let fieldDecl := decl.fields[idx]
+        ensureStructLocalFieldType typeName fieldDecl.id fieldDecl.type
+        sources := sources.push {
+          fieldName := fieldDecl.id
+          expr := .storageLoad (.scalarSlot (slot + idx))
+        }
+      .ok sources
+  | _ =>
+      .error { message := s!"assignment target `{name}` struct whole assignment supports local struct values, struct literals, or storage scalar struct reads in IR EVM v0" }
+
 def crosscallModeArgContext : CrosscallMode → String
   | .call => "typed crosscall argument"
   | .callValue => "value crosscall argument"

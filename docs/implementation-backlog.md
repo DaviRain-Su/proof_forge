@@ -762,14 +762,19 @@ Tasks:
     aggregate local-array leaves still fall back through the compatibility
     facade.
   - Started: whole local aggregate assignment snapshot blocks now live behind
-    `ToYul`. Local fixed-array whole-assignment sources now enter
-    `Lower.fixedArrayAssignmentSourcePlans` first, so local-array sources and
-    array-literal element expressions are represented as `ExprPlan`s before
-    `ToYul.wholeFixedArrayAssignStmtFromPlan` emits the snapshot block.
-    `IR.lean` still validates and expands nested fixed-array, struct-array, and
-    struct assignment sources, but final temp declarations, target local names,
-    and assignment block construction are delegated to `ToYul` helpers so the
-    compatibility facade no longer owns the final Yul statement frame.
+    `ToYul`. Local fixed-array and flat struct whole-assignment sources now
+    enter `Lower.fixedArrayAssignmentSourcePlans` or
+    `Lower.structAssignmentSourcePlans` first, so local aggregate sources and
+    array/struct literal scalar expressions are represented as `ExprPlan`s
+    before `ToYul.*AssignStmtFromPlan` emits the snapshot block.
+    Storage-backed scalar struct assignment sources also enter
+    `Lower.structAssignmentSourcePlans` and are represented as
+    `ExprPlan.storageLoad` word expressions. `IR.lean` still validates and
+    expands nested fixed-array and struct-array assignment sources, but final
+    temp declarations, target local names, and assignment block construction
+    are delegated to `ToYul` helpers so the compatibility facade no longer
+    owns the final Yul statement frame for supported whole local aggregate
+    sources.
   - Started: dynamic local aggregate assignment switch frames now live behind
     `ToYul`. `IR.lean` still resolves dynamic local fixed-array and
     struct-array paths, but dynamic index/value snapshot expressions now enter
@@ -3182,6 +3187,7 @@ so authors never drop to Builder for common EVM patterns. Cross-ref
 | CS-3.8 | ERC-721 core (ownerOf, transfer, safeTransferFrom, mint, burn) | P0 | Foundry NFT lifecycle smoke |
 | CS-3.9 | CREATE2 factory template module | P1 | Deterministic deploy example + metadata |
 | CS-3.10 | Proxy/upgrade patterns (UUPS or transparent) aligned with Workstream 32 `upgradePolicy` | P1 | Honest lowering or explicit reject per policy |
+| CS-3.11 | ERC-1155 single-transfer core | P1 | ✅ `Stdlib/ERC1155.lean` covers balances, operator approvals, mint, burn, and single `safeTransferFrom`; Foundry smoke covers lifecycle. Batch transfer and receiver callbacks remain open |
 
 ### Phase CS-4 — Project development experience
 
@@ -3347,7 +3353,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
 - ✅ P0: ERC-165 supportsInterface (stdlib mixin)
 - ✅ P0: AccessControl roles (stdlib mixin + guard_role)
 - ✅ P0: Constructor dynamic-type args (CLI ABI encoding + constructor_body + Anvil verified)
-- P1: ERC-1155 multi-token, ERC-4626 vault, ERC-2612 permit, custom errors,
+- P1: ERC-1155 batch transfer/receiver callbacks, ERC-4626 vault, ERC-2612 permit, custom errors,
   storage packing, batch operations, factory deployment template, AMM,
   Pausable auth, ERC-721 onERC721Received, dynamic constructor args runtime
 

@@ -2,20 +2,23 @@ import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
+import ProofForge.Backend.Quint.Scenario
 
 namespace Tests.Quint.ValueVaultReplay
 
 open ProofForge.Backend.Quint
 
-def scenario : Scenario.Config := {
-  maxUint := 5,
-  users := #["alice", "bob"],
-  maxSteps := 5,
-  nTraces := 1
-}
+def loadScenario : IO Scenario.Config := do
+  let contents ← IO.FS.readFile "Tests/Quint/ValueVault.scenario.toml"
+  match Scenario.parse contents with
+  | .ok cfg => return cfg
+  | .error msg => throw (IO.userError s!"scenario parse failed: {msg}")
 
-def generateModel : IO String :=
-  match Lower.renderModule ProofForge.IR.Examples.ValueVault.module scenario with
+def scenario : IO Scenario.Config := loadScenario
+
+def generateModel : IO String := do
+  let s ← scenario
+  match Lower.renderModule ProofForge.IR.Examples.ValueVault.module s with
   | .ok s => pure s
   | .error e => throw (IO.userError s!"lower failed: {e.message}")
 
@@ -33,6 +36,7 @@ def main : IO UInt32 := do
   let model ← generateModel
   IO.FS.createDirAll "build/quint"
   IO.FS.writeFile qntPath model
+  IO.println s!"wrote {qntPath}"
   runQuint qntPath itfPath
   let itfJson ← IO.FS.readFile itfPath
   match ITF.parse itfJson with

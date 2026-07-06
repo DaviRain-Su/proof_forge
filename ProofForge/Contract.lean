@@ -8,6 +8,7 @@ import ProofForge.Contract.Spec.Json
 import ProofForge.Contract.Source
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Stdlib.ERC20
+import ProofForge.Contract.Stdlib.ERC1155
 import ProofForge.Contract.Stdlib.Ownable
 import ProofForge.Contract.Stdlib.Pausable
 import ProofForge.Contract.Stdlib.ReentrancyGuard

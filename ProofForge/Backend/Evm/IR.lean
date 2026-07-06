@@ -1938,42 +1938,30 @@ mutual
       (env : TypeEnv)
       (context name : String)
       (expectedType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-    discard <|
+    let plans ←
       lowerValidate <|
-        ProofForge.Backend.Evm.Lower.validateLocalAbiWordPlan
+        ProofForge.Backend.Evm.Lower.localAbiWordPlans
           module
           (toValidateTypeEnv env)
           context
           name
           expectedType
-    ProofForge.Backend.Evm.ToYul.localAbiWords
-      toYulError
-      (localAbiStructFieldIds module context)
-      context
-      name
-      expectedType
+    plans.mapM (lowerExprPlanExpr module env)
 
   partial def lowerLocalCrosscallWords
       (module : Module)
       (env : TypeEnv)
       (context name : String)
       (expectedType : ValueType) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-    discard <|
+    let plans ←
       lowerValidate <|
-        ProofForge.Backend.Evm.Lower.validateLocalCrosscallWordPlan
+        ProofForge.Backend.Evm.Lower.localCrosscallWordPlans
           module
           (toValidateTypeEnv env)
           context
           name
           expectedType
-    ProofForge.Backend.Evm.ToYul.localCrosscallWords
-      toYulError
-      (fun typeName =>
-        lowerValidate <|
-          ProofForge.Backend.Evm.Lower.localCrosscallStructFieldIds module context typeName)
-      context
-      name
-      expectedType
+    plans.mapM (lowerExprPlanExpr module env)
 
   partial def lowerStorageCrosscallWords
       (module : Module)
@@ -1994,55 +1982,14 @@ mutual
       (context stateId : String)
       (elementType : ValueType)
       (length : Nat) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-    match elementType with
-    | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => do
-        let (slot, stateLength, stateElementType) ← requireStorageArrayState module stateId
-        if stateLength != length then
-          .error { message := s!"{context} storage array `{stateId}` expected length {length}, got {stateLength}" }
-        ensureType s!"{context} storage array `{stateId}` element type" elementType stateElementType
-        let mut words : Array Lean.Compiler.Yul.Expr := #[]
-        for _h : idx in [0:length] do
-          let elementSlot :=
-            ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.arraySlot #[
-              slotExpr slot,
-              Lean.Compiler.Yul.Expr.num stateLength,
-              Lean.Compiler.Yul.Expr.num idx
-            ]
-          words := words.push (Lean.Compiler.Yul.builtin "sload" #[elementSlot])
-        .ok words
-    | .structType typeName => do
-        let some decl := findStruct? module typeName
-          | .error { message := s!"{context} storage array `{stateId}` uses unknown struct `{typeName}`" }
-        match stateInfo? module stateId with
-        | some (_, { kind := .array stateLength, type := .structType stateTypeName, .. }) => do
-            if stateLength != length then
-              .error { message := s!"{context} storage struct array `{stateId}` expected length {length}, got {stateLength}" }
-            if stateTypeName != typeName then
-              .error { message := s!"{context} storage struct array `{stateId}` expected struct `{typeName}`, got `{stateTypeName}`" }
-        | some (_, state) =>
-            .error { message := s!"{context} storage struct array `{stateId}` expected fixed array of struct `{typeName}`, got `{state.type.name}`" }
-        | none =>
-            .error { message := s!"unknown struct array state `{stateId}`" }
-        let mut words : Array Lean.Compiler.Yul.Expr := #[]
-        for _h : idx in [0:length] do
-          for fieldDecl in decl.fields do
-            let (slot, stateLength, fieldCount, fieldOffset, field) ←
-              requireStructArrayStateField module stateId fieldDecl.id
-            ensureType s!"{context} storage struct array `{stateId}` field `{fieldDecl.id}`" fieldDecl.type field.type
-            let fieldSlot :=
-              ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.structArraySlot #[
-                slotExpr slot,
-                Lean.Compiler.Yul.Expr.num stateLength,
-                Lean.Compiler.Yul.Expr.num fieldCount,
-                Lean.Compiler.Yul.Expr.num fieldOffset,
-                Lean.Compiler.Yul.Expr.num idx
-              ]
-            words := words.push (Lean.Compiler.Yul.builtin "sload" #[fieldSlot])
-        .ok words
-    | .unit | .fixedArray _ _ | .bytes | .string | .array _ =>
-        .error {
-          message := s!"{context} storage-backed ABI word expansion has unsupported fixed-array element type `{elementType.name}`"
-        }
+    let plans ←
+      lowerValidate <|
+        ProofForge.Backend.Evm.Lower.storageAbiWordPlans
+          module
+          context
+          stateId
+          (.fixedArray elementType length)
+    plans.mapM (lowerExprPlanExpr module #[])
 
   partial def lowerCrosscallArgWordsMany
       (module : Module)
@@ -2232,7 +2179,14 @@ mutual
               message := s!"storage.scalar.read for struct state `{stateId}` must be consumed by a struct local binding, struct field access, or struct return in IR EVM v0"
             }
         | _ => pure ()
-        lowerScalarStorageReadExpr module env stateId
+        match ProofForge.Backend.Evm.Lower.scalarStorageTargetPlan? module stateId with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.scalarStorageTargetReadExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              target
+        | none =>
+            lowerScalarStorageReadExpr module env stateId
     | .storageScalarReadTarget target =>
         ProofForge.Backend.Evm.ToYul.scalarStorageTargetReadExpr
           toYulError
@@ -2247,13 +2201,22 @@ mutual
           (fun exprPlan => lowerExprPlanExpr module env exprPlan)
           field
     | .storageMapContains stateId key => do
-        let (rootSlot, _, _) ← requireStorageMapState module stateId
-        ProofForge.Backend.Evm.ToYul.mapContainsExpr
-          toYulError
-          (fun expr => lowerExpr module env expr)
-          (lowerPlanEffectExpr module env)
-          rootSlot
-          key
+        match ProofForge.Backend.Evm.Lower.mapReadTargetPlan? module stateId with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.mapContainsTargetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              target
+              key
+        | none =>
+            let (rootSlot, _, _) ← requireStorageMapState module stateId
+            ProofForge.Backend.Evm.ToYul.mapContainsExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              rootSlot
+              key
     | .storageMapContainsTarget target key =>
         ProofForge.Backend.Evm.ToYul.mapContainsTargetExpr
           toYulError
@@ -2262,13 +2225,22 @@ mutual
           target
           key
     | .storageMapGet stateId key => do
-        let (rootSlot, _, _) ← requireStorageMapState module stateId
-        ProofForge.Backend.Evm.ToYul.mapGetExpr
-          toYulError
-          (fun expr => lowerExpr module env expr)
-          (lowerPlanEffectExpr module env)
-          rootSlot
-          key
+        match ProofForge.Backend.Evm.Lower.mapReadTargetPlan? module stateId with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.mapGetTargetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              target
+              key
+        | none =>
+            let (rootSlot, _, _) ← requireStorageMapState module stateId
+            ProofForge.Backend.Evm.ToYul.mapGetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              rootSlot
+              key
     | .storageMapGetTarget target key =>
         ProofForge.Backend.Evm.ToYul.mapGetTargetExpr
           toYulError
@@ -2286,14 +2258,23 @@ mutual
           key
           value
     | .storageArrayRead stateId index => do
-        let (rootSlot, length, _) ← requireStorageArrayState module stateId
-        ProofForge.Backend.Evm.ToYul.arrayReadExpr
-          toYulError
-          (fun expr => lowerExpr module env expr)
-          (lowerPlanEffectExpr module env)
-          rootSlot
-          length
-          index
+        match ProofForge.Backend.Evm.Lower.arrayReadTargetPlan? module stateId with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.arrayReadTargetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              target
+              index
+        | none =>
+            let (rootSlot, length, _) ← requireStorageArrayState module stateId
+            ProofForge.Backend.Evm.ToYul.arrayReadExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              rootSlot
+              length
+              index
     | .storageArrayReadTarget target index =>
         ProofForge.Backend.Evm.ToYul.arrayReadTargetExpr
           toYulError
@@ -2302,24 +2283,40 @@ mutual
           target
           index
     | .storageStructFieldRead stateId fieldName => do
-        let (slot, _) ← requireStructStateField module stateId fieldName
-        .ok (ProofForge.Backend.Evm.ToYul.structFieldReadExpr slot)
+        match ProofForge.Backend.Evm.Lower.structFieldReadTargetPlan? module stateId fieldName with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.structFieldReadTargetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              target
+        | none =>
+            let (slot, _) ← requireStructStateField module stateId fieldName
+            .ok (ProofForge.Backend.Evm.ToYul.structFieldReadExpr slot)
     | .storageStructFieldReadTarget target =>
         ProofForge.Backend.Evm.ToYul.structFieldReadTargetExpr
           toYulError
           (fun expr => lowerExpr module env expr)
           target
     | .storageArrayStructFieldRead stateId index fieldName => do
-        let (rootSlot, length, fieldCount, fieldOffset, _) ← requireStructArrayStateField module stateId fieldName
-        ProofForge.Backend.Evm.ToYul.structArrayFieldReadExpr
-          toYulError
-          (fun expr => lowerExpr module env expr)
-          (lowerPlanEffectExpr module env)
-          rootSlot
-          length
-          fieldCount
-          fieldOffset
-          index
+        match ProofForge.Backend.Evm.Lower.structArrayFieldReadTargetPlan? module stateId fieldName with
+        | some target =>
+            ProofForge.Backend.Evm.ToYul.structArrayFieldReadTargetExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              target
+              index
+        | none =>
+            let (rootSlot, length, fieldCount, fieldOffset, _) ← requireStructArrayStateField module stateId fieldName
+            ProofForge.Backend.Evm.ToYul.structArrayFieldReadExpr
+              toYulError
+              (fun expr => lowerExpr module env expr)
+              (lowerPlanEffectExpr module env)
+              rootSlot
+              length
+              fieldCount
+              fieldOffset
+              index
     | .storageArrayStructFieldReadTarget target index =>
         ProofForge.Backend.Evm.ToYul.structArrayFieldReadTargetExpr
           toYulError
@@ -2357,23 +2354,7 @@ mutual
       Except LowerError (Array Lean.Compiler.Yul.Expr) := do
     ProofForge.Backend.Evm.ToYul.crosscallArgWordPlanExprs
       (lowerExprPlanExpr module env)
-      (fun name type => do
-        discard <|
-          lowerValidate <|
-            ProofForge.Backend.Evm.Lower.validateLocalCrosscallWordPlan
-              module
-              (toValidateTypeEnv env)
-              context
-              name
-              type
-        ProofForge.Backend.Evm.ToYul.localCrosscallWords
-            toYulError
-            (fun typeName =>
-              lowerValidate <|
-                ProofForge.Backend.Evm.Lower.localCrosscallStructFieldIds module context typeName)
-            context
-            name
-            type)
+      (fun name type => lowerLocalCrosscallWords module env context name type)
       (fun stateId type =>
         lowerStorageCrosscallWords module env context stateId type)
       plans
@@ -2447,6 +2428,7 @@ def lowerReturnValueWordPlan
     plan.returns
     words
 
+mutual
 partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .literal _ => true
   | .local _ => true
@@ -2482,6 +2464,58 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .nativeValue => true
   | .effect (.storageScalarRead _) => true
   | .effect (.contextRead _) => true
+  | .arrayGet (.arrayLit _ values) index =>
+      !values.isEmpty &&
+        values.all exprSupportsPlanScalarYul &&
+        exprSupportsPlanScalarYul index
+  | .arrayGet (.local _) index =>
+      exprSupportsPlanScalarYul index
+  | .arrayGet (.arrayGet array index) nextIndex =>
+      exprSupportsPlanScalarYul (.arrayGet array index) &&
+        exprSupportsPlanScalarYul nextIndex
+  | .field (.structLit _ fields) _ =>
+      fields.all fun field => exprSupportsPlanScalarYul field.snd
+  | .field (.local _) _ => true
+  | .field (.arrayGet array index) _ =>
+      exprSupportsPlanScalarYul (.arrayGet array index)
+  | .memoryArrayLength (.local _) => true
+  | .memoryArrayLength (.memoryArrayNew _ length) =>
+      exprSupportsPlanScalarYul length
+  | .memoryArrayGet (.local _) index =>
+      exprSupportsPlanScalarYul index
+  | .memoryArrayGet (.memoryArrayNew _ length) index =>
+      exprSupportsPlanScalarYul length &&
+        exprSupportsPlanScalarYul index
+  | .crosscallInvoke target methodId args =>
+      exprSupportsPlanScalarYul target &&
+        exprSupportsPlanScalarYul methodId &&
+        args.all exprSupportsPlanScalarYul
+  | .crosscallInvokeTyped target methodId args returnType =>
+      isCrosscallWordType returnType &&
+        exprSupportsPlanScalarYul target &&
+        exprSupportsPlanScalarYul methodId &&
+        args.all exprSupportsPlanCrosscallArgYul
+  | .crosscallInvokeValueTyped target methodId callValue args returnType =>
+      isCrosscallWordType returnType &&
+        exprSupportsPlanScalarYul target &&
+        exprSupportsPlanScalarYul methodId &&
+        exprSupportsPlanScalarYul callValue &&
+        args.all exprSupportsPlanCrosscallArgYul
+  | .crosscallInvokeStaticTyped target methodId args returnType =>
+      isCrosscallWordType returnType &&
+        exprSupportsPlanScalarYul target &&
+        exprSupportsPlanScalarYul methodId &&
+        args.all exprSupportsPlanCrosscallArgYul
+  | .crosscallInvokeDelegateTyped target methodId args returnType =>
+      isCrosscallWordType returnType &&
+        exprSupportsPlanScalarYul target &&
+        exprSupportsPlanScalarYul methodId &&
+        args.all exprSupportsPlanCrosscallArgYul
+  | .crosscallCreate callValue _ =>
+      exprSupportsPlanScalarYul callValue
+  | .crosscallCreate2 callValue salt _ =>
+      exprSupportsPlanScalarYul callValue &&
+        exprSupportsPlanScalarYul salt
   | .arrayLit _ _
   | .arrayGet _ _
   | .memoryArrayNew _ _
@@ -2489,14 +2523,17 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
-  | .crosscallInvoke _ _ _
-  | .crosscallInvokeTyped _ _ _ _
-  | .crosscallInvokeValueTyped _ _ _ _ _
-  | .crosscallInvokeStaticTyped _ _ _ _
-  | .crosscallInvokeDelegateTyped _ _ _ _
-  | .crosscallCreate _ _
-  | .crosscallCreate2 _ _ _
   | .effect _ => false
+
+partial def exprSupportsPlanCrosscallArgYul : ProofForge.IR.Expr → Bool
+  | .arrayLit _ values =>
+      !values.isEmpty &&
+        values.all exprSupportsPlanCrosscallArgYul
+  | .structLit _ fields =>
+      !fields.isEmpty &&
+        fields.all fun field => exprSupportsPlanCrosscallArgYul field.snd
+  | expr => exprSupportsPlanScalarYul expr
+end
 
 partial def lowerExprViaPlan
     (module : Module)
@@ -3522,6 +3559,20 @@ def lowerFixedArrayAssignmentSourcePlans
       length
       value
 
+def lowerStructAssignmentSourcePlans
+    (module : Module)
+    (env : TypeEnv)
+    (name typeName : String)
+    (value : ProofForge.IR.Expr) :
+    Except LowerError (Array ProofForge.Backend.Evm.Plan.StructAssignmentSourcePlan) :=
+  lowerValidate <|
+    ProofForge.Backend.Evm.Lower.structAssignmentSourcePlans
+      module
+      (toValidateTypeEnv env)
+      name
+      typeName
+      value
+
 partial def lowerNestedFixedArrayLocalSourceExprs
     (module : Module)
     (sourceName : String)
@@ -3719,12 +3770,20 @@ def lowerWholeStructAssignStmt
     (env : TypeEnv)
     (name typeName : String)
     (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
-  let sourceExprs ← lowerStructAssignmentSourceExprs module env name typeName value
-  let sources := sourceExprs.map fun field =>
-    let (fieldName, expr) := field
-    ({ fieldName := fieldName, expr := expr } :
-      ProofForge.Backend.Evm.ToYul.StructAssignmentSource)
-  .ok (ProofForge.Backend.Evm.ToYul.wholeStructAssignStmt name sources)
+  match value with
+  | .local _ | .structLit _ _ | .effect (.storageScalarRead _) => do
+      let sourcePlans ← lowerStructAssignmentSourcePlans module env name typeName value
+      ProofForge.Backend.Evm.ToYul.wholeStructAssignStmtFromPlan
+        (lowerExprPlanExpr module env)
+        name
+        sourcePlans
+  | _ => do
+      let sourceExprs ← lowerStructAssignmentSourceExprs module env name typeName value
+      let sources := sourceExprs.map fun field =>
+        let (fieldName, expr) := field
+        ({ fieldName := fieldName, expr := expr } :
+          ProofForge.Backend.Evm.ToYul.StructAssignmentSource)
+      .ok (ProofForge.Backend.Evm.ToYul.wholeStructAssignStmt name sources)
 
 def lowerWholeLocalAssignStmt
     (module : Module)
@@ -4481,7 +4540,13 @@ mutual
         | some salt => exprPlanSupportsPlannedBody salt
     | .localArrayGet _ path _ =>
         path.all exprPlanSupportsPlannedBody
+    | .arrayGet (.arrayLit _ values) index =>
+        !values.isEmpty &&
+          values.all exprPlanSupportsPlannedBody &&
+          exprPlanSupportsPlannedBody index
     | .structField (.local _) _ => true
+    | .structField (.structLit _ fields) _ =>
+        fields.all fun field => exprPlanSupportsPlannedBody field.snd
     | .structField (.localArrayGet _ path _) _ =>
         path.all exprPlanSupportsPlannedBody
     | .memoryArrayNew _ length =>

@@ -33,7 +33,7 @@ lake env proof-forge build --target evm \
   Examples/Evm/Contracts/Counter.lean
 ```
 
-`ArrayExample.lean` 以及 stdlib 示例通过相同的统一路径，使用 `def spec : ContractSpec` 和 Builder API。
+`ArrayExample.lean` 以及 stdlib 示例通过相同的统一路径，使用 `contract_source` / `def spec : ContractSpec`。
 
 不需要 `.evm-methods` sidecar。CLI 会从 Lean 模块加载 `spec : ContractSpec`，并通过 portable IR EVM 后端降级。
 

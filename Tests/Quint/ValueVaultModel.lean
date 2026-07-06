@@ -7,7 +7,11 @@ open ProofForge.Backend.Quint
 
 def scenario : Scenario.Config := {
   maxUint := 5,
-  users := #["alice", "bob"]
+  users := #["alice", "bob"],
+  invariants := #[
+    ("totalCoversReleased", "balance + released + fees >= released"),
+    ("totalCoversFees", "balance + released + fees >= fees")
+  ]
 }
 
 def main : IO UInt32 := do
@@ -24,7 +28,9 @@ def main : IO UInt32 := do
         "action charge_fee",
         "action release",
         "action snapshot",
-        "pure def MAX_UINT: int = 5"
+        "pure def MAX_UINT: int = 5",
+        "val totalCoversReleased = balance + released + fees >= released",
+        "val totalCoversFees = balance + released + fees >= fees"
       ]
       for s in expected do
         if !source.contains s then

@@ -2814,6 +2814,24 @@ def wholeStructAssignStmt
     (sources : Array StructAssignmentSource) : Lean.Compiler.Yul.Statement :=
   .block { statements := structAssignmentStatements name sources }
 
+def structAssignmentSourceFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (source : StructAssignmentSourcePlan) :
+    Except ε StructAssignmentSource := do
+  .ok {
+    fieldName := source.fieldName
+    expr := ← lowerPlanExpr source.expr
+  }
+
+def wholeStructAssignStmtFromPlan
+    {ε : Type}
+    (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr)
+    (name : String)
+    (sources : Array StructAssignmentSourcePlan) :
+    Except ε Lean.Compiler.Yul.Statement := do
+  .ok <| wholeStructAssignStmt name (← sources.mapM (structAssignmentSourceFromPlan lowerPlanExpr))
+
 def dynamicArrayIndexLocalName : String := "__proof_forge_array_index"
 
 def dynamicArrayValueLocalName : String := "__proof_forge_array_value"

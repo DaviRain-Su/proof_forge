@@ -9,7 +9,11 @@ def sampleToml : String := String.intercalate "\n" [
   "max_uint = 3",
   "users = [\"alice\", \"bob\"]",
   "max_steps = 5",
-  "n_traces = 20"
+  "n_traces = 20",
+  "",
+  "[invariants]",
+  "counterNonNegative = \"counter >= 0\"",
+  "counterBounded = \"counter <= MAX_UINT\""
 ]
 
 def main : IO UInt32 := do
@@ -29,6 +33,13 @@ def main : IO UInt32 := do
         return 1
       if cfg.nTraces != 20 then
         IO.eprintln s!"FAIL nTraces expected 20, got {cfg.nTraces}"
+        return 1
+      if cfg.invariants.size != 2 then
+        IO.eprintln s!"FAIL invariants size expected 2, got {cfg.invariants.size}"
+        return 1
+      let invNames := cfg.invariants.map Prod.fst
+      if invNames != #["counterNonNegative", "counterBounded"] then
+        IO.eprintln s!"FAIL invariant names mismatch: {invNames}"
         return 1
       let pureDefs := cfg.quintPureDefs
       if pureDefs.size != 2 then

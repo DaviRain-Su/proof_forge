@@ -260,7 +260,8 @@ See [Examples/Evm/README.md](../../Examples/Evm/README.md):
 - `SimpleToken.lean` — ERC-20-style token with mappings
 - `ArrayExample.lean` — in-memory arrays
 - `VerifiedVault.lean` — proofs in contract module
-- `stdlib/` — ERC20, Ownable, Pausable
+- `stdlib/` — ERC20, ERC1155 single-transfer core, ERC721, ERC165,
+  Ownable, AccessControl, Pausable, ReentrancyGuard, Create2Factory, UUPSProxy
 
 ## Known Limits
 
