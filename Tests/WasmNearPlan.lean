@@ -248,6 +248,8 @@ def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   requireNotContains wat "(import \"env\" \"promise_results_count\"" "counter module should not import promise_results_count"
   requireNotContains wat "(import \"env\" \"promise_result\"" "counter module should not import promise_result"
   requireNotContains wat "(import \"env\" \"promise_return\"" "counter module should not import promise_return"
+  requireNotContains wat "(import \"env\" \"pf_alloc\"" "counter module should not import pf_alloc"
+  requireNotContains wat "(import \"env\" \"pf_dealloc\"" "counter module should not import pf_dealloc"
   requireNotContains wat "__pf_evt_start" "counter module should not emit event helpers"
   requireNotContains wat "__pf_evt_log" "counter module should not emit event logging helpers"
   requireNotContains wat "__pf_pow_u32" "counter module should not emit U32 pow helper"
@@ -458,6 +460,38 @@ def testArrayPredicateRenderKeepsEqualityAndDeallocSurface : IO Unit := do
   requireContains releaseWat "__pf_arr_dealloc" "array-release module must emit arr dealloc helper"
   requireNotContains releaseWat "__pf_arr_eq_u64_3" "array-release module should not emit array equality helper"
 
+def hostBumpScalarModule : Module := {
+  counterModule with allocator := ProofForge.IR.AllocatorConfig.hostBump }
+
+def testHostBumpScalarRenderOmitsHostAllocatorImports : IO Unit := do
+  let wat ←
+    match renderModule hostBumpScalarModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat host-bump scalar render failed: {err.message}"
+  requireNotContains wat "(import \"env\" \"pf_alloc\"" "host-bump scalar module should not import pf_alloc"
+  requireNotContains wat "(import \"env\" \"pf_dealloc\"" "host-bump scalar module should not import pf_dealloc"
+  requireNotContains wat "__pf_arr_alloc" "host-bump scalar module should not emit arr alloc helper"
+
+def testHostBumpArrayLiteralRenderKeepsOnlyPfAllocImport : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.ArrayProbe.emitWatSumExternalModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat host-bump array-literal render failed: {err.message}"
+  requireContains wat "(import \"env\" \"pf_alloc\"" "host-bump array-literal module must import pf_alloc"
+  requireContains wat "__pf_arr_alloc" "host-bump array-literal module must emit arr alloc helper"
+  requireNotContains wat "(import \"env\" \"pf_dealloc\"" "host-bump array-literal module should not import pf_dealloc"
+  requireNotContains wat "__pf_arr_dealloc" "host-bump array-literal module should not emit arr dealloc helper"
+
+def testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.ArrayProbe.emitWatReleaseExternalModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat host-jemalloc release render failed: {err.message}"
+  requireContains wat "(import \"env\" \"pf_alloc\"" "host-jemalloc release module must import pf_alloc"
+  requireContains wat "(import \"env\" \"pf_dealloc\"" "host-jemalloc release module must import pf_dealloc"
+  requireContains wat "__pf_arr_alloc" "host-jemalloc release module must emit arr alloc helper"
+  requireContains wat "__pf_arr_dealloc" "host-jemalloc release module must emit arr dealloc helper"
+
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   -- Crosscall is not in the wasm-near target profile yet; test the v0 stub lowering path directly.
   let wat ←
@@ -524,6 +558,9 @@ def main : IO UInt32 := do
   testPowRenderKeepsOnlyMatchingNumericPowHelper
   testArrayLiteralRenderKeepsOnlyMatchingArrayLitSurface
   testArrayPredicateRenderKeepsEqualityAndDeallocSurface
+  testHostBumpScalarRenderOmitsHostAllocatorImports
+  testHostBumpArrayLiteralRenderKeepsOnlyPfAllocImport
+  testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports
   testCrosscallRenderKeepsOnlyCreatePromiseSurface
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic

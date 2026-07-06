@@ -739,6 +739,16 @@ def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
       (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
         #[] else #[registerLenImport])
 
+/-- Offline host-provided allocators forward heap helpers to `pf_alloc` /
+    `pf_dealloc`. Only emit the imports actually referenced by the planned arr
+    heap surface. -/
+def hostAllocatorImportsForModulePlan (plan : ModulePlan) (cfg : ProofForge.IR.AllocatorConfig) : Array Import :=
+  if !cfg.requiresHost then
+    #[]
+  else
+    (if plan.usesArrAlloc then #[allocImport] else #[]) ++
+      (if plan.usesArrDealloc then #[deallocImport] else #[])
+
 def lowerContextExprPlan :
     ContextExprPlan → Except EmitError (Array Insn × ValueType)
   | .userId => .ok (#[.call ctxUserIdName], .u64)
@@ -2056,7 +2066,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
           imports
   let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
-  let extraImports := if isHost then #[allocImport, deallocImport] else #[]
+  let extraImports := hostAllocatorImportsForModulePlan modulePlan mod.allocator
   let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
     (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
       then #[storageHasKeyImport]
