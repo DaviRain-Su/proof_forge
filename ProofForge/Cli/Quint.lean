@@ -1,6 +1,10 @@
+import Lean.Util.Path
 import ProofForge.IR.Contract
+import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.Scenario
 import ProofForge.Contract.Examples.Counter
+import ProofForge.Contract.Examples.ValueVault
+import ProofForge.Cli.Options
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.ConditionalProbe
@@ -16,6 +20,8 @@ import ProofForge.IR.Examples.AssignmentProbe
 import ProofForge.IR.Examples.CrosscallProbe
 import ProofForge.IR.Examples.StorageNestedAggregateProbe
 import ProofForge.IR.Examples.UnboundedIntProbe
+
+open System
 
 namespace ProofForge.Cli.Quint
 
@@ -125,3 +131,72 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | _ => none
 
 end ProofForge.Cli.Quint
+
+namespace ProofForge.Cli
+
+def loadQuintScenarioConfig (opts : CliOptions) : IO ProofForge.Backend.Quint.Scenario.Config := do
+  match opts.scenario? with
+  | none => return {}
+  | some path =>
+      let contents ← IO.FS.readFile path
+      match ProofForge.Backend.Quint.Scenario.parse contents with
+      | .ok cfg => return cfg
+      | .error msg => throw <| IO.userError s!"failed to parse scenario {path}: {msg}"
+
+def compileIrQuintModule (opts : CliOptions) (module : ProofForge.IR.Module) (defaultOutput : String)
+    (contractInvariants : Array (String × String) := #[])
+    (contractLiveness : Array (String × String) := #[]) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk defaultOutput)
+  let scenario ← loadQuintScenarioConfig opts
+  let scenario := {
+    scenario with
+      contractInvariants := contractInvariants
+      contractLiveness := contractLiveness
+  }
+  match ProofForge.Backend.Quint.Lower.renderModule module scenario with
+  | .ok source =>
+      match output.parent with
+      | some parent => IO.FS.createDirAll parent
+      | none => pure ()
+      IO.FS.writeFile output source
+      IO.println s!"wrote {output}"
+      return 0
+  | .error err =>
+      throw <| IO.userError err.message
+
+def compileCounterIrQuint (opts : CliOptions) : IO UInt32 :=
+  compileIrQuintModule opts ProofForge.IR.Examples.Counter.module "build/quint/Counter.qnt"
+    ProofForge.Contract.Examples.Counter.spec.quintInvariants
+    ProofForge.Contract.Examples.Counter.spec.quintLiveness
+
+def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 :=
+  compileIrQuintModule opts ProofForge.IR.Examples.ValueVault.module "build/quint/ValueVault.qnt"
+    ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
+    ProofForge.Contract.Examples.ValueVault.spec.quintLiveness
+
+def compileIrQuint (opts : CliOptions) : IO UInt32 := do
+  let fixture ← match opts.fixture? with
+    | some f => pure f
+    | none => throw <| IO.userError "missing --fixture for --emit-ir-quint"
+  let module ← match ProofForge.Cli.Quint.fixtureModule? fixture with
+    | some m => pure m
+    | none => throw <| IO.userError s!"unknown or unsupported Quint fixture `{fixture}`"
+  compileIrQuintModule opts module (ProofForge.Cli.Quint.defaultOutputPath fixture)
+
+def compileIrQuintScenario (opts : CliOptions) : IO UInt32 := do
+  let fixture ← match opts.fixture? with
+    | some f => pure f
+    | none => throw <| IO.userError "missing --fixture for --emit-ir-quint-scenario"
+  if !ProofForge.Cli.Quint.supportsFixture fixture then
+    throw <| IO.userError s!"unknown or unsupported Quint fixture `{fixture}`"
+  let output := opts.output?.getD (FilePath.mk (ProofForge.Cli.Quint.defaultScenarioOutputPath fixture))
+  let cfg := ProofForge.Cli.Quint.scenarioConfigForEmit fixture
+  let source := ProofForge.Backend.Quint.Scenario.renderToml fixture cfg
+  match output.parent with
+  | some parent => IO.FS.createDirAll parent
+  | none => pure ()
+  IO.FS.writeFile output source
+  IO.println s!"wrote {output}"
+  return 0
+
+end ProofForge.Cli
