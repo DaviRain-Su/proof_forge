@@ -44,3 +44,4 @@ import ProofForge.IR.Examples.U32ArithmeticProbe
 import ProofForge.IR.Examples.U32HashPackingProbe
 import ProofForge.IR.Examples.U32StorageScalarProbe
 import ProofForge.IR.Examples.U32StorageArrayProbe
+import ProofForge.IR.Examples.UnboundedIntProbe

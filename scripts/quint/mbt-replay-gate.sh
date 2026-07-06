@@ -49,6 +49,7 @@ lake env lean --run Tests/Quint/NestedStructRefModel.lean
 lake env lean --run Tests/Quint/AssignmentModel.lean
 lake env lean --run Tests/Quint/CrosscallModel.lean
 lake env lean --run Tests/Quint/AssertModel.lean
+lake env lean --run Tests/Quint/UnboundedIntModel.lean
 
 echo "Running Counter MBT replay test..."
 lake env lean --run Tests/Quint/CounterReplay.lean
@@ -113,6 +114,9 @@ lake env lean --run Tests/Quint/CrosscallReplay.lean
 echo "Running AssertProbe MBT replay test..."
 lake env lean --run Tests/Quint/AssertReplay.lean
 
+echo "Running UnboundedIntProbe MBT replay test..."
+lake env lean --run Tests/Quint/UnboundedIntReplay.lean
+
 echo "Building proof-forge CLI for emit smoke..."
 lake build proof-forge
 
@@ -137,5 +141,6 @@ lake env proof-forge emit --target quint --fixture nested-struct-ref -o build/qu
 lake env proof-forge emit --target quint --fixture assignment -o build/quint/CliAssignment.qnt
 lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CliCrosscall.qnt
 lake env proof-forge emit --target quint --fixture assert -o build/quint/CliAssert.qnt
+lake env proof-forge emit --target quint --fixture unbounded-int -o build/quint/CliUnboundedInt.qnt
 
 echo "Quint MBT replay gate passed."

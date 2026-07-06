@@ -199,7 +199,9 @@ Tasks:
   `just quint-mbt-gate`.
 - Done: nested `#[ref]` struct fields via recursive flattening and `storagePath*`
   lowering with `nested-struct-ref` fixture in `just quint-mbt-gate`.
-- Pending: unbounded integers.
+- Done: unbounded integers abstraction — scenario `unbounded_integers` flag,
+  two-domain integer bounds documentation, and `unbounded-int` fixture in
+  `just quint-mbt-gate`.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 

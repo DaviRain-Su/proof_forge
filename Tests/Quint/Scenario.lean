@@ -10,6 +10,7 @@ def sampleToml : String := String.intercalate "\n" [
   "users = [\"alice\", \"bob\"]",
   "max_steps = 5",
   "n_traces = 20",
+  "unbounded_integers = true",
   "",
   "[invariants]",
   "counterNonNegative = \"counter >= 0\"",
@@ -33,6 +34,9 @@ def main : IO UInt32 := do
         return 1
       if cfg.nTraces != 20 then
         IO.eprintln s!"FAIL nTraces expected 20, got {cfg.nTraces}"
+        return 1
+      if !cfg.unboundedIntegers then
+        IO.eprintln "FAIL unboundedIntegers expected true"
         return 1
       if cfg.invariants.size != 2 then
         IO.eprintln s!"FAIL invariants size expected 2, got {cfg.invariants.size}"

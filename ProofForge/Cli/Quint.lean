@@ -13,6 +13,7 @@ import ProofForge.IR.Examples.AssertProbe
 import ProofForge.IR.Examples.AssignmentProbe
 import ProofForge.IR.Examples.CrosscallProbe
 import ProofForge.IR.Examples.StorageNestedAggregateProbe
+import ProofForge.IR.Examples.UnboundedIntProbe
 
 namespace ProofForge.Cli.Quint
 
@@ -38,7 +39,8 @@ def supportedFixtureIds : Array String := #[
   "nested-struct-ref",
   "assignment",
   "crosscall",
-  "assert"
+  "assert",
+  "unbounded-int"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -67,6 +69,7 @@ def outputFileName (fixtureId : String) : String :=
   | "assignment" => "AssignmentProbe.qnt"
   | "crosscall" => "CrosscallProbe.qnt"
   | "assert" => "AssertProbe.qnt"
+  | "unbounded-int" => "UnboundedIntProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -96,6 +99,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "assignment" => some ProofForge.IR.Examples.AssignmentProbe.module
   | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
+  | "unbounded-int" => some ProofForge.IR.Examples.UnboundedIntProbe.module
   | _ => none
 
 end ProofForge.Cli.Quint

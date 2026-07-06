@@ -29,6 +29,7 @@ lake env proof-forge emit --target quint --fixture nested-struct-ref -o build/qu
 lake env proof-forge emit --target quint --fixture assignment -o build/quint/AssignmentProbe.qnt
 lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CrosscallProbe.qnt
 lake env proof-forge emit --target quint --fixture assert -o build/quint/AssertProbe.qnt
+lake env proof-forge emit --target quint --fixture unbounded-int -o build/quint/UnboundedIntProbe.qnt
 ```
 
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
@@ -44,8 +45,9 @@ scalar arrays), `struct-path` (literal index+field `storagePath*` on array-of-st
 storage), `struct-dynamic-path` (dynamic index+field `storagePath*` on
 array-of-struct storage), `nested-struct-ref` (nested `#[ref]` struct fields via
 `storagePath*` on scalar and array-of-struct storage), `assignment` (scalar local `letMutBind`/`.assign`/`.assignOp`),
-`crosscall` (scalar `crosscallInvoke` U64 return stub), and `assert` (`.assert` /
-`.assertEq` guards). The generator reads **portable
+`crosscall` (scalar `crosscallInvoke` U64 return stub), `assert` (`.assert` /
+`.assertEq` guards), and `unbounded-int` (U128 literals above `MAX_UINT` with
+bounded nondet parameters). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
 intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
 
@@ -59,7 +61,19 @@ users = ["alice", "bob"]
 max_steps = 10
 max_loop_unroll = 10
 n_traces = 20
+unbounded_integers = true
 ```
+
+Integer abstraction uses two domains:
+
+- **Nondet parameters** sample from `1.to(MAX_UINT)` (or `0.to(MAX_UINT)` when
+  `indexFromZero` is set in scenario config). This keeps model checking feasible.
+- **Literals and computed state** use Quint unbounded `int` semantics and are not
+  clamped to `MAX_UINT`. U128 constants, storage writes, and arithmetic results
+  may exceed the scenario bound. ITF replay parses large values via `#bigint`.
+
+Set `unbounded_integers = false` in scenario TOML to document a strict bounded
+model; the default is `true`.
 
 MBT tests that exercise `0..N` index parameters (for example
 `struct-dynamic-path`) set `indexFromZero := true` in

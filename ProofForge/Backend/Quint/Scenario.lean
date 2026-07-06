@@ -16,6 +16,10 @@ structure Config where
   nTraces : Nat := 10
   /-- When true, nondet integer params sample `0..MAX_UINT` instead of `1..MAX_UINT`. -/
   indexFromZero : Bool := false
+  /-- When true (default), literals and computed integer state use Quint unbounded `int`
+      semantics. Only nondet entrypoint parameters stay bounded by `maxUint` (`MAX_UINT`).
+      Set `unbounded_integers = false` in scenario TOML to document strict bounded models. -/
+  unboundedIntegers : Bool := true
   invariants : Array (String × String) := #[]
   deriving Repr, Inhabited
 
@@ -128,6 +132,7 @@ private def parseSectionHeader (chars : List Char) : Option String :=
       max_steps = 10
       max_loop_unroll = 10
       n_traces = 10
+      unbounded_integers = true
     Lines starting with '#' are ignored. -/
 def parse (input : String) : Except String Config := do
   let mut cfg : Config := {}
@@ -169,6 +174,11 @@ def parse (input : String) : Except String Config := do
                 match charsToNat value.toList with
                 | some n => pure { cfg with nTraces := n }
                 | none => .error s!"expected natural number, got: {value}"
+            | "unbounded_integers" =>
+                match value with
+                | "true" => pure { cfg with unboundedIntegers := true }
+                | "false" => pure { cfg with unboundedIntegers := false }
+                | _ => .error s!"expected boolean, got: {value}"
             | _ => .error s!"unknown scenario key: {key}"
           cfg := cfg'
   pure cfg
