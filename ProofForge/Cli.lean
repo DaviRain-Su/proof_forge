@@ -127,6 +127,16 @@ open ProofForge.Cli.ConstructorAbi
 namespace ProofForge.Cli
 
 export ProofForge.Cli.ConstructorAbi (ConstructorParamSpec ConstructorValueSpec)
+export ProofForge.Cli.ConstructorAbi
+  (supportedConstructorAbiTypes constructorParamIsDynamic constructorParamEncoding
+   constructorAbiTypeSupported supportedConstructorAbiTypesMessage
+   parseConstructorParamSpec parseConstructorValueSpec
+   encodeUintConstructorArg encodeBoolConstructorArg encodeDynamicBytesTail
+   parseCommaSeparatedNatList encodeStringConstructorTail encodeBytesConstructorTail
+   encodeUint256ArrayConstructorTail encodeDynamicConstructorTail encodeStaticConstructorValue
+   constructorParamExists constructorValueCount findConstructorValue?
+   validateConstructorValues validateConstructorValuesAgainstParams
+   encodeConstructorValues constructorSchemaHasDynamic validateConstructorSchemaAndArgs)
 export ProofForge.Cli.EmitMode (EmitMode)
 
 inductive Command where
