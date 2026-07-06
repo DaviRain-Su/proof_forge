@@ -580,7 +580,7 @@ def cases : Array (String × Module × String) := #[
   (
     "nested ABI struct field unsupported",
     nestedAbiStructFieldModule,
-    "field `xs` in struct `AbiArrayBox` has unsupported EVM IR v0 local struct field type `Array<U64,2>`; local structs support U32, U64, Bool, or Hash fields"
+    "entrypoint `bad` parameter `box` struct `AbiArrayBox` field `xs` has unsupported EVM IR v0 ABI word type `Array<U64,2>`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
   ),
   (
     "missing return",
@@ -765,12 +765,12 @@ def cases : Array (String × Module × String) := #[
   (
     "typed crosscall return type unsupported",
     typedCrosscallReturnTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "entrypoint `bad` return value fixed-array element fixed-array element struct `Wrapper` field `point` has unsupported EVM IR v0 ABI word type `Point`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
   ),
   (
     "typed crosscall argument type unsupported",
     typedCrosscallArgumentTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, Hash, or Address fields"
   ),
   (
     "value crosscall call value type mismatch",
@@ -780,32 +780,32 @@ def cases : Array (String × Module × String) := #[
   (
     "value crosscall return type unsupported",
     valueCrosscallReturnTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "entrypoint `bad` return value fixed-array element fixed-array element struct `Wrapper` field `point` has unsupported EVM IR v0 ABI word type `Point`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
   ),
   (
     "value crosscall argument type unsupported",
     valueCrosscallArgumentTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, Hash, or Address fields"
   ),
   (
     "static crosscall argument type unsupported",
     staticCrosscallArgumentTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, Hash, or Address fields"
   ),
   (
     "static crosscall return type unsupported",
     staticCrosscallReturnTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "entrypoint `bad` return value fixed-array element fixed-array element struct `Wrapper` field `point` has unsupported EVM IR v0 ABI word type `Point`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
   ),
   (
     "delegate crosscall argument type unsupported",
     delegateCrosscallArgumentTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, Hash, or Address fields"
   ),
   (
     "delegate crosscall return type unsupported",
     delegateCrosscallReturnTypeModule,
-    "field `point` in struct `Wrapper` has unsupported EVM IR v0 local struct field type `Point`; local structs support U32, U64, Bool, or Hash fields"
+    "entrypoint `bad` return value fixed-array element fixed-array element struct `Wrapper` field `point` has unsupported EVM IR v0 ABI word type `Point`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
   ),
   (
     "create call value type mismatch",
