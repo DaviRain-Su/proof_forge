@@ -663,8 +663,12 @@
   `spl-token.close_account` 元数据、指令标签 `9`、一字节 CPI data length 和生成的
   CPI helper 调用。该 fixture 可通过 target-first CLI
   `emit --target solana-sbpf-asm --fixture spl-token-close-account-cpi --format s|elf`
-  以及对应 legacy 兼容 flag 发射。该 SPL helper 的 Surfpool/Pinocchio live
-  equivalence 仍是后续 validation gate，而不是 source/lowering surface 的阻塞项。
+  以及对应 legacy 兼容 flag 发射。
+  `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh` 新增 live
+  Surfpool/Web3.js 行为门控：它会部署生成的程序，创建空 SPL Token account，
+  调用生成的 `close_account` CPI 路径，证明 token account 已被移除，验证租金
+  lamports 转入 destination account，并检查 marker state 写入。该 SPL helper
+  的 Pinocchio equivalence 仍是 reference-breadth 后续项。
 - 目标阶段 ABI 选择器水合：
   Learn/ValueVault CLI 发射路径在 EVM
   Yul/字节码发射之前立即通过 `cast sig` 从每个
@@ -1497,8 +1501,11 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
 - ✅ P0：SPL Token close-account CPI 现在具备 builder helper、typed
   `contract_source` 语法、legacy Learn 语法、manifest/artifact 元数据，以及 tag `9`
   的 sBPF instruction-data packing，并由 `Tests/SolanaCpiPacking.lean` 和
-  `Tests/LearnSource.lean`、`Tests/CliTargetFirst.lean` 覆盖。close-account 的 Surfpool/Pinocchio live
-  equivalence gate 仍作为验证扩展继续跟踪，而不是 source/lowering surface 的阻塞项。
+  `Tests/LearnSource.lean`、`Tests/CliTargetFirst.lean` 覆盖。
+  `just solana-spl-token-close-account-cpi-web3` 现在覆盖 live Surfpool/Web3.js
+  验证路径：通过 CPI 关闭空 SPL Token account、验证 destination 租金 lamport
+  回收，并记录 marker state。close-account 的 Pinocchio equivalence 仍作为
+  reference-breadth 后续项。
 - ✅ P0：ComputeBudgetInstruction（设置 compute unit limit、priority fees）已经作为交易侧 compute-budget
   建议落地到 Solana manifest、IDL、生成的 TypeScript client 和 package metadata。生成的 helper
   会根据所选 entrypoint 发射 `ComputeBudgetProgram` 前置指令；它有意不作为合约程序内部 syscall lowering。

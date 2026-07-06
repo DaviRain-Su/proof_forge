@@ -308,6 +308,10 @@ solana-spl-token-ops-cpi-web3:
 solana-spl-token-authority-cpi-web3:
     scripts/solana/spl-token-authority-cpi-web3-smoke.sh
 
+# Run a live SPL Token close_account CPI smoke on Surfpool with Web3.js.
+solana-spl-token-close-account-cpi-web3:
+    scripts/solana/spl-token-close-account-cpi-web3-smoke.sh
+
 # Run a live Associated Token create_idempotent CPI smoke on Surfpool with Web3.js.
 solana-associated-token-cpi-web3:
     scripts/solana/associated-token-cpi-web3-smoke.sh

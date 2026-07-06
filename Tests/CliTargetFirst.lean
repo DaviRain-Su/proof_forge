@@ -152,4 +152,9 @@ def main : IO UInt32 := do
 
 end ProofForge.Tests.CliTargetFirst
 
-#eval ProofForge.Tests.CliTargetFirst.main
+-- This test imports the executable CLI module, whose root `main` would otherwise
+-- run after elaboration and print usage. Exit from the test result instead.
+#eval (do
+  let exitCode ← ProofForge.Tests.CliTargetFirst.main
+  IO.Process.exit exitCode.toUInt8
+  pure () : IO Unit)

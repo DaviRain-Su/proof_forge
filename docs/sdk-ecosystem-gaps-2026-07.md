@@ -88,7 +88,7 @@ missing.
 | PDA derivation | Covered | `Surface.lean` typed seeds; `pda-web3-smoke.sh` validates | — |
 | Account constraints (signer/writable/owner) | Covered | Signer/writable checks lower to the sBPF prologue; owner checks now cover current-program ownership, executable program accounts, and named owner-account references, with missing owner references rejected during lowering | — |
 | Multi-account schemas | Covered | Manifest composes state + PDA + CPI + declared accounts | — |
-| Close account | Covered | `spl_token_close_account` builder/surface/Learn syntax and CLI fixture routes lower to `spl-token.close_account` metadata and sBPF instruction tag `9`; live Surfpool/Pinocchio equivalence remains a validation follow-up | — |
+| Close account | Covered | `spl_token_close_account` builder/surface/Learn syntax and CLI fixture routes lower to `spl-token.close_account` metadata and sBPF instruction tag `9`; `just solana-spl-token-close-account-cpi-web3` deploys the generated program on Surfpool, closes an empty SPL Token account through CPI, verifies the account is removed, destination lamports receive rent, and marker state is recorded. Pinocchio equivalence remains a reference-breadth follow-up | — |
 | Reallocation | Covered | `reallocAccount` builder/surface helpers and `contract_source` `realloc account to N;` statements emit `solana.account_realloc` metadata, manifest/IDL action records, static `new_size` checks against `MAX_PERMITTED_DATA_INCREASE`, and sBPF data-length stores; Surfpool behavior remains a live validation follow-up | — |
 | Address lookup tables | Missing | No ALT support in client or examples | P2 |
 

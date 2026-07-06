@@ -1904,8 +1904,13 @@ Completed developer-surface slices:
   CPI data length, and the generated CPI helper call. The fixture is available
   through target-first CLI as `emit --target solana-sbpf-asm --fixture
   spl-token-close-account-cpi --format s|elf` and through the matching legacy
-  compatibility flags. Live Surfpool/Pinocchio equivalence for this specific
-  SPL helper remains a follow-up gate.
+  compatibility flags. `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh`
+  adds the live Surfpool/Web3.js behavior gate: it deploys the generated
+  program, creates an empty SPL Token account, invokes the generated
+  `close_account` CPI path, proves the token account is removed, verifies the
+  rent lamports moved to the destination account, and checks the marker state
+  write. Pinocchio equivalence for this specific SPL helper remains a
+  reference-breadth follow-up.
 - Target-stage ABI selector hydration:
   the Learn/ValueVault CLI emit paths derive EVM selectors from each
   entrypoint's Solidity ABI signature with `cast sig` immediately before EVM
@@ -3371,9 +3376,11 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   `contract_source` syntax, legacy Learn syntax, manifest/artifact metadata,
   and sBPF instruction-data packing for tag `9`, covered by
   `Tests/SolanaCpiPacking.lean`, `Tests/LearnSource.lean`, and
-  `Tests/CliTargetFirst.lean`. A live Surfpool/Pinocchio equivalence gate for
-  close-account is still tracked as a validation expansion rather than a
-  blocker for the source/lowering surface.
+  `Tests/CliTargetFirst.lean`. `just solana-spl-token-close-account-cpi-web3`
+  now covers the live Surfpool/Web3.js validation path for closing an empty SPL
+  Token account through CPI, destination rent lamport recovery, and marker
+  state recording. Pinocchio equivalence for close-account remains a
+  reference-breadth follow-up.
 - ✅ P0: ComputeBudgetInstruction (set compute unit limit, priority fees)
   landed as transaction-side compute-budget advice in Solana manifests, IDL,
   generated TypeScript clients, and package metadata. The helper emits
