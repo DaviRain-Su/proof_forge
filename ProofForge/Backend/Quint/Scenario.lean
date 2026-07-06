@@ -38,6 +38,53 @@ def Config.quintPureDefs (cfg : Config) : Array PureDef := #[
 def Config.userSetExpr (cfg : Config) : Expr :=
   .setLit (cfg.users.map .literalStr)
 
+/-- Default scenario bounds tuned per Quint fixture (MBT gates and model-check budgets). -/
+def defaultForFixture (fixtureId : String) : Config :=
+  match fixtureId with
+  | "counter" =>
+      { maxUint := 3, users := #["alice", "bob"], maxSteps := 5, nTraces := 10 }
+  | "value-vault" =>
+      { maxUint := 100, users := #["alice", "bob"], maxSteps := 5, nTraces := 10 }
+  | "struct-dynamic-path" =>
+      { maxUint := 1, users := #["alice"], indexFromZero := true }
+  | "assert" | "assignment" | "crosscall" =>
+      { maxUint := 20, users := #["alice"], indexFromZero := true }
+  | "unbounded-int" =>
+      { maxUint := 3, users := #["alice"], indexFromZero := true, unboundedIntegers := true }
+  | _ => {}
+
+private def escapeTomlString (value : String) : String :=
+  let escapeChar : Char → String
+    | '"' => "\\\""
+    | '\\' => "\\\\"
+    | '\n' => "\\n"
+    | '\t' => "\\t"
+    | '\r' => "\\r"
+    | ch => ch.toString
+  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
+
+private def renderUsers (users : Array String) : String :=
+  "[" ++ String.intercalate ", " (users.map escapeTomlString).toList ++ "]"
+
+private def renderExprEntries (sectionName : String) (entries : Array (String × String)) : Array String :=
+  if entries.isEmpty then #[] else
+    #[s!"[{sectionName}]"] ++
+      entries.map (fun (name, expr) => s!"{name} = {escapeTomlString expr}")
+
+/-- Render a scenario config as editable TOML (bounds, optional scenario invariants/liveness). -/
+def renderToml (fixtureId : String) (cfg : Config) : String :=
+  let header := s!"# Auto-generated Quint scenario for `{fixtureId}`."
+  let note :=
+    "# Safety invariants and liveness from contract_source are merged at emit time."
+  let lines0 := #[header, note, s!"max_uint = {cfg.maxUint}", s!"users = {renderUsers cfg.users}",
+    s!"max_steps = {cfg.maxSteps}", s!"max_loop_unroll = {cfg.maxLoopUnroll}",
+    s!"n_traces = {cfg.nTraces}"]
+  let lines1 := if cfg.indexFromZero then lines0.push "index_from_zero = true" else lines0
+  let lines2 := if !cfg.unboundedIntegers then lines1.push "unbounded_integers = false" else lines1
+  let lines3 := lines2 ++ renderExprEntries "invariants" cfg.invariants
+  let lines4 := lines3 ++ renderExprEntries "liveness" cfg.liveness
+  String.intercalate "\n" lines4.toList
+
 private def isWhitespace (c : Char) : Bool :=
   c == ' ' || c == '\t' || c == '\r' || c == '\n'
 
@@ -188,6 +235,11 @@ def parse (input : String) : Except String Config := do
                 match value with
                 | "true" => pure { cfg with unboundedIntegers := true }
                 | "false" => pure { cfg with unboundedIntegers := false }
+                | _ => .error s!"expected boolean, got: {value}"
+            | "index_from_zero" =>
+                match value with
+                | "true" => pure { cfg with indexFromZero := true }
+                | "false" => pure { cfg with indexFromZero := false }
                 | _ => .error s!"expected boolean, got: {value}"
             | _ => .error s!"unknown scenario key: {key}"
           cfg := cfg'

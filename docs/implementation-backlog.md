@@ -237,6 +237,9 @@ Tasks:
 - Done: unified testkit Quint ITF replay bridge (`testkit/harness-quint`,
   `[[quint]]` scenario expectations, `testkit/scenarios/quint-counter.toml` and
   `quint-value-vault.toml`, `just testkit-quint`, wired into `just quint-mbt-gate`).
+- Done: auto-generated per-fixture `*.scenario.toml` via
+  `proof-forge emit --target quint --format scenario`
+  (`ProofForge.Backend.Quint.Scenario.renderToml`, `Tests/Quint/ScenarioEmit.lean`).
 
 Acceptance criteria:
 

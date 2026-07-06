@@ -13,6 +13,7 @@ Lean authoring and backend-verification chain, not as a replacement for them.
 
 ```sh
 lake env proof-forge emit --target quint --fixture counter -o build/quint/Counter.qnt
+lake env proof-forge emit --target quint --fixture counter --format scenario -o build/quint/Counter.scenario.toml
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/ConditionalProbe.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/LoopProbe.qnt
 lake env proof-forge emit --target quint --fixture while -o build/quint/WhileProbe.qnt
@@ -117,7 +118,9 @@ MBT tests that exercise `0..N` index parameters (for example
 instead of the default `1.to(MAX_UINT)`.
 
 Scenario support is parsed by `ProofForge.Backend.Quint.Scenario` and is
-intentionally minimal in v1.
+intentionally minimal in v1. Per-fixture defaults ship via
+`proof-forge emit --target quint --format scenario`; pass the file back with
+`--scenario` when emitting `.qnt` models.
 
 ## Simulate
 

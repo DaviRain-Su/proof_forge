@@ -34,6 +34,11 @@ lake env lean --run Tests/Quint/ContractSourceInvariants.lean
 echo "Running contract_source quint_liveness test..."
 lake env lean --run Tests/Quint/ContractSourceLiveness.lean
 
+echo "Running Quint scenario TOML emit test..."
+lake env lean --run Tests/Quint/ScenarioEmit.lean
+lake env proof-forge emit --target quint --fixture counter --format scenario -o build/quint/Counter.scenario.toml
+lake env proof-forge emit --target quint --fixture value-vault --format scenario -o build/quint/ValueVault.scenario.toml
+
 echo "Running Quint control-flow model render tests..."
 lake env lean --run Tests/Quint/ConditionalModel.lean
 lake env lean --run Tests/Quint/LoopModel.lean

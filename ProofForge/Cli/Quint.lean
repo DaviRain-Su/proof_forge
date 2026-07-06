@@ -1,4 +1,6 @@
 import ProofForge.IR.Contract
+import ProofForge.Backend.Quint.Scenario
+import ProofForge.Contract.Examples.Counter
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.ConditionalProbe
@@ -74,6 +76,26 @@ def outputFileName (fixtureId : String) : String :=
 
 def defaultOutputPath (fixtureId : String) : String :=
   s!"build/quint/{outputFileName fixtureId}"
+
+def scenarioFileName (fixtureId : String) : String :=
+  match fixtureId with
+  | "counter" => "Counter.scenario.toml"
+  | "value-vault" => "ValueVault.scenario.toml"
+  | _ =>
+      let qnt := outputFileName fixtureId
+      if qnt.endsWith ".qnt" then String.Slice.toString (qnt.dropEnd 4) ++ ".scenario.toml"
+      else s!"{fixtureId}.scenario.toml"
+
+def defaultScenarioOutputPath (fixtureId : String) : String :=
+  s!"build/quint/{scenarioFileName fixtureId}"
+
+/-- Scenario bounds for `emit --format scenario`, including contract liveness when known. -/
+def scenarioConfigForEmit (fixtureId : String) : ProofForge.Backend.Quint.Scenario.Config :=
+  let base := ProofForge.Backend.Quint.Scenario.defaultForFixture fixtureId
+  match fixtureId with
+  | "counter" =>
+      { base with liveness := ProofForge.Contract.Examples.Counter.spec.quintLiveness }
+  | _ => base
 
 /-- Map a fixture id to the IR module lowered into Quint. -/
 def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=

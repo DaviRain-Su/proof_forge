@@ -277,6 +277,7 @@ inductive EmitMode where
   | counterIrQuint
   | valueVaultIrQuint
   | irQuint
+  | irQuintScenario
   deriving BEq, Inhabited
 
 def EmitMode.emitsEvmDeployManifest : EmitMode → Bool
@@ -450,7 +451,8 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .counterIrSui
   | .counterIrQuint => true
   | .valueVaultIrQuint => true
-  | .irQuint => true
+  | .irQuint
+  | .irQuintScenario => true
   | _ => false
 
 def EmitMode.isLegacyAlias : EmitMode → Bool
@@ -656,6 +658,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-quint [-o output.qnt]       (Quint Counter model)",
     "  proof-forge --emit-value-vault-ir-quint [-o output.qnt]    (Quint ValueVault model)",
     "  proof-forge --emit-ir-quint --fixture <id> [-o output.qnt] (Quint portable IR fixture model)",
+    "  proof-forge --emit-ir-quint-scenario --fixture <id> [-o output.toml] (auto-generated Quint scenario TOML)",
     "  proof-forge init [DIR] [--template portable-counter]",
     "",
     "EVM bytecode mode loads `spec : ContractSpec` from the Lean module and uses Foundry `cast sig` plus `solc --strict-assembly`.",
@@ -2877,6 +2880,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .valueVaultIrQuint }
   | "--emit-ir-quint" :: rest, opts =>
       parseArgs rest { opts with mode := .irQuint }
+  | "--emit-ir-quint-scenario" :: rest, opts =>
+      parseArgs rest { opts with mode := .irQuintScenario }
   | "-h" :: _, _ =>
       .error usage
   | "--help" :: _, _ =>
@@ -3164,7 +3169,12 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
       if fmt == "" || fmt == "sui" || fmt == "move" then Except.ok "--emit-counter-ir-sui"
       else Except.error s!"emit --target move-sui --fixture counter --format {fmt} is not supported; use --format sui"
   | "quint", f, fmt =>
-      if fmt == "qnt" || fmt == "" then
+      if fmt == "scenario" || fmt == "toml" then
+        if !ProofForge.Cli.Quint.supportsFixture f then
+          Except.error s!"emit --target quint --fixture {f} is not supported; supported fixtures: {String.intercalate ", " ProofForge.Cli.Quint.supportedFixtureIds.toList}"
+        else
+          Except.ok "--emit-ir-quint-scenario"
+      else if fmt == "qnt" || fmt == "" then
         if !ProofForge.Cli.Quint.supportsFixture f then
           Except.error s!"emit --target quint --fixture {f} is not supported; supported fixtures: {String.intercalate ", " ProofForge.Cli.Quint.supportedFixtureIds.toList}"
         else if f == "counter" then
@@ -3174,7 +3184,7 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
         else
           Except.ok "--emit-ir-quint"
       else
-        Except.error s!"emit --target quint --fixture {f} --format {fmt} is not yet supported; use --format qnt"
+        Except.error s!"emit --target quint --fixture {f} --format {fmt} is not supported; use --format qnt or scenario"
   | t, f, fmt =>
       Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
@@ -3214,7 +3224,8 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
     if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
     if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
     if let some scenario := state.scenario? then legacy := legacy ++ ["--scenario", scenario]
-    if flag == "--emit-ir-quint" then legacy := legacy ++ ["--fixture", fixture]
+    if flag == "--emit-ir-quint" || flag == "--emit-ir-quint-scenario" then
+      legacy := legacy ++ ["--fixture", fixture]
     if flag.endsWith "-bytecode" then
       legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
     if target == "solana-sbpf-asm" then
@@ -6210,6 +6221,22 @@ def compileIrQuint (opts : CliOptions) : IO UInt32 := do
     | none => throw <| IO.userError s!"unknown or unsupported Quint fixture `{fixture}`"
   compileIrQuintModule opts module (ProofForge.Cli.Quint.defaultOutputPath fixture)
 
+def compileIrQuintScenario (opts : CliOptions) : IO UInt32 := do
+  let fixture ← match opts.fixture? with
+    | some f => pure f
+    | none => throw <| IO.userError "missing --fixture for --emit-ir-quint-scenario"
+  if !ProofForge.Cli.Quint.supportsFixture fixture then
+    throw <| IO.userError s!"unknown or unsupported Quint fixture `{fixture}`"
+  let output := opts.output?.getD (FilePath.mk (ProofForge.Cli.Quint.defaultScenarioOutputPath fixture))
+  let cfg := ProofForge.Cli.Quint.scenarioConfigForEmit fixture
+  let source := ProofForge.Backend.Quint.Scenario.renderToml fixture cfg
+  match output.parent with
+  | some parent => IO.FS.createDirAll parent
+  | none => pure ()
+  IO.FS.writeFile output source
+  IO.println s!"wrote {output}"
+  return 0
+
 unsafe def compileEvmBytecode (opts : CliOptions) : IO UInt32 :=
   compileContractSourceEvmBytecode opts
 
@@ -6360,6 +6387,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .counterIrQuint => compileCounterIrQuint opts
   | .valueVaultIrQuint => compileValueVaultIrQuint opts
   | .irQuint => compileIrQuint opts
+  | .irQuintScenario => compileIrQuintScenario opts
 
 end ProofForge.Cli
 
