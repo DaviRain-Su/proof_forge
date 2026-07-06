@@ -21,6 +21,9 @@ if ! command -v quint &>/dev/null; then
   exit 0
 fi
 
+echo "Building Quint gate dependencies..."
+lake build proof-forge ProofForge.Backend.Quint.GuardAst ProofForge.Backend.Quint.Replay ProofForge.Backend.Quint.EvmReplay
+
 echo "Running Quint fixture registry test..."
 lake env lean --run Tests/Quint/CliEmit.lean
 
