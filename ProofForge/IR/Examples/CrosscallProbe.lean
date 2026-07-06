@@ -56,10 +56,40 @@ def callRemoteHash : Entrypoint := {
   ]
 }
 
+def callRemoteValue : Entrypoint := {
+  name := "call_remote_value"
+  returns := .u64
+  params := #[("target", .u64), ("method", .u64)]
+  body := #[
+    .return (.crosscallInvokeValueTyped (.local "target") (.local "method") .nativeValue #[] .u64)
+  ]
+}
+
+def callRemoteStatic : Entrypoint := {
+  name := "call_remote_static"
+  returns := .u64
+  params := #[("target", .u64), ("method", .u64)]
+  body := #[
+    .return (.crosscallInvokeStaticTyped (.local "target") (.local "method") #[] .u64)
+  ]
+}
+
+def callRemoteDelegate : Entrypoint := {
+  name := "call_remote_delegate"
+  returns := .u64
+  params := #[("target", .u64), ("method", .u64)]
+  body := #[
+    .return (.crosscallInvokeDelegateTyped (.local "target") (.local "method") #[] .u64)
+  ]
+}
+
 def module : Module := {
   name := "CrosscallProbe"
   state := #[stateMarker]
-  entrypoints := #[callRemote, callWithArgs, callRemoteBool, callRemoteU32, callRemoteHash]
+  entrypoints := #[
+    callRemote, callWithArgs, callRemoteBool, callRemoteU32, callRemoteHash,
+    callRemoteValue, callRemoteStatic, callRemoteDelegate
+  ]
 }
 
 end ProofForge.IR.Examples.CrosscallProbe

@@ -363,6 +363,17 @@ def crosscallHashStubValue (sum : Nat) : Value :=
   | 1 => .hash 2002 0 0 0
   | _ => .hash 3003 0 0 0
 
+def crosscallStaticTag : Nat := 1000000
+def crosscallDelegateTag : Nat := 2000000
+
+def crosscallCastReturn (sum : Nat) (returnType : ValueType) : Except String Value :=
+  match returnType with
+  | .u64 => .ok (.u64 sum)
+  | .u32 => .ok (.u32 (sum % 4294967296))
+  | .bool => .ok (.bool (sum % 2 == 1))
+  | .hash => .ok (crosscallHashStubValue sum)
+  | _ => .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (Bool/U32/U64/Hash only)"
+
 mutual
 partial def evalExpr (state : State) (frame : Frame) : Expr → Except String ExprResult
   | .literal literal => do
@@ -492,10 +503,12 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
   | .crosscallInvoke target methodId args => evalCrosscallInvoke state frame target methodId args
   | .crosscallInvokeTyped target methodId args returnType =>
       evalCrosscallInvokeTyped state frame target methodId args returnType
-  | .crosscallInvokeValueTyped _ _ _ _ returnType
-  | .crosscallInvokeStaticTyped _ _ _ returnType
-  | .crosscallInvokeDelegateTyped _ _ _ returnType =>
-      .error s!"typed crosscall variant return `{returnType.name}` is not supported by scalar semantics"
+  | .crosscallInvokeValueTyped target methodId callValue args returnType =>
+      evalCrosscallInvokeValueTyped state frame target methodId callValue args returnType
+  | .crosscallInvokeStaticTyped target methodId args returnType =>
+      evalCrosscallInvokeStaticTyped state frame target methodId args returnType
+  | .crosscallInvokeDelegateTyped target methodId args returnType =>
+      evalCrosscallInvokeDelegateTyped state frame target methodId args returnType
   | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
       .error "crosscall create is not supported by the scalar semantics model"
   | .effect effect => evalEffect state frame effect
@@ -530,12 +543,29 @@ partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId
 partial def evalCrosscallInvokeTyped (state : State) (frame : Frame) (target methodId : Expr)
     (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
   let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
-  let value ← match returnType with
-    | .u64 => .ok (.u64 sum)
-    | .u32 => .ok (.u32 (sum % 4294967296))
-    | .bool => .ok (.bool (sum % 2 == 1))
-    | .hash => .ok (crosscallHashStubValue sum)
-    | _ => .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (Bool/U32/U64/Hash only)"
+  let value ← crosscallCastReturn sum returnType
+  .ok (nextState, value)
+
+partial def evalCrosscallInvokeValueTyped (state : State) (frame : Frame) (target methodId callValue : Expr)
+    (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
+  let (stateAfterValue, callValueResult) ← evalExpr state frame callValue
+  let callNat ← match callValueResult with
+    | .u64 n => pure n
+    | _ => .error "value-bearing crosscall callValue expected U64"
+  let (nextState, sum) ← evalCrosscallInvokeSum stateAfterValue frame target methodId args
+  let value ← crosscallCastReturn (sum + callNat) returnType
+  .ok (nextState, value)
+
+partial def evalCrosscallInvokeStaticTyped (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
+  let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
+  let value ← crosscallCastReturn (sum + crosscallStaticTag) returnType
+  .ok (nextState, value)
+
+partial def evalCrosscallInvokeDelegateTyped (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) (returnType : ValueType) : Except String ExprResult := do
+  let (nextState, sum) ← evalCrosscallInvokeSum state frame target methodId args
+  let value ← crosscallCastReturn (sum + crosscallDelegateTag) returnType
   .ok (nextState, value)
 
 partial def evalPathSegmentKey (state : State) (frame : Frame) : StoragePathSegment →

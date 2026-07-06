@@ -132,13 +132,13 @@ Phase 3 v1 currently lowers a growing portable IR subset:
 - Single- and multi-segment (2+) `mapKey` `storagePath*`, struct/array path shapes,
   dynamic index+field paths on array-of-struct storage, scalar local
   assignment (`letMutBind`, `.assign`, `.assignOp` on `.local` targets), and
-  scalar `crosscallInvoke` / `crosscallInvokeTyped` (stub:
-  `target + method + sum(args)` with Bool/U32/U64/Hash return casts), and
+  scalar `crosscallInvoke` / `crosscallInvokeTyped` / value/static/delegate
+  variants (stub: `target + method + sum(args)` with variant tags and
+  Bool/U32/U64/Hash return casts), and
   `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
 Still out of scope for the first iteration:
-value/static/delegate crosscall variants,
 `crosscallCreate`/`crosscallCreate2`, aggregate crosscall returns,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that

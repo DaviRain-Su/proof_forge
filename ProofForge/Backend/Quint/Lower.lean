@@ -421,6 +421,19 @@ def crosscallHashStubExpr (sum : Expr) : Expr :=
     (.ite (.binOp .eq mod3 (.literalInt 1)) (.literalStr "hash:2002:0:0:0")
       (.literalStr "hash:3003:0:0:0"))
 
+def crosscallStaticTagExpr : Expr := .literalInt 1000000
+def crosscallDelegateTagExpr : Expr := .literalInt 2000000
+
+def lowerCrosscallCastReturn (sum : Expr) (returnType : ValueType) : Except LowerError Expr :=
+  match returnType with
+  | .u64 => .ok sum
+  | .u32 => .ok (.binOp .mod sum (.literalInt 4294967296))
+  | .bool => .ok (.binOp .eq (.binOp .mod sum (.literalInt 2)) (.literalInt 1))
+  | .hash => .ok (crosscallHashStubExpr sum)
+  | _ => .error {
+      message :=
+        s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (Bool/U32/U64/Hash only)" }
+
 mutual
   partial def lowerExpr (ctx : LowerCtx) (e : ProofForge.IR.Expr) : Except LowerError Expr := do
     match e with
@@ -472,12 +485,14 @@ mutual
         lowerCrosscallInvokeExpr ctx target methodId args
     | .crosscallInvokeTyped target methodId args returnType =>
         lowerCrosscallInvokeTypedExpr ctx target methodId args returnType
-    | .crosscallInvokeValueTyped _ _ _ _ returnType
-    | .crosscallInvokeStaticTyped _ _ _ returnType
-    | .crosscallInvokeDelegateTyped _ _ _ returnType =>
-        .error {
-          message :=
-            s!"typed crosscall variant return `{returnType.name}` is not supported in Quint lowering v1 (use crosscallInvoke)" }
+    | .crosscallInvokeValueTyped target methodId callValue args returnType =>
+        lowerCrosscallInvokeValueTypedExpr ctx target methodId callValue args returnType
+    | .crosscallInvokeStaticTyped target methodId args returnType =>
+        lowerCrosscallInvokeStaticTypedExpr ctx target methodId args returnType
+    | .crosscallInvokeDelegateTyped target methodId args returnType =>
+        lowerCrosscallInvokeDelegateTypedExpr ctx target methodId args returnType
+    | .nativeValue =>
+        .ok (.literalInt 0)
     | .crosscallCreate _ _
     | .crosscallCreate2 _ _ _ =>
         .error { message := "crosscallCreate/crosscallCreate2 are not supported in Quint lowering v1" }
@@ -503,14 +518,23 @@ mutual
   partial def lowerCrosscallInvokeTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
-    match returnType with
-    | .u64 => pure sum
-    | .u32 => pure (.binOp .mod sum (.literalInt 4294967296))
-    | .bool => pure (.binOp .eq (.binOp .mod sum (.literalInt 2)) (.literalInt 1))
-    | .hash => pure (crosscallHashStubExpr sum)
-    | _ => .error {
-        message :=
-          s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (Bool/U32/U64/Hash only)" }
+    lowerCrosscallCastReturn sum returnType
+
+  partial def lowerCrosscallInvokeValueTypedExpr (ctx : LowerCtx) (target methodId callValue : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
+    let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
+    let callValue' ← lowerExpr ctx callValue
+    lowerCrosscallCastReturn (.binOp .add sum callValue') returnType
+
+  partial def lowerCrosscallInvokeStaticTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
+    let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
+    lowerCrosscallCastReturn (.binOp .add sum crosscallStaticTagExpr) returnType
+
+  partial def lowerCrosscallInvokeDelegateTypedExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
+    let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
+    lowerCrosscallCastReturn (.binOp .add sum crosscallDelegateTagExpr) returnType
 
   partial def lowerMapKeyExpr (ctx : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
     match key with
