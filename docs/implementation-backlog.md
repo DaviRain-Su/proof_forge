@@ -197,7 +197,9 @@ Tasks:
 - Done: literal + dynamic nested `mapKey` `storagePath*` paths via runtime
   braced segment composition with `map-nested-dynamic-path` fixture in
   `just quint-mbt-gate`.
-- Pending: unbounded integers and nested struct ref fields.
+- Done: nested `#[ref]` struct fields via recursive flattening and `storagePath*`
+  lowering with `nested-struct-ref` fixture in `just quint-mbt-gate`.
+- Pending: unbounded integers.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 

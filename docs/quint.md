@@ -25,6 +25,7 @@ lake env proof-forge emit --target quint --fixture struct -o build/quint/StructP
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/ArrayPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/StructPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/StructDynamicPathProbe.qnt
+lake env proof-forge emit --target quint --fixture nested-struct-ref -o build/quint/NestedStructRefProbe.qnt
 lake env proof-forge emit --target quint --fixture assignment -o build/quint/AssignmentProbe.qnt
 lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CrosscallProbe.qnt
 lake env proof-forge emit --target quint --fixture assert -o build/quint/AssertProbe.qnt
@@ -41,7 +42,8 @@ maps), `map-nested-path` (two-segment consecutive `mapKey` paths on hash maps),
 `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
 scalar arrays), `struct-path` (literal index+field `storagePath*` on array-of-struct
 storage), `struct-dynamic-path` (dynamic index+field `storagePath*` on
-array-of-struct storage), `assignment` (scalar local `letMutBind`/`.assign`/`.assignOp`),
+array-of-struct storage), `nested-struct-ref` (nested `#[ref]` struct fields via
+`storagePath*` on scalar and array-of-struct storage), `assignment` (scalar local `letMutBind`/`.assign`/`.assignOp`),
 `crosscall` (scalar `crosscallInvoke` U64 return stub), and `assert` (`.assert` /
 `.assertEq` guards). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
@@ -119,7 +121,7 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   `target + method + sum(args)`), and `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
-Still out of scope for the first iteration: nested struct ref fields,
+Still out of scope for the first iteration:
 value/static/delegate crosscall variants,
 `crosscallCreate`/`crosscallCreate2`, aggregate crosscall returns,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static

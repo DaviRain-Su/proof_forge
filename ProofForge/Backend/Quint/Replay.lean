@@ -64,18 +64,30 @@ def itfValueToIr (t : ValueType) : ITF.Value → Except ReplayError ProofForge.I
       | _ => .ok (.string s)
   | other => .error { message := s!"cannot convert ITF value to IR: {repr other}" }
 
-def writeStructStateFromItf (decl : StateDecl) (structDecl : StructDecl) (itfState : ITF.State)
-    (state : State) : Except ReplayError State := do
-  let mut next := state
-  for field in StructDecl.fields structDecl do
-    let fieldVar := Lower.structFieldVarName decl.id field.id
-    match itfState.vars.find? (fun (k, _) => k == fieldVar) with
-    | some (_, v) => do
-        let v ← unwrapItfOption v
-        let irv ← itfValueToIr field.type v
-        next := next.write (fieldKey decl.id field.id) irv
-    | none => .error { message := s!"missing ITF field `{fieldVar}` for struct state `{decl.id}`" }
-  pure next
+def writeStructStateFromItf (decl : StateDecl) (structs : Array StructDecl) (_structDecl : StructDecl)
+    (itfState : ITF.State) (state : State) : Except ReplayError State := do
+  let flat := Lower.flatFieldsForStateDecl decl structs
+  if flat.isEmpty then
+    let mut next := state
+    for field in _structDecl.fields do
+      let fieldVar := Lower.structFieldVarName decl.id field.id
+      match itfState.vars.find? (fun (k, _) => k == fieldVar) with
+      | some (_, v) => do
+          let v ← unwrapItfOption v
+          let irv ← itfValueToIr field.type v
+          next := next.write (fieldKey decl.id field.id) irv
+      | none => .error { message := s!"missing ITF field `{fieldVar}` for struct state `{decl.id}`" }
+    pure next
+  else
+    let mut next := state
+    for field in flat do
+      match itfState.vars.find? (fun (k, _) => k == field.varName) with
+      | some (_, v) => do
+          let v ← unwrapItfOption v
+          let irv ← itfValueToIr field.type v
+          next := next.write field.storageKey irv
+      | none => .error { message := s!"missing ITF field `{field.varName}` for struct state `{decl.id}`" }
+    pure next
 
 def mapEntryStorageKey (declId keyStr : String) : String :=
   if keyStr.startsWith "{" then
@@ -112,19 +124,21 @@ def writeMapStateFromItf (decl : StateDecl) (v : ITF.Value) (state : State) : Ex
       .error { message := s!"expected ITF map for state `{decl.id}`" }
 
 /-- Write one state declaration from an ITF value into IR storage. -/
-def writeArrayStructStateFromItf (decl : StateDecl) (structDecl : StructDecl) (cap : Nat) (itfState : ITF.State)
-    (state : State) : Except ReplayError State := do
-  let mut next := state
-  for index in [0:cap] do
-    for field in StructDecl.fields structDecl do
-      let fieldVar := Lower.arrayStructFieldVarName decl.id index field.id
-      match itfState.vars.find? (fun (k, _) => k == fieldVar) with
+def writeArrayStructStateFromItf (decl : StateDecl) (structs : Array StructDecl) (_cap : Nat)
+    (itfState : ITF.State) (state : State) : Except ReplayError State := do
+  let flat := Lower.flatFieldsForStateDecl decl structs
+  if flat.isEmpty then
+    .error { message := s!"array struct state `{decl.id}` has no flattened fields" }
+  else
+    let mut next := state
+    for field in flat do
+      match itfState.vars.find? (fun (k, _) => k == field.varName) with
       | some (_, v) => do
           let v ← unwrapItfOption v
           let irv ← itfValueToIr field.type v
-          next := next.write (arrayFieldKey decl.id index field.id) irv
-      | none => .error { message := s!"missing ITF field `{fieldVar}` for array struct state `{decl.id}`" }
-  pure next
+          next := next.write field.storageKey irv
+      | none => .error { message := s!"missing ITF field `{field.varName}` for array struct state `{decl.id}`" }
+    pure next
 
 def writeStateDeclFromItf (irModule : ProofForge.IR.Module) (decl : StateDecl) (v : ITF.Value) (state : State)
     (itfState : ITF.State) : Except ReplayError State :=
@@ -133,7 +147,7 @@ def writeStateDeclFromItf (irModule : ProofForge.IR.Module) (decl : StateDecl) (
       match decl.type with
       | .structType typeName =>
           match Lower.lookupStructDecl irModule.structs typeName with
-          | some structDecl => writeArrayStructStateFromItf decl structDecl cap itfState state
+          | some _ => writeArrayStructStateFromItf decl irModule.structs cap itfState state
           | none =>
               match v with
               | .list values =>
@@ -162,7 +176,7 @@ def writeStateDeclFromItf (irModule : ProofForge.IR.Module) (decl : StateDecl) (
       match decl.type with
       | .structType typeName =>
           match Lower.lookupStructDecl irModule.structs typeName with
-          | some structDecl => writeStructStateFromItf decl structDecl itfState state
+          | some structDecl => writeStructStateFromItf decl irModule.structs structDecl itfState state
           | none => do
               let irv ← itfValueToIr decl.type v
               .ok (state.write decl.id irv)
@@ -184,16 +198,15 @@ def zeroStateDecl (irModule : ProofForge.IR.Module) (decl : StateDecl) : Except 
   match decl.kind with
   | StateKind.array cap =>
       match decl.type with
-      | .structType typeName =>
-          match Lower.lookupStructDecl irModule.structs typeName with
-          | some structDecl => do
+      | .structType _ =>
+          let flat := Lower.flatFieldsForStateDecl decl irModule.structs
+          if !flat.isEmpty then do
               let mut st := State.empty
-              for index in [0:cap] do
-                for field in StructDecl.fields structDecl do
-                  let irv ← zeroArrayStructField field.type
-                  st := st.write (arrayFieldKey decl.id index field.id) irv
+              for field in flat do
+                let irv ← zeroArrayStructField field.type
+                st := st.write field.storageKey irv
               .ok st
-          | none => do
+          else do
               let mut st := State.empty
               for index in [0:cap] do
                 let irv ← match decl.type with
@@ -221,20 +234,28 @@ def zeroStateDecl (irModule : ProofForge.IR.Module) (decl : StateDecl) : Except 
   | _ =>
       match decl.type with
       | .structType typeName =>
-          match Lower.lookupStructDecl irModule.structs typeName with
-          | some structDecl => do
+          let flat := Lower.flatFieldsForStateDecl decl irModule.structs
+          if !flat.isEmpty then do
               let mut st := State.empty
-              for field in StructDecl.fields structDecl do
-                let irv ← match field.type with
-                  | .bool => .ok (.bool false)
-                  | .u8 => .ok (.u8 0)
-                  | .u32 => .ok (.u32 0)
-                  | .u64 => .ok (.u64 0)
-                  | .u128 => .ok (.u128 0)
-                  | _ => .error { message := s!"cannot zero-initialize struct field `{decl.id}.{field.id}`" }
-                st := st.write (fieldKey decl.id field.id) irv
+              for field in flat do
+                let irv ← zeroArrayStructField field.type
+                st := st.write field.storageKey irv
               .ok st
-          | none => .error { message := s!"unknown struct type `{typeName}` for state `{decl.id}`" }
+          else
+            match Lower.lookupStructDecl irModule.structs typeName with
+            | some structDecl => do
+                let mut st := State.empty
+                for field in structDecl.fields do
+                  let irv ← match field.type with
+                    | .bool => .ok (.bool false)
+                    | .u8 => .ok (.u8 0)
+                    | .u32 => .ok (.u32 0)
+                    | .u64 => .ok (.u64 0)
+                    | .u128 => .ok (.u128 0)
+                    | _ => .error { message := s!"cannot zero-initialize struct field `{decl.id}.{field.id}`" }
+                  st := st.write (fieldKey decl.id field.id) irv
+                .ok st
+            | none => .error { message := s!"unknown struct type `{typeName}` for state `{decl.id}`" }
       | _ => do
           let irv ← match decl.type with
             | .bool => .ok (.bool false)

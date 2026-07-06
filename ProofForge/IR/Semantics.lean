@@ -118,15 +118,18 @@ def mapKey (base key : String) : String :=
 def mapPresentKey (base key : String) : String :=
   s!"{mapKey base key}.present"
 
+partial def writeStructFields (storage : Bindings) (base : String) (fields : List (String × Value)) : Bindings :=
+  fields.foldl (fun acc (fieldName, fieldValue) =>
+    let acc := insert (fieldKey base fieldName) fieldValue acc
+    match fieldValue with
+    | .struct _ inner => writeStructFields acc (fieldKey base fieldName) inner
+    | _ => acc) storage
+
 def State.write (state : State) (name : String) (value : Value) : State :=
   let state := { state with storage := insert name value state.storage }
   match value with
   | .struct _ fields =>
-      { state with
-        storage :=
-          fields.foldl
-            (fun storage field => insert (fieldKey name field.fst) field.snd storage)
-            state.storage }
+      { state with storage := writeStructFields state.storage name fields }
   | _ => state
 
 def State.recordEvent (state : State) (name : String)

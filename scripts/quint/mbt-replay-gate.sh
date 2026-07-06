@@ -45,6 +45,7 @@ lake env lean --run Tests/Quint/ArrayPathModel.lean
 lake env lean --run Tests/Quint/StructPathModel.lean
 lake env lean --run Tests/Quint/StructDynamicPathGuard.lean
 lake env lean --run Tests/Quint/StructDynamicPathModel.lean
+lake env lean --run Tests/Quint/NestedStructRefModel.lean
 lake env lean --run Tests/Quint/AssignmentModel.lean
 lake env lean --run Tests/Quint/CrosscallModel.lean
 lake env lean --run Tests/Quint/AssertModel.lean
@@ -100,6 +101,9 @@ lake env lean --run Tests/Quint/StructPathReplay.lean
 echo "Running StructDynamicPathProbe MBT replay test..."
 lake env lean --run Tests/Quint/StructDynamicPathReplay.lean
 
+echo "Running NestedStructRefProbe MBT replay test..."
+lake env lean --run Tests/Quint/NestedStructRefReplay.lean
+
 echo "Running AssignmentProbe MBT replay test..."
 lake env lean --run Tests/Quint/AssignmentReplay.lean
 
@@ -129,6 +133,7 @@ lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStru
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/CliArrayPath.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/CliStructPath.qnt
 lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/CliStructDynamicPath.qnt
+lake env proof-forge emit --target quint --fixture nested-struct-ref -o build/quint/CliNestedStructRef.qnt
 lake env proof-forge emit --target quint --fixture assignment -o build/quint/CliAssignment.qnt
 lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CliCrosscall.qnt
 lake env proof-forge emit --target quint --fixture assert -o build/quint/CliAssert.qnt

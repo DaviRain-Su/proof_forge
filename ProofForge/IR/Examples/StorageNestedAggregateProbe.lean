@@ -145,4 +145,31 @@ def module : Module := {
   entrypoints := #[storageNestedLifecycle]
 }
 
+/-- Quint/MBT subset: nested `#[ref]` struct fields via `storagePath*` on scalar and array storage. -/
+def quintNestedRefLifecycle : Entrypoint := {
+  name := "nested_ref_lifecycle"
+  returns := .u64
+  body := #[
+    .effect (.storageScalarWrite "person" (person 18 2 3 50)),
+    .effect (.storagePathWrite "person" personProfilePath (profile 21 4 5)),
+    .effect (.storagePathAssignOp "person" personProfileAgePath .add (felt 2)),
+    .effect (.storageArrayWrite "people" (ix 1) (person 30 7 8 100)),
+    .effect (.storagePathWrite "people" people1ProfileAgePath (felt 31)),
+    .return (.add
+      (.add
+        (readPath "person" personProfileAgePath)
+        (readPath "person" personScorePath))
+      (.add
+        (readPath "people" people1ProfileAgePath)
+        (readPath "people" people1ScorePath)))
+  ]
+}
+
+def emitQuintNestedStructRefModule : Module := {
+  name := "StorageNestedAggregateProbe"
+  structs := #[profileStruct, personStruct]
+  state := #[statePerson, statePeople]
+  entrypoints := #[quintNestedRefLifecycle]
+}
+
 end ProofForge.IR.Examples.StorageNestedAggregateProbe
