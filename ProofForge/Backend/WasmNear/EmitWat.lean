@@ -18,6 +18,7 @@ import ProofForge.IR.Ownership
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Backend.WasmNear.Common
+import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.Imports
@@ -36,6 +37,7 @@ namespace ProofForge.Backend.WasmNear.EmitWat
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
+open ProofForge.Backend.WasmNear.Context
 open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Hash
 open ProofForge.Backend.WasmNear.Imports
@@ -48,6 +50,13 @@ open ProofForge.Backend.WasmNear.Types
 
 export ProofForge.Backend.WasmNear.Common (
   memcpyName memcpyFunc
+)
+
+export ProofForge.Backend.WasmNear.Context (
+  ctxUserIdName ctxUserHashName ctxContractIdName ctxSignerName
+  ctxRandomSeedName ctxUserIdFunc ctxUserHashFunc ctxContractIdFunc
+  ctxSignerFunc ctxRandomSeedFunc ctxHelperFuncsForModulePlan
+  lowerContextExprPlan
 )
 
 export ProofForge.Backend.WasmNear.Diagnostics (
@@ -110,12 +119,6 @@ export ProofForge.Backend.WasmNear.Types (
   storeOpFor typeSuffix readName writeName returnU32Name returnU64Name
   returnBoolName
 )
-
-def ctxUserIdName : String := "__pf_ctx_user_id"
-def ctxUserHashName : String := "__pf_ctx_user_hash"
-def ctxContractIdName : String := "__pf_ctx_contract_id"
-def ctxSignerName : String := "__pf_ctx_signer_id"
-def ctxRandomSeedName : String := "__pf_ctx_random_seed"
 
 -- Array-value bump allocator (for arrayLit temporaries). Returns current ptr and
 -- advances by the byte count; the caller stores elements into [ptr, ptr+n).
@@ -224,82 +227,6 @@ def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
     { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
       results := #[],
       body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
-
--- Context helpers ------------------------------------------------------
--- userId/contractId: sha256(account_id_bytes)[0..8] as u64.
-
-def ctxUserIdFunc : Func :=
-  { name := ctxUserIdName, results := #[.i64], locals := #[{ name := "len", type := .i64 }],
-    body := { insns := #[
-      .i64Const 0, .call "predecessor_account_id",
-      .i64Const 0, .call "register_len", .localSet "len",
-      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
-      .localGet "len", .i64Const CTX_BUF, .i64Const 1, .call "sha256",
-      .i64Const 1, .i64Const CTX_BUF, .call "read_register",
-      .i32Const CTX_BUF, .load "i64.load" 0 ] } }
-
-/-- Full sha256(predecessor_account_id_bytes) as a 32-byte hash pointer. -/
-def ctxUserHashFunc : Func :=
-  { name := ctxUserHashName, results := #[.i32], locals := #[{ name := "len", type := .i64 }, { name := "p", type := .i32 }],
-    body := { insns := #[
-      .i64Const 0, .call "predecessor_account_id",
-      .i64Const 0, .call "register_len", .localSet "len",
-      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
-      .localGet "len", .i64Const CTX_BUF, .i64Const 1, .call "sha256",
-      .call hashAllocName, .localSet "p",
-      .i64Const 1, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
-      .localGet "p" ] } }
-
-def ctxContractIdFunc : Func :=
-  { name := ctxContractIdName, results := #[.i64], locals := #[{ name := "len", type := .i64 }],
-    body := { insns := #[
-      .i64Const 0, .call "current_account_id",
-      .i64Const 0, .call "register_len", .localSet "len",
-      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
-      .localGet "len", .i64Const CTX_BUF, .i64Const 1, .call "sha256",
-      .i64Const 1, .i64Const CTX_BUF, .call "read_register",
-      .i32Const CTX_BUF, .load "i64.load" 0 ] } }
-
-/-- Signer account id: sha256(signer_account_id_bytes)[0..8] as u64.
-    Maps to IR `ContextField.origin` (tx.origin equivalent). On NEAR the signer
-    is the account that signed the transaction, distinct from the predecessor
-    (the immediate caller). -/
-def ctxSignerFunc : Func :=
-  { name := ctxSignerName, results := #[.i64], locals := #[{ name := "len", type := .i64 }],
-    body := { insns := #[
-      .i64Const 0, .call "signer_account_id",
-      .i64Const 0, .call "register_len", .localSet "len",
-      .i64Const 0, .i64Const CTX_BUF, .call "read_register",
-      .localGet "len", .i64Const CTX_BUF, .i64Const 1, .call "sha256",
-      .i64Const 1, .i64Const CTX_BUF, .call "read_register",
-      .i32Const CTX_BUF, .load "i64.load" 0 ] } }
-
-def ctxRandomSeedFunc : Func :=
-  { name := ctxRandomSeedName, results := #[.i32], locals := #[{ name := "p", type := .i32 }],
-    body := { insns := #[
-      .i64Const 0, .call "random_seed",
-      .call hashAllocName, .localSet "p",
-      .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
-      .localGet "p" ] } }
-
-def ctxHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
-    (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
-    (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
-    (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
-    (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
-
-def lowerContextExprPlan :
-    ContextExprPlan → Except EmitError (Array Insn × ValueType)
-  | .userId => .ok (#[.call ctxUserIdName], .u64)
-  | .userIdHash => .ok (#[.call ctxUserHashName], .hash)
-  | .contractId => .ok (#[.call ctxContractIdName], .u64)
-  | .checkpointId => .ok (#[.call "block_index"], .u64)
-  | .timestamp => .ok (#[.call "block_timestamp"], .u64)
-  | .epochHeight => .ok (#[.call "epoch_height"], .u64)
-  | .randomSeed => .ok (#[.call ctxRandomSeedName], .hash)
-  | .origin => .ok (#[.call ctxSignerName], .u64)
-
 -- Event helpers --------------------------------------------------------
 -- Build a JSON event string in EVENT_BUF via an append pointer, then log_utf8.
 
