@@ -328,6 +328,9 @@ def crosscallArgsLenInsns (args : Array Expr) (argsLenMarker : Nat) : Array Insn
 def crosscallArgsPtrInsns (argsPtr : Nat) : Array Insn :=
   #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
 
+def stringInfoLenPtrInsns (si : StringInfo) : Array Insn :=
+  #[.i64Const si.len, .i32Const si.ptr, .plain "i64.extend_i32_u"]
+
 -- Type-directed expression lowering (mutually recursive)
 mutual
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
@@ -384,9 +387,8 @@ mutual
     .ok (argBuildInsns ++ accountConv ++ #[
       .call crosscallPoolLenName
     ] ++ accountConv ++ #[
-      .call crosscallPoolPtrName,
-      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
-    ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+      .call crosscallPoolPtrName
+    ] ++ stringInfoLenPtrInsns methodSi ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
     ], .u64)
@@ -401,10 +403,10 @@ mutual
     let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
-    .ok (argBuildInsns ++ #[
-      .i64Const account.len, .i32Const account.ptr, .plain "i64.extend_i32_u",
-      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
-    ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+    .ok (argBuildInsns ++
+      stringInfoLenPtrInsns account ++
+      stringInfoLenPtrInsns methodSi ++
+      argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
     ], .u64)
@@ -423,9 +425,8 @@ mutual
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (parentInsns ++ argBuildInsns ++ #[
       .call promiseCurrentAccountName,
-      .i32Const CTX_BUF, .plain "i64.extend_i32_u",
-      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
-    ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+      .i32Const CTX_BUF, .plain "i64.extend_i32_u"
+    ] ++ stringInfoLenPtrInsns methodSi ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_then"
     ], .u64)
