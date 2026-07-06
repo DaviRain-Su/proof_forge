@@ -177,11 +177,16 @@ Tasks:
   `scripts/quint/mbt-replay-gate.sh` with graceful skips when `quint` or
   Java 17+ are unavailable; expose them as `just quint-model-gate` and
   `just quint-mbt-gate`.
-- Add a ValueVault IR fixture and extend the generator/replay gates to cover it.
-- Parse manual invariants from scenario TOML under `[invariants]` and emit them
-  as Quint `val` definitions.
-- Extend the supported IR subset toward maps, arrays, structs, and bounded loops
-  as the corresponding IR semantics coverage grows.
+- Done: add ValueVault fixture and MBT replay gate (`Tests/Quint/ValueVaultReplay.lean`).
+- Done: parse scenario TOML `[invariants]` and emit Quint `val` definitions
+  (`ProofForge.Backend.Quint.Scenario`, `Invariants.lean`).
+- Done: extend supported IR subset with storage arrays, maps (get/has/set),
+  struct field flattening, and `storagePath*` fixtures (`array`, `map`, `map-path`,
+  `map-nested-path`, `map-path-assign`, `struct`, `array-path`, `struct-path`,
+  `struct-dynamic-path`) wired through `just quint-mbt-gate`.
+- Pending: crosscalls, unbounded integers, local assignment, more than two
+  consecutive `mapKey` segments, hash-valued map `storagePathAssignOp`, dynamic
+  nested `mapKey` keys, and nested struct ref fields.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 

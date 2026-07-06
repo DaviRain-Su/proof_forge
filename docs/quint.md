@@ -24,6 +24,7 @@ lake env proof-forge emit --target quint --fixture map-path-assign -o build/quin
 lake env proof-forge emit --target quint --fixture struct -o build/quint/StructProbe.qnt
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/ArrayPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/StructPathProbe.qnt
+lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/StructDynamicPathProbe.qnt
 ```
 
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
@@ -32,7 +33,8 @@ get/has/set with presence guards on get), `map-path` (single-segment `storagePat
 maps), `map-nested-path` (two-segment consecutive `mapKey` paths on hash maps),
 `map-path-assign` (single- and nested-mapKey `storagePathAssignOp` on U64 maps),
 `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
-scalar arrays), and `struct-path` (field and index+field `storagePath*` on structs and
+scalar arrays), `struct-path` (literal index+field `storagePath*` on array-of-struct
+storage), and `struct-dynamic-path` (dynamic index+field `storagePath*` on
 array-of-struct storage). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
 intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
@@ -94,14 +96,16 @@ The Quint integration contributes these toolchain capabilities (see
 Phase 3 v1 currently lowers a growing portable IR subset:
 
 - Scalars, `ifElse`, `boundedFor`, `whileLoop` (statically unrolled), and checked arithmetic
-- Fixed-size storage arrays (`List[T]` with 1-based Quint indexing)
-- Storage maps (`str -> str` with `hash:a:b:c:d` key encoding) and struct fields
-  flattened to per-field state variables (`current_x`, `current_y`)
-- Scenario-driven bounds (`MAX_UINT`, `USERS`) and manual invariants
+- Fixed-size storage arrays (`List[T]` with 0-based Quint list indexing)
+- Storage maps (`str -> str` / `str -> int` with `hash:a:b:c:d` or `u64:n` key encoding)
+  and struct fields flattened to per-field state variables (`current_x`, `points_0_x`)
+- Single- and two-segment `mapKey` `storagePath*`, struct/array path shapes, and
+  dynamic index+field paths on array-of-struct storage
+- Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
 Still out of scope for the first iteration: more than two consecutive `mapKey`
-segments, dynamic index on array-of-struct paths, nested struct ref fields,
-`storagePathAssignOp` on hash-valued map paths, crosscalls,
+segments, nested struct ref fields, `storagePathAssignOp` on hash-valued map paths,
+dynamic nested `mapKey` path keys, local assignment, crosscalls,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
 need more iterations are truncated in the Quint model. Unrolling emits each step

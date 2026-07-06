@@ -66,6 +66,7 @@ def irExprNat? (e : ProofForge.IR.Expr) : Option Nat :=
 inductive StoragePathTarget where
   | flatVar (name : String)
   | arraySlot (stateId : String) (cap : Nat) (index : ProofForge.IR.Expr)
+  | arrayStructFieldSlot (stateId : String) (cap : Nat) (index : ProofForge.IR.Expr) (fieldName : String)
   | mapSlot (stateId : String) (key : ProofForge.IR.Expr)
   | nestedMapSlot (stateId : String) (key1 key2 : ProofForge.IR.Expr)
   deriving Repr, Nonempty
@@ -114,15 +115,14 @@ partial def resolveStoragePathSegments (structs : Array StructDecl) (stateId : S
       | other => .error { message := s!"storage path index cannot be selected from `{other.name}`" }
   | [.index index, .field fieldName] =>
       match current with
-      | .fixedArray (.structType typeName) length =>
+      | .fixedArray (.structType _) length =>
           match irExprNat? index with
           | some n =>
               if n >= length then
                 .error { message := s!"storage path index {n} out of bounds for array `{stateId}` (length {length})" }
               else
                 .ok (.flatVar (arrayStructFieldVarName stateId n fieldName))
-          | none =>
-              .error { message := s!"storage path index+field on `{stateId}` requires a literal index in Quint lowering v1" }
+          | none => .ok (.arrayStructFieldSlot stateId length index fieldName)
       | .fixedArray element length =>
           .error { message := s!"storage path field `{fieldName}` after index cannot be selected from `{element.name}`" }
       | other =>
@@ -408,12 +408,38 @@ mutual
         .ok (some (mapContainsExpr key' mapExpr))
     | _ => .ok none
 
+  partial def arrayStructFieldReadExpr (ctx : LowerCtx) (stateId : String) (cap : Nat)
+      (index : ProofForge.IR.Expr) (fieldName : String) : Except LowerError Expr := do
+    let idx' ← lowerExpr ctx index
+    let mut result := .literalInt 0
+    for i in [0:cap] do
+      let cond := .binOp .eq idx' (.literalInt (Int.ofNat i))
+      let atI := ctx.stateValue (arrayStructFieldVarName stateId i fieldName)
+      result := .ite cond atI result
+    .ok result
+
+  partial def arrayStructFieldWriteCtx (ctx : LowerCtx) (stateId : String) (cap : Nat)
+      (index : ProofForge.IR.Expr) (fieldName : String) (value : ProofForge.IR.Expr)
+      (combine : Expr → Expr → Expr → Expr) : Except LowerError LowerCtx := do
+    let idx' ← lowerExpr ctx index
+    let value' ← lowerExpr ctx value
+    let mut nextCtx := ctx
+    for i in [0:cap] do
+      let name := arrayStructFieldVarName stateId i fieldName
+      let cond := .binOp .eq idx' (.literalInt (Int.ofNat i))
+      let cur := ctx.stateValue name
+      let updated := combine cond value' cur
+      nextCtx := { nextCtx with state := nextCtx.state.upsert name updated }
+    .ok nextCtx
+
   partial def targetReadExpr (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError Expr :=
     match target with
     | .flatVar name => .ok (ctx.stateValue name)
     | .arraySlot stateId cap index => do
         let idx' ← lowerExpr ctx index
         .ok (.index (ctx.stateValue stateId) (irIndexToQuint idx'))
+    | .arrayStructFieldSlot stateId cap index fieldName =>
+        arrayStructFieldReadExpr ctx stateId cap index fieldName
     | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
     | .nestedMapSlot stateId key1 key2 => do
         let key' ← nestedMapKeyExpr ctx key1 key2
@@ -438,6 +464,9 @@ mutual
                 listSetAtExpr current cap key' value'
           | _ => listSetAtExpr current cap key' value'
         .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .arrayStructFieldSlot stateId cap index fieldName =>
+        arrayStructFieldWriteCtx ctx stateId cap index fieldName value
+          (fun (cond : Expr) (value' : Expr) (cur : Expr) => .ite cond value' cur)
     | .mapSlot stateId key => do
         let mapExpr := ctx.stateValue stateId
         let key' ← lowerMapKeyExpr ctx key
@@ -484,6 +513,11 @@ mutual
                 listSetAtExpr current cap key' updatedElem
           | _ => listSetAtExpr current cap key' updatedElem
         .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .arrayStructFieldSlot stateId cap index fieldName => do
+        let value' ← lowerExpr ctx value
+        let qop := lowerAssignOp op
+        arrayStructFieldWriteCtx ctx stateId cap index fieldName value
+          (fun (cond : Expr) (_ : Expr) (cur : Expr) => .ite cond (.binOp qop cur value') cur)
     | .mapSlot stateId key => do
         let key' ← lowerMapKeyExpr ctx key
         targetMapAssignOpCtx ctx stateId key' op value

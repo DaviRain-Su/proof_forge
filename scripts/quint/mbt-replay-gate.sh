@@ -36,6 +36,7 @@ lake env lean --run Tests/Quint/MapPathAssignModel.lean
 lake env lean --run Tests/Quint/StructModel.lean
 lake env lean --run Tests/Quint/ArrayPathModel.lean
 lake env lean --run Tests/Quint/StructPathModel.lean
+lake env lean --run Tests/Quint/StructDynamicPathModel.lean
 
 echo "Running Counter MBT replay test..."
 lake env lean --run Tests/Quint/CounterReplay.lean
@@ -76,6 +77,9 @@ lake env lean --run Tests/Quint/ArrayPathReplay.lean
 echo "Running StructPathProbe MBT replay test..."
 lake env lean --run Tests/Quint/StructPathReplay.lean
 
+echo "Running StructDynamicPathProbe MBT replay test..."
+lake env lean --run Tests/Quint/StructDynamicPathReplay.lean
+
 echo "Running Quint CLI emit smoke..."
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/CliConditional.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/CliLoop.qnt
@@ -89,5 +93,6 @@ lake env proof-forge emit --target quint --fixture map-path-assign -o build/quin
 lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStruct.qnt
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/CliArrayPath.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/CliStructPath.qnt
+lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/CliStructDynamicPath.qnt
 
 echo "Quint MBT replay gate passed."

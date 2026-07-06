@@ -227,6 +227,22 @@ def readPointX : Entrypoint := {
   ]
 }
 
+def dynamicArrayPathLifecycle : Entrypoint := {
+  name := "dynamic_array_path_lifecycle"
+  selector? := some "a1b2c3d4"
+  params := #[("index", .u64)]
+  returns := .u64
+  body := #[
+    .ifElse (.le (.local "index") (u64 1))
+      #[
+        .effect (.storagePathWrite "points" #[.index (.local "index"), pathField "x"] (u64 42)),
+        .effect (.storagePathAssignOp "points" #[.index (.local "index"), pathField "x"] .add (u64 3)),
+        .return (.effect (.storagePathRead "points" #[.index (.local "index"), pathField "x"]))
+      ]
+      #[.return (u64 0)]
+  ]
+}
+
 def module : Module := {
   name := "EvmStorageStructProbe"
   structs := #[pointStruct, metaStruct]
@@ -252,6 +268,14 @@ def emitQuintPathModule : Module := {
   structs := #[pointStruct]
   state := #[stateCurrent, statePoints]
   entrypoints := #[pathLifecycle, arrayPathLifecycle]
+}
+
+/-- Quint/MBT subset: dynamic-index `storagePath*` on array-of-struct storage. -/
+def emitQuintDynamicStructPathModule : Module := {
+  name := "EvmStorageStructProbe"
+  structs := #[pointStruct]
+  state := #[statePoints]
+  entrypoints := #[dynamicArrayPathLifecycle]
 }
 
 end ProofForge.IR.Examples.EvmStorageStructProbe
