@@ -231,6 +231,9 @@ Tasks:
   ValueVault (`ProofForge.Contract.Spec.quintInvariants`, CLI emit merge,
   `Tests/Quint/ContractSourceInvariants.lean`); ValueVault scenario TOML
   `[invariants]` moved to contract source.
+- Done: `contract_source` `quint_liveness` temporal annotations on Counter
+  (`ProofForge.Contract.Spec.quintLiveness`, `ProofForge.Backend.Quint.Liveness`,
+  scenario TOML `[liveness]`, `Tests/Quint/ContractSourceLiveness.lean`).
 
 Acceptance criteria:
 

@@ -265,12 +265,28 @@ mutual
         .ok (.unOp .neg e, p1)
     | _ => parsePrimary p
 
+  partial def parseCallArgs (p : Parser) : Except ParseError (Array Expr × Parser) := do
+    let p1 ← expect p .lparen
+    if peek p1 == .rparen then
+      let p2 ← expect (advance p1) .rparen
+      .ok (#[], p2)
+    else
+      let (arg, p2) ← parseExpr p1
+      let p3 ← expect p2 .rparen
+      .ok (#[arg], p3)
+
   partial def parsePrimary (p : Parser) : Except ParseError (Expr × Parser) := do
     match peek p with
     | .number n => .ok (.literalInt (Int.ofNat n), advance p)
     | .str s => .ok (.literalStr s, advance p)
     | .bool b => .ok (.literalBool b, advance p)
-    | .ident name => .ok (.local name, advance p)
+    | .ident name =>
+        let p1 := advance p
+        if peek p1 == .lparen then
+          let (args, p2) ← parseCallArgs p1
+          .ok (.app name args, p2)
+        else
+          .ok (.local name, p1)
     | .lparen =>
         let (e, p1) ← parseExpr (advance p)
         let p2 ← expect p1 .rparen

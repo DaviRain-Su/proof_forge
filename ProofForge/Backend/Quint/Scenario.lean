@@ -24,6 +24,10 @@ structure Config where
   invariants : Array (String × String) := #[]
   /-- `contract_source` `quint_invariant` annotations merged at emit time. -/
   contractInvariants : Array (String × String) := #[]
+  /-- Scenario TOML `[liveness]` entries. -/
+  liveness : Array (String × String) := #[]
+  /-- `contract_source` `quint_liveness` annotations merged at emit time. -/
+  contractLiveness : Array (String × String) := #[]
   deriving Repr, Inhabited
 
 def Config.quintPureDefs (cfg : Config) : Array PureDef := #[
@@ -156,6 +160,9 @@ def parse (input : String) : Except String Config := do
         if currentSection == "invariants" then
           let expr ← charsToQuotedString value.toList
           cfg := { cfg with invariants := cfg.invariants.push (key, expr) }
+        else if currentSection == "liveness" then
+          let expr ← charsToQuotedString value.toList
+          cfg := { cfg with liveness := cfg.liveness.push (key, expr) }
         else
           let cfg' ← match key with
             | "max_uint" =>

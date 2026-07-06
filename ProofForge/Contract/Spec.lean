@@ -23,6 +23,7 @@ structure ContractSpec where
   evmConstructorInitBindings : Array EvmConstructorInitBinding := #[]
   /-- User-authored Quint safety invariants (`name`, expression string). -/
   quintInvariants : Array (String × String) := #[]
+  quintLiveness : Array (String × String) := #[]
   deriving Repr
 
 def moduleIntent (module : ProofForge.IR.Module) : Intent := {

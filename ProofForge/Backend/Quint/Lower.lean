@@ -3,6 +3,7 @@ import ProofForge.Backend.Quint.Model
 import ProofForge.Backend.Quint.Emit
 import ProofForge.Backend.Quint.Scenario
 import ProofForge.Backend.Quint.Invariants
+import ProofForge.Backend.Quint.Liveness
 
 namespace ProofForge.Backend.Quint.Lower
 
@@ -1502,13 +1503,17 @@ def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : E
   let vals ← match Invariants.derive module scenario with
     | .ok vs => .ok vs
     | .error e => .error { message := e }
+  let temporals ← match Liveness.derive module scenario with
+    | .ok ts => .ok ts
+    | .error e => .error { message := e }
   pure {
     name := s!"{module.name}Model",
     constants := #[],
     vars := vars,
     pureDefs := scenario.quintPureDefs ++ whilePureDefs,
     actions := #[init] ++ epActions ++ #[step],
-    vals := vals
+    vals := vals,
+    temporals := temporals
   }
 
 def renderModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except LowerError String := do

@@ -49,6 +49,24 @@ Expressions use the same small language as scenario TOML `[invariants]`
 auto-derived non-negativity `val`s. `proof-forge emit --target quint` merges
 `quint_invariant` annotations from the canonical `contract_source` spec.
 
+### Liveness properties in `contract_source`
+
+Declare Quint temporal (liveness) properties beside contract state:
+
+```lean
+contract_source Counter do
+  state count : .u64
+  quint_liveness eventuallyPositive := "eventually(count > 0)"
+  ...
+end
+```
+
+Expressions use the same small language as safety invariants, plus call syntax
+for temporal operators (`always(...)`, `eventually(...)`, `next(...)`).
+`proof-forge emit --target quint` emits `temporal` definitions alongside `val`
+invariants. The default `quint verify` gate still checks safety invariants only;
+Apalache does not model-check arbitrary liveness properties in the CI path.
+
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
 `while`, `array` (fixed-size storage array lifecycle), `map` (hash-keyed storage map
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on

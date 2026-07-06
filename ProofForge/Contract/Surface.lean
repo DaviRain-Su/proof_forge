@@ -54,6 +54,9 @@ def setProxyPattern (pattern : ProofForge.Contract.ProxyPattern) : ModuleM Unit 
 def declareQuintInvariant (name expr : String) : ModuleM Unit :=
   ProofForge.Contract.Builder.quintInvariant name expr
 
+def declareQuintLiveness (name expr : String) : ModuleM Unit :=
+  ProofForge.Contract.Builder.quintLiveness name expr
+
 def slot (id : String) (type : ValueType) : ScalarRef :=
   { id, type }
 

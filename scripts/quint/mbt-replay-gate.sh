@@ -31,6 +31,9 @@ lake env lean --run Tests/Quint/ValueVaultModel.lean
 echo "Running contract_source quint_invariant test..."
 lake env lean --run Tests/Quint/ContractSourceInvariants.lean
 
+echo "Running contract_source quint_liveness test..."
+lake env lean --run Tests/Quint/ContractSourceLiveness.lean
+
 echo "Running Quint control-flow model render tests..."
 lake env lean --run Tests/Quint/ConditionalModel.lean
 lake env lean --run Tests/Quint/LoopModel.lean

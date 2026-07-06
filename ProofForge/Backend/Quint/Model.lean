@@ -125,6 +125,11 @@ structure Val where
   name : String
   body : Expr
 
+/-- A temporal (liveness) property declaration. -/
+structure Temporal where
+  name : String
+  body : Expr
+
 /-- A Quint module. -/
 structure Module where
   name : String
@@ -133,6 +138,7 @@ structure Module where
   pureDefs : Array PureDef := #[]
   actions : Array Action := #[]
   vals : Array Val := #[]
+  temporals : Array Temporal := #[]
   deriving Inhabited
 
 end ProofForge.Backend.Quint

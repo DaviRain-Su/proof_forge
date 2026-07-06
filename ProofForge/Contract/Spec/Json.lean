@@ -48,8 +48,12 @@ def autoQuintInvariants (module : Module) : Array String :=
 def quintInvariants (spec : ContractSpec) : Array String :=
   autoQuintInvariants spec.module ++ spec.quintInvariants.map (·.fst)
 
+def quintLiveness (spec : ContractSpec) : Array String :=
+  spec.quintLiveness.map (·.fst)
+
 def quintVerificationJson (spec : ContractSpec) : String :=
   let invariants := quintInvariants spec
+  let liveness := quintLiveness spec
   let verifyCommand :=
     String.join [
       "quint verify build/quint/", spec.name, ".qnt --invariants ",
@@ -61,6 +65,7 @@ def quintVerificationJson (spec : ContractSpec) : String :=
       ("modelHash", "null"),
       ("modelPath", jsonString s!"build/quint/{spec.name}.qnt"),
       ("invariants", jsonStringArray invariants),
+      ("liveness", jsonStringArray liveness),
       ("verifyCommand", jsonString verifyCommand),
       ("maxSteps", "10"),
       ("checker", jsonString "apalache")

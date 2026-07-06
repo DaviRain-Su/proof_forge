@@ -129,6 +129,9 @@ def emitVar (v : Var) : String :=
 def emitVal (v : Val) : String :=
   s!"val {v.name} = {emitExpr 0 v.body}"
 
+def emitTemporal (t : Temporal) : String :=
+  s!"temporal {t.name} = {emitExpr 0 t.body}"
+
 def emitModule (m : Module) : String :=
   let parts : Array String := #[]
   let parts := if m.constants.isEmpty then parts else parts ++ m.constants.map emitConstant
@@ -136,6 +139,7 @@ def emitModule (m : Module) : String :=
   let parts := if m.pureDefs.isEmpty then parts else parts ++ m.pureDefs.map emitPureDef
   let parts := parts ++ m.actions.map emitAction
   let parts := if m.vals.isEmpty then parts else parts ++ m.vals.map emitVal
+  let parts := if m.temporals.isEmpty then parts else parts ++ m.temporals.map emitTemporal
   let body := String.intercalate "\n\n" (parts.map (fun s => "  " ++ s)).toList
   "module " ++ m.name ++ " {\n" ++ body ++ "\n}"
 

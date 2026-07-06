@@ -6171,10 +6171,15 @@ def compileCounterIrSui (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.message
 
 def compileIrQuintModule (opts : CliOptions) (module : ProofForge.IR.Module) (defaultOutput : String)
-    (contractInvariants : Array (String × String) := #[]) : IO UInt32 := do
+    (contractInvariants : Array (String × String) := #[])
+    (contractLiveness : Array (String × String) := #[]) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk defaultOutput)
   let scenario ← loadQuintScenarioConfig opts
-  let scenario := { scenario with contractInvariants := contractInvariants }
+  let scenario := {
+    scenario with
+      contractInvariants := contractInvariants
+      contractLiveness := contractLiveness
+  }
   match ProofForge.Backend.Quint.Lower.renderModule module scenario with
   | .ok source =>
       match output.parent with
@@ -6189,10 +6194,12 @@ def compileIrQuintModule (opts : CliOptions) (module : ProofForge.IR.Module) (de
 def compileCounterIrQuint (opts : CliOptions) : IO UInt32 :=
   compileIrQuintModule opts ProofForge.IR.Examples.Counter.module "build/quint/Counter.qnt"
     ProofForge.Contract.Examples.Counter.spec.quintInvariants
+    ProofForge.Contract.Examples.Counter.spec.quintLiveness
 
 def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 :=
   compileIrQuintModule opts ProofForge.IR.Examples.ValueVault.module "build/quint/ValueVault.qnt"
     ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
+    ProofForge.Contract.Examples.ValueVault.spec.quintLiveness
 
 def compileIrQuint (opts : CliOptions) : IO UInt32 := do
   let fixture ← match opts.fixture? with
