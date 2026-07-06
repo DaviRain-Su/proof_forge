@@ -67,5 +67,13 @@ def emitWatLocalSumModule : Module := {
   entrypoints := #[localSum]
 }
 
+/-- Quint/MBT subset: storage struct field read/write lifecycle. -/
+def emitWatStorageModule : Module := {
+  name := "StructProbe"
+  structs := #[pointStruct]
+  state := #[stateCurrent]
+  entrypoints := #[storageLifecycle]
+}
+
 
 end ProofForge.IR.Examples.StructProbe

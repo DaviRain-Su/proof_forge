@@ -42,6 +42,18 @@ partial def parseValue (json : Json) : Except String Value := do
       match n.toNat? with
       | some n => .ok (.int n)
       | none => .error s!"invalid #bigint value: {n}"
+    else if let .ok (Json.arr pairs) := Json.getObjVal? json "#map" then
+      let entries ← pairs.toList.mapM (fun pairJson => do
+        match pairJson.getArr? with
+        | .ok arr =>
+            if arr.size != 2 then
+              .error s!"expected map pair of length 2, got: {pairJson.compress}"
+            else
+              let k ← parseValue arr[0]!
+              let v ← parseValue arr[1]!
+              pure (k, v)
+        | .error e => .error s!"expected map pair array in #map: {e}")
+      .ok (.map entries)
     else
       let entries ← Std.TreeMap.Raw.toList obj |>.mapM (fun (k, v) => do
         let pv ← parseValue v

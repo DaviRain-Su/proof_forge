@@ -29,6 +29,8 @@ lake env lean --run Tests/Quint/ConditionalModel.lean
 lake env lean --run Tests/Quint/LoopModel.lean
 lake env lean --run Tests/Quint/WhileModel.lean
 lake env lean --run Tests/Quint/ArrayModel.lean
+lake env lean --run Tests/Quint/MapModel.lean
+lake env lean --run Tests/Quint/StructModel.lean
 
 echo "Running Counter MBT replay test..."
 lake env lean --run Tests/Quint/CounterReplay.lean
@@ -48,11 +50,19 @@ lake env lean --run Tests/Quint/WhileReplay.lean
 echo "Running ArrayProbe MBT replay test..."
 lake env lean --run Tests/Quint/ArrayReplay.lean
 
+echo "Running MapProbe MBT replay test..."
+lake env lean --run Tests/Quint/MapReplay.lean
+
+echo "Running StructProbe MBT replay test..."
+lake env lean --run Tests/Quint/StructReplay.lean
+
 echo "Running Quint CLI emit smoke..."
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/CliConditional.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/CliLoop.qnt
 lake env proof-forge emit --target quint --fixture while -o build/quint/CliWhile.qnt
 test "$(wc -c < build/quint/CliWhile.qnt)" -lt 8192
 lake env proof-forge emit --target quint --fixture array -o build/quint/CliArray.qnt
+lake env proof-forge emit --target quint --fixture map -o build/quint/CliMap.qnt
+lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStruct.qnt
 
 echo "Quint MBT replay gate passed."

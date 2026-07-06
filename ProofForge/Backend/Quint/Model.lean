@@ -11,6 +11,7 @@ inductive QuintType where
   | set (elem : QuintType)
   | map (key val : QuintType)
   | list (elem : QuintType)
+  | hashStr
   | custom (name : String)
 
 def QuintType.name : QuintType → String
@@ -18,8 +19,9 @@ def QuintType.name : QuintType → String
   | .bool => "bool"
   | .str => "str"
   | .set elem => s!"Set[{elem.name}]"
-  | .map key val => s!"Map[{key.name}, {val.name}]"
+  | .map key val => s!"{key.name} -> {val.name}"
   | .list elem => s!"List[{elem.name}]"
+  | .hashStr => "str"
   | .custom name => name
 
 /-- Binary operators supported in generated Quint expressions. -/
@@ -78,6 +80,7 @@ inductive Expr where
   | listLit (values : Array Expr)
   | index (list index : Expr)
   | mapLit (entries : Array (Expr × Expr))
+  | methodCall (receiver : Expr) (method : String) (args : Array Expr)
   | ite (cond thenExpr elseExpr : Expr)
   deriving Inhabited
 

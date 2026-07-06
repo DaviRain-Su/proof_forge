@@ -209,6 +209,15 @@ def emitWatModule : Module := {
   entrypoints := #[ewGetBalance, ewHasBalance, ewSetBalance]
 }
 
+/-- Quint/MBT subset: `hasBalance` is safe on absent keys; `setBalanceReturn`
+    exercises map writes. `getBalance` is omitted because IR errors on absent
+    keys while the lowered Quint action is a no-op, which makes MBT traces flaky. -/
+def emitQuintStorageModule : Module := {
+  name := "MapProbe",
+  state := #[stateBalances],
+  entrypoints := #[ewHasBalance, ewSetBalance]
+}
+
 /-! EmitWat "full" subset: every MapProbe entrypoint EXCEPT `pathLifecycle` (which
     needs `storagePath*`, task #16). Exercises `storageMapInsert` + `storageMapSet`
     return-old-value semantics (setReturnLifecycle / insertReturnLifecycle / mapLifecycle). -/

@@ -5,6 +5,8 @@ import ProofForge.IR.Examples.ConditionalProbe
 import ProofForge.IR.Examples.LoopProbe
 import ProofForge.IR.Examples.WhileProbe
 import ProofForge.IR.Examples.ArrayProbe
+import ProofForge.IR.Examples.MapProbe
+import ProofForge.IR.Examples.StructProbe
 import ProofForge.IR.Examples.AssertProbe
 
 namespace ProofForge.Cli.Quint
@@ -16,7 +18,9 @@ def supportedFixtureIds : Array String := #[
   "conditional",
   "loop",
   "while",
-  "array"
+  "array",
+  "map",
+  "struct"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -30,6 +34,8 @@ def outputFileName (fixtureId : String) : String :=
   | "loop" => "LoopProbe.qnt"
   | "while" => "WhileProbe.qnt"
   | "array" => "ArrayProbe.qnt"
+  | "map" => "MapProbe.qnt"
+  | "struct" => "StructProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -44,6 +50,8 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "loop" => some ProofForge.IR.Examples.LoopProbe.module
   | "while" => some ProofForge.IR.Examples.WhileProbe.module
   | "array" => some ProofForge.IR.Examples.ArrayProbe.emitWatStorageModule
+  | "map" => some ProofForge.IR.Examples.MapProbe.emitQuintStorageModule
+  | "struct" => some ProofForge.IR.Examples.StructProbe.emitWatStorageModule
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none
 

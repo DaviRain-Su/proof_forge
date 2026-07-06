@@ -8,7 +8,7 @@ namespace ProofForge.Backend.Quint.Lower
 
 set_option linter.unusedVariables false
 
-open ProofForge.IR (ValueType Literal Statement Entrypoint StateDecl Effect AssignOp)
+open ProofForge.IR (ValueType Literal Statement Entrypoint StateDecl StructDecl Effect AssignOp)
 open ProofForge.Backend.Quint
 
 structure LowerError where
@@ -40,10 +40,42 @@ structure LowerCtx where
   state : LocalEnv := []
   guards : Array ActionClause := #[]
   stateDecls : Array StateDecl := #[]
+  structs : Array StructDecl := #[]
   pureDefs : Array PureDef := #[]
   maxLoopUnroll : Nat := 10
   /-- When false, `__while_*` step locals stay symbolic during unrolling. -/
   expandLocals : Bool := true
+
+def hashLiteralStr (a b c d : Nat) : String :=
+  s!"hash:{a}:{b}:{c}:{d}"
+
+def structFieldVarName (stateId fieldName : String) : String :=
+  s!"{stateId}_{fieldName}"
+
+def lookupStructDecl (structs : Array StructDecl) (name : String) : Option StructDecl :=
+  structs.find? (fun s => s.name == name)
+
+def mapKeysExpr (mapExpr : Expr) : Expr :=
+  .methodCall mapExpr "keys" #[]
+
+def mapContainsExpr (key mapExpr : Expr) : Expr :=
+  .methodCall key "in" #[mapKeysExpr mapExpr]
+
+def emptyMapExpr : Expr :=
+  .app "Map" #[]
+
+def hashZeroExpr : Expr :=
+  .literalStr (hashLiteralStr 0 0 0 0)
+
+def expandedStateIds (state : Array StateDecl) (structs : Array StructDecl) : Array String :=
+  state.foldl (fun acc decl =>
+    match decl.type with
+    | .structType typeName =>
+        match lookupStructDecl structs typeName with
+        | some structDecl =>
+            acc ++ structDecl.fields.map (fun field => structFieldVarName decl.id field.id)
+        | none => acc.push decl.id
+    | _ => acc.push decl.id) #[]
 
 def whileStepLocalName (stateId : String) (step : Nat) : String :=
   s!"__while_{stateId}_{step}"
@@ -94,23 +126,41 @@ def lowerType (t : ValueType) : Except LowerError QuintType := do
   | .bool => .ok .bool
   | .u8 | .u32 | .u64 | .u128 => .ok .int
   | .address => .ok .str
+  | .hash => .ok .hashStr
   | .fixedArray elem _ => .ok (.list (← lowerType elem))
   | .array elem => .ok (.list (← lowerType elem))
-  | .structType name => .ok (.custom name)
-  | .bytes | .string | .hash =>
+  | .structType _ => .ok (.map .str .int)
+  | .bytes | .string =>
       .error { message := s!"unsupported IR value type for Quint lowering: {t.name}" }
 
 def lowerStateVarType (s : StateDecl) : Except LowerError QuintType := do
   match s.kind with
   | .array _ => .ok (.list (← lowerType s.type))
+  | .map _ _ => .ok (.map .str (← lowerType s.type))
   | _ => lowerType s.type
+
+def quintStateVars (state : Array StateDecl) (structs : Array StructDecl) :
+    Except LowerError (Array (String × QuintType)) := do
+  let mut vars := #[]
+  for decl in state do
+    match decl.type with
+    | .structType typeName =>
+        match lookupStructDecl structs typeName with
+        | some structDecl =>
+            for field in structDecl.fields do
+              vars := vars.push (structFieldVarName decl.id field.id, ← lowerType field.type)
+        | none =>
+            vars := vars.push (decl.id, ← lowerStateVarType decl)
+    | _ =>
+        vars := vars.push (decl.id, ← lowerStateVarType decl)
+  pure vars
 
 def lowerLiteral (lit : Literal) : Except LowerError Expr :=
   match lit with
   | .u8 n | .u32 n | .u64 n | .u128 n => .ok (.literalInt (Int.ofNat n))
   | .bool b => .ok (.literalBool b)
   | .address n => .ok (.literalStr s!"addr{n}")
-  | .hash4 _ _ _ _ => .error { message := "hash literals not supported in Quint lowering v1" }
+  | .hash4 a b c d => .ok (.literalStr (hashLiteralStr a b c d))
 
 def lowerAssignOp (op : AssignOp) : BinOp :=
   match op with
@@ -164,6 +214,13 @@ mutual
         let arr' ← lowerExpr ctx arr
         let idx' ← lowerExpr ctx idx
         .ok (.index arr' (irIndexToQuint idx'))
+    | .structLit _ fields => do
+        let entries ← fields.mapM (fun (fieldName, fieldExpr) => do
+          pure (.literalStr fieldName, ← lowerExpr ctx fieldExpr))
+        .ok (.mapLit entries)
+    | .field base fieldName => do
+        let base' ← lowerExpr ctx base
+        .ok (.methodCall base' "get" #[.literalStr fieldName])
     | .effect eff => lowerEffectExpr ctx eff
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
@@ -173,6 +230,17 @@ mutual
     | .storageArrayRead stateId key => do
         let key' ← lowerExpr ctx key
         .ok (.index (ctx.stateValue stateId) (irIndexToQuint key'))
+    | .storageMapContains stateId key => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        .ok (mapContainsExpr key' mapExpr)
+    | .storageMapGet stateId key => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        let present := mapContainsExpr key' mapExpr
+        .ok (.ite present (.methodCall mapExpr "get" #[key']) hashZeroExpr)
+    | .storageStructFieldRead stateId fieldName =>
+        .ok (ctx.stateValue (structFieldVarName stateId fieldName))
     | .contextRead field =>
         match field with
         | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
@@ -180,11 +248,39 @@ mutual
         | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }
 
+  partial def lowerMutatingEffectBinding (ctx : LowerCtx) (eff : Effect) :
+      Except LowerError (LowerCtx × Expr) :=
+    match eff with
+    | .storageMapInsert stateId key value
+    | .storageMapSet stateId key value => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        let value' ← lowerExpr ctx value
+        let present := mapContainsExpr key' mapExpr
+        let old := .ite present (.methodCall mapExpr "get" #[key']) hashZeroExpr
+        let updated := .methodCall mapExpr "put" #[key', value']
+        .ok ({ ctx with state := ctx.state.upsert stateId updated }, old)
+    | _ => do
+        let expr ← lowerEffectExpr ctx eff
+        .ok (ctx, expr)
+
   partial def applyEffect (ctx : LowerCtx) (eff : Effect) : Except LowerError LowerCtx := do
     match eff with
     | .storageScalarWrite stateId value =>
-        let value' ← lowerExpr ctx value
-        .ok { ctx with state := ctx.state.upsert stateId value' }
+        match value with
+        | .structLit typeName fields =>
+            match lookupStructDecl ctx.structs typeName with
+            | some _ =>
+                let mut nextCtx := ctx
+                for (fieldName, fieldExpr) in fields do
+                  let fieldValue ← lowerExpr nextCtx fieldExpr
+                  nextCtx := { nextCtx with
+                    state := nextCtx.state.upsert (structFieldVarName stateId fieldName) fieldValue }
+                .ok nextCtx
+            | none => .error { message := s!"unknown struct type `{typeName}` for storage write `{stateId}`" }
+        | _ =>
+            let value' ← lowerExpr ctx value
+            .ok { ctx with state := ctx.state.upsert stateId value' }
     | .storageScalarAssignOp stateId op value =>
         let cur := ctx.stateValue stateId
         let value' ← lowerExpr ctx value
@@ -207,6 +303,16 @@ mutual
             .ok { ctx with state := ctx.state.upsert stateId updated }
         | _ =>
             .error { message := s!"storageArrayWrite on unknown or non-array state `{stateId}`" }
+    | .storageMapSet stateId key value => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        let value' ← lowerExpr ctx value
+        let updated := .methodCall mapExpr "put" #[key', value']
+        .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .storageStructFieldWrite stateId fieldName value => do
+        let value' ← lowerExpr ctx value
+        .ok { ctx with
+          state := ctx.state.upsert (structFieldVarName stateId fieldName) value' }
     | .eventEmit _ _ =>
         .ok { ctx with guards := ctx.guards.push (.guard (.literalBool true)) }
     | _ => .error { message := "unsupported effect statement for Quint lowering v1" }
@@ -231,7 +337,12 @@ mutual
   partial def lowerStatement (ctx : LowerCtx) (s : Statement) : Except LowerError LowerCtx := do
     match s with
     | .letBind name _ value =>
-        .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
+        match value with
+        | .effect eff =>
+            let (ctx', expr) ← lowerMutatingEffectBinding ctx eff
+            .ok { ctx' with locals := ctx'.locals.bind name expr }
+        | _ =>
+            .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
     | .letMutBind name _ value =>
         .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
     | .assign _ _ =>
@@ -270,7 +381,7 @@ mutual
           guardsAcc := guardsAcc ++ bodyCtx.guards
         .ok { ctx with state := stateAcc, guards := guardsAcc }
     | .whileLoop condition body =>
-        let stateIds := ctx.stateDecls.map (·.id)
+        let stateIds := expandedStateIds ctx.stateDecls ctx.structs
         let mut stepLocals : LocalEnv :=
           stateIds.foldl (fun (acc : LocalEnv) id =>
             acc.upsert (whileStepLocalName id 0) (ctx.stateValue id)) []
@@ -328,9 +439,12 @@ partial def assignedStateVars (clause : ActionClause) : List String :=
   | _ => []
 
 def lowerEntrypoint (ep : Entrypoint) (stateIds : Array String) (stateDecls : Array StateDecl)
-    (maxLoopUnroll : Nat) : Except LowerError LoweredEntrypoint := do
+    (structs : Array StructDecl) (maxLoopUnroll : Nat) : Except LowerError LoweredEntrypoint := do
   let params ← ep.params.mapM (fun (n, t) => do pure (n, ← lowerType t))
-  let ctx ← lowerStatements { stateDecls := stateDecls, maxLoopUnroll := maxLoopUnroll } ep.body
+  let ctx ← lowerStatements {
+    stateDecls := stateDecls,
+    structs := structs,
+    maxLoopUnroll := maxLoopUnroll } ep.body
   let clauses := ctxToActionClauses ctx
   let assigned := clauses.foldl (fun acc c => acc ++ assignedStateVars c) []
   let identityClauses := stateIds.filterMap (fun id =>
@@ -350,30 +464,57 @@ def zeroExpr (t : ValueType) : Except LowerError Expr :=
   | .bool => .ok (.literalBool false)
   | .u8 | .u32 | .u64 | .u128 | .unit => .ok (.literalInt 0)
   | .address => .ok (.literalStr "")
+  | .hash => .ok hashZeroExpr
   | .fixedArray _ _ | .array _ => .ok (.listLit #[])
-  | .structType _ => .ok (.app "__emptyStruct" #[])
-  | .bytes | .string | .hash =>
+  | .structType _ => .ok (.mapLit #[])
+  | .bytes | .string =>
       .error { message := s!"cannot zero-initialize type for Quint: {t.name}" }
 
-def zeroExprForState (s : StateDecl) : Except LowerError Expr := do
+def zeroExprForState (s : StateDecl) (structs : Array StructDecl) : Except LowerError (Array (String × Expr)) := do
   match s.kind with
   | .array cap =>
       let z ← zeroExpr s.type
-      .ok (.listLit (Array.replicate cap z))
-  | _ => zeroExpr s.type
+      .ok #[(s.id, .listLit (Array.replicate cap z))]
+  | .map _ _ =>
+      .ok #[(s.id, emptyMapExpr)]
+  | .scalar | .dynamicArray =>
+      match s.type with
+      | .structType typeName =>
+          match lookupStructDecl structs typeName with
+          | some structDecl => do
+              let mut entries := #[]
+              for field in structDecl.fields do
+                entries := entries.push (structFieldVarName s.id field.id, ← zeroExpr field.type)
+              .ok entries
+          | none =>
+              let z ← zeroExpr s.type
+              .ok #[(s.id, z)]
+      | _ =>
+          let z ← zeroExpr s.type
+          .ok #[(s.id, z)]
 
-def initAction (state : Array StateDecl) : Except LowerError Action := do
-  let clauses ← state.mapM (fun s => do
-    pure (.assign (.prime (.local s.id)) (← zeroExprForState s)))
+def initAction (state : Array StateDecl) (structs : Array StructDecl) : Except LowerError Action := do
+  let mut clauses := #[]
+  for decl in state do
+    let zeros ← zeroExprForState decl structs
+    for (name, value) in zeros do
+      clauses := clauses.push (.assign (.prime (.local name)) value)
   pure {
     name := "init",
     body := ActionClause.all clauses,
     ret? := none
   }
 
+def hashKeySamples : Array Expr := #[
+  .literalStr "hash:1001:0:0:0",
+  .literalStr "hash:2002:0:0:0",
+  .literalStr "hash:3003:0:0:0"
+]
+
 def paramDomainExpr (t : QuintType) : Expr :=
   match t with
   | .str => .oneOf (.local "USERS")
+  | .hashStr => .oneOf (.setLit hashKeySamples)
   | _ => .oneOf (.range (.literalInt 1) (.local "MAX_UINT"))
 
 def entrypointStepCall (ep : Entrypoint) (params : Array (String × QuintType)) : ActionClause :=
@@ -397,12 +538,12 @@ def stepAction (entrypoints : Array Entrypoint) (loweredParams : Array (Array (S
   }
 
 def lowerModule (module : ProofForge.IR.Module) (scenario : Scenario.Config) : Except LowerError Module := do
-  let vars ← module.state.mapM (fun s => do
-    pure { name := s.id, type := ← lowerStateVarType s })
-  let init ← initAction module.state
-  let stateIds := module.state.map (fun s => s.id)
+  let stateVarPairs ← quintStateVars module.state module.structs
+  let vars := stateVarPairs.map (fun (name, type) => { name, type })
+  let init ← initAction module.state module.structs
+  let stateIds := expandedStateIds module.state module.structs
   let loweredEps ← module.entrypoints.mapM (fun ep =>
-    lowerEntrypoint ep stateIds module.state scenario.maxLoopUnroll)
+    lowerEntrypoint ep stateIds module.state module.structs scenario.maxLoopUnroll)
   let epActions := loweredEps.map (·.action)
   let whilePureDefs := loweredEps.foldl (fun acc ep => acc ++ ep.pureDefs) #[]
   let epParams ← module.entrypoints.mapM (fun ep => do

@@ -63,6 +63,12 @@ partial def emitExpr (prec : Nat) (e : Expr) : String :=
   | .mapLit entries =>
       let entriesStr := String.intercalate ", " (entries.map (fun (k, v) => s!"{emit k} -> {emit v}")).toList
       s!"Map({entriesStr})"
+  | .methodCall receiver method args =>
+      let argsStr := emitList args
+      if args.isEmpty then
+        s!"{emit receiver}.{method}()"
+      else
+        s!"{emit receiver}.{method}({argsStr})"
   | .ite cond thenExpr elseExpr =>
       wrap 5 s!"if ({emit cond}) {emit thenExpr} else {emit elseExpr}"
 
