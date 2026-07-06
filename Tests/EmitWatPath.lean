@@ -1,7 +1,7 @@
 import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.MapProbe
-open ProofForge.IR ProofForge.IR.Examples MapProbe ProofForge.Backend.WasmNear.EmitWat
+open ProofForge.IR ProofForge.IR.Examples ProofForge.Backend.WasmNear.EmitWat
 
 /-! Render the path-storage subset of MapProbe (storagePathRead/Write, mapKey segment). -/
 
@@ -62,7 +62,7 @@ def main : IO UInt32 := do
         IO.println s!"wrote {path} ({wat.length} bytes)"
         pure 0
     | .error e => IO.eprintln e.message *> pure 1
-  let r1 ← render emitWatPathModule "build/wasm-near/emitwat-path.wat"
+  let r1 ← render ProofForge.IR.Examples.MapProbe.emitWatPathModule "build/wasm-near/emitwat-path.wat"
   let r2 ← render pathAssignModule "build/wasm-near/emitwat-path-assign.wat"
   let r3 ← render indexPathModule "build/wasm-near/emitwat-path-index.wat"
   if r1 == 0 && r2 == 0 && r3 == 0 then pure 0 else pure 1

@@ -39,6 +39,20 @@ def localAssignOpInsns (name : String) (op : AssignOp) (localType : ValueType)
     .ok (#[.localGet name] ++ valueInsns ++
       #[.plain (widthOf localType ++ "." ++ assignOpName op), .localSet name])
 
+def storagePathAssignOpTargetType (valueKind : String) (currentType : ValueType) :
+    Except EmitError ValueType :=
+  if !isNumeric currentType then
+    err s!"EmitWat: storagePathAssignOp requires U32/U64 {valueKind}, got `{currentType.name}`"
+  else .ok currentType
+
+def storagePathAssignOpValueInsns (op : AssignOp) (currentInsns : Array Insn)
+    (currentType : ValueType) (valueInsns : Array Insn) (valueType : ValueType) :
+    Except EmitError (Array Insn) :=
+  if valueType != currentType then
+    err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
+  else
+    .ok (currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)])
+
 def releaseInsns (ctx : Ctx) (env : LocalTypes) (name : String) :
     Except EmitError (Array Insn) := do
   let some valueType ← pure (lookupLocal? env name) |

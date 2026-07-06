@@ -219,7 +219,8 @@ export ProofForge.Backend.WasmNear.Scalar (
 )
 
 export ProofForge.Backend.WasmNear.Statement (
-  localAssignInsns localAssignOpTargetType localAssignOpInsns releaseInsns
+  localAssignInsns localAssignOpTargetType localAssignOpInsns
+  storagePathAssignOpTargetType storagePathAssignOpValueInsns releaseInsns
 )
 
 export ProofForge.Backend.WasmNear.Struct (
@@ -847,57 +848,41 @@ mutual
       if !canDuplicateExpr key then
         err "EmitWat: storagePathAssignOp mapKey must be a pure expression until key temporaries are lowered"
       let (currentInsns, currentType) ← lowerMapGet ctx env id key
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 map values, got `{currentType.name}`"
+      let currentType ← storagePathAssignOpTargetType "map values" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerMapWriteValue ctx env id key computed currentType
       .ok (writeInsns ++ #[.drop])
     | [.index index] => do
       if !canDuplicateExpr index then
         err "EmitWat: storagePathAssignOp index must be a pure expression until key temporaries are lowered"
       let (currentInsns, currentType) ← lowerStorageArrayRead ctx env id index
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 array values, got `{currentType.name}`"
+      let currentType ← storagePathAssignOpTargetType "array values" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerStorageArrayWriteValue ctx env id index computed currentType
       .ok (writeInsns ++ #[.drop])
     | [.field fieldName] => do
       if !canDuplicateExpr value then
         err "EmitWat: storagePathAssignOp field value must be a pure expression while STRUCT_BUF is the field patch buffer"
       let (currentInsns, currentType) ← lowerScalarStructFieldRead ctx id fieldName
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 struct fields, got `{currentType.name}`"
+      let currentType ← storagePathAssignOpTargetType "struct fields" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       lowerScalarStructFieldWriteValue ctx id fieldName computed currentType
     | [.index index, .field fieldName] => do
       if !canDuplicateExpr value then
         err "EmitWat: storagePathAssignOp index+field value must be a pure expression while STRUCT_BUF is the field patch buffer"
       let (currentInsns, currentType) ← lowerArrayStructFieldRead ctx env id index fieldName
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 array struct fields, got `{currentType.name}`"
+      let currentType ← storagePathAssignOpTargetType "array struct fields" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let computed := currentInsns ++ valueInsns ++ #[.plain (widthOf currentType ++ "." ++ assignOpName op)]
+      let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       lowerArrayStructFieldWriteValue ctx env id index fieldName computed currentType
     | [.mapKey key1, .mapKey key2] => do
       let (currentInsns, currentType) ← lowerNestedMapGet ctx env id key1 key2
-      if !isNumeric currentType then
-        err s!"EmitWat: storagePathAssignOp requires U32/U64 nested map values, got `{currentType.name}`"
+      let currentType ← storagePathAssignOpTargetType "nested map values" currentType
       let (valueInsns, valueType) ← lowerExpr ctx env value
-      if valueType != currentType then
-        err s!"EmitWat: storagePathAssignOp expected `{currentType.name}`, got `{valueType.name}`"
-      let opInsn : Insn := .plain (widthOf currentType ++ "." ++ assignOpName op)
-      let computed := currentInsns ++ valueInsns ++ #[opInsn]
+      let computed ← storagePathAssignOpValueInsns op currentInsns currentType valueInsns valueType
       let (writeInsns, _) ← lowerNestedMapWriteValue ctx env id key1 key2 computed currentType
       .ok (writeInsns ++ #[.drop])
     | _ => err "EmitWat: storagePathAssignOp supports mapKey, index, field, index+field, or nested mapKey+mapKey paths"
