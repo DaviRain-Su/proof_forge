@@ -185,7 +185,7 @@ export ProofForge.Backend.WasmNear.Memory (
 
 export ProofForge.Backend.WasmNear.ModuleAssembly (
   moduleStringPoolEnd loweringCtxForModule dataSegmentsForModulePlan
-  helperFuncsForModulePlan
+  helperFuncsForModulePlan globalsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Params (
@@ -1062,17 +1062,9 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let ctx := loweringCtxForModule mod
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let hasPanic := !ctx.panics.isEmpty
-  let isHost := mod.allocator.requiresHost
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic
   let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
-  let arrPtrDecls :=
-    if isHost || !modulePlanUsesArrHeap modulePlan then #[]
-    else if mod.allocator.usesMinimalMallocShape then
-      #[arrPtrGlobalDecl mod.allocator.heapBase, arrFreeGlobalDecl]
-    else #[arrPtrGlobalDecl mod.allocator.heapBase]
-  let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
-  let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
-    crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
+  let globals := globalsForModulePlan modulePlan mod.allocator
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := dataSegmentsForModulePlan modulePlan ctx }

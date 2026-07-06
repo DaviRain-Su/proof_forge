@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmNear.Aggregate
+import ProofForge.Backend.WasmNear.ArrayHeap
 import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Crosscall
 import ProofForge.Backend.WasmNear.Event
@@ -21,6 +22,7 @@ namespace ProofForge.Backend.WasmNear.ModuleAssembly
 
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Aggregate
+open ProofForge.Backend.WasmNear.ArrayHeap
 open ProofForge.Backend.WasmNear.Context
 open ProofForge.Backend.WasmNear.Crosscall
 open ProofForge.Backend.WasmNear.Event
@@ -82,5 +84,16 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     crosscallPoolHelperFuncs ctx.crosscallStrings ++
     mapHelperFuncsForModulePlan modulePlan ++
     mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
+
+def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.AllocatorConfig) :
+    Array Global :=
+  let arrPtrDecls :=
+    if allocator.requiresHost || !modulePlanUsesArrHeap modulePlan then #[]
+    else if allocator.usesMinimalMallocShape then
+      #[arrPtrGlobalDecl allocator.heapBase, arrFreeGlobalDecl]
+    else #[arrPtrGlobalDecl allocator.heapBase]
+  let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
+  hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
+    crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
 
 end ProofForge.Backend.WasmNear.ModuleAssembly
