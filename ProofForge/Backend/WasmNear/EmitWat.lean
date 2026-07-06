@@ -236,7 +236,7 @@ export ProofForge.Backend.WasmNear.Statement (
 export ProofForge.Backend.WasmNear.Struct (
   findStruct? structTotalSize structFieldOffset? structFieldType?
   structLitName isStructStorageFieldType isIndexedStorageValueType
-  structStorageFieldsSupported zeroStructBufInsns readScalarStructBufInsns
+  structStorageFieldsSupported structStorageFieldInfo zeroStructBufInsns readScalarStructBufInsns
   scalarStructFieldReadInsns scalarStructFieldWriteInsns
   readArrayStructBufInsns arrayStructFieldReadInsns arrayStructFieldWriteInsns
 )
@@ -661,16 +661,9 @@ mutual
       | .structType typeName =>
         match findStruct? ctx.structs typeName with
         | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd =>
-          if !structStorageFieldsSupported sd then
-            err s!"EmitWat: scalar struct `{typeName}` storage fields must be U32/U64/Bool"
-          else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-            | some off, some ft =>
-              if !isStructStorageFieldType ft then
-                err s!"EmitWat: scalar struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-              else
-                .ok (scalarStructFieldReadInsns s sd off ft)
-            | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+        | some sd => do
+          let (off, ft) ← structStorageFieldInfo sd typeName fieldName "scalar"
+          .ok (scalarStructFieldReadInsns s sd off ft)
       | _ => err s!"EmitWat: storageStructFieldRead expects a struct state, got `{s.type.name}`"
 
   partial def lowerScalarStructFieldWriteValue (ctx : Ctx) (id fieldName : String)
@@ -682,18 +675,12 @@ mutual
       | .structType typeName =>
         match findStruct? ctx.structs typeName with
         | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd =>
-          if !structStorageFieldsSupported sd then
-            err s!"EmitWat: scalar struct `{typeName}` storage fields must be U32/U64/Bool"
-          else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-            | some off, some ft =>
-              if !isStructStorageFieldType ft then
-                err s!"EmitWat: scalar struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-              else if valueType != ft then
-                err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
-              else
-                .ok (scalarStructFieldWriteInsns s sd off ft valueInsns)
-            | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+        | some sd => do
+          let (off, ft) ← structStorageFieldInfo sd typeName fieldName "scalar"
+          if valueType != ft then
+            err s!"EmitWat: struct field write `{id}.{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+          else
+            .ok (scalarStructFieldWriteInsns s sd off ft valueInsns)
       | _ => err s!"EmitWat: storageStructFieldWrite expects a struct state, got `{s.type.name}`"
 
   partial def lowerScalarStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id fieldName : String) (value : Expr)
@@ -711,17 +698,10 @@ mutual
         | .structType typeName =>
           match findStruct? ctx.structs typeName with
           | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd =>
-            if !structStorageFieldsSupported sd then
-              err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
-            else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-              | some off, some ft =>
-                if !isStructStorageFieldType ft then
-                  err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-                else do
-                  let kis ← lowerMapKeyU64 ctx env index
-                  .ok (arrayStructFieldReadInsns m sd kis #[.call mapBuildkeyName] off ft)
-              | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+          | some sd => do
+            let (off, ft) ← structStorageFieldInfo sd typeName fieldName "array"
+            let kis ← lowerMapKeyU64 ctx env index
+            .ok (arrayStructFieldReadInsns m sd kis #[.call mapBuildkeyName] off ft)
         | _ => err s!"EmitWat: storageArrayStructFieldRead expects a struct-valued array, got `{m.valueType.name}`"
 
   partial def lowerArrayStructFieldWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String)
@@ -737,21 +717,15 @@ mutual
         | .structType typeName =>
           match findStruct? ctx.structs typeName with
           | none => err s!"EmitWat: unknown struct `{typeName}`"
-          | some sd =>
-            if !structStorageFieldsSupported sd then
-              err s!"EmitWat: array struct `{typeName}` storage fields must be U32/U64/Bool"
-            else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
-              | some off, some ft =>
-                if !isStructStorageFieldType ft then
-                  err s!"EmitWat: array struct field `{typeName}.{fieldName}` has unsupported type `{ft.name}`"
-                else if valueType != ft then
-                  err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
-                else do
-                  let readKey ← lowerMapKeyU64 ctx env index
-                  let writeKey ← lowerMapKeyU64 ctx env index
-                  .ok (arrayStructFieldWriteInsns m sd readKey writeKey #[.call mapBuildkeyName]
-                    valueInsns off ft)
-              | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
+          | some sd => do
+            let (off, ft) ← structStorageFieldInfo sd typeName fieldName "array"
+            if valueType != ft then
+              err s!"EmitWat: array struct field write `{id}[].{fieldName}` expected `{ft.name}`, got `{valueType.name}`"
+            else do
+              let readKey ← lowerMapKeyU64 ctx env index
+              let writeKey ← lowerMapKeyU64 ctx env index
+              .ok (arrayStructFieldWriteInsns m sd readKey writeKey #[.call mapBuildkeyName]
+                valueInsns off ft)
         | _ => err s!"EmitWat: storageArrayStructFieldWrite expects a struct-valued array, got `{m.valueType.name}`"
 
   partial def lowerArrayStructFieldWrite (ctx : Ctx) (env : LocalTypes) (id : String) (index : Expr) (fieldName : String) (value : Expr)

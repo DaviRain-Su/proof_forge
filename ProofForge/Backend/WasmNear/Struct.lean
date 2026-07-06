@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Wasm.AST
+import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Layout
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Types
@@ -12,6 +13,7 @@ namespace ProofForge.Backend.WasmNear.Struct
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Layout
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Types
@@ -48,6 +50,17 @@ def isIndexedStorageValueType : ValueType → Bool
 
 def structStorageFieldsSupported (s : ProofForge.IR.StructDecl) : Bool :=
   s.fields.all (fun f => isStructStorageFieldType f.type)
+
+def structStorageFieldInfo (sd : ProofForge.IR.StructDecl) (typeName fieldName label : String) :
+    Except EmitError (Nat × ValueType) :=
+  if !structStorageFieldsSupported sd then
+    err s!"EmitWat: {label} struct `{typeName}` storage fields must be U32/U64/Bool"
+  else match structFieldOffset? sd fieldName, structFieldType? sd fieldName with
+    | some offset, some fieldType =>
+      if !isStructStorageFieldType fieldType then
+        err s!"EmitWat: {label} struct field `{typeName}.{fieldName}` has unsupported type `{fieldType.name}`"
+      else .ok (offset, fieldType)
+    | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
 
 def zeroStructBufInsns (s : ProofForge.IR.StructDecl) : Array Insn :=
   (s.fields.foldl (fun st f =>
