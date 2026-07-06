@@ -213,6 +213,8 @@ export ProofForge.Backend.WasmNear.Return (
 )
 
 export ProofForge.Backend.WasmNear.Scalar (
+  storageScalarStateInfo storageScalarWriteInsns
+  storageScalarAssignOpTargetType storageScalarAssignOpInsns
   readFunc writeFunc returnU64Func returnU32Func returnBoolFunc powName
   powFunc scalarStorageHelperFuncsForModulePlan returnHelperFuncsForModulePlan
   powHelperFuncsForModulePlan
@@ -922,18 +924,9 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     localAssignOpInsns name op localType is t
   | .assignOp _ _ _ => err "EmitWat: compound assignment target must be a local"
   | .effect (.storageScalarWrite id e) => do
-    let some s ← pure (findScalarState? ctx.scalars id) | err s!"EmitWat: unknown scalar state `{id}`"
+    let s ← storageScalarStateInfo ctx.scalars id
     let (is, t) ← lowerExpr ctx env e
-    if t != s.type then err s!"EmitWat: scalar write `{id}` expected `{s.type.name}`, got `{t.name}`"
-    else match s.type with
-      | .structType typeName =>
-        match findStruct? ctx.structs typeName with
-        | none => err s!"EmitWat: unknown struct `{typeName}`"
-        | some sd => .ok (#[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const (structTotalSize sd)]
-                          ++ is ++ #[.plain "i64.extend_i32_u", .i64Const 0, .call "storage_write", .drop])
-      | _ =>
-        let callName := if s.type == .hash then writeHashName else writeName s.type
-        .ok (#[.i32Const s.keyPtr, .i32Const s.keyLen] ++ is ++ #[.call callName])
+    storageScalarWriteInsns ctx.structs s id is t
   | .effect (.storageStructFieldWrite id fieldName value) => do
     lowerScalarStructFieldWrite ctx env id fieldName value
   | .effect (.storagePathWrite id path value) => do
@@ -941,14 +934,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
   | .effect (.storagePathAssignOp id path op value) => do
     lowerStoragePathAssignOp ctx env id path op value
   | .effect (.storageScalarAssignOp id op value) => do
-    let some s ← pure (findScalarState? ctx.scalars id) | err s!"EmitWat: unknown scalar state `{id}`"
-    if s.type == .hash then err s!"EmitWat: storageScalarAssignOp not supported on Hash scalars (`{id}`)"
-    else do
-      let (vis, vt) ← lowerExpr ctx env value
-      if vt != s.type then err s!"EmitWat: scalar assignOp `{id}` expected `{s.type.name}`, got `{vt.name}`"
-      else .ok (#[.i32Const s.keyPtr, .i32Const s.keyLen, .i32Const s.keyPtr, .i32Const s.keyLen,
-                     .call (readName s.type)] ++ vis
-                ++ #[.plain (widthOf s.type ++ "." ++ assignOpName op), .call (writeName s.type)])
+    let s ← storageScalarStateInfo ctx.scalars id
+    let _ ← storageScalarAssignOpTargetType s id
+    let (vis, vt) ← lowerExpr ctx env value
+    storageScalarAssignOpInsns s id op vis vt
   | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) => do
     let (is, _) ← lowerMapWrite ctx env id key value
     .ok (is ++ #[.drop])

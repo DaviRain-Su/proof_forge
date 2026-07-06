@@ -4,19 +4,68 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.IR.Contract
+import ProofForge.Backend.WasmNear.Diagnostics
+import ProofForge.Backend.WasmNear.Layout
+import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
+import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
 
 namespace ProofForge.Backend.WasmNear.Scalar
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmNear.Diagnostics
+open ProofForge.Backend.WasmNear.Layout
+open ProofForge.Backend.WasmNear.LoweringEnv
 open ProofForge.Backend.WasmNear.Memory
 open ProofForge.Backend.WasmNear.Plan
+open ProofForge.Backend.WasmNear.Struct
 open ProofForge.Backend.WasmNear.Types
 
 /-! Scalar storage, return, and arithmetic helper functions for EmitWat. -/
+
+def storageScalarStateInfo (scalars : Array StateInfo) (id : String) :
+    Except EmitError StateInfo :=
+  match findScalarState? scalars id with
+  | some stateInfo => .ok stateInfo
+  | none => err s!"EmitWat: unknown scalar state `{id}`"
+
+def storageScalarWriteInsns (structs : Array ProofForge.IR.StructDecl)
+    (stateInfo : StateInfo) (id : String) (valueInsns : Array Insn)
+    (valueType : ValueType) : Except EmitError (Array Insn) :=
+  if valueType != stateInfo.type then
+    err s!"EmitWat: scalar write `{id}` expected `{stateInfo.type.name}`, got `{valueType.name}`"
+  else match stateInfo.type with
+    | .structType typeName =>
+      match findStruct? structs typeName with
+      | none => err s!"EmitWat: unknown struct `{typeName}`"
+      | some structDecl =>
+        .ok (#[.i64Const stateInfo.keyLen, .i64Const stateInfo.keyPtr,
+                 .i64Const (structTotalSize structDecl)]
+              ++ valueInsns ++ #[.plain "i64.extend_i32_u", .i64Const 0,
+                 .call "storage_write", .drop])
+    | _ =>
+      .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen] ++ valueInsns ++
+        #[.call (writeName stateInfo.type)])
+
+def storageScalarAssignOpTargetType (stateInfo : StateInfo) (id : String) :
+    Except EmitError ValueType :=
+  if stateInfo.type == .hash then
+    err s!"EmitWat: storageScalarAssignOp not supported on Hash scalars (`{id}`)"
+  else .ok stateInfo.type
+
+def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : AssignOp)
+    (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) :=
+  if valueType != stateInfo.type then
+    err s!"EmitWat: scalar assignOp `{id}` expected `{stateInfo.type.name}`, got `{valueType.name}`"
+  else
+    .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
+             .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
+             .call (readName stateInfo.type)] ++ valueInsns
+          ++ #[.plain (widthOf stateInfo.type ++ "." ++ assignOpName op),
+             .call (writeName stateInfo.type)])
 
 def readFunc (vt : ValueType) : Func :=
   { name := readName vt,
