@@ -112,4 +112,11 @@ def module : Module := {
   entrypoints := #[storageLifecycle, readValue, writeValue, returnValues, pathLifecycle, pathAssignLifecycle]
 }
 
+/-- Quint/MBT subset: multi-segment `storagePath*` on fixed-size scalar arrays. -/
+def emitQuintPathModule : Module := {
+  name := "EvmStorageArrayProbe"
+  state := #[stateValues]
+  entrypoints := #[pathLifecycle, pathAssignLifecycle]
+}
+
 end ProofForge.IR.Examples.EvmStorageArrayProbe

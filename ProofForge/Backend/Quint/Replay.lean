@@ -98,20 +98,50 @@ def writeMapStateFromItf (decl : StateDecl) (v : ITF.Value) (state : State) : Ex
       .error { message := s!"expected ITF map for state `{decl.id}`" }
 
 /-- Write one state declaration from an ITF value into IR storage. -/
+def writeArrayStructStateFromItf (decl : StateDecl) (structDecl : StructDecl) (cap : Nat) (itfState : ITF.State)
+    (state : State) : Except ReplayError State := do
+  let mut next := state
+  for index in [0:cap] do
+    for field in StructDecl.fields structDecl do
+      let fieldVar := Lower.arrayStructFieldVarName decl.id index field.id
+      match itfState.vars.find? (fun (k, _) => k == fieldVar) with
+      | some (_, v) => do
+          let v ← unwrapItfOption v
+          let irv ← itfValueToIr field.type v
+          next := next.write (arrayFieldKey decl.id index field.id) irv
+      | none => .error { message := s!"missing ITF field `{fieldVar}` for array struct state `{decl.id}`" }
+  pure next
+
 def writeStateDeclFromItf (irModule : ProofForge.IR.Module) (decl : StateDecl) (v : ITF.Value) (state : State)
     (itfState : ITF.State) : Except ReplayError State :=
   match decl.kind with
   | StateKind.array cap =>
-      match v with
-      | .list values =>
-          if values.length != cap then
-            .error { message := s!"ITF list length {values.length} != array capacity {cap} for `{decl.id}`" }
-          else
-            (values.zip (List.range values.length)).foldlM (fun st (elem, index) => do
-              let irv ← itfValueToIr decl.type elem
-              pure (st.write (arrayKey decl.id index) irv)) state
+      match decl.type with
+      | .structType typeName =>
+          match Lower.lookupStructDecl irModule.structs typeName with
+          | some structDecl => writeArrayStructStateFromItf decl structDecl cap itfState state
+          | none =>
+              match v with
+              | .list values =>
+                  if values.length != cap then
+                    .error { message := s!"ITF list length {values.length} != array capacity {cap} for `{decl.id}`" }
+                  else
+                    (values.zip (List.range values.length)).foldlM (fun st (elem, index) => do
+                      let irv ← itfValueToIr decl.type elem
+                      pure (st.write (arrayKey decl.id index) irv)) state
+              | _ =>
+                  .error { message := s!"expected ITF list for array state `{decl.id}`" }
       | _ =>
-          .error { message := s!"expected ITF list for array state `{decl.id}`" }
+          match v with
+          | .list values =>
+              if values.length != cap then
+                .error { message := s!"ITF list length {values.length} != array capacity {cap} for `{decl.id}`" }
+              else
+                (values.zip (List.range values.length)).foldlM (fun st (elem, index) => do
+                  let irv ← itfValueToIr decl.type elem
+                  pure (st.write (arrayKey decl.id index) irv)) state
+          | _ =>
+              .error { message := s!"expected ITF list for array state `{decl.id}`" }
   | ProofForge.IR.StateKind.map _ _ =>
       writeMapStateFromItf decl v state
   | _ =>
@@ -126,20 +156,53 @@ def writeStateDeclFromItf (irModule : ProofForge.IR.Module) (decl : StateDecl) (
           let irv ← itfValueToIr decl.type v
           .ok (state.write decl.id irv)
 
+def zeroArrayStructField (fieldType : ValueType) : Except ReplayError ProofForge.IR.Semantics.Value :=
+  match fieldType with
+  | .bool => .ok (.bool false)
+  | .u8 => .ok (.u8 0)
+  | .u32 => .ok (.u32 0)
+  | .u64 => .ok (.u64 0)
+  | .u128 => .ok (.u128 0)
+  | .hash => .ok (.hash 0 0 0 0)
+  | _ => .error { message := s!"cannot zero-initialize array struct field type {fieldType.name}" }
+
 def zeroStateDecl (irModule : ProofForge.IR.Module) (decl : StateDecl) : Except ReplayError State := do
   match decl.kind with
-  | StateKind.array cap => do
-      let mut st := State.empty
-      for index in [0:cap] do
-        let irv ← match decl.type with
-          | .bool => .ok (.bool false)
-          | .u8 => .ok (.u8 0)
-          | .u32 => .ok (.u32 0)
-          | .u64 => .ok (.u64 0)
-          | .u128 => .ok (.u128 0)
-          | _ => .error { message := s!"cannot zero-initialize array element type for `{decl.id}`" }
-        st := st.write (arrayKey decl.id index) irv
-      .ok st
+  | StateKind.array cap =>
+      match decl.type with
+      | .structType typeName =>
+          match Lower.lookupStructDecl irModule.structs typeName with
+          | some structDecl => do
+              let mut st := State.empty
+              for index in [0:cap] do
+                for field in StructDecl.fields structDecl do
+                  let irv ← zeroArrayStructField field.type
+                  st := st.write (arrayFieldKey decl.id index field.id) irv
+              .ok st
+          | none => do
+              let mut st := State.empty
+              for index in [0:cap] do
+                let irv ← match decl.type with
+                  | .bool => .ok (.bool false)
+                  | .u8 => .ok (.u8 0)
+                  | .u32 => .ok (.u32 0)
+                  | .u64 => .ok (.u64 0)
+                  | .u128 => .ok (.u128 0)
+                  | _ => .error { message := s!"cannot zero-initialize array element type for `{decl.id}`" }
+                st := st.write (arrayKey decl.id index) irv
+              .ok st
+      | _ => do
+          let mut st := State.empty
+          for index in [0:cap] do
+            let irv ← match decl.type with
+              | .bool => .ok (.bool false)
+              | .u8 => .ok (.u8 0)
+              | .u32 => .ok (.u32 0)
+              | .u64 => .ok (.u64 0)
+              | .u128 => .ok (.u128 0)
+              | _ => .error { message := s!"cannot zero-initialize array element type for `{decl.id}`" }
+            st := st.write (arrayKey decl.id index) irv
+          .ok st
   | ProofForge.IR.StateKind.map _ _ => .ok State.empty
   | _ =>
       match decl.type with
@@ -171,21 +234,31 @@ def zeroStateDecl (irModule : ProofForge.IR.Module) (decl : StateDecl) : Except 
 
 /-- Build the initial IR state from the first ITF state using the IR module's
     state declarations to determine types. -/
+def usesFlattenedItfVars (decl : StateDecl) : Bool :=
+  match decl.type with
+  | .structType _ => true
+  | _ =>
+      match decl.kind with
+      | .array _ =>
+          match decl.type with
+          | .structType _ => true
+          | _ => false
+      | _ => false
+
 def buildInitialState (module : ProofForge.IR.Module) (itfState : ITF.State) : Except ReplayError State := do
   let mut state := State.empty
   for decl in module.state do
-    match decl.type with
-    | .structType _ =>
-        state ← writeStateDeclFromItf module decl (.map []) state itfState
-    | _ =>
-        match itfState.vars.find? (fun (k, _) => k == decl.id) with
-        | some (_, v) =>
-            let v ← unwrapItfOption v
-            state ← writeStateDeclFromItf module decl v state itfState
-        | none =>
-            let zeroed ← zeroStateDecl module decl
-            for (key, value) in zeroed.storage do
-              state := state.write key value
+    if usesFlattenedItfVars decl then
+      state ← writeStateDeclFromItf module decl (.map []) state itfState
+    else
+      match itfState.vars.find? (fun (k, _) => k == decl.id) with
+      | some (_, v) =>
+          let v ← unwrapItfOption v
+          state ← writeStateDeclFromItf module decl v state itfState
+      | none =>
+          let zeroed ← zeroStateDecl module decl
+          for (key, value) in zeroed.storage do
+            state := state.write key value
   pure state
 
 /-- Build a lookup from sanitized entrypoint name to original entrypoint. -/

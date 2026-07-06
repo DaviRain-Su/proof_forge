@@ -7,6 +7,8 @@ import ProofForge.IR.Examples.WhileProbe
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.MapProbe
 import ProofForge.IR.Examples.StructProbe
+import ProofForge.IR.Examples.EvmStorageArrayProbe
+import ProofForge.IR.Examples.EvmStorageStructProbe
 import ProofForge.IR.Examples.AssertProbe
 
 namespace ProofForge.Cli.Quint
@@ -21,7 +23,9 @@ def supportedFixtureIds : Array String := #[
   "array",
   "map",
   "map-path",
-  "struct"
+  "struct",
+  "array-path",
+  "struct-path"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -38,6 +42,8 @@ def outputFileName (fixtureId : String) : String :=
   | "map" => "MapProbe.qnt"
   | "map-path" => "MapPathProbe.qnt"
   | "struct" => "StructProbe.qnt"
+  | "array-path" => "ArrayPathProbe.qnt"
+  | "struct-path" => "StructPathProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -55,6 +61,8 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "map" => some ProofForge.IR.Examples.MapProbe.emitQuintStorageModule
   | "map-path" => some ProofForge.IR.Examples.MapProbe.emitQuintPathModule
   | "struct" => some ProofForge.IR.Examples.StructProbe.emitWatStorageModule
+  | "array-path" => some ProofForge.IR.Examples.EvmStorageArrayProbe.emitQuintPathModule
+  | "struct-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintPathModule
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none
 

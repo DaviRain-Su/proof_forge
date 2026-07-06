@@ -246,4 +246,12 @@ def module : Module := {
   ]
 }
 
+/-- Quint/MBT subset: struct field and array-of-struct `storagePath*` paths. -/
+def emitQuintPathModule : Module := {
+  name := "EvmStorageStructProbe"
+  structs := #[pointStruct]
+  state := #[stateCurrent, statePoints]
+  entrypoints := #[pathLifecycle, arrayPathLifecycle]
+}
+
 end ProofForge.IR.Examples.EvmStorageStructProbe

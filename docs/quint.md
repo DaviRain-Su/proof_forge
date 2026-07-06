@@ -20,12 +20,16 @@ lake env proof-forge emit --target quint --fixture array -o build/quint/ArrayPro
 lake env proof-forge emit --target quint --fixture map -o build/quint/MapProbe.qnt
 lake env proof-forge emit --target quint --fixture map-path -o build/quint/MapPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct -o build/quint/StructProbe.qnt
+lake env proof-forge emit --target quint --fixture array-path -o build/quint/ArrayPathProbe.qnt
+lake env proof-forge emit --target quint --fixture struct-path -o build/quint/StructPathProbe.qnt
 ```
 
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
 `while`, `array` (fixed-size storage array lifecycle), `map` (hash-keyed storage map
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on
-maps), and `struct` (flattened struct field storage). The generator reads **portable
+maps), `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
+scalar arrays), and `struct-path` (field and index+field `storagePath*` on structs and
+array-of-struct storage). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
 intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
 
@@ -91,8 +95,9 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   flattened to per-field state variables (`current_x`, `current_y`)
 - Scenario-driven bounds (`MAX_UINT`, `USERS`) and manual invariants
 
-Still out of scope for the first iteration: multi-segment `storagePath*` (nested
-map/struct/index paths), crosscalls,
+Still out of scope for the first iteration: nested `mapKey` paths, dynamic index on
+array-of-struct paths, nested struct ref fields, `storagePathAssignOp` on map paths,
+crosscalls,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
 need more iterations are truncated in the Quint model. Unrolling emits each step

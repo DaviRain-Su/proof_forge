@@ -52,8 +52,137 @@ def hashLiteralStr (a b c d : Nat) : String :=
 def structFieldVarName (stateId fieldName : String) : String :=
   s!"{stateId}_{fieldName}"
 
+def arrayStructFieldVarName (stateId : String) (index : Nat) (fieldName : String) : String :=
+  s!"{stateId}_{index}_{fieldName}"
+
 def lookupStructDecl (structs : Array StructDecl) (name : String) : Option StructDecl :=
   structs.find? (fun s => s.name == name)
+
+def irExprNat? (e : ProofForge.IR.Expr) : Option Nat :=
+  match e with
+  | .literal (.u8 n) | .literal (.u32 n) | .literal (.u64 n) | .literal (.u128 n) => some n
+  | _ => none
+
+inductive StoragePathTarget where
+  | flatVar (name : String)
+  | arraySlot (stateId : String) (cap : Nat) (index : ProofForge.IR.Expr)
+  | mapSlot (stateId : String) (key : ProofForge.IR.Expr)
+  deriving Repr, Nonempty
+
+def storagePathStartType (state : StateDecl) (path : Array StoragePathSegment) :
+    Except LowerError (ValueType × List StoragePathSegment) :=
+  match state.kind with
+  | .scalar =>
+      match path.toList with
+      | .mapKey _ :: _ =>
+          .error { message := s!"storage path state `{state.id}` is scalar storage, not map storage" }
+      | segments => .ok (state.type, segments)
+  | .array length =>
+      if length == 0 then
+        .error { message := s!"array state `{state.id}` must have non-zero length" }
+      else
+        match path.toList with
+        | .mapKey _ :: _ =>
+            .error { message := s!"storage path state `{state.id}` is array storage, not map storage" }
+        | segments => .ok (.fixedArray state.type length, segments)
+  | .map _ capacity =>
+      if capacity == 0 then
+        .error { message := s!"map state `{state.id}` must have non-zero capacity" }
+      else
+        match path.toList with
+        | .mapKey _ :: _ => .error { message := "map storage paths are resolved separately" }
+        | _ =>
+            .error { message := s!"storage path state `{state.id}` is map storage; path must be a map key" }
+  | .dynamicArray =>
+      .error { message := s!"storage path state `{state.id}` is dynamic array storage; not supported in Quint lowering v1" }
+
+partial def resolveStoragePathSegments (structs : Array StructDecl) (stateId : String)
+    (current : ValueType) (segments : List StoragePathSegment) : Except LowerError StoragePathTarget :=
+  match segments with
+  | [] =>
+      .error { message := s!"storage path for state `{stateId}` must contain at least one segment" }
+  | [.field fieldName] =>
+      match current with
+      | .structType _ => .ok (.flatVar (structFieldVarName stateId fieldName))
+      | other => .error { message := s!"storage path field `{fieldName}` cannot be selected from `{other.name}`" }
+  | [.index index] =>
+      match current with
+      | .fixedArray (.structType _) _ =>
+          .error { message := s!"storage path index on struct array `{stateId}` requires a following field segment" }
+      | .fixedArray _ length => .ok (.arraySlot stateId length index)
+      | other => .error { message := s!"storage path index cannot be selected from `{other.name}`" }
+  | [.index index, .field fieldName] =>
+      match current with
+      | .fixedArray (.structType typeName) length =>
+          match irExprNat? index with
+          | some n =>
+              if n >= length then
+                .error { message := s!"storage path index {n} out of bounds for array `{stateId}` (length {length})" }
+              else
+                .ok (.flatVar (arrayStructFieldVarName stateId n fieldName))
+          | none =>
+              .error { message := s!"storage path index+field on `{stateId}` requires a literal index in Quint lowering v1" }
+      | .fixedArray element length =>
+          .error { message := s!"storage path field `{fieldName}` after index cannot be selected from `{element.name}`" }
+      | other =>
+          .error { message := s!"storage path index+field cannot be selected from `{other.name}`" }
+  | .field fieldName :: _ =>
+      match current with
+      | .structType typeName =>
+          match lookupStructDecl structs typeName with
+          | some decl =>
+              match decl.fields.find? (fun f => f.id == fieldName) with
+              | some field =>
+                  resolveStoragePathSegments structs stateId field.type segments.tail!
+              | none => .error { message := s!"struct `{typeName}` has no field `{fieldName}`" }
+          | none => .error { message := s!"storage path references unknown struct `{typeName}`" }
+      | other => .error { message := s!"storage path field `{fieldName}` cannot be selected from `{other.name}`" }
+  | .index _ :: rest =>
+      match current with
+      | .fixedArray element length =>
+          resolveStoragePathSegments structs stateId element rest
+      | other => .error { message := s!"storage path index cannot be selected from `{other.name}`" }
+  | .mapKey _ :: _ =>
+      .error { message := "nested map-key storage paths are not supported in Quint lowering v1" }
+
+def resolveStoragePathTarget (structs : Array StructDecl) (state : StateDecl)
+    (path : Array StoragePathSegment) : Except LowerError StoragePathTarget := do
+  if path.isEmpty then
+    .error { message := s!"storage path for state `{state.id}` must contain at least one segment" }
+  match state.kind, path.toList with
+  | .map _ _, [.mapKey key] => .ok (.mapSlot state.id key)
+  | .map _ _, _ =>
+      .error { message := s!"map storage path for `{state.id}` must be a single mapKey segment" }
+  | _, _ => do
+      let (start, segments) ← storagePathStartType state path
+      resolveStoragePathSegments structs state.id start segments
+
+def stateVarEntries (decl : StateDecl) (structs : Array StructDecl) :
+    Except LowerError (Array (String × ValueType)) := do
+  match decl.kind with
+  | .array cap =>
+      match decl.type with
+      | .structType typeName =>
+          match lookupStructDecl structs typeName with
+          | some structDecl => do
+              let mut entries := #[]
+              for index in [0:cap] do
+                for field in structDecl.fields do
+                  entries := entries.push (
+                    arrayStructFieldVarName decl.id index field.id,
+                    field.type)
+              .ok entries
+          | none => pure #[(decl.id, decl.type)]
+      | _ => pure #[(decl.id, decl.type)]
+  | .scalar | .dynamicArray =>
+      match decl.type with
+      | .structType typeName =>
+          match lookupStructDecl structs typeName with
+          | some structDecl => .ok (structDecl.fields.map (fun field =>
+              (structFieldVarName decl.id field.id, field.type)))
+          | none => pure #[(decl.id, decl.type)]
+      | _ => pure #[(decl.id, decl.type)]
+  | .map _ _ => pure #[(decl.id, decl.type)]
 
 def mapKeysExpr (mapExpr : Expr) : Expr :=
   .methodCall mapExpr "keys" #[]
@@ -67,26 +196,14 @@ def emptyMapExpr : Expr :=
 def hashZeroExpr : Expr :=
   .literalStr (hashLiteralStr 0 0 0 0)
 
-/-- v1: only single-segment `mapKey` paths on map-backed state. -/
-def mapKeyOnlyPath? (path : Array StoragePathSegment) : Option ProofForge.IR.Expr :=
-  match path with
-  | #[.mapKey key] => some key
-  | _ => none
-
-def isMapStateDecl (decl : StateDecl) : Bool :=
-  match decl.kind with
-  | ProofForge.IR.StateKind.map _ _ => true
-  | _ => false
-
 def expandedStateIds (state : Array StateDecl) (structs : Array StructDecl) : Array String :=
-  state.foldl (fun acc decl =>
-    match decl.type with
-    | .structType typeName =>
-        match lookupStructDecl structs typeName with
-        | some structDecl =>
-            acc ++ structDecl.fields.map (fun field => structFieldVarName decl.id field.id)
-        | none => acc.push decl.id
-    | _ => acc.push decl.id) #[]
+  Id.run do
+    let mut ids := #[]
+    for decl in state do
+      match stateVarEntries decl structs with
+      | .ok entries => ids := ids ++ entries.map Prod.fst
+      | .error _ => ids := ids.push decl.id
+    ids
 
 def whileStepLocalName (stateId : String) (step : Nat) : String :=
   s!"__while_{stateId}_{step}"
@@ -102,32 +219,29 @@ def LowerCtx.stateValue (ctx : LowerCtx) (stateId : String) : Expr :=
 def LowerCtx.lookupStateDecl (ctx : LowerCtx) (stateId : String) : Option StateDecl :=
   ctx.stateDecls.find? (fun s => s.id == stateId)
 
-/-- IR array indices are 0-based; Quint list indices are 1-based. -/
-def irIndexToQuint (idx : Expr) : Expr :=
-  match idx with
-  | .literalInt n => .literalInt (n + 1)
-  | other => .binOp .add other (.literalInt 1)
+/-- IR and Quint both use 0-based list indices. -/
+def irIndexToQuint (idx : Expr) : Expr := idx
 
-partial def listGetAt (current : Expr) (quintPos : Nat) : Expr :=
+partial def listGetAt (current : Expr) (pos : Nat) : Expr :=
   match current with
   | .listLit elems =>
-      match elems[quintPos - 1]? with
+      match elems[pos]? with
       | some elem => elem
       | none => .literalInt 0
   | _ =>
-      .index current (.literalInt (Int.ofNat quintPos))
+      .index current (.literalInt (Int.ofNat pos))
 
 def listSetAtLiteral (current : Expr) (cap : Nat) (idx : Nat) (value : Expr) : Expr :=
   let elems := (List.range cap).map (fun pos =>
     if pos == idx then value
-    else listGetAt current (pos + 1))
+    else listGetAt current pos)
   .listLit elems.toArray
 
 def listSetAtExpr (current : Expr) (cap : Nat) (idx : Expr) (value : Expr) : Expr :=
   let quintIdx := irIndexToQuint idx
   let elems := (List.range cap).map (fun pos =>
-    let quintPos := .literalInt (Int.ofNat (pos + 1))
-    let atPos := listGetAt current (pos + 1)
+    let quintPos := .literalInt (Int.ofNat pos)
+    let atPos := listGetAt current pos
     .ite (.binOp .eq quintIdx quintPos) value atPos)
   .listLit elems.toArray
 
@@ -154,16 +268,14 @@ def quintStateVars (state : Array StateDecl) (structs : Array StructDecl) :
     Except LowerError (Array (String × QuintType)) := do
   let mut vars := #[]
   for decl in state do
-    match decl.type with
-    | .structType typeName =>
-        match lookupStructDecl structs typeName with
-        | some structDecl =>
-            for field in structDecl.fields do
-              vars := vars.push (structFieldVarName decl.id field.id, ← lowerType field.type)
-        | none =>
-            vars := vars.push (decl.id, ← lowerStateVarType decl)
-    | _ =>
-        vars := vars.push (decl.id, ← lowerStateVarType decl)
+    let entries ← stateVarEntries decl structs
+    for (name, ty) in entries do
+      let qtype ←
+        if name == decl.id then
+          lowerStateVarType decl
+        else
+          lowerType ty
+      vars := vars.push (name, qtype)
   pure vars
 
 def lowerLiteral (lit : Literal) : Except LowerError Expr :=
@@ -241,6 +353,75 @@ mutual
     let present := mapContainsExpr key' mapExpr
     .ok (.ite present (.methodCall mapExpr "get" #[key']) hashZeroExpr)
 
+  partial def targetPresenceGuard (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError (Option Expr) :=
+    match target with
+    | .mapSlot stateId key => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        .ok (some (mapContainsExpr key' mapExpr))
+    | _ => .ok none
+
+  partial def targetReadExpr (ctx : LowerCtx) (target : StoragePathTarget) : Except LowerError Expr :=
+    match target with
+    | .flatVar name => .ok (ctx.stateValue name)
+    | .arraySlot stateId cap index => do
+        let idx' ← lowerExpr ctx index
+        .ok (.index (ctx.stateValue stateId) (irIndexToQuint idx'))
+    | .mapSlot stateId key => lowerMapGetExpr ctx stateId key
+
+  partial def targetWriteCtx (ctx : LowerCtx) (target : StoragePathTarget) (value : ProofForge.IR.Expr) :
+      Except LowerError LowerCtx :=
+    match target with
+    | .flatVar name => do
+        let value' ← lowerExpr ctx value
+        .ok { ctx with state := ctx.state.upsert name value' }
+    | .arraySlot stateId cap index => do
+        let current := ctx.stateValue stateId
+        let key' ← lowerExpr ctx index
+        let value' ← lowerExpr ctx value
+        let updated :=
+          match key' with
+          | .literalInt n =>
+              if n >= 0 && n.toNat < cap then
+                listSetAtLiteral current cap n.toNat value'
+              else
+                listSetAtExpr current cap key' value'
+          | _ => listSetAtExpr current cap key' value'
+        .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .mapSlot stateId key => do
+        let mapExpr := ctx.stateValue stateId
+        let key' ← lowerExpr ctx key
+        let value' ← lowerExpr ctx value
+        let updated := .methodCall mapExpr "put" #[key', value']
+        .ok { ctx with state := ctx.state.upsert stateId updated }
+
+  partial def targetAssignOpCtx (ctx : LowerCtx) (target : StoragePathTarget) (op : AssignOp)
+      (value : ProofForge.IR.Expr) : Except LowerError LowerCtx :=
+    match target with
+    | .flatVar name => do
+        let cur := ctx.stateValue name
+        let value' ← lowerExpr ctx value
+        let qop := lowerAssignOp op
+        .ok { ctx with state := ctx.state.upsert name (.binOp qop cur value') }
+    | .arraySlot stateId cap index => do
+        let current := ctx.stateValue stateId
+        let key' ← lowerExpr ctx index
+        let atIdx := .index current (irIndexToQuint key')
+        let value' ← lowerExpr ctx value
+        let qop := lowerAssignOp op
+        let updatedElem := .binOp qop atIdx value'
+        let updated :=
+          match key' with
+          | .literalInt n =>
+              if n >= 0 && n.toNat < cap then
+                listSetAtLiteral current cap n.toNat updatedElem
+              else
+                listSetAtExpr current cap key' updatedElem
+          | _ => listSetAtExpr current cap key' updatedElem
+        .ok { ctx with state := ctx.state.upsert stateId updated }
+    | .mapSlot .. =>
+        .error { message := "storagePathAssignOp on map paths is not supported in Quint lowering v1" }
+
   partial def effectPresenceGuard (ctx : LowerCtx) (eff : Effect) : Except LowerError (Option Expr) :=
     match eff with
     | .storageMapGet stateId key => do
@@ -250,16 +431,9 @@ mutual
     | .storagePathRead stateId path =>
         match ctx.lookupStateDecl stateId with
         | some decl =>
-            if !isMapStateDecl decl then
-              .error { message := s!"storagePathRead guard on non-map state `{stateId}`" }
-            else
-              match mapKeyOnlyPath? path with
-              | some key => do
-                  let mapExpr := ctx.stateValue stateId
-                  let key' ← lowerExpr ctx key
-                  .ok (some (mapContainsExpr key' mapExpr))
-              | none =>
-                  .error { message := s!"storagePathRead guard requires a single mapKey path on `{stateId}`" }
+            match resolveStoragePathTarget ctx.structs decl path with
+            | .ok target => targetPresenceGuard ctx target
+            | .error err => .error err
         | none => .error { message := s!"unknown state `{stateId}` for storagePathRead guard" }
     | _ => .ok none
 
@@ -278,13 +452,9 @@ mutual
     | .storagePathRead stateId path =>
         match ctx.lookupStateDecl stateId with
         | some decl =>
-            if !isMapStateDecl decl then
-              .error { message := s!"storagePathRead on non-map state `{stateId}`" }
-            else
-              match mapKeyOnlyPath? path with
-              | some key => lowerMapGetExpr ctx stateId key
-              | none =>
-                  .error { message := s!"storagePathRead requires a single mapKey path on `{stateId}`" }
+            match resolveStoragePathTarget ctx.structs decl path with
+            | .ok target => targetReadExpr ctx target
+            | .error err => .error err
         | none => .error { message := s!"unknown state `{stateId}` for storagePathRead" }
     | .storageStructFieldRead stateId fieldName =>
         .ok (ctx.stateValue (structFieldVarName stateId fieldName))
@@ -359,14 +529,17 @@ mutual
     | .storagePathWrite stateId path value =>
         match ctx.lookupStateDecl stateId with
         | some decl =>
-            if !isMapStateDecl decl then
-              .error { message := s!"storagePathWrite on non-map state `{stateId}`" }
-            else
-              match mapKeyOnlyPath? path with
-              | some key => applyEffect ctx (.storageMapSet stateId key value)
-              | none =>
-                  .error { message := s!"storagePathWrite requires a single mapKey path on `{stateId}`" }
+            match resolveStoragePathTarget ctx.structs decl path with
+            | .ok target => targetWriteCtx ctx target value
+            | .error err => .error err
         | none => .error { message := s!"unknown state `{stateId}` for storagePathWrite" }
+    | .storagePathAssignOp stateId path op value =>
+        match ctx.lookupStateDecl stateId with
+        | some decl =>
+            match resolveStoragePathTarget ctx.structs decl path with
+            | .ok target => targetAssignOpCtx ctx target op value
+            | .error err => .error err
+        | none => .error { message := s!"unknown state `{stateId}` for storagePathAssignOp" }
     | .storageStructFieldWrite stateId fieldName value => do
         let value' ← lowerExpr ctx value
         .ok { ctx with
@@ -535,8 +708,23 @@ def zeroExpr (t : ValueType) : Except LowerError Expr :=
 def zeroExprForState (s : StateDecl) (structs : Array StructDecl) : Except LowerError (Array (String × Expr)) := do
   match s.kind with
   | .array cap =>
-      let z ← zeroExpr s.type
-      .ok #[(s.id, .listLit (Array.replicate cap z))]
+      match s.type with
+      | .structType typeName =>
+          match lookupStructDecl structs typeName with
+          | some structDecl => do
+              let mut entries := #[]
+              for index in [0:cap] do
+                for field in structDecl.fields do
+                  entries := entries.push (
+                    arrayStructFieldVarName s.id index field.id,
+                    ← zeroExpr field.type)
+              .ok entries
+          | none => do
+              let z ← zeroExpr s.type
+              .ok #[(s.id, .listLit (Array.replicate cap z))]
+      | _ => do
+          let z ← zeroExpr s.type
+          .ok #[(s.id, .listLit (Array.replicate cap z))]
   | .map _ _ =>
       .ok #[(s.id, emptyMapExpr)]
   | .scalar | .dynamicArray =>
