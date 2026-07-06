@@ -583,11 +583,15 @@ mutual
     if t != .hash then err s!"EmitWat: map key expected Hash, got `{t.name}`"
     else .ok is
 
+  partial def lowerMapKeyFor (ctx : Ctx) (env : LocalTypes) (keyType : ValueType) (key : Expr)
+      : Except EmitError (Array Insn) :=
+    if keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+
   partial def lowerMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
     let mapInfo ← mapReadStateInfo ctx.maps id
     let readCall ← mapReadCall mapInfo id
-    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    let keyInsns ← lowerMapKeyFor ctx env mapInfo.keyType key
     .ok (mapReadValueInsns mapInfo keyInsns readCall)
 
   /-- Nested map read: Map<K1, Map<K2, V>>. Builds compound key:
@@ -605,7 +609,7 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let mapInfo ← mapContainsStateInfo ctx.maps id
     let containsCall ← mapContainsCall mapInfo
-    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    let keyInsns ← lowerMapKeyFor ctx env mapInfo.keyType key
     .ok (mapContainsValueInsns mapInfo keyInsns containsCall)
 
   partial def lowerMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
@@ -613,7 +617,7 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let mapInfo ← mapWriteStateInfo ctx.maps id
     let writeCall ← mapWriteCall mapInfo
-    let keyInsns ← if mapInfo.keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    let keyInsns ← lowerMapKeyFor ctx env mapInfo.keyType key
     mapWriteValueInsns mapInfo id keyInsns valueInsns writeCall valueType
 
   partial def lowerMapWrite (ctx : Ctx) (env : LocalTypes) (id : String) (key value : Expr)
