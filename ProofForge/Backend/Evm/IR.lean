@@ -2993,54 +2993,32 @@ partial def lowerStructArrayFieldWriteStmtPlanOrFallback
   else
     lowerStructArrayFieldWriteStmt module env stateId index fieldName value
 
-def lowerDynamicArrayPushStmt
-    (_module : Module)
-    (_env : TypeEnv)
-    (_stateId : String)
-    (_value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement :=
-  .error { message := "EVM IR v0 dynamic-array push fallback lowering is not yet implemented" }
-
 partial def lowerDynamicArrayPushStmtPlanOrFallback
     (module : Module)
     (env : TypeEnv)
     (stateId : String)
     (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
-  if exprSupportsPlanScalarYul value then
-    let effectPlan ←
-      match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-          (.storageDynamicArrayPush stateId value) with
-      | .ok plan => .ok plan
-      | .error err => .error { message := err.message }
-    let statements ←
-      match effectPlan with
-      | .storageDynamicArrayPushTarget .. =>
-          ProofForge.Backend.Evm.ToYul.dynamicArrayPushTargetEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (.effect effectPlan)
-      | .storageDynamicArrayPush .. =>
-          ProofForge.Backend.Evm.ToYul.dynamicArrayPushEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (fun stateId => do
-              let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
-              .ok (slotExpr slot))
-            (fun stateId indexExpr => do
-              let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
-              .ok (ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.dynamicArraySlot #[slotExpr slot, indexExpr]))
-            (.effect effectPlan)
-      | _ =>
-          .error { message := "EVM Lower.buildEffectPlan dynamic-array push did not produce storageDynamicArrayPushTarget" }
-    if statements.isEmpty then
-      .error { message := "EVM StmtPlan-to-Yul dynamic-array push lowering produced no statements" }
-    else if statements.size == 1 then
-      .ok statements[0]!
-    else
-      .ok (.block { statements := statements })
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.storageDynamicArrayPush stateId value) with
+    | .ok plan => .ok plan
+    | .error err => .error { message := err.message }
+  let statements ←
+    match effectPlan with
+    | .storageDynamicArrayPushTarget .. =>
+        ProofForge.Backend.Evm.ToYul.dynamicArrayPushTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (.effect effectPlan)
+    | _ =>
+        .error { message := "EVM Lower.buildEffectPlan dynamic-array push did not produce storageDynamicArrayPushTarget" }
+  if statements.isEmpty then
+    .error { message := "EVM StmtPlan-to-Yul dynamic-array push lowering produced no statements" }
+  else if statements.size == 1 then
+    .ok statements[0]!
   else
-    lowerDynamicArrayPushStmt module env stateId value
+    .ok (.block { statements := statements })
 
 partial def lowerDynamicArrayPopStmtPlanOrFallback
     (module : Module)
@@ -3057,16 +3035,6 @@ partial def lowerDynamicArrayPopStmtPlanOrFallback
         ProofForge.Backend.Evm.ToYul.dynamicArrayPopTargetEffectStmtPlanStatements
           toYulError
           (.effect effectPlan)
-    | .storageDynamicArrayPop .. =>
-        ProofForge.Backend.Evm.ToYul.dynamicArrayPopEffectStmtPlanStatements
-          toYulError
-          (fun stateId => do
-            let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
-            .ok (slotExpr slot))
-          (fun stateId indexExpr => do
-            let (slot, _) ← lowerPlan <| ProofForge.Backend.Evm.Plan.requireDynamicArrayState module stateId
-            .ok (ProofForge.Backend.Evm.ToYul.helperCall ProofForge.Backend.Evm.Plan.Helper.dynamicArraySlot #[slotExpr slot, indexExpr]))
-          (.effect effectPlan)
     | _ =>
         .error { message := "EVM Lower.buildEffectPlan dynamic-array pop did not produce storageDynamicArrayPopTarget" }
   if statements.isEmpty then
@@ -3076,242 +3044,80 @@ partial def lowerDynamicArrayPopStmtPlanOrFallback
   else
     .ok (.block { statements := statements })
 
-def lowerStoragePathWriteTargetStatement
-    (value : Lean.Compiler.Yul.Expr)
-    (target : ProofForge.Backend.Evm.ToYul.StoragePathWriteTarget) :
-    Except LowerError Lean.Compiler.Yul.Statement := do
-  let statements :=
-    ProofForge.Backend.Evm.ToYul.storagePathWriteTargetStatements value target
-  match statements[0]? with
-  | some statement =>
-      if statements.size == 1 then
-        .ok statement
-      else
-        .error { message := s!"EVM storage path write target lowering produced {statements.size} statements, expected 1" }
-  | none =>
-      .error { message := "EVM storage path write target lowering produced no statements" }
-
-def lowerStoragePathWriteStmt
+partial def lowerStoragePathWriteStmtPlan
     (module : Module)
     (env : TypeEnv)
     (stateId : String)
     (path : Array StoragePathSegment)
-    (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement :=
-  match path.toList with
-  | [StoragePathSegment.mapKey key] => do
-      let (slot, _, _) ← requireStorageMapState module stateId
-      lowerStoragePathWriteTargetStatement
-        (← lowerMapScalarPlanExprOrFallback module env value)
-        (.mapWrite
-          (slotExpr slot)
-          (← lowerMapScalarPlanExprOrFallback module env key))
-  | [StoragePathSegment.index index] => do
-      let state ← stateDeclOf module stateId "storage path"
-      match state.kind with
-      | .array _ =>
-          lowerStoragePathWriteTargetStatement
-            (← lowerScalarPlanExprOrFallback module env value)
-            (.singleSlot (← lowerArraySlotExpr module env stateId index))
-      | .dynamicArray =>
-          lowerStoragePathWriteTargetStatement
-            (← lowerScalarPlanExprOrFallback module env value)
-            (.singleSlot (← lowerDynamicArraySlotExpr module env stateId index))
-      | _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
-  | [StoragePathSegment.field fieldName] => do
-      lowerStoragePathWriteTargetStatement
-        (← lowerScalarPlanExprOrFallback module env value)
-        (.singleSlot (← lowerStructFieldSlotExpr module stateId fieldName))
-  | [StoragePathSegment.index index, StoragePathSegment.field fieldName] => do
-      lowerStoragePathWriteTargetStatement
-        (← lowerScalarPlanExprOrFallback module env value)
-        (.singleSlot (← lowerStructArrayFieldSlotExpr module env stateId index fieldName))
-  | [] => do
-      let state ← stateDeclOf module stateId "storage path"
-      match state.kind with
-      | .map _ _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
-      | .array _ => .error { message := s!"storage path state `{stateId}` is array storage; first segment must be an index" }
-      | .scalar => .error { message := "scalar storage paths are not supported by IR EVM v0; use storage.scalar.write" }
-      | .dynamicArray => .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
-  | _ => do
-      match storagePathMapKeys? path with
-      | some keys => do
-          lowerStoragePathWriteTargetStatement
-            (← lowerScalarPlanExprOrFallback module env value)
-            (.mapValuePresence
-              (← lowerMapPathValueSlotExpr module env stateId keys)
-              (← lowerMapPathPresenceSlotExpr module env stateId keys))
-      | none =>
-          .error { message := "EVM IR v0 supports storage paths as one or more mapKey segments, index, field, or index followed by field" }
-
-def lowerStoragePathWriteTarget
-    (module : Module)
-    (env : TypeEnv)
-    (stateId : String)
-    (path : Array StoragePathSegment) :
-    Except LowerError ProofForge.Backend.Evm.ToYul.StoragePathWriteTarget := do
-  let plannedPath ←
-    match ProofForge.Backend.Evm.Lower.buildStoragePathPlan module (toValidateTypeEnv env) path with
+    (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.storagePathWrite stateId path value) with
     | .ok plan => .ok plan
     | .error err => .error { message := err.message }
-  let plan ← lowerPlan <| ProofForge.Backend.Evm.Plan.storagePathWriteExprTargetPlan module stateId plannedPath
-  ProofForge.Backend.Evm.ToYul.storagePathWriteExprTargetFromPlan
-    toYulError
-    (lowerExprPlanExpr module env)
-    plan
-
-def lowerStoragePathAssignOpTargetStatement
-    (op : AssignOp)
-    (value : Lean.Compiler.Yul.Expr)
-    (target : ProofForge.Backend.Evm.ToYul.StoragePathWriteTarget) :
-    Except LowerError Lean.Compiler.Yul.Statement := do
-  let statements :=
-    ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetStatements op value target
+  let statements ←
+    match effectPlan with
+    | .storagePathWriteExprTarget .. =>
+        ProofForge.Backend.Evm.ToYul.storagePathWriteExprTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (lowerExprPlanExpr module env)
+          (.effect effectPlan)
+    | .storagePathWriteTarget .. =>
+        ProofForge.Backend.Evm.ToYul.storagePathWriteTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (.effect effectPlan)
+    | _ =>
+        .error { message := "EVM Lower.buildEffectPlan storage path write did not produce storagePathWriteExprTarget/storagePathWriteTarget" }
   match statements[0]? with
   | some statement =>
       if statements.size == 1 then
         .ok statement
       else
-        .error { message := s!"EVM storage path assign_op target lowering produced {statements.size} statements, expected 1" }
+        .error { message := s!"EVM StmtPlan-to-Yul storage path write lowering produced {statements.size} statements, expected 1" }
   | none =>
-      .error { message := "EVM storage path assign_op target lowering produced no statements" }
+      .error { message := "EVM StmtPlan-to-Yul storage path write lowering produced no statements" }
 
-partial def lowerStoragePathWriteStmtPlanOrFallback
-    (module : Module)
-    (env : TypeEnv)
-    (stateId : String)
-    (path : Array StoragePathSegment)
-    (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
-  if exprSupportsPlanScalarYul value then
-    let effectPlan ←
-      match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-          (.storagePathWrite stateId path value) with
-      | .ok plan => .ok plan
-      | .error err => .error { message := err.message }
-    let statements ←
-      match effectPlan with
-      | .storagePathWriteExprTarget .. =>
-          ProofForge.Backend.Evm.ToYul.storagePathWriteExprTargetEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (lowerExprPlanExpr module env)
-            (.effect effectPlan)
-      | .storagePathWriteTarget .. =>
-          ProofForge.Backend.Evm.ToYul.storagePathWriteTargetEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (.effect effectPlan)
-      | _ =>
-          .error { message := "EVM Lower.buildEffectPlan storage path write did not produce storagePathWriteTarget" }
-    match statements[0]? with
-    | some statement =>
-        if statements.size == 1 then
-          .ok statement
-        else
-          .error { message := s!"EVM StmtPlan-to-Yul storage path write lowering produced {statements.size} statements, expected 1" }
-    | none =>
-        .error { message := "EVM StmtPlan-to-Yul storage path write lowering produced no statements" }
-  else
-    lowerStoragePathWriteStmt module env stateId path value
-
-def lowerStoragePathAssignOpStmt
-    (module : Module)
-    (env : TypeEnv)
-    (stateId : String)
-    (path : Array StoragePathSegment)
-    (op : AssignOp)
-    (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement :=
-  match path.toList with
-  | [StoragePathSegment.mapKey key] => do
-      let (slot, _, _) ← requireStorageMapState module stateId
-      lowerStoragePathAssignOpTargetStatement
-        op
-        (← lowerMapScalarPlanExprOrFallback module env value)
-        (.mapWrite
-          (slotExpr slot)
-          (← lowerMapScalarPlanExprOrFallback module env key))
-  | [StoragePathSegment.index index] => do
-      let state ← stateDeclOf module stateId "storage path"
-      let storageSlot ← match state.kind with
-        | .array _ => lowerArraySlotExpr module env stateId index
-        | .dynamicArray => lowerDynamicArraySlotExpr module env stateId index
-        | _ => .error { message := s!"storage path state `{stateId}` does not support index access" }
-      lowerStoragePathAssignOpTargetStatement
-        op
-        (← lowerScalarPlanExprOrFallback module env value)
-        (.singleSlot storageSlot)
-  | [StoragePathSegment.field fieldName] => do
-      let storageSlot ← lowerStructFieldSlotExpr module stateId fieldName
-      lowerStoragePathAssignOpTargetStatement
-        op
-        (← lowerScalarPlanExprOrFallback module env value)
-        (.singleSlot storageSlot)
-  | [StoragePathSegment.index index, StoragePathSegment.field fieldName] => do
-      let storageSlot ← lowerStructArrayFieldSlotExpr module env stateId index fieldName
-      lowerStoragePathAssignOpTargetStatement
-        op
-        (← lowerScalarPlanExprOrFallback module env value)
-        (.singleSlot storageSlot)
-  | [] => do
-      let state ← stateDeclOf module stateId "storage path"
-      match state.kind with
-      | .map _ _ => .error { message := s!"storage path state `{stateId}` is map storage; first segment must be a map key" }
-      | .array _ => .error { message := s!"storage path state `{stateId}` is array storage; first segment must be an index" }
-      | .scalar => .error { message := "scalar storage paths are not supported by IR EVM v0; use storage.scalar.assign_op" }
-      | .dynamicArray => .error { message := s!"storage path state `{stateId}` is dynamic array storage; IR EVM v0 does not yet support dynamic array storage paths" }
-  | _ => do
-      match storagePathMapKeys? path with
-      | some keys => do
-          let storageSlot ← lowerMapPathValueSlotExpr module env stateId keys
-          let presenceSlot ← lowerMapPathPresenceSlotExpr module env stateId keys
-          lowerStoragePathAssignOpTargetStatement
-            op
-            (← lowerScalarPlanExprOrFallback module env value)
-            (.mapValuePresence storageSlot presenceSlot)
-      | none =>
-          .error { message := "EVM IR v0 supports storage paths as one or more mapKey segments, index, field, or index followed by field" }
-
-partial def lowerStoragePathAssignOpStmtPlanOrFallback
+partial def lowerStoragePathAssignOpStmtPlan
     (module : Module)
     (env : TypeEnv)
     (stateId : String)
     (path : Array StoragePathSegment)
     (op : AssignOp)
     (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
-  if exprSupportsPlanScalarYul value then
-    let effectPlan ←
-      match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-          (.storagePathAssignOp stateId path op value) with
-      | .ok plan => .ok plan
-      | .error err => .error { message := err.message }
-    let statements ←
-      match effectPlan with
-      | .storagePathAssignOpExprTarget .. =>
-          ProofForge.Backend.Evm.ToYul.storagePathAssignOpExprTargetEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (lowerExprPlanExpr module env)
-            (.effect effectPlan)
-      | .storagePathAssignOpTarget .. =>
-          ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
-            toYulError
-            (fun expr => lowerExpr module env expr)
-            (lowerPlanEffectExpr module env)
-            (.effect effectPlan)
-      | _ =>
-          .error { message := "EVM Lower.buildEffectPlan storage path assign_op did not produce storagePathAssignOpTarget" }
-    match statements[0]? with
-    | some statement =>
-        if statements.size == 1 then
-          .ok statement
-        else
-          .error { message := s!"EVM StmtPlan-to-Yul storage path assign_op lowering produced {statements.size} statements, expected 1" }
-    | none =>
-        .error { message := "EVM StmtPlan-to-Yul storage path assign_op lowering produced no statements" }
-  else
-    lowerStoragePathAssignOpStmt module env stateId path op value
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.storagePathAssignOp stateId path op value) with
+    | .ok plan => .ok plan
+    | .error err => .error { message := err.message }
+  let statements ←
+    match effectPlan with
+    | .storagePathAssignOpExprTarget .. =>
+        ProofForge.Backend.Evm.ToYul.storagePathAssignOpExprTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (lowerExprPlanExpr module env)
+          (.effect effectPlan)
+    | .storagePathAssignOpTarget .. =>
+        ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (.effect effectPlan)
+    | _ =>
+        .error { message := "EVM Lower.buildEffectPlan storage path assign_op did not produce storagePathAssignOpExprTarget/storagePathAssignOpTarget" }
+  match statements[0]? with
+  | some statement =>
+      if statements.size == 1 then
+        .ok statement
+      else
+        .error { message := s!"EVM StmtPlan-to-Yul storage path assign_op lowering produced {statements.size} statements, expected 1" }
+  | none =>
+      .error { message := "EVM StmtPlan-to-Yul storage path assign_op lowering produced no statements" }
 
 partial def lowerMemoryArraySetStmtPlanOrFallback
     (module : Module)
@@ -3441,9 +3247,9 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
   | .storagePathRead _ _ =>
       .error { message := "storage.path.read must be used as an expression" }
   | .storagePathWrite stateId path value =>
-      lowerStoragePathWriteStmtPlanOrFallback module env stateId path value
+      lowerStoragePathWriteStmtPlan module env stateId path value
   | .storagePathAssignOp stateId path op value =>
-      lowerStoragePathAssignOpStmtPlanOrFallback module env stateId path op value
+      lowerStoragePathAssignOpStmtPlan module env stateId path op value
   | .memoryArraySet array index value =>
       lowerMemoryArraySetStmtPlanOrFallback module env array index value
   | .contextRead _ =>
@@ -3699,33 +3505,36 @@ def aggregateAssignStructArrayTempName (name : String) (index : Nat) (fieldName 
 def aggregateAssignNestedFixedArrayTempName (name : String) (source : NestedFixedArraySourceExpr) : String :=
   ProofForge.Backend.Evm.ToYul.aggregateAssignNestedFixedArrayTempName name source.path source.fieldName?
 
-def lowerFixedArrayAssignmentSourceExprs
+def lowerFixedArrayAssignmentSourcePlans
     (module : Module)
     (env : TypeEnv)
     (name : String)
     (elementType : ValueType)
     (length : Nat)
-    (value : ProofForge.IR.Expr) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-  match value with
-  | .local sourceName => do
-      let (sourceElementType, sourceLength) ← requireLocalFixedArray "assignment value" env sourceName
-      ensureType s!"assignment target `{name}` fixed-array element type" elementType sourceElementType
-      if sourceLength != length then
-        .error { message := s!"assignment target `{name}` expected fixed array length {length}, got {sourceLength}" }
-      let mut values : Array Lean.Compiler.Yul.Expr := #[]
-      for _h : idx in [0:length] do
-        values := values.push (Lean.Compiler.Yul.Expr.id (arrayLocalElementName sourceName idx))
-      .ok values
-  | .arrayLit literalElementType literalValues => do
-      ensureType s!"assignment target `{name}` fixed-array element type" elementType literalElementType
-      if literalValues.size != length then
-        .error { message := s!"assignment target `{name}` expected fixed array length {length}, got {literalValues.size}" }
-      let mut values : Array Lean.Compiler.Yul.Expr := #[]
-      for h : idx in [0:literalValues.size] do
-        values := values.push (← lowerExpr module env literalValues[idx])
-      .ok values
-  | _ =>
-      .error { message := s!"assignment target `{name}` fixed-array whole assignment supports local fixed-array values or array literals in IR EVM v0" }
+    (value : ProofForge.IR.Expr) :
+    Except LowerError (Array ProofForge.Backend.Evm.Plan.FixedArrayAssignmentSourcePlan) :=
+  lowerValidate <|
+    ProofForge.Backend.Evm.Lower.fixedArrayAssignmentSourcePlans
+      module
+      (toValidateTypeEnv env)
+      name
+      elementType
+      length
+      value
+
+def lowerStructAssignmentSourcePlans
+    (module : Module)
+    (env : TypeEnv)
+    (name typeName : String)
+    (value : ProofForge.IR.Expr) :
+    Except LowerError (Array ProofForge.Backend.Evm.Plan.StructAssignmentSourcePlan) :=
+  lowerValidate <|
+    ProofForge.Backend.Evm.Lower.structAssignmentSourcePlans
+      module
+      (toValidateTypeEnv env)
+      name
+      typeName
+      value
 
 partial def lowerNestedFixedArrayLocalSourceExprs
     (module : Module)
@@ -3879,13 +3688,13 @@ def lowerWholeFixedArrayAssignStmt
           ProofForge.Backend.Evm.ToYul.NestedFixedArrayAssignmentSource)
       .ok (ProofForge.Backend.Evm.ToYul.wholeNestedFixedArrayAssignStmt name sources)
   | _ => do
-      let sourceExprs ← lowerFixedArrayAssignmentSourceExprs module env name elementType length value
-      if sourceExprs.size != length then
-        .error { message := s!"assignment target `{name}` lowering produced {sourceExprs.size} element(s), expected {length}" }
-      let mut sources : Array ProofForge.Backend.Evm.ToYul.FixedArrayAssignmentSource := #[]
-      for h : idx in [0:sourceExprs.size] do
-        sources := sources.push { index := idx, expr := sourceExprs[idx] }
-      .ok (ProofForge.Backend.Evm.ToYul.wholeFixedArrayAssignStmt name sources)
+      let sourcePlans ← lowerFixedArrayAssignmentSourcePlans module env name elementType length value
+      if sourcePlans.size != length then
+        .error { message := s!"assignment target `{name}` lowering produced {sourcePlans.size} element(s), expected {length}" }
+      ProofForge.Backend.Evm.ToYul.wholeFixedArrayAssignStmtFromPlan
+        (lowerExprPlanExpr module env)
+        name
+        sourcePlans
 
 def lowerStructAssignmentSourceExprs
     (module : Module)
@@ -3924,12 +3733,20 @@ def lowerWholeStructAssignStmt
     (env : TypeEnv)
     (name typeName : String)
     (value : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
-  let sourceExprs ← lowerStructAssignmentSourceExprs module env name typeName value
-  let sources := sourceExprs.map fun field =>
-    let (fieldName, expr) := field
-    ({ fieldName := fieldName, expr := expr } :
-      ProofForge.Backend.Evm.ToYul.StructAssignmentSource)
-  .ok (ProofForge.Backend.Evm.ToYul.wholeStructAssignStmt name sources)
+  match value with
+  | .local _ | .structLit _ _ => do
+      let sourcePlans ← lowerStructAssignmentSourcePlans module env name typeName value
+      ProofForge.Backend.Evm.ToYul.wholeStructAssignStmtFromPlan
+        (lowerExprPlanExpr module env)
+        name
+        sourcePlans
+  | _ => do
+      let sourceExprs ← lowerStructAssignmentSourceExprs module env name typeName value
+      let sources := sourceExprs.map fun field =>
+        let (fieldName, expr) := field
+        ({ fieldName := fieldName, expr := expr } :
+          ProofForge.Backend.Evm.ToYul.StructAssignmentSource)
+      .ok (ProofForge.Backend.Evm.ToYul.wholeStructAssignStmt name sources)
 
 def lowerWholeLocalAssignStmt
     (module : Module)
@@ -5041,13 +4858,6 @@ def lowerPlannedBodyEffectPlan
             ← lowerExprPlanExpr module env indexPlan
           ]))
         (.effect effect)
-  | .storagePathWrite .. =>
-      ProofForge.Backend.Evm.ToYul.storagePathWriteEffectStmtPlanStatements
-        toYulError
-        (fun expr => lowerExpr module env expr)
-        (lowerPlanEffectExpr module env)
-        (fun stateId path => lowerStoragePathWriteTarget module env stateId path)
-        (.effect effect)
   | .storagePathWriteTarget .. =>
       ProofForge.Backend.Evm.ToYul.storagePathWriteTargetEffectStmtPlanStatements
         toYulError
@@ -5060,13 +4870,6 @@ def lowerPlannedBodyEffectPlan
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (lowerExprPlanExpr module env)
-        (.effect effect)
-  | .storagePathAssignOp .. =>
-      ProofForge.Backend.Evm.ToYul.storagePathAssignOpEffectStmtPlanStatements
-        toYulError
-        (fun expr => lowerExpr module env expr)
-        (lowerPlanEffectExpr module env)
-        (fun stateId path => lowerStoragePathWriteTarget module env stateId path)
         (.effect effect)
   | .storagePathAssignOpTarget .. =>
       ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
@@ -5432,7 +5235,9 @@ def lowerEntrypointBodyWithPlan?
     (entrypoint : Entrypoint)
     (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan) :
     Except LowerError (Option (Array Lean.Compiler.Yul.Statement)) := do
-  if stmtPlansSupportPlannedBody entrypoint.returns entrypointPlan.body then
+  if entrypointPlan.body.isEmpty && !entrypoint.body.isEmpty then
+    .ok none
+  else if stmtPlansSupportPlannedBody entrypoint.returns entrypointPlan.body then
     match lowerPlannedBodyStatements
         module
         entrypoint.name
@@ -5893,7 +5698,12 @@ def lowerEntrypointsWithPlan
   else
     .ok functions
 
-def entrypointPlanIsComplete
+def entrypointBodyPlanIsComplete
+    (module : Module)
+    (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) : Bool :=
+  entrypoints.size == module.entrypoints.size
+
+def dispatchEntrypointPlanIsComplete
     (module : Module)
     (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) : Bool :=
   -- Only function entrypoints (not fallback/receive) need dispatch plans
@@ -5905,7 +5715,7 @@ def lowerEntrypointsBestEffort
     (module : Module)
     (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) := do
-  if entrypointPlanIsComplete module entrypoints then
+  if entrypointBodyPlanIsComplete module entrypoints then
     lowerEntrypointsWithPlan module entrypoints
   else
     module.entrypoints.foldlM (init := #[]) fun acc entrypoint => do
@@ -5919,7 +5729,7 @@ def lowerModuleWithPlan
   validateState module
   let functions ← lowerEntrypointsBestEffort module plan.entrypoints
   let dispatch ←
-    if entrypointPlanIsComplete module plan.dispatch.entrypoints then
+    if dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints then
       dispatchBlockWithPlan module plan.dispatch
     else
       dispatchBlock module
@@ -5929,7 +5739,7 @@ def lowerModuleWithPlan
   let helpers := helpers ++ plannedStructArrayHelperFunctions plan
   let helpers := helpers ++ plannedHashHelperFunctions plan
   let helpers := helpers ++ plannedMemoryArrayHelperFunctions plan
-  let completePlan := entrypointPlanIsComplete module plan.entrypoints
+  let completePlan := entrypointBodyPlanIsComplete module plan.entrypoints
   let helpers :=
     if completePlan then
       helpers ++ plannedCheckedArithmeticHelperFunctions plan

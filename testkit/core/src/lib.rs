@@ -1058,7 +1058,8 @@ fn assert_json_file_artifact_check(
                 check.path
             )
         })?;
-    let declared_path = resolve_artifact_path(repo_root, declared_path);
+    let metadata_dir = metadata_artifact_path.parent().unwrap_or(repo_root);
+    let declared_path = resolve_artifact_path(repo_root, metadata_dir, declared_path);
     ensure!(
         same_existing_path(&declared_path, expected_artifact.path)?,
         "scenario `{scenario}` target `{target_id}` JSON artifact `{metadata_artifact_name}` file entry `{}` path `{}` does not match artifact `{}` at `{}`",
@@ -1199,12 +1200,17 @@ fn assert_toml_artifact_check(
     Ok(())
 }
 
-fn resolve_artifact_path(repo_root: &Path, path: &str) -> PathBuf {
+fn resolve_artifact_path(repo_root: &Path, metadata_dir: &Path, path: &str) -> PathBuf {
     let path = PathBuf::from(path);
     if path.is_absolute() {
         path
     } else {
-        repo_root.join(path)
+        let metadata_relative = metadata_dir.join(&path);
+        if metadata_relative.exists() {
+            metadata_relative
+        } else {
+            repo_root.join(path)
+        }
     }
 }
 

@@ -32,15 +32,19 @@ All backends live on `main` (chains are directories and target ids, not
 branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.md).
 The primary-chain completion covenant (D-045) is closed and all P0 SDK
 blockers across `evm`, `solana-sbpf-asm`, and `wasm-near` are resolved:
-**0 open P0 blockers** remain. Three-chain portable scenarios
-(Counter, ValueVault) compile and execute on all three targets via
-`just portable-counter-multi-target` and `just portable-value-vault`.
+**0 open P0 blockers** remain. Unified SDK schema/layout outputs now exist
+for `evm`, `solana-sbpf-asm`, `wasm-near`, and `move-sui` via the portable
+Counter flow. Three-chain portable scenarios (Counter, ValueVault) compile
+and execute on EVM, Solana, and NEAR via `just portable-counter-multi-target`
+and `just portable-value-vault`; Sui is intentionally scoped to a Counter MVP
+with local `sui move build/test` validation.
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
 | `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke (15 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2) |
 | `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner), map storage, nativeValue lamports read |
 | `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening |
+| `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike | Counter/PureMath golden fixtures and smokes |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research (off-chain host, D-033) | `tsc` type-check, `wrangler` dry-run |
@@ -59,6 +63,8 @@ just --list        # all recipes
 just build         # lake build
 just check         # fast static gates (Lean + EVM + Psy)
 just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
+just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
+just sui-counter-smoke                 # local Sui Move Counter build/test
 just ci            # the full CI sequence locally
 ```
 
@@ -80,6 +86,7 @@ Emit artifacts for other targets from built-in portable IR fixtures:
 ```sh
 lake env proof-forge emit --target wasm-near --fixture counter --format wat -o build/wasm-near
 lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf -o build/solana/counter.so
+lake env proof-forge emit --target move-sui --fixture counter --format sui -o build/sui
 lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
 lake env proof-forge emit --target aleo-leo --fixture counter --format leo -o build/aleo
 lake env proof-forge emit --target wasm-cloudflare-workers --fixture counter --format ts -o build/ts/Counter.ts
@@ -116,6 +123,7 @@ flowchart TB
     EVM["EVM<br/>Plan → Yul → solc"]
     SOL["Solana<br/>sBPF asm → ELF"]
     NEAR["NEAR<br/>EmitWat → WAT → wasm"]
+    SUI["Sui<br/>Move package (Counter MVP)"]
     PSY["Psy/DPN<br/>.psy → Dargo"]
     ALEO["Aleo<br/>Leo package"]
     CFW["CF Workers<br/>TypeScript"]
@@ -134,8 +142,8 @@ flowchart TB
   IR --> CAP
   REG --> CAP
   EXT --> CAP
-  CAP --> EVM & SOL & NEAR & PSY & ALEO & CFW
-  EVM & SOL & NEAR & PSY & ALEO & CFW --> ART
+  CAP --> EVM & SOL & NEAR & SUI & PSY & ALEO & CFW
+  EVM & SOL & NEAR & SUI & PSY & ALEO & CFW --> ART
   ART --> GATES
 ```
 
@@ -174,8 +182,8 @@ the IR spec. Editable [Excalidraw architecture diagrams](docs/diagrams/README.md
 - **Portable authoring module:** `ProofForge.Contract.Source` (default for new
   chain-neutral contracts and templates).
 - **Target selection:** `proof-forge --target <id>` chooses EVM, Solana, NEAR,
-  or another backend at build/emission time; portable contract sources should
-  not import a destination-chain module just to select an output chain.
+  Sui, or another backend at build/emission time; portable contract sources
+  should not import a destination-chain module just to select an output chain.
 - **EVM-native module:** `ProofForge.Evm` with namespace `Lean.Evm` remains for
   legacy EVM examples and explicit EVM-only adapter work.
 
@@ -189,15 +197,17 @@ because `Lean.Evm` shadows the Lean compiler's own `Lean` namespace.
 Phase 0: EVM baseline                      (done)
 Phase 1: target registry + portable IR     (done)
 Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
+                                            Sui Counter MVP;
                                             Aleo, CF Workers research)
 Phase 3:  three-chain P0 SDK cleanup        (done — 0 open P0 blockers;
                                             Counter + ValueVault portable
                                             on evm + solana-sbpf-asm + wasm-near)
 Current:  P1 feature expansion — full NEAR Promise async execution,
           Solana map storage, EVM dynamic constructor args runtime,
-          Pinocchio reference breadth, formal verification (Workstream 25)
-Later:    Move family (Aptos first), cloud platform (after two+ targets
-          reach Experimental with shared-scenario parity; D-010)
+          Sui beyond-Counter planning, Pinocchio reference breadth,
+          formal verification (Workstream 25)
+Later:    Move family expansion, cloud platform (after two+ targets reach
+          Experimental with shared-scenario parity; D-010)
 ```
 
 Canonical target ids and the full decision log: [docs/decisions.md](docs/decisions.md).

@@ -20,6 +20,20 @@ contract-spec-json:
 contract-client:
     lake env lean --run Tests/ContractClient.lean
 
+# Check unified SDK schema generation, target extensions, diagnostics, and refs.
+sdk-schema:
+    lake env lean --run Tests/SdkSchema.lean
+    lake env lean --run Tests/SdkSchemaExtensions.lean
+    lake env lean --run Tests/SdkSchemaDiagnostics.lean
+    lake env lean --run Tests/SuiSdkSchema.lean
+    python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
+    python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
+    scripts/sdk/schema-determinism-smoke.sh
+    scripts/sdk/discoverability-smoke.sh
+    python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
+    python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
+    scripts/sdk/validate-sdk-layout.py build/sdk
+
 # Check the proof-forge deploy command parser and defaults.
 cli-deploy:
     lake env lean --run Tests/CliDeploy.lean
@@ -47,6 +61,34 @@ aptos-build-examples:
 # Run Aptos unsupported-shape diagnostic smoke.
 aptos-diagnostics:
     lake env lean --run Tests/AptosDiagnostics.lean
+
+# Emit and validate the Sui Move Counter package layout.
+sui-build-examples:
+    scripts/sui/build-examples.sh
+
+# Run the Sui Move Counter package through local sui move build/test.
+sui-counter-smoke:
+    scripts/sui/counter-smoke.sh
+
+# Run Sui unsupported-shape diagnostic smoke.
+sui-diagnostics:
+    lake env lean --run Tests/SuiDiagnostics.lean
+
+# Check Sui emit/build target-first package parity.
+sui-emit-build-parity:
+    scripts/sui/emit-build-parity-smoke.sh
+
+# Check generated Sui object source avoids Aptos/global-storage patterns.
+sui-object-semantics:
+    scripts/sui/object-semantics-smoke.sh
+
+# Check Sui validation stays local to sui move build/test.
+sui-local-only:
+    scripts/sui/local-only-smoke.sh
+
+# Type-check the generated Sui client in a minimal consumer smoke.
+sui-client-ts-smoke:
+    scripts/sui/client-ts-smoke.sh
 
 # Check the EVM semantic plan smoke.
 evm-plan:
@@ -137,6 +179,22 @@ near-target-first:
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
+
+# Generate and validate the portable Counter canonical SDK layout for all four SDK targets.
+portable-counter-four-target-sdk:
+    scripts/portable/counter-four-target-sdk.sh
+
+# Build portable Counter SDK outputs from the shared source authoring path.
+portable-source-counter-sdk:
+    scripts/portable/source-counter-sdk-smoke.sh
+
+# Check canonical SDK generation does not mutate legacy portable Counter outputs.
+portable-legacy-output-stability:
+    scripts/portable/legacy-output-stability-smoke.sh
+
+# Validate local Counter runtime behavior across runnable EVM, Solana, NEAR, and Sui targets.
+portable-counter-four-target-runtime:
+    scripts/portable/counter-four-target-runtime-smoke.sh
 
 # Build the shared RoleGatedToken to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-role-gated-token-multi-target:
@@ -319,7 +377,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
+check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:
@@ -373,6 +431,7 @@ psy-coverage:
 psy-metadata:
     lake build ProofForge.Backend.Psy.Metadata
     lake env lean --run Tests/PsyMetadata.lean
+    lake env lean --run Tests/CliMetadata.lean
 
 # Run Psy metadata validation unit tests (Python).
 psy-metadata-validation:

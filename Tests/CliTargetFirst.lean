@@ -22,7 +22,25 @@ def requireLegacy (args expected : List String) : IO Unit := do
   | .error err =>
       throw <| IO.userError s!"unexpected CLI mapping error: {err}"
 
+def requireErrorContains (args : List String) (needles : Array String) : IO Unit := do
+  let cmd : String := args.head!
+  let rest : List String := args.tail
+  if cmd.isEmpty then
+    throw <| IO.userError "requireErrorContains: empty args"
+  let state ← match ProofForge.Cli.parseNewOptions rest {} with
+    | .ok state => pure state
+    | .error err => throw <| IO.userError s!"unexpected CLI parse error: {err}"
+  match ProofForge.Cli.newCommandArgsToLegacy state cmd with
+  | .ok got =>
+      throw <| IO.userError s!"expected CLI mapping error, got {repr got}"
+  | .error err =>
+      for needle in needles do
+        require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
+
 def main : IO UInt32 := do
+  require
+    ((ProofForge.Cli.defaultBytecodeYulOutput (System.FilePath.mk "build/evm/Counter.bin")).toString == "build/evm/Counter.yul")
+    "EVM bytecode build should default Yul output next to the bytecode output"
   requireLegacy
     ["build", "--target", "evm", "--root", ".", "--module", "contract", "-o", "build/evm/Counter.bin", "Examples/Evm/Contracts/Counter.lean"]
     ["--evm-bytecode", "-o", "build/evm/Counter.bin", "--root", ".", "--module", "contract", "--solc", "solc", "--cast", "cast", "Examples/Evm/Contracts/Counter.lean"]
@@ -33,8 +51,14 @@ def main : IO UInt32 := do
     ["emit", "--target", "evm", "--fixture", "counter", "--format", "yul", "-o", "build/ir/Counter.yul"]
     ["--emit-counter-ir-yul", "-o", "build/ir/Counter.yul"]
   requireLegacy
+    ["build", "--target", "evm", "--fixture", "counter", "--format", "bytecode", "-o", "build/sdk/evm"]
+    ["--emit-counter-ir-bytecode", "-o", "build/sdk/evm/Counter.bin", "--yul-output", "build/sdk/evm/Counter.yul", "--solc", "solc", "--cast", "cast"]
+  requireLegacy
     ["emit", "--target", "evm", "--fixture", "evm-event", "--format", "bytecode", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "-o", "build/ir/EventProbe.bin"]
     ["--emit-evm-event-ir-bytecode", "-o", "build/ir/EventProbe.bin", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "--solc", "solc", "--cast", "cast"]
+  requireLegacy
+    ["build", "--target", "solana-sbpf-asm", "--fixture", "counter", "-o", "build/sdk/solana-sbpf-asm"]
+    ["--emit-counter-ir-sbpf", "-o", "build/sdk/solana-sbpf-asm/Counter.s"]
   requireLegacy
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "s"]
     ["--emit-solana-system-cpi-sbpf"]
@@ -92,6 +116,24 @@ def main : IO UInt32 := do
   requireLegacy
     ["emit", "--target", "move-aptos", "--fixture", "counter", "--format", "aptos", "-o", "build/aptos-counter"]
     ["--emit-counter-ir-aptos", "-o", "build/aptos-counter"]
+  requireLegacy
+    ["build", "--target", "move-sui", "--fixture", "counter", "-o", "build/sdk/move-sui"]
+    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
+  requireLegacy
+    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "sui", "-o", "build/sdk/move-sui"]
+    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
+  requireErrorContains
+    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "aptos", "-o", "build/sdk/move-sui"]
+    #["move-sui", "aptos", "sui"]
+  requireErrorContains
+    ["build", "--target", "move-sui", "--fixture", "value-vault", "-o", "build/sdk/move-sui"]
+    #["move-sui", "value-vault", "not yet implemented"]
+  requireErrorContains
+    ["emit", "--target", "move-sui", "--fixture", "value-vault", "--format", "sui", "-o", "build/sdk/move-sui"]
+    #["move-sui", "value-vault", "not yet mapped"]
+  requireErrorContains
+    ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Shared/Counter.lean"]
+    #["move-sui", "source", "out of scope"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]

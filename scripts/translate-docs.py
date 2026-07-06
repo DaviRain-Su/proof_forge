@@ -163,6 +163,29 @@ def restore_inline_code(text: str, placeholders: dict[str, str]) -> str:
     return text
 
 
+def markdown_shape(text: str) -> tuple[int, int]:
+    """Return a coarse Markdown shape: heading count and table-row count."""
+    headings = 0
+    table_rows = 0
+    for line in text.splitlines():
+        if line.startswith("#"):
+            headings += 1
+        if line.startswith("|"):
+            table_rows += 1
+    return headings, table_rows
+
+
+def validate_markdown_shape(source: str, translated: str, label: str) -> None:
+    src_headings, src_rows = markdown_shape(source)
+    out_headings, out_rows = markdown_shape(translated)
+    if (src_headings, src_rows) != (out_headings, out_rows):
+        raise RuntimeError(
+            "translated markdown shape changed for "
+            f"{label}: headings {out_headings}/{src_headings}, "
+            f"table rows {out_rows}/{src_rows}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # LLM call
 # ---------------------------------------------------------------------------
@@ -385,6 +408,7 @@ def translate_file(
     zh_text = "".join(out_parts)
     if not zh_text.endswith("\n"):
         zh_text += "\n"
+    validate_markdown_shape(raw, zh_text, str(en_path.relative_to(REPO_ROOT)))
     zh_path.parent.mkdir(parents=True, exist_ok=True)
     zh_path.write_text(zh_text, encoding="utf-8")
     return sha256_file(en_path)
@@ -397,7 +421,7 @@ def cmd_list(args) -> int:
     manifest = load_json(MANIFEST_PATH)
     print(f"{'STATUS':<10} {'EN':<48} {'ZH'}")
     print("-" * 100)
-    for en_rel, zh_rel in DOC_MAP.items():
+    for en_rel, zh_rel in selected_doc_map(args).items():
         en_path = REPO_ROOT / en_rel
         if not en_path.exists():
             print(f"{'MISSING':<10} {en_rel:<48} {zh_rel}")
@@ -423,7 +447,7 @@ def cmd_list(args) -> int:
 def cmd_check(args) -> int:
     manifest = load_json(MANIFEST_PATH)
     stale: list[str] = []
-    for en_rel in DOC_MAP:
+    for en_rel in selected_doc_map(args):
         en_path = REPO_ROOT / en_rel
         if not en_path.exists():
             stale.append(f"MISSING {en_rel}")
@@ -452,9 +476,10 @@ def cmd_translate(args) -> int:
     system_prompt = build_system_prompt(glossary_terms)
     glossary_prefix = build_glossary_prefix(glossary_terms)
     manifest = load_json(MANIFEST_PATH)
+    doc_map = selected_doc_map(args)
 
     todo: list[str] = []
-    for en_rel in DOC_MAP:
+    for en_rel in doc_map:
         en_path = REPO_ROOT / en_rel
         if not en_path.exists():
             sys.stderr.write(f"SKIP (missing source): {en_rel}\n")
@@ -468,18 +493,25 @@ def cmd_translate(args) -> int:
         print("Nothing to translate; all docs are fresh.")
         return 0
 
-    print(f"Translating {len(todo)} doc(s) with model {args.model}...")
+    print(f"Translating {len(todo)} doc(s) with model {args.model} (max workers: {args.max_workers})...")
     succeeded = 0
     failed: list[str] = []
     for en_rel in todo:
-        zh_rel = DOC_MAP[en_rel]
+        zh_rel = doc_map[en_rel]
         en_path = REPO_ROOT / en_rel
         zh_path = REPO_ROOT / zh_rel
         print(f"  -> {en_rel}")
         t0 = time.time()
         try:
             new_sha = translate_file(
-                en_path, zh_path, base_url, api_key, args.model, system_prompt, glossary_prefix
+                en_path,
+                zh_path,
+                base_url,
+                api_key,
+                args.model,
+                system_prompt,
+                glossary_prefix,
+                max_workers=args.max_workers,
             )
             manifest[en_rel] = {"sha256": new_sha, "zh": zh_rel, "model": args.model}
             save_json(MANIFEST_PATH, manifest)
@@ -500,11 +532,47 @@ def cmd_translate(args) -> int:
     return 0
 
 
+def selected_doc_map(args) -> dict[str, str]:
+    only = getattr(args, "only", None)
+    if not only:
+        return DOC_MAP
+    selected: dict[str, str] = {}
+    aliases: dict[str, str] = {}
+    for en_rel, zh_rel in DOC_MAP.items():
+        aliases[en_rel] = en_rel
+        aliases[zh_rel] = en_rel
+        aliases[str((REPO_ROOT / en_rel).resolve())] = en_rel
+        aliases[str((REPO_ROOT / zh_rel).resolve())] = en_rel
+    for raw in only:
+        key = raw.strip()
+        en_rel = aliases.get(key)
+        if en_rel is None:
+            sys.stderr.write(f"ERROR: unknown translated doc for --only: {raw}\n")
+            sys.stderr.write("Known docs:\n")
+            for candidate in DOC_MAP:
+                sys.stderr.write(f"  {candidate}\n")
+            raise SystemExit(2)
+        selected[en_rel] = DOC_MAP[en_rel]
+    return selected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ProofForge doc translator (EN -> ZH)")
     parser.add_argument("--force", action="store_true", help="retranslate all docs")
     parser.add_argument("--check", action="store_true", help="report stale docs, translate nothing")
     parser.add_argument("--list", action="store_true", help="list mapping and status")
+    parser.add_argument(
+        "--only",
+        action="append",
+        metavar="PATH",
+        help="limit list/check/translate to one mapped English or Chinese doc path; repeatable",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=2,
+        help="maximum concurrent translation requests per file (default 2)",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Ollama model (default {DEFAULT_MODEL})")
     args = parser.parse_args()
     if args.list:

@@ -5,6 +5,7 @@ import ProofForge.IR.Examples.EvmArrayValueProbe
 import ProofForge.IR.Examples.EvmDynamicAbiProbe
 import ProofForge.IR.Examples.EvmDynamicArrayProbe
 import ProofForge.IR.Examples.EvmCrosscallProbe
+import ProofForge.IR.Examples.EvmFallbackProbe
 import ProofForge.IR.Examples.EvmHashProbe
 import ProofForge.IR.Examples.EvmMapProbe
 import ProofForge.IR.Examples.EvmStorageArrayProbe
@@ -2901,6 +2902,40 @@ def testSemanticPlanRender : IO Unit := do
   require (rendered.contains "initialize") "counter plan render initialize"
   require (rendered.contains "storage:") "counter plan render storage"
 
+def testFallbackReceiveEntrypointPlanLowering : IO Unit := do
+  let module := ProofForge.IR.Examples.EvmFallbackProbe.module
+  let plan ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildFullModulePlan module)
+    "fallback probe full module plan"
+  require
+    (entrypointBodyPlanIsComplete module plan.entrypoints)
+    "fallback probe full entrypoint body plan must cover fallback/receive"
+  require
+    (dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints)
+    "fallback probe dispatch plan must cover only selector entrypoints"
+  let rendered ← requireOk (renderModule module) "fallback probe render"
+  require
+    (rendered.contains "function f_EvmFallbackProbe_increment() {\n      sstore(")
+    "fallback probe increment body must not be erased by surface-plan fallback"
+  require
+    (rendered.contains "function __pf_fallback() {\n      mstore(0, 147028384)")
+    "fallback probe fallback body must lower revert payload"
+  require
+    (rendered.contains "      revert(0, 132)")
+    "fallback probe fallback body must revert"
+  require
+    (rendered.contains "function __pf_receive() {\n      sstore(")
+    "fallback probe receive body must not be erased by surface-plan fallback"
+  require
+    (!rendered.contains "function f_EvmFallbackProbe_increment() { }")
+    "fallback probe increment must not lower to empty function"
+  require
+    (!rendered.contains "function __pf_fallback() { }")
+    "fallback probe fallback must not lower to empty function"
+  require
+    (!rendered.contains "function __pf_receive() { }")
+    "fallback probe receive must not lower to empty function"
+
 def testScalarExprPlanToYul : IO Unit := do
   let scalarEnv : TypeEnv := #[
     { name := "target", type := .u64, isMutable := false },
@@ -4766,6 +4801,37 @@ def testAggregateAssignmentPlanToYul : IO Unit := do
     { name := "ys", type := .fixedArray .u64 2, isMutable := false },
     { name := "idx", type := .u64, isMutable := false }
   ]
+  let fixedArraySourcePlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.fixedArrayAssignmentSourcePlans
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv env)
+      "xs"
+      .u64
+      2
+      (.local "ys"))
+    "Lower fixed-array assignment source plans"
+  require (fixedArraySourcePlans.size == 2) "Lower fixed-array assignment source plan count"
+  let fixedArraySourcePlan1 ← requireAt fixedArraySourcePlans 1 "Lower fixed-array assignment source plan missing index 1"
+  require (fixedArraySourcePlan1.index == 1) "Lower fixed-array assignment source plan index"
+  match fixedArraySourcePlan1.expr with
+  | ExprPlan.local name =>
+      require (name == "__proof_forge_array_ys_1") "Lower fixed-array assignment source plan local"
+  | _ => throw <| IO.userError "Lower fixed-array assignment source plan must use planned local expression"
+  let fixedArrayPlanStmt ← requireOk
+    (ProofForge.Backend.Evm.ToYul.wholeFixedArrayAssignStmtFromPlan
+      (lowerExprPlanExpr ProofForge.IR.Examples.Counter.module env)
+      "xs"
+      fixedArraySourcePlans)
+    "fixed-array assignment source plan ToYul helper"
+  match fixedArrayPlanStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 4) "fixed-array assignment source plan ToYul statement count"
+      match block.statements[3]! with
+      | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+          require (names == #["__proof_forge_array_xs_1"]) "fixed-array assignment source plan ToYul target"
+          require (valueName == "__proof_forge_assign_array_xs_1") "fixed-array assignment source plan ToYul snapshot"
+      | _ => throw <| IO.userError "fixed-array assignment source plan ToYul final statement must assign snapshot"
+  | _ => throw <| IO.userError "fixed-array assignment source plan ToYul helper must produce block"
   let stmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.Counter.module
@@ -4784,6 +4850,82 @@ def testAggregateAssignmentPlanToYul : IO Unit := do
           require (sourceName == "__proof_forge_array_ys_0") "whole local fixed-array assignment integration source"
       | _ => throw <| IO.userError "whole local fixed-array assignment integration must snapshot source first"
   | _ => throw <| IO.userError "whole local fixed-array assignment integration must lower to ToYul block"
+  let structAssignEnv : TypeEnv := #[
+    { name := "p", type := .structType "Point", isMutable := true },
+    { name := "q", type := .structType "Point", isMutable := false },
+    { name := "n", type := .u64, isMutable := false }
+  ]
+  let structSourcePlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.structAssignmentSourcePlans
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv structAssignEnv)
+      "p"
+      "Point"
+      (.local "q"))
+    "Lower struct assignment source plans"
+  require (structSourcePlans.size == 2) "Lower struct assignment source plan count"
+  let structSourcePlan1 ← requireAt structSourcePlans 1 "Lower struct assignment source plan missing field y"
+  require (structSourcePlan1.fieldName == "y") "Lower struct assignment source plan field"
+  match structSourcePlan1.expr with
+  | ExprPlan.local name =>
+      require (name == "__proof_forge_struct_q_y") "Lower struct assignment source plan local"
+  | _ => throw <| IO.userError "Lower struct assignment source plan must use planned local expression"
+  let structLiteralSourcePlans ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.structAssignmentSourcePlans
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      (toValidateTypeEnv structAssignEnv)
+      "p"
+      "Point"
+      (.structLit "Point" #[
+        ("x", .add (.local "n") (.literal (.u64 1))),
+        ("y", .field (.local "q") "x")
+      ]))
+    "Lower struct literal assignment source plans"
+  require (structLiteralSourcePlans.size == 2) "Lower struct literal assignment source plan count"
+  let structPlanStmt ← requireOk
+    (ProofForge.Backend.Evm.ToYul.wholeStructAssignStmtFromPlan
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmStructValueProbe.module structAssignEnv)
+      "p"
+      structLiteralSourcePlans)
+    "struct assignment source plan ToYul helper"
+  match structPlanStmt with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 4) "struct assignment source plan ToYul statement count"
+      match block.statements[0]! with
+      | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.call name args)) => do
+          let firstVar ← requireAt vars 0 "struct assignment source plan ToYul missing first snapshot var"
+          require (firstVar.name == "__proof_forge_assign_struct_p_x") "struct assignment source plan ToYul first snapshot"
+          require (name == "__pf_checked_add") "struct assignment source plan ToYul planned expression helper"
+          require (args.size == 2) "struct assignment source plan ToYul helper arg count"
+      | _ => throw <| IO.userError "struct assignment source plan ToYul first statement must snapshot planned expression"
+      match block.statements[3]! with
+      | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
+          require (names == #["__proof_forge_struct_p_y"]) "struct assignment source plan ToYul final target"
+          require (valueName == "__proof_forge_assign_struct_p_y") "struct assignment source plan ToYul final snapshot"
+      | _ => throw <| IO.userError "struct assignment source plan ToYul final statement must assign snapshot"
+  | _ => throw <| IO.userError "struct assignment source plan ToYul helper must produce block"
+  let structAssignStmts ← requireOk
+    (lowerAssignStmt
+      ProofForge.IR.Examples.EvmStructValueProbe.module
+      structAssignEnv
+      (.local "p")
+      (.structLit "Point" #[
+        ("x", .add (.local "n") (.literal (.u64 1))),
+        ("y", .field (.local "q") "x")
+      ]))
+    "whole local struct assignment integration"
+  require (structAssignStmts.size == 1) "whole local struct assignment integration statement count"
+  match structAssignStmts[0]! with
+  | Lean.Compiler.Yul.Statement.block block => do
+      require (block.statements.size == 4) "whole local struct assignment integration block count"
+      match block.statements[0]! with
+      | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.call name args)) => do
+          let firstVar ← requireAt vars 0 "whole local struct assignment integration missing temp"
+          require (firstVar.name == "__proof_forge_assign_struct_p_x") "whole local struct assignment integration temp"
+          require (name == "__pf_checked_add") "whole local struct assignment integration planned expression helper"
+          require (args.size == 2) "whole local struct assignment integration helper arg count"
+      | _ => throw <| IO.userError "whole local struct assignment integration must snapshot planned expression first"
+  | _ => throw <| IO.userError "whole local struct assignment integration must lower to ToYul block"
   let dynamicStmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.Counter.module
@@ -7864,6 +8006,20 @@ def testDynamicArrayPlanToYul : IO Unit := do
         | _ => pure ()
       require foundLengthLoad "dynamic-array pop must load planned root slot"
   | _ => throw <| IO.userError "dynamic-array pop must lower to block"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      ProofForge.IR.Examples.EvmStorageArrayProbe.module
+      (toValidateTypeEnv env)
+      (.storageDynamicArrayPush "values" (.local "value")))
+    "EVM storage state 'values' is not a dynamic array"
+    "Lower dynamic-array push rejects non-dynamic target before raw fallback"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      ProofForge.IR.Examples.EvmStorageArrayProbe.module
+      (toValidateTypeEnv env)
+      (.storageDynamicArrayPop "values"))
+    "EVM storage state 'values' is not a dynamic array"
+    "Lower dynamic-array pop rejects non-dynamic target before raw fallback"
 
 def testStructFieldReadPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "value", type := .u64, isMutable := false }]
@@ -8642,17 +8798,23 @@ def testStoragePathWritePlanToYul : IO Unit := do
       require (name == "outer") "typed map storage path plan key lhs"
       require (value == 1) "typed map storage path plan key rhs"
   | _ => throw <| IO.userError "typed map storage path plan key must be checked add"
-  let compatMapTarget ← requireOk
-    (lowerStoragePathWriteTarget
-      ProofForge.IR.Examples.EvmMapProbe.module
-      mapEnv
-      "balances"
-      #[.mapKey (.add (.local "outer") (.literal (.u64 1)))])
-    "compat map storage path target typed plan-to-yul"
-  match compatMapTarget with
+  let typedMapTargetPlan ← requireOk
+    (lowerPlan <|
+      ProofForge.Backend.Evm.Plan.storagePathWriteExprTargetPlan
+        ProofForge.IR.Examples.EvmMapProbe.module
+        "balances"
+        typedMapPath)
+    "typed map storage path expr-target plan"
+  let typedMapTarget ← requireOk
+    (ProofForge.Backend.Evm.ToYul.storagePathWriteExprTargetFromPlan
+      toYulError
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmMapProbe.module mapEnv)
+      typedMapTargetPlan)
+    "typed map storage path target plan-to-yul"
+  match typedMapTarget with
   | ProofForge.Backend.Evm.ToYul.StoragePathWriteTarget.mapWrite _ key => do
-      requireCallExpr key "__pf_checked_add" 2 "compat map storage path target typed key"
-  | _ => throw <| IO.userError "compat map storage path target must lower through typed mapWrite"
+      requireCallExpr key "__pf_checked_add" 2 "typed map storage path target key"
+  | _ => throw <| IO.userError "typed map storage path target must lower through typed mapWrite"
   let arrayTargetPlan ← requireOk
     (lowerPlan <|
       ProofForge.Backend.Evm.Plan.storagePathWriteTargetPlan
@@ -8766,31 +8928,31 @@ def testStoragePathWritePlanToYul : IO Unit := do
       require (value == 1) "Lower storage path assign_op target value"
   | _ => throw <| IO.userError "Lower storage path assign_op must produce storagePathAssignOpExprTarget"
   let directWriteStmts ← requireOk
-    (ProofForge.Backend.Evm.ToYul.storagePathWriteEffectStmtPlanStatements
+    (ProofForge.Backend.Evm.ToYul.storagePathWriteExprTargetEffectStmtPlanStatements
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
-      (fun _ _ => .ok (.singleSlot (Lean.Compiler.Yul.Expr.num 9)))
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
-        (.storagePathWrite
-          "values"
-          #[.index (.literal (.u64 0))]
+        (.storagePathWriteExprTarget
+          (.singleSlot (.arraySlot 0 3 (.local "value")))
           (.checkedArith .add (.local "value") (.literalWord 4)))))
-    "storage path write StmtPlan-to-Yul helper"
-  require (directWriteStmts.size == 1) "storage path write StmtPlan-to-Yul helper statement count"
+    "storage path write expr-target StmtPlan-to-Yul helper"
+  require (directWriteStmts.size == 1) "storage path write expr-target StmtPlan-to-Yul helper statement count"
   match directWriteStmts[0]! with
   | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-      require (args.size == 2) "storage path write StmtPlan-to-Yul helper arg count"
+      require (args.size == 2) "storage path write expr-target StmtPlan-to-Yul helper arg count"
       match args[0]! with
-      | Lean.Compiler.Yul.Expr.lit lit =>
-          require (lit.value == "9") "storage path write StmtPlan-to-Yul helper slot"
-      | _ => throw <| IO.userError "storage path write StmtPlan-to-Yul helper slot must be literal"
+      | Lean.Compiler.Yul.Expr.call slotName slotArgs => do
+          require (slotName == (Helper.arraySlot).name) "storage path write expr-target helper slot"
+          require (slotArgs.size == 3) "storage path write expr-target helper slot arg count"
+      | _ => throw <| IO.userError "storage path write expr-target helper slot must use array helper"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.call addName addArgs => do
-          require (addName == "__pf_checked_add") "storage path write StmtPlan-to-Yul helper checked add"
-          require (addArgs.size == 2) "storage path write StmtPlan-to-Yul helper checked add arg count"
-      | _ => throw <| IO.userError "storage path write StmtPlan-to-Yul helper value must be checked add"
-  | _ => throw <| IO.userError "storage path write StmtPlan-to-Yul helper must lower to sstore"
+          require (addName == "__pf_checked_add") "storage path write expr-target StmtPlan-to-Yul helper checked add"
+          require (addArgs.size == 2) "storage path write expr-target StmtPlan-to-Yul helper checked add arg count"
+      | _ => throw <| IO.userError "storage path write expr-target StmtPlan-to-Yul helper value must be checked add"
+  | _ => throw <| IO.userError "storage path write expr-target StmtPlan-to-Yul helper must lower to sstore"
   let directPlannedWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.storagePathWriteTargetEffectStmtPlanStatements
       toYulError
@@ -8880,24 +9042,32 @@ def testStoragePathWritePlanToYul : IO Unit := do
       require foundCheckedValue "nested storage path write value must lower through checked add plan"
   | _ => throw <| IO.userError "nested storage path write plan-to-yul must lower to block"
   let directAssignOpStmts ← requireOk
-    (ProofForge.Backend.Evm.ToYul.storagePathAssignOpEffectStmtPlanStatements
+    (ProofForge.Backend.Evm.ToYul.storagePathAssignOpExprTargetEffectStmtPlanStatements
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
-      (fun _ _ => .ok (.singleSlot (Lean.Compiler.Yul.Expr.num 9)))
+      (lowerExprPlanExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
-        (.storagePathAssignOp
-          "values"
-          #[.index (.literal (.u64 0))]
+        (.storagePathAssignOpExprTarget
+          (.singleSlot (.arraySlot 0 3 (.literalWord 0)))
           .add
           (.effect (.storageScalarRead "before")))))
-    "storage path assign_op StmtPlan-to-Yul helper"
-  require (directAssignOpStmts.size == 1) "storage path assign_op StmtPlan-to-Yul helper statement count"
+    "storage path assign_op expr-target StmtPlan-to-Yul helper"
+  require (directAssignOpStmts.size == 1) "storage path assign_op expr-target StmtPlan-to-Yul helper statement count"
   match directAssignOpStmts[0]! with
   | Lean.Compiler.Yul.Statement.block block => do
       let mut foundStorageReadValue := false
+      let mut foundPlannedSlot := false
       for stmt in block.statements do
         match stmt with
+        | Lean.Compiler.Yul.Statement.varDecl names (some slot) => do
+            let slotTempName ← requireAt names 0 "storage path assign_op expr-target slot temp name"
+            foundPlannedSlot := foundPlannedSlot ||
+              (names.size == 1 && slotTempName.name == "_slot" &&
+                match slot with
+                | Lean.Compiler.Yul.Expr.call slotName slotArgs =>
+                    slotName == (Helper.arraySlot).name && slotArgs.size == 3
+                | _ => false)
         | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
             if args.size == 2 then
               match args[1]! with
@@ -8910,8 +9080,9 @@ def testStoragePathWritePlanToYul : IO Unit := do
                     | _ => pure ()
               | _ => pure ()
         | _ => pure ()
-      require foundStorageReadValue "storage path assign_op StmtPlan-to-Yul helper value must lower storage read through plan"
-  | _ => throw <| IO.userError "storage path assign_op StmtPlan-to-Yul helper must lower to block"
+      require foundPlannedSlot "storage path assign_op expr-target helper must use planned slot"
+      require foundStorageReadValue "storage path assign_op expr-target StmtPlan-to-Yul helper value must lower storage read through plan"
+  | _ => throw <| IO.userError "storage path assign_op expr-target StmtPlan-to-Yul helper must lower to block"
   let directPlannedAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
       toYulError
@@ -9178,6 +9349,7 @@ def main : IO UInt32 := do
   testIncompletePlanFallbackHelperDiscovery
   testEntrypointDispatchPlanToYul
   testSemanticPlanRender
+  testFallbackReceiveEntrypointPlanLowering
   testScalarExprPlanToYul
   testStorageFixedArrayCrosscallWordPlans
   testArrayLiteralDirectExprPlanToYul

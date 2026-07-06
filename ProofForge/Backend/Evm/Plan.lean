@@ -800,6 +800,16 @@ mutual
     | effect (effect : EffectPlan)
     deriving Repr
 
+  structure FixedArrayAssignmentSourcePlan where
+    index : Nat
+    expr : ExprPlan
+    deriving Repr
+
+  structure StructAssignmentSourcePlan where
+    fieldName : String
+    expr : ExprPlan
+    deriving Repr
+
   inductive AbiValuePlan where
     | expr (value : ExprPlan)
     | local (name : String) (type : ValueType)

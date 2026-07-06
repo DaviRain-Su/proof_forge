@@ -168,7 +168,9 @@ fn build_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFixtureArti
         "counter" => build_counter_fixture(case, repo_root),
         "value-vault" => build_value_vault_fixture(case, repo_root),
         "error-ref" => build_error_ref_fixture(repo_root),
-        "role-gated-token" => build_contract_source_fixture_by_name(case, repo_root, "RoleGatedToken"),
+        "role-gated-token" => {
+            build_contract_source_fixture_by_name(case, repo_root, "RoleGatedToken")
+        }
         "staking-vault" => build_contract_source_fixture_by_name(case, repo_root, "StakingVault"),
         fixture => bail!("EVM testkit harness does not support fixture `{fixture}` yet"),
     }

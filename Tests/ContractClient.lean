@@ -76,12 +76,32 @@ def testEvmViewEntrypoints : IO Unit := do
   require (contains wrapper "export async function increment(): Promise<void>")
     "EVM Counter wrapper should type increment() as mutating call"
 
+def testNearViewAndCallEntrypoints : IO Unit := do
+  let wrapper := ProofForge.Contract.Client.renderNearWrapper counterSpec
+  require (contains wrapper "export type NearCallOptions")
+    "NEAR Counter wrapper should expose call options"
+  require (contains wrapper "export async function get(): Promise<bigint>")
+    "NEAR Counter wrapper should type get() as view call"
+  require (contains wrapper "account.viewFunction({ contractId, methodName: \"get\", args: {} })")
+    "NEAR Counter wrapper should use viewFunction for read-only entrypoints"
+  require (contains wrapper "export async function initialize(options: NearCallOptions = {}): Promise<void>")
+    "NEAR Counter wrapper should type initialize() as mutating call with options"
+  require (contains wrapper "export async function increment(options: NearCallOptions = {}): Promise<void>")
+    "NEAR Counter wrapper should type increment() as mutating call with options"
+  require (contains wrapper "account.functionCall({")
+    "NEAR Counter wrapper should use functionCall for mutating entrypoints"
+  require (contains wrapper "gas: options.gas")
+    "NEAR Counter wrapper should forward gas options"
+  require (contains wrapper "attachedDeposit: options.attachedDeposit ?? options.deposit")
+    "NEAR Counter wrapper should forward deposit options"
+
 def main : IO UInt32 := do
   testEvmWrapperErrors
   testNearWrapperErrors
   testCounterWrapperEmptyErrors
   testEvmDeployHelpers
   testEvmViewEntrypoints
+  testNearViewAndCallEntrypoints
   IO.println "contract-client: ok"
   return 0
 

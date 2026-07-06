@@ -17,6 +17,137 @@ Each entry should include:
 
 ## 2026-07-06
 
+### EVM Fixed-Array Assignment Source Plans
+
+Work range: `codex/evm-dynamic-array-target-plan`
+
+Summary:
+
+- Added `FixedArrayAssignmentSourcePlan` so whole local fixed-array assignment
+  sources can be represented as semantic `ExprPlan`s before Yul emission.
+- Added `Lower.fixedArrayAssignmentSourcePlans` for local fixed-array sources
+  and array-literal element sources.
+- Added `ToYul.wholeFixedArrayAssignStmtFromPlan`, then routed the active
+  fixed-array whole-assignment path through `Lower -> Plan -> ToYul`.
+- Removed the now-unused IR-local
+  `lowerFixedArrayAssignmentSourceExprs` source-to-Yul helper.
+- Added semantic-plan tests that inspect the Lower source plan and the ToYul
+  snapshot block.
+
+Validation run:
+
+```sh
+lake build ProofForge.Backend.Evm.Plan ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-semantic-plan
+```
+
+Known limitations:
+
+- Nested fixed-array, struct-array, and whole-struct assignment source expansion
+  still lives in `IR.lean` before delegating final block assembly to `ToYul`.
+
+Next step:
+
+- Move the next aggregate assignment source expansion slice into `Lower`,
+  prioritizing nested fixed-array sources because the final Yul frame is
+  already behind `ToYul`.
+
+### EVM Storage-Path Expr-Target Plan Closure
+
+Work range: `codex/evm-dynamic-array-target-plan`
+
+Summary:
+
+- Routed statement-position `storagePathWrite` and `storagePathAssignOp`
+  unconditionally through `Lower.buildEffectPlan` and the
+  `StoragePathWriteExprTargetPlan -> ToYul` boundary.
+- Removed the IR compatibility helpers that still chose fallback storage-path
+  targets and scalar RHS expressions:
+  `lowerStoragePathWriteTarget`, `lowerStoragePathWriteStmt`, and
+  `lowerStoragePathAssignOpStmt`.
+- Removed the raw storage-path write/assign-op ToYul callback surface:
+  `storagePathWriteEffectPlanStatements`,
+  `storagePathWriteEffectStmtPlanStatements`,
+  `storagePathAssignOpEffectPlanStatements`, and
+  `storagePathAssignOpEffectStmtPlanStatements`.
+- Updated semantic-plan tests so storage-path write/assign-op helper coverage
+  uses expr-target plans directly.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "storagePathWriteEffectStmtPlanStatements|storagePathWriteEffectPlanStatements|storagePathAssignOpEffectStmtPlanStatements|storagePathAssignOpEffectPlanStatements|lowerStoragePathWriteStmt\\b|lowerStoragePathAssignOpStmt\\b|lowerStoragePathWriteTarget\\b|lowerStoragePathAssignOpTargetStatement|lowerStoragePathWriteStmtPlanOrFallback|lowerStoragePathAssignOpStmtPlanOrFallback" ProofForge Tests
+lake build ProofForge.Backend.Evm.IR ProofForge.Backend.Evm.ToYul
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-plan
+just evm-semantic-plan
+just evm-all
+scripts/i18n/check-sync.sh
+git diff --check
+just ci
+```
+
+Known limitations:
+
+- Struct-valued scalar storage writes still keep compatibility field expansion
+  in `IR.lean`.
+- Other non-storage-path write helpers still retain `PlanOrFallback` naming
+  until their unsupported aggregate/diagnostic paths are narrowed.
+
+Next step:
+
+- Continue shrinking remaining storage write fallback surfaces or move the next
+  recursive body lowering gap behind `StmtPlan -> ToYul`.
+
+### EVM Dynamic-Array Target-Plan Closure
+
+Work range: `codex/evm-dynamic-array-target-plan`
+
+Summary:
+
+- Made `Lower.buildEffectPlan` require `DynamicArrayTargetPlan` for
+  statement-position dynamic-array push/pop.
+- Removed the raw dynamic-array push/pop fallback branches from `IR.lean`.
+- Removed the now-unused raw dynamic-array ToYul helper/callback surface.
+- Added semantic-plan coverage proving invalid dynamic-array targets fail in
+  `Lower` before any raw fallback plan can be produced.
+- Split entrypoint body-plan completeness from dispatch-plan completeness, and
+  guarded against surface plans with empty bodies erasing fallback/receive body
+  lowering.
+- Added semantic-plan coverage for `EvmFallbackProbe` so selector entrypoints,
+  fallback, and receive bodies cannot silently lower to empty Yul functions.
+- Aligned EVM golden Yul for array ABI and dynamic-array probes with the
+  helper set emitted after target-plan lowering.
+- Updated backlog docs, Chinese backlog docs, and the i18n manifest.
+
+Validation run:
+
+```sh
+! rg -n "dynamicArrayPushEffect|dynamicArrayPopEffect|dynamicArrayTargetPlan\\?|lowerDynamicArrayPushStmt\\b" ProofForge/Backend/Evm Tests/EvmSemanticPlan.lean
+lake build ProofForge.Backend.Evm.Lower ProofForge.Backend.Evm.ToYul ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+just evm-plan
+just evm-semantic-plan
+just evm-all
+scripts/i18n/check-sync.sh
+git diff --check
+just ci
+```
+
+Known limitations:
+
+- Dynamic-array storage-path write-like behavior still uses the broader
+  storage-path write target surface.
+- Other storage write fallback surfaces remain in `IR.lean` for unsupported
+  aggregate or diagnostic-only shapes.
+
+Next step:
+
+- Continue shrinking storage write fallback callbacks, prioritizing helpers
+  that can now be proven unused by the semantic-plan tests.
+
 ### EVM Dead Write Fallback Helper Removal
 
 Commit: f610632
@@ -16819,7 +16950,7 @@ Result:
   diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
   checks passed locally.
 - The full Lake build still reports pre-existing unused-variable warnings in
-  `ConstructorInit`, `Quint`, and `Cli`.
+  `ConstructorInit` and `Cli`.
 
 ### EVM Planned Create Helper Discovery Slice
 
@@ -16866,6 +16997,52 @@ Result:
 - EVM semantic-plan tests, EVM plan tests, crosscall IR smoke, EVM diagnostics,
   i18n sync, JSON validation, full Lake build, and whitespace checks passed
   locally.
+- The full Lake build still reports pre-existing unused-variable warnings in
+  `ConstructorInit`, `Quint`, and `Cli`.
+
+### EVM Struct Assignment Source Plan Slice
+
+Commit: feature commit for EVM struct assignment source plans
+
+Summary:
+
+- Added `StructAssignmentSourcePlan` so flat struct whole-assignment sources can
+  enter the EVM semantic-plan layer before final Yul AST construction.
+- Added `Lower.structAssignmentSourcePlans` for local struct sources and struct
+  literals, preserving existing validation messages and representing field
+  source expressions as `ExprPlan`s.
+- Added `ToYul.wholeStructAssignStmtFromPlan` and routed compatible
+  `IR.lean` whole local struct assignment through that boundary.
+- Kept storage-backed struct assignment sources in the compatibility facade for
+  a later storage-source migration slice.
+- Updated semantic-plan coverage for direct Lower source planning, direct
+  ToYul snapshot-block construction from plans, and real `lowerAssignStmt`
+  whole struct assignment integration.
+- Updated the implementation backlog and Chinese backlog note to document the
+  new struct assignment source-plan boundary.
+
+Validation run:
+
+```sh
+python3 -m json.tool scripts/i18n/manifest.json >/dev/null
+scripts/i18n/check-sync.sh
+git diff --check
+lake build ProofForge.Backend.Evm.IR
+lake env lean --run Tests/EvmSemanticPlan.lean
+lake env lean --run Tests/EvmPlan.lean
+lake build
+just evm-diagnostics
+just evm-smoke struct-value
+```
+
+Result:
+
+- Local struct and struct-literal whole assignment sources now enter ToYul as
+  planned field expressions instead of direct Yul expressions assembled by the
+  compatibility facade.
+- EVM semantic-plan tests, EVM plan tests, struct-value IR smoke, EVM
+  diagnostics, i18n sync, JSON validation, full Lake build, and whitespace
+  checks passed locally.
 - The full Lake build still reports pre-existing unused-variable warnings in
   `ConstructorInit`, `Quint`, and `Cli`.
 

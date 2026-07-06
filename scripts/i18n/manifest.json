@@ -1,6 +1,6 @@
 {
   "README.md": {
-    "sha256": "25023a6c5db5846066fe9812584a6c040ca414ca11522d4dde0f95bed92449cf",
+    "sha256": "1843df99500f48ee1eb5ae3a32615cf88cc29772cbd491d5a733983062152f62",
     "translated": false
   },
   "CONTRIBUTING.md": {
@@ -49,7 +49,7 @@
     "model": "manual"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "d3a001614c144988b10b99066b51d5f5ab8598f7d8eb21046be8576ea7ddb8bc",
+    "sha256": "bdd71eb40bb31fa6eed98c21a91f6d514b0ccdc068784f4a436c9cf47b83ee67",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual"
   },

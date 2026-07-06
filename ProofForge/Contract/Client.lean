@@ -200,12 +200,31 @@ def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec
     entrypointLines
   ]
 
+def nearArgsObject (entrypoint : Entrypoint) : String :=
+  "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"
+
 def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
   let params := String.intercalate ", " (entrypoint.params.map fun p => p.fst ++ ": " ++ typeToTs p.snd).toList
-  let argsObj := "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"
-  "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<void> {\n" ++
-  "  await account.functionCall({ contractId, methodName: \"" ++ entrypoint.name ++ "\", args: " ++ argsObj ++ " });\n" ++
-  "}\n"
+  let argsObj := nearArgsObject entrypoint
+  if entrypoint.returns == .unit then
+    let paramsWithOptions :=
+      if params.isEmpty then
+        "options: NearCallOptions = {}"
+      else
+        params ++ ", options: NearCallOptions = {}"
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<void> {\n" ++
+    "  await account.functionCall({\n" ++
+    "    contractId,\n" ++
+    "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
+    "    args: " ++ argsObj ++ ",\n" ++
+    "    gas: options.gas,\n" ++
+    "    attachedDeposit: options.attachedDeposit ?? options.deposit,\n" ++
+    "  });\n" ++
+    "}\n"
+  else
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "  return await account.viewFunction({ contractId, methodName: \"" ++ entrypoint.name ++ "\", args: " ++ argsObj ++ " }) as " ++ typeToTs entrypoint.returns ++ ";\n" ++
+    "}\n"
 
 def renderNearWrapper (spec : ContractSpec) : String :=
   let entrypointLines := String.intercalate "" (spec.module.entrypoints.map nearEntrypointWrapper).toList
@@ -215,6 +234,12 @@ def renderNearWrapper (spec : ContractSpec) : String :=
     "import { Account } from \"near-api-js\";",
     "",
     nearErrorHelpersTs spec,
+    "",
+    "export type NearCallOptions = {",
+    "  gas?: bigint | string | number;",
+    "  attachedDeposit?: bigint | string | number;",
+    "  deposit?: bigint | string | number;",
+    "};",
     "",
     "let contractId: string;",
     "let account: Account;",

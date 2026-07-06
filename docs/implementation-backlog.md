@@ -462,24 +462,20 @@ Tasks:
     `Lower.buildEffectPlan`, with direct `EffectPlan -> ToYul` helpers for
     supported scalar write/assign RHS values across direct `mapKey`, `index`,
     `field`, `index`+`field`, and nested consecutive-`mapKey` paths. The
-    compatibility `lowerStoragePathWriteTarget` helper now also builds
-    `Lower.buildStoragePathPlan` and lowers
-    `StoragePathWriteExprTargetPlan -> ToYul`, so raw path segment expressions
-    no longer enter that helper through `ValuePlan` wrappers. The remaining
-    storage-path extraction work is to delete legacy callback surfaces once
-    direct callers and diagnostic-only fallback paths no longer need them.
-    Storage-path write fallback frames now also reuse
-    `ToYul.storagePathWriteTargetStatements`; `IR.lean` still chooses the
-    fallback storage-path target and scalar value expression, but it no longer
-    hand-assembles the map write helper call, single-slot `sstore`, or
-    nested-map value/presence writeback block.
+    active statement path now always enters
+    `Lower.buildEffectPlan -> StoragePathWriteExprTargetPlan -> ToYul`; raw
+    path segment expressions no longer enter write/assign lowering through
+    `ValuePlan` wrappers. The compatibility `lowerStoragePathWriteTarget`,
+    `lowerStoragePathWriteStmt`, and `lowerStoragePathAssignOpStmt` helpers
+    have been removed, along with the raw
+    `ToYul.storagePathWriteEffect*` and
+    `ToYul.storagePathAssignOpEffect*` callback surfaces. Direct callers and
+    diagnostic paths must now use the target-plan or expr-target-plan helpers.
     The now-unused legacy `lowerMapPathWriteStmt` nested-map writeback helper
     has been removed.
-    Storage-path assign-op fallback writeback frames now also reuse
-    `ToYul.storagePathAssignOpTargetStatements`; `IR.lean` still chooses the
-    fallback storage-path target and scalar value expression, but it no longer
-    hand-assembles the map helper call, single-slot `_slot` block, or nested-map
-    value/presence writeback block.
+    Storage-path assign-op writeback frames now reuse the same expr-target plan
+    path, so `IR.lean` no longer chooses fallback storage-path targets or scalar
+    value expressions for statement-position write/assign-op lowering.
   - Started: scalar `ifElse` and `boundedFor` control-flow frame assembly now
     consumes narrow `StmtPlan -> ToYul` helpers. If conditions and synthesized
     bounded-loop guards consume `ExprPlan -> ToYul`; supported branch/loop body
@@ -716,16 +712,17 @@ Tasks:
     `ToYul.structArrayFieldWriteTargetEffectStmtPlanStatements`, so struct-array
     field root-slot, length, field offset, index, and value planning no longer
     come from IR-local target reconstruction.
-    Storage-path write fallback frames now also reuse
-    `ToYul.storagePathWriteTargetStatements`; `IR.lean` still chooses the
-    fallback target and scalar value, but no longer owns the final map write,
-    single-slot, or nested-map writeback frame.
+    Statement-position storage-path write and assign-op effects now always
+    route through `Lower.buildEffectPlan` before final `ToYul` assembly, so
+    `IR.lean` no longer chooses fallback storage-path targets or scalar RHS
+    expressions for those paths.
     The old `lowerMapPathWriteStmt` nested-map writeback helper has been
     removed after the fallback path switched to the shared `ToYul` frame.
-    Storage-path assign-op fallback writeback frames now also reuse
-    `ToYul.storagePathAssignOpTargetStatements`; `IR.lean` still chooses the
-    fallback target and scalar value, but no longer owns the final map helper,
-    single-slot, or nested-map writeback frame.
+    The old `lowerStoragePathWriteTarget`, `lowerStoragePathWriteStmt`, and
+    `lowerStoragePathAssignOpStmt` compatibility helpers plus the raw
+    `ToYul.storagePathWriteEffect*` / `ToYul.storagePathAssignOpEffect*`
+    callback surfaces have been removed; active storage-path write-like
+    lowering must use target-plan or expr-target-plan helpers.
     Statement-position dynamic-array push/pop effects now also consume
     `Lower.buildEffectPlan` target variants carrying a
     `DynamicArrayTargetPlan` before calling
@@ -734,6 +731,15 @@ Tasks:
     expression planning, pop effect validation, root-slot selection, and final
     dynamic-array slot helper assembly no longer come from IR-local effect
     reconstruction callbacks.
+    `Lower.buildEffectPlan` now rejects invalid dynamic-array targets instead
+    of returning raw `storageDynamicArrayPush`/`storageDynamicArrayPop`
+    fallback plans, and the unused raw dynamic-array ToYul helper/callback
+    surface has been removed.
+    Entrypoint body-plan completeness is now checked separately from dispatch
+    plan completeness, so modules with EVM fallback/receive entrypoints can
+    still consume full body plans while dispatch continues to cover only
+    selector-addressable functions. Surface plans with empty bodies no longer
+    erase fallback/receive lowering.
     The now-unused `lowerDynamicArrayWriteStmt` and
     `lowerDynamicArrayPopStmt` fallback helpers have been removed; dynamic-array
     write-like behavior remains on storage-path write plans, and dynamic-array
@@ -756,11 +762,16 @@ Tasks:
     aggregate local-array leaves still fall back through the compatibility
     facade.
   - Started: whole local aggregate assignment snapshot blocks now live behind
-    `ToYul`. `IR.lean` still validates and expands local fixed-array, nested
-    fixed-array, struct-array, and struct assignment sources, but final temp
-    declarations, target local names, and assignment block construction are
-    delegated to `ToYul` helpers so the compatibility facade no longer owns the
-    final Yul statement frame.
+    `ToYul`. Local fixed-array and flat struct whole-assignment sources now
+    enter `Lower.fixedArrayAssignmentSourcePlans` or
+    `Lower.structAssignmentSourcePlans` first, so local aggregate sources and
+    array/struct literal scalar expressions are represented as `ExprPlan`s
+    before `ToYul.*AssignStmtFromPlan` emits the snapshot block. `IR.lean`
+    still validates and expands nested fixed-array, struct-array, and
+    storage-backed struct assignment sources, but final temp declarations,
+    target local names, and assignment block construction are delegated to
+    `ToYul` helpers so the compatibility facade no longer owns the final Yul
+    statement frame.
   - Started: dynamic local aggregate assignment switch frames now live behind
     `ToYul`. `IR.lean` still resolves dynamic local fixed-array and
     struct-array paths, but dynamic index/value snapshot expressions now enter

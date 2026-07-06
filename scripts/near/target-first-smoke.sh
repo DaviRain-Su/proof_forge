@@ -30,6 +30,20 @@ python3 scripts/near/validate-emitwat-metadata.py \
   --expected-fixture counter \
   --expected-module Counter \
   --expected-entrypoints initialize,increment,get
+python3 scripts/sdk/validate-sdk-schema.py \
+  "$COUNTER_DIR/proof-forge-sdk.json" \
+  --expect-schema proof-forge.sdk-schema.v0 \
+  --expect-ir portable-ir-v0 \
+  --expect-target wasm-near
+python3 scripts/sdk/validate-sdk-artifact-refs.py \
+  --require-relative \
+  --reject-absolute \
+  "$COUNTER_DIR/proof-forge-sdk.json"
+test -s "$COUNTER_DIR/Counter.contract-spec.json"
+test -s "$COUNTER_DIR/proof-forge-near.ts"
+test -s "$COUNTER_DIR/proof-forge-client.ts"
+grep -Fq "account.viewFunction({ contractId, methodName: \"get\", args: {} })" "$COUNTER_DIR/proof-forge-near.ts"
+grep -Fq "account.functionCall({" "$COUNTER_DIR/proof-forge-near.ts"
 
 out="$("${HOST[@]}" "$COUNTER_DIR/counter.wat" initialize get increment get)"
 echo "$out"
@@ -44,5 +58,14 @@ python3 scripts/near/validate-emitwat-metadata.py \
   --expected-fixture context \
   --expected-module ContextProbe \
   --expected-entrypoints sum_context
+python3 scripts/sdk/validate-sdk-schema.py \
+  "$CONTEXT_DIR/proof-forge-sdk.json" \
+  --expect-schema proof-forge.sdk-schema.v0 \
+  --expect-ir portable-ir-v0 \
+  --expect-target wasm-near
+python3 scripts/sdk/validate-sdk-artifact-refs.py \
+  --require-relative \
+  --reject-absolute \
+  "$CONTEXT_DIR/proof-forge-sdk.json"
 
 echo "near-target-first: ok"

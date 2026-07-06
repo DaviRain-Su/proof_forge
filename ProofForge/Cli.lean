@@ -16,6 +16,7 @@ import ProofForge.Backend.Solana.Client
 import ProofForge.Contract.Client
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Learn
+import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
 import ProofForge.Contract.Token.Evm
 import ProofForge.Contract.Token.EvmSpec
@@ -26,6 +27,7 @@ import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.Aleo.IR
 import ProofForge.Backend.CosmWasm.EmitWat
 import ProofForge.Backend.Move.Aptos
+import ProofForge.Backend.Move.Sui
 import ProofForge.Backend.Quint.Scenario
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Cli.ContractLoader
@@ -33,6 +35,7 @@ import ProofForge.Cli.Fixture
 import ProofForge.Cli.Scaffold
 import ProofForge.Cli.Deploy
 import ProofForge.Cli.Check
+import ProofForge.Cli.Metadata
 import ProofForge.Compiler.TS.AST
 import ProofForge.Compiler.TS.Printer
 import ProofForge.Compiler.TS.Emit
@@ -268,6 +271,7 @@ inductive EmitMode where
   | pureMathIrLeo
   | counterIrCosmWasm
   | counterIrAptos
+  | counterIrSui
   | counterIrQuint
   | valueVaultIrQuint
   deriving BEq, Inhabited
@@ -440,6 +444,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .counterIrTs
   | .counterIrCosmWasm
   | .counterIrAptos
+  | .counterIrSui
   | .counterIrQuint => true
   | .valueVaultIrQuint => true
   | _ => false
@@ -643,6 +648,7 @@ def usage : String :=
     "  proof-forge --emit-counter-ir-leo [-o output.leo]",
     "  proof-forge --emit-counter-ir-cosmwasm [-o output.wat]   (CosmWasm Counter spike)",
     "  proof-forge --emit-counter-ir-aptos [-o output-dir]       (Aptos Move Counter spike)",
+    "  proof-forge --emit-counter-ir-sui [-o output-dir]         (Sui Move Counter MVP)",
     "  proof-forge --emit-counter-ir-quint [-o output.qnt]       (Quint Counter model)",
     "  proof-forge --emit-value-vault-ir-quint [-o output.qnt]    (Quint ValueVault model)",
     "  proof-forge init [DIR] [--template portable-counter]",
@@ -694,6 +700,9 @@ def siblingPath (input : FilePath) (fileName : String) : FilePath :=
 
 def defaultYulOutput (input : FilePath) : FilePath :=
   siblingPath input s!".{leanBaseName input}.yul"
+
+def defaultBytecodeYulOutput (bytecodeOutput : FilePath) : FilePath :=
+  bytecodeOutput.withExtension "yul"
 
 def isHexChar (c : Char) : Bool :=
   c.isDigit || "abcdefABCDEF".contains c
@@ -1236,6 +1245,96 @@ def artifactEntryJson (path : FilePath) : IO String := do
     ("sha256", jsonString digest),
     ("bytes", toString bytes)
   ]
+
+def pathStringWithoutTrailingSlash (path : FilePath) : String :=
+  let text := path.toString
+  if text.endsWith "/" then
+    dropEndString text 1
+  else
+    text
+
+def relativePathFromDir? (dir path : FilePath) : Option String :=
+  let dirText := pathStringWithoutTrailingSlash dir
+  let pathText := path.toString
+  let dirPrefix := dirText ++ "/"
+  if pathText.length > dirPrefix.length && pathText.take dirPrefix.length == dirPrefix then
+    some ((pathText.drop dirPrefix.length).toString)
+  else
+    match path.parent, path.fileName with
+    | some parent, some fileName =>
+        if pathStringWithoutTrailingSlash parent == dirText then some fileName else none
+    | _, _ => none
+
+def artifactEntryJsonRelativeTo (baseDir : FilePath) (path : FilePath) : IO String := do
+  let some rel := relativePathFromDir? baseDir path
+    | throw <| IO.userError s!"artifact reference {path} is not inside artifact directory {baseDir}"
+  let (digest, bytes) ← fileDigestAndBytes path
+  return jsonObject #[
+    ("path", jsonString rel),
+    ("sha256", jsonString digest),
+    ("bytes", toString bytes)
+  ]
+
+def sdkFileRefFromPath (schemaDir : FilePath) (path : FilePath) : IO ProofForge.Contract.SdkSchema.FileRef := do
+  let some rel := relativePathFromDir? schemaDir path
+    | throw <| IO.userError s!"SDK schema reference {path} is not inside SDK directory {schemaDir}"
+  ProofForge.Contract.SdkSchema.FileRef.fromRelative schemaDir.toString rel
+
+def writeSdkSchemaFile
+    (targetId : String)
+    (spec : ProofForge.Contract.ContractSpec)
+    (schemaDir : FilePath)
+    (artifacts : Array (String × FilePath))
+    (clients : Array (String × FilePath))
+    (extension? : Option ProofForge.Contract.SdkSchema.TargetExtension := none) : IO FilePath := do
+  let artifactRefs ← artifacts.mapM fun artifact => do
+    let ref ← sdkFileRefFromPath schemaDir artifact.snd
+    return (artifact.fst, ref)
+  let clientRefs ← clients.mapM fun client => do
+    let ref ← sdkFileRefFromPath schemaDir client.snd
+    return (client.fst, ref)
+  let json ←
+    match ProofForge.Contract.SdkSchema.render targetId spec artifactRefs clientRefs extension? with
+    | .ok json => pure json
+    | .error err => throw <| IO.userError err
+  let schemaOutput := schemaDir / "proof-forge-sdk.json"
+  if let some parent := schemaOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile schemaOutput (json ++ "\n")
+  IO.println s!"wrote {schemaOutput}"
+  return schemaOutput
+
+def writeUnifiedEvmClient
+    (schemaDir : FilePath)
+    (spec : ProofForge.Contract.ContractSpec)
+    (artifactBaseName : String) : IO FilePath := do
+  let output := schemaDir / "proof-forge-client.ts"
+  if let some parent := output.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile output (ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName ++ "\n")
+  IO.println s!"wrote {output}"
+  return output
+
+def writeNearContractSidecars
+    (schemaDir : FilePath)
+    (spec : ProofForge.Contract.ContractSpec) : IO (FilePath × FilePath × FilePath) := do
+  let specOutput := schemaDir / s!"{spec.name}.contract-spec.json"
+  let nearClientOutput := schemaDir / ProofForge.Contract.Client.nearWrapperPath
+  let unifiedClientOutput := schemaDir / "proof-forge-client.ts"
+  if let some parent := specOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile specOutput (ProofForge.Contract.Spec.Json.render spec ++ "\n")
+  IO.println s!"wrote {specOutput}"
+  let nearClient := ProofForge.Contract.Client.renderNearWrapper spec ++ "\n"
+  if let some parent := nearClientOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile nearClientOutput nearClient
+  IO.println s!"wrote {nearClientOutput}"
+  if let some parent := unifiedClientOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile unifiedClientOutput nearClient
+  IO.println s!"wrote {unifiedClientOutput}"
+  return (specOutput, nearClientOutput, unifiedClientOutput)
 
 def optionalArtifactEntryJson : Option FilePath → IO (Option String)
   | some path => do
@@ -2260,6 +2359,7 @@ def writeEvmArtifactMetadata
     ("sourceKind", jsonString sourceKind),
     ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
     ("sourceModule", jsonString sourceModule),
+    ("sdkSchema", jsonString "proof-forge-sdk.json"),
     ("capabilities", jsonStringArray (dedupStrings capabilities)),
     ("toolchain", jsonObject #[
       ("solc", jsonObject #[
@@ -2324,6 +2424,28 @@ def writeEvmModuleArtifactMetadata
     (some (storageLayoutJson module))
     (some module)
     constructorInitBindings
+  if opts.fromNewSurface then
+    let schemaDir := bytecodeOutput.parent.getD (FilePath.mk ".")
+    let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput bytecodeOutput)
+    let deployOutput := defaultDeployManifestOutput metadataOutput
+    let initOutput := defaultInitCodeOutput bytecodeOutput
+    let spec := ProofForge.Contract.ContractSpec.fromIR module
+    let unifiedClientOutput ← writeUnifiedEvmClient schemaDir spec fixture
+    let mut artifactPaths : Array (String × FilePath) := #[
+      ("artifactMetadata", metadataOutput),
+      ("yul", yulOutput),
+      ("primary", bytecodeOutput),
+      ("secondary", initOutput),
+      ("deployManifest", deployOutput)
+    ]
+    let contractSpecOutput := schemaDir / s!"{fixture}.contract-spec.json"
+    if ← contractSpecOutput.pathExists then
+      artifactPaths := artifactPaths.push ("contractSpec", contractSpecOutput)
+    let nativeClientOutput := schemaDir / ProofForge.Contract.Client.evmAbiWrapperPath
+    let mut clientPaths : Array (String × FilePath) := #[("typescript", unifiedClientOutput)]
+    if ← nativeClientOutput.pathExists then
+      clientPaths := clientPaths.push ("nativeWrapper", nativeClientOutput)
+    discard <| writeSdkSchemaFile "evm" spec schemaDir artifactPaths clientPaths
 
 def writeEvmContractSdkClientArtifacts
     (spec : ProofForge.Contract.ContractSpec)
@@ -2738,6 +2860,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .counterIrCosmWasm }
   | "--emit-counter-ir-aptos" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrAptos }
+  | "--emit-counter-ir-sui" :: rest, opts =>
+      parseArgs rest { opts with mode := .counterIrSui }
   | "--emit-counter-ir-quint" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrQuint }
   | "--emit-value-vault-ir-quint" :: rest, opts =>
@@ -2862,6 +2986,32 @@ def isLeanSourceFile (input? : Option String) : Bool :=
   | some path => path.endsWith ".lean"
   | none => false
 
+def pathLooksLikeDirectory (path : String) : Bool :=
+  (FilePath.mk path).extension.isNone
+
+def dirChildString (dir file : String) : String :=
+  ((FilePath.mk dir) / file).toString
+
+def targetFirstNativeOutput (target flag out : String) : String :=
+  if !pathLooksLikeDirectory out then
+    out
+  else
+    match target, flag with
+    | "evm", "--emit-counter-ir-bytecode" => dirChildString out "Counter.bin"
+    | "evm", "--emit-counter-ir-yul" => dirChildString out "Counter.yul"
+    | "solana-sbpf-asm", "--emit-counter-ir-sbpf" => dirChildString out "Counter.s"
+    | _, _ => out
+
+def targetFirstYulOutput? (target flag : String) (out? yulOut? : Option String) : Option String :=
+  match yulOut?, out? with
+  | some yul, _ => some yul
+  | none, some out =>
+      if target == "evm" && flag == "--emit-counter-ir-bytecode" && pathLooksLikeDirectory out then
+        some (dirChildString out "Counter.yul")
+      else
+        none
+  | none, none => none
+
 def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Option String := none) (format? : Option String := none) (token : Bool := false) : Except String String :=
   let isLearn := match input? with | some input => input.endsWith ".learn" | none => false
   let isLeanSource := isLeanSourceFile input?
@@ -2872,7 +3022,10 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
   | "evm", true, _, some "bytecode", false => Except.ok "--learn"
   | "evm", true, _, none, true => Except.ok "--learn-token"
   | "evm", true, _, none, false => Except.ok "--learn"
-  | "evm", false, _, _, _ => Except.ok "--evm-bytecode"
+  | "evm", false, _, some "yul", _ =>
+      if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-yul"
+  | "evm", false, _, _, _ =>
+      if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-bytecode"
   | "wasm-near", true, _, _, _ =>
       Except.error "proof-forge build --target wasm-near from .learn source is not yet implemented"
   | "wasm-near", false, fixture?, format?, _ =>
@@ -2913,6 +3066,17 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
   | "move-aptos", true, _, _, _ =>
       Except.error "proof-forge build --target move-aptos from .learn source is not yet implemented"
   | "move-aptos", false, _, _, _ => Except.ok "--emit-counter-ir-aptos"
+  | "move-sui", true, _, _, _ =>
+      Except.error "proof-forge build --target move-sui from .learn source is not yet implemented"
+  | "move-sui", false, fixture?, _, _ =>
+      if isLeanSource then
+        Except.error "proof-forge build --target move-sui from source is out of scope for the Counter object MVP; use --fixture counter"
+      else
+        match fixture? with
+        | some fixture =>
+            if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
+            else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
+        | none => Except.ok "--emit-counter-ir-sui"
   | other, _, _, _, _ => Except.error s!"unknown target '{other}'"
 
 def emitLegacyFlag (target fixture : String) (format? : Option String) : Except String String :=
@@ -2985,6 +3149,9 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
   | "aleo-leo", "counter", _ => Except.ok "--emit-counter-ir-leo"
   | "aleo-leo", "pure-math", _ => Except.ok "--emit-pure-math-ir-leo"
   | "move-aptos", "counter", _ => Except.ok "--emit-counter-ir-aptos"
+  | "move-sui", "counter", fmt =>
+      if fmt == "" || fmt == "sui" || fmt == "move" then Except.ok "--emit-counter-ir-sui"
+      else Except.error s!"emit --target move-sui --fixture counter --format {fmt} is not supported; use --format sui"
   | "quint", "counter", fmt =>
       if fmt == "qnt" || fmt == "" then
         Except.ok "--emit-counter-ir-quint"
@@ -3003,10 +3170,10 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
     let target ← match state.target? with | some t => Except.ok t | none => Except.error "build requires --target <id>"
     let flag ← buildLegacyFlag target state.input? state.fixture? state.format? state.token
     let mut legacy := [flag]
-    if let some out := state.out? then legacy := legacy ++ ["-o", out]
+    if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
     if let some root := state.root? then legacy := legacy ++ ["--root", root]
     if let some modName := state.module? then legacy := legacy ++ ["--module", modName]
-    if let some yul := state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
+    if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
     if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
     if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
     for param in state.evmConstructorParams do
@@ -3015,7 +3182,7 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
       legacy := legacy ++ ["--evm-constructor-arg", s!"{value.name}={value.value}"]
     if state.evmConstructorArgsHex != "" then
       legacy := legacy ++ ["--evm-constructor-args-hex", state.evmConstructorArgsHex]
-    if flag == "--evm-bytecode" then
+    if flag == "--evm-bytecode" || flag.endsWith "-bytecode" then
       legacy := legacy ++ ["--solc", state.solc, "--cast", state.cast]
     if flag == "--learn" || flag == "--learn-token" then
       legacy := legacy ++ ["--target", target]
@@ -3029,8 +3196,8 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
     let fixture ← match state.fixture? with | some f => Except.ok f | none => Except.error "emit requires --fixture <id>"
     let flag ← emitLegacyFlag target fixture state.format?
     let mut legacy := [flag]
-    if let some out := state.out? then legacy := legacy ++ ["-o", out]
-    if let some yul := state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
+    if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
+    if let some yul := targetFirstYulOutput? target flag state.out? state.yulOut? then legacy := legacy ++ ["--yul-output", yul]
     if let some artifact := state.artifactOut? then legacy := legacy ++ ["--artifact-output", artifact]
     if let some profile := state.evmChainProfile? then legacy := legacy ++ ["--evm-chain-profile", profile]
     if let some scenario := state.scenario? then legacy := legacy ++ ["--scenario", scenario]
@@ -3216,6 +3383,17 @@ def optionalExistingArtifactEntryJson (path? : Option FilePath) : IO (Option Str
       else
         return none
 
+def optionalExistingArtifactEntryJsonRelativeTo
+    (baseDir : FilePath)
+    (path? : Option FilePath) : IO (Option String) := do
+  match path? with
+  | none => return none
+  | some path =>
+      if ← path.pathExists then
+        return some (← artifactEntryJsonRelativeTo baseDir path)
+      else
+        return none
+
 def writeEmitWatDeployManifest
     (deployOutput : FilePath)
     (targetId fixture sourceKind : String)
@@ -3260,11 +3438,20 @@ def writeEmitWatArtifactMetadata
     (outputDir watPath : FilePath)
     (wasmPath? : Option FilePath) : IO Unit := do
   let metadataOutput := opts.artifactOutput?.getD (defaultEmitWatArtifactOutput outputDir)
+  let schemaDir := metadataOutput.parent.getD outputDir
   let deployOutput := defaultDeployManifestOutput metadataOutput
-  let watArtifact ← artifactEntryJson watPath
-  let wasmArtifact? ← optionalExistingArtifactEntryJson wasmPath?
+  let watArtifact ← artifactEntryJsonRelativeTo schemaDir watPath
+  let wasmArtifact? ← optionalExistingArtifactEntryJsonRelativeTo schemaDir wasmPath?
+  let spec := ProofForge.Contract.ContractSpec.fromIR module
+  let (contractSpecOutput, nearClientOutput, unifiedClientOutput) ←
+    if opts.fromNewSurface then
+      writeNearContractSidecars outputDir spec
+    else
+      pure (outputDir / s!"{spec.name}.contract-spec.json",
+        outputDir / ProofForge.Contract.Client.nearWrapperPath,
+        outputDir / "proof-forge-client.ts")
   writeEmitWatDeployManifest deployOutput targetId fixture sourceKind module watArtifact wasmArtifact?
-  let deployArtifact ← artifactEntryJson deployOutput
+  let deployArtifact ← artifactEntryJsonRelativeTo schemaDir deployOutput
   let mut artifactFields : Array (String × String) := #[
     ("wat", watArtifact),
     ("deployManifest", deployArtifact)
@@ -3281,6 +3468,7 @@ def writeEmitWatArtifactMetadata
     ("sourceKind", jsonString sourceKind),
     ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
     ("sourceModule", jsonString module.name),
+    ("sdkSchema", jsonString "proof-forge-sdk.json"),
     ("capabilities", jsonStringArray (moduleCapabilityIds module)),
     ("toolchain", jsonObject #[
       ("wat2wasm", jsonObject #[
@@ -3304,6 +3492,49 @@ def writeEmitWatArtifactMetadata
     IO.FS.createDirAll parent
   IO.FS.writeFile metadataOutput (metadata ++ "\n")
   IO.println s!"wrote {metadataOutput}"
+  if opts.fromNewSurface then
+    let mut artifactPaths : Array (String × FilePath) := #[
+      ("artifactMetadata", metadataOutput),
+      ("primary", watPath),
+      ("deployManifest", deployOutput),
+      ("contractSpec", contractSpecOutput)
+    ]
+    if let some wasmPath := wasmPath? then
+      if ← wasmPath.pathExists then
+        artifactPaths := artifactPaths.push ("secondary", wasmPath)
+    let watRel := (relativePathFromDir? schemaDir watPath).getD watPath.toString
+    let deployRel := (relativePathFromDir? schemaDir deployOutput).getD deployOutput.toString
+    let contractSpecRel := (relativePathFromDir? schemaDir contractSpecOutput).getD contractSpecOutput.toString
+    let nearClientRel := (relativePathFromDir? schemaDir nearClientOutput).getD nearClientOutput.toString
+    let wasmRel? := wasmPath?.bind (fun path => relativePathFromDir? schemaDir path)
+    let viewMethods := module.entrypoints.filter (fun entrypoint => entrypoint.returns != .unit) |>.map (fun entrypoint => entrypoint.name)
+    let callMethods := module.entrypoints.filter (fun entrypoint => entrypoint.returns == .unit) |>.map (fun entrypoint => entrypoint.name)
+    let mut nearFields : Array ProofForge.Contract.SdkSchema.JsonField := #[
+      ("wat", ProofForge.Contract.SdkSchema.Json.string watRel),
+      ("deployManifest", ProofForge.Contract.SdkSchema.Json.string deployRel),
+      ("contractSpec", ProofForge.Contract.SdkSchema.Json.string contractSpecRel),
+      ("typescriptWrapper", ProofForge.Contract.SdkSchema.Json.string nearClientRel),
+      ("offlineHost", ProofForge.Contract.SdkSchema.Json.string "runtime/offline-host"),
+      ("wrapperBehavior", ProofForge.Contract.SdkSchema.Json.object #[
+        ("viewMethods", ProofForge.Contract.SdkSchema.Json.stringArray viewMethods),
+        ("callMethods", ProofForge.Contract.SdkSchema.Json.stringArray callMethods)
+      ]),
+      ("callOptions", ProofForge.Contract.SdkSchema.Json.object #[
+        ("gas", ProofForge.Contract.SdkSchema.Json.string "optional"),
+        ("deposit", ProofForge.Contract.SdkSchema.Json.string "optional")
+      ])
+    ]
+    if let some wasmRel := wasmRel? then
+      nearFields := nearFields.push ("wasm", ProofForge.Contract.SdkSchema.Json.string wasmRel)
+    let nearExtension : ProofForge.Contract.SdkSchema.TargetExtension := {
+      key := "near"
+      targetId := targetId
+      fields := nearFields
+    }
+    discard <| writeSdkSchemaFile targetId spec schemaDir artifactPaths #[
+      ("typescript", unifiedClientOutput),
+      ("nativeWrapper", nearClientOutput)
+    ] (some nearExtension)
 
 def writeWatPackage (outputDir : FilePath) (name : String) (wat : String) : IO (FilePath × Option FilePath) := do
   IO.FS.createDirAll outputDir
@@ -3731,11 +3962,11 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   let opts ← match finalizeConstructorOptionsForSpec opts spec with
     | .ok opts => pure opts
     | .error msg => throw <| IO.userError msg
-  let yulOutput := opts.yulOutput?.getD (defaultYulOutput input)
+  let output := opts.output?.getD (input.withExtension "bin")
+  let yulOutput := opts.yulOutput?.getD (defaultBytecodeYulOutput output)
   let (yul, module) ← renderContractSourceEvmYul opts spec
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput
-  let output := opts.output?.getD (input.withExtension "bin")
   writeTextFile output (bytecode ++ "\n")
   writeEvmContractSdkArtifactMetadata opts (leanBaseName input) spec.name spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
@@ -4839,11 +5070,22 @@ def compileCounterIrSbpf (opts : CliOptions) : IO UInt32 := do
       IO.println s!"wrote {output}"
       let manifestOutput ← writeSbpfManifest output ProofForge.IR.Examples.Counter.module
       IO.println s!"wrote {manifestOutput}"
+      let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
+      let plan ←
+        match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
+        | .ok plan => pure plan
+        | .error err => throw <| IO.userError err.render
+      let idlOutput ← writeSbpfIdlWithPlan output spec.module plan
+      IO.println s!"wrote {idlOutput}"
+      let clientOutput ← writeSbpfClientWithPlan output spec.module plan
+      IO.println s!"wrote {clientOutput}"
       let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput output)
       if let some parent := metadataOutput.parent then
         IO.FS.createDirAll parent
       let sourceArtifact ← artifactEntryJson output
       let manifestArtifact ← artifactEntryJson manifestOutput
+      let idlArtifact ← artifactEntryJson idlOutput
+      let clientArtifact ← artifactEntryJson clientOutput
       let metadata := jsonObject #[
         ("schemaVersion", "1"),
         ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
@@ -4853,6 +5095,7 @@ def compileCounterIrSbpf (opts : CliOptions) : IO UInt32 := do
         ("sourceKind", jsonString "portable-ir"),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
         ("sourceModule", jsonString "Counter"),
+        ("sdkSchema", jsonString "proof-forge-sdk.json"),
         ("capabilities", jsonStringArray #["storage.scalar", "account.explicit", "control.conditional"]),
         ("toolchain", jsonObject #[
           ("sbpf", jsonObject #[
@@ -4862,7 +5105,9 @@ def compileCounterIrSbpf (opts : CliOptions) : IO UInt32 := do
         ]),
         ("artifacts", jsonObject #[
           ("sbpfAsm", sourceArtifact),
-          ("manifestToml", manifestArtifact)
+          ("manifestToml", manifestArtifact),
+          ("solanaIdl", idlArtifact),
+          ("solanaClientTs", clientArtifact)
         ]),
         ("validation", jsonObject #[
           ("sbpfBuild", jsonString "pending"),
@@ -4872,6 +5117,19 @@ def compileCounterIrSbpf (opts : CliOptions) : IO UInt32 := do
       ]
       IO.FS.writeFile metadataOutput (metadata ++ "\n")
       IO.println s!"wrote {metadataOutput}"
+      if opts.fromNewSurface then
+        let schemaDir := output.parent.getD (FilePath.mk ".")
+        discard <| writeSdkSchemaFile
+          ProofForge.Backend.Solana.SbpfAsm.targetId
+          spec
+          schemaDir
+          #[
+            ("artifactMetadata", metadataOutput),
+            ("primary", output),
+            ("manifest", manifestOutput),
+            ("interface", idlOutput)
+          ]
+          #[("typescript", clientOutput)]
       return 0
   | .error err =>
       throw <| IO.userError err.render
@@ -5219,6 +5477,7 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
         ("sourceKind", jsonString "contract-sdk"),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
         ("sourceModule", jsonString spec.name),
+        ("sdkSchema", jsonString "proof-forge-sdk.json"),
         ("capabilities", jsonStringArray (dedupStrings (plan.capabilities.map fun capability => capability.id))),
         ("capabilityPlan", capabilityPlanJson plan),
         ("solanaInstructions", solanaInstructionsJson spec.module plan),
@@ -5246,6 +5505,19 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
       ]
       IO.FS.writeFile metadataOutput (metadata ++ "\n")
       IO.println s!"wrote {metadataOutput}"
+      if opts.fromNewSurface then
+        let schemaDir := output.parent.getD (FilePath.mk ".")
+        discard <| writeSdkSchemaFile
+          ProofForge.Backend.Solana.SbpfAsm.targetId
+          spec
+          schemaDir
+          #[
+            ("artifactMetadata", metadataOutput),
+            ("primary", output),
+            ("manifest", manifestOutput),
+            ("interface", idlOutput)
+          ]
+          #[("typescript", clientOutput)]
       return 0
   | .error err =>
       throw <| IO.userError err.render
@@ -5810,6 +6082,13 @@ def writePackageFiles (outputDir : FilePath) (pkg : Array ProofForge.Backend.Mov
       IO.FS.createDirAll parent
     writeTextFile path file.content
 
+def writeSuiPackageFiles (outputDir : FilePath) (pkg : Array ProofForge.Backend.Move.Sui.PackageFile) : IO Unit := do
+  for file in pkg do
+    let path := outputDir / file.path
+    if let some parent := path.parent then
+      IO.FS.createDirAll parent
+    writeTextFile path file.content
+
 def compileCounterIrAptos (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/aptos/counter")
   match ProofForge.Backend.Move.Aptos.renderPackage ProofForge.IR.Examples.Counter.module with
@@ -5828,6 +6107,54 @@ def loadQuintScenarioConfig (opts : CliOptions) : IO ProofForge.Backend.Quint.Sc
       match ProofForge.Backend.Quint.Scenario.parse contents with
       | .ok cfg => return cfg
       | .error msg => throw <| IO.userError s!"failed to parse scenario {path}: {msg}"
+
+def compileCounterIrSui (opts : CliOptions) : IO UInt32 := do
+  let output := opts.output?.getD (FilePath.mk "build/sui/counter")
+  let module := ProofForge.IR.Examples.Counter.module
+  match ProofForge.Backend.Move.Sui.renderPackage module with
+  | .ok pkg =>
+      writeSuiPackageFiles output pkg
+      let moveToml := output / "Move.toml"
+      let sourceOutput := output / "sources" / "counter.move"
+      let testsOutput := output / "tests" / "counter_tests.move"
+      let clientOutput := output / "proof-forge-client.ts"
+      IO.println s!"wrote Sui package to {output}"
+      IO.println s!"wrote {clientOutput}"
+      let metadataOutput := opts.artifactOutput?.getD (output / "proof-forge-artifact.json")
+      let metadata := jsonObject #[
+        ("schemaVersion", "1"),
+        ("target", jsonString "move-sui"),
+        ("targetFamily", jsonString "move"),
+        ("artifactKind", jsonString "move-package"),
+        ("fixture", jsonString "counter"),
+        ("sourceKind", jsonString "portable-ir"),
+        ("irVersion", jsonString ProofForge.Contract.SdkSchema.irVersion),
+        ("sourceModule", jsonString "Counter"),
+        ("sdkSchema", jsonString "proof-forge-sdk.json"),
+        ("capabilities", jsonStringArray #["storage.scalar", "account.explicit", "assertions.check"]),
+        ("artifacts", jsonObject #[
+          ("moveToml", ← artifactEntryJson moveToml),
+          ("source", ← artifactEntryJson sourceOutput),
+          ("tests", ← artifactEntryJson testsOutput)
+        ]),
+        ("validation", jsonObject #[
+          ("sourceGeneration", jsonString "passed"),
+          ("suiMoveBuild", jsonString "pending")
+        ])
+      ]
+      writeTextFile metadataOutput (metadata ++ "\n")
+      IO.println s!"wrote {metadataOutput}"
+      if opts.fromNewSurface then
+        let spec := ProofForge.Contract.ContractSpec.fromIR module
+        discard <| writeSdkSchemaFile "move-sui" spec output #[
+          ("artifactMetadata", metadataOutput),
+          ("manifest", moveToml),
+          ("primary", sourceOutput),
+          ("tests", testsOutput)
+        ] #[("typescript", clientOutput)]
+      return 0
+  | .error err =>
+      throw <| IO.userError err.message
 
 def compileCounterIrQuint (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/quint/Counter.qnt")
@@ -6003,6 +6330,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .pureMathIrLeo => compilePureMathIrLeo opts
   | .counterIrCosmWasm => compileCounterIrCosmWasm opts
   | .counterIrAptos => compileCounterIrAptos opts
+  | .counterIrSui => compileCounterIrSui opts
   | .counterIrQuint => compileCounterIrQuint opts
   | .valueVaultIrQuint => compileValueVaultIrQuint opts
 
@@ -6019,6 +6347,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   | "deploy" :: rest =>
     match ProofForge.Cli.Deploy.parseDeployOptions rest with
     | Except.ok opts => ProofForge.Cli.Deploy.deployCommand opts
+    | Except.error msg =>
+        IO.eprintln msg
+        return 1
+  | "metadata" :: rest =>
+    match ProofForge.Cli.Metadata.parseMetadataOptions rest with
+    | Except.ok opts => ProofForge.Cli.Metadata.metadataCommand opts
     | Except.error msg =>
         IO.eprintln msg
         return 1

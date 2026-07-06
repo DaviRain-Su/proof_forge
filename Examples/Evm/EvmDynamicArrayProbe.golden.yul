@@ -61,37 +61,22 @@ object "EvmDynamicArrayProbe" {
       result := sload(__proof_forge_dynamic_array_slot(0, 2))
     }
     function f_EvmDynamicArrayProbe_push_value(value) {
-      {
-        let __proof_forge_dyn_array_len := sload(0)
-        let __proof_forge_dyn_array_new_len := add(__proof_forge_dyn_array_len, 1)
-        sstore(__proof_forge_dynamic_array_slot(0, __proof_forge_dyn_array_len), value)
-        sstore(0, __proof_forge_dyn_array_new_len)
-      }
+      let __proof_forge_dyn_array_len := sload(0)
+      let __proof_forge_dyn_array_new_len := add(__proof_forge_dyn_array_len, 1)
+      sstore(__proof_forge_dynamic_array_slot(0, __proof_forge_dyn_array_len), value)
+      sstore(0, __proof_forge_dyn_array_new_len)
     }
     function f_EvmDynamicArrayProbe_pop_value() {
-      {
-        let __proof_forge_dyn_array_len := sload(0)
-        if iszero(__proof_forge_dyn_array_len) {
-          revert(0, 0)
-        }
-        let __proof_forge_dyn_array_new_len := sub(__proof_forge_dyn_array_len, 1)
-        sstore(0, __proof_forge_dyn_array_new_len)
+      let __proof_forge_dyn_array_len := sload(0)
+      if iszero(__proof_forge_dyn_array_len) {
+        revert(0, 0)
       }
+      let __proof_forge_dyn_array_new_len := sub(__proof_forge_dyn_array_len, 1)
+      sstore(0, __proof_forge_dyn_array_new_len)
     }
     function __proof_forge_dynamic_array_slot(slot, index) -> result {
       mstore(0, slot)
       result := add(keccak256(0, 32), index)
-    }
-    function __proof_forge_memory_array_new(length) -> ptr {
-      ptr := mload(64)
-      mstore(ptr, length)
-      mstore(64, add(ptr, mul(add(length, 1), 32)))
-    }
-    function __proof_forge_memory_array_get(array, index) -> value {
-      if iszero(lt(index, mload(array))) {
-        revert(0, 0)
-      }
-      value := mload(add(add(array, 32), mul(index, 32)))
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {

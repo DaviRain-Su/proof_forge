@@ -88,6 +88,7 @@ inductive Format where
   | leo
   | cosmwasm
   | aptos
+  | sui
   | elf
   | qnt
   | scenario
@@ -103,6 +104,7 @@ def Format.id : Format → String
   | .leo => "leo"
   | .cosmwasm => "cosmwasm"
   | .aptos => "aptos"
+  | .sui => "sui"
   | .elf => "elf"
   | .qnt => "qnt"
   | .scenario => "scenario"
@@ -118,6 +120,7 @@ def parseFormat? (s : String) : Option Format :=
   | "leo" => some .leo
   | "cosmwasm" => some .cosmwasm
   | "aptos" => some .aptos
+  | "sui" | "move" => some .sui
   | "elf" | "so" => some .elf
   | "qnt" => some .qnt
   | "scenario" | "toml" => some .scenario
@@ -134,6 +137,7 @@ def supportedTargetIds : Array String := #[
   "psy-dpn",
   "aleo-leo",
   "move-aptos",
+  "move-sui",
   "quint"
 ]
 
@@ -148,6 +152,7 @@ def defaultFormatFor (targetId fixtureId : String) : Option Format :=
   | "psy-dpn" => some .psy
   | "aleo-leo" => some .leo
   | "move-aptos" => some .aptos
+  | "move-sui" => some .sui
   | "quint" => some .qnt
   | _ => none
 
@@ -188,6 +193,7 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "aleo-leo", "counter", .leo => true
   | "aleo-leo", "pure-math", .leo => true
   | "move-aptos", "counter", .aptos => true
+  | "move-sui", "counter", .sui => true
   | "quint", "counter", .qnt => true
   | "quint", "value-vault", .qnt => true
   | _, _, _ => false

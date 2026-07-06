@@ -68,11 +68,6 @@ object "EvmArrayAbiProbe" {
       }
       result := __pf_checked_add(__pf_checked_add(__proof_forge_memory_array_get(xs, 0), __proof_forge_memory_array_get(xs, 1)), __proof_forge_memory_array_get(xs, 2))
     }
-    function __proof_forge_memory_array_new(length) -> ptr {
-      ptr := mload(64)
-      mstore(ptr, length)
-      mstore(64, add(ptr, mul(add(length, 1), 32)))
-    }
     function __proof_forge_memory_array_get(array, index) -> value {
       if iszero(lt(index, mload(array))) {
         revert(0, 0)
