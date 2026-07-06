@@ -60,7 +60,8 @@ accepts them via its extended capability set):
 |---|---|---|
 | `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.nearCrosscallStrings` via `.literal (.address i)`. |
 | `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
-| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). Register payload decode is deferred. |
+| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
+| `nearPromiseResultU64 index` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
 
 Typical shape:
 
@@ -72,7 +73,7 @@ entry call_remote_with_callback:
     args = [], deposit = 0)
 
 entry handle_remote:
-  return nearPromiseResultStatus(0)
+  return nearPromiseResultU64(0)
 ```
 
 Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.

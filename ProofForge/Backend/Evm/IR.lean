@@ -1040,7 +1040,8 @@ mutual
         .ok .u64
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
@@ -2170,7 +2171,8 @@ mutual
         lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
@@ -2508,6 +2510,7 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .nearPromiseThen _ _ _ _
   | .nearPromiseResultsCount
   | .nearPromiseResultStatus _
+  | .nearPromiseResultU64 _
   | .effect _ => false
 
 partial def lowerExprViaPlan
@@ -5639,6 +5642,7 @@ mutual
           args.any exprUsesCheckedArithmetic
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
+    | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

@@ -713,9 +713,22 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "env",
         "promise_results_count",
-        |_: Caller<'_, HostState>| -> i64 { 0 },
+        |_: Caller<'_, HostState>| -> i64 { 1 },
     )?;
-    linker.func_wrap("env", "promise_result", |_: i64, _: i64| -> i64 { 2 })?;
+    linker.func_wrap(
+        "env",
+        "promise_result",
+        |mut caller: Caller<'_, HostState>, _: i64, register_id: i64| -> Result<i64> {
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            // Stub success with Borsh u64 payload (42) for offline callback smoke.
+            caller
+                .data_mut()
+                .registers
+                .insert(register_id, 42u64.to_le_bytes().to_vec());
+            Ok(1)
+        },
+    )?;
     linker.func_wrap("env", "promise_return", |_: i64| {})?;
 
     Ok(())

@@ -172,7 +172,8 @@ mutual
         throw "EmitTS: unsupported expression"
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         throw "EmitTS: NEAR promise expressions are unsupported"
 
   partial def emitBinOp (expected : ValueType) (op : BinOp) (lhs rhs : ProofForge.IR.Expr) : EmitTSM ProofForge.Compiler.TS.Expr := do

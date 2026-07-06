@@ -86,7 +86,8 @@ Expr	crosscallCreate	unsupported	wasm-near target profile rejects crosscall.invo
 Expr	crosscallCreate2	unsupported	wasm-near target profile rejects crosscall.invoke in validateCapabilities before lowering; lowerExpr also rejects create2 contract creation.
 Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on the current contract account using module.nearCrosscallStrings callback method literals; wasm-near target profile still rejects near.promise.
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
-Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64; payload decode is deferred.
+Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.
+Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64); Plan tracks usesPromiseResultU64.
 Effect	storageScalarRead	lowered	lowerEffectExpr emits self.<id>; Counter get covers it and the read-as-statement diagnostic guards misuse.
 Effect	storageScalarWrite	lowered	lowerEffectStmt emits self.<id> = value;; Counter increment covers it and the write-as-expression diagnostic guards misuse.
 Effect	storageScalarAssignOp	unsupported	validateEffectStmtTypes and lowerEffectStmt both reject storage.scalar.assign_op in wasm-near IR v0; diagnostic covers it.

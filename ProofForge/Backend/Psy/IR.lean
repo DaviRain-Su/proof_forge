@@ -675,7 +675,8 @@ mutual
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect =>
         inferEffectExprType module env effect
@@ -1086,7 +1087,8 @@ mutual
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         .error { message := "NEAR promise API is not supported by Psy IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 

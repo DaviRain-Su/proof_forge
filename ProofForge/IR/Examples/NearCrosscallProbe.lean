@@ -43,14 +43,14 @@ def callRemoteWithCallback : Entrypoint := {
   ]
 }
 
-/-- Promise callback entrypoint: reads the first result status. -/
+/-- Promise callback entrypoint: decodes the first result payload as U64. -/
 def handleRemote : Entrypoint := {
   name := "handle_remote"
   returns := .u64
   params := #[]
   body := #[
     .letBind "result_count" .u64 .nearPromiseResultsCount,
-    .return (.nearPromiseResultStatus (.literal (.u64 0)))
+    .return (.nearPromiseResultU64 (.literal (.u64 0)))
   ]
 }
 

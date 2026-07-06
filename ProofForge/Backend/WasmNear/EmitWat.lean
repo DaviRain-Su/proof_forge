@@ -72,6 +72,7 @@ def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one
 def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-valued map entries
 def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
 def STRUCT_BUF      : Nat := 52000  -- buffer for reading/writing struct-valued scalar state
+def PROMISE_RESULT_BUF : Nat := 51000  -- scratch for Borsh U64 promise callback payloads
 
 -- Value type → Wasm
 def wasmTypeOf : ValueType → ValType
@@ -750,6 +751,15 @@ def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
       (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
         #[] else #[registerLenImport])
 
+def promiseResultImportsForModulePlan (plan : ModulePlan) : Array Import :=
+  if !plan.usesPromiseResultU64 then
+    #[]
+  else if plan.contextOps.contains .userId || plan.contextOps.contains .contractId ||
+      plan.contextOps.contains .origin || plan.usesPromiseReceiverAccount then
+    #[]
+  else
+    #[registerLenImport]
+
 /-- Offline host-provided allocators forward heap helpers to `pf_alloc` /
     `pf_dealloc`. Only emit the imports actually referenced by the planned arr
     heap surface. -/
@@ -913,8 +923,27 @@ def promiseCurrentAccountFunc : Func :=
       .i64Const 0, .i64Const CTX_BUF, .call "read_register",
       .localGet "len" ] } }
 
+def promiseResultU64Name : String := "__pf_promise_result_u64"
+
+/-- Read promise result at `idx`, Borsh-decode register 0 as U64 (0 on failure). -/
+def promiseResultU64Func : Func :=
+  { name := promiseResultU64Name,
+    params := #[{ name := "idx", type := .i64 }],
+    results := #[.i64],
+    locals := #[{ name := "status", type := .i64 }, { name := "r", type := .i64 }],
+    body := { insns := #[
+      .localGet "idx", .i64Const 0, .call "promise_result", .localSet "status",
+      .i64Const 0, .localSet "r",
+      .localGet "status", .i64Const 1, .plain "i64.eq",
+      .if_ { insns := #[
+        .i64Const 0, .i64Const PROMISE_RESULT_BUF, .call "read_register",
+        .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0, .localSet "r"
+      ] } { insns := #[] },
+      .localGet "r" ] } }
+
 def promiseHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]
+  (if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]) ++
+    (if plan.usesPromiseResultU64 then #[promiseResultU64Func] else #[])
 
 -- State layout
 structure StateInfo where
@@ -1101,6 +1130,7 @@ mutual
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _
     | .effect _ => false
 
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
@@ -1338,6 +1368,13 @@ mutual
       else do
         let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
         .ok (indexInsns ++ conv ++ #[.i64Const 0, .call "promise_result"], .u64)
+    | .nearPromiseResultU64 index => do
+      let (indexInsns, indexType) ← lowerExpr ctx env index
+      if !(indexType == .u32 || indexType == .u64) then
+        err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
+      else do
+        let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
+        .ok (indexInsns ++ conv ++ #[.call promiseResultU64Name], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
@@ -1771,6 +1808,7 @@ mutual
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => collectArrayLitsExpr index
+    | .nearPromiseResultU64 index => collectArrayLitsExpr index
     | .effect eff => collectArrayLitsEffect eff
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
     match eff with
@@ -1829,6 +1867,7 @@ mutual
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => collectStructLitsExpr index
+    | .nearPromiseResultU64 index => collectStructLitsExpr index
     | .effect eff => collectStructLitsEffect eff
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=
     match segment with
@@ -2279,6 +2318,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let isHost := mod.allocator.requiresHost
   let extraImports := hostAllocatorImportsForModulePlan modulePlan mod.allocator
   let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ promiseCtxImportsForModulePlan modulePlan ++
+    promiseResultImportsForModulePlan modulePlan ++
     (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
       then #[storageHasKeyImport]
       else #[]) ++ extraImports

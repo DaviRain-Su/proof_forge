@@ -1,6 +1,6 @@
 # NEAR Promise IR (Scheme A)
 
-**Status:** implemented in portable `Expr` + EmitWat lowering (v1: status only)
+**Status:** implemented in portable `Expr` + EmitWat lowering (v1: status; v2: U64 payload)
 
 ## Summary
 
@@ -15,6 +15,7 @@ NEAR-specific `Expr` constructors gated by the `near.promise` capability.
 | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
 | nearPromiseResultsCount
 | nearPromiseResultStatus (index : Expr)
+| nearPromiseResultU64 (index : Expr)
 ```
 
 ### Module metadata
@@ -33,6 +34,7 @@ Indices are referenced with `.literal (.address i)` (same as crosscall targets).
 | `nearPromiseThen` | `U64` (promise id) |
 | `nearPromiseResultsCount` | `U64` |
 | `nearPromiseResultStatus` | `U64` (1 success / 2 failed) |
+| `nearPromiseResultU64` | `U64` (Borsh payload; 0 on failure) |
 
 ### Capability
 
@@ -47,13 +49,14 @@ Indices are referenced with `.literal (.address i)` (same as crosscall targets).
 | `nearPromiseThen` | `promise_then` + `current_account_id` helper |
 | `nearPromiseResultsCount` | `promise_results_count` |
 | `nearPromiseResultStatus` | `promise_result` |
+| `nearPromiseResultU64` | `promise_result` + `read_register` (Borsh U64) |
 | `return` of promise expr | `promise_return` |
 
 Callback args reuse the crosscall JSON arg builder (`[]` / `[42]`).
 
-## Deferred (v2)
+## Deferred (v3+)
 
-- `nearPromiseResultPayload` / typed Borsh decode of register contents
+- `nearPromiseResultPayload` for arbitrary Borsh types beyond U64
 - `promise_and`, remote-account callbacks, multi-index branching
 
 ## Fixture

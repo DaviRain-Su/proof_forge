@@ -537,6 +537,8 @@ def testNearPromisePlanSurface : IO Unit := do
     throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseThen"
   if !plan.usesPromiseResults then
     throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseResults"
+  if !plan.usesPromiseResultU64 then
+    throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseResultU64"
   if !plan.usesPromiseReceiverAccount then
     throw <| IO.userError "NearCrosscallProbe plan must set usesPromiseReceiverAccount"
 
@@ -553,7 +555,8 @@ def testNearPromiseRenderChainsCallback : IO Unit := do
   requireContains wat "__pf_promise_current_account" "near-promise module must emit current-account helper"
   requireContains wat "call $promise_then" "near-promise module must call promise_then"
   requireContains wat "call $promise_results_count" "near-promise module must call promise_results_count"
-  requireContains wat "call $promise_result" "near-promise module must call promise_result"
+  requireContains wat "__pf_promise_result_u64" "near-promise module must emit promise result U64 helper"
+  requireContains wat "call $promise_result" "near-promise module must call promise_result via helper"
 
 def testStructLiteralRenderKeepsOnlyMatchingStructLitSurface : IO Unit := do
   let wat ←

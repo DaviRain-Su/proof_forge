@@ -53,7 +53,8 @@ def main : IO UInt32 := do
   requireRenderedContains "indexed event" indexedEventModule #["Seen", "account", "value", "log_utf8"]
   requireRenderedContains "crosscall promise" crosscallModule #[
     "promise_create", "promise_return", "promise_then", "promise_results_count",
-    "promise_result", "callee.testnet", "remote_call", "handle_remote"
+    "promise_result", "__pf_promise_result_u64", "read_register",
+    "callee.testnet", "remote_call", "handle_remote"
   ]
   IO.println "emitwat-chain-semantics: ok"
   return 0

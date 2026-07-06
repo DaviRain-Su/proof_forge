@@ -189,6 +189,7 @@ mutual
         args.foldl (fun acc arg => collectExprEvents acc arg) events'
     | .nearPromiseResultsCount => events
     | .nearPromiseResultStatus index => collectExprEvents events index
+    | .nearPromiseResultU64 index => collectExprEvents events index
     | .effect effect => collectEffectEvents events effect
     | .literal _ | .local _ | .nativeValue => events
 

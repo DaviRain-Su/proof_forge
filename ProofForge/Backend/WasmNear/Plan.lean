@@ -257,6 +257,7 @@ mutual
     | .nearPromiseThen _ _ _ _ => .ok .u64
     | .nearPromiseResultsCount => .ok .u64
     | .nearPromiseResultStatus _ => .ok .u64
+    | .nearPromiseResultU64 _ => .ok .u64
     | .effect effect =>
         inferEffectExprType module env effect
 end
@@ -300,6 +301,7 @@ structure ModuleSurface where
   usesPromiseCreate : Bool := false
   usesPromiseThen : Bool := false
   usesPromiseResults : Bool := false
+  usesPromiseResultU64 : Bool := false
   usesPromiseReturn : Bool := false
   usesPromiseReceiverAccount : Bool := false
   usesCrosscallArgs : Bool := false
@@ -353,6 +355,7 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPromiseCreate := lhs.usesPromiseCreate || rhs.usesPromiseCreate
   usesPromiseThen := lhs.usesPromiseThen || rhs.usesPromiseThen
   usesPromiseResults := lhs.usesPromiseResults || rhs.usesPromiseResults
+  usesPromiseResultU64 := lhs.usesPromiseResultU64 || rhs.usesPromiseResultU64
   usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
   usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
   usesCrosscallArgs := lhs.usesCrosscallArgs || rhs.usesCrosscallArgs
@@ -440,6 +443,13 @@ def withPromiseThen : ModuleSurface := {
 def withPromiseResults : ModuleSurface := {
   usesPromiseApi := true
   usesPromiseResults := true
+}
+
+/-- NEAR callback result payload decode (`promise_result` + Borsh U64 from register). -/
+def withPromiseResultU64 : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseResults := true
+  usesPromiseResultU64 := true
 }
 
 def withCrosscallArgs : ModuleSurface := {
@@ -697,6 +707,7 @@ mutual
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .nearPromiseResultsCount => .ok #[]
     | .nearPromiseResultStatus index => contextOpsFromExpr index
+    | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .effect effect =>
         contextOpsFromEffect effect
 
@@ -914,6 +925,8 @@ mutual
     | .nearPromiseResultsCount => .ok ModuleSurface.withPromiseResults
     | .nearPromiseResultStatus index =>
         return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResults
+    | .nearPromiseResultU64 index =>
+        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
     | .effect effect =>
         surfaceFromEffect module env effect
 
@@ -1096,6 +1109,7 @@ structure ModulePlan where
   usesPromiseCreate : Bool
   usesPromiseThen : Bool
   usesPromiseResults : Bool
+  usesPromiseResultU64 : Bool
   usesPromiseReturn : Bool
   usesPromiseReceiverAccount : Bool
   usesCrosscallArgs : Bool
@@ -1139,6 +1153,7 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesPromiseCreate := surface.usesPromiseCreate
     usesPromiseThen := surface.usesPromiseThen
     usesPromiseResults := surface.usesPromiseResults
+    usesPromiseResultU64 := surface.usesPromiseResultU64
     usesPromiseReturn := surface.usesPromiseReturn
     usesPromiseReceiverAccount := surface.usesPromiseReceiverAccount
     usesCrosscallArgs := surface.usesCrosscallArgs

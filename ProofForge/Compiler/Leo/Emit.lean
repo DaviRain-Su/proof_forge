@@ -166,6 +166,7 @@ partial def hasEffectExpr : Expr → Bool
         args.any (fun arg => hasEffectExpr arg)
   | .nearPromiseResultsCount => false
   | .nearPromiseResultStatus i => hasEffectExpr i
+  | .nearPromiseResultU64 i => hasEffectExpr i
   | _ => false
 
 mutual

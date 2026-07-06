@@ -183,6 +183,8 @@ mutual
     | nearPromiseResultsCount
     /-- NEAR-only: status of promise result at `index` (1 = success, 2 = failed). -/
     | nearPromiseResultStatus (index : Expr)
+    /-- NEAR-only: Borsh-decoded U64 payload from promise result at `index` (0 on failure). -/
+    | nearPromiseResultU64 (index : Expr)
     | effect (effect : Effect)
     deriving Repr
 
@@ -405,6 +407,7 @@ mutual
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .nearPromiseResultsCount => #[.nearPromise]
     | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
+    | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

@@ -159,6 +159,7 @@ mutual
         args.foldlM (init := ()) fun _ arg => checkExpr entrypoint env arg
     | .nearPromiseResultsCount => pure ()
     | .nearPromiseResultStatus index => checkExpr entrypoint env index
+    | .nearPromiseResultU64 index => checkExpr entrypoint env index
     | .effect effect => checkEffect entrypoint env effect
 
   partial def checkEffect (entrypoint : String) (env : Env) : Effect →

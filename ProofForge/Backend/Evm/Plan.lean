@@ -1328,6 +1328,7 @@ mutual
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => contextOpsFromExpr index
+    | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=

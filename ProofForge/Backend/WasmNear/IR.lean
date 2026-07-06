@@ -422,6 +422,7 @@ mutual
     | .nearPromiseThen _ _ _ _ => .ok .u64
     | .nearPromiseResultsCount => .ok .u64
     | .nearPromiseResultStatus _ => .ok .u64
+    | .nearPromiseResultU64 _ => .ok .u64
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
@@ -786,7 +787,8 @@ mutual
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ =>
+    | .nearPromiseResultStatus _
+    | .nearPromiseResultU64 _ =>
         .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 
