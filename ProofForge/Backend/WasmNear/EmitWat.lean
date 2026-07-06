@@ -184,7 +184,7 @@ export ProofForge.Backend.WasmNear.Memory (
 )
 
 export ProofForge.Backend.WasmNear.ModuleAssembly (
-  moduleStringPoolEnd loweringCtxForModule
+  moduleStringPoolEnd loweringCtxForModule dataSegmentsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Params (
@@ -1060,23 +1060,6 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     | .error planErr => err s!"EmitWat: {planErr.message}"
   let ctx := loweringCtxForModule mod
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
-  let scalarData := ctx.scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
-  let mapData := ctx.maps.map fun m => { offset := m.prefixPtr, bytes := m.id ++ ":" : DataSegment }
-  let boolData : Array DataSegment :=
-    #[{ offset := TRUE_PTR, bytes := "true" },
-      { offset := FALSE_PTR, bytes := "false" },
-      { offset := HEX_LUT_PTR, bytes := "0123456789abcdef" }]
-  let evtKeyData : DataSegment := { offset := EVT_KEY_PTR, bytes := "event" }
-  let evtKeySegments := if modulePlan.usesEventApi then #[evtKeyData] else #[]
-  let crosscallArgsData :=
-    if modulePlan.usesPromiseCreate then #[{ offset := CROSSCALL_ARGS_EMPTY_PTR, bytes := "[]" }] else #[]
-  let usesCrosscallStrings := modulePlan.usesPromiseCreate || modulePlan.usesPromiseThen
-  let crosscallStringData :=
-    if usesCrosscallStrings then
-      ctx.crosscallStrings.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
-    else #[]
-  let stringData := ctx.strings.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
-  let panicData := ctx.panics.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
   let hasPanic := !ctx.panics.isEmpty
   let isHost := mod.allocator.requiresHost
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic
@@ -1098,8 +1081,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
-        dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++
-          crosscallStringData ++ crosscallArgsData ++ (if hasPanic then panicData else #[]) }
+        dataSegments := dataSegmentsForModulePlan modulePlan ctx }
 
 def renderCheckedModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := .near) :
     Except EmitError String := do
