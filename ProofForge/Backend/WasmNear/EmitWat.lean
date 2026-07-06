@@ -19,6 +19,7 @@ import ProofForge.Compiler.Wasm.AST
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Backend.WasmNear.Common
 import ProofForge.Backend.WasmNear.Context
+import ProofForge.Backend.WasmNear.Crosscall
 import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Event
 import ProofForge.Backend.WasmNear.Hash
@@ -39,6 +40,7 @@ open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmNear.Common
 open ProofForge.Backend.WasmNear.Context
+open ProofForge.Backend.WasmNear.Crosscall
 open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Event
 open ProofForge.Backend.WasmNear.Hash
@@ -59,6 +61,15 @@ export ProofForge.Backend.WasmNear.Context (
   ctxRandomSeedName ctxUserIdFunc ctxUserHashFunc ctxContractIdFunc
   ctxSignerFunc ctxRandomSeedFunc ctxHelperFuncsForModulePlan
   lowerContextExprPlan
+)
+
+export ProofForge.Backend.WasmNear.Crosscall (
+  crosscallPtrGlobal crosscallArgsStartName crosscallArgsPutcName
+  crosscallArgsPutu64Name crosscallArgsPutboolName crosscallArgsPuthashName
+  crosscallPtrGlobalDecl crosscallArgsStartFunc crosscallArgsPutcFunc
+  crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutu64Func
+  crosscallArgsPutboolFunc crosscallArgsPuthashFunc
+  crosscallArgsHelperFuncsForModulePlan crosscallGlobalsForModulePlan
 )
 
 export ProofForge.Backend.WasmNear.Diagnostics (
@@ -237,80 +248,6 @@ def arrDeallocFunc (cfg : ProofForge.IR.AllocatorConfig) : Func :=
     { name := "__pf_arr_dealloc", params := #[{ name := "p", type := .i32 }, { name := "n", type := .i64 }],
       results := #[],
       body := { insns := if cfg.requiresHost then #[.localGet "p", .localGet "n", .call deallocImportName] else #[] } }
--- Crosscall JSON arg helpers (same append-pointer pattern as events, separate buffer).
-def crosscallPtrGlobal : String := "crosscall_ptr"
-def crosscallArgsStartName : String := "__pf_crosscall_args_start"
-def crosscallArgsPutcName : String := "__pf_crosscall_args_putc"
-def crosscallArgsPutu64Name : String := "__pf_crosscall_args_putu64"
-def crosscallArgsPutboolName : String := "__pf_crosscall_args_putbool"
-def crosscallArgsPuthashName : String := "__pf_crosscall_args_puthash"
-
-def crosscallPtrGlobalDecl : Global :=
-  { name := crosscallPtrGlobal, type := .i32, init := toString CROSSCALL_BUF, isMutable := true }
-
-def crosscallArgsStartFunc : Func :=
-  { name := crosscallArgsStartName, body := { insns := #[ .i32Const CROSSCALL_BUF, .globalSet crosscallPtrGlobal ] } }
-
-def crosscallArgsPutcFunc : Func :=
-  { name := crosscallArgsPutcName, params := #[{ name := "c", type := .i32 }],
-    body := { insns := #[
-      .globalGet crosscallPtrGlobal, .localGet "c", .store "i32.store8" 0,
-      .globalGet crosscallPtrGlobal, .i32Const 1, .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
-
-def crosscallArgsPutstrName : String := "__pf_crosscall_args_putstr"
-
-def crosscallArgsPutstrFunc : Func :=
-  { name := crosscallArgsPutstrName, params := #[{ name := "ptr", type := .i32 }, { name := "len", type := .i32 }],
-    body := { insns := #[
-      .globalGet crosscallPtrGlobal, .localGet "ptr", .localGet "len", .call memcpyName,
-      .globalGet crosscallPtrGlobal, .localGet "len", .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
-
-def crosscallArgsPutu64Func : Func :=
-  { name := crosscallArgsPutu64Name, params := #[{ name := "v", type := .i64 }],
-    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
-    body := { insns := #[
-      .localGet "v", .call fmtU64Name, .localSet "p",
-      .i32Const (RET_BUF + 20), .localGet "p", .plain "i32.sub", .localSet "len",
-      .globalGet crosscallPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
-      .globalGet crosscallPtrGlobal, .localGet "len", .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
-
-def crosscallArgsPutboolFunc : Func :=
-  { name := crosscallArgsPutboolName, params := #[{ name := "b", type := .i32 }],
-    body := { insns := #[
-      .localGet "b", .plain "i32.eqz",
-      .if_ { insns := #[ .i32Const FALSE_PTR, .i32Const 5, .call crosscallArgsPutstrName ] }
-         { insns := #[ .i32Const TRUE_PTR, .i32Const 4, .call crosscallArgsPutstrName ] } ] } }
-
-def crosscallArgsPuthashFunc : Func :=
-  { name := crosscallArgsPuthashName, params := #[{ name := "v", type := .i32 }],
-    locals := #[{ name := "i", type := .i32 }, { name := "b", type := .i32 }, { name := "hi", type := .i32 }, { name := "lo", type := .i32 }],
-    body := { insns := #[
-      .i32Const 0x22, .call crosscallArgsPutcName,
-      .i32Const 0, .localSet "i",
-      .block_ { insns := #[ .loop_ { insns := #[
-        .localGet "i", .i32Const 32, .plain "i32.eq", .brIf 1,
-        .localGet "v", .localGet "i", .plain "i32.add", .load "i32.load8_u" 0, .localSet "b",
-        .localGet "b", .i32Const 4, .plain "i32.shr_u", .i32Const 15, .plain "i32.and", .localSet "hi",
-        .i32Const HEX_LUT_PTR, .localGet "hi", .plain "i32.add", .load "i32.load8_u" 0, .call crosscallArgsPutcName,
-        .localGet "b", .i32Const 15, .plain "i32.and", .localSet "lo",
-        .i32Const HEX_LUT_PTR, .localGet "lo", .plain "i32.add", .load "i32.load8_u" 0, .call crosscallArgsPutcName,
-        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0
-      ] } ] },
-      .i32Const 0x22, .call crosscallArgsPutcName
-    ] } }
-
-def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  if !plan.usesCrosscallArgs then
-    #[]
-  else
-    (if plan.usesEventNumeric then #[] else if plan.usesFmtU64 then #[fmtU64Func] else #[]) ++
-      #[crosscallArgsStartFunc, crosscallArgsPutcFunc, crosscallArgsPutstrFunc, crosscallArgsPutu64Func,
-        crosscallArgsPutboolFunc] ++
-      (if plan.usesCrosscallHash then #[crosscallArgsPuthashFunc] else #[])
-
-def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=
-  if plan.usesCrosscallArgs then #[crosscallPtrGlobalDecl] else #[]
-
 def promiseCurrentAccountName : String := "__pf_promise_current_account"
 
 /-- Load the current contract account id into `CTX_BUF` and return its byte length. -/
