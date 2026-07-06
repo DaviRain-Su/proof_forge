@@ -6,6 +6,7 @@ import ProofForge.Backend.WasmNear.Crosscall
 import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.EmitWat
 import ProofForge.Backend.WasmNear.Event
+import ProofForge.Backend.WasmNear.ExprAnalysis
 import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.IR
 import ProofForge.Backend.WasmNear.Imports

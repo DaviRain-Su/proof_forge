@@ -24,6 +24,7 @@ import ProofForge.Backend.WasmNear.Context
 import ProofForge.Backend.WasmNear.Crosscall
 import ProofForge.Backend.WasmNear.Diagnostics
 import ProofForge.Backend.WasmNear.Event
+import ProofForge.Backend.WasmNear.ExprAnalysis
 import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
@@ -52,6 +53,7 @@ open ProofForge.Backend.WasmNear.Context
 open ProofForge.Backend.WasmNear.Crosscall
 open ProofForge.Backend.WasmNear.Diagnostics
 open ProofForge.Backend.WasmNear.Event
+open ProofForge.Backend.WasmNear.ExprAnalysis
 open ProofForge.Backend.WasmNear.Hash
 open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Layout
@@ -117,6 +119,10 @@ export ProofForge.Backend.WasmNear.Event (
   fmtU64Func evtStartFunc evtPutcFunc evtPutstrFunc evtPutu64Func
   evtPutboolFunc evtPutHashFunc evtLogFunc evtHelperFuncsForModulePlan
   evtGlobals
+)
+
+export ProofForge.Backend.WasmNear.ExprAnalysis (
+  canDuplicateExpr
 )
 
 export ProofForge.Backend.WasmNear.Hash (
@@ -200,56 +206,6 @@ export ProofForge.Backend.WasmNear.Types (
 
 -- Type-directed expression lowering (mutually recursive)
 mutual
-  partial def canDuplicateExpr : Expr → Bool
-    | .literal _ => true
-    | .local _ => true
-    | .arrayLit _ values => values.all canDuplicateExpr
-    | .arrayGet array index => canDuplicateExpr array && canDuplicateExpr index
-    | .memoryArrayNew _ length => canDuplicateExpr length
-    | .memoryArrayLength array => canDuplicateExpr array
-    | .memoryArrayGet array index => canDuplicateExpr array && canDuplicateExpr index
-    | .structLit _ fields => fields.all (fun field => canDuplicateExpr field.snd)
-    | .field base _ => canDuplicateExpr base
-    | .add lhs rhs
-    | .sub lhs rhs
-    | .mul lhs rhs
-    | .div lhs rhs
-    | .mod lhs rhs
-    | .pow lhs rhs
-    | .bitAnd lhs rhs
-    | .bitOr lhs rhs
-    | .bitXor lhs rhs
-    | .shiftLeft lhs rhs
-    | .shiftRight lhs rhs
-    | .eq lhs rhs
-    | .ne lhs rhs
-    | .lt lhs rhs
-    | .le lhs rhs
-    | .gt lhs rhs
-    | .ge lhs rhs
-    | .boolAnd lhs rhs
-    | .boolOr lhs rhs
-    | .hashTwoToOne lhs rhs => canDuplicateExpr lhs && canDuplicateExpr rhs
-    | .cast value _ => canDuplicateExpr value
-    | .boolNot value => canDuplicateExpr value
-    | .hashValue a b c d =>
-        canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
-    | .hash preimage => canDuplicateExpr preimage
-    | .nativeValue => false
-    | .crosscallInvoke _ _ _
-    | .crosscallInvokeTyped _ _ _ _
-    | .crosscallInvokeValueTyped _ _ _ _ _
-    | .crosscallInvokeStaticTyped _ _ _ _
-    | .crosscallInvokeDelegateTyped _ _ _ _
-    | .crosscallCreate _ _
-    | .crosscallCreate2 _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseThen _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .effect _ => false
-
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
       Except EmitError (Array Insn × Array Insn) := do
     let (vis, vt) ← lowerExpr ctx env arg
