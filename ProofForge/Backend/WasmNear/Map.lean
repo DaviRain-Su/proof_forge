@@ -154,13 +154,15 @@ def mapWriteCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
   | .hash => .ok #[.call (mapWriteHashName mapInfo.valueType)]
   | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
 
+def mapPrefixInsns (mapInfo : MapInfo) : Array Insn :=
+  #[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen]
+
 def mapWriteValueInsns (mapInfo : MapInfo) (id : String) (keyInsns valueInsns writeCall : Array Insn)
     (valueType : ValueType) : Except EmitError (Array Insn × ValueType) :=
   if valueType != mapInfo.valueType then
     err s!"EmitWat: map write `{id}` expected `{mapInfo.valueType.name}`, got `{valueType.name}`"
   else
-    .ok (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
-      keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
+    .ok (mapPrefixInsns mapInfo ++ keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
 
 def mapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -178,8 +180,7 @@ def mapReadCall (mapInfo : MapInfo) (id : String) : Except EmitError (Array Insn
 
 def mapReadValueInsns (mapInfo : MapInfo) (keyInsns readCall : Array Insn) :
     Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ keyInsns ++
-    readCall, mapInfo.valueType)
+  (mapPrefixInsns mapInfo ++ keyInsns ++ readCall, mapInfo.valueType)
 
 def mapContainsStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -197,8 +198,7 @@ def mapContainsCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
 
 def mapContainsValueInsns (mapInfo : MapInfo) (keyInsns containsCall : Array Insn) :
     Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ keyInsns ++
-    containsCall ++ #[.plain "i32.wrap_i64"], .bool)
+  (mapPrefixInsns mapInfo ++ keyInsns ++ containsCall ++ #[.plain "i32.wrap_i64"], .bool)
 
 def nestedMapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -210,8 +210,8 @@ def nestedMapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitErr
 
 def nestedMapReadValueInsns (mapInfo : MapInfo) (key1Insns key2Insns : Array Insn) :
     Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
-    key1Insns ++ key2Insns ++ #[.call (mapReadName mapInfo.valueType)], mapInfo.valueType)
+  (mapPrefixInsns mapInfo ++ key1Insns ++ key2Insns ++
+    #[.call (mapReadName mapInfo.valueType)], mapInfo.valueType)
 
 def storageArrayStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findArrayState? maps id with
@@ -223,8 +223,8 @@ def storageArrayStateInfo (maps : Array MapInfo) (id : String) : Except EmitErro
     else .ok mapInfo
 
 def storageArrayReadInsns (mapInfo : MapInfo) (indexInsns : Array Insn) : Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ indexInsns ++
-    #[.call (mapReadName mapInfo.valueType)], mapInfo.valueType)
+  (mapPrefixInsns mapInfo ++ indexInsns ++ #[.call (mapReadName mapInfo.valueType)],
+    mapInfo.valueType)
 
 def storageArrayWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : ValueType) :
     Except EmitError MapInfo := do
@@ -235,8 +235,8 @@ def storageArrayWriteStateInfo (maps : Array MapInfo) (id : String) (valueType :
 
 def storageArrayWriteInsns (mapInfo : MapInfo) (indexInsns valueInsns : Array Insn) :
     Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++ indexInsns ++
-    valueInsns ++ #[.call (mapWriteName mapInfo.valueType)], mapInfo.valueType)
+  (mapPrefixInsns mapInfo ++ indexInsns ++ valueInsns ++
+    #[.call (mapWriteName mapInfo.valueType)], mapInfo.valueType)
 
 def nestedMapWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : ValueType) :
     Except EmitError MapInfo := do
@@ -250,8 +250,8 @@ def nestedMapWriteStateInfo (maps : Array MapInfo) (id : String) (valueType : Va
 
 def nestedMapWriteValueInsns (mapInfo : MapInfo) (key1Insns key2Insns valueInsns : Array Insn) :
     Array Insn × ValueType :=
-  (#[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen] ++
-    key1Insns ++ key2Insns ++ valueInsns ++ #[.call (mapWriteName mapInfo.valueType)],
+  (mapPrefixInsns mapInfo ++ key1Insns ++ key2Insns ++ valueInsns ++
+    #[.call (mapWriteName mapInfo.valueType)],
     mapInfo.valueType)
 
 def mapBuildkeyHashFunc : Func :=
