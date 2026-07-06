@@ -81,6 +81,28 @@ def scalarHelperType (type : ValueType) : Option ValueType :=
   | .u32 | .u64 | .bool | .hash => some type
   | _ => none
 
+inductive IndexedStorageHelperSurface where
+  | u64
+  | hash
+  deriving BEq, DecidableEq, Repr
+
+def indexedStorageHelperSurfaceOfState (module : Module) (stateId : String) :
+    Except PlanError (Option IndexedStorageHelperSurface) :=
+  match module.state.find? (fun state => state.id == stateId) with
+  | none =>
+      err s!"wasm-near plan references unknown state `{stateId}`"
+  | some state =>
+      match state.kind with
+      | .map keyType _ =>
+          match keyType with
+          | .u64 => .ok (some .u64)
+          | .hash => .ok (some .hash)
+          | _ => .ok none
+      | .array _ =>
+          .ok (some .u64)
+      | .scalar | .dynamicArray =>
+          .ok none
+
 def moduleUsesIndexedStorage (module : Module) : Bool :=
   module.state.any fun state =>
     match state.kind with
@@ -96,6 +118,9 @@ structure ModuleSurface where
   usesStorageRead : Bool := false
   usesStorageWrite : Bool := false
   usesPromiseApi : Bool := false
+  usesU64IndexedStorageHelpers : Bool := false
+  usesHashIndexedStorageHelpers : Bool := false
+  usesStorageHasKey : Bool := false
   deriving Repr
 
 def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
@@ -107,6 +132,11 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesStorageRead := lhs.usesStorageRead || rhs.usesStorageRead
   usesStorageWrite := lhs.usesStorageWrite || rhs.usesStorageWrite
   usesPromiseApi := lhs.usesPromiseApi || rhs.usesPromiseApi
+  usesU64IndexedStorageHelpers :=
+    lhs.usesU64IndexedStorageHelpers || rhs.usesU64IndexedStorageHelpers
+  usesHashIndexedStorageHelpers :=
+    lhs.usesHashIndexedStorageHelpers || rhs.usesHashIndexedStorageHelpers
+  usesStorageHasKey := lhs.usesStorageHasKey || rhs.usesStorageHasKey
 }
 
 namespace ModuleSurface
@@ -146,7 +176,27 @@ def withPromiseApi : ModuleSurface := {
   usesPromiseApi := true
 }
 
+def withU64IndexedStorageHelpers : ModuleSurface := {
+  usesU64IndexedStorageHelpers := true
+}
+
+def withHashIndexedStorageHelpers : ModuleSurface := {
+  usesHashIndexedStorageHelpers := true
+}
+
+def withStorageHasKey : ModuleSurface := {
+  usesStorageHasKey := true
+}
+
 end ModuleSurface
+
+def indexedStorageHelperSurfaceSummary
+    (module : Module)
+    (stateId : String) : Except PlanError ModuleSurface := do
+  match ← indexedStorageHelperSurfaceOfState module stateId with
+  | some .u64 => .ok ModuleSurface.withU64IndexedStorageHelpers
+  | some .hash => .ok ModuleSurface.withHashIndexedStorageHelpers
+  | none => .ok ModuleSurface.empty
 
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Except PlanError (Array ContextExprPlan) :=
@@ -383,21 +433,31 @@ mutual
               (ModuleSurface.withScalarWriteType scalarType)
         | none =>
             .ok base
-    | .storageMapContains _ key =>
-        surfaceFromExpr module key
-    | .storageMapGet _ key => do
-        return mergeModuleSurfaces (← surfaceFromExpr module key) ModuleSurface.withStorageRead
-    | .storageMapInsert _ key value | .storageMapSet _ key value => do
+    | .storageMapContains stateId key => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module key) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageHelperSurfaceSummary module stateId))
+          ModuleSurface.withStorageHasKey
+    | .storageMapGet stateId key => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageHelperSurfaceSummary module stateId))
+          ModuleSurface.withStorageRead
+    | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromExpr module key) (← surfaceFromExpr module value))
+            (← indexedStorageHelperSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
-    | .storageArrayRead _ index
-    | .storageArrayStructFieldRead _ index _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module index) ModuleSurface.withStorageRead
-    | .storageArrayWrite _ index value
-    | .storageArrayStructFieldWrite _ index _ value => do
+    | .storageArrayRead stateId index
+    | .storageArrayStructFieldRead stateId index _ => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module index) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces (← surfaceFromExpr module index) (← indexedStorageHelperSurfaceSummary module stateId))
+          ModuleSurface.withStorageRead
+    | .storageArrayWrite stateId index value
+    | .storageArrayStructFieldWrite stateId index _ value => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromExpr module index) (← surfaceFromExpr module value))
+            (← indexedStorageHelperSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageDynamicArrayPush _ value =>
         surfaceFromExpr module value
@@ -413,12 +473,16 @@ mutual
         return mergeModuleSurfaces
           (← surfaceFromExpr module value)
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
-    | .storagePathRead _ path =>
-        return mergeModuleSurfaces (← surfaceFromPath module path) ModuleSurface.withStorageRead
-    | .storagePathWrite _ path value
-    | .storagePathAssignOp _ path _ value =>
+    | .storagePathRead stateId path =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromPath module path) (← surfaceFromExpr module value))
+          (mergeModuleSurfaces (← surfaceFromPath module path) (← indexedStorageHelperSurfaceSummary module stateId))
+          ModuleSurface.withStorageRead
+    | .storagePathWrite stateId path value
+    | .storagePathAssignOp stateId path _ value =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces
+            (mergeModuleSurfaces (← surfaceFromPath module path) (← surfaceFromExpr module value))
+            (← indexedStorageHelperSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .contextRead field => do
         .ok <| ModuleSurface.withContext (← buildContextExprPlan field)
@@ -488,6 +552,9 @@ structure ModulePlan where
   usesStorageRead : Bool
   usesStorageWrite : Bool
   usesPromiseApi : Bool
+  usesU64IndexedStorageHelpers : Bool
+  usesHashIndexedStorageHelpers : Bool
+  usesStorageHasKey : Bool
   deriving Repr
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
@@ -501,6 +568,9 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesStorageRead := surface.usesStorageRead
     usesStorageWrite := surface.usesStorageWrite
     usesPromiseApi := surface.usesPromiseApi
+    usesU64IndexedStorageHelpers := surface.usesU64IndexedStorageHelpers
+    usesHashIndexedStorageHelpers := surface.usesHashIndexedStorageHelpers
+    usesStorageHasKey := surface.usesStorageHasKey
   }
 
 end ProofForge.Backend.WasmNear.Plan

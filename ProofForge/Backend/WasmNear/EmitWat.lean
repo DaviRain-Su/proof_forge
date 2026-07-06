@@ -1995,10 +1995,13 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let baseImports := baseImportsCore ++ (if hasPanic then #[panicImport] else #[])
   let isHost := mod.allocator.requiresHost
   let extraImports := if isHost then #[allocImport, deallocImport] else #[]
-  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++ (if maps.isEmpty then #[] else #[storageHasKeyImport]) ++ extraImports
+  let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++
+    (if modulePlan.usesStorageHasKey || modulePlan.usesU64IndexedStorageHelpers || modulePlan.usesHashIndexedStorageHelpers
+      then #[storageHasKeyImport]
+      else #[]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if maps.isEmpty then #[] else mapHelperFuncs) ++ (if maps.any (fun m => m.keyType == .hash) then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
+  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if modulePlan.usesU64IndexedStorageHelpers then mapHelperFuncs else #[]) ++ (if modulePlan.usesHashIndexedStorageHelpers then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then

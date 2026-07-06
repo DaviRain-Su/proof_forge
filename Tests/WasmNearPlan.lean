@@ -47,6 +47,34 @@ def counterModule : Module := {
   state := #[{ id := "count", kind := .scalar, type := .u64 }],
   entrypoints := #[counterGet, counterBump] }
 
+def constZero : Entrypoint := {
+  name := "constZero", returns := .u64,
+  body := #[.return (.literal (.u64 0))] }
+
+def containsScore : Entrypoint := {
+  name := "containsScore", returns := .bool,
+  body := #[.return (.effect (.storageMapContains "scores" (.literal (.u64 7))))] }
+
+def unusedMapModule : Module := {
+  name := "UnusedMapProbe",
+  state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
+  entrypoints := #[constZero] }
+
+def unusedHashMapModule : Module := {
+  name := "UnusedHashMapProbe",
+  state := #[{ id := "roots", kind := .map .hash 8, type := .u64 }],
+  entrypoints := #[constZero] }
+
+def unusedArrayModule : Module := {
+  name := "UnusedArrayProbe",
+  state := #[{ id := "values", kind := .array 4, type := .u64 }],
+  entrypoints := #[constZero] }
+
+def containsOnlyMapModule : Module := {
+  name := "ContainsOnlyMapProbe",
+  state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
+  entrypoints := #[containsScore] }
+
 def testDepositRenderPrunesUnusedContextSurface : IO Unit := do
   let wat ←
     match renderModule depositModule with
@@ -108,6 +136,41 @@ def testCounterRenderKeepsOnlyU64ScalarHelpers : IO Unit := do
   requireNotContains wat "(import \"env\" \"promise_result\"" "counter module should not import promise_result"
   requireNotContains wat "(import \"env\" \"promise_return\"" "counter module should not import promise_return"
 
+def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
+  let unusedMapWat ←
+    match renderModule unusedMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat unused map render failed: {err.message}"
+  requireNotContains unusedMapWat "(import \"env\" \"storage_has_key\"" "unused map module should not import storage_has_key"
+  requireNotContains unusedMapWat "__pf_map_buildkey" "unused map module should not emit u64-key map buildkey helper"
+  requireNotContains unusedMapWat "__pf_map_read_u64" "unused map module should not emit u64-key map read helper"
+  requireNotContains unusedMapWat "__pf_map_write_u64" "unused map module should not emit u64-key map write helper"
+  requireNotContains unusedMapWat "__pf_map_contains" "unused map module should not emit u64-key map contains helper"
+  let unusedHashMapWat ←
+    match renderModule unusedHashMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat unused hash-map render failed: {err.message}"
+  requireNotContains unusedHashMapWat "__pf_map_buildkey_hash" "unused hash-map module should not emit hash-key map buildkey helper"
+  requireNotContains unusedHashMapWat "__pf_map_read_hash_u64" "unused hash-map module should not emit hash-key map read helper"
+  requireNotContains unusedHashMapWat "__pf_map_write_hash_u64" "unused hash-map module should not emit hash-key map write helper"
+  requireNotContains unusedHashMapWat "__pf_map_contains_hash" "unused hash-map module should not emit hash-key map contains helper"
+  let unusedArrayWat ←
+    match renderModule unusedArrayModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat unused array render failed: {err.message}"
+  requireNotContains unusedArrayWat "__pf_map_buildkey" "unused array module should not emit indexed-storage buildkey helper"
+  requireNotContains unusedArrayWat "__pf_map_read_u64" "unused array module should not emit indexed-storage read helper"
+  requireNotContains unusedArrayWat "__pf_map_write_u64" "unused array module should not emit indexed-storage write helper"
+
+def testContainsOnlyMapRenderKeepsContainsSurface : IO Unit := do
+  let wat ←
+    match renderModule containsOnlyMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat contains-only map render failed: {err.message}"
+  requireContains wat "(import \"env\" \"storage_has_key\"" "contains-only map module must import storage_has_key"
+  requireContains wat "__pf_map_buildkey" "contains-only map module must emit the u64-key buildkey helper"
+  requireContains wat "__pf_map_contains" "contains-only map module must emit the u64-key contains helper"
+
 def testUnsupportedContextDiagnostic : IO Unit := do
   match renderModule unsupportedChainIdModule with
   | .ok _ =>
@@ -119,6 +182,8 @@ def testUnsupportedContextDiagnostic : IO Unit := do
 def main : IO UInt32 := do
   testDepositRenderPrunesUnusedContextSurface
   testCounterRenderKeepsOnlyU64ScalarHelpers
+  testUnusedIndexedStorageRenderPrunesMapHelperSurface
+  testContainsOnlyMapRenderKeepsContainsSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0
