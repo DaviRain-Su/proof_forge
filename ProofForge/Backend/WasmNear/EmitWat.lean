@@ -287,13 +287,15 @@ def mapContainsFunc : Func :=
       .localGet "pl", .i32Const 8, .plain "i32.add", .plain "i64.extend_i32_u",
       .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
 
-/-- storage_has_key import (added only when a map is present; see lowerModule). -/
+/-- storage_has_key import (added only for contains surfaces; see lowerModule). -/
 def storageHasKeyImport : Import :=
   hostImport "storage_has_key" #[.i64, .i64] #[.i64]
 
-def mapHelperFuncs : Array Func :=
-  #[ mapBuildkeyFunc, mapReadFunc .u32, mapWriteFunc .u32, mapReadFunc .u64, mapWriteFunc .u64,
-     mapReadFunc .bool, mapWriteFunc .bool, mapReadFunc .hash, mapWriteFunc .hash, mapContainsFunc ]
+def mapHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.usesU64IndexedBuildKey then #[mapBuildkeyFunc] else #[]) ++
+    (plan.u64IndexedReadTypes.foldl (init := #[]) fun acc type => acc ++ #[mapReadFunc type]) ++
+    (plan.u64IndexedWriteTypes.foldl (init := #[]) fun acc type => acc ++ #[mapWriteFunc type]) ++
+    (if plan.usesU64IndexedContains then #[mapContainsFunc] else #[])
 
 -- Map<Hash, T>: storage key = prefix ++ 32 key bytes (key is a hash pointer).
 
@@ -395,9 +397,11 @@ def mapContainsHashFunc : Func :=
       .localGet "pl", .i32Const 32, .plain "i32.add", .plain "i64.extend_i32_u",
       .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
 
-def mapHashHelperFuncs : Array Func :=
-  #[ mapBuildkeyHashFunc, mapReadHashFunc .u32, mapWriteHashFunc .u32, mapReadHashFunc .u64, mapWriteHashFunc .u64,
-     mapReadHashFunc .bool, mapWriteHashFunc .bool, mapReadHashFunc .hash, mapWriteHashFunc .hash, mapContainsHashFunc ]
+def mapHashHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  (if plan.usesHashIndexedBuildKey then #[mapBuildkeyHashFunc] else #[]) ++
+    (plan.hashIndexedReadTypes.foldl (init := #[]) fun acc type => acc ++ #[mapReadHashFunc type]) ++
+    (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type => acc ++ #[mapWriteHashFunc type]) ++
+    (if plan.usesHashIndexedContains then #[mapContainsHashFunc] else #[])
 
 -- Hash helpers ---------------------------------------------------------
 -- Hash = 32-byte memory region (4×u64), referenced by an i32 pointer. A
@@ -1996,12 +2000,12 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let isHost := mod.allocator.requiresHost
   let extraImports := if isHost then #[allocImport, deallocImport] else #[]
   let imports := baseImports ++ ctxImportsForModulePlan modulePlan ++
-    (if modulePlan.usesStorageHasKey || modulePlan.usesU64IndexedStorageHelpers || modulePlan.usesHashIndexedStorageHelpers
+    (if modulePlan.usesU64IndexedContains || modulePlan.usesHashIndexedContains
       then #[storageHasKeyImport]
       else #[]) ++ extraImports
   let arrFuncs := arrLitHelperFuncs mod ++ arrEqHelperFuncs mod ++ structLitHelperFuncs mod
     ++ #[arrAllocFunc mod.allocator, arrDeallocFunc mod.allocator]
-  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ (if modulePlan.usesU64IndexedStorageHelpers then mapHelperFuncs else #[]) ++ (if modulePlan.usesHashIndexedStorageHelpers then mapHashHelperFuncs else #[]) ++ arrFuncs ++ entryFuncs
+  let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++ powHelperFuncs ++ hashHelperFuncs ++ hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++ evtHelperFuncs ++ mapHelperFuncsForModulePlan modulePlan ++ mapHashHelperFuncsForModulePlan modulePlan ++ arrFuncs ++ entryFuncs
   let arrPtrDecls :=
     if isHost then #[]
     else if mod.allocator.usesMinimalMallocShape then

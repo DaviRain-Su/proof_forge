@@ -81,9 +81,14 @@ def scalarHelperType (type : ValueType) : Option ValueType :=
   | .u32 | .u64 | .bool | .hash => some type
   | _ => none
 
-inductive IndexedStorageHelperSurface where
+inductive IndexedStorageHelperKeyKind where
   | u64
   | hash
+  deriving BEq, DecidableEq, Repr
+
+structure IndexedStorageHelperSurface where
+  keyKind : IndexedStorageHelperKeyKind
+  valueType : ValueType
   deriving BEq, DecidableEq, Repr
 
 def indexedStorageHelperSurfaceOfState (module : Module) (stateId : String) :
@@ -95,19 +100,13 @@ def indexedStorageHelperSurfaceOfState (module : Module) (stateId : String) :
       match state.kind with
       | .map keyType _ =>
           match keyType with
-          | .u64 => .ok (some .u64)
-          | .hash => .ok (some .hash)
+          | .u64 => .ok (some { keyKind := .u64, valueType := state.type })
+          | .hash => .ok (some { keyKind := .hash, valueType := state.type })
           | _ => .ok none
       | .array _ =>
-          .ok (some .u64)
+          .ok (some { keyKind := .u64, valueType := state.type })
       | .scalar | .dynamicArray =>
           .ok none
-
-def moduleUsesIndexedStorage (module : Module) : Bool :=
-  module.state.any fun state =>
-    match state.kind with
-    | .map _ _ | .array _ => true
-    | .scalar | .dynamicArray => false
 
 structure ModuleSurface where
   contextOps : Array ContextExprPlan := #[]
@@ -118,9 +117,14 @@ structure ModuleSurface where
   usesStorageRead : Bool := false
   usesStorageWrite : Bool := false
   usesPromiseApi : Bool := false
-  usesU64IndexedStorageHelpers : Bool := false
-  usesHashIndexedStorageHelpers : Bool := false
-  usesStorageHasKey : Bool := false
+  u64IndexedReadTypes : Array ValueType := #[]
+  u64IndexedWriteTypes : Array ValueType := #[]
+  hashIndexedReadTypes : Array ValueType := #[]
+  hashIndexedWriteTypes : Array ValueType := #[]
+  usesU64IndexedBuildKey : Bool := false
+  usesHashIndexedBuildKey : Bool := false
+  usesU64IndexedContains : Bool := false
+  usesHashIndexedContains : Bool := false
   deriving Repr
 
 def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
@@ -132,11 +136,14 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesStorageRead := lhs.usesStorageRead || rhs.usesStorageRead
   usesStorageWrite := lhs.usesStorageWrite || rhs.usesStorageWrite
   usesPromiseApi := lhs.usesPromiseApi || rhs.usesPromiseApi
-  usesU64IndexedStorageHelpers :=
-    lhs.usesU64IndexedStorageHelpers || rhs.usesU64IndexedStorageHelpers
-  usesHashIndexedStorageHelpers :=
-    lhs.usesHashIndexedStorageHelpers || rhs.usesHashIndexedStorageHelpers
-  usesStorageHasKey := lhs.usesStorageHasKey || rhs.usesStorageHasKey
+  u64IndexedReadTypes := mergeValueTypeSets lhs.u64IndexedReadTypes rhs.u64IndexedReadTypes
+  u64IndexedWriteTypes := mergeValueTypeSets lhs.u64IndexedWriteTypes rhs.u64IndexedWriteTypes
+  hashIndexedReadTypes := mergeValueTypeSets lhs.hashIndexedReadTypes rhs.hashIndexedReadTypes
+  hashIndexedWriteTypes := mergeValueTypeSets lhs.hashIndexedWriteTypes rhs.hashIndexedWriteTypes
+  usesU64IndexedBuildKey := lhs.usesU64IndexedBuildKey || rhs.usesU64IndexedBuildKey
+  usesHashIndexedBuildKey := lhs.usesHashIndexedBuildKey || rhs.usesHashIndexedBuildKey
+  usesU64IndexedContains := lhs.usesU64IndexedContains || rhs.usesU64IndexedContains
+  usesHashIndexedContains := lhs.usesHashIndexedContains || rhs.usesHashIndexedContains
 }
 
 namespace ModuleSurface
@@ -176,26 +183,78 @@ def withPromiseApi : ModuleSurface := {
   usesPromiseApi := true
 }
 
-def withU64IndexedStorageHelpers : ModuleSurface := {
-  usesU64IndexedStorageHelpers := true
+def withU64IndexedBuildKey : ModuleSurface := {
+  usesU64IndexedBuildKey := true
 }
 
-def withHashIndexedStorageHelpers : ModuleSurface := {
-  usesHashIndexedStorageHelpers := true
+def withHashIndexedBuildKey : ModuleSurface := {
+  usesHashIndexedBuildKey := true
 }
 
-def withStorageHasKey : ModuleSurface := {
-  usesStorageHasKey := true
+def withU64IndexedReadType (type : ValueType) : ModuleSurface := {
+  usesU64IndexedBuildKey := true
+  u64IndexedReadTypes := #[type]
+}
+
+def withU64IndexedWriteType (type : ValueType) : ModuleSurface := {
+  usesU64IndexedBuildKey := true
+  u64IndexedWriteTypes := #[type]
+}
+
+def withHashIndexedReadType (type : ValueType) : ModuleSurface := {
+  usesHashIndexedBuildKey := true
+  hashIndexedReadTypes := #[type]
+}
+
+def withHashIndexedWriteType (type : ValueType) : ModuleSurface := {
+  usesHashIndexedBuildKey := true
+  hashIndexedWriteTypes := #[type]
+}
+
+def withU64IndexedContains : ModuleSurface := {
+  usesU64IndexedBuildKey := true
+  usesU64IndexedContains := true
+}
+
+def withHashIndexedContains : ModuleSurface := {
+  usesHashIndexedBuildKey := true
+  usesHashIndexedContains := true
 }
 
 end ModuleSurface
 
-def indexedStorageHelperSurfaceSummary
+def indexedStorageReadSurfaceSummary
     (module : Module)
     (stateId : String) : Except PlanError ModuleSurface := do
   match ← indexedStorageHelperSurfaceOfState module stateId with
-  | some .u64 => .ok ModuleSurface.withU64IndexedStorageHelpers
-  | some .hash => .ok ModuleSurface.withHashIndexedStorageHelpers
+  | some surface =>
+      match surface.keyKind, scalarHelperType surface.valueType with
+      | .u64, some type => .ok (ModuleSurface.withU64IndexedReadType type)
+      | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
+      | .hash, some type => .ok (ModuleSurface.withHashIndexedReadType type)
+      | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+  | none => .ok ModuleSurface.empty
+
+def indexedStorageWriteSurfaceSummary
+    (module : Module)
+    (stateId : String) : Except PlanError ModuleSurface := do
+  match ← indexedStorageHelperSurfaceOfState module stateId with
+  | some surface =>
+      match surface.keyKind, scalarHelperType surface.valueType with
+      | .u64, some type => .ok (ModuleSurface.withU64IndexedWriteType type)
+      | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
+      | .hash, some type => .ok (ModuleSurface.withHashIndexedWriteType type)
+      | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+  | none => .ok ModuleSurface.empty
+
+def indexedStorageContainsSurfaceSummary
+    (module : Module)
+    (stateId : String) : Except PlanError ModuleSurface := do
+  match ← indexedStorageHelperSurfaceOfState module stateId with
+  | some surface =>
+      match surface.keyKind with
+      | .u64 => .ok ModuleSurface.withU64IndexedContains
+      | .hash => .ok ModuleSurface.withHashIndexedContains
   | none => .ok ModuleSurface.empty
 
 mutual
@@ -435,29 +494,29 @@ mutual
             .ok base
     | .storageMapContains stateId key => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageHelperSurfaceSummary module stateId))
-          ModuleSurface.withStorageHasKey
+          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageContainsSurfaceSummary module stateId))
+          ModuleSurface.empty
     | .storageMapGet stateId key => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageHelperSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromExpr module key) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
         return mergeModuleSurfaces
           (mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module key) (← surfaceFromExpr module value))
-            (← indexedStorageHelperSurfaceSummary module stateId))
+            (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageArrayRead stateId index
     | .storageArrayStructFieldRead stateId index _ => do
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module index) (← indexedStorageHelperSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromExpr module index) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storageArrayWrite stateId index value
     | .storageArrayStructFieldWrite stateId index _ value => do
         return mergeModuleSurfaces
           (mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module index) (← surfaceFromExpr module value))
-            (← indexedStorageHelperSurfaceSummary module stateId))
+            (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageDynamicArrayPush _ value =>
         surfaceFromExpr module value
@@ -475,14 +534,14 @@ mutual
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storagePathRead stateId path =>
         return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromPath module path) (← indexedStorageHelperSurfaceSummary module stateId))
+          (mergeModuleSurfaces (← surfaceFromPath module path) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
     | .storagePathWrite stateId path value
     | .storagePathAssignOp stateId path _ value =>
         return mergeModuleSurfaces
           (mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromPath module path) (← surfaceFromExpr module value))
-            (← indexedStorageHelperSurfaceSummary module stateId))
+            (← indexedStorageWriteSurfaceSummary module stateId))
           (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .contextRead field => do
         .ok <| ModuleSurface.withContext (← buildContextExprPlan field)
@@ -536,11 +595,7 @@ mutual
 end
 
 def surfaceFromModule (module : Module) : Except PlanError ModuleSurface :=
-  let base : ModuleSurface := {
-    usesStorageRead := moduleUsesIndexedStorage module
-    usesStorageWrite := moduleUsesIndexedStorage module
-  }
-  module.entrypoints.foldlM (init := base) fun acc entrypoint =>
+  module.entrypoints.foldlM (init := ModuleSurface.empty) fun acc entrypoint =>
     return mergeModuleSurfaces acc (← surfaceFromStatements module entrypoint.returns entrypoint.body)
 
 structure ModulePlan where
@@ -552,9 +607,14 @@ structure ModulePlan where
   usesStorageRead : Bool
   usesStorageWrite : Bool
   usesPromiseApi : Bool
-  usesU64IndexedStorageHelpers : Bool
-  usesHashIndexedStorageHelpers : Bool
-  usesStorageHasKey : Bool
+  u64IndexedReadTypes : Array ValueType
+  u64IndexedWriteTypes : Array ValueType
+  hashIndexedReadTypes : Array ValueType
+  hashIndexedWriteTypes : Array ValueType
+  usesU64IndexedBuildKey : Bool
+  usesHashIndexedBuildKey : Bool
+  usesU64IndexedContains : Bool
+  usesHashIndexedContains : Bool
   deriving Repr
 
 def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
@@ -568,9 +628,14 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesStorageRead := surface.usesStorageRead
     usesStorageWrite := surface.usesStorageWrite
     usesPromiseApi := surface.usesPromiseApi
-    usesU64IndexedStorageHelpers := surface.usesU64IndexedStorageHelpers
-    usesHashIndexedStorageHelpers := surface.usesHashIndexedStorageHelpers
-    usesStorageHasKey := surface.usesStorageHasKey
+    u64IndexedReadTypes := surface.u64IndexedReadTypes
+    u64IndexedWriteTypes := surface.u64IndexedWriteTypes
+    hashIndexedReadTypes := surface.hashIndexedReadTypes
+    hashIndexedWriteTypes := surface.hashIndexedWriteTypes
+    usesU64IndexedBuildKey := surface.usesU64IndexedBuildKey
+    usesHashIndexedBuildKey := surface.usesHashIndexedBuildKey
+    usesU64IndexedContains := surface.usesU64IndexedContains
+    usesHashIndexedContains := surface.usesHashIndexedContains
   }
 
 end ProofForge.Backend.WasmNear.Plan

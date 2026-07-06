@@ -55,15 +55,42 @@ def containsScore : Entrypoint := {
   name := "containsScore", returns := .bool,
   body := #[.return (.effect (.storageMapContains "scores" (.literal (.u64 7))))] }
 
+def getScore : Entrypoint := {
+  name := "getScore", returns := .u64,
+  body := #[.return (.effect (.storageMapGet "scores" (.literal (.u64 7))))] }
+
+def setScore : Entrypoint := {
+  name := "setScore", returns := .unit,
+  body := #[.effect (.storageMapSet "scores" (.literal (.u64 7)) (.literal (.u64 11)))] }
+
+def getRoot : Entrypoint := {
+  name := "getRoot", returns := .u64,
+  body := #[.return (.effect (.storageMapGet "roots" (.literal (.hash4 1 2 3 4))))] }
+
 def unusedMapModule : Module := {
   name := "UnusedMapProbe",
   state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
   entrypoints := #[constZero] }
 
+def getOnlyMapModule : Module := {
+  name := "GetOnlyMapProbe",
+  state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
+  entrypoints := #[getScore] }
+
+def setOnlyMapModule : Module := {
+  name := "SetOnlyMapProbe",
+  state := #[{ id := "scores", kind := .map .u64 8, type := .u64 }],
+  entrypoints := #[setScore] }
+
 def unusedHashMapModule : Module := {
   name := "UnusedHashMapProbe",
   state := #[{ id := "roots", kind := .map .hash 8, type := .u64 }],
   entrypoints := #[constZero] }
+
+def getOnlyHashMapModule : Module := {
+  name := "GetOnlyHashMapProbe",
+  state := #[{ id := "roots", kind := .map .hash 8, type := .u64 }],
+  entrypoints := #[getRoot] }
 
 def unusedArrayModule : Module := {
   name := "UnusedArrayProbe",
@@ -142,6 +169,8 @@ def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat unused map render failed: {err.message}"
   requireNotContains unusedMapWat "(import \"env\" \"storage_has_key\"" "unused map module should not import storage_has_key"
+  requireNotContains unusedMapWat "(import \"env\" \"storage_read\"" "unused map module should not import storage_read"
+  requireNotContains unusedMapWat "(import \"env\" \"storage_write\"" "unused map module should not import storage_write"
   requireNotContains unusedMapWat "__pf_map_buildkey" "unused map module should not emit u64-key map buildkey helper"
   requireNotContains unusedMapWat "__pf_map_read_u64" "unused map module should not emit u64-key map read helper"
   requireNotContains unusedMapWat "__pf_map_write_u64" "unused map module should not emit u64-key map write helper"
@@ -159,6 +188,8 @@ def testUnusedIndexedStorageRenderPrunesMapHelperSurface : IO Unit := do
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat unused array render failed: {err.message}"
   requireNotContains unusedArrayWat "__pf_map_buildkey" "unused array module should not emit indexed-storage buildkey helper"
+  requireNotContains unusedArrayWat "(import \"env\" \"storage_read\"" "unused array module should not import storage_read"
+  requireNotContains unusedArrayWat "(import \"env\" \"storage_write\"" "unused array module should not import storage_write"
   requireNotContains unusedArrayWat "__pf_map_read_u64" "unused array module should not emit indexed-storage read helper"
   requireNotContains unusedArrayWat "__pf_map_write_u64" "unused array module should not emit indexed-storage write helper"
 
@@ -170,6 +201,45 @@ def testContainsOnlyMapRenderKeepsContainsSurface : IO Unit := do
   requireContains wat "(import \"env\" \"storage_has_key\"" "contains-only map module must import storage_has_key"
   requireContains wat "__pf_map_buildkey" "contains-only map module must emit the u64-key buildkey helper"
   requireContains wat "__pf_map_contains" "contains-only map module must emit the u64-key contains helper"
+  requireNotContains wat "(import \"env\" \"storage_read\"" "contains-only map module should not import storage_read"
+  requireNotContains wat "(import \"env\" \"storage_write\"" "contains-only map module should not import storage_write"
+  requireNotContains wat "__pf_map_read_u64" "contains-only map module should not emit the u64-key read helper"
+  requireNotContains wat "__pf_map_write_u64" "contains-only map module should not emit the u64-key write helper"
+
+def testIndexedStorageRenderKeepsOnlyReadWriteHelperSurface : IO Unit := do
+  let getOnlyMapWat ←
+    match renderModule getOnlyMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat get-only map render failed: {err.message}"
+  requireNotContains getOnlyMapWat "(import \"env\" \"storage_has_key\"" "get-only map module should not import storage_has_key"
+  requireContains getOnlyMapWat "(import \"env\" \"storage_read\"" "get-only map module must import storage_read"
+  requireNotContains getOnlyMapWat "(import \"env\" \"storage_write\"" "get-only map module should not import storage_write"
+  requireContains getOnlyMapWat "__pf_map_buildkey" "get-only map module must emit the u64-key buildkey helper"
+  requireContains getOnlyMapWat "__pf_map_read_u64" "get-only map module must emit the u64-key read helper"
+  requireNotContains getOnlyMapWat "__pf_map_write_u64" "get-only map module should not emit the u64-key write helper"
+  requireNotContains getOnlyMapWat "__pf_map_contains" "get-only map module should not emit the u64-key contains helper"
+  let setOnlyMapWat ←
+    match renderModule setOnlyMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat set-only map render failed: {err.message}"
+  requireNotContains setOnlyMapWat "(import \"env\" \"storage_has_key\"" "set-only map module should not import storage_has_key"
+  requireContains setOnlyMapWat "(import \"env\" \"storage_read\"" "set-only map module must import storage_read"
+  requireContains setOnlyMapWat "(import \"env\" \"storage_write\"" "set-only map module must import storage_write"
+  requireContains setOnlyMapWat "__pf_map_buildkey" "set-only map module must emit the u64-key buildkey helper"
+  requireContains setOnlyMapWat "__pf_map_write_u64" "set-only map module must emit the u64-key write helper"
+  requireNotContains setOnlyMapWat "__pf_map_read_u64" "set-only map module should not emit the u64-key read helper"
+  requireNotContains setOnlyMapWat "__pf_map_contains" "set-only map module should not emit the u64-key contains helper"
+  let getOnlyHashMapWat ←
+    match renderModule getOnlyHashMapModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat get-only hash-map render failed: {err.message}"
+  requireNotContains getOnlyHashMapWat "(import \"env\" \"storage_has_key\"" "get-only hash-map module should not import storage_has_key"
+  requireContains getOnlyHashMapWat "(import \"env\" \"storage_read\"" "get-only hash-map module must import storage_read"
+  requireNotContains getOnlyHashMapWat "(import \"env\" \"storage_write\"" "get-only hash-map module should not import storage_write"
+  requireContains getOnlyHashMapWat "__pf_map_buildkey_hash" "get-only hash-map module must emit the hash-key buildkey helper"
+  requireContains getOnlyHashMapWat "__pf_map_read_hash_u64" "get-only hash-map module must emit the hash-key read helper"
+  requireNotContains getOnlyHashMapWat "__pf_map_write_hash_u64" "get-only hash-map module should not emit the hash-key write helper"
+  requireNotContains getOnlyHashMapWat "__pf_map_contains_hash" "get-only hash-map module should not emit the hash-key contains helper"
 
 def testUnsupportedContextDiagnostic : IO Unit := do
   match renderModule unsupportedChainIdModule with
@@ -184,6 +254,7 @@ def main : IO UInt32 := do
   testCounterRenderKeepsOnlyU64ScalarHelpers
   testUnusedIndexedStorageRenderPrunesMapHelperSurface
   testContainsOnlyMapRenderKeepsContainsSurface
+  testIndexedStorageRenderKeepsOnlyReadWriteHelperSurface
   testUnsupportedContextDiagnostic
   IO.println "wasm-near-plan: ok"
   return 0
