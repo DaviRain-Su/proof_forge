@@ -319,6 +319,15 @@ def validateScratchCapacities
             err s!"EmitWat: NEAR promise callback args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
       | _ => pure ()
 
+def crosscallArgsLenInsns (args : Array Expr) (argsLenMarker : Nat) : Array Insn :=
+  if args.isEmpty then
+    #[.i64Const argsLenMarker]
+  else
+    #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
+
+def crosscallArgsPtrInsns (argsPtr : Nat) : Array Insn :=
+  #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+
 -- Type-directed expression lowering (mutually recursive)
 mutual
   partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
@@ -358,12 +367,8 @@ mutual
     let (depositInsns, depositType) ← lowerExpr ctx env deposit
     if depositType != .u64 then
       err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
-    let argsLenInsns :=
-      if args.isEmpty then
-        #[.i64Const argsLenMarker]
-      else
-        #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
-    let argsPtrInsns := #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+    let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
+    let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (argBuildInsns ++ accountConv ++ #[
       .call crosscallPoolLenName
     ] ++ accountConv ++ #[
@@ -384,16 +389,8 @@ mutual
     let (depositInsns, depositType) ← lowerExpr ctx env deposit
     if depositType != .u64 then
       err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
-    let argsLenInsns :=
-      if args.isEmpty then
-        #[.i64Const argsLenMarker]
-      else
-        #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
-    let argsPtrInsns :=
-      if args.isEmpty then
-        #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
-      else
-        #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+    let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
+    let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (argBuildInsns ++ #[
       .i64Const account.len, .i32Const account.ptr, .plain "i64.extend_i32_u",
       .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
@@ -414,12 +411,8 @@ mutual
     let (depositInsns, depositType) ← lowerExpr ctx env deposit
     if depositType != .u64 then
       err s!"EmitWat: NEAR promise_then deposit expected `U64`, got `{depositType.name}`"
-    let argsLenInsns :=
-      if args.isEmpty then
-        #[.i64Const argsLenMarker]
-      else
-        #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
-    let argsPtrInsns := #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+    let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
+    let argsPtrInsns := crosscallArgsPtrInsns argsPtr
     .ok (parentInsns ++ argBuildInsns ++ #[
       .call promiseCurrentAccountName,
       .i32Const CTX_BUF, .plain "i64.extend_i32_u",
