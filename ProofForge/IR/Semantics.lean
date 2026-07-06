@@ -473,9 +473,42 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
       match rawValue with
       | .bool value => .ok (nextState, .bool (!value))
       | _ => .error "boolNot expects Bool operand"
+  | .crosscallInvoke target methodId args => evalCrosscallInvoke state frame target methodId args
+  | .crosscallInvokeTyped target methodId args .u64 =>
+      evalCrosscallInvoke state frame target methodId args
+  | .crosscallInvokeTyped _ _ _ returnType =>
+      .error s!"typed crosscall return `{returnType.name}` is not supported by scalar semantics (U64 only)"
+  | .crosscallInvokeValueTyped _ _ _ _ returnType
+  | .crosscallInvokeStaticTyped _ _ _ returnType
+  | .crosscallInvokeDelegateTyped _ _ _ returnType =>
+      .error s!"typed crosscall variant return `{returnType.name}` is not supported by scalar semantics"
+  | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
+      .error "crosscall create is not supported by the scalar semantics model"
   | .effect effect => evalEffect state frame effect
   | .nativeValue => .ok (state, .u64 0)
   | _ => .error "expression is not supported by the scalar semantics model"
+
+/-- Deterministic crosscall stub: sum target, method, and U64 scalar args (aligned with Quint lowering). -/
+partial def evalCrosscallInvoke (state : State) (frame : Frame) (target methodId : Expr)
+    (args : Array Expr) : Except String ExprResult := do
+  let (stateAfterTarget, targetValue) ← evalExpr state frame target
+  let (stateAfterMethod, methodValue) ← evalExpr stateAfterTarget frame methodId
+  let targetU64 ← match targetValue with
+    | .u64 value => pure value
+    | _ => .error "crosscall target expected U64"
+  let methodU64 ← match methodValue with
+    | .u64 value => pure value
+    | _ => .error "crosscall method expected U64"
+  let mut nextState := stateAfterMethod
+  let mut sum := targetU64 + methodU64
+  for arg in args do
+    let (stateAfterArg, argValue) ← evalExpr nextState frame arg
+    nextState := stateAfterArg
+    let argU64 ← match argValue with
+      | .u64 value => pure value
+      | _ => .error "crosscall argument expected U64"
+    sum := sum + argU64
+  .ok (nextState, .u64 sum)
 
 partial def evalPathSegmentKey (state : State) (frame : Frame) : StoragePathSegment →
     Except String (State × String)

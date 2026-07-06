@@ -356,7 +356,35 @@ mutual
         let base' ← lowerExpr ctx base
         .ok (.methodCall base' "get" #[.literalStr fieldName])
     | .effect eff => lowerEffectExpr ctx eff
+    | .crosscallInvoke target methodId args =>
+        lowerCrosscallInvokeExpr ctx target methodId args
+    | .crosscallInvokeTyped target methodId args returnType =>
+        match returnType with
+        | .u64 => lowerCrosscallInvokeExpr ctx target methodId args
+        | _ => .error {
+            message :=
+              s!"typed crosscall return `{returnType.name}` is not supported in Quint lowering v1 (U64 only)" }
+    | .crosscallInvokeValueTyped _ _ _ _ returnType
+    | .crosscallInvokeStaticTyped _ _ _ returnType
+    | .crosscallInvokeDelegateTyped _ _ _ returnType =>
+        .error {
+          message :=
+            s!"typed crosscall variant return `{returnType.name}` is not supported in Quint lowering v1 (use crosscallInvoke)" }
+    | .crosscallCreate _ _
+    | .crosscallCreate2 _ _ _ =>
+        .error { message := "crosscallCreate/crosscallCreate2 are not supported in Quint lowering v1" }
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
+
+  /-- Deterministic crosscall stub: sum target, method, and scalar args (MBT/replay aligned with IR semantics). -/
+  partial def lowerCrosscallInvokeExpr (ctx : LowerCtx) (target methodId : ProofForge.IR.Expr)
+      (args : Array ProofForge.IR.Expr) : Except LowerError Expr := do
+    let target' ← lowerExpr ctx target
+    let method' ← lowerExpr ctx methodId
+    let mut result := .binOp .add target' method'
+    for arg in args do
+      let arg' ← lowerExpr ctx arg
+      result := .binOp .add result arg'
+    pure result
 
   partial def lowerMapKeyExpr (ctx : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
     match key with
