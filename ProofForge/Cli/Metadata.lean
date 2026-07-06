@@ -1,5 +1,6 @@
 import ProofForge.Backend.Psy.Metadata
 import ProofForge.Backend.Psy.MetadataJson
+import ProofForge.Cli.Options
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.MapProbe
@@ -88,6 +89,18 @@ def parseMetadataOptions (args : List String) : Except String MetadataOptions :=
     | flag :: _ => .error s!"unknown metadata flag: {flag}"
   loop args { targetId := "psy-dpn", fixture := "", output? := none, pretty := false }
 
+def metadataOptionsFromCliOptions (opts : ProofForge.Cli.CliOptions) : Except String MetadataOptions := do
+  let fixture ←
+    match opts.fixture? with
+    | some fixture => pure fixture
+    | none => .error "metadata requires --fixture <id>"
+  .ok {
+    targetId := opts.targetId?.getD "psy-dpn"
+    fixture
+    output? := opts.output?
+    pretty := false
+  }
+
 def metadataCommand (opts : MetadataOptions) : IO UInt32 := do
   if opts.targetId != "psy-dpn" then
     IO.eprintln s!"metadata command currently only supports --target psy-dpn, got {opts.targetId}"
@@ -112,5 +125,10 @@ def metadataCommand (opts : MetadataOptions) : IO UInt32 := do
   | none =>
       IO.println json
   pure 0
+
+def metadataCommandFromCliOptions (opts : ProofForge.Cli.CliOptions) : IO UInt32 := do
+  match metadataOptionsFromCliOptions opts with
+  | .ok metadataOpts => metadataCommand metadataOpts
+  | .error msg => throw <| IO.userError msg
 
 end ProofForge.Cli.Metadata
