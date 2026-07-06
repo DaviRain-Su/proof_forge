@@ -27,6 +27,7 @@ import ProofForge.Backend.WasmNear.Event
 import ProofForge.Backend.WasmNear.Hash
 import ProofForge.Backend.WasmNear.Imports
 import ProofForge.Backend.WasmNear.Layout
+import ProofForge.Backend.WasmNear.LoweringEnv
 import ProofForge.Backend.WasmNear.Map
 import ProofForge.Backend.WasmNear.Memory
 import ProofForge.Backend.WasmNear.Plan
@@ -52,6 +53,7 @@ open ProofForge.Backend.WasmNear.Event
 open ProofForge.Backend.WasmNear.Hash
 open ProofForge.Backend.WasmNear.Imports
 open ProofForge.Backend.WasmNear.Layout
+open ProofForge.Backend.WasmNear.LoweringEnv
 open ProofForge.Backend.WasmNear.Map
 open ProofForge.Backend.WasmNear.Plan
 open ProofForge.Backend.WasmNear.Memory
@@ -138,6 +140,10 @@ export ProofForge.Backend.WasmNear.Layout (
   crosscallStringInfos
 )
 
+export ProofForge.Backend.WasmNear.LoweringEnv (
+  Ctx LBind LocalTypes lookupLocal? assignOpName resolveCrosscallStringRef
+)
+
 export ProofForge.Backend.WasmNear.Map (
   mapReadName mapWriteName mapContainsName mapBuildkeyName mapBuildkeyFunc
   mapReadFunc mapWriteFunc mapContainsFunc mapHelperFuncsForModulePlan
@@ -181,40 +187,6 @@ export ProofForge.Backend.WasmNear.Types (
 )
 
 -- Type-directed expression lowering (mutually recursive)
-structure Ctx where
-  scalars : Array StateInfo
-  maps    : Array MapInfo
-  strings : Array StringInfo
-  panics  : Array StringInfo
-  crosscallStrings : Array StringInfo
-  structs : Array ProofForge.IR.StructDecl
-  allocator : ProofForge.IR.AllocatorConfig
-
-structure LBind where
-  name : String
-  vt : ValueType
-abbrev LocalTypes := Array LBind
-
-def lookupLocal? (env : LocalTypes) (name : String) : Option ValueType :=
-  match env.find? (fun b => b.name == name) with
-  | some b => some b.vt
-  | none => none
-
-def assignOpName : AssignOp → String
-  | .add => "add" | .sub => "sub" | .mul => "mul" | .div => "div_u" | .mod => "rem_u"
-  | .bitAnd => "and" | .bitOr => "or" | .bitXor => "xor"
-  | .shiftLeft => "shl" | .shiftRight => "shr_u"
-
-def resolveCrosscallStringRef (ctx : Ctx) (e : Expr) (role : String) : Except EmitError StringInfo :=
-  match e with
-  | .literal (.address idx) =>
-    match ctx.crosscallStrings[idx]? with
-    | some si => .ok si
-    | none =>
-      err s!"EmitWat: NEAR crosscall {role} index `{idx}` is out of range for `module.nearCrosscallStrings`"
-  | _ =>
-    err s!"EmitWat: NEAR crosscall {role} must be `.literal (.address <index>)` into `module.nearCrosscallStrings`"
-
 mutual
   partial def canDuplicateExpr : Expr → Bool
     | .literal _ => true
