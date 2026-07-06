@@ -429,6 +429,15 @@ mutual
       .call "promise_then"
     ], .u64)
 
+  partial def lowerNearPromiseResultIndex (ctx : Ctx) (env : LocalTypes) (index : Expr) :
+      Except EmitError (Array Insn) := do
+    let (indexInsns, indexType) ← lowerExpr ctx env index
+    if !(indexType == .u32 || indexType == .u64) then
+      err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
+    else
+      let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
+      .ok (indexInsns ++ conv)
+
   partial def lowerExpr (ctx : Ctx) (env : LocalTypes) (e : Expr)
       : Except EmitError (Array Insn × ValueType) :=
     match e with
@@ -583,19 +592,11 @@ mutual
     | .nearPromiseResultsCount =>
       .ok (#[.call "promise_results_count"], .u64)
     | .nearPromiseResultStatus index => do
-      let (indexInsns, indexType) ← lowerExpr ctx env index
-      if !(indexType == .u32 || indexType == .u64) then
-        err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
-      else do
-        let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
-        .ok (indexInsns ++ conv ++ #[.i64Const 0, .call "promise_result"], .u64)
+      let indexInsns ← lowerNearPromiseResultIndex ctx env index
+      .ok (indexInsns ++ #[.i64Const 0, .call "promise_result"], .u64)
     | .nearPromiseResultU64 index => do
-      let (indexInsns, indexType) ← lowerExpr ctx env index
-      if !(indexType == .u32 || indexType == .u64) then
-        err s!"EmitWat: NEAR promise_result index expected U32/U64, got `{indexType.name}`"
-      else do
-        let conv := if indexType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
-        .ok (indexInsns ++ conv ++ #[.call promiseResultU64Name], .u64)
+      let indexInsns ← lowerNearPromiseResultIndex ctx env index
+      .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerNumBin (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
