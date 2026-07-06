@@ -766,10 +766,24 @@ mutual
             .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
     | .letMutBind name _ value =>
         .ok { ctx with locals := ctx.locals.bind name (← lowerExpr ctx value) }
-    | .assign _ _ =>
-        .error { message := "local assignment not supported in Quint lowering v1" }
-    | .assignOp _ _ _ =>
-        .error { message := "compound local assignment not supported in Quint lowering v1" }
+    | .assign target value =>
+        match target with
+        | .local name => do
+            let value' ← lowerExpr ctx value
+            .ok { ctx with locals := ctx.locals.upsert name value' }
+        | _ =>
+            .error { message := "local assignment target must be a scalar local for Quint lowering v1" }
+    | .assignOp target op value =>
+        match target with
+        | .local name => do
+            let rhs ← lowerExpr ctx value
+            let lhs ← match ctx.locals.lookup name with
+              | some bound => pure bound
+              | none => pure (.local name)
+            let updated := .binOp (lowerAssignOp op) lhs rhs
+            .ok { ctx with locals := ctx.locals.upsert name updated }
+        | _ =>
+            .error { message := "compound local assignment target must be a scalar local for Quint lowering v1" }
     | .effect eff =>
         applyEffect ctx eff
     | .assert condition _ _ =>
@@ -959,9 +973,14 @@ def initAction (state : Array StateDecl) (structs : Array StructDecl) : Except L
     let zeros ← zeroExprForState decl structs
     for (name, value) in zeros do
       clauses := clauses.push (.assign (.prime (.local name)) value)
+  let body :=
+    if clauses.isEmpty then
+      ActionClause.all #[.guard (.literalBool true)]
+    else
+      ActionClause.all clauses
   pure {
     name := "init",
-    body := ActionClause.all clauses,
+    body := body,
     ret? := none
   }
 

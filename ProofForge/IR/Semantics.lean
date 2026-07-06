@@ -645,6 +645,22 @@ partial def execStmt (state : State) (frame : Frame) : Statement →
   | .letMutBind name _ value => do
       let (nextState, evaluated) ← evalExpr state frame value
       .ok (nextState, frame.write name evaluated, none)
+  | .assign target value =>
+      match target with
+      | .local name => do
+          let (nextState, evaluated) ← evalExpr state frame value
+          .ok (nextState, frame.write name evaluated, none)
+      | _ => .error "assign target is not supported by the scalar semantics model"
+  | .assignOp target op value =>
+      match target with
+      | .local name => do
+          let current ← match frame.read name with
+            | some v => pure v
+            | none => .error s!"assignOp on unbound local `{name}`"
+          let (nextState, rhs) ← evalExpr state frame value
+          let updated ← evalAssignOp op current rhs
+          .ok (nextState, frame.write name updated, none)
+      | _ => .error "assignOp target is not supported by the scalar semantics model"
   | .effect effect => do
       .ok (← execEffectStmt state frame effect, frame, none)
   | .assert condition message _ => do

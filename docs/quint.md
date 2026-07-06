@@ -104,13 +104,14 @@ Phase 3 v1 currently lowers a growing portable IR subset:
 - Fixed-size storage arrays (`List[T]` with 0-based Quint list indexing)
 - Storage maps (`str -> str` / `str -> int` with `hash:a:b:c:d` or `u64:n` key encoding)
   and struct fields flattened to per-field state variables (`current_x`, `points_0_x`)
-- Single- and two-segment `mapKey` `storagePath*`, struct/array path shapes, and
-  dynamic index+field paths on array-of-struct storage
+- Single- and two-segment `mapKey` `storagePath*`, struct/array path shapes,
+  dynamic index+field paths on array-of-struct storage, and scalar local
+  assignment (`letMutBind`, `.assign`, `.assignOp` on `.local` targets)
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
 Still out of scope for the first iteration: more than two consecutive `mapKey`
 segments, nested struct ref fields, `storagePathAssignOp` on hash-valued map paths,
-dynamic nested `mapKey` path keys, local assignment, crosscalls,
+dynamic nested `mapKey` path keys, crosscalls,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that
 need more iterations are truncated in the Quint model. Unrolling emits each step

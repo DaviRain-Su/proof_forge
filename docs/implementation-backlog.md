@@ -184,7 +184,9 @@ Tasks:
   struct field flattening, and `storagePath*` fixtures (`array`, `map`, `map-path`,
   `map-nested-path`, `map-path-assign`, `struct`, `array-path`, `struct-path`,
   `struct-dynamic-path`) wired through `just quint-mbt-gate`.
-- Pending: crosscalls, unbounded integers, local assignment, more than two
+- Done: scalar local assignment (`letMutBind`, `.assign`, `.assignOp` on
+  `.local` targets) with `assignment` fixture in `just quint-mbt-gate`.
+- Pending: crosscalls, unbounded integers, more than two
   consecutive `mapKey` segments, hash-valued map `storagePathAssignOp`, dynamic
   nested `mapKey` keys, and nested struct ref fields.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`

@@ -10,6 +10,7 @@ import ProofForge.IR.Examples.StructProbe
 import ProofForge.IR.Examples.EvmStorageArrayProbe
 import ProofForge.IR.Examples.EvmStorageStructProbe
 import ProofForge.IR.Examples.AssertProbe
+import ProofForge.IR.Examples.AssignmentProbe
 
 namespace ProofForge.Cli.Quint
 
@@ -28,7 +29,8 @@ def supportedFixtureIds : Array String := #[
   "struct-path",
   "map-nested-path",
   "map-path-assign",
-  "struct-dynamic-path"
+  "struct-dynamic-path",
+  "assignment"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -50,6 +52,7 @@ def outputFileName (fixtureId : String) : String :=
   | "map-nested-path" => "MapNestedPathProbe.qnt"
   | "map-path-assign" => "MapPathAssignProbe.qnt"
   | "struct-dynamic-path" => "StructDynamicPathProbe.qnt"
+  | "assignment" => "AssignmentProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -72,6 +75,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "map-nested-path" => some ProofForge.IR.Examples.MapProbe.emitQuintNestedPathModule
   | "map-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintPathAssignModule
   | "struct-dynamic-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintDynamicStructPathModule
+  | "assignment" => some ProofForge.IR.Examples.AssignmentProbe.module
   | "assert" => some ProofForge.IR.Examples.AssertProbe.module
   | _ => none
 
