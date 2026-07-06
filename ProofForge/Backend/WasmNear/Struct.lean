@@ -113,11 +113,14 @@ def zeroStructBufInsns (s : ProofForge.IR.StructDecl) : Array Insn :=
          #[.const (wasmTypeOf f.type) "0", .store (storeOpFor f.type) 0]))
     (0, (#[] : Array Insn))).2
 
-def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
-  #[.i64Const s.keyLen, .i64Const s.keyPtr, .i64Const 0, .call "storage_read",
+def readStructBufOrZeroInsns (keyLen keyPtr : Nat) (sd : ProofForge.IR.StructDecl) : Array Insn :=
+  #[.i64Const keyLen, .i64Const keyPtr, .i64Const 0, .call "storage_read",
     .i64Const 0, .plain "i64.ne",
     .if_ { insns := #[.i64Const 0, .i64Const STRUCT_BUF, .call "read_register"] }
          { insns := zeroStructBufInsns sd }]
+
+def readScalarStructBufInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) : Array Insn :=
+  readStructBufOrZeroInsns s.keyLen s.keyPtr sd
 
 def scalarStructFieldReadInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) (offset : Nat)
     (fieldType : ValueType) : Array Insn × ValueType :=
@@ -134,10 +137,7 @@ def scalarStructFieldWriteInsns (s : StateInfo) (sd : ProofForge.IR.StructDecl) 
       .i64Const STRUCT_BUF, .i64Const 0, .call "storage_write", .drop]
 
 def readArrayStructBufInsns (m : MapInfo) (s : ProofForge.IR.StructDecl) : Array Insn :=
-  #[.i64Const (m.prefixLen + 8), .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
-    .i64Const 0, .plain "i64.ne",
-    .if_ { insns := #[.i64Const 0, .i64Const STRUCT_BUF, .call "read_register"] }
-         { insns := zeroStructBufInsns s }]
+  readStructBufOrZeroInsns (m.prefixLen + 8) MAPKEY_BUF s
 
 def arrayStructFieldReadInsns (m : MapInfo) (sd : ProofForge.IR.StructDecl)
     (indexInsns buildKeyCall : Array Insn) (offset : Nat) (fieldType : ValueType) :
