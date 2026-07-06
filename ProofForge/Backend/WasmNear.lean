@@ -15,4 +15,5 @@ import ProofForge.Backend.WasmNear.Plan
 import ProofForge.Backend.WasmNear.Promise
 import ProofForge.Backend.WasmNear.Refinement
 import ProofForge.Backend.WasmNear.Scalar
+import ProofForge.Backend.WasmNear.Struct
 import ProofForge.Backend.WasmNear.Types
