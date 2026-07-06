@@ -147,6 +147,19 @@ def pathAssignLifecycle : Entrypoint := {
   ]
 }
 
+def hashPathAssignUpdatedValue : Expr :=
+  .literal (.hash4 99 88 77 66)
+
+def hashPathAssignLifecycle : Entrypoint := {
+  name := "hash_path_assign_lifecycle"
+  returns := .hash
+  body := #[
+    .effect (.storagePathWrite "balances" #[.mapKey pathKey] pathValue),
+    .effect (.storagePathAssignOp "balances" #[.mapKey pathKey] .add hashPathAssignUpdatedValue),
+    .return (.effect (.storagePathRead "balances" #[.mapKey pathKey]))
+  ]
+}
+
 def setReturnLifecycle : Entrypoint := {
   name := "set_return_lifecycle"
   returns := .hash
@@ -294,6 +307,13 @@ def emitQuintPathAssignModule : Module := {
   name := "MapProbe",
   state := #[stateScores],
   entrypoints := #[pathAssignLifecycle, nestedPathAssignLifecycle]
+}
+
+/-- Quint/MBT subset: `storagePathAssignOp` on hash-valued map paths (replace stub). -/
+def emitQuintHashPathAssignModule : Module := {
+  name := "MapProbe",
+  state := #[stateBalances],
+  entrypoints := #[hashPathAssignLifecycle]
 }
 
 /-! EmitWat "full" subset: every MapProbe entrypoint EXCEPT `pathLifecycle` (which

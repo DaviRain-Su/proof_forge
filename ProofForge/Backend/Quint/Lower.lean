@@ -548,10 +548,15 @@ mutual
   partial def targetMapAssignOpCtx (ctx : LowerCtx) (stateId : String) (key : Expr) (op : AssignOp)
       (value : ProofForge.IR.Expr) : Except LowerError LowerCtx := do
     let mapExpr := ctx.stateValue stateId
-    let old ← lowerMapGetAtKey ctx stateId key
     let value' ← lowerExpr ctx value
-    let qop := lowerAssignOp op
-    let updated := .methodCall mapExpr "put" #[key, .binOp qop old value']
+    let updated ← match ctx.lookupStateDecl stateId with
+      | some { type := .hash, .. } =>
+          -- Hash-valued map assignOp is a replace stub (MBT/replay aligned with IR semantics).
+          pure (.methodCall mapExpr "put" #[key, value'])
+      | _ => do
+          let old ← lowerMapGetAtKey ctx stateId key
+          let qop := lowerAssignOp op
+          pure (.methodCall mapExpr "put" #[key, .binOp qop old value'])
     .ok { ctx with state := ctx.state.upsert stateId updated }
 
   partial def targetAssignOpCtx (ctx : LowerCtx) (target : StoragePathTarget) (op : AssignOp)

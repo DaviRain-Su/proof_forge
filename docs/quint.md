@@ -25,6 +25,9 @@ lake env proof-forge emit --target quint --fixture struct -o build/quint/StructP
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/ArrayPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/StructPathProbe.qnt
 lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/StructDynamicPathProbe.qnt
+lake env proof-forge emit --target quint --fixture assignment -o build/quint/AssignmentProbe.qnt
+lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CrosscallProbe.qnt
+lake env proof-forge emit --target quint --fixture assert -o build/quint/AssertProbe.qnt
 ```
 
 Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loop`,
@@ -32,10 +35,13 @@ Supported built-in fixtures today: `counter`, `value-vault`, `conditional`, `loo
 get/has/set with presence guards on get), `map-path` (single-segment `storagePath*` on
 maps), `map-nested-path` (two-segment consecutive `mapKey` paths on hash maps),
 `map-path-assign` (single- and nested-mapKey `storagePathAssignOp` on U64 maps),
+`map-hash-path-assign` (hash-valued map `storagePathAssignOp` replace stub),
 `struct` (flattened struct field storage), `array-path` (index `storagePath*` on
 scalar arrays), `struct-path` (literal index+field `storagePath*` on array-of-struct
-storage), and `struct-dynamic-path` (dynamic index+field `storagePath*` on
-array-of-struct storage). The generator reads **portable
+storage), `struct-dynamic-path` (dynamic index+field `storagePath*` on
+array-of-struct storage), `assignment` (scalar local `letMutBind`/`.assign`/`.assignOp`),
+`crosscall` (scalar `crosscallInvoke` U64 return stub), and `assert` (`.assert` /
+`.assertEq` guards). The generator reads **portable
 IR** fixtures, so the same `.qnt` model is target-agnostic: it validates design
 intent upstream of EVM, Solana, NEAR, Psy, or any other backend lowering.
 
@@ -108,12 +114,11 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   dynamic index+field paths on array-of-struct storage, scalar local
   assignment (`letMutBind`, `.assign`, `.assignOp` on `.local` targets), and
   scalar `crosscallInvoke` / `crosscallInvokeTyped` (U64 return stub:
-  `target + method + sum(args)`)
+  `target + method + sum(args)`), and `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
 Still out of scope for the first iteration: more than two consecutive `mapKey`
-segments, nested struct ref fields, `storagePathAssignOp` on hash-valued map paths,
-dynamic nested `mapKey` path keys, value/static/delegate crosscall variants,
+segments, nested struct ref fields, dynamic nested `mapKey` path keys, value/static/delegate crosscall variants,
 `crosscallCreate`/`crosscallCreate2`, aggregate crosscall returns,
 floating-point, and complex bitwise ops. `whileLoop` is lowered by static
 unrolling up to `max_loop_unroll` (default 10) in the scenario config; loops that

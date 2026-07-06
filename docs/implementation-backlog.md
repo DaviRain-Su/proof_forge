@@ -188,9 +188,12 @@ Tasks:
   `.local` targets) with `assignment` fixture in `just quint-mbt-gate`.
 - Done: scalar `crosscallInvoke` / `crosscallInvokeTyped` (U64 return stub:
   `target + method + sum(args)`) with `crosscall` fixture in `just quint-mbt-gate`.
-- Pending: unbounded integers, more than two
-  consecutive `mapKey` segments, hash-valued map `storagePathAssignOp`, dynamic
-  nested `mapKey` keys, and nested struct ref fields.
+- Done: `.assert` / `.assertEq` statement guards with `assert` fixture in
+  `just quint-mbt-gate`; gate rebuilds `proof-forge` before CLI emit smoke.
+- Done: hash-valued map `storagePathAssignOp` replace stub with
+  `map-hash-path-assign` fixture in `just quint-mbt-gate`.
+- Pending: unbounded integers, more than two consecutive `mapKey` segments,
+  dynamic nested `mapKey` keys, and nested struct ref fields.
 - Done: add `quint verify` to the default CI path via `just quint-model-gate`
   with Temurin Java 17 in `.github/workflows/ci.yml`.
 

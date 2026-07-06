@@ -637,7 +637,9 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
         | some value => .ok value
         | none => .error s!"unknown storage path `{key}`"
       let (stateAfterValue, rhs) ← evalExpr stateAfterPath frame valueExpr
-      let value ← evalAssignOp op current rhs
+      let value ← match current with
+        | .hash _ _ _ _ => pure rhs
+        | _ => evalAssignOp op current rhs
       .ok (stateAfterValue.write key value, value)
   | .contextRead field =>
       match field with

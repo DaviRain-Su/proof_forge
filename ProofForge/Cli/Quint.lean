@@ -30,9 +30,11 @@ def supportedFixtureIds : Array String := #[
   "struct-path",
   "map-nested-path",
   "map-path-assign",
+  "map-hash-path-assign",
   "struct-dynamic-path",
   "assignment",
-  "crosscall"
+  "crosscall",
+  "assert"
 ]
 
 def supportsFixture (fixtureId : String) : Bool :=
@@ -53,9 +55,11 @@ def outputFileName (fixtureId : String) : String :=
   | "struct-path" => "StructPathProbe.qnt"
   | "map-nested-path" => "MapNestedPathProbe.qnt"
   | "map-path-assign" => "MapPathAssignProbe.qnt"
+  | "map-hash-path-assign" => "MapHashPathAssignProbe.qnt"
   | "struct-dynamic-path" => "StructDynamicPathProbe.qnt"
   | "assignment" => "AssignmentProbe.qnt"
   | "crosscall" => "CrosscallProbe.qnt"
+  | "assert" => "AssertProbe.qnt"
   | _ => s!"{fixtureId}.qnt"
 
 def defaultOutputPath (fixtureId : String) : String :=
@@ -77,6 +81,7 @@ def fixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   | "struct-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintPathModule
   | "map-nested-path" => some ProofForge.IR.Examples.MapProbe.emitQuintNestedPathModule
   | "map-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintPathAssignModule
+  | "map-hash-path-assign" => some ProofForge.IR.Examples.MapProbe.emitQuintHashPathAssignModule
   | "struct-dynamic-path" => some ProofForge.IR.Examples.EvmStorageStructProbe.emitQuintDynamicStructPathModule
   | "assignment" => some ProofForge.IR.Examples.AssignmentProbe.module
   | "crosscall" => some ProofForge.IR.Examples.CrosscallProbe.module

@@ -24,6 +24,10 @@ fi
 echo "Running Quint fixture registry test..."
 lake env lean --run Tests/Quint/CliEmit.lean
 
+echo "Running Counter/ValueVault model render tests..."
+lake env lean --run Tests/Quint/CounterModel.lean
+lake env lean --run Tests/Quint/ValueVaultModel.lean
+
 echo "Running Quint control-flow model render tests..."
 lake env lean --run Tests/Quint/ConditionalModel.lean
 lake env lean --run Tests/Quint/LoopModel.lean
@@ -33,6 +37,7 @@ lake env lean --run Tests/Quint/MapModel.lean
 lake env lean --run Tests/Quint/MapPathModel.lean
 lake env lean --run Tests/Quint/MapNestedPathModel.lean
 lake env lean --run Tests/Quint/MapPathAssignModel.lean
+lake env lean --run Tests/Quint/MapHashPathAssignModel.lean
 lake env lean --run Tests/Quint/StructModel.lean
 lake env lean --run Tests/Quint/ArrayPathModel.lean
 lake env lean --run Tests/Quint/StructPathModel.lean
@@ -40,6 +45,7 @@ lake env lean --run Tests/Quint/StructDynamicPathGuard.lean
 lake env lean --run Tests/Quint/StructDynamicPathModel.lean
 lake env lean --run Tests/Quint/AssignmentModel.lean
 lake env lean --run Tests/Quint/CrosscallModel.lean
+lake env lean --run Tests/Quint/AssertModel.lean
 
 echo "Running Counter MBT replay test..."
 lake env lean --run Tests/Quint/CounterReplay.lean
@@ -71,6 +77,9 @@ lake env lean --run Tests/Quint/MapNestedPathReplay.lean
 echo "Running MapProbe path assign MBT replay test..."
 lake env lean --run Tests/Quint/MapPathAssignReplay.lean
 
+echo "Running MapProbe hash path assign MBT replay test..."
+lake env lean --run Tests/Quint/MapHashPathAssignReplay.lean
+
 echo "Running StructProbe MBT replay test..."
 lake env lean --run Tests/Quint/StructReplay.lean
 
@@ -89,6 +98,12 @@ lake env lean --run Tests/Quint/AssignmentReplay.lean
 echo "Running CrosscallProbe MBT replay test..."
 lake env lean --run Tests/Quint/CrosscallReplay.lean
 
+echo "Running AssertProbe MBT replay test..."
+lake env lean --run Tests/Quint/AssertReplay.lean
+
+echo "Building proof-forge CLI for emit smoke..."
+lake build proof-forge
+
 echo "Running Quint CLI emit smoke..."
 lake env proof-forge emit --target quint --fixture conditional -o build/quint/CliConditional.qnt
 lake env proof-forge emit --target quint --fixture loop -o build/quint/CliLoop.qnt
@@ -99,11 +114,13 @@ lake env proof-forge emit --target quint --fixture map -o build/quint/CliMap.qnt
 lake env proof-forge emit --target quint --fixture map-path -o build/quint/CliMapPath.qnt
 lake env proof-forge emit --target quint --fixture map-nested-path -o build/quint/CliMapNestedPath.qnt
 lake env proof-forge emit --target quint --fixture map-path-assign -o build/quint/CliMapPathAssign.qnt
+lake env proof-forge emit --target quint --fixture map-hash-path-assign -o build/quint/CliMapHashPathAssign.qnt
 lake env proof-forge emit --target quint --fixture struct -o build/quint/CliStruct.qnt
 lake env proof-forge emit --target quint --fixture array-path -o build/quint/CliArrayPath.qnt
 lake env proof-forge emit --target quint --fixture struct-path -o build/quint/CliStructPath.qnt
 lake env proof-forge emit --target quint --fixture struct-dynamic-path -o build/quint/CliStructDynamicPath.qnt
 lake env proof-forge emit --target quint --fixture assignment -o build/quint/CliAssignment.qnt
 lake env proof-forge emit --target quint --fixture crosscall -o build/quint/CliCrosscall.qnt
+lake env proof-forge emit --target quint --fixture assert -o build/quint/CliAssert.qnt
 
 echo "Quint MBT replay gate passed."
