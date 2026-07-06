@@ -492,6 +492,16 @@ def testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports : IO Unit := do
   requireContains wat "__pf_arr_alloc" "host-jemalloc release module must emit arr alloc helper"
   requireContains wat "__pf_arr_dealloc" "host-jemalloc release module must emit arr dealloc helper"
 
+def testCrosscallRenderEncodesU64ArgsJson : IO Unit := do
+  let wat ←
+    match renderModule ProofForge.IR.Examples.NearCrosscallProbe.module with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat crosscall-args render failed: {err.message}"
+  requireContains wat "__pf_crosscall_args_start" "crosscall-args module must emit args builder start helper"
+  requireContains wat "__pf_crosscall_args_putu64" "crosscall-args module must emit args u64 helper"
+  requireContains wat "__pf_fmt_u64" "crosscall-args module must emit decimal formatter helper"
+  requireContains wat "(global $crosscall_ptr" "crosscall-args module must emit crosscall_ptr global"
+
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   let wat ←
     match renderModule ProofForge.IR.Examples.NearCrosscallProbe.module with
@@ -501,7 +511,7 @@ def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   requireContains wat "(import \"env\" \"promise_return\"" "crosscall module must import promise_return"
   requireContains wat "(data (i32.const 49000) \"callee.testnet\")" "crosscall module must emit target account data"
   requireContains wat "(data (i32.const 49015) \"remote_call\")" "crosscall module must emit method name data"
-  requireContains wat "(data (i32.const 48100) \"{}\")" "crosscall module must emit empty JSON args data"
+  requireContains wat "(data (i32.const 48100) \"[]\")" "crosscall module must emit empty JSON args data"
   requireContains wat "call $promise_create" "crosscall module must call promise_create"
   requireContains wat "call $promise_return" "crosscall module must call promise_return"
   requireNotContains wat "(import \"env\" \"promise_then\"" "crosscall module should not import promise_then"
@@ -563,6 +573,7 @@ def main : IO UInt32 := do
   testHostBumpScalarRenderOmitsHostAllocatorImports
   testHostBumpArrayLiteralRenderKeepsOnlyPfAllocImport
   testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports
+  testCrosscallRenderEncodesU64ArgsJson
   testCrosscallRenderKeepsOnlyCreatePromiseSurface
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface
   testUnsupportedContextDiagnostic

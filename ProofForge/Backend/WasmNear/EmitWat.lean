@@ -63,8 +63,9 @@ def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
 def EVT_KEY_PTR : Nat := 42800     -- fixed "event" key string (5 bytes)
 def STRING_BASE : Nat := 43000     -- event/field name string pool base
 def INPUT_BUF : Nat := 44000       -- 1 KB scratch for Borsh input args
-def CROSSCALL_ARGS_PTR : Nat := 48100 -- fixed "{}" args payload for v0 NEAR crosscalls
-def CROSSCALL_ARGS_LEN : Nat := 2
+def CROSSCALL_BUF : Nat := 47000          -- scratch for building crosscall JSON arg arrays
+def CROSSCALL_ARGS_EMPTY_PTR : Nat := 48100 -- fixed "[]" payload for zero-arg NEAR crosscalls
+def CROSSCALL_ARGS_EMPTY_LEN : Nat := 2
 def CROSSCALL_STRING_BASE : Nat := 49000
 def crosscallDefaultGas : Nat := 50_000_000_000_000
 def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one per hash param)
@@ -846,6 +847,60 @@ def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
     (if plan.usesEventApi then #[evtLogFunc] else #[])
 def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
 
+-- Crosscall JSON arg helpers (same append-pointer pattern as events, separate buffer).
+def crosscallPtrGlobal : String := "crosscall_ptr"
+def crosscallArgsStartName : String := "__pf_crosscall_args_start"
+def crosscallArgsPutcName : String := "__pf_crosscall_args_putc"
+def crosscallArgsPutu64Name : String := "__pf_crosscall_args_putu64"
+def crosscallArgsPutboolName : String := "__pf_crosscall_args_putbool"
+
+def crosscallPtrGlobalDecl : Global :=
+  { name := crosscallPtrGlobal, type := .i32, init := toString CROSSCALL_BUF, isMutable := true }
+
+def crosscallArgsStartFunc : Func :=
+  { name := crosscallArgsStartName, body := { insns := #[ .i32Const CROSSCALL_BUF, .globalSet crosscallPtrGlobal ] } }
+
+def crosscallArgsPutcFunc : Func :=
+  { name := crosscallArgsPutcName, params := #[{ name := "c", type := .i32 }],
+    body := { insns := #[
+      .globalGet crosscallPtrGlobal, .localGet "c", .store "i32.store8" 0,
+      .globalGet crosscallPtrGlobal, .i32Const 1, .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
+
+def crosscallArgsPutstrName : String := "__pf_crosscall_args_putstr"
+
+def crosscallArgsPutstrFunc : Func :=
+  { name := crosscallArgsPutstrName, params := #[{ name := "ptr", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .globalGet crosscallPtrGlobal, .localGet "ptr", .localGet "len", .call memcpyName,
+      .globalGet crosscallPtrGlobal, .localGet "len", .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
+
+def crosscallArgsPutu64Func : Func :=
+  { name := crosscallArgsPutu64Name, params := #[{ name := "v", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .localGet "v", .call fmtU64Name, .localSet "p",
+      .i32Const (RET_BUF + 20), .localGet "p", .plain "i32.sub", .localSet "len",
+      .globalGet crosscallPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
+      .globalGet crosscallPtrGlobal, .localGet "len", .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
+
+def crosscallArgsPutboolFunc : Func :=
+  { name := crosscallArgsPutboolName, params := #[{ name := "b", type := .i32 }],
+    body := { insns := #[
+      .localGet "b", .plain "i32.eqz",
+      .if_ { insns := #[ .i32Const FALSE_PTR, .i32Const 5, .call crosscallArgsPutstrName ] }
+         { insns := #[ .i32Const TRUE_PTR, .i32Const 4, .call crosscallArgsPutstrName ] } ] } }
+
+def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  if !plan.usesCrosscallArgs then
+    #[]
+  else
+    (if plan.usesEventNumeric then #[] else if plan.usesFmtU64 then #[fmtU64Func] else #[]) ++
+      #[crosscallArgsStartFunc, crosscallArgsPutcFunc, crosscallArgsPutstrFunc, crosscallArgsPutu64Func,
+        crosscallArgsPutboolFunc]
+
+def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=
+  if plan.usesCrosscallArgs then #[crosscallPtrGlobalDecl] else #[]
+
 -- State layout
 structure StateInfo where
   id : String
@@ -1030,22 +1085,52 @@ mutual
     | .crosscallCreate2 _ _ _
     | .effect _ => false
 
+  partial def lowerCrosscallArgValue (ctx : Ctx) (env : LocalTypes) (arg : Expr) :
+      Except EmitError (Array Insn × Array Insn) := do
+    let (vis, vt) ← lowerExpr ctx env arg
+    match vt with
+    | .u64 => .ok (vis, #[.call crosscallArgsPutu64Name])
+    | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
+    | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
+    | _ => err s!"EmitWat: NEAR crosscall argument type `{vt.name}` is not supported yet"
+
+  partial def lowerCrosscallArgsJson (ctx : Ctx) (env : LocalTypes) (args : Array Expr) :
+      Except EmitError (Array Insn × Nat × Nat) := do
+    if args.isEmpty then
+      .ok (#[], CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN)
+    else
+      let (body, _) ← args.foldlM (fun (accInsns, isFirst) arg => do
+        let (vis, putInsn) ← lowerCrosscallArgValue ctx env arg
+        let sep := if isFirst then #[] else #[.i32Const 44, .call crosscallArgsPutcName]
+        .ok (accInsns ++ sep ++ vis ++ putInsn, false))
+        (#[.call crosscallArgsStartName, .i32Const 91, .call crosscallArgsPutcName], true)
+      let body := body ++ #[.i32Const 93, .call crosscallArgsPutcName]
+      .ok (body, CROSSCALL_BUF, 0)
+
   partial def lowerCrosscallInvoke (ctx : Ctx) (env : LocalTypes) (target method : Expr) (args : Array Expr)
       (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
-    if !args.isEmpty then
-      err "EmitWat: NEAR crosscall arguments are not supported yet; pass an empty arg list"
     if ctx.crosscallStrings.isEmpty then
       err "EmitWat: NEAR crosscall requires `module.nearCrosscallStrings` to be populated"
     let account ← resolveCrosscallStringRef ctx target "target account id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
+    let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
     let (depositInsns, depositType) ← lowerExpr ctx env deposit
     if depositType != .u64 then
       err s!"EmitWat: NEAR crosscall deposit expected `U64`, got `{depositType.name}`"
-    .ok (#[
+    let argsLenInsns :=
+      if args.isEmpty then
+        #[.i64Const argsLenMarker]
+      else
+        #[.globalGet crosscallPtrGlobal, .i32Const CROSSCALL_BUF, .plain "i32.sub", .plain "i64.extend_i32_u"]
+    let argsPtrInsns :=
+      if args.isEmpty then
+        #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+      else
+        #[.i32Const argsPtr, .plain "i64.extend_i32_u"]
+    .ok (argBuildInsns ++ #[
       .i64Const account.len, .i32Const account.ptr, .plain "i64.extend_i32_u",
-      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u",
-      .i64Const CROSSCALL_ARGS_LEN, .i32Const CROSSCALL_ARGS_PTR, .plain "i64.extend_i32_u"
-    ] ++ depositInsns ++ #[
+      .i64Const methodSi.len, .i32Const methodSi.ptr, .plain "i64.extend_i32_u"
+    ] ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
     ], .u64)
@@ -2106,7 +2191,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let evtKeyData : DataSegment := { offset := EVT_KEY_PTR, bytes := "event" }
   let evtKeySegments := if modulePlan.usesEventApi then #[evtKeyData] else #[]
   let crosscallArgsData :=
-    if modulePlan.usesPromiseCreate then #[{ offset := CROSSCALL_ARGS_PTR, bytes := "{}" }] else #[]
+    if modulePlan.usesPromiseCreate then #[{ offset := CROSSCALL_ARGS_EMPTY_PTR, bytes := "[]" }] else #[]
   let crosscallStringData :=
     if modulePlan.usesPromiseCreate then
       crosscallStrs.map fun si => { offset := si.ptr, bytes := si.str : DataSegment }
@@ -2132,7 +2217,8 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
   let funcs := scalarStorageHelperFuncsForModulePlan modulePlan ++ returnHelperFuncsForModulePlan modulePlan ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
-    evtHelperFuncsForModulePlan modulePlan ++ mapHelperFuncsForModulePlan modulePlan ++
+    evtHelperFuncsForModulePlan modulePlan ++ crosscallArgsHelperFuncsForModulePlan modulePlan ++
+    mapHelperFuncsForModulePlan modulePlan ++
     mapHashHelperFuncsForModulePlan modulePlan ++ aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
   let arrPtrDecls :=
     if isHost || !modulePlanUsesArrHeap modulePlan then #[]
@@ -2140,7 +2226,8 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
       #[arrPtrGlobalDecl mod.allocator.heapBase, arrFreeGlobalDecl]
     else #[arrPtrGlobalDecl mod.allocator.heapBase]
   let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
-  let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++ arrPtrDecls
+  let globals := hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
+    crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := scalarData ++ mapData ++ boolData ++ evtKeySegments ++ stringData ++

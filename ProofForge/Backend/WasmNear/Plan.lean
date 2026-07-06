@@ -299,6 +299,8 @@ structure ModuleSurface where
   usesPromiseResults : Bool := false
   usesPromiseReturn : Bool := false
   usesPromiseReceiverAccount : Bool := false
+  usesCrosscallArgs : Bool := false
+  usesFmtU64 : Bool := false
   usesEventApi : Bool := false
   usesEventNumeric : Bool := false
   usesEventBool : Bool := false
@@ -350,6 +352,8 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPromiseResults := lhs.usesPromiseResults || rhs.usesPromiseResults
   usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
   usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
+  usesCrosscallArgs := lhs.usesCrosscallArgs || rhs.usesCrosscallArgs
+  usesFmtU64 := lhs.usesFmtU64 || rhs.usesFmtU64
   usesEventApi := lhs.usesEventApi || rhs.usesEventApi
   usesEventNumeric := lhs.usesEventNumeric || rhs.usesEventNumeric
   usesEventBool := lhs.usesEventBool || rhs.usesEventBool
@@ -420,6 +424,16 @@ def withCrosscallPromise : ModuleSurface := {
 
 def withPromiseReturn : ModuleSurface := {
   usesPromiseReturn := true
+}
+
+def withCrosscallArgs : ModuleSurface := {
+  usesCrosscallArgs := true
+  usesMemcpy := true
+}
+
+/-- Decimal u64 formatter shared by event and crosscall JSON builders (no `log_utf8`). -/
+def withFmtU64 : ModuleSurface := {
+  usesFmtU64 := true
 }
 
 def withEventApi : ModuleSurface := {
@@ -542,6 +556,12 @@ partial def exprReturnsCrosscallPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
   | _ => false
+
+def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
+  match type with
+  | .u64 | .u32 => mergeModuleSurfaces ModuleSurface.withCrosscallArgs ModuleSurface.withFmtU64
+  | .bool => ModuleSurface.withCrosscallArgs
+  | _ => ModuleSurface.withCrosscallArgs
 
 def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
@@ -760,6 +780,16 @@ def surfaceFromEntrypointParams (module : Module) (params : Array (String × Val
     mergeModuleSurfaces acc (surfaceFromValueType module type)) ModuleSurface.empty
 
 mutual
+  partial def surfaceFromCrosscallArgs (module : Module) (env : LocalTypeEnv) (args : Array Expr) :
+      Except PlanError ModuleSurface :=
+    if args.isEmpty then
+      .ok ModuleSurface.empty
+    else
+      args.foldlM (init := ModuleSurface.empty) fun acc arg => do
+        let argSurface ← surfaceFromExpr module env arg
+        let argType ← inferExprType module env arg
+        return mergeModuleSurfaces acc (mergeModuleSurfaces argSurface (crosscallArgSurfaceForType argType))
+
   partial def surfaceFromExpr (module : Module) (env : LocalTypeEnv) (expr : Expr) : Except PlanError ModuleSurface :=
     match expr with
     | .literal (.hash4 ..) =>
@@ -829,8 +859,8 @@ mutual
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
             ModuleSurface.withCrosscallPromise
-        args.foldlM (init := base) fun acc arg =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
+        let argSurface ← surfaceFromCrosscallArgs module env args
+        return mergeModuleSurfaces base argSurface
     | .crosscallInvokeValueTyped target methodId callValue args _ => do
         let base :=
           mergeModuleSurfaces
@@ -838,8 +868,8 @@ mutual
               (mergeModuleSurfaces (← surfaceFromExpr module env target) (← surfaceFromExpr module env methodId))
               (← surfaceFromExpr module env callValue))
             ModuleSurface.withCrosscallPromise
-        args.foldlM (init := base) fun acc arg =>
-          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
+        let argSurface ← surfaceFromCrosscallArgs module env args
+        return mergeModuleSurfaces base argSurface
     | .crosscallCreate callValue _ => do
         return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallPromise
     | .crosscallCreate2 callValue salt _ =>
@@ -1030,6 +1060,8 @@ structure ModulePlan where
   usesPromiseResults : Bool
   usesPromiseReturn : Bool
   usesPromiseReceiverAccount : Bool
+  usesCrosscallArgs : Bool
+  usesFmtU64 : Bool
   usesEventApi : Bool
   usesEventNumeric : Bool
   usesEventBool : Bool
@@ -1071,6 +1103,8 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesPromiseResults := surface.usesPromiseResults
     usesPromiseReturn := surface.usesPromiseReturn
     usesPromiseReceiverAccount := surface.usesPromiseReceiverAccount
+    usesCrosscallArgs := surface.usesCrosscallArgs
+    usesFmtU64 := surface.usesFmtU64
     usesEventApi := surface.usesEventApi
     usesEventNumeric := surface.usesEventNumeric
     usesEventBool := surface.usesEventBool

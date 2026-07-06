@@ -21,10 +21,19 @@ def callRemote : Entrypoint := {
   ]
 }
 
+def callRemoteWithAmount : Entrypoint := {
+  name := "call_remote_with_amount"
+  returns := .u64
+  params := #[]
+  body := #[
+    .return (.crosscallInvoke (.literal (.address 0)) (.literal (.address 1)) #[.literal (.u64 42)])
+  ]
+}
+
 def module : Module := {
   name := "NearCrosscallProbe"
   state := #[stateMarker]
-  entrypoints := #[callRemote]
+  entrypoints := #[callRemote, callRemoteWithAmount]
   nearCrosscallStrings := #["callee.testnet", "remote_call"]
 }
 
