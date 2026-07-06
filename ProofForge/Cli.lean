@@ -113,9 +113,11 @@ import ProofForge.Solana.Examples.LastRestartSlot
 import ProofForge.Solana.Examples.Memory
 import ProofForge.Solana.Examples.Crypto
 import ProofForge.Solana.Examples.ReturnDataCompute
+import ProofForge.Cli.JsonUtil
 
 open Lean
 open System
+open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
 
@@ -1164,36 +1166,6 @@ def sha256HexBytes (hex : String) : IO String := do
     return digest
   else
     throw <| IO.userError s!"python3 returned invalid SHA-256 digest for constructor args: {digest}"
-
-def jsonString (value : String) : String :=
-  let escapeChar : Char → String
-    | '"' => "\\\""
-    | '\\' => "\\\\"
-    | '\n' => "\\n"
-    | '\r' => "\\r"
-    | '\t' => "\\t"
-    | ch => ch.toString
-  "\"" ++ String.intercalate "" (value.toList.map escapeChar) ++ "\""
-
-def jsonBool (value : Bool) : String :=
-  if value then "true" else "false"
-
-def jsonObject (fields : Array (String × String)) : String :=
-  "{" ++ String.intercalate "," (fields.toList.map fun field => jsonString field.fst ++ ":" ++ field.snd) ++ "}"
-
-def jsonArray (values : Array String) : String :=
-  "[" ++ String.intercalate "," values.toList ++ "]"
-
-def jsonStringArray (values : Array String) : String :=
-  jsonArray (values.map jsonString)
-
-def jsonStringOption : Option String → String
-  | some value => jsonString value
-  | none => "null"
-
-def jsonNatOption : Option Nat → String
-  | some value => toString value
-  | none => "null"
 
 def storageLayoutJson (module : ProofForge.IR.Module) : String :=
   let layout := ProofForge.Backend.Evm.Plan.storageLayout module
