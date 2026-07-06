@@ -2203,6 +2203,55 @@ def lowerToken2022InitializeImmutableOwnerData : Array AstNode :=
     storeImm .stb .r8 0 22
   ]
 
+def lowerToken2022InitializePermanentDelegateData
+    (accountBindings : Array CpiAccountBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data token-2022.initialize_permanent_delegate: u8 instruction=35, pubkey delegate"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 35
+  ] ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.permanent_delegate" "permanent_delegate" 1
+
+def token2022InterestRate (cpi : CpiInvoke) : Nat :=
+  match cpiMetadataValue? cpi "solana.cpi.interest_rate" with
+  | some value => value.toNat?.getD 0
+  | none => 0
+
+def lowerToken2022InitializeInterestBearingMintData
+    (accountBindings : Array CpiAccountBinding) (cpi : CpiInvoke) : Array AstNode :=
+  let rate := token2022InterestRate cpi
+  #[
+    .comment s!"solana.cpi.data token-2022.initialize_interest_bearing_mint: u8 instruction=33, u8 interest_bearing_mint_instruction=0, pubkey rate_authority, i16 rate={rate}"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 33,
+    storeImm .stb .r8 1 0
+  ] ++
+  lowerCpiPubkeyField accountBindings cpi
+    "solana.cpi.interest_rate_authority" "interest_rate_authority" 2 ++ #[
+    loadImm .r3 rate,
+    storeReg .stxh .r8 34 .r3
+  ]
+
+def token2022MemoTransferInstruction (cpi : CpiInvoke) : Nat :=
+  match cpiMetadataValue? cpi "solana.cpi.memo_transfer_required" with
+  | some "false" => 1
+  | some "disable" => 1
+  | some "disabled" => 1
+  | _ => 0
+
+def lowerToken2022MemoTransferData (cpi : CpiInvoke) : Array AstNode :=
+  let subTag := token2022MemoTransferInstruction cpi
+  #[
+    .comment s!"solana.cpi.data token-2022.enable_required_memo_transfers: u8 instruction=30, u8 memo_transfer_instruction={subTag}"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 30,
+    storeImm .stb .r8 1 subTag
+  ]
+
 /-- Memo CPI data: raw bytes from the input binding. No discriminator — the
     Memo program accepts arbitrary bytes as instruction data. This initial
     lowering copies up to 8 bytes (one u64 word) from the binding's offset;
@@ -2274,6 +2323,12 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerToken2022InitializeDefaultAccountStateData cpi, 3)
   | some "token-2022.initialize_immutable_owner" =>
       (lowerToken2022InitializeImmutableOwnerData, 1)
+  | some "token-2022.initialize_permanent_delegate" =>
+      (lowerToken2022InitializePermanentDelegateData accountBindings cpi, 33)
+  | some "token-2022.initialize_interest_bearing_mint" =>
+      (lowerToken2022InitializeInterestBearingMintData accountBindings cpi, 36)
+  | some "token-2022.enable_required_memo_transfers" =>
+      (lowerToken2022MemoTransferData cpi, 2)
   | some "memo.memo" =>
       (lowerMemoData valueBindings cpi, 8)
   | some dl =>
@@ -2283,8 +2338,6 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       -- metadata in Token.lean but no sBPF instruction-data lowering yet.
       if dl == "token-2022.initialize_confidential_transfer_mint"
          ∨ dl == "token-2022.initialize_transfer_hook"
-         ∨ dl == "token-2022.initialize_permanent_delegate"
-         ∨ dl == "token-2022.initialize_interest_bearing_mint"
          ∨ dl == "token-2022.initialize_memo_transfer" then
         (#[.comment s!"UNSUPPORTED CPI dataLayout `{dl}`: plan scaffolded but sBPF lowering pending — runtime abort",
           .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 1) },

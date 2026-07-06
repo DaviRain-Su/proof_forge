@@ -3371,13 +3371,18 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   generated TypeScript clients, and package metadata. The helper emits
   `ComputeBudgetProgram` pre-instructions from the selected entrypoint; it is
   intentionally not lowered as an in-program syscall.
-- ✅ P0: Token-2022 direct sBPF CPI lowering now covers transfer-fee and
-  non-transferable instruction layouts in the Solana builder API, typed
-  `Surface` wrappers, manifest/IDL metadata, and sBPF instruction-data
-  packing. Covered layouts include `initialize_transfer_fee_config`,
-  `transfer_checked_with_fee`, withdraw/harvest fee collection,
-  `set_transfer_fee`, and `initialize_non_transferable_mint`. A live
-  generated-program Token-2022 direct-CPI gate remains a validation expansion.
+- ✅ P0: Token-2022 direct sBPF CPI lowering now covers transfer-fee,
+  non-transferable, metadata-pointer, default-account-state, immutable-owner,
+  permanent-delegate, interest-bearing, and memo-transfer instruction layouts
+  in the Solana builder API, typed `Surface` wrappers, manifest/IDL metadata,
+  and sBPF instruction-data packing. Covered layouts include
+  `initialize_transfer_fee_config`, `transfer_checked_with_fee`,
+  withdraw/harvest fee collection, `set_transfer_fee`,
+  `initialize_non_transferable_mint`, `initialize_metadata_pointer`,
+  `initialize_default_account_state`, `initialize_immutable_owner`,
+  `initialize_permanent_delegate`, `initialize_interest_bearing_mint`, and
+  `enable_required_memo_transfers`; the generated-program Token-2022
+  direct-CPI Surfpool/Web3.js gate verifies the initialized extension state.
 - P1: Memo/Stake/Vote CPI, confidential_transfer, transfer_hook,
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables

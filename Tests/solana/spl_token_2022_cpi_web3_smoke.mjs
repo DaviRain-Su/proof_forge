@@ -17,9 +17,13 @@ import {
   getAccountLen,
   getDefaultAccountState,
   getImmutableOwner,
+  getInterestBearingMintConfigState,
+  getMemoTransfer,
   getMetadataPointerState,
   getMint,
   getMintLen,
+  getNonTransferable,
+  getPermanentDelegate,
   getOrCreateAssociatedTokenAccount,
   getTransferFeeAmount,
   getTransferFeeConfig,
@@ -28,6 +32,7 @@ import {
 import fs from "node:fs";
 
 const ACCOUNT_STATE_FROZEN = 2;
+const INTEREST_RATE_BASIS_POINTS = 250;
 
 function readKeypair(path) {
   const bytes = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -136,6 +141,9 @@ function validateInstructionSchemas(artifact) {
     "initialize_metadata_pointer",
     "initialize_default_account_state",
     "initialize_immutable_owner",
+    "initialize_permanent_delegate",
+    "initialize_interest_bearing",
+    "enable_memo_transfer",
   ];
   require(JSON.stringify(names) === JSON.stringify(expectedNames), `instruction names mismatch: ${JSON.stringify(names)}`);
 
@@ -150,11 +158,17 @@ function validateInstructionSchemas(artifact) {
     "withdraw_withheld_authority",
     "withheld_source",
     "transfer_fee_config_authority",
+    "non_transferable_mint",
     "metadata_pointer_mint",
     "default_state_mint",
     "immutable_owner_account",
+    "permanent_delegate_mint",
+    "interest_bearing_mint",
+    "memo_transfer_account",
     "metadata_pointer_authority",
     "metadata_address",
+    "permanent_delegate",
+    "interest_rate_authority",
   ];
   for (const instruction of instructions) {
     const accountNames = (instruction.accounts ?? []).map((account) => account.name);
@@ -182,6 +196,9 @@ function validateInstructionSchemas(artifact) {
     instructions[7],
     instructions[8],
     instructions[9],
+    instructions[10],
+    instructions[11],
+    instructions[12],
   ]) {
     require((instruction.params ?? []).length === 0, `instruction ${instruction.name} should not declare params`);
   }
@@ -198,6 +215,9 @@ function validateInstructionSchemas(artifact) {
     token_2022_init_metadata_pointer: "token-2022.initialize_metadata_pointer",
     token_2022_init_default_account_state: "token-2022.initialize_default_account_state",
     token_2022_init_immutable_owner: "token-2022.initialize_immutable_owner",
+    token_2022_init_permanent_delegate: "token-2022.initialize_permanent_delegate",
+    token_2022_init_interest_bearing: "token-2022.initialize_interest_bearing_mint",
+    token_2022_enable_memo_transfer: "token-2022.enable_required_memo_transfers",
   };
   require(JSON.stringify(Object.keys(cpis)) === JSON.stringify(Object.keys(expectedCpis)), `CPI names mismatch: ${JSON.stringify(Object.keys(cpis))}`);
   for (const [name, layout] of Object.entries(expectedCpis)) {
@@ -212,6 +232,10 @@ function validateInstructionSchemas(artifact) {
   require(cpis.token_2022_init_metadata_pointer.metadataPointerAuthority === "metadata_pointer_authority", "metadata_pointer missing authority source");
   require(cpis.token_2022_init_metadata_pointer.metadataAddress === "metadata_address", "metadata_pointer missing metadata address source");
   require(cpis.token_2022_init_default_account_state.defaultAccountState === String(ACCOUNT_STATE_FROZEN), "default_account_state mismatch");
+  require(cpis.token_2022_init_permanent_delegate.permanentDelegate === "permanent_delegate", "permanent_delegate missing delegate source");
+  require(cpis.token_2022_init_interest_bearing.interestRateAuthority === "interest_rate_authority", "interest_bearing missing authority source");
+  require(cpis.token_2022_init_interest_bearing.interestRate === String(INTEREST_RATE_BASIS_POINTS), "interest_bearing rate mismatch");
+  require(cpis.token_2022_enable_memo_transfer.memoTransferRequired === "true", "memo_transfer required flag mismatch");
   return instructions;
 }
 
@@ -314,11 +338,23 @@ async function main() {
     await createMintAccountWithExtensions(connection, payer, []);
   const { account: immutableOwnerAccount, signature: createImmutableOwnerAccountSignature } =
     await createTokenAccountWithExtensions(connection, payer, [ExtensionType.ImmutableOwner]);
+  const { mint: nonTransferableMint, signature: createNonTransferableMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.NonTransferable]);
+  const { mint: permanentDelegateMint, signature: createPermanentDelegateMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.PermanentDelegate]);
+  const { mint: interestBearingMint, signature: createInterestBearingMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, [ExtensionType.InterestBearingConfig]);
+  const { mint: memoTransferMint, signature: createMemoTransferMintAccountSignature } =
+    await createMintAccountWithExtensions(connection, payer, []);
+  const { account: memoTransferAccount, signature: createMemoTransferAccountSignature } =
+    await createTokenAccountWithExtensions(connection, payer, [ExtensionType.MemoTransfer]);
   const tokenOwner = await createScratchAccount(connection, payer);
   const withdrawWithheldAuthority = await createScratchAccount(connection, payer);
   const transferFeeConfigAuthority = await createScratchAccount(connection, payer);
   const metadataPointerAuthority = await createScratchAccount(connection, payer);
   const metadataAddress = await createScratchAccount(connection, payer);
+  const permanentDelegate = await createScratchAccount(connection, payer);
+  const interestRateAuthority = await createScratchAccount(connection, payer);
   const scratchSource = await createScratchAccount(connection, payer);
   const scratchDestination = await createScratchAccount(connection, payer);
   const scratchFeeReceiver = await createScratchAccount(connection, payer);
@@ -338,8 +374,14 @@ async function main() {
     metadata_pointer_mint: metadataPointerMint.publicKey,
     default_state_mint: defaultStateMint.publicKey,
     immutable_owner_account: immutableOwnerAccount.publicKey,
+    non_transferable_mint: nonTransferableMint.publicKey,
+    permanent_delegate_mint: permanentDelegateMint.publicKey,
+    interest_bearing_mint: interestBearingMint.publicKey,
+    memo_transfer_account: memoTransferAccount.publicKey,
     metadata_pointer_authority: metadataPointerAuthority.publicKey,
     metadata_address: metadataAddress.publicKey,
+    permanent_delegate: permanentDelegate.publicKey,
+    interest_rate_authority: interestRateAuthority.publicKey,
   });
   const pubkeysFor = (overrides) => ({ ...basePubkeys(), ...overrides });
 
@@ -589,6 +631,34 @@ async function main() {
   assertAmount("state last_basis_points after set", readU64LEAt(stateAccount.data, 16), nextBasisPoints);
   assertAmount("state last_maximum_fee after set", readU64LEAt(stateAccount.data, 24), nextMaximumFee);
 
+  const initNonTransferableSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_non_transferable,
+    pubkeysFor({}),
+    writeData(6),
+    generatedSigners,
+  );
+  const initializeNonTransferableMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        nonTransferableMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const nonTransferableMintState = await getMint(connection, nonTransferableMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  require(getNonTransferable(nonTransferableMintState) !== null, "mint missing NonTransferable extension after generated init");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_non_transferable");
+  assertAmount("state marker after initialize_non_transferable", readU64LEAt(stateAccount.data, 32), 4n);
+
   const initMetadataPointerSignature = await invokeGenerated(
     connection,
     payer,
@@ -690,6 +760,109 @@ async function main() {
   require(stateAccount !== null, "state missing after initialize_immutable_owner");
   assertAmount("state marker after initialize_immutable_owner", readU64LEAt(stateAccount.data, 32), 7n);
 
+  const initPermanentDelegateSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_permanent_delegate,
+    pubkeysFor({}),
+    writeData(10),
+    generatedSigners,
+  );
+  const initializePermanentDelegateMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        permanentDelegateMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const permanentDelegateMintState = await getMint(connection, permanentDelegateMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const permanentDelegateState = getPermanentDelegate(permanentDelegateMintState);
+  require(permanentDelegateState !== null, "mint missing PermanentDelegate extension after generated init");
+  require(permanentDelegateState.delegate.equals(permanentDelegate.publicKey), "permanent delegate mismatch");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_permanent_delegate");
+  assertAmount("state marker after initialize_permanent_delegate", readU64LEAt(stateAccount.data, 32), 8n);
+
+  const initInterestBearingSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.initialize_interest_bearing,
+    pubkeysFor({}),
+    writeData(11),
+    generatedSigners,
+  );
+  const initializeInterestBearingMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        interestBearingMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const interestBearingMintState = await getMint(connection, interestBearingMint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const interestBearingState = getInterestBearingMintConfigState(interestBearingMintState);
+  require(interestBearingState !== null, "mint missing InterestBearingConfig extension after generated init");
+  require(interestBearingState.rateAuthority.equals(interestRateAuthority.publicKey), "interest-bearing rate authority mismatch");
+  require(interestBearingState.currentRate === INTEREST_RATE_BASIS_POINTS, `interest-bearing rate mismatch: ${interestBearingState.currentRate}`);
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after initialize_interest_bearing");
+  assertAmount("state marker after initialize_interest_bearing", readU64LEAt(stateAccount.data, 32), 9n);
+
+  const initializeMemoTransferMintSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeMintInstruction(
+        memoTransferMint.publicKey,
+        decimals,
+        payer.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const initializeMemoTransferAccountSignature = await sendAndPollTransaction(
+    connection,
+    new Transaction().add(
+      createInitializeAccountInstruction(
+        memoTransferAccount.publicKey,
+        memoTransferMint.publicKey,
+        tokenOwner.publicKey,
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [payer],
+  );
+  const enableMemoTransferSignature = await invokeGenerated(
+    connection,
+    payer,
+    programId,
+    byName.enable_memo_transfer,
+    pubkeysFor({}),
+    writeData(12),
+    generatedSigners,
+  );
+  const memoTransferAccountState = await getAccount(connection, memoTransferAccount.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+  const memoTransferState = getMemoTransfer(memoTransferAccountState);
+  require(memoTransferState !== null, "token account missing MemoTransfer extension after generated enable");
+  require(memoTransferState.requireIncomingTransferMemos === true, "memo-transfer required flag mismatch");
+  stateAccount = await connection.getAccountInfo(state.publicKey, "confirmed");
+  require(stateAccount !== null, "state missing after enable_memo_transfer");
+  assertAmount("state marker after enable_memo_transfer", readU64LEAt(stateAccount.data, 32), 10n);
+
   console.log(JSON.stringify({
     programId: programId.toBase58(),
     state: state.publicKey.toBase58(),
@@ -702,8 +875,15 @@ async function main() {
     defaultStateMint: defaultStateMint.publicKey.toBase58(),
     immutableOwnerMint: immutableOwnerMint.publicKey.toBase58(),
     immutableOwnerAccount: immutableOwnerAccount.publicKey.toBase58(),
+    nonTransferableMint: nonTransferableMint.publicKey.toBase58(),
+    permanentDelegateMint: permanentDelegateMint.publicKey.toBase58(),
+    interestBearingMint: interestBearingMint.publicKey.toBase58(),
+    memoTransferMint: memoTransferMint.publicKey.toBase58(),
+    memoTransferAccount: memoTransferAccount.publicKey.toBase58(),
     metadataPointerAuthority: metadataPointerAuthority.publicKey.toBase58(),
     metadataAddress: metadataAddress.publicKey.toBase58(),
+    permanentDelegate: permanentDelegate.publicKey.toBase58(),
+    interestRateAuthority: interestRateAuthority.publicKey.toBase58(),
     ownerAta: ownerAta.address.toBase58(),
     recipientAta: recipientAta.address.toBase58(),
     harvestRecipientAta: harvestRecipientAta.address.toBase58(),
@@ -717,6 +897,7 @@ async function main() {
     maximumFee: maximumFee.toString(),
     nextBasisPoints: nextBasisPoints.toString(),
     nextMaximumFee: nextMaximumFee.toString(),
+    interestRateBasisPoints: String(INTEREST_RATE_BASIS_POINTS),
     ownerFinal: ownerAccount.amount.toString(),
     feeReceiverFinal: feeReceiverAccount.amount.toString(),
     signatures: {
@@ -730,6 +911,9 @@ async function main() {
       harvestToMint: harvestToMintSignature,
       withdrawFromMint: withdrawFromMintSignature,
       setFee: setFeeSignature,
+      createNonTransferableMintAccount: createNonTransferableMintAccountSignature,
+      initNonTransferable: initNonTransferableSignature,
+      initializeNonTransferableMint: initializeNonTransferableMintSignature,
       createMetadataPointerMintAccount: createMetadataPointerMintAccountSignature,
       initMetadataPointer: initMetadataPointerSignature,
       initializeMetadataPointerMint: initializeMetadataPointerMintSignature,
@@ -741,6 +925,17 @@ async function main() {
       createImmutableOwnerAccount: createImmutableOwnerAccountSignature,
       initImmutableOwner: initImmutableOwnerSignature,
       initializeImmutableOwnerAccount: initializeImmutableOwnerAccountSignature,
+      createPermanentDelegateMintAccount: createPermanentDelegateMintAccountSignature,
+      initPermanentDelegate: initPermanentDelegateSignature,
+      initializePermanentDelegateMint: initializePermanentDelegateMintSignature,
+      createInterestBearingMintAccount: createInterestBearingMintAccountSignature,
+      initInterestBearing: initInterestBearingSignature,
+      initializeInterestBearingMint: initializeInterestBearingMintSignature,
+      createMemoTransferMintAccount: createMemoTransferMintAccountSignature,
+      createMemoTransferAccount: createMemoTransferAccountSignature,
+      initializeMemoTransferMint: initializeMemoTransferMintSignature,
+      initializeMemoTransferAccount: initializeMemoTransferAccountSignature,
+      enableMemoTransfer: enableMemoTransferSignature,
     },
   }));
 }

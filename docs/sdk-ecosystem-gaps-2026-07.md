@@ -102,7 +102,7 @@ missing.
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
 | Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Web3.js behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
-| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner direct CPI subset | P1 |
+| Stake / Vote / Config | Missing | Extension lowering covers System, Memo, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner/permanent-delegate/interest-bearing/memo-transfer direct CPI subset | P1 |
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions
@@ -110,13 +110,15 @@ missing.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | transfer_fee | Covered | Plan/Surfpool execution plus direct sBPF CPI layouts for initialize config, transfer_checked_with_fee, withdraw/harvest, and set_transfer_fee; `solana-spl-token-2022-cpi-web3` deploys the generated program on Surfpool and executes the transfer-fee direct-CPI behavior path | — |
-| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; static packing covers the generated direct-CPI helper | — |
+| non_transferable | Covered | Plan/Surfpool execution plus direct sBPF CPI layout for initialize_non_transferable_mint; `solana-spl-token-2022-cpi-web3` verifies the generated direct-CPI helper through `getNonTransferable` | — |
 | metadata_pointer | Covered | `splToken2022InitializeMetadataPointer` builder/surface helper emits `token-2022.initialize_metadata_pointer`; sBPF packs `[39, 0, authority, metadata_address]` and `solana-spl-token-2022-cpi-web3` verifies the initialized extension through `getMetadataPointerState` | — |
 | default_account_state | Covered | `splToken2022InitializeDefaultAccountState` builder/surface helper emits `token-2022.initialize_default_account_state`; sBPF packs `[28, 0, state]` and `solana-spl-token-2022-cpi-web3` verifies the initialized frozen default state through `getDefaultAccountState` | — |
 | immutable_owner | Covered | `splToken2022InitializeImmutableOwner` builder/surface helper emits top-level Token-2022 `InitializeImmutableOwner` tag 22 and `solana-spl-token-2022-cpi-web3` verifies the token-account extension through `getImmutableOwner` | — |
+| permanent_delegate | Covered | `splToken2022InitializePermanentDelegate` builder/surface helper emits top-level Token-2022 `InitializePermanentDelegate` tag 35, packs the delegate pubkey, and `solana-spl-token-2022-cpi-web3` verifies the mint extension through `getPermanentDelegate` | — |
+| interest_bearing | Covered | `splToken2022InitializeInterestBearingMint` builder/surface helper emits `InterestBearingMintExtension` tag 33 sub-instruction 0, packs the rate authority pubkey plus initial i16 rate, and `solana-spl-token-2022-cpi-web3` verifies `getInterestBearingMintConfigState` | — |
+| memo_transfer | Covered | `splToken2022EnableRequiredMemoTransfers` builder/surface helper emits `MemoTransferExtension` tag 30 sub-instruction 0 and `solana-spl-token-2022-cpi-web3` verifies `getMemoTransfer(...).requireIncomingTransferMemos` | — |
 | confidential_transfer | Missing | No plan or backend support | P1 |
 | transfer_hook | Missing | No plan or backend support | P1 |
-| permanent_delegate / interest_bearing / memo_transfer | Missing | No plan or backend support | P2 |
 
 ### Ecosystem
 

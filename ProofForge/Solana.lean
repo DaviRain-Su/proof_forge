@@ -818,6 +818,51 @@ def splToken2022InitializeImmutableOwnerCall (name account : String) :
   extraMetadata := token2022Metadata
 }
 
+def splToken2022InitializePermanentDelegateCall
+    (name mint permanentDelegate : String) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_permanent_delegate"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_permanent_delegate"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.permanent_delegate" permanentDelegate
+  ]
+}
+
+def splToken2022InitializeInterestBearingMintCall
+    (name mint rateAuthority : String) (rate : Nat) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "initialize_interest_bearing_mint"
+  accounts := #[
+    writableAccount mint
+  ]
+  dataLayout? := some "token-2022.initialize_interest_bearing_mint"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.interest_rate_authority" rateAuthority,
+    kv "solana.cpi.interest_rate" (toString rate)
+  ]
+}
+
+def splToken2022EnableRequiredMemoTransfersCall
+    (name account authority : String) (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := splToken2022Program
+  instruction := "enable_required_memo_transfers"
+  accounts := #[
+    writableAccount account,
+    signerForSeeds authority .readOnly signerSeeds
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "token-2022.enable_required_memo_transfers"
+  extraMetadata := token2022Metadata ++ #[
+    kv "solana.cpi.memo_transfer_required" "true"
+  ]
+}
+
 def splTokenMintToCall (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) : CpiCall := {
   name := name
@@ -1590,6 +1635,34 @@ def splToken2022InitializeImmutableOwner (name account : String) :
 def invokeSplToken2022InitializeImmutableOwner (name account : String) :
     ProofForge.Contract.Builder.EntryM Unit :=
   cpiEntry (splToken2022InitializeImmutableOwnerCall name account)
+
+def splToken2022InitializePermanentDelegate
+    (name mint permanentDelegate : String) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializePermanentDelegateCall name mint permanentDelegate)
+
+def invokeSplToken2022InitializePermanentDelegate
+    (name mint permanentDelegate : String) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializePermanentDelegateCall name mint permanentDelegate)
+
+def splToken2022InitializeInterestBearingMint
+    (name mint rateAuthority : String) (rate : Nat) : ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022InitializeInterestBearingMintCall name mint rateAuthority rate)
+
+def invokeSplToken2022InitializeInterestBearingMint
+    (name mint rateAuthority : String) (rate : Nat) : ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022InitializeInterestBearingMintCall name mint rateAuthority rate)
+
+def splToken2022EnableRequiredMemoTransfers
+    (name account authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (splToken2022EnableRequiredMemoTransfersCall name account authority
+    (signerSeeds := signerSeeds))
+
+def invokeSplToken2022EnableRequiredMemoTransfers
+    (name account authority : String) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (splToken2022EnableRequiredMemoTransfersCall name account authority
+    (signerSeeds := signerSeeds))
 
 def splTokenMintTo (name mint destination authority amountSource : String)
     (tokenProgram : String := splTokenProgram) (signerSeeds : Array String := #[]) :

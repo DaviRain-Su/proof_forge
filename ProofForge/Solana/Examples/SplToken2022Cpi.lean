@@ -25,8 +25,14 @@ def spec : ProofForge.Contract.ContractSpec :=
     writableAccountConstraint "metadata_pointer_mint"
     writableAccountConstraint "default_state_mint"
     writableAccountConstraint "immutable_owner_account"
+    writableAccountConstraint "non_transferable_mint"
+    writableAccountConstraint "permanent_delegate_mint"
+    writableAccountConstraint "interest_bearing_mint"
+    writableAccountConstraint "memo_transfer_account"
     readonlyAccountConstraint "metadata_pointer_authority"
     readonlyAccountConstraint "metadata_address"
+    readonlyAccountConstraint "permanent_delegate"
+    readonlyAccountConstraint "interest_rate_authority"
 
     splToken2022InitializeTransferFeeConfig
       "token_2022_init_fee_config"
@@ -73,7 +79,7 @@ def spec : ProofForge.Contract.ContractSpec :=
 
     splToken2022InitializeNonTransferableMint
       "token_2022_init_non_transferable"
-      "mint"
+      "non_transferable_mint"
 
     splToken2022InitializeMetadataPointer
       "token_2022_init_metadata_pointer"
@@ -89,6 +95,22 @@ def spec : ProofForge.Contract.ContractSpec :=
     splToken2022InitializeImmutableOwner
       "token_2022_init_immutable_owner"
       "immutable_owner_account"
+
+    splToken2022InitializePermanentDelegate
+      "token_2022_init_permanent_delegate"
+      "permanent_delegate_mint"
+      "permanent_delegate"
+
+    splToken2022InitializeInterestBearingMint
+      "token_2022_init_interest_bearing"
+      "interest_bearing_mint"
+      "interest_rate_authority"
+      250
+
+    splToken2022EnableRequiredMemoTransfers
+      "token_2022_enable_memo_transfer"
+      "memo_transfer_account"
+      "authority"
 
     entrySelectorWithParams "init_fee_config" "08"
         #[("basis_points", .u64), ("maximum_fee", .u64)] .unit do
@@ -154,7 +176,7 @@ def spec : ProofForge.Contract.ContractSpec :=
     entrySelector "initialize_non_transferable" "0e" do
       invokeSplToken2022InitializeNonTransferableMint
         "token_2022_init_non_transferable"
-        "mint"
+        "non_transferable_mint"
       effect (storageScalarWrite "last_marker" (u64 4))
 
     entrySelector "initialize_metadata_pointer" "0f" do
@@ -177,6 +199,28 @@ def spec : ProofForge.Contract.ContractSpec :=
         "token_2022_init_immutable_owner"
         "immutable_owner_account"
       effect (storageScalarWrite "last_marker" (u64 7))
+
+    entrySelector "initialize_permanent_delegate" "12" do
+      invokeSplToken2022InitializePermanentDelegate
+        "token_2022_init_permanent_delegate"
+        "permanent_delegate_mint"
+        "permanent_delegate"
+      effect (storageScalarWrite "last_marker" (u64 8))
+
+    entrySelector "initialize_interest_bearing" "13" do
+      invokeSplToken2022InitializeInterestBearingMint
+        "token_2022_init_interest_bearing"
+        "interest_bearing_mint"
+        "interest_rate_authority"
+        250
+      effect (storageScalarWrite "last_marker" (u64 9))
+
+    entrySelector "enable_memo_transfer" "14" do
+      invokeSplToken2022EnableRequiredMemoTransfers
+        "token_2022_enable_memo_transfer"
+        "memo_transfer_account"
+        "authority"
+      effect (storageScalarWrite "last_marker" (u64 10))
 
 def module : ProofForge.IR.Module :=
   spec.module

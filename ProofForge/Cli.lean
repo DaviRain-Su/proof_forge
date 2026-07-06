@@ -1983,6 +1983,22 @@ def solanaCpiJson (cpi : ProofForge.Backend.Solana.Extension.CpiInvoke) : String
       match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.default_account_state" with
       | some value => jsonString value
       | none => "null"),
+    ("permanentDelegate",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.permanent_delegate" with
+      | some value => jsonString value
+      | none => "null"),
+    ("interestRateAuthority",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.interest_rate_authority" with
+      | some value => jsonString value
+      | none => "null"),
+    ("interestRate",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.interest_rate" with
+      | some value => jsonString value
+      | none => "null"),
+    ("memoTransferRequired",
+      match ProofForge.Backend.Solana.Extension.metadataValue? cpi.metadata "solana.cpi.memo_transfer_required" with
+      | some value => jsonString value
+      | none => "null"),
     ("signed", jsonBool cpi.signed)
   ]
 

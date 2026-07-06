@@ -1503,11 +1503,15 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   会根据所选 entrypoint 发射 `ComputeBudgetProgram` 前置指令；它有意不作为合约程序内部 syscall lowering。
 - ✅ P0：Token-2022 direct sBPF CPI lowering 现在覆盖 Solana builder API、
   typed `Surface` wrapper、manifest/IDL 元数据以及 sBPF instruction-data
-  packing 中的 transfer-fee 和 non-transferable 指令布局。已覆盖
+  packing 中的 transfer-fee、non-transferable、metadata-pointer、
+  default-account-state、immutable-owner、permanent-delegate、
+  interest-bearing 和 memo-transfer 指令布局。已覆盖
   `initialize_transfer_fee_config`、`transfer_checked_with_fee`、费用
-  withdraw/harvest、`set_transfer_fee` 和
-  `initialize_non_transferable_mint`。生成程序的 Token-2022 direct-CPI
-  live gate 仍作为后续验证扩展继续推进。
+  withdraw/harvest、`set_transfer_fee`、`initialize_non_transferable_mint`、
+  `initialize_metadata_pointer`、`initialize_default_account_state`、
+  `initialize_immutable_owner`、`initialize_permanent_delegate`、
+  `initialize_interest_bearing_mint` 和 `enable_required_memo_transfers`；
+  生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态。
 - P1：Memo/Stake/Vote CPI、confidential_transfer、transfer_hook、
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables

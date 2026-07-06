@@ -277,6 +277,42 @@ def invokeSplToken2022InitializeImmutableOwner (call : CpiRef) (account : Accoun
     ProofForge.Contract.Surface.EntryM Unit :=
   ProofForge.Solana.invokeSplToken2022InitializeImmutableOwner call.name account.name
 
+def splToken2022InitializePermanentDelegate
+    (call : CpiRef) (mint permanentDelegate : AccountRef) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializePermanentDelegate call.name mint.name
+    permanentDelegate.name
+
+def invokeSplToken2022InitializePermanentDelegate
+    (call : CpiRef) (mint permanentDelegate : AccountRef) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializePermanentDelegate call.name mint.name
+    permanentDelegate.name
+
+def splToken2022InitializeInterestBearingMint
+    (call : CpiRef) (mint rateAuthority : AccountRef) (rate : Nat) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022InitializeInterestBearingMint call.name mint.name
+    rateAuthority.name rate
+
+def invokeSplToken2022InitializeInterestBearingMint
+    (call : CpiRef) (mint rateAuthority : AccountRef) (rate : Nat) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022InitializeInterestBearingMint call.name mint.name
+    rateAuthority.name rate
+
+def splToken2022EnableRequiredMemoTransfers
+    (call : CpiRef) (account authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.ModuleM Unit :=
+  ProofForge.Solana.splToken2022EnableRequiredMemoTransfers call.name account.name
+    authority.name (signerSeeds := signerSeeds)
+
+def invokeSplToken2022EnableRequiredMemoTransfers
+    (call : CpiRef) (account authority : AccountRef) (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Surface.EntryM Unit :=
+  ProofForge.Solana.invokeSplToken2022EnableRequiredMemoTransfers call.name account.name
+    authority.name (signerSeeds := signerSeeds)
+
 def splTokenMintTo (call : CpiRef) (mint destination authority : AccountRef)
     (amountSource : ProofForge.Contract.Surface.BindingRef)
     (tokenProgram : String := ProofForge.Solana.splTokenProgram)

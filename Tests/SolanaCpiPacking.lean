@@ -445,6 +445,20 @@ def main : IO UInt32 := do
         "Token-2022 manifest missing default-account-state metadata"
       require (contains manifest "data_layout = \"token-2022.initialize_immutable_owner\"")
         "Token-2022 manifest missing immutable-owner layout"
+      require (contains manifest "data_layout = \"token-2022.initialize_permanent_delegate\"")
+        "Token-2022 manifest missing permanent-delegate layout"
+      require (contains manifest "permanent_delegate = \"permanent_delegate\"")
+        "Token-2022 manifest missing permanent-delegate metadata"
+      require (contains manifest "data_layout = \"token-2022.initialize_interest_bearing_mint\"")
+        "Token-2022 manifest missing interest-bearing layout"
+      require (contains manifest "interest_rate_authority = \"interest_rate_authority\"")
+        "Token-2022 manifest missing interest-rate authority metadata"
+      require (contains manifest "interest_rate = \"250\"")
+        "Token-2022 manifest missing interest rate metadata"
+      require (contains manifest "data_layout = \"token-2022.enable_required_memo_transfers\"")
+        "Token-2022 manifest missing memo-transfer layout"
+      require (contains manifest "memo_transfer_required = \"true\"")
+        "Token-2022 manifest missing memo-transfer metadata"
       require (contains manifest "num_token_accounts = \"1\"")
         "Token-2022 manifest missing withheld source count"
       require (contains idl "\"feeSource\": \"fee\"")
@@ -461,6 +475,14 @@ def main : IO UInt32 := do
         "Token-2022 IDL missing metadataAddress"
       require (contains idl "\"defaultAccountState\": \"2\"")
         "Token-2022 IDL missing defaultAccountState"
+      require (contains idl "\"permanentDelegate\": \"permanent_delegate\"")
+        "Token-2022 IDL missing permanentDelegate"
+      require (contains idl "\"interestRateAuthority\": \"interest_rate_authority\"")
+        "Token-2022 IDL missing interestRateAuthority"
+      require (contains idl "\"interestRate\": \"250\"")
+        "Token-2022 IDL missing interestRate"
+      require (contains idl "\"memoTransferRequired\": \"true\"")
+        "Token-2022 IDL missing memoTransferRequired"
       require (contains asm "sol_cpi_token_2022_init_fee_config:")
         "assembly missing Token-2022 init fee config helper label"
       require (contains asm "sol_cpi_token_2022_transfer_with_fee:")
@@ -473,6 +495,12 @@ def main : IO UInt32 := do
         "assembly missing Token-2022 default-account-state helper label"
       require (contains asm "sol_cpi_token_2022_init_immutable_owner:")
         "assembly missing Token-2022 immutable-owner helper label"
+      require (contains asm "sol_cpi_token_2022_init_permanent_delegate:")
+        "assembly missing Token-2022 permanent-delegate helper label"
+      require (contains asm "sol_cpi_token_2022_init_interest_bearing:")
+        "assembly missing Token-2022 interest-bearing helper label"
+      require (contains asm "sol_cpi_token_2022_enable_memo_transfer:")
+        "assembly missing Token-2022 memo-transfer helper label"
       require (contains asm "solana.cpi.program_id spl_token_2022 TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
         "assembly missing Token-2022 program id packing marker"
       require (contains asm "solana.cpi.data token-2022.initialize_transfer_fee_config: u8 instruction=26, u8 transfer_fee_instruction=0")
@@ -509,6 +537,16 @@ def main : IO UInt32 := do
         "assembly missing initialize_default_account_state data packing marker"
       require (contains asm "solana.cpi.data token-2022.initialize_immutable_owner: u8 instruction=22")
         "assembly missing initialize_immutable_owner data packing marker"
+      require (contains asm "solana.cpi.data token-2022.initialize_permanent_delegate: u8 instruction=35, pubkey delegate")
+        "assembly missing initialize_permanent_delegate data packing marker"
+      require (contains asm "solana.cpi.value permanent_delegate from account permanent_delegate")
+        "assembly missing permanent delegate pubkey binding"
+      require (contains asm "solana.cpi.data token-2022.initialize_interest_bearing_mint: u8 instruction=33, u8 interest_bearing_mint_instruction=0, pubkey rate_authority, i16 rate=250")
+        "assembly missing initialize_interest_bearing_mint data packing marker"
+      require (contains asm "solana.cpi.value interest_rate_authority from account interest_rate_authority")
+        "assembly missing interest-rate authority pubkey binding"
+      require (contains asm "solana.cpi.data token-2022.enable_required_memo_transfers: u8 instruction=30, u8 memo_transfer_instruction=0")
+        "assembly missing enable_required_memo_transfers data packing marker"
       require (contains asm "mov64 r3, 78")
         "assembly missing initialize_transfer_fee_config data length"
       require (contains asm "mov64 r3, 19")
@@ -519,6 +557,12 @@ def main : IO UInt32 := do
         "assembly missing initialize_metadata_pointer data length"
       require (contains asm "mov64 r3, 3")
         "assembly missing initialize_default_account_state data length"
+      require (contains asm "mov64 r3, 33")
+        "assembly missing initialize_permanent_delegate data length"
+      require (contains asm "mov64 r3, 36")
+        "assembly missing initialize_interest_bearing_mint data length"
+      require (contains asm "mov64 r3, 2")
+        "assembly missing memo-transfer data length"
       require (contains asm "stb [r8+0], 26")
         "assembly missing Token-2022 extension top-level tag store"
       require (contains asm "stb [r8+1], 1")
@@ -545,6 +589,16 @@ def main : IO UInt32 := do
         "assembly missing default-account-state frozen state store"
       require (contains asm "stb [r8+0], 22")
         "assembly missing immutable-owner instruction tag store"
+      require (contains asm "stb [r8+0], 35")
+        "assembly missing permanent-delegate instruction tag store"
+      require (contains asm "stb [r8+0], 33")
+        "assembly missing interest-bearing instruction tag store"
+      require (contains asm "mov64 r3, 250")
+        "assembly missing interest-bearing rate immediate load"
+      require (contains asm "stxh [r8+34], r3")
+        "assembly missing interest-bearing rate store"
+      require (contains asm "stb [r8+0], 30")
+        "assembly missing memo-transfer instruction tag store"
       require (contains asm "call sol_cpi_token_2022_transfer_with_fee")
         "assembly missing transfer_with_fee entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_2022_init_non_transferable")
@@ -555,6 +609,12 @@ def main : IO UInt32 := do
         "assembly missing default-account-state entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_2022_init_immutable_owner")
         "assembly missing immutable-owner entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_permanent_delegate")
+        "assembly missing permanent-delegate entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_init_interest_bearing")
+        "assembly missing interest-bearing entrypoint CPI helper call"
+      require (contains asm "call sol_cpi_token_2022_enable_memo_transfer")
+        "assembly missing memo-transfer entrypoint CPI helper call"
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 CPI packing render failed: {err.render}"
 

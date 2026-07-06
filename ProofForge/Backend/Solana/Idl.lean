@@ -220,6 +220,10 @@ def cpiJson (cpi : CpiInvoke) : String :=
     cpiMetadataJson cpi "solana.cpi.metadata_pointer_authority" "metadataPointerAuthority",
     cpiMetadataJson cpi "solana.cpi.metadata_address" "metadataAddress",
     cpiMetadataJson cpi "solana.cpi.default_account_state" "defaultAccountState",
+    cpiMetadataJson cpi "solana.cpi.permanent_delegate" "permanentDelegate",
+    cpiMetadataJson cpi "solana.cpi.interest_rate_authority" "interestRateAuthority",
+    cpiMetadataJson cpi "solana.cpi.interest_rate" "interestRate",
+    cpiMetadataJson cpi "solana.cpi.memo_transfer_required" "memoTransferRequired",
     ("signed", jsonBool cpi.signed),
     ("entrypoint", jsonStringOption cpi.entrypoint?)
   ]
