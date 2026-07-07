@@ -17,6 +17,7 @@ SOLANA_DIR="$OUT_DIR/solana"
 PROOF_TOKEN="Examples/Learn/ProofToken.learn"
 FEE_TOKEN="Examples/Learn/FeeToken.learn"
 LEAN_TOKEN="Examples/Shared/FungibleToken.lean"
+LEAN_FEE_TOKEN="Examples/Shared/FeeToken.lean"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -193,8 +194,46 @@ assert plan["validation"]["planGeneration"] == "passed"
 print("learn solana spl-token plan: ok")
 PY
 
-echo "=== Token intent step 5: emit legacy Learn token to Solana Token-2022 plan ==="
-SOLANA_TOKEN_2022_PLAN="$SOLANA_DIR/FeeToken.solana-token-plan.json"
+echo "=== Token intent step 5: emit Lean TokenSpec to Solana Token-2022 plan ==="
+LEAN_SOLANA_TOKEN_2022_PLAN="$SOLANA_DIR/FeeToken.solana-token-plan.json"
+lake env proof-forge build --target solana-sbpf-asm --token --root . \
+  -o "$LEAN_SOLANA_TOKEN_2022_PLAN" \
+  "$LEAN_FEE_TOKEN" \
+  || fail "proof-forge build --target solana-sbpf-asm --token failed for Lean TokenSpec transfer-fee"
+
+require_file "$LEAN_SOLANA_TOKEN_2022_PLAN"
+python3 - "$LEAN_SOLANA_TOKEN_2022_PLAN" <<'PY'
+import json
+import sys
+
+plan = json.load(open(sys.argv[1]))
+assert plan["format"] == "proof-forge-token-plan-v0"
+assert plan["sourceKind"] == "lean-token-source"
+assert plan["target"] == "solana-sbpf-asm"
+assert plan["targetFamily"] == "solana"
+assert plan["standard"] == "spl-token-2022"
+assert plan["artifactKind"] == "solana-token-2022-plan"
+assert "token-2022.extension.transfer_fee" in plan["operations"]
+assert plan["solana"]["programs"]["token"] == "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+extensions = [extension["extension"] for extension in plan["solana"]["extensions"]]
+assert "transfer_fee_config" in extensions
+names = [instruction["name"] for instruction in plan["solana"]["instructions"]]
+assert "initialize_transfer_fee_config" in names
+assert names.index("initialize_transfer_fee_config") < names.index("initialize_mint")
+for name in [
+    "transfer_checked_with_fee",
+    "withdraw_withheld_tokens_from_accounts",
+    "harvest_withheld_tokens_to_mint",
+    "withdraw_withheld_tokens_from_mint",
+]:
+    assert name in names
+assert plan["validation"]["leanTokenLoading"] == "passed"
+assert plan["validation"]["planGeneration"] == "passed"
+print("lean solana token-2022 plan: ok")
+PY
+
+echo "=== Token intent step 6: emit legacy Learn token to Solana Token-2022 plan ==="
+SOLANA_TOKEN_2022_PLAN="$SOLANA_DIR/FeeToken.legacy.solana-token-plan.json"
 lake env proof-forge build --target solana-sbpf-asm --token \
   -o "$SOLANA_TOKEN_2022_PLAN" \
   "$FEE_TOKEN" \
@@ -230,13 +269,16 @@ assert plan["validation"]["planGeneration"] == "passed"
 print("learn solana token-2022 plan: ok")
 PY
 
-echo "=== Token intent step 6: validate Solana token plans with Rust harness ==="
+echo "=== Token intent step 7: validate Solana token plans with Rust harness ==="
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$LEAN_SOLANA_SPL_PLAN" \
   || fail "Lean Solana SPL Token plan Rust validation failed"
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$SOLANA_SPL_PLAN" \
   || fail "Solana SPL Token plan Rust validation failed"
+cargo run --manifest-path testkit/harness-solana/Cargo.toml \
+  --bin token_plan_smoke -- "$LEAN_SOLANA_TOKEN_2022_PLAN" \
+  || fail "Lean Solana Token-2022 plan Rust validation failed"
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$SOLANA_TOKEN_2022_PLAN" \
   || fail "Solana Token-2022 plan Rust validation failed"

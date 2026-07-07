@@ -33,8 +33,9 @@ product-level intent once and let target routing choose the chain form:
 | Example | Source | Current target status |
 |---|---|---|
 | FungibleToken | [FungibleToken.lean](FungibleToken.lean) | `just token-intent-smoke`; `TokenSpec` lowers to EVM or Solana token artifacts below the shared intent layer; NEAR token lowering is still gated |
+| FeeToken | [FeeToken.lean](FeeToken.lean) | `just token-intent-smoke`; `TokenSpec` lowers the transfer-fee intent to a Solana Token-2022 plan while keeping the authored source target-neutral |
 
-The source does not mention ERC-20, SPL Token, Token-2022, or NEP-141. Those
+The sources do not mention ERC-20, SPL Token, Token-2022, or NEP-141. Those
 names are target outputs chosen below the shared intent layer.
 
 Legacy `.learn` examples remain parser/equivalence fixtures. New product

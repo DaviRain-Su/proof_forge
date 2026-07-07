@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ProofForge Solana token plan live smoke on Surfpool.
 #
-# Generates a legacy SPL Token plan through the current compatibility CLI path,
-# starts Surfpool, then executes the structured plan with the Rust Solana harness:
+# Generates an SPL Token plan from the shared TokenSpec intent, starts Surfpool,
+# then executes the structured plan with the Rust Solana harness:
 # mint creation, associated token accounts, initial mint_to, later mint_to,
 # transfer_checked, approve, burn, revoke, and mint-authority revocation.
 #
@@ -12,12 +12,13 @@
 #   2 - a prerequisite is missing (skipped)
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 OUT_DIR="${PROOF_FORGE_SOLANA_TOKEN_PLAN_LIVE_OUT:-build/solana-token-plan-live}"
-TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_PLAN_SOURCE:-Examples/Learn/ProofToken.learn}"
-TOKEN_PLAN="$OUT_DIR/ProofToken.solana-token-plan.json"
+TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_PLAN_SOURCE:-Examples/Shared/FungibleToken.lean}"
+TOKEN_NAME="${PROOF_FORGE_SOLANA_TOKEN_PLAN_NAME:-FungibleToken}"
+TOKEN_PLAN="$OUT_DIR/$TOKEN_NAME.solana-token-plan.json"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
@@ -60,9 +61,12 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== Solana token plan live step 1: emit structured SPL Token plan ==="
-lake env proof-forge build --target solana-sbpf-asm --token \
-  -o "$TOKEN_PLAN" \
-  "$TOKEN_SOURCE" \
+BUILD_ARGS=(build --target solana-sbpf-asm --token -o "$TOKEN_PLAN")
+if [[ "$TOKEN_SOURCE" == *.lean ]]; then
+  BUILD_ARGS+=(--root .)
+fi
+BUILD_ARGS+=("$TOKEN_SOURCE")
+lake env proof-forge "${BUILD_ARGS[@]}" \
   || fail "proof-forge build --target solana-sbpf-asm --token failed"
 [ -f "$TOKEN_PLAN" ] || fail "token plan not written: $TOKEN_PLAN"
 
@@ -74,7 +78,7 @@ plan = json.load(open(sys.argv[1]))
 if plan.get("format") != "proof-forge-token-plan-v0":
     raise SystemExit("token plan format mismatch")
 if plan.get("standard") != "spl-token":
-    raise SystemExit(f"this live gate expects a legacy SPL Token plan, got {plan.get('standard')}")
+    raise SystemExit(f"this live gate expects an SPL Token plan, got {plan.get('standard')}")
 if plan.get("solana", {}).get("programs", {}).get("token") != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA":
     raise SystemExit("SPL Token program id mismatch")
 names = [instruction.get("name") for instruction in plan.get("solana", {}).get("instructions", [])]

@@ -97,8 +97,10 @@ state/account 引用，因此剩余带字符串的 identifier 属于被检查过
 用户面对 spec plumbing。
 `ProofForge.Contract.Token.Learn` 会单独解析
 `Examples/Learn/ProofToken.learn` 与 `Examples/Learn/FeeToken.learn` 这样的
-Learn token intent source。`--learn-token --target evm` 现在会发射 ERC-20
-Yul、bytecode 和 artifact metadata，并使用标准 ERC-20 selector 以及
+Learn token intent source。这些文件是 shared Lean token intent 的兼容 fixture，
+不是 canonical 产品示例；canonical 示例位于 `Examples/Shared/FungibleToken.lean`
+和 `Examples/Shared/FeeToken.lean`。`--learn-token --target evm` 现在会发射
+ERC-20 Yul、bytecode 和 artifact metadata，并使用标准 ERC-20 selector 以及
 Transfer/Approval topic；`--learn-token --target solana-sbpf-asm` 会发射 SPL
 Token plan，并在 `transfer_fee` 这类功能需要 Token Extensions 时自动切到
 Token-2022。这个 CLI path 复用 `TokenSpec`，因此输出的是和 Lean-authored token

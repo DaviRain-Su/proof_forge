@@ -48,7 +48,7 @@ shared-contract-source:
 
 # Check that shared TokenSpec intent matches the legacy Learn token fixture.
 shared-token-intent:
-    lake build Examples.Shared.FungibleToken
+    lake build Examples.Shared.FungibleToken Examples.Shared.FeeToken
     lake env lean --run Tests/SharedTokenIntent.lean
 
 # Run the CosmWasm Counter WAT emission smoke through wat2wasm and cosmwasm-check.

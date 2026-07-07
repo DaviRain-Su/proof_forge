@@ -11,6 +11,8 @@ changing only `--target`. These are the canonical application-facing examples:
 - `RoleGatedToken.lean`
 - `StakingVault.lean`
 - `ValueVault.lean`
+- `FungibleToken.lean` and `FeeToken.lean` for target-neutral token intent
+  examples
 
 These modules should avoid target-only capabilities unless the compiler can
 route or reject them through target capabilities. The portable smoke scripts and

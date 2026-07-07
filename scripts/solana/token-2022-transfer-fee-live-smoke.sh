@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # ProofForge Solana Token-2022 transfer-fee plan live smoke on Surfpool.
 #
-# Generates the current legacy compatibility token fixture into the Lean
-# TokenSpec-backed Token-2022 plan, starts Surfpool, then uses the Rust Solana
-# harness to execute transfer-fee initialization, checked transfers, withdraw,
-# and harvest behavior.
+# Generates a Token-2022 plan from the shared TokenSpec transfer-fee intent,
+# starts Surfpool, then uses the Rust Solana harness to execute transfer-fee
+# initialization, checked transfers, withdraw, and harvest behavior.
 #
 # Exit codes:
 #   0 - all gates passed
@@ -12,12 +11,13 @@
 #   2 - a prerequisite is missing (skipped)
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 OUT_DIR="${PROOF_FORGE_SOLANA_TOKEN_2022_TRANSFER_FEE_LIVE_OUT:-build/solana-token-2022-transfer-fee-live}"
-TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_2022_TRANSFER_FEE_SOURCE:-Examples/Learn/FeeToken.learn}"
-TOKEN_PLAN="$OUT_DIR/FeeToken.solana-token-2022-plan.json"
+TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_2022_TRANSFER_FEE_SOURCE:-Examples/Shared/FeeToken.lean}"
+TOKEN_NAME="${PROOF_FORGE_SOLANA_TOKEN_2022_TRANSFER_FEE_NAME:-FeeToken}"
+TOKEN_PLAN="$OUT_DIR/$TOKEN_NAME.solana-token-2022-plan.json"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
@@ -60,9 +60,12 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== Solana Token-2022 transfer-fee live step 1: emit structured token plan ==="
-lake env proof-forge build --target solana-sbpf-asm --token \
-  -o "$TOKEN_PLAN" \
-  "$TOKEN_SOURCE" \
+BUILD_ARGS=(build --target solana-sbpf-asm --token -o "$TOKEN_PLAN")
+if [[ "$TOKEN_SOURCE" == *.lean ]]; then
+  BUILD_ARGS+=(--root .)
+fi
+BUILD_ARGS+=("$TOKEN_SOURCE")
+lake env proof-forge "${BUILD_ARGS[@]}" \
   || fail "proof-forge build --target solana-sbpf-asm --token failed"
 [ -f "$TOKEN_PLAN" ] || fail "token plan not written: $TOKEN_PLAN"
 

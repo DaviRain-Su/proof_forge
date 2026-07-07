@@ -1,4 +1,5 @@
 import Examples.Shared.FungibleToken
+import Examples.Shared.FeeToken
 import ProofForge.Contract.Token.Learn
 import ProofForge.Target.Registry
 
@@ -44,10 +45,14 @@ def requirePlanForTarget
 
 def main : IO UInt32 := do
   requireEq "shared token id" Examples.Shared.FungibleToken.id "FungibleToken"
+  requireEq "shared fee token id" Examples.Shared.FeeToken.id "FeeToken"
 
   let proofToken ← parseFixture "Examples/Learn/ProofToken.learn"
   requireSameSpec "legacy ProofToken vs shared FungibleToken"
     proofToken.spec Examples.Shared.FungibleToken.spec
+  let feeToken ← parseFixture "Examples/Learn/FeeToken.learn"
+  requireSameSpec "legacy FeeToken vs shared FeeToken"
+    feeToken.spec Examples.Shared.FeeToken.spec
 
   let sharedEvmPlan ← requirePlanForTarget evm Examples.Shared.FungibleToken.spec
   let legacyEvmPlan ← requirePlanForTarget evm proofToken.spec
@@ -75,6 +80,25 @@ def main : IO UInt32 := do
     "shared token Solana deployment missing initialize_mint"
   require (hasInstruction deployment "transfer_checked")
     "shared token Solana deployment missing transfer_checked"
+
+  let sharedFeeSolanaPlan ← requirePlanForTarget solanaSbpfAsm Examples.Shared.FeeToken.spec
+  let legacyFeeSolanaPlan ← requirePlanForTarget solanaSbpfAsm feeToken.spec
+  requireEq "shared-vs-legacy fee Solana standard"
+    sharedFeeSolanaPlan.standard legacyFeeSolanaPlan.standard
+  requireEq "shared-vs-legacy fee Solana operations"
+    sharedFeeSolanaPlan.operations legacyFeeSolanaPlan.operations
+  require (sharedFeeSolanaPlan.standard == .splToken2022)
+    "shared FeeToken Solana plan should use Token-2022"
+  require (hasOperation sharedFeeSolanaPlan "token-2022.extension.transfer_fee")
+    "shared FeeToken Solana plan missing transfer-fee extension"
+  let feeDeployment ←
+    match solanaTokenDeploymentPlan Examples.Shared.FeeToken.spec with
+    | .ok deployment => pure deployment
+    | .error err => throw <| IO.userError err
+  require (hasInstruction feeDeployment "initialize_transfer_fee_config")
+    "shared FeeToken deployment missing transfer-fee config init"
+  require (hasInstruction feeDeployment "transfer_checked_with_fee")
+    "shared FeeToken deployment missing transfer_checked_with_fee"
 
   match planForTarget wasmNear Examples.Shared.FungibleToken.spec with
   | .ok _ => throw <| IO.userError "shared token unexpectedly lowered to wasm-near"

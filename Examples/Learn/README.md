@@ -54,14 +54,15 @@ legacy parser reuses the same compiler-owned boundaries.
 
 Token SDK compatibility examples use a separate Learn intent form that lowers
 to the same Lean `TokenSpec` boundary as
-[`Examples/Shared/FungibleToken.lean`](../Shared/FungibleToken.lean):
+[`Examples/Shared/FungibleToken.lean`](../Shared/FungibleToken.lean) and
+[`Examples/Shared/FeeToken.lean`](../Shared/FeeToken.lean):
 
 - `ProofToken.learn` describes one fungible token once and can be routed with
   `proof-forge --learn-token --target evm` to ERC-20 Yul, bytecode, and
   artifact metadata.
-- `FeeToken.learn` adds `transfer_fee`; routing the same source shape with
-  `--target solana-sbpf-asm` selects a Token-2022 plan instead of a legacy SPL
-  Token plan.
+- `FeeToken.learn` mirrors the shared transfer-fee intent and remains an
+  equivalence fixture for the Token-2022 plan selected by
+  `Examples/Shared/FeeToken.lean`.
 
 `TokenSpec` remains the internal compiler boundary used after parsing, target
 routing, and validation. New product examples should start from the shared

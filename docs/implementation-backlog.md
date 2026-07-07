@@ -2709,22 +2709,25 @@ Tasks:
   planner rejects the documented incompatible `transfer_fee` +
   `non_transferable` combination.
 - Done: extend `scripts/portable/token-intent-smoke.sh` so
-  `Examples/Shared/FungibleToken.lean` and the legacy `.learn` input path both
-  reuse the Lean `TokenSpec` plan, emit structured Solana token plan JSON, and
-  validate the plan offline with the Rust `token_plan_smoke` harness.
+  `Examples/Shared/FungibleToken.lean`, `Examples/Shared/FeeToken.lean`, and
+  the legacy `.learn` input paths all reuse the Lean `TokenSpec` plan, emit
+  structured Solana SPL Token / Token-2022 plan JSON, and validate the plans
+  offline with the Rust `token_plan_smoke` harness.
 - Done: add `scripts/solana/token-plan-live-smoke.sh` / `just
-  solana-token-plan-live` to execute the structured legacy SPL Token plan on
-  Surfpool with a Rust harness. The former `solana-token-plan-web3` entrypoint
-  remains as a compatibility alias. The live runner creates the mint and
+  solana-token-plan-live` to execute the structured SPL Token plan from
+  `Examples/Shared/FungibleToken.lean` on Surfpool with a Rust harness. The
+  former `solana-token-plan-web3` entrypoint remains as a compatibility alias.
+  The live runner creates the mint and
   associated token accounts, mints initial supply, executes the planned
   `mint_to`, `transfer_checked`, `approve`, `burn`, `revoke`, and
   mint-authority `set_authority` operations, and validates balances, supply,
   delegate state, and authority revocation with Rust RPC account reads.
 - Done: add `scripts/solana/token-2022-transfer-fee-live-smoke.sh` / `just
   solana-token-2022-transfer-fee-live` to execute the structured Token-2022
-  transfer-fee plan on Surfpool with a Rust harness. The former
-  `solana-token-2022-transfer-fee-web3` entrypoint remains as a compatibility
-  alias. The live runner initializes `TransferFeeConfig`, creates Token-2022
+  transfer-fee plan from `Examples/Shared/FeeToken.lean` on Surfpool with a
+  Rust harness. The former `solana-token-2022-transfer-fee-web3` entrypoint
+  remains as a compatibility alias. The live runner initializes
+  `TransferFeeConfig`, creates Token-2022
   associated token accounts, mints initial supply, executes
   `TransferCheckedWithFee`, validates the source balance, recipient net balance,
   and recipient withheld fee, directly withdraws withheld fees from a token
