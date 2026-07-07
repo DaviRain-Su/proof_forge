@@ -18,6 +18,7 @@ PROOF_TOKEN="Examples/Learn/ProofToken.learn"
 FEE_TOKEN="Examples/Learn/FeeToken.learn"
 LEAN_TOKEN="Examples/Shared/FungibleToken.lean"
 LEAN_FEE_TOKEN="Examples/Shared/FeeToken.lean"
+LEAN_SOULBOUND_TOKEN="Examples/Shared/SoulboundToken.lean"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -269,7 +270,38 @@ assert plan["validation"]["planGeneration"] == "passed"
 print("learn solana token-2022 plan: ok")
 PY
 
-echo "=== Token intent step 7: validate Solana token plans with Rust harness ==="
+echo "=== Token intent step 7: emit Lean TokenSpec to Solana Token-2022 non-transferable plan ==="
+LEAN_SOLANA_SOULBOUND_TOKEN_2022_PLAN="$SOLANA_DIR/SoulboundToken.solana-token-plan.json"
+lake env proof-forge build --target solana-sbpf-asm --token --root . \
+  -o "$LEAN_SOLANA_SOULBOUND_TOKEN_2022_PLAN" \
+  "$LEAN_SOULBOUND_TOKEN" \
+  || fail "proof-forge build --target solana-sbpf-asm --token failed for Lean TokenSpec non-transferable"
+
+require_file "$LEAN_SOLANA_SOULBOUND_TOKEN_2022_PLAN"
+python3 - "$LEAN_SOLANA_SOULBOUND_TOKEN_2022_PLAN" <<'PY'
+import json
+import sys
+
+plan = json.load(open(sys.argv[1]))
+assert plan["format"] == "proof-forge-token-plan-v0"
+assert plan["sourceKind"] == "lean-token-source"
+assert plan["target"] == "solana-sbpf-asm"
+assert plan["targetFamily"] == "solana"
+assert plan["standard"] == "spl-token-2022"
+assert plan["artifactKind"] == "solana-token-2022-plan"
+assert "token-2022.extension.non_transferable" in plan["operations"]
+assert plan["solana"]["programs"]["token"] == "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+extensions = [extension["extension"] for extension in plan["solana"]["extensions"]]
+assert "non_transferable" in extensions
+names = [instruction["name"] for instruction in plan["solana"]["instructions"]]
+assert "initialize_non_transferable_mint" in names
+assert names.index("initialize_non_transferable_mint") < names.index("initialize_mint")
+assert plan["validation"]["leanTokenLoading"] == "passed"
+assert plan["validation"]["planGeneration"] == "passed"
+print("lean solana token-2022 non-transferable plan: ok")
+PY
+
+echo "=== Token intent step 8: validate Solana token plans with Rust harness ==="
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$LEAN_SOLANA_SPL_PLAN" \
   || fail "Lean Solana SPL Token plan Rust validation failed"
@@ -282,5 +314,8 @@ cargo run --manifest-path testkit/harness-solana/Cargo.toml \
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$SOLANA_TOKEN_2022_PLAN" \
   || fail "Solana Token-2022 plan Rust validation failed"
+cargo run --manifest-path testkit/harness-solana/Cargo.toml \
+  --bin token_plan_smoke -- "$LEAN_SOLANA_SOULBOUND_TOKEN_2022_PLAN" \
+  || fail "Lean Solana Token-2022 non-transferable plan Rust validation failed"
 
 echo "token-intent-smoke: PASS"

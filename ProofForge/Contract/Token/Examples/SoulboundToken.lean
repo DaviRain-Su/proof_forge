@@ -1,18 +1,13 @@
-import ProofForge.Contract.Token
+import Examples.Shared.SoulboundToken
 
 namespace ProofForge.Contract.Token.Examples.SoulboundToken
 
 open ProofForge.Contract.Token
 
 def id : String :=
-  "SoulboundToken"
+  Examples.Shared.SoulboundToken.id
 
-def spec : TokenSpec := {
-  name := "Soulbound Token"
-  symbol := "SBT"
-  decimals := 0
-  initialSupply? := some 1
-  features := #[.mintable, .burnable, .nonTransferable]
-}
+def spec : TokenSpec :=
+  Examples.Shared.SoulboundToken.spec
 
 end ProofForge.Contract.Token.Examples.SoulboundToken

@@ -23,6 +23,8 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 > **Solana** 列反映规范的 `solana-sbpf-asm` 路线（D-026）：直接生成
 > sBPF assembly。Solana 使用 `crosscall.cpi`（不是 `crosscall.invoke`）和
 > `storage.pda`，这些按 D-027 保持为 Solana 特定能力。
+> **CF Workers** 列是链下 `wasm-cloudflare-workers` host（D-033）；它会在没有
+> consensus 或链上状态的情况下重新解释能力。
 
 | 能力 id | 可移植含义 | EVM | NEAR | CosmWasm | Solana | Aptos | Sui | Psy DPN | CF Workers |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -48,15 +50,46 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 | `runtime.return_data` | 目标运行时返回数据缓冲区操作 | N | N | N | Y | N | N | N | N |
 | `runtime.compute_units` | 目标运行时计算预算自省 | N | N | N | P | N | N | N | N |
 | `crosscall.cpi` | 带有账户元数据的 Solana CPI | N | N | N | Y | N | N | N | N |
+| `arith.checked` | 整数算术在 overflow 时 revert（Solidity 0.8 语义） | Y | N | N | N | N | N | N | N |
 | `zk.circuit` | 将入口编译为目标电路定义 | N | N | N | N | N | N | Y | N |
 | `zk.proof` | 目标证明生成或验证流 | N | N | N | N | N | N | P | N |
 
 ## Id 命名规则
 
 - 格式：`<domain>.<operation>` 或 `<domain>.<variant>`（小写，点分隔）。
-- 领域：`storage`, `caller`, `value`, `events`, `crosscall`, `env`, `control`, `data`, `crypto`, `assertions`, `account`, `runtime`, `zk`。
+- 领域：`storage`, `caller`, `value`, `events`, `crosscall`, `env`, `control`, `data`, `crypto`, `assertions`, `account`, `runtime`, `arith`, `zk`。
 - 制品元数据列出了构建所使用的 id（参见 RFC 0002 制品 schema）。
 - 诊断信息在拒绝时必须引用能力 id 和目标 id。
+
+## 语义差异说明
+
+这些能力记录已知的跨 target 语义差异。capability gate 会暴露这些差异，但还没有在
+每个 IR 节点上强制执行。portable contract 在不同 target 上行为不一致时，应优先查看这里。
+
+### `arith.checked` — 整数 overflow 语义
+
+portable IR 的 `Expr.add/.sub/.mul` 节点目前不携带显式 overflow 模式。今天的 lowering
+由 target 决定，并且会**静默分歧**：
+
+- **EVM** 会把这些节点降低为 Solidity 0.8 风格的 checked arithmetic
+  （`__pf_checked_add/sub/mul`），在 U256 overflow/underflow 时 revert transaction。因此
+  EVM 声明 `arith.checked`。
+- **Solana (sBPF)** 和 **NEAR (Wasm)** 会降低为原生 `add64/mul64` / `i64.add`，
+  overflow 时会**静默 wrap**。它们不声明 `arith.checked`。
+
+这是平台当前最重要的跨 target 语义差异：同一个 `a.add(b)` 表达式在 EVM 上会 revert，
+但在 Solana/NEAR 上会静默产出 wrapped value。`arith.checked` capability 让这种差异在
+profile 和 artifact metadata 层可见。
+
+合约作者可以通过设置 `Module.overflowChecked := true` 声明 checked-overflow intent。
+这会让 module 声明 `arith.checked` capability，并让 `Target.defaultResolve` 中的
+capability gate 在不声明 `arith.checked` 的 target profile 上**拒绝**该 module
+（当前包括 Solana 和 NEAR）。默认值是 `false`（portable wrapping arithmetic），这是安全的
+跨 target 默认值，并可路由到所有 target。各 target lowering 仍遵循对应 backend 的原生行为
+（EVM 无论该 flag 如何都会降低为 checked arithmetic，以匹配 Solidity 0.8）；该 flag 和 gate
+会把 *intent-vs-target* 不匹配变成被拒绝的解析，而不是静默行为差异。FV-5 继续跟踪把这里深化为
+width-aware IR reference semantics（在 `evalNumericBinary` 内把 overflow 表示为 observable trace
+outcome）；参见 [formal-verification.md](formal-verification.md) FV-5。
 
 ## 尚未注册的候选能力
 

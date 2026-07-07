@@ -65,7 +65,8 @@ backend AST 里。
 
 ERC-style composition fixture 位于 `Examples/Evm/Contracts/`，因为它们有意覆盖
 EVM stdlib 和 ABI 行为。Shared token 产品示例应使用更高层的 `TokenSpec` intent
-边界；参见 `Examples/Shared/FungibleToken.lean`。
+边界；参见 `Examples/Shared/FungibleToken.lean`、
+`Examples/Shared/FeeToken.lean` 和 `Examples/Shared/SoulboundToken.lean`。
 
 `ProofForge.Contract.Token` 是当前 token SDK planning 边界。Lean-authored
 `TokenSpec` 会在 EVM 上路由为 ERC-20，在 Solana 上路由为结构化 SPL Token /

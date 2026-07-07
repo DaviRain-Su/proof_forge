@@ -2734,12 +2734,13 @@ Tasks:
   account, then runs a second transfer, harvests withheld fees to the mint,
   withdraws them from the mint, and validates the fee receiver balance plus
   cleared account/mint withheld amounts with Rust RPC account reads.
-- Done: add `ProofForge.Contract.Token.Examples.SoulboundToken`,
-  `Tests/TokenPlanEmit.lean`,
+- Done: add `Examples/Shared/SoulboundToken.lean`,
   `scripts/solana/token-2022-non-transferable-live-smoke.sh`, and `just
-  solana-token-2022-non-transferable-live` to execute a Lean `.lean`
-  TokenSpec-backed Token-2022 non-transferable plan on Surfpool with a Rust
-  harness. The former `solana-token-2022-non-transferable-web3` entrypoint
+  solana-token-2022-non-transferable-live` to execute a shared Lean `TokenSpec`
+  Token-2022 non-transferable plan through the target-first
+  `proof-forge build --token` path on Surfpool with a Rust harness. The former
+  `ProofForge.Contract.Token.Examples.SoulboundToken` import path and
+  `solana-token-2022-non-transferable-web3` entrypoint
   remains as a compatibility alias. The live runner initializes
   `NonTransferable`, creates Token-2022 associated token accounts, mints
   initial supply, verifies mint/account extensions, proves `TransferChecked`

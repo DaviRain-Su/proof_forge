@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ProofForge Solana Token-2022 non-transferable plan live smoke on Surfpool.
 #
-# Generates the current Lean token fixture into a TokenSpec-backed Token-2022
-# plan, starts Surfpool, then uses the Rust Solana harness to prove a token
-# with NonTransferable can mint and burn but rejects TransferChecked.
+# Generates the shared Lean token intent into a TokenSpec-backed Token-2022 plan,
+# starts Surfpool, then uses the Rust Solana harness to prove a token with
+# NonTransferable can mint and burn but rejects TransferChecked.
 #
 # Exit codes:
 #   0 - all gates passed
@@ -15,9 +15,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 OUT_DIR="${PROOF_FORGE_SOLANA_TOKEN_2022_NON_TRANSFERABLE_LIVE_OUT:-build/solana-token-2022-non-transferable-live}"
-TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_2022_NON_TRANSFERABLE_SOURCE:-ProofForge/Contract/Token/Examples/SoulboundToken.lean}"
+TOKEN_SOURCE="${PROOF_FORGE_SOLANA_TOKEN_2022_NON_TRANSFERABLE_SOURCE:-Examples/Shared/SoulboundToken.lean}"
 TOKEN_PLAN="$OUT_DIR/SoulboundToken.solana-token-2022-plan.json"
-PLAN_EMITTER="${PROOF_FORGE_SOLANA_TOKEN_2022_NON_TRANSFERABLE_PLAN_EMITTER:-Tests/TokenPlanEmit.lean}"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
@@ -55,14 +54,22 @@ command -v "$SOLANA_BIN" >/dev/null 2>&1 || skip "solana CLI not on PATH (set SO
 command -v "$KEYGEN" >/dev/null 2>&1 || skip "solana-keygen not on PATH (set SOLANA_KEYGEN=/path/to/solana-keygen)"
 command -v cargo >/dev/null 2>&1 || skip "cargo not on PATH"
 [ -f "$TOKEN_SOURCE" ] || fail "token source not found: $TOKEN_SOURCE"
-[ -f "$PLAN_EMITTER" ] || fail "Lean token plan emitter not found: $PLAN_EMITTER"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== Solana Token-2022 non-transferable live step 1: emit structured token plan ==="
-lake env lean --run "$PLAN_EMITTER" soulbound "$TOKEN_PLAN" \
-  || fail "Lean token plan emission failed"
+if [[ "$TOKEN_SOURCE" == *.lean ]]; then
+  lake env proof-forge build --target solana-sbpf-asm --token --root . \
+    -o "$TOKEN_PLAN" \
+    "$TOKEN_SOURCE" \
+    || fail "proof-forge build --target solana-sbpf-asm --token failed"
+else
+  lake env proof-forge build --target solana-sbpf-asm --token \
+    -o "$TOKEN_PLAN" \
+    "$TOKEN_SOURCE" \
+    || fail "proof-forge build --target solana-sbpf-asm --token failed"
+fi
 [ -f "$TOKEN_PLAN" ] || fail "token plan not written: $TOKEN_PLAN"
 
 python3 - "$TOKEN_PLAN" <<'PY'
