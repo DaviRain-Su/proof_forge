@@ -571,7 +571,7 @@
   标量层拥有一等宽值输出状态。
 - 实时 LastRestartSlot sysvar fixture：
   `scripts/solana/last-restart-slot-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
-  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Web3.js 调用
+  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_last_restart_slot`，并证明 feature-gated
   `LastRestartSlot.last_restart_slot` 读取通过 `sol_get_sysvar` 降级并
   与 LastRestartSlot sysvar 账户数据匹配。该 action 在 manifest 和制品元数据中被标记为

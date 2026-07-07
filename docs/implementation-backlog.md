@@ -1770,10 +1770,10 @@ Completed alpha slices:
 - Live LastRestartSlot sysvar fixture:
   `scripts/solana/last-restart-slot-sysvar-web3-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
-  `record_last_restart_slot` through Web3.js, and proves the feature-gated
-  `LastRestartSlot.last_restart_slot` read lowers through `sol_get_sysvar` and
-  matches the LastRestartSlot sysvar account data. The action is marked
-  `feature_gated` in manifest and artifact metadata.
+  `record_last_restart_slot` through the Rust live RPC harness, and proves the
+  feature-gated `LastRestartSlot.last_restart_slot` read lowers through
+  `sol_get_sysvar` and matches the LastRestartSlot sysvar account data. The
+  action is marked `feature_gated` in manifest and artifact metadata.
 
 Completed beta scaffolding slices:
 
