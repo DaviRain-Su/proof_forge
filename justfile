@@ -284,16 +284,25 @@ solana-token-2022-non-transferable-live:
 solana-token-2022-non-transferable-web3: solana-token-2022-non-transferable-live
 
 # Run Solana PDA typed-seed Rust derivation smoke.
-solana-pda-web3:
+solana-pda-rust:
     scripts/solana/pda-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-pda-web3: solana-pda-rust
+
 # Run a live System Program transfer CPI smoke on Surfpool with the Rust harness.
-solana-system-cpi-web3:
+solana-system-cpi-live:
     scripts/solana/system-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-system-cpi-web3: solana-system-cpi-live
+
 # Run a live Memo Program CPI smoke on Surfpool with the Rust harness.
-solana-memo-cpi-web3:
+solana-memo-cpi-live:
     scripts/solana/memo-cpi-web3-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-memo-cpi-web3: solana-memo-cpi-live
 
 # Compare the generated System transfer CPI artifact with the Pinocchio reference contract.
 solana-pinocchio-system-transfer-equivalence:
@@ -348,28 +357,46 @@ solana-pinocchio-install-sbf-tools:
     PATH="$HOME/.cargo/bin:$PATH" cargo-build-sbf --install-only --force-tools-install --tools-version v1.52
 
 # Run a live System Program create_account CPI smoke on Surfpool with the Rust RPC harness.
-solana-system-create-account-cpi-web3:
+solana-system-create-account-cpi-live:
     scripts/solana/system-create-account-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-system-create-account-cpi-web3: solana-system-create-account-cpi-live
+
 # Run a live SPL Token transfer_checked CPI smoke on Surfpool with the Rust RPC harness.
-solana-spl-token-transfer-cpi-web3:
+solana-spl-token-transfer-cpi-live:
     scripts/solana/spl-token-transfer-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-transfer-cpi-web3: solana-spl-token-transfer-cpi-live
+
 # Run a live SPL Token mint_to/burn/approve/revoke CPI smoke on Surfpool with the Rust RPC harness.
-solana-spl-token-ops-cpi-web3:
+solana-spl-token-ops-cpi-live:
     scripts/solana/spl-token-ops-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-ops-cpi-web3: solana-spl-token-ops-cpi-live
+
 # Run a live SPL Token set_authority CPI smoke on Surfpool with the Rust RPC harness.
-solana-spl-token-authority-cpi-web3:
+solana-spl-token-authority-cpi-live:
     scripts/solana/spl-token-authority-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-authority-cpi-web3: solana-spl-token-authority-cpi-live
+
 # Run a live SPL Token close_account CPI smoke on Surfpool with the Rust RPC harness.
-solana-spl-token-close-account-cpi-web3:
+solana-spl-token-close-account-cpi-live:
     scripts/solana/spl-token-close-account-cpi-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-close-account-cpi-web3: solana-spl-token-close-account-cpi-live
+
 # Run a live Associated Token create_idempotent CPI smoke on Surfpool with the Rust RPC harness.
-solana-associated-token-cpi-web3:
+solana-associated-token-cpi-live:
     scripts/solana/associated-token-cpi-web3-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-associated-token-cpi-web3: solana-associated-token-cpi-live
 
 # Run a live Token-2022 direct CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-2022-cpi-live:
@@ -393,40 +420,67 @@ solana-spl-token-2022-transfer-hook-live:
 solana-spl-token-2022-transfer-hook-web3: solana-spl-token-2022-transfer-hook-live
 
 # Run a live Solana log/event smoke on Surfpool with the Rust RPC harness.
-solana-log-event-web3:
+solana-log-event-live:
     scripts/solana/log-event-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-log-event-web3: solana-log-event-live
+
 # Run a live Solana Clock sysvar smoke on Surfpool with the Rust RPC harness.
-solana-clock-sysvar-web3:
+solana-clock-sysvar-live:
     scripts/solana/clock-sysvar-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-clock-sysvar-web3: solana-clock-sysvar-live
+
 # Run a live Solana Rent sysvar smoke on Surfpool with the Rust RPC harness.
-solana-rent-sysvar-web3:
+solana-rent-sysvar-live:
     scripts/solana/rent-sysvar-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-rent-sysvar-web3: solana-rent-sysvar-live
+
 # Run a live Solana EpochSchedule sysvar smoke on Surfpool with the Rust RPC harness.
-solana-epoch-schedule-sysvar-web3:
+solana-epoch-schedule-sysvar-live:
     scripts/solana/epoch-schedule-sysvar-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-epoch-schedule-sysvar-web3: solana-epoch-schedule-sysvar-live
+
 # Run a live Solana EpochRewards sysvar smoke on Surfpool with the Rust RPC harness.
-solana-epoch-rewards-sysvar-web3:
+solana-epoch-rewards-sysvar-live:
     scripts/solana/epoch-rewards-sysvar-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-epoch-rewards-sysvar-web3: solana-epoch-rewards-sysvar-live
+
 # Run a live Solana LastRestartSlot sysvar smoke on Surfpool with the Rust RPC harness.
-solana-last-restart-slot-sysvar-web3:
+solana-last-restart-slot-sysvar-live:
     scripts/solana/last-restart-slot-sysvar-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-last-restart-slot-sysvar-web3: solana-last-restart-slot-sysvar-live
+
 # Run a live Solana memory syscall smoke on Surfpool with the Rust RPC harness.
-solana-memory-web3:
+solana-memory-live:
     scripts/solana/memory-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-memory-web3: solana-memory-live
+
 # Run a live Solana SHA-256/Keccak-256/Blake3 syscall smoke on Surfpool with the Rust RPC harness.
-solana-crypto-hash-web3:
+solana-crypto-hash-live:
     scripts/solana/crypto-hash-web3-smoke.sh
 
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-crypto-hash-web3: solana-crypto-hash-live
+
 # Run a live Solana return-data/compute-units syscall smoke on Surfpool with the Rust RPC harness.
-solana-return-data-compute-web3:
+solana-return-data-compute-live:
     scripts/solana/return-data-compute-web3-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-return-data-compute-web3: solana-return-data-compute-live
 
 # Run the canned Solana sBPF smoke. Skips when sbpf is unavailable.
 solana-emit-asm:

@@ -113,6 +113,6 @@ flowchart TB
 
 - 目标注册表 (`ProofForge/Target/Registry.lean`)、可移植 IR (`ProofForge/IR/Contract.lean`)、能力路由以及 `proof-forge-artifact.json` 发射已实现。
 - EVM：`proof-forge build --target evm` 通过可移植 IR、EVM 语义计划、Yul 和 `solc --strict-assembly` 编译 `contract_source` 模块。Foundry 和 Anvil 冒烟测试验证运行时行为。
-- Solana：`proof-forge emit --target solana-sbpf-asm --format s|elf` 发射 sBPF 汇编和 ELF 包，由 Mollusk、Surfpool/Web3.js 和 Pinocchio 等效性门禁验证。
+- Solana：`proof-forge emit --target solana-sbpf-asm --format s|elf` 发射 sBPF 汇编和 ELF 包，由 Mollusk、Surfpool/Rust 和 Pinocchio 等效性门禁验证。
 - NEAR：`proof-forge emit|build --target wasm-near --format wat` 通过 Wasm AST 将可移植 IR 降级为 WAT，并带有形式化追踪义务 (`Tests/NearWasmFormal.lean`)、目标优先的制品元数据以及离线宿主冒烟测试。
 - Psy/DPN、Aleo Leo 和 Cloudflare Workers 从可移植 IR 固定装置发射目标源代码；各门禁的工具先决条件请参见 [validation-gates.md](validation-gates.md)。

@@ -130,7 +130,7 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
   portable IR, the EVM semantic plan, Yul, and `solc --strict-assembly`.
   Foundry and Anvil smokes validate runtime behavior.
 - Solana: `proof-forge emit --target solana-sbpf-asm --format s|elf` emits
-  sBPF assembly and ELF packages, validated by Mollusk, Surfpool/Web3.js, and
+  sBPF assembly and ELF packages, validated by Mollusk, Surfpool/Rust, and
   Pinocchio equivalence gates.
 - NEAR: `proof-forge emit|build --target wasm-near --format wat` lowers
   portable IR through the Wasm AST to WAT, with formal trace obligations

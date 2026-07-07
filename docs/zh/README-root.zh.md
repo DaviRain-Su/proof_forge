@@ -33,7 +33,7 @@ ProofForge 的目标是：一份经过验证的 Lean 合约代码库，可以在
 | Target id | 管线 | 阶段 | 本地验证 |
 |---|---|---|---|
 | `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental（生产级门禁） | golden Yul、诊断、Foundry 运行时冒烟（15 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool Rust/Web3.js live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
 | `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
 | `wasm-cosmwasm` | portable IR → EmitWat → WAT → `wat2wasm` | Spike | Counter golden WAT、`just cosmwasm-counter-smoke`（可选 CI） |
 | `move-aptos` | portable IR → Aptos Move 包 | Spike | Counter golden Move、`just aptos-counter-smoke`（可选 CI） |
