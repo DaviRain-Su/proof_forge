@@ -259,6 +259,10 @@ portable-counter-multi-target:
 portable-array-example-multi-target:
     scripts/portable/array-example-multi-target.sh
 
+# Build portable stdlib core mixin examples to EVM, Solana sBPF, and NEAR/Wasm.
+portable-stdlib-core-multi-target:
+    scripts/portable/stdlib-core-multi-target.sh
+
 # Generate and validate the portable Counter canonical SDK layout for all four SDK targets.
 portable-counter-four-target-sdk:
     scripts/portable/counter-four-target-sdk.sh

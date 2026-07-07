@@ -38,19 +38,23 @@ lake env proof-forge build --target evm \
   Examples/Shared/Counter.lean
 ```
 
-`Counter`, `ArrayExample`, `ValueVault`, `RoleGatedToken`, and `StakingVault`
-are the primary multi-target shared contract scenarios.
+`Counter`, `ArrayExample`, `Ownable`, `Pausable`, `ReentrancyGuard`,
+`ValueVault`, `RoleGatedToken`, and `StakingVault` are the primary multi-target
+shared contract scenarios.
 
 `Examples/Evm/Contracts/Counter.lean` and
 `Examples/Evm/Contracts/ArrayExample.lean` are compatibility wrappers around
 the corresponding modules in `Examples/Shared`. Counter adds only EVM
 deploy-time constructor metadata used by constructor-init smokes; ArrayExample
 preserves the historical EVM golden Yul path.
+The `stdlib/Ownable.lean`, `stdlib/Pausable.lean`, and
+`stdlib/ReentrancyGuard.lean` paths are also compatibility wrappers around
+shared facades for the canonical stdlib mixins.
 
 `SimpleToken`, `OwnableERC20`, `AccessControlProbe`, `VerifiedVault.lean`,
-constructor probes, proxy probes, and the `stdlib/` wrappers are EVM-focused
-fixtures because they exercise EVM ABI, ERC-style stdlib composition,
-deployment, callvalue/native-transfer, or golden-output behavior.
+constructor probes, proxy probes, and the remaining `stdlib/` wrappers are
+EVM-focused fixtures because they exercise EVM ABI, ERC-style stdlib
+composition, deployment, callvalue/native-transfer, or golden-output behavior.
 Chain-neutral token intent lives in
 `Examples/Shared/FungibleToken.lean` as a `TokenSpec`; the EVM target lowers
 that intent to an ERC-20-compatible artifact.

@@ -9,6 +9,8 @@ changing only `--target`. These are the canonical application-facing examples:
 
 - `Counter.lean`
 - `ArrayExample.lean`
+- `Ownable.lean`, `Pausable.lean`, and `ReentrancyGuard.lean` for portable
+  stdlib mixin facades
 - `RoleGatedToken.lean`
 - `StakingVault.lean`
 - `ValueVault.lean`

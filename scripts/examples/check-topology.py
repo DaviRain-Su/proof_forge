@@ -53,6 +53,8 @@ def check_shared_sources() -> None:
         if "contract_source " in text:
             require_contains(rel, text, "import ProofForge.Contract.Source", "contract_source import")
             require_contains(rel, text, f"contract_source {name}", "contract_source declaration")
+        elif "def spec : ProofForge.Contract.ContractSpec" in text:
+            require_contains(rel, text, "def module : ProofForge.IR.Module", "ContractSpec module export")
         elif "TokenSpec" in text:
             require_contains(rel, text, "import ProofForge.Contract.Token", "TokenSpec import")
             require_contains(rel, text, "def spec", "TokenSpec export")
@@ -72,6 +74,9 @@ def check_compatibility_wrappers() -> None:
     wrappers = {
         "Examples/Evm/Contracts/ArrayExample.lean": "ArrayExample",
         "Examples/Evm/Contracts/Counter.lean": "Counter",
+        "Examples/Evm/Contracts/stdlib/Ownable.lean": "Ownable",
+        "Examples/Evm/Contracts/stdlib/Pausable.lean": "Pausable",
+        "Examples/Evm/Contracts/stdlib/ReentrancyGuard.lean": "ReentrancyGuard",
         "Examples/Solana/Counter.lean": "Counter",
         "ProofForge/Contract/Examples/Counter.lean": "Counter",
         "ProofForge/Contract/Examples/ValueVault.lean": "ValueVault",

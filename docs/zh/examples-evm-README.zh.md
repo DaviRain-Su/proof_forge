@@ -38,16 +38,20 @@ lake env proof-forge build --target evm \
   Examples/Shared/Counter.lean
 ```
 
-`Counter`、`ArrayExample`、`ValueVault`、`RoleGatedToken` 和 `StakingVault`
-是主要的多目标 shared contract 场景。
+`Counter`、`ArrayExample`、`Ownable`、`Pausable`、`ReentrancyGuard`、
+`ValueVault`、`RoleGatedToken` 和 `StakingVault` 是主要的多目标 shared
+contract 场景。
 
 `Examples/Evm/Contracts/Counter.lean` 和
 `Examples/Evm/Contracts/ArrayExample.lean` 是对应 `Examples/Shared` 模块的兼容
 wrapper。Counter 只添加 constructor-init smoke 所需的 EVM 部署期 constructor
 metadata；ArrayExample 保留历史 EVM golden Yul 路径。
+`stdlib/Ownable.lean`、`stdlib/Pausable.lean` 和
+`stdlib/ReentrancyGuard.lean` 路径也只是围绕 canonical stdlib mixin 的 shared
+facade 的兼容 wrapper。
 
 `SimpleToken`、`OwnableERC20`、`AccessControlProbe`、`VerifiedVault.lean`、
-constructor probe、proxy probe 和 `stdlib/` wrapper 是 EVM-focused fixture，
+constructor probe、proxy probe 和其余 `stdlib/` wrapper 是 EVM-focused fixture，
 因为它们覆盖 EVM ABI、ERC-style stdlib composition、部署、
 callvalue/native-transfer 或 golden-output 行为。Chain-neutral token intent 位于
 `Examples/Shared/FungibleToken.lean`，形式是 `TokenSpec`；EVM target 会把该 intent

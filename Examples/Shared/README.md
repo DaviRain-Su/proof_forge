@@ -17,6 +17,9 @@ NEAR/Wasm:
 |---|---|---|
 | Counter | [Counter.lean](Counter.lean) | `just portable-counter-multi-target` |
 | ArrayExample | [ArrayExample.lean](ArrayExample.lean) | `just portable-array-example-multi-target` |
+| Ownable | [Ownable.lean](Ownable.lean) | `just portable-stdlib-core-multi-target`; shared facade over the canonical stdlib mixin |
+| Pausable | [Pausable.lean](Pausable.lean) | `just portable-stdlib-core-multi-target`; shared facade over the canonical stdlib mixin |
+| ReentrancyGuard | [ReentrancyGuard.lean](ReentrancyGuard.lean) | `just portable-stdlib-core-multi-target`; shared facade over the canonical stdlib mixin |
 | ValueVault | [ValueVault.lean](ValueVault.lean) | `just portable-value-vault` |
 | RoleGatedToken | [RoleGatedToken.lean](RoleGatedToken.lean) | `scripts/portable/role-gated-token-multi-target.sh` |
 | StakingVault | [StakingVault.lean](StakingVault.lean) | `scripts/portable/staking-vault-multi-target.sh` |
