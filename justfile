@@ -354,7 +354,7 @@ solana-spl-token-ops-cpi-web3:
 solana-spl-token-authority-cpi-web3:
     scripts/solana/spl-token-authority-cpi-web3-smoke.sh
 
-# Run a live SPL Token close_account CPI smoke on Surfpool with Web3.js.
+# Run a live SPL Token close_account CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-close-account-cpi-web3:
     scripts/solana/spl-token-close-account-cpi-web3-smoke.sh
 

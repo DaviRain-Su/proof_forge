@@ -2029,11 +2029,11 @@ Completed developer-surface slices:
   through target-first CLI as `emit --target solana-sbpf-asm --fixture
   spl-token-close-account-cpi --format s|elf` and through the matching legacy
   compatibility flags. `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh`
-  adds the live Surfpool/Web3.js behavior gate: it deploys the generated
-  program, creates an empty SPL Token account, invokes the generated
-  `close_account` CPI path, proves the token account is removed, verifies the
-  rent lamports moved to the destination account, and checks the marker state
-  write. Pinocchio equivalence for this specific SPL helper remains a
+  adds the live Surfpool/Rust behavior gate: it deploys the generated program,
+  creates an empty SPL Token account through the Rust live RPC harness, invokes
+  the generated `close_account` CPI path, proves the token account is removed,
+  verifies the rent lamports moved to the destination account, and checks the
+  marker state write. Pinocchio equivalence for this specific SPL helper remains a
   reference-breadth follow-up.
 - Target-stage ABI selector hydration:
   the Learn/ValueVault CLI emit paths derive EVM selectors from each
@@ -3501,7 +3501,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   and sBPF instruction-data packing for tag `9`, covered by
   `Tests/SolanaCpiPacking.lean`, `Tests/LearnSource.lean`, and
   `Tests/CliTargetFirst.lean`. `just solana-spl-token-close-account-cpi-web3`
-  now covers the live Surfpool/Web3.js validation path for closing an empty SPL
+  now covers the live Surfpool/Rust validation path for closing an empty SPL
   Token account through CPI, destination rent lamport recovery, and marker
   state recording. Pinocchio equivalence for close-account remains a
   reference-breadth follow-up.

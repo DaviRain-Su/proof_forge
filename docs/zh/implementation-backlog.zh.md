@@ -733,10 +733,10 @@
   `emit --target solana-sbpf-asm --fixture spl-token-close-account-cpi --format s|elf`
   以及对应 legacy 兼容 flag 发射。
   `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh` 新增 live
-  Surfpool/Web3.js 行为门控：它会部署生成的程序，创建空 SPL Token account，
-  调用生成的 `close_account` CPI 路径，证明 token account 已被移除，验证租金
-  lamports 转入 destination account，并检查 marker state 写入。该 SPL helper
-  的 Pinocchio equivalence 仍是 reference-breadth 后续项。
+  Surfpool/Rust 行为门控：它会部署生成的程序，通过 Rust live RPC 测试框架创建空
+  SPL Token account，调用生成的 `close_account` CPI 路径，证明 token account 已被
+  移除，验证租金 lamports 转入 destination account，并检查 marker state 写入。
+  该 SPL helper 的 Pinocchio equivalence 仍是 reference-breadth 后续项。
 - 目标阶段 ABI 选择器水合：
   Learn/ValueVault CLI 发射路径在 EVM
   Yul/字节码发射之前立即通过 `cast sig` 从每个
@@ -1570,7 +1570,7 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   `contract_source` 语法、legacy Learn 语法、manifest/artifact 元数据，以及 tag `9`
   的 sBPF instruction-data packing，并由 `Tests/SolanaCpiPacking.lean` 和
   `Tests/LearnSource.lean`、`Tests/CliTargetFirst.lean` 覆盖。
-  `just solana-spl-token-close-account-cpi-web3` 现在覆盖 live Surfpool/Web3.js
+  `just solana-spl-token-close-account-cpi-web3` 现在覆盖 live Surfpool/Rust
   验证路径：通过 CPI 关闭空 SPL Token account、验证 destination 租金 lamport
   回收，并记录 marker state。close-account 的 Pinocchio equivalence 仍作为
   reference-breadth 后续项。
