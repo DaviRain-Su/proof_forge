@@ -70,6 +70,7 @@ def check_wrapper(rel: str, shared_name: str) -> None:
 
 def check_compatibility_wrappers() -> None:
     wrappers = {
+        "Examples/Evm/Contracts/ArrayExample.lean": "ArrayExample",
         "Examples/Evm/Contracts/Counter.lean": "Counter",
         "Examples/Solana/Counter.lean": "Counter",
         "ProofForge/Contract/Examples/Counter.lean": "Counter",

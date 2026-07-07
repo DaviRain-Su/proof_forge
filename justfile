@@ -255,6 +255,10 @@ wasm-near-ft-transfer-call-e2e:
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
 
+# Build the shared ArrayExample to EVM, Solana sBPF, and NEAR/Wasm from one source file.
+portable-array-example-multi-target:
+    scripts/portable/array-example-multi-target.sh
+
 # Generate and validate the portable Counter canonical SDK layout for all four SDK targets.
 portable-counter-four-target-sdk:
     scripts/portable/counter-four-target-sdk.sh

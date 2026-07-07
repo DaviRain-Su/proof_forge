@@ -8,6 +8,7 @@ Use `Examples/Shared/` for contracts that should compile to multiple targets by
 changing only `--target`. These are the canonical application-facing examples:
 
 - `Counter.lean`
+- `ArrayExample.lean`
 - `RoleGatedToken.lean`
 - `StakingVault.lean`
 - `ValueVault.lean`

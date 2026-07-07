@@ -16,6 +16,7 @@ NEAR/Wasm:
 | Example | Source | Checked demo |
 |---|---|---|
 | Counter | [Counter.lean](Counter.lean) | `just portable-counter-multi-target` |
+| ArrayExample | [ArrayExample.lean](ArrayExample.lean) | `just portable-array-example-multi-target` |
 | ValueVault | [ValueVault.lean](ValueVault.lean) | `just portable-value-vault` |
 | RoleGatedToken | [RoleGatedToken.lean](RoleGatedToken.lean) | `scripts/portable/role-gated-token-multi-target.sh` |
 | StakingVault | [StakingVault.lean](StakingVault.lean) | `scripts/portable/staking-vault-multi-target.sh` |
