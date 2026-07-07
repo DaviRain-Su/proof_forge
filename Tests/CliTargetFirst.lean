@@ -41,6 +41,15 @@ def main : IO UInt32 := do
   require
     ((ProofForge.Cli.defaultBytecodeYulOutput (System.FilePath.mk "build/evm/Counter.bin")).toString == "build/evm/Counter.yul")
     "EVM bytecode build should default Yul output next to the bytecode output"
+  require
+    (ProofForge.Cli.Fixture.isWasmNearFixture "context" &&
+      !ProofForge.Cli.Fixture.isWasmNearFixture "value-vault")
+    "Wasm-NEAR fixture helper should preserve the target-first legacy mapping boundary"
+  require
+    (ProofForge.Cli.Fixture.supportsFormat "solana-sbpf-asm" "system-cpi" .elf &&
+      ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .psy &&
+      !ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .wat)
+    "fixture support helpers should preserve Solana/Psy format boundaries"
   requireLegacy
     ["build", "--target", "evm", "--root", ".", "--module", "contract", "-o", "build/evm/Counter.bin", "Examples/Evm/Contracts/Counter.lean"]
     ["--evm-bytecode", "-o", "build/evm/Counter.bin", "--root", ".", "--module", "contract", "--solc", "solc", "--cast", "cast", "Examples/Evm/Contracts/Counter.lean"]

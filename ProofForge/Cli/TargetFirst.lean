@@ -192,7 +192,7 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
           Except.error s!"proof-forge build --target wasm-near does not support format '{format?.getD ""}'; use --format wat"
         else
           let fixture := fixture?.getD "counter"
-          if fixture == "counter" || fixture == "error-ref" || fixture == "context" || fixture == "hash" || fixture == "map" then
+          if ProofForge.Cli.Fixture.isWasmNearFixture fixture then
             Except.ok s!"--emit-{fixture}-emitwat"
           else
             Except.error s!"proof-forge build --target wasm-near --fixture {fixture} is not yet implemented"
@@ -291,12 +291,12 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
       else
         Except.error s!"emit --target solana-sbpf-asm --fixture {f} is not yet mapped to a legacy flag"
   | "wasm-near", f, "wat" =>
-      if f == "counter" || f == "error-ref" || f == "context" || f == "hash" || f == "map" then
+      if ProofForge.Cli.Fixture.isWasmNearFixture f then
         Except.ok s!"--emit-{f}-emitwat"
       else
         Except.error s!"emit --target wasm-near --fixture {f} --format wat is not yet mapped to a legacy flag"
   | "wasm-near", f, _ =>
-      if f == "counter" || f == "error-ref" || f == "context" || f == "hash" || f == "map" then
+      if ProofForge.Cli.Fixture.isWasmNearFixture f then
         Except.ok s!"--emit-{f}-ir-wasm-near"
       else
         Except.error s!"emit --target wasm-near --fixture {f} is not yet mapped"

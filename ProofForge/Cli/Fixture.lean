@@ -161,41 +161,52 @@ def defaultFormatFor (targetId fixtureId : String) : Option Format :=
   | "quint" => some .qnt
   | _ => none
 
+def evmFixtures : Array String := #[
+  "counter", "value-vault", "error-ref", "context", "hash", "map",
+  "assert", "assignment", "conditional"
+]
+
+def wasmNearFixtures : Array String := #[
+  "counter", "error-ref", "context", "hash", "map"
+]
+
+def solanaFixtures : Array String := #[
+  "counter", "value-vault", "error-ref", "control"
+]
+
+def isEvmFixture (fixtureId : String) : Bool :=
+  evmFixtures.contains fixtureId || fixtureId.startsWith "evm-" || fixtureId == "abi-scalar"
+
+def isWasmNearFixture (fixtureId : String) : Bool :=
+  wasmNearFixtures.contains fixtureId
+
+def isSolanaFixture (fixtureId : String) : Bool :=
+  solanaFixtures.contains fixtureId ||
+    fixtureId.startsWith "solana-" || fixtureId.startsWith "spl-token-" ||
+    fixtureId.startsWith "system-" || fixtureId == "associated-token-cpi" ||
+    fixtureId == "log-event" || fixtureId == "canned-entrypoint"
+
+def isPsyFixture (fixtureId : String) : Bool :=
+  fixtureId == "counter" || fixtureId == "crosscall" || fixtureId == "event" ||
+    fixtureId == "expression-predicate" || fixtureId == "generic-entrypoint" ||
+    fixtureId.startsWith "arithmetic" || fixtureId.startsWith "bitwise" ||
+    fixtureId.startsWith "bool-" || fixtureId.startsWith "conditional" ||
+    fixtureId == "else-if" || fixtureId.startsWith "context" ||
+    fixtureId.startsWith "hash" || fixtureId.startsWith "loop" ||
+    fixtureId.startsWith "map" || fixtureId == "assert" ||
+    fixtureId.startsWith "array" || fixtureId.startsWith "struct" ||
+    fixtureId.startsWith "abi-" || fixtureId.startsWith "nested-" ||
+    fixtureId.startsWith "storage-nested" || fixtureId.startsWith "u32-"
+
 /-- Conservative whitelist of supported (target, fixture, format) triples.
 Unsupported triples fail early with a diagnostic. -/
 def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   match targetId, fixtureId, format with
-  | "evm", "counter", _ => true
-  | "evm", "value-vault", _ => true
-  | "evm", "error-ref", _ => true
-  | "evm", "context", _ => true
-  | "evm", "hash", _ => true
-  | "evm", "map", _ => true
-  | "evm", "assert", _ => true
-  | "evm", "assignment", _ => true
-  | "evm", "conditional", _ => true
-  | "evm", f, _ => f.startsWith "evm-" || f == "abi-scalar"
-  | "solana-sbpf-asm", "counter", _ => true
-  | "solana-sbpf-asm", "value-vault", _ => true
-  | "solana-sbpf-asm", "error-ref", _ => true
-  | "solana-sbpf-asm", "control", _ => true
-  | "solana-sbpf-asm", f, _ =>
-      f.startsWith "solana-" || f.startsWith "spl-token-" || f.startsWith "system-" ||
-      f == "associated-token-cpi" || f == "log-event" || f == "canned-entrypoint"
-  | "wasm-near", "counter", _ => true
-  | "wasm-near", "error-ref", _ => true
-  | "wasm-near", "context", _ => true
-  | "wasm-near", "hash", _ => true
-  | "wasm-near", "map", _ => true
+  | "evm", f, _ => isEvmFixture f
+  | "solana-sbpf-asm", f, _ => isSolanaFixture f
+  | "wasm-near", f, _ => isWasmNearFixture f
   | "wasm-cosmwasm", "counter", .wat => true
-  | "psy-dpn", f, .psy =>
-      f == "counter" || f == "crosscall" || f == "event" || f == "expression-predicate" ||
-      f == "generic-entrypoint" || f.startsWith "arithmetic" || f.startsWith "bitwise" ||
-      f.startsWith "bool-" || f.startsWith "conditional" || f == "else-if" || f.startsWith "context" ||
-      f.startsWith "hash" || f.startsWith "loop" || f.startsWith "map" ||
-      f == "assert" || f.startsWith "array" || f.startsWith "struct" ||
-      f.startsWith "abi-" || f.startsWith "nested-" || f.startsWith "storage-nested" ||
-      f.startsWith "u32-"
+  | "psy-dpn", f, .psy => isPsyFixture f
   | "aleo-leo", "counter", .leo => true
   | "aleo-leo", "pure-math", .leo => true
   | "move-aptos", "counter", .aptos => true
