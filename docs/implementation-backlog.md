@@ -1748,8 +1748,9 @@ Completed alpha slices:
   artifact metadata.
 - Live Rent sysvar fixture: `scripts/solana/rent-sysvar-web3-smoke.sh` builds
   and deploys a generated Solana-only `sysvar` target-extension program on
-  Surfpool, invokes `record_rent` through Web3.js, and proves the recorded
-  `Rent.lamports_per_byte_year` matches the Rent sysvar account data.
+  Surfpool, invokes `record_rent` through the Rust live RPC harness, and proves
+  the recorded `Rent.lamports_per_byte_year` matches the Rent sysvar account
+  data.
 - Live EpochSchedule sysvar fixture:
   `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes

@@ -551,7 +551,7 @@
   制品元数据中被记录为 feature-gated。
 - 实时 Rent sysvar fixture：`scripts/solana/rent-sysvar-web3-smoke.sh` 在
   Surfpool 上构建并部署一个生成的仅限 Solana 的 `sysvar` 目标扩展程序，
-  通过 Web3.js 调用 `record_rent`，并证明记录的
+  通过 Rust live RPC 测试框架调用 `record_rent`，并证明记录的
   `Rent.lamports_per_byte_year` 与 Rent sysvar 账户数据匹配。
 - 实时 EpochSchedule sysvar fixture：
   `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
