@@ -170,7 +170,7 @@ portable-value-vault:
 learn-token-smoke:
     scripts/portable/learn-token-smoke.sh
 
-# Run the Learn-token ERC-20 artifact in a local EthereumJS VM.
+# Run the Learn-token ERC-20 artifact in a local Rust/revm VM.
 learn-token-evm-vm:
     scripts/evm/learn-token-erc20-vm-smoke.sh
 
