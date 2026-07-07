@@ -120,14 +120,16 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 
 ValueVault budget baseline 位于 `testkit/scenarios/value-vault.toml`。
 
-## 步骤 6 — 在 EVM 上组合 stdlib 模块（可选）
+## 步骤 6 — 从 shared 源码组合 stdlib 模块（可选）
 
 可移植 Counter/ValueVault 演示跨目标产品路径。EVM stdlib 模块（`Ownable`、
 `Pausable`、`ERC20`、`ReentrancyGuard`）通过 `contract_source` 内的
 `import` / `open` 组合；参见
-`Examples/Evm/Contracts/SimpleToken.lean` 和
-[authoring-model.md](../authoring-model.md)。这些 stdlib 示例目前以 EVM 为先；
-共享场景 Counter/ValueVault 仍是三目标 canonical 参考。
+`Examples/Shared/SimpleToken.lean` 和
+[authoring-model.md](../authoring-model.md)。这些 stdlib-focused 示例现在是
+single-source 示例，目前覆盖 EVM golden/runtime gate 和 Solana package
+generation；NEAR address-keyed map lowering 仍由 capability gate 控制。
+Counter/ValueVault 仍是三目标 canonical 参考。
 
 ## 检查清单
 

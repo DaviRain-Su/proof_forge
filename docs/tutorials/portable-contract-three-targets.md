@@ -129,15 +129,16 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 
 ValueVault budget baselines live in `testkit/scenarios/value-vault.toml`.
 
-## Step 6 — Compose stdlib modules on EVM (optional)
+## Step 6 — Compose stdlib modules from shared source (optional)
 
 Portable Counter/ValueVault demonstrate the cross-target product path. EVM
 stdlib modules (`Ownable`, `Pausable`, `ERC20`, `ReentrancyGuard`) compose
 through `import` / `open` inside `contract_source`; see
-`Examples/Evm/Contracts/SimpleToken.lean` and
+`Examples/Shared/SimpleToken.lean` and
 [authoring-model.md](../authoring-model.md). Those stdlib-focused examples are
-EVM-first today; shared-scenario Counter/ValueVault remain the canonical
-three-target reference.
+single-source examples with EVM golden/runtime gates and Solana package
+generation today; NEAR address-keyed map lowering remains capability-gated.
+Counter/ValueVault remain the canonical three-target reference.
 
 ## Checklist
 

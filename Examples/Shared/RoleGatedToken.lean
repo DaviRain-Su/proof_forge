@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-RoleGatedToken shared scenario — a token with role-gated minting.
+Canonical portable RoleGatedToken shared across primary targets.
 
 This is the first "complex business logic" shared scenario: it combines
 AccessControl (role membership) with ERC-20 token semantics, so that
@@ -10,16 +10,27 @@ only accounts holding the `minter` role can call `mint`. The same source
 compiles to EVM (via stdlib compose), Solana (via account/PDA constraints),
 and NEAR (via signer-based role checks).
 
-Compile to three targets:
+Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
+`--target`:
+
   lake env proof-forge build --target evm --root . \
     -o build/role-gated-token/RoleGatedToken.bin \
+    --yul-output build/role-gated-token/RoleGatedToken.yul \
+    --artifact-output build/role-gated-token/RoleGatedToken.proof-forge-artifact.json \
     Examples/Shared/RoleGatedToken.lean
+
   lake env proof-forge build --target solana-sbpf-asm --root . \
     -o build/role-gated-token/RoleGatedToken.s \
+    --artifact-output build/role-gated-token/RoleGatedToken.solana-artifact.json \
     Examples/Shared/RoleGatedToken.lean
+
   lake env proof-forge build --target wasm-near --root . \
-    -o build/role-gated-token/RoleGatedToken \
+    -o build/role-gated-token/near \
+    --artifact-output build/role-gated-token/RoleGatedToken.near-artifact.json \
     Examples/Shared/RoleGatedToken.lean
+
+See `scripts/portable/role-gated-token-multi-target.sh` for a checked
+end-to-end demo.
 -/
 import ProofForge.Contract.Source
 

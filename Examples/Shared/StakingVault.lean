@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-StakingVault shared scenario — deposit native value, earn shares, withdraw.
+Canonical portable StakingVault shared across primary targets.
 
 Users deposit native value (ETH on EVM, lamports on Solana, NEAR on NEAR)
 and receive shares proportional to their deposit. Withdraw burns shares
@@ -12,16 +12,27 @@ simplicity (no yield/rebase).
 This scenario validates that `nativeValue` (attached_deposit / callvalue /
 lamports) can be read and transferred in a chain-neutral way.
 
-Compile to three targets:
+Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
+`--target`:
+
   lake env proof-forge build --target evm --root . \
     -o build/staking-vault/StakingVault.bin \
+    --yul-output build/staking-vault/StakingVault.yul \
+    --artifact-output build/staking-vault/StakingVault.proof-forge-artifact.json \
     Examples/Shared/StakingVault.lean
+
   lake env proof-forge build --target solana-sbpf-asm --root . \
     -o build/staking-vault/StakingVault.s \
+    --artifact-output build/staking-vault/StakingVault.solana-artifact.json \
     Examples/Shared/StakingVault.lean
+
   lake env proof-forge build --target wasm-near --root . \
-    -o build/staking-vault/StakingVault \
+    -o build/staking-vault/near \
+    --artifact-output build/staking-vault/StakingVault.near-artifact.json \
     Examples/Shared/StakingVault.lean
+
+See `scripts/portable/staking-vault-multi-target.sh` for a checked
+end-to-end demo.
 -/
 import ProofForge.Contract.Source
 
