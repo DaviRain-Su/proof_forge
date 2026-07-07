@@ -3538,7 +3538,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   routing, manifest/IDL/artifact metadata including the selected token program,
   sBPF data packing for `associated-token.create_idempotent`, a separated
   6-account CPI account-meta frame, and `just solana-associated-token-cpi-web3`
-  Surfpool/Web3.js validation that creates the canonical ATA and re-invokes the
+  Surfpool/Rust validation that creates the canonical ATA and re-invokes the
   idempotent path.
 - P1: Memo/Stake/Vote CPI, confidential_transfer,
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,

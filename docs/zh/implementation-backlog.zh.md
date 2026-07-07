@@ -1601,7 +1601,7 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   manifest/IDL/artifact 元数据（包含所选 token program）、
   `associated-token.create_idempotent` 的 sBPF 数据打包、独立的 6-account
   CPI account-meta frame，以及 `just solana-associated-token-cpi-web3`
-  Surfpool/Web3.js 验证：创建规范 ATA，并再次调用 idempotent 路径。
+  Surfpool/Rust 验证：创建规范 ATA，并再次调用 idempotent 路径。
 - P1：Memo/Stake/Vote CPI、confidential_transfer、
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables
