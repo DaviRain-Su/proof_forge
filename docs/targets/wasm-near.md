@@ -305,7 +305,7 @@ transition.
 | `ProofForge/Backend/WasmNear/IR.lean` | Wasm AST → WAT text + printer wiring |
 | `ProofForge/Compiler/Wasm/AST.lean` / `Printer.lean` | Wasm AST + WAT printer |
 | `Tests/EmitWat{Smoke,Features,Map,Hash,Context,Params,Event,Hashmap,Arith}.lean` | Per-probe renderers |
-| `Examples/near/spike/emitwat-{regression,hashmap-smoke,arith-smoke}.cjs` | Deploy + Borsh-decode smoke tests |
+| `scripts/near/emitwat-ci-smoke.sh` / `runtime/offline-host` | Rust offline-host execution and Borsh-decode regression gate |
 | `ProofForge/Cli.lean` | `emit --target wasm-near --fixture ... --format wat` routing, `writeWatPackage`, `compileEmitWat` |
 
 **Frozen v0 reference (Rust sourcegen):**

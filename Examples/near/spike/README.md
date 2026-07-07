@@ -19,16 +19,18 @@ A ~40-line WAT contract with **no Lean runtime, no WASI imports, no
 - A scalar value stored as ASCII bytes round-trips through `value_return` as
   JSON-parseable output (`JSON.parse("0") == 0`).
 
-## Run it
+## Current regression gate
 
-Requires `wabt` (`brew install wabt`) and the sandbox harness from the
-`lean4-zig-compiler` fork (`tests/emitzig_near/near_workspaces_smoke.cjs` +
-`near-sandbox` + `near-workspaces`):
+The old `near-workspaces` CJS spike harnesses have been retired. Current
+EmitWat regression coverage runs through the Rust offline host:
 
 ```sh
-wat2wasm handwritten-counter.wat -o handwritten-counter.wasm
-# then point near_workspaces_smoke.cjs (scenario=counter) at the wasm
+scripts/near/emitwat-ci-smoke.sh
 ```
+
+The hand-written WAT file in this directory remains a compact reference for the
+NEAR host ABI shape. The production path emits WAT from Lean and executes it via
+`runtime/offline-host`, not through a Node sandbox harness.
 
 ## Exact host signatures (from near-vm-logic / sys.zig)
 

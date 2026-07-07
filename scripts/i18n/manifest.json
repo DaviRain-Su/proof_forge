@@ -125,7 +125,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "688f5c533ef488ef21baf9627cad73a5dd1c6f51db7d4e089ccc7593a725401f",
+    "sha256": "f01a061094fc4b2126a7c20d5e11921b5ac0cd4fb901ca8cfdda5c1d235d6b56",
     "zh": "docs/zh/targets/wasm-near.zh.md",
     "model": "gemini-3-flash-preview"
   },
