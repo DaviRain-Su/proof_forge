@@ -762,7 +762,7 @@ and Node tooling) following the same pattern as others (`solc`, `foundry`,
 | V-GATE-SOLANA-13L | `just solana-pinocchio-spl-token-ops-live-equivalence` builds/deploys the ProofForge and Pinocchio SPL Token ops programs on Surfpool and compares the same Web3.js mint/burn/approve/revoke scenario against both. |
 | V-GATE-SOLANA-13A | `just solana-spl-token-authority-cpi-web3` deploys a generated SPL Token `set_authority` CPI program on Surfpool and verifies mint authority plus marker state through the Rust live RPC harness. |
 | V-GATE-SOLANA-13AR | `just solana-pinocchio-spl-token-authority-equivalence` emits the generated SPL Token `set_authority` CPI source/artifact metadata and compares its ABI/account/CPI/state-write contract against a checked-in Pinocchio Token authority reference manifest/source. Included in `just solana-light` through `just solana-pinocchio-reference-equivalence`. |
-| V-GATE-SOLANA-13AL | `just solana-pinocchio-spl-token-authority-live-equivalence` builds/deploys the ProofForge and Pinocchio SPL Token `set_authority` programs on Surfpool and compares the same Web3.js mint-authority transfer scenario against both. |
+| V-GATE-SOLANA-13AL | `just solana-pinocchio-spl-token-authority-live-equivalence` builds/deploys the ProofForge and Pinocchio SPL Token `set_authority` programs on Surfpool and compares the same Rust mint-authority transfer scenario against both. |
 | V-GATE-SOLANA-13C | `just solana-spl-token-close-account-cpi-web3` deploys a generated SPL Token `close_account` CPI program on Surfpool and verifies account removal, destination rent recovery, and marker state through the Rust live RPC harness. |
 
 ## Lean Module Layout

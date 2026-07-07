@@ -1883,8 +1883,8 @@ Completed beta scaffolding slices:
   `scripts/solana/pinocchio-spl-token-authority-live-equivalence.sh` is wired
   to build the ProofForge ELF and the checked-in Pinocchio Token authority
   reference ELF, deploy both programs to one Surfpool instance, invoke the same
-  Web3.js + `@solana/spl-token` mint-authority transfer scenario for each, and
-  compare mint authority plus marker state writes. The harness currently skips
+  Rust live RPC mint-authority transfer scenario for each, and compare mint
+  authority plus marker state writes. The harness currently skips
   when `cargo-build-sbf` cannot find Solana rustc/platform-tools.
 
 Completed developer-surface slices:

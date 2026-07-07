@@ -606,12 +606,15 @@
 - Pinocchio SPL Token 操作参考合约：
   `references/solana/pinocchio/spl-token-ops` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SplTokenOpsCpi` 相同的 SPL Token `mint_to`/`burn`/`approve`/`revoke` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` 发射 ProofForge SPL Token 操作 CPI 制品，并将其四个指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、SPL Token 指令合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token 操作实时等效性测试框架：
-  `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 操作参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Web3.js + `@solana/spl-token` mint/burn/approve/revoke 场景，并比较代币影响以及所有四个金额/标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。- Pinocchio SPL Token authority 参考合约：
+  `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 操作参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Web3.js + `@solana/spl-token` mint/burn/approve/revoke 场景，并比较代币影响以及所有四个金额/标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
+- Pinocchio SPL Token authority 参考合约：
   `references/solana/pinocchio/spl-token-authority` 包含一个已签入的、针对与 `ProofForge.Solana.Examples.SplTokenAuthorityCpi` 相同的 SPL Token `set_authority` 账户 schema 的无分配器 Pinocchio 参考。gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` 发射 ProofForge SPL Token authority CPI 制品，并将其指令 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、`SetAuthority` 指令合约以及标记状态写入合约与参考清单/源代码进行对比。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 针对 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token authority 实时等效性测试 harness：
-  `scripts/solana/pinocchio-spl-token-authority-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token authority 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Web3.js + `@solana/spl-token` 铸币权限转移场景，并对比铸币权限以及标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该 harness 目前会跳过。
+  `scripts/solana/pinocchio-spl-token-authority-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token authority 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live RPC 铸币权限转移场景，并对比铸币权限以及标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该 harness 目前会跳过。
 
-已完成的开发者层面切片：- 可移植 ValueVault 表面源代码：
+已完成的开发者层面切片：
+
+- 可移植 ValueVault 表面源代码：
   `ProofForge.Contract.Surface` 现在允许示例仅声明一次状态槽位、参数、方法和事件字段，然后通过类型化引用（`read`、`write`、`bind`、`emit`、`ret`）编写入口主体，而不是使用原始的 `ContractSpec` 字符串管道。`ProofForge.Contract.Examples.ValueVault`
   使用此层，并有意在源代码中保留 `selector? = none`。
 - 基于声明派生的 IR 名称：
