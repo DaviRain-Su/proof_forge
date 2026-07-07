@@ -73,6 +73,16 @@ pub fn create_empty_associated_token_account(
     mint: Address,
 ) -> Result<Address> {
     let token_program = spl_token_program_id();
+    create_empty_associated_token_account_for_program(rpc, payer, wallet, mint, token_program)
+}
+
+pub fn create_empty_associated_token_account_for_program(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    wallet: Address,
+    mint: Address,
+    token_program: Address,
+) -> Result<Address> {
     let associated_token_program = associated_token_program_id();
     let account =
         associated_token_address(&wallet, &token_program, &mint, &associated_token_program);
@@ -81,6 +91,7 @@ pub fn create_empty_associated_token_account(
         account,
         wallet,
         mint,
+        token_program,
     );
     rpc.send_and_confirm(&[create], &[payer])
         .context("failed to create associated token account")?;
@@ -402,6 +413,7 @@ fn create_associated_token_account_idempotent_instruction(
     account: Address,
     wallet: Address,
     mint: Address,
+    token_program: Address,
 ) -> Instruction {
     Instruction {
         program_id: associated_token_program_id(),
@@ -411,7 +423,7 @@ fn create_associated_token_account_idempotent_instruction(
             AccountMeta::new_readonly(wallet, false),
             AccountMeta::new_readonly(mint, false),
             AccountMeta::new_readonly(solana_system_interface::program::id(), false),
-            AccountMeta::new_readonly(spl_token_program_id(), false),
+            AccountMeta::new_readonly(token_program, false),
         ],
         data: vec![1],
     }

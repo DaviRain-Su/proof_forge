@@ -273,9 +273,12 @@ portable-evm-client:
 solana-token-2022-transfer-fee-web3:
     scripts/solana/token-2022-transfer-fee-web3-smoke.sh
 
-# Run a live Solana Token-2022 non-transferable plan smoke on Surfpool with Web3.js.
-solana-token-2022-non-transferable-web3:
-    scripts/solana/token-2022-non-transferable-web3-smoke.sh
+# Run a live Solana Token-2022 non-transferable plan smoke on Surfpool with the Rust harness.
+solana-token-2022-non-transferable-live:
+    scripts/solana/token-2022-non-transferable-live-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-token-2022-non-transferable-web3: solana-token-2022-non-transferable-live
 
 # Run Solana PDA typed-seed Rust derivation smoke.
 solana-pda-web3:

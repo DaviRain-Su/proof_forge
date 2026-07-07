@@ -2728,13 +2728,15 @@ Tasks:
   cleared account/mint withheld amounts with Web3.js reads.
 - Done: add `ProofForge.Contract.Token.Examples.SoulboundToken`,
   `Tests/TokenPlanEmit.lean`,
-  `scripts/solana/token-2022-non-transferable-web3-smoke.sh`, and `just
-  solana-token-2022-non-transferable-web3` to execute a Lean `.lean`
-  TokenSpec-backed Token-2022 non-transferable plan on Surfpool. The live
-  runner initializes `NonTransferable`, creates Token-2022 associated token
-  accounts, mints initial supply, verifies mint/account extensions, proves
-  `TransferChecked` is rejected, then burns the token and validates balances
-  and supply with Web3.js reads.
+  `scripts/solana/token-2022-non-transferable-live-smoke.sh`, and `just
+  solana-token-2022-non-transferable-live` to execute a Lean `.lean`
+  TokenSpec-backed Token-2022 non-transferable plan on Surfpool with a Rust
+  harness. The former `solana-token-2022-non-transferable-web3` entrypoint
+  remains as a compatibility alias. The live runner initializes
+  `NonTransferable`, creates Token-2022 associated token accounts, mints
+  initial supply, verifies mint/account extensions, proves `TransferChecked`
+  is rejected, then burns the token and validates balances and supply with
+  Rust RPC account reads.
 - Implement EVM ERC-20 lowering: ABI/selectors, balance/allowance storage,
   total supply, transfer/approve/transferFrom, mint/burn options, events, and
   broader Foundry/Web3 behavior tests.

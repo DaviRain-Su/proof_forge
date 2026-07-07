@@ -25,4 +25,5 @@ solana-signer.workspace = true
 solana-system-interface.workspace = true
 solana-transaction-error.workspace = true
 solana-transaction.workspace = true
+spl-token-2022-interface.workspace = true
 toml.workspace = true
