@@ -1,0 +1,288 @@
+use std::path::Path;
+use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
+
+use anyhow::{anyhow, bail, ensure, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use reqwest::blocking::Client;
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use solana_address::Address;
+use solana_instruction::Instruction;
+use solana_keypair::{read_keypair_file, Keypair};
+use solana_signer::Signer;
+use solana_transaction::{Hash, Transaction};
+
+pub struct LiveRpc {
+    url: String,
+    client: Client,
+}
+
+impl LiveRpc {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            client: Client::new(),
+        }
+    }
+
+    pub fn latest_blockhash(&self) -> Result<Hash> {
+        let response: LatestBlockhashResponse =
+            self.call("getLatestBlockhash", json!([{ "commitment": "confirmed" }]))?;
+        Hash::from_str(&response.value.blockhash)
+            .with_context(|| format!("invalid latest blockhash {}", response.value.blockhash))
+    }
+
+    pub fn minimum_balance_for_rent_exemption(&self, space: u64) -> Result<u64> {
+        self.call("getMinimumBalanceForRentExemption", json!([space]))
+    }
+
+    pub fn send_and_confirm(
+        &self,
+        instructions: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Result<String> {
+        ensure!(
+            !signers.is_empty(),
+            "transaction requires at least the payer signer"
+        );
+        let encoded = self.encode_signed_transaction(instructions, signers)?;
+        let signature: String = self.call(
+            "sendTransaction",
+            json!([
+                encoded,
+                {
+                    "encoding": "base64",
+                    "skipPreflight": false,
+                    "preflightCommitment": "confirmed"
+                }
+            ]),
+        )?;
+        self.confirm_signature(&signature)?;
+        Ok(signature)
+    }
+
+    pub fn simulate_return_data(
+        &self,
+        instructions: &[Instruction],
+        signers: &[&Keypair],
+        expected_program_id: Address,
+    ) -> Result<Vec<u8>> {
+        let encoded = self.encode_signed_transaction(instructions, signers)?;
+        let response: SimulateResponse = self.call(
+            "simulateTransaction",
+            json!([
+                encoded,
+                {
+                    "encoding": "base64",
+                    "sigVerify": false,
+                    "replaceRecentBlockhash": true,
+                    "commitment": "confirmed"
+                }
+            ]),
+        )?;
+        if let Some(err) = response.value.err {
+            bail!("simulation returned error: {err}");
+        }
+        let return_data = response
+            .value
+            .return_data
+            .context("simulation did not return data")?;
+        ensure!(
+            return_data.program_id == expected_program_id.to_string(),
+            "return data came from {}, expected {}",
+            return_data.program_id,
+            expected_program_id
+        );
+        decode_base64_pair(return_data.data, "return data")
+    }
+
+    pub fn simulate_return_u64(
+        &self,
+        instructions: &[Instruction],
+        signers: &[&Keypair],
+        expected_program_id: Address,
+    ) -> Result<u64> {
+        let bytes = self.simulate_return_data(instructions, signers, expected_program_id)?;
+        read_u64_le(&bytes)
+    }
+
+    pub fn account_data(&self, account: Address) -> Result<Vec<u8>> {
+        let response: AccountInfoResponse = self.call(
+            "getAccountInfo",
+            json!([
+                account.to_string(),
+                {
+                    "encoding": "base64",
+                    "commitment": "confirmed"
+                }
+            ]),
+        )?;
+        let account_info = response
+            .value
+            .with_context(|| format!("account not found: {account}"))?;
+        decode_base64_pair(account_info.data, "account data")
+    }
+
+    pub fn account_data_u64(&self, account: Address) -> Result<u64> {
+        let bytes = self.account_data(account)?;
+        read_u64_le(&bytes)
+    }
+
+    fn encode_signed_transaction(
+        &self,
+        instructions: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Result<String> {
+        ensure!(
+            !signers.is_empty(),
+            "transaction requires at least one signer"
+        );
+        let payer = signers[0].pubkey();
+        let blockhash = self.latest_blockhash()?;
+        let mut tx = Transaction::new_with_payer(instructions, Some(&payer));
+        tx.try_sign(signers, blockhash)
+            .context("failed to sign transaction")?;
+        let bytes = bincode::serialize(&tx).context("failed to serialize transaction")?;
+        Ok(BASE64.encode(bytes))
+    }
+
+    fn confirm_signature(&self, signature: &str) -> Result<()> {
+        for _ in 0..60 {
+            let response: SignatureStatusesResponse = self.call(
+                "getSignatureStatuses",
+                json!([[signature], { "searchTransactionHistory": true }]),
+            )?;
+            if let Some(Some(status)) = response.value.into_iter().next() {
+                if let Some(err) = status.err {
+                    bail!("transaction {signature} failed: {err}");
+                }
+                match status.confirmation_status.as_deref() {
+                    Some("confirmed") | Some("finalized") => return Ok(()),
+                    _ => {}
+                }
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        bail!("timed out waiting for transaction {signature} confirmation")
+    }
+
+    fn call<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<T> {
+        let response: RpcResponse<T> = self
+            .client
+            .post(&self.url)
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": params,
+            }))
+            .send()
+            .with_context(|| format!("RPC {method} request failed"))?
+            .error_for_status()
+            .with_context(|| format!("RPC {method} returned HTTP error"))?
+            .json()
+            .with_context(|| format!("RPC {method} returned invalid JSON"))?;
+        if let Some(error) = response.error {
+            bail!(
+                "RPC {method} failed: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
+        response
+            .result
+            .with_context(|| format!("RPC {method} response missing result"))
+    }
+}
+
+pub fn read_keypair(path: impl AsRef<Path>) -> Result<Keypair> {
+    let path = path.as_ref();
+    read_keypair_file(path)
+        .map_err(|err| anyhow!("failed to read keypair {}: {err}", path.display()))
+}
+
+pub fn read_u64_le(data: &[u8]) -> Result<u64> {
+    let bytes: [u8; 8] = data
+        .get(..8)
+        .context("expected at least 8 bytes")?
+        .try_into()
+        .expect("slice length is fixed");
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn decode_base64_pair(data: (String, String), label: &str) -> Result<Vec<u8>> {
+    let (encoded, encoding) = data;
+    ensure!(
+        encoding == "base64",
+        "expected base64 {label}, got {encoding}"
+    );
+    BASE64
+        .decode(encoded)
+        .with_context(|| format!("failed to decode {label}"))
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcResponse<T> {
+    result: Option<T>,
+    error: Option<RpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcError {
+    code: i64,
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LatestBlockhashResponse {
+    value: LatestBlockhashValue,
+}
+
+#[derive(Debug, Deserialize)]
+struct LatestBlockhashValue {
+    blockhash: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountInfoResponse {
+    value: Option<AccountInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountInfo {
+    data: (String, String),
+}
+
+#[derive(Debug, Deserialize)]
+struct SimulateResponse {
+    value: SimulateValue,
+}
+
+#[derive(Debug, Deserialize)]
+struct SimulateValue {
+    err: Option<Value>,
+    #[serde(rename = "returnData")]
+    return_data: Option<ReturnData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReturnData {
+    #[serde(rename = "programId")]
+    program_id: String,
+    data: (String, String),
+}
+
+#[derive(Debug, Deserialize)]
+struct SignatureStatusesResponse {
+    value: Vec<Option<SignatureStatus>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SignatureStatus {
+    err: Option<Value>,
+    #[serde(rename = "confirmationStatus")]
+    confirmation_status: Option<String>,
+}

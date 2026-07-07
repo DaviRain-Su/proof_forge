@@ -16,6 +16,8 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 
+pub mod live_rpc;
+
 const COUNTER_PROJECT_NAME: &str = "proofforge-counter";
 const VALUE_VAULT_PROJECT_NAME: &str = "proofforge-value-vault";
 const ERROR_REF_PROJECT_NAME: &str = "proofforge-error-ref";
