@@ -2,11 +2,10 @@ use std::env;
 use std::str::FromStr;
 
 use anyhow::{bail, ensure, Context, Result};
-use proof_forge_testkit_harness_solana::live_rpc::{read_keypair, LiveRpc};
+use proof_forge_testkit_harness_solana::live_rpc::{create_program_state, read_keypair, LiveRpc};
 use serde_json::json;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
@@ -98,25 +97,6 @@ fn memo_payload_from_text(text: &str) -> Result<[u8; 8]> {
     let mut payload = [0u8; 8];
     payload[..input.len()].copy_from_slice(input);
     Ok(payload)
-}
-
-fn create_program_state(
-    rpc: &LiveRpc,
-    payer: &Keypair,
-    program_id: Address,
-    space: u64,
-) -> Result<Keypair> {
-    let state = Keypair::new();
-    let lamports = rpc.minimum_balance_for_rent_exemption(space)?;
-    let ix = solana_system_interface::instruction::create_account(
-        &payer.pubkey(),
-        &state.pubkey(),
-        lamports,
-        space,
-        &program_id,
-    );
-    rpc.send_and_confirm(&[ix], &[payer, &state])?;
-    Ok(state)
 }
 
 fn memo_instruction(

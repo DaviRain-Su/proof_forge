@@ -1718,8 +1718,9 @@ Completed alpha slices:
   `Program data:` payload for the state-backed `amount` bytes.
 - Live Clock sysvar fixture: `scripts/solana/clock-sysvar-web3-smoke.sh`
   builds and deploys a generated `contextRead checkpointId` program on
-  Surfpool, lowers it to `sol_get_clock_sysvar`, invokes it through Web3.js,
-  and proves the recorded `Clock.slot` matches the observed transaction slot.
+  Surfpool, lowers it to `sol_get_clock_sysvar`, invokes it through the Rust
+  live RPC harness, and proves the recorded `Clock.slot` matches the observed
+  transaction slot.
 - Live memory syscall fixture: `scripts/solana/memory-web3-smoke.sh` builds and
   deploys a generated `runtime.memory` program on Surfpool, invokes it through
   Web3.js, and proves `sol_memcpy_`, `sol_memmove_`, `sol_memcmp_`, and

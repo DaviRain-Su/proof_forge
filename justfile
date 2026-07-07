@@ -368,7 +368,7 @@ solana-spl-token-2022-transfer-hook-web3:
 solana-log-event-web3:
     scripts/solana/log-event-web3-smoke.sh
 
-# Run a live Solana Clock sysvar smoke on Surfpool with Web3.js.
+# Run a live Solana Clock sysvar smoke on Surfpool with the Rust RPC harness.
 solana-clock-sysvar-web3:
     scripts/solana/clock-sysvar-web3-smoke.sh
 

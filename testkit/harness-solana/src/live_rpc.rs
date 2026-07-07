@@ -146,6 +146,26 @@ impl LiveRpc {
         bail!("transaction logs not available for {signature}")
     }
 
+    pub fn transaction_slot(&self, signature: &str) -> Result<u64> {
+        for _ in 0..60 {
+            let response: Option<TransactionResponse> = self.call_nullable(
+                "getTransaction",
+                json!([
+                    signature,
+                    {
+                        "commitment": "confirmed",
+                        "maxSupportedTransactionVersion": 0
+                    }
+                ]),
+            )?;
+            if let Some(tx) = response {
+                return Ok(tx.slot);
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        bail!("transaction not available for {signature}")
+    }
+
     pub fn account_data(&self, account: Address) -> Result<Vec<u8>> {
         let response: AccountInfoResponse = self.call(
             "getAccountInfo",
@@ -277,6 +297,25 @@ pub fn read_keypair(path: impl AsRef<Path>) -> Result<Keypair> {
         .map_err(|err| anyhow!("failed to read keypair {}: {err}", path.display()))
 }
 
+pub fn create_program_state(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    program_id: Address,
+    space: u64,
+) -> Result<Keypair> {
+    let state = Keypair::new();
+    let lamports = rpc.minimum_balance_for_rent_exemption(space)?;
+    let ix = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &state.pubkey(),
+        lamports,
+        space,
+        &program_id,
+    );
+    rpc.send_and_confirm(&[ix], &[payer, &state])?;
+    Ok(state)
+}
+
 pub fn read_u64_le(data: &[u8]) -> Result<u64> {
     let bytes: [u8; 8] = data
         .get(..8)
@@ -355,6 +394,7 @@ struct ReturnData {
 
 #[derive(Debug, Deserialize)]
 struct TransactionResponse {
+    slot: u64,
     meta: Option<TransactionMeta>,
 }
 
