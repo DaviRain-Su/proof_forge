@@ -21,10 +21,10 @@ Requires [Zig](https://ziglang.org/) and [Wrangler](https://developers.cloudflar
 ## Guest smoke test (no Workers runtime needed)
 
 ```sh
-node test-guest.js
+cargo run --manifest-path ../../runtime/offline-host/Cargo.toml --bin cloudflare_guest_smoke -- build/counter.wasm
 ```
 
-This directly instantiates the Wasm in Node and verifies the protocol:
+This directly instantiates the Wasm in Rust/Wasmtime and verifies the protocol:
 `initialize`, `get`, `increment`, `increment`, `get` -> final count `2`.
 
 ## Configure KV
