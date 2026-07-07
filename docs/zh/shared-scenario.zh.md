@@ -94,10 +94,9 @@ v0 不需要原生代币转账、跨合约调用或事件（v1 中可选 `events
 ## 多 target authoring 演示（CS-1.5）
 
 规范 portable Counter 位于
-[`ProofForge/Contract/Examples/Counter.lean`](../../ProofForge/Contract/Examples/Counter.lean)
-（`contract_source`）。面向应用的入口：
-
 [`Examples/Shared/Counter.lean`](../../Examples/Shared/Counter.lean)
+（`contract_source`）。`ProofForge.Contract.Examples.Counter` 是 formal gate
+和旧测试保留稳定 import 路径用的兼容 alias。
 
 **同一个文件**构建到三条主链：
 
@@ -123,6 +122,9 @@ lake env proof-forge build --target wasm-near --root . \
 规范 portable ValueVault 也遵循同一模式：
 
 [`Examples/Shared/ValueVault.lean`](../../Examples/Shared/ValueVault.lean)
+
+`ProofForge.Contract.Examples.ValueVault` 同样是 shared source 的兼容 alias；
+selector、instruction tag、export、metadata、manifest、IDL 和 client 都在它之下由目标 adapter 生成。
 
 用同一个文件构建并验证三条主 target：
 

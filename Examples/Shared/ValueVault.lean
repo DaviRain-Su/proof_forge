@@ -25,7 +25,8 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 
 See `scripts/portable/value-vault-smoke.sh` for a checked end-to-end demo.
 
-The same logic is tested in `ProofForge/Contract/Examples/ValueVault.lean`.
+`ProofForge/Contract/Examples/ValueVault.lean` is a compatibility alias for
+this source so tests and formal gates keep one canonical authoring surface.
 -/
 import ProofForge.Contract.Source
 
@@ -40,6 +41,9 @@ contract_source ValueVault do
   state last_value : .u64
   state last_checkpoint : .u64
   state operations : .u64
+
+  quint_invariant totalCoversReleased := "balance + released + fees >= released"
+  quint_invariant totalCoversFees := "balance + released + fees >= fees"
 
   event VaultInitialized
   event ValueDeposited

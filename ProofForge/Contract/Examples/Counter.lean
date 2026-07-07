@@ -1,23 +1,11 @@
-import ProofForge.Contract.Source
+import Examples.Shared.Counter
 
 namespace ProofForge.Contract.Examples.Counter
 
-open ProofForge.Contract.Source
+def spec : ProofForge.Contract.ContractSpec :=
+  Examples.Shared.Counter.spec
 
-contract_source Counter do
-  state count : .u64
-
-  quint_invariant countBounded := "count <= MAX_UINT"
-  quint_liveness eventuallyPositive := "eventually(count > 0)"
-
-  entry «initialize» do
-    count := u64 0;
-
-  entry increment do
-    let n : .u64 := count;
-    count := n +! u64 1;
-
-  query get returns(.u64) do
-    return count;
+def module : ProofForge.IR.Module :=
+  spec.module
 
 end ProofForge.Contract.Examples.Counter

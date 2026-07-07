@@ -40,7 +40,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/shared-scenario.md": {
-    "sha256": "1a159b0dca64a1dae932ea8d8090243c5e5bccab7eb02800d374a905500523f6",
+    "sha256": "bd380548d6495b7ee7410022cfc988ae256569a2dc7ff4091767c8f65acafdb4",
     "zh": "docs/zh/shared-scenario.zh.md",
     "model": "manual"
   },

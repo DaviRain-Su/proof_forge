@@ -25,7 +25,8 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 
 See `scripts/portable/counter-multi-target.sh` for a checked end-to-end demo.
 
-The same logic is tested in `ProofForge/Contract/Examples/Counter.lean`.
+`ProofForge/Contract/Examples/Counter.lean` is a compatibility alias for this
+source so tests and formal gates keep one canonical authoring surface.
 -/
 import ProofForge.Contract.Source
 
@@ -35,6 +36,9 @@ open ProofForge.Contract.Source
 
 contract_source Counter do
   state count : .u64
+
+  quint_invariant countBounded := "count <= MAX_UINT"
+  quint_liveness eventuallyPositive := "eventually(count > 0)"
 
   entry «initialize» do
     count := u64 0;

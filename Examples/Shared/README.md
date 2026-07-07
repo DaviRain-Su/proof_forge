@@ -21,8 +21,9 @@ NEAR/Wasm:
 | StakingVault | [StakingVault.lean](StakingVault.lean) | `scripts/portable/staking-vault-multi-target.sh` |
 
 Each file carries the concrete `evm`, `solana-sbpf-asm`, and `wasm-near`
-commands in its header. The compiler test fixtures with equivalent Counter and
-ValueVault semantics live in `ProofForge/Contract/Examples/`.
+commands in its header. The `ProofForge.Contract.Examples.Counter` and
+`ProofForge.Contract.Examples.ValueVault` modules are compatibility aliases for
+these shared sources so formal gates and older tests keep stable import paths.
 
 ## High-Level Intent Examples
 

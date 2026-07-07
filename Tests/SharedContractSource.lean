@@ -30,6 +30,11 @@ def requireSameText (label actual expected : String) : IO Unit :=
   require (actual == expected)
     s!"{label} mismatch\nactual:\n{actual}\nexpected:\n{expected}"
 
+def requireSameAnnotations (label : String)
+    (actual expected : Array (String × String)) : IO Unit :=
+  require (actual == expected)
+    s!"{label} annotations mismatch\nactual:\n{actual}\nexpected:\n{expected}"
+
 def parseLearnSpec (path : System.FilePath) : IO ProofForge.Contract.ContractSpec := do
   requireExcept s!"parse/lower {path}" (← ProofForge.Contract.Learn.parseAndLowerFile path)
 
@@ -53,8 +58,16 @@ unsafe def requireCounterEquivalence : IO Unit := do
   let learn ← parseLearnSpec "Examples/Learn/Counter.learn"
   requireSameModule "Shared Counter vs canonical contract_source"
     shared.module ProofForge.Contract.Examples.Counter.module
+  requireSameAnnotations "Shared Counter vs canonical quint_invariant"
+    shared.quintInvariants ProofForge.Contract.Examples.Counter.spec.quintInvariants
+  requireSameAnnotations "Shared Counter vs canonical quint_liveness"
+    shared.quintLiveness ProofForge.Contract.Examples.Counter.spec.quintLiveness
   requireSameModule "EVM Counter compatibility wrapper vs shared contract_source"
     evm.module shared.module
+  requireSameAnnotations "EVM Counter compatibility wrapper quint_invariant"
+    evm.quintInvariants shared.quintInvariants
+  requireSameAnnotations "EVM Counter compatibility wrapper quint_liveness"
+    evm.quintLiveness shared.quintLiveness
   require (evm.evmConstructorParams == #[{ name := "initial", abiType := "uint256" }])
     "EVM Counter wrapper lost constructor param metadata"
   require (evm.evmConstructorInitBindings == #[
@@ -63,6 +76,10 @@ unsafe def requireCounterEquivalence : IO Unit := do
     "EVM Counter wrapper lost constructor init binding metadata"
   requireSameModule "Solana Counter compatibility wrapper vs shared contract_source"
     solana.module shared.module
+  requireSameAnnotations "Solana Counter compatibility wrapper quint_invariant"
+    solana.quintInvariants shared.quintInvariants
+  requireSameAnnotations "Solana Counter compatibility wrapper quint_liveness"
+    solana.quintLiveness shared.quintLiveness
   requireSameModule "Legacy Learn Counter vs shared contract_source"
     learn.module shared.module
 
@@ -71,6 +88,8 @@ unsafe def requireValueVaultEquivalence : IO Unit := do
   let learn ← parseLearnSpec "Examples/Learn/ValueVault.learn"
   requireSameModule "Shared ValueVault vs canonical contract_source"
     shared.module ProofForge.Contract.Examples.ValueVault.module
+  requireSameAnnotations "Shared ValueVault vs canonical quint_invariant"
+    shared.quintInvariants ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
   requireSameModule "Legacy Learn ValueVault vs shared contract_source"
     learn.module shared.module
   let sharedManifest ← packageFile "shared-value-vault" "manifest.toml" shared

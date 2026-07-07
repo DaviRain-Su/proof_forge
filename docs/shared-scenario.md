@@ -105,10 +105,9 @@ Phase 2 is complete when **both** parallel spikes pass independently:
 ## Multi-target authoring demo (CS-1.5)
 
 The canonical portable Counter lives in
-[`ProofForge/Contract/Examples/Counter.lean`](../ProofForge/Contract/Examples/Counter.lean)
-(`contract_source`). Application-facing entry:
-
 [`Examples/Shared/Counter.lean`](../Examples/Shared/Counter.lean)
+(`contract_source`). `ProofForge.Contract.Examples.Counter` is a compatibility
+alias for formal gates and older tests.
 
 Build the **same file** to three primary targets:
 
@@ -134,6 +133,10 @@ Chain choice is entirely build-time; the Lean module does not fork per target.
 The canonical portable ValueVault follows the same pattern:
 
 [`Examples/Shared/ValueVault.lean`](../Examples/Shared/ValueVault.lean)
+
+`ProofForge.Contract.Examples.ValueVault` is likewise a compatibility alias for
+the shared source; target adapters derive selectors, instruction tags, exports,
+metadata, manifests, IDL, and clients below that layer.
 
 Build and validate the same file across the three primary targets:
 
