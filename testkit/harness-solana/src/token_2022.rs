@@ -9,6 +9,9 @@ use spl_token_2022_interface::{
     extension::{
         immutable_owner::ImmutableOwner,
         non_transferable::{NonTransferable, NonTransferableAccount},
+        transfer_fee::{
+            instruction as transfer_fee_instruction, TransferFeeAmount, TransferFeeConfig,
+        },
         BaseStateWithExtensions, ExtensionType, StateWithExtensions,
     },
     instruction as token_instruction,
@@ -65,6 +68,55 @@ pub fn create_non_transferable_mint(
         &[payer, &mint],
     )
     .context("failed to create and initialize Token-2022 non-transferable mint")?;
+    Ok(mint)
+}
+
+pub fn create_transfer_fee_mint(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    decimals: u8,
+    mint_authority: Address,
+    transfer_fee_config_authority: Address,
+    withdraw_withheld_authority: Address,
+    transfer_fee_basis_points: u16,
+    maximum_fee: u64,
+) -> Result<Keypair> {
+    let token_program = token_2022_program_id();
+    let mint = Keypair::new();
+    let space = ExtensionType::try_calculate_account_len::<Token2022MintState>(&[
+        ExtensionType::TransferFeeConfig,
+    ])
+    .map_err(|err| anyhow!("failed to calculate Token-2022 mint length: {err:?}"))?;
+    let lamports = rpc.minimum_balance_for_rent_exemption(space as u64)?;
+    let create = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        lamports,
+        space as u64,
+        &token_program,
+    );
+    let initialize_transfer_fee_config = transfer_fee_instruction::initialize_transfer_fee_config(
+        &token_program,
+        &mint.pubkey(),
+        Some(&transfer_fee_config_authority),
+        Some(&withdraw_withheld_authority),
+        transfer_fee_basis_points,
+        maximum_fee,
+    )
+    .map_err(|err| anyhow!("failed to build transfer-fee config init instruction: {err:?}"))?;
+    let initialize_mint = token_instruction::initialize_mint(
+        &token_program,
+        &mint.pubkey(),
+        &mint_authority,
+        None,
+        decimals,
+    )
+    .map_err(|err| anyhow!("failed to build Token-2022 initialize_mint instruction: {err:?}"))?;
+    rpc.send_and_confirm(
+        &[create, initialize_transfer_fee_config, initialize_mint],
+        &[payer, &mint],
+    )
+    .context("failed to create and initialize Token-2022 transfer-fee mint")?;
     Ok(mint)
 }
 
@@ -125,6 +177,102 @@ pub fn transfer_checked(
     )?;
     send_authority_instruction(rpc, payer, authority, instruction)
         .context("failed to transfer checked Token-2022 amount")
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_checked_with_fee(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    amount: u64,
+    decimals: u8,
+    fee: u64,
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let instruction = transfer_fee_instruction::transfer_checked_with_fee(
+        &token_program,
+        &source,
+        &mint,
+        &destination,
+        &authority.pubkey(),
+        &[],
+        amount,
+        decimals,
+        fee,
+    )
+    .map_err(|err| anyhow!("failed to build transfer_checked_with_fee instruction: {err:?}"))?;
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to transfer checked Token-2022 amount with fee")
+}
+
+pub fn withdraw_withheld_tokens_from_accounts(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    sources: &[Address],
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let source_refs: Vec<&Address> = sources.iter().collect();
+    let instruction = transfer_fee_instruction::withdraw_withheld_tokens_from_accounts(
+        &token_program,
+        &mint,
+        &destination,
+        &authority.pubkey(),
+        &[],
+        &source_refs,
+    )
+    .map_err(|err| {
+        anyhow!("failed to build withdraw_withheld_tokens_from_accounts instruction: {err:?}")
+    })?;
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to withdraw Token-2022 withheld fees from accounts")
+}
+
+pub fn harvest_withheld_tokens_to_mint(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    sources: &[Address],
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let source_refs: Vec<&Address> = sources.iter().collect();
+    let instruction = transfer_fee_instruction::harvest_withheld_tokens_to_mint(
+        &token_program,
+        &mint,
+        &source_refs,
+    )
+    .map_err(|err| {
+        anyhow!("failed to build harvest_withheld_tokens_to_mint instruction: {err:?}")
+    })?;
+    rpc.send_and_confirm(&[instruction], &[payer])
+        .context("failed to harvest Token-2022 withheld fees to mint")
+}
+
+pub fn withdraw_withheld_tokens_from_mint(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let instruction = transfer_fee_instruction::withdraw_withheld_tokens_from_mint(
+        &token_program,
+        &mint,
+        &destination,
+        &authority.pubkey(),
+        &[],
+    )
+    .map_err(|err| {
+        anyhow!("failed to build withdraw_withheld_tokens_from_mint instruction: {err:?}")
+    })?;
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to withdraw Token-2022 withheld fees from mint")
 }
 
 pub fn burn(
@@ -191,6 +339,59 @@ pub fn assert_non_transferable_mint(data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+pub fn assert_transfer_fee_config(
+    data: &[u8],
+    transfer_fee_config_authority: Address,
+    withdraw_withheld_authority: Address,
+    transfer_fee_basis_points: u16,
+    maximum_fee: u64,
+) -> Result<()> {
+    let config = transfer_fee_config(data)?;
+    ensure!(
+        config.transfer_fee_config_authority.0.to_bytes()
+            == transfer_fee_config_authority.to_bytes(),
+        "transfer-fee config authority mismatch: expected {}, got {}",
+        transfer_fee_config_authority,
+        config.transfer_fee_config_authority.0
+    );
+    ensure!(
+        config.withdraw_withheld_authority.0.to_bytes() == withdraw_withheld_authority.to_bytes(),
+        "withdraw-withheld authority mismatch: expected {}, got {}",
+        withdraw_withheld_authority,
+        config.withdraw_withheld_authority.0
+    );
+    ensure!(
+        u16::from(config.newer_transfer_fee.transfer_fee_basis_points) == transfer_fee_basis_points,
+        "transfer-fee basis points mismatch: expected {transfer_fee_basis_points}, got {}",
+        u16::from(config.newer_transfer_fee.transfer_fee_basis_points)
+    );
+    ensure!(
+        u64::from(config.newer_transfer_fee.maximum_fee) == maximum_fee,
+        "transfer-fee maximum mismatch: expected {maximum_fee}, got {}",
+        u64::from(config.newer_transfer_fee.maximum_fee)
+    );
+    Ok(())
+}
+
+pub fn calculate_epoch_fee(data: &[u8], epoch: u64, amount: u64) -> Result<u64> {
+    transfer_fee_config(data)?
+        .calculate_epoch_fee(epoch, amount)
+        .context("failed to calculate Token-2022 transfer fee")
+}
+
+pub fn account_withheld_amount(data: &[u8], label: &str) -> Result<u64> {
+    let state = StateWithExtensions::<Token2022AccountState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 {label} account extensions: {err:?}"))?;
+    let amount = state
+        .get_extension::<TransferFeeAmount>()
+        .map_err(|err| anyhow!("{label} account missing TransferFeeAmount extension: {err:?}"))?;
+    Ok(u64::from(amount.withheld_amount))
+}
+
+pub fn mint_withheld_amount(data: &[u8]) -> Result<u64> {
+    Ok(u64::from(transfer_fee_config(data)?.withheld_amount))
+}
+
 pub fn assert_non_transferable_account(data: &[u8], label: &str) -> Result<()> {
     let state = StateWithExtensions::<Token2022AccountState>::unpack(data)
         .map_err(|err| anyhow!("failed to parse Token-2022 {label} account extensions: {err:?}"))?;
@@ -223,6 +424,15 @@ pub fn verify_empty_account(data: &[u8], mint: Address, owner: Address, label: &
         account.amount
     );
     assert_non_transferable_account(data, label)
+}
+
+fn transfer_fee_config(data: &[u8]) -> Result<TransferFeeConfig> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<TransferFeeConfig>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing TransferFeeConfig extension: {err:?}"))
 }
 
 fn transfer_checked_instruction(

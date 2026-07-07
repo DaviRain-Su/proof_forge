@@ -54,6 +54,10 @@ impl LiveRpc {
         self.call("getEpochSchedule", json!([]))
     }
 
+    pub fn epoch_info(&self) -> Result<EpochInfo> {
+        self.call("getEpochInfo", json!([{ "commitment": "confirmed" }]))
+    }
+
     pub fn balance(&self, account: Address) -> Result<u64> {
         let response: BalanceResponse = self.call(
             "getBalance",
@@ -457,6 +461,11 @@ pub struct EpochSchedule {
     pub first_normal_epoch: u64,
     #[serde(rename = "firstNormalSlot")]
     pub first_normal_slot: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EpochInfo {
+    pub epoch: u64,
 }
 
 #[derive(Debug, Deserialize)]

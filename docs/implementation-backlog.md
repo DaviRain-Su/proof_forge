@@ -2717,15 +2717,17 @@ Tasks:
   `mint_to`, `transfer_checked`, `approve`, `burn`, `revoke`, and
   mint-authority `set_authority` operations, and validates balances, supply,
   delegate state, and authority revocation with Rust RPC account reads.
-- Done: add `scripts/solana/token-2022-transfer-fee-web3-smoke.sh` / `just
-  solana-token-2022-transfer-fee-web3` to execute the structured Token-2022
-  transfer-fee plan on Surfpool. The live runner initializes `TransferFeeConfig`,
-  creates Token-2022 associated token accounts, mints initial supply, executes
+- Done: add `scripts/solana/token-2022-transfer-fee-live-smoke.sh` / `just
+  solana-token-2022-transfer-fee-live` to execute the structured Token-2022
+  transfer-fee plan on Surfpool with a Rust harness. The former
+  `solana-token-2022-transfer-fee-web3` entrypoint remains as a compatibility
+  alias. The live runner initializes `TransferFeeConfig`, creates Token-2022
+  associated token accounts, mints initial supply, executes
   `TransferCheckedWithFee`, validates the source balance, recipient net balance,
   and recipient withheld fee, directly withdraws withheld fees from a token
   account, then runs a second transfer, harvests withheld fees to the mint,
   withdraws them from the mint, and validates the fee receiver balance plus
-  cleared account/mint withheld amounts with Web3.js reads.
+  cleared account/mint withheld amounts with Rust RPC account reads.
 - Done: add `ProofForge.Contract.Token.Examples.SoulboundToken`,
   `Tests/TokenPlanEmit.lean`,
   `scripts/solana/token-2022-non-transferable-live-smoke.sh`, and `just
