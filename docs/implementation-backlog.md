@@ -1524,8 +1524,9 @@ partial progress is visible before the full acceptance criteria close:
       `runtime.memory` capability metadata and lowers entrypoint actions to
       `sol_memcpy_`, `sol_memcmp_`, and `sol_memset_` helpers over generated
       state-account offsets. The generated manifest and artifact JSON record
-      `[[solana.entrypoint_memory]]` / `memoryActions`; Web3.js verifies copied
-      bytes, compare result, and fill pattern on a program-owned account.
+      `[[solana.entrypoint_memory]]` / `memoryActions`; the Rust live RPC
+      harness verifies copied bytes, moved bytes, compare result, and fill
+      pattern on a program-owned account.
       Covered by `Tests/SolanaMemory.lean` and
       `scripts/solana/memory-web3-smoke.sh`.
 - [x] Return-data and compute-budget target extensions now route Solana-only
@@ -1723,9 +1724,9 @@ Completed alpha slices:
   transaction slot.
 - Live memory syscall fixture: `scripts/solana/memory-web3-smoke.sh` builds and
   deploys a generated `runtime.memory` program on Surfpool, invokes it through
-  Web3.js, and proves `sol_memcpy_`, `sol_memmove_`, `sol_memcmp_`, and
-  `sol_memset_` effects by reading copied value, moved value, compare result,
-  and fill bytes from program-owned state.
+  the Rust live RPC harness, and proves `sol_memcpy_`, `sol_memmove_`,
+  `sol_memcmp_`, and `sol_memset_` effects by reading copied value, moved
+  value, compare result, and fill bytes from program-owned state.
 - Return-data/compute-units SDK fixture:
   `Tests/SolanaReturnDataCompute.lean` proves `runtime.return_data` and
   `runtime.compute_units` route through Solana-only capability metadata, rejects
