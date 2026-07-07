@@ -2688,9 +2688,10 @@ Tasks:
   `ProofForge.Contract.Token.Evm`, `Tests/TokenEvm.lean`, standard ERC-20
   selectors/events in metadata, Yul generation, and `solc --strict-assembly`
   bytecode validation through `--learn-token --target evm`.
-- Done: add `scripts/portable/learn-token-smoke.sh` / `just
-  learn-token-smoke` to validate the EVM ERC-20 token artifact path and the
-  Solana Token-2022 plan path from Learn source.
+- Done: add `scripts/portable/token-intent-smoke.sh` / `just
+  token-intent-smoke` to validate the shared Lean `TokenSpec` intent path and
+  keep the legacy Learn token path as an equivalence fixture; `just
+  learn-token-smoke` remains a compatibility alias.
 - Done: add `scripts/evm/learn-token-erc20-vm-smoke.sh` / `just
   learn-token-evm-vm` to deploy the generated ERC-20 creation bytecode in an
   in-process Rust `revm` harness and validate standard ERC-20 calls,
@@ -2705,10 +2706,10 @@ Tasks:
   Token-2022 extension metadata rather than custom per-token programs. The
   planner rejects the documented incompatible `transfer_fee` +
   `non_transferable` combination.
-- Done: extend `scripts/portable/learn-token-smoke.sh` so the legacy `.learn`
-  input path reuses the Lean `TokenSpec` plan, emits both SPL Token and
-  Token-2022 structured plan JSON, and validates the plan offline with the
-  Rust `token_plan_smoke` harness.
+- Done: extend `scripts/portable/token-intent-smoke.sh` so
+  `Examples/Shared/FungibleToken.lean` and the legacy `.learn` input path both
+  reuse the Lean `TokenSpec` plan, emit structured Solana token plan JSON, and
+  validate the plan offline with the Rust `token_plan_smoke` harness.
 - Done: add `scripts/solana/token-plan-live-smoke.sh` / `just
   solana-token-plan-live` to execute the structured legacy SPL Token plan on
   Surfpool with a Rust harness. The former `solana-token-plan-web3` entrypoint

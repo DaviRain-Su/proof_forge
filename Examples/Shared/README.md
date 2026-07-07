@@ -32,7 +32,7 @@ product-level intent once and let target routing choose the chain form:
 
 | Example | Source | Current target status |
 |---|---|---|
-| FungibleToken | [FungibleToken.lean](FungibleToken.lean) | `TokenSpec` lowers to an EVM ERC-20-compatible artifact or a Solana SPL Token / Token-2022 plan; NEAR token lowering is still gated |
+| FungibleToken | [FungibleToken.lean](FungibleToken.lean) | `just token-intent-smoke`; `TokenSpec` lowers to EVM or Solana token artifacts below the shared intent layer; NEAR token lowering is still gated |
 
 The source does not mention ERC-20, SPL Token, Token-2022, or NEP-141. Those
 names are target outputs chosen below the shared intent layer.

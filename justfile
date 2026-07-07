@@ -46,6 +46,11 @@ cli-check:
 shared-contract-source:
     lake env lean --run Tests/SharedContractSource.lean
 
+# Check that shared TokenSpec intent matches the legacy Learn token fixture.
+shared-token-intent:
+    lake build Examples.Shared.FungibleToken
+    lake env lean --run Tests/SharedTokenIntent.lean
+
 # Run the CosmWasm Counter WAT emission smoke through wat2wasm and cosmwasm-check.
 cosmwasm-counter-smoke:
     scripts/cosmwasm/counter-smoke.sh
@@ -166,6 +171,7 @@ solana-lean:
     lake env lean --run Tests/LearnDiagnostics.lean
     lake env lean --run Tests/TargetRouting.lean
     lake env lean --run Tests/ValueVaultExample.lean
+    lake env lean --run Tests/SharedTokenIntent.lean
     lake env lean --run Tests/TokenSpec.lean
     lake env lean --run Tests/TokenLearn.lean
     lake env lean --run Tests/TokenEvm.lean
@@ -190,9 +196,12 @@ solana-counter-live:
 portable-value-vault:
     scripts/portable/value-vault-smoke.sh
 
-# Run the Learn token SDK smoke across EVM ERC-20 and Solana Token-2022 outputs.
-learn-token-smoke:
-    scripts/portable/learn-token-smoke.sh
+# Run the shared token intent SDK smoke across EVM and Solana target outputs.
+token-intent-smoke:
+    scripts/portable/token-intent-smoke.sh
+
+# Compatibility alias for the former Learn-token-centric smoke name.
+learn-token-smoke: token-intent-smoke
 
 # Run the Learn-token ERC-20 artifact in a local Rust/revm VM.
 learn-token-evm-vm:

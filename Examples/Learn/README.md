@@ -53,7 +53,8 @@ implementation step is keeping new SDK work in the Lean SDK layer while the
 legacy parser reuses the same compiler-owned boundaries.
 
 Token SDK compatibility examples use a separate Learn intent form that lowers
-to the same Lean `TokenSpec` boundary:
+to the same Lean `TokenSpec` boundary as
+[`Examples/Shared/FungibleToken.lean`](../Shared/FungibleToken.lean):
 
 - `ProofToken.learn` describes one fungible token once and can be routed with
   `proof-forge --learn-token --target evm` to ERC-20 Yul, bytecode, and
@@ -63,4 +64,5 @@ to the same Lean `TokenSpec` boundary:
   Token plan.
 
 `TokenSpec` remains the internal compiler boundary used after parsing, target
-routing, and validation.
+routing, and validation. New product examples should start from the shared
+Lean `TokenSpec`; these `.learn` files remain compatibility fixtures.
