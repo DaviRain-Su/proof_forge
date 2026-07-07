@@ -100,7 +100,7 @@ missing.
 | System create_account | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token transfer_checked | Covered | Live Surfpool + Pinocchio reference | — |
 | SPL Token mint_to/burn/approve/revoke | Covered | Live Surfpool + Pinocchio reference | — |
-| SPL Token set_authority | Covered | Live Surfpool + Pinocchio reference | — |
+| SPL Token set_authority | Covered | Live Surfpool/Rust + Pinocchio reference | — |
 | Associated Token create_idempotent | Covered | `associatedTokenCreate` builder/surface helper and `contract_source` `associated_token_create_idempotent` syntax emit the Associated Token Program CPI account order, `associated-token.create_idempotent` data layout, token-program metadata, and separated 6-account CPI frame; `solana-associated-token-cpi-web3` deploys the generated program on Surfpool, uses the Rust live RPC harness to create the canonical ATA, and invokes the idempotent path twice | — |
 | Memo | Covered (one-word payload) | `memo`/`invokeMemo` builder and `contract_source` syntax lower to `memo.memo` CPI metadata, `solana-memo-cpi` target-first fixture, static CPI packing coverage, and `solana-memo-cpi-web3` Surfpool/Rust behavior gate. **Limitation:** current sBPF lowering copies one `u64`/eight-byte raw payload; arbitrary-length memo buffers remain future work | — |
 | Stake / Vote / Config | Missing | Extension lowering covers System, Memo, Associated Token, SPL Token, and the Token-2022 transfer-fee/non-transferable/metadata-pointer/default-account-state/immutable-owner/permanent-delegate/interest-bearing/memo-transfer direct CPI subset | P1 |

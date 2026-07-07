@@ -21,6 +21,15 @@ pub struct TokenAccount {
     pub amount: u64,
 }
 
+#[derive(Debug)]
+pub struct MintAccount {
+    pub mint_authority: Option<Address>,
+    pub supply: u64,
+    pub decimals: u8,
+    pub is_initialized: bool,
+    pub freeze_authority: Option<Address>,
+}
+
 pub fn spl_token_program_id() -> Address {
     Address::from_str(SPL_TOKEN_PROGRAM_ID).expect("SPL Token program id is valid")
 }
@@ -118,6 +127,22 @@ pub fn parse_token_account(data: &[u8]) -> Result<TokenAccount> {
     })
 }
 
+pub fn parse_mint_account(data: &[u8]) -> Result<MintAccount> {
+    ensure!(
+        data.len() >= MINT_ACCOUNT_LEN as usize,
+        "mint account data must be at least {} bytes, got {}",
+        MINT_ACCOUNT_LEN,
+        data.len()
+    );
+    Ok(MintAccount {
+        mint_authority: coption_address_at(data, 0, "mint authority")?,
+        supply: u64_at(data, 36, "mint supply")?,
+        decimals: data[44],
+        is_initialized: data[45] != 0,
+        freeze_authority: coption_address_at(data, 46, "freeze authority")?,
+    })
+}
+
 pub fn create_system_wallet(rpc: &LiveRpc, payer: &Keypair) -> Result<Keypair> {
     let wallet = Keypair::new();
     let lamports = rpc.minimum_balance_for_rent_exemption(0)?;
@@ -173,6 +198,15 @@ fn create_associated_token_account_idempotent_instruction(
     }
 }
 
+fn coption_address_at(data: &[u8], offset: usize, label: &str) -> Result<Option<Address>> {
+    let tag = u32_at(data, offset, label)?;
+    match tag {
+        0 => Ok(None),
+        1 => Ok(Some(address_at(data, offset + 4, label)?)),
+        _ => anyhow::bail!("{label} has invalid COption tag {tag}"),
+    }
+}
+
 fn address_at(data: &[u8], offset: usize, label: &str) -> Result<Address> {
     let end = offset.checked_add(32).context("address offset overflow")?;
     let bytes: [u8; 32] = data
@@ -181,6 +215,16 @@ fn address_at(data: &[u8], offset: usize, label: &str) -> Result<Address> {
         .try_into()
         .expect("slice length is fixed");
     Ok(Address::from(bytes))
+}
+
+fn u32_at(data: &[u8], offset: usize, label: &str) -> Result<u32> {
+    let end = offset.checked_add(4).context("u32 offset overflow")?;
+    let bytes: [u8; 4] = data
+        .get(offset..end)
+        .with_context(|| format!("{label} requires bytes {offset}..{end}"))?
+        .try_into()
+        .expect("slice length is fixed");
+    Ok(u32::from_le_bytes(bytes))
 }
 
 fn u64_at(data: &[u8], offset: usize, label: &str) -> Result<u64> {

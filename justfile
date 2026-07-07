@@ -350,7 +350,7 @@ solana-spl-token-transfer-cpi-web3:
 solana-spl-token-ops-cpi-web3:
     scripts/solana/spl-token-ops-cpi-web3-smoke.sh
 
-# Run a live SPL Token set_authority CPI smoke on Surfpool with Web3.js.
+# Run a live SPL Token set_authority CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-authority-cpi-web3:
     scripts/solana/spl-token-authority-cpi-web3-smoke.sh
 

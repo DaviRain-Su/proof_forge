@@ -1704,8 +1704,8 @@ Completed alpha slices:
 - Live SPL Token authority CPI fixture:
   `scripts/solana/spl-token-authority-cpi-web3-smoke.sh` builds and deploys a
   generated `set_authority` CPI program on Surfpool, validates the generated
-  single-entrypoint artifact schema, creates an SPL Token mint through
-  `@solana/spl-token`, invokes the generated entrypoint through Web3.js, and
+  single-entrypoint artifact schema, creates an SPL Token mint through the Rust
+  live RPC harness, invokes the generated entrypoint through the Rust harness, and
   proves mint authority moved to the requested new authority plus the marker
   state write.
 - Live scalar event, pubkey log, and data log fixture: `scripts/solana/log-event-web3-smoke.sh`

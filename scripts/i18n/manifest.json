@@ -50,7 +50,7 @@
     "model": "manual"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "fbddf599e41b43b8300fe6a0b28e8f0ff202be66d56fe0db677900e111e99c06",
+    "sha256": "21b8fe7227b407359d03df90417f378fc2ef8fddbd61cc1caad38c405b81e0f6",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual"
   },
@@ -65,10 +65,10 @@
     "model": "manual"
   },
   "docs/validation-gates.md": {
-    "sha256": "797c1a8678173edfc051329bf70821158edd6e81957d832928059406aeb4e8ff",
+    "sha256": "c213f263587a644af20ae2c1801e393a64b434b56fd49c13e83f7876361bdfec",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual",
-    "en_sha256": "797c1a8678173edfc051329bf70821158edd6e81957d832928059406aeb4e8ff"
+    "en_sha256": "c213f263587a644af20ae2c1801e393a64b434b56fd49c13e83f7876361bdfec"
   },
   "docs/rfcs/README.md": {
     "sha256": "7d82abd698f149faae7f7a8f9785917eff046618573bb3cf76572c32a4280940",
@@ -136,5 +136,5 @@
     "model": "gemini-3-flash-preview",
     "en_sha256": "4dc4946dd7f8d2dcb3efb6a25618c1292182c7a8ecea319720a0432bb5b06205"
   },
-  "docs/sdk-ecosystem-gaps-2026-07.md": "8f5c90c03e325808f3d0bf5774ef67cd28f8fd46a3978564053383c663181e69"
+  "docs/sdk-ecosystem-gaps-2026-07.md": "7109fd810d9c0328fcee1b7323ba253c13f99c4a806a8937ef389d3fb1c4e627"
 }
