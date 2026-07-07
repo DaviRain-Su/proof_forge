@@ -515,8 +515,12 @@ solana-plan-smoke:
 # Run all Solana gates that are safe for default CI.
 solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-pinocchio-reference-equivalence solana-refinement-smoke
 
-# Check translated documentation freshness.
-docs-check:
+# Check shared-vs-target example topology.
+examples-topology:
+    python3 scripts/examples/check-topology.py
+
+# Check translated documentation freshness and example topology.
+docs-check: examples-topology
     scripts/i18n/check-sync.sh
 
 # Mechanical doc↔code drift report (advisory; see docs/doc-code-sync-audit-2026-07.md).
