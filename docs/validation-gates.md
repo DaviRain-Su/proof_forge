@@ -146,11 +146,11 @@ The following gates are `Planned` and do not exist in CI or as scripts:
     tracked `Examples/Solana/Counter.golden.s` / `Counter.manifest.toml` are
     kept in sync by `scripts/solana/build-examples.sh`.
   - **V-GATE-SOLANA-04** — Counter scenario passes
-    a Surfpool local simnet deployment and Web3.js behavior smoke. Script:
+    a Surfpool local simnet deployment and Rust RPC behavior smoke. Script:
     `scripts/solana/surfpool-web3-smoke.sh` (optional, gated on `surfpool`,
-    Solana CLI, `sbpf`, Node, and npm). The script builds the Counter ELF,
+    Solana CLI, `sbpf`, and Cargo). The script builds the Counter ELF,
     starts Surfpool, deploys with `solana program deploy --use-rpc`, creates a
-    program-owned counter account through `@solana/web3.js`, invokes
+    program-owned counter account through the Rust live harness, invokes
     initialize/increment/get, validates account data 0→1→2, and checks
     `get` return data.
   - **V-GATE-SOLANA-05** — Capability checker rejects IR modules using

@@ -116,7 +116,7 @@ recorded in artifact metadata.
 | V-GATE-SOLANA-01 | `--emit-sbpf-asm` produces valid `.s` → `sbpf build` succeeds |
 | V-GATE-SOLANA-02 | `sbpf disassemble` round‑trips the ELF |
 | V-GATE-SOLANA-03 | Counter scenario passes `sbpf test` (Mollusk) |
-| V-GATE-SOLANA-04 | Counter scenario passes Surfpool/Web3.js live deploy/invoke smoke (optional) |
+| V-GATE-SOLANA-04 | Counter scenario passes Surfpool/Rust live deploy/invoke smoke (optional) |
 | V-GATE-SOLANA-05 | Capability checker rejects unsupported effects with target‑id diagnostic |
 | V-GATE-SOLANA-06 | `proof-forge-artifact.json` contains `target: "solana-sbpf-asm"` |
 

@@ -64,7 +64,7 @@ Each target adapter maps the same logical scenario to native mechanics:
 | `evm` | contract storage slot | Foundry + `vm.etch` |
 | `wasm-cosmwasm` | string-key `"count"` in host KV | `cosmwasm-check` + instantiate/execute/query |
 | `wasm-cloudflare-workers` | Workers KV key `"count"` or Durable Object state | `wrangler dev` + `POST /increment` / `GET /count` |
-| `solana-sbpf-asm` | account data field | `sbpf test` (Mollusk) + Surfpool/Web3.js live smoke |
+| `solana-sbpf-asm` | account data field | `sbpf test` (Mollusk) + Surfpool/Rust live smoke |
 | `move-aptos` | `Counter` resource under signer account | `aptos move test` |
 | `psy-dpn` | Psy storage field, likely `Felt`/`U32` in v0 | `dargo compile` + in-memory smoke |
 
@@ -88,7 +88,7 @@ Phase 2 is complete when **both** parallel spikes pass independently:
 - [ ] `--emit-sbpf-asm` produces valid `.s` accepted by `sbpf build`.
 - [ ] `sbpf build` produces a loadable eBPF ELF (`.so`).
 - [ ] initialize → increment → read counter in `sbpf test` (Mollusk) and
-      Surfpool/Web3.js live smoke.
+      Surfpool/Rust live smoke.
 - [ ] Instruction manifest (`manifest.toml`) documents account layout.
 - [ ] Capability checker rejects unsupported capabilities with target-id diagnostic.
 

@@ -708,7 +708,7 @@ and Node tooling) following the same pattern as others (`solc`, `foundry`,
 - `initialize`: write `u64(0)` to account data at fixed offset.
 - `increment`: read, add 1, write.
 - `sbpf test` with Mollusk.
-- Surfpool/Web3.js live deploy/invoke smoke.
+- Surfpool/Rust live deploy/invoke smoke.
 
 ### Spike 3: Multiple instruction types, typed returns
 
@@ -740,7 +740,7 @@ and Node tooling) following the same pattern as others (`solc`, `foundry`,
 | V-GATE-SOLANA-01 | `emit --target solana-sbpf-asm --fixture canned-entrypoint --format s` produces valid `.s` accepted by `sbpf build` (no assembly errors). |
 | V-GATE-SOLANA-02 | `sbpf build` produces a valid ELF that `sbpf disassemble` round‑trips. |
 | V-GATE-SOLANA-03 | Counter scenario (initialize, increment, get) passes `sbpf test` with Mollusk. |
-| V-GATE-SOLANA-04 | Counter scenario deploys to Surfpool and passes Web3.js initialize/increment/get behavior checks. |
+| V-GATE-SOLANA-04 | Counter scenario deploys to Surfpool and passes Rust RPC initialize/increment/get behavior checks. |
 | V-GATE-SOLANA-05 | Capability checker rejects IR modules using unsupported capabilities with a clear diagnostic mentioning the target id. |
 | V-GATE-SOLANA-06 | `proof-forge-artifact.json` includes `target: "solana-sbpf-asm"`, `irVersion`, and entrypoint list. |
 | V-GATE-SOLANA-07 | `sbpf debug --elf --input` works interactively (developer ergonomics gate — not CI). |

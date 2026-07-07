@@ -1476,10 +1476,10 @@ partial progress is visible before the full acceptance criteria close:
       body while preserving the Solana input pointer in `r1`. Covered by
       `Tests/SolanaSdk.lean`, `Tests/SolanaSdkManifest.lean`, and
       `scripts/solana/sdk-smoke.sh` with `sbpf build` when available.
-- [x] Surfpool/Web3.js live deployment smoke (V-GATE-SOLANA-04). The optional
+- [x] Surfpool/Rust live deployment smoke (V-GATE-SOLANA-04). The optional
       `scripts/solana/surfpool-web3-smoke.sh` gate builds the Counter ELF,
       starts Surfpool, deploys with the Solana CLI, creates a program-owned
-      counter account via `@solana/web3.js`, invokes initialize/increment/get,
+      counter account via the Rust live harness, invokes initialize/increment/get,
       checks account data 0→1→2, and validates `get` return data. The script
       passes `--solana-sbpf-arch v0` to produce a Solana CLI deploy-compatible
       ELF directly and uses `--use-rpc` for Surfpool.

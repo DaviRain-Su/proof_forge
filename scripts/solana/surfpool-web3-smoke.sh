@@ -3,7 +3,7 @@
 #
 # This optional gate builds the Counter ELF with ProofForge, starts a local
 # Surfpool simnet, deploys the ELF with the standard Solana CLI, and invokes the
-# program through @solana/web3.js:
+# program through the Rust Solana live smoke harness:
 #
 #   initialize -> account data becomes 0u64
 #   increment  -> account data becomes 1u64, then 2u64
@@ -24,12 +24,9 @@ ELF_OUTPUT="$OUT_DIR/$PROJECT_NAME.so"
 ARTIFACT_OUTPUT="$OUT_DIR/proof-forge-artifact.json"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 PROGRAM_KEYPAIR="$OUT_DIR/program-keypair.json"
-JS_TEMPLATE="$REPO_ROOT/Tests/solana/counter_web3_smoke.mjs"
-NODE_PROJECT="$OUT_DIR/web3"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
 KEYGEN="${SOLANA_KEYGEN:-solana-keygen}"
-NPM_BIN="${NPM:-npm}"
 SBPF_ARCH="${PROOF_FORGE_SOLANA_LIVE_SBPF_ARCH:-v0}"
 RPC_HOST="${PROOF_FORGE_SURFPOOL_HOST:-127.0.0.1}"
 RPC_PORT="${PROOF_FORGE_SURFPOOL_PORT:-8899}"
@@ -54,12 +51,10 @@ command -v "$SURFPOOL_BIN" >/dev/null 2>&1 || skip "surfpool not on PATH (set SU
 command -v "$SOLANA_BIN" >/dev/null 2>&1 || skip "solana CLI not on PATH (set SOLANA=/path/to/solana)"
 command -v "$KEYGEN" >/dev/null 2>&1 || skip "solana-keygen not on PATH (set SOLANA_KEYGEN=/path/to/solana-keygen)"
 command -v sbpf >/dev/null 2>&1 || skip "sbpf not on PATH"
-command -v node >/dev/null 2>&1 || skip "node not on PATH"
-command -v "$NPM_BIN" >/dev/null 2>&1 || skip "npm not on PATH (set NPM=/path/to/npm)"
-[ -f "$JS_TEMPLATE" ] || fail "Web3.js smoke template not found: $JS_TEMPLATE"
+command -v cargo >/dev/null 2>&1 || skip "cargo not on PATH"
 
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR" "$NODE_PROJECT" "$SURFPOOL_LOG_DIR"
+mkdir -p "$OUT_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== V-GATE-SOLANA-04 step 1: build Counter ELF ==="
 lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf --solana-sbpf-arch "$SBPF_ARCH" -o "$ELF_OUTPUT" --artifact-output "$ARTIFACT_OUTPUT" \
@@ -120,21 +115,13 @@ echo "=== V-GATE-SOLANA-04 step 4: deploy program ==="
   "$ELF_OUTPUT" \
   || fail "solana program deploy failed"
 
-echo "=== V-GATE-SOLANA-04 step 5: run Web3.js behavior checks ==="
-cp "$JS_TEMPLATE" "$NODE_PROJECT/counter_web3_smoke.mjs"
-if [ ! -f "$NODE_PROJECT/package.json" ]; then
-  ( cd "$NODE_PROJECT" && "$NPM_BIN" init -y >/dev/null ) \
-    || fail "npm init failed"
-fi
-( cd "$NODE_PROJECT" && "$NPM_BIN" install --silent @solana/web3.js@^1.98.0 ) \
-  || fail "npm install @solana/web3.js failed"
-
+echo "=== V-GATE-SOLANA-04 step 5: run Rust behavior checks ==="
 PROOF_FORGE_SOLANA_RPC_URL="$RPC_URL" \
 PROOF_FORGE_SOLANA_PAYER="$PAYER_KEYPAIR" \
 PROOF_FORGE_SOLANA_PROGRAM_ID="$PROGRAM_ID" \
-  node "$NODE_PROJECT/counter_web3_smoke.mjs" \
-  || fail "Web3.js behavior checks failed"
+  cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-harness-solana --bin counter_live_smoke \
+  || fail "Rust behavior checks failed"
 
 echo "  V-GATE-SOLANA-04: PASS"
 echo ""
-echo "=== ProofForge Counter Surfpool/Web3.js smoke: ALL PASS ==="
+echo "=== ProofForge Counter Surfpool/Rust smoke: ALL PASS ==="
