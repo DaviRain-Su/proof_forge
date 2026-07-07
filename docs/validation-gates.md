@@ -211,7 +211,7 @@ optional.
         `virtual_address_space_adjustments` so the Phase 1 lowering's legacy
         embedded account-data layout is exercised. (Phase 1 complete.)
   - **V-GATE-SOLANA-09** — PDA typed seed descriptor compatibility with the
-    Solana Rust PDA APIs. Script: `scripts/solana/pda-web3-smoke.sh` emits the
+    Solana Rust PDA APIs. Script: `scripts/solana/pda-rust-smoke.sh` emits the
     SDK Vault artifact, runs the Rust `pda_derivation_smoke` harness, reads
     `solanaExtensions.pdas[].typedSeeds`, and checks that literal/account/bump
     descriptors reproduce the same PDA through `Address::find_program_address`
@@ -220,14 +220,14 @@ optional.
     gate; it does not deploy or execute a transaction.
   - **V-GATE-SOLANA-10** — System Program transfer CPI live behavior through
     Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/system-cpi-web3-smoke.sh` builds the generated
+    `scripts/solana/system-cpi-live-smoke.sh` builds the generated
     `--solana-system-cpi-elf` fixture, validates its artifact schema, starts
     Surfpool, deploys the ELF with `solana program deploy --use-rpc`, invokes
     the generated transfer entrypoint with the `system_cpi_live_smoke` Rust
     binary, and checks both the recipient lamport delta and the program-owned
     state account's recorded lamports value.
   - **V-GATE-SOLANA-10M** — Memo Program CPI live behavior through Surfpool
-    and the Rust live RPC harness. Script: `scripts/solana/memo-cpi-web3-smoke.sh` builds the
+    and the Rust live RPC harness. Script: `scripts/solana/memo-cpi-live-smoke.sh` builds the
     generated `--solana-memo-cpi-elf` fixture, validates its artifact schema
     including `memo_source`, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes the generated `log_memo`
@@ -255,7 +255,7 @@ optional.
     `just solana-pinocchio-install-sbf-tools` to repair that toolchain.
   - **V-GATE-SOLANA-11** — System Program `create_account` CPI live behavior
     through Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/system-create-account-cpi-web3-smoke.sh` builds the
+    `scripts/solana/system-create-account-cpi-live-smoke.sh` builds the
     generated `--solana-system-create-account-cpi-elf` fixture, validates its
     artifact schema, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes the generated create entrypoint
@@ -283,7 +283,7 @@ optional.
     `just solana-pinocchio-install-sbf-tools` to repair that toolchain.
   - **V-GATE-SOLANA-12** — SPL Token `transfer_checked` CPI live behavior
     through Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` builds the generated
+    `scripts/solana/spl-token-transfer-cpi-live-smoke.sh` builds the generated
     `--solana-spl-token-transfer-cpi-elf` fixture, validates its artifact
     schema, starts Surfpool, deploys the ELF with `solana program deploy
     --use-rpc`, creates a mint plus source/destination token accounts through
@@ -311,7 +311,7 @@ optional.
     `just solana-pinocchio-install-sbf-tools` to repair that toolchain.
   - **V-GATE-SOLANA-13** — SPL Token `mint_to`/`burn`/`approve`/`revoke` CPI
     live behavior through Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/spl-token-ops-cpi-web3-smoke.sh` builds the generated
+    `scripts/solana/spl-token-ops-cpi-live-smoke.sh` builds the generated
     `--solana-spl-token-ops-cpi-elf` fixture, validates artifact instruction
     schemas for four entrypoints, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, creates a mint plus source/destination
@@ -340,7 +340,7 @@ optional.
     repair that toolchain.
   - **V-GATE-SOLANA-13A** — SPL Token `set_authority` CPI live behavior through
     Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/spl-token-authority-cpi-web3-smoke.sh` builds the generated
+    `scripts/solana/spl-token-authority-cpi-live-smoke.sh` builds the generated
     `--solana-spl-token-authority-cpi-elf` fixture, validates the artifact's
     single-entrypoint ABI, starts Surfpool, deploys the ELF, creates an SPL
     Token mint through the Rust harness, invokes the generated program to
@@ -367,7 +367,7 @@ optional.
     that toolchain.
   - **V-GATE-SOLANA-14** — Solana `events.emit` scalar log plus
     `sol_log_pubkey` and `sol_log_data` live behavior through Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/log-event-web3-smoke.sh` builds the generated
+    `scripts/solana/log-event-live-smoke.sh` builds the generated
     `--solana-log-event-elf` fixture, validates artifact instruction schema,
     `events.emit` capability metadata, Solana-only `pubkeyLogActions`, and
     Solana-only `dataLogActions`, starts Surfpool, deploys the ELF with
@@ -381,7 +381,7 @@ optional.
     `Program data:` payload from `sol_log_data`.
   - **V-GATE-SOLANA-15** — Solana Clock sysvar live behavior through Surfpool
     and the Rust live RPC harness. Script:
-    `scripts/solana/clock-sysvar-web3-smoke.sh` builds the generated
+    `scripts/solana/clock-sysvar-live-smoke.sh` builds the generated
     `--solana-clock-sysvar-elf` fixture, validates artifact instruction schema
     and `env.block` capability metadata, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes the generated `record`
@@ -390,7 +390,7 @@ optional.
     account, and compares that value with the transaction slot from RPC
     metadata.
   - **V-GATE-SOLANA-16** — Solana memory syscall live behavior through Surfpool
-    and the Rust live RPC harness. Script: `scripts/solana/memory-web3-smoke.sh` builds the
+    and the Rust live RPC harness. Script: `scripts/solana/memory-live-smoke.sh` builds the
     generated `--solana-memory-elf` fixture, validates `runtime.memory`
     artifact metadata, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes `set_source` and
@@ -398,7 +398,7 @@ optional.
     value, moved value, memcmp result, and memset byte pattern in the
     program-owned state account.
   - **V-GATE-SOLANA-17** — Solana SHA-256/Keccak-256/Blake3 syscall live behavior through Surfpool
-    and the Rust live RPC harness. Script: `scripts/solana/crypto-hash-web3-smoke.sh` builds the
+    and the Rust live RPC harness. Script: `scripts/solana/crypto-hash-live-smoke.sh` builds the
     generated `--solana-crypto-hash-elf` fixture, validates `crypto.hash`
     artifact metadata, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes `set_preimage`,
@@ -408,7 +408,7 @@ optional.
     same preimage bytes.
   - **V-GATE-SOLANA-18** — Solana Rent sysvar live behavior through Surfpool and
     the Rust live RPC harness. Script:
-    `scripts/solana/rent-sysvar-web3-smoke.sh` builds the generated
+    `scripts/solana/rent-sysvar-live-smoke.sh` builds the generated
     `--solana-rent-sysvar-elf` fixture, validates `sysvar` target extension
     artifact metadata, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes `record_rent` through
@@ -417,7 +417,7 @@ optional.
     word.
   - **V-GATE-SOLANA-19** — Solana EpochSchedule sysvar live behavior through
     Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` builds the generated
+    `scripts/solana/epoch-schedule-sysvar-live-smoke.sh` builds the generated
     `--solana-epoch-schedule-sysvar-elf` fixture, validates `sysvar` target
     extension artifact metadata, starts Surfpool, deploys the ELF with
     `solana program deploy --use-rpc`, invokes `record_epoch_schedule` through
@@ -428,7 +428,7 @@ optional.
     fields with RPC `getEpochSchedule()`.
   - **V-GATE-SOLANA-20** — Solana LastRestartSlot sysvar live behavior through
     Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/last-restart-slot-sysvar-web3-smoke.sh` builds the
+    `scripts/solana/last-restart-slot-sysvar-live-smoke.sh` builds the
     generated `--solana-last-restart-slot-sysvar-elf` fixture, validates
     feature-gated `sysvar` target-extension artifact metadata, starts Surfpool,
     deploys the ELF with `solana program deploy --use-rpc`, invokes
@@ -441,7 +441,7 @@ optional.
     SDK-level LastRestartSlot capability.
   - **V-GATE-SOLANA-21** — Solana EpochRewards sysvar live behavior through
     Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/epoch-rewards-sysvar-web3-smoke.sh` builds the generated
+    `scripts/solana/epoch-rewards-sysvar-live-smoke.sh` builds the generated
     `--solana-epoch-rewards-sysvar-elf` fixture, validates `sysvar` target
     extension artifact metadata for all current `EpochRewards` fields, starts
     Surfpool, deploys the ELF with `solana program deploy --use-rpc`, invokes
@@ -454,7 +454,7 @@ optional.
     EpochRewards sysvar account data.
   - **V-GATE-SOLANA-22** — Solana return-data and compute-unit syscall live
     behavior through Surfpool and the Rust live RPC harness. Script:
-    `scripts/solana/return-data-compute-web3-smoke.sh` builds the generated
+    `scripts/solana/return-data-compute-live-smoke.sh` builds the generated
     `--solana-return-data-compute-elf` fixture, validates
     `runtime.return_data` and `runtime.compute_units` target-extension artifact
     metadata, starts Surfpool, deploys the ELF with

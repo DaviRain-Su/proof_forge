@@ -1502,7 +1502,7 @@ partial progress is visible before the full acceptance criteria close:
       account when `account?` is present. Covered by `Tests/SolanaSdk.lean`,
       `Tests/SolanaSdkManifest.lean`, `Tests/SolanaPdaSeeds.lean`,
       `scripts/solana/sdk-smoke.sh`, and
-      `scripts/solana/pda-web3-smoke.sh`.
+      `scripts/solana/pda-rust-smoke.sh`.
 - [x] Standard Solana protocol SDK helpers now cover System Program
       transfer/create-account and SPL Token transfer_checked/mint_to/burn/
       approve/revoke/close_account/set_authority. They route through target capability
@@ -1528,7 +1528,7 @@ partial progress is visible before the full acceptance criteria close:
       harness verifies copied bytes, moved bytes, compare result, and fill
       pattern on a program-owned account.
       Covered by `Tests/SolanaMemory.lean` and
-      `scripts/solana/memory-web3-smoke.sh`.
+      `scripts/solana/memory-live-smoke.sh`.
 - [x] Return-data and compute-budget target extensions now route Solana-only
       SDK actions through `runtime.return_data` and `runtime.compute_units`
       capability metadata. Return-data actions lower state-backed byte slices
@@ -1570,7 +1570,7 @@ partial progress is visible before the full acceptance criteria close:
       `--solana-system-cpi-elf` fixture whose entrypoint reads a scalar
       `lamports` instruction parameter, performs a System Program transfer CPI,
       and records the transferred amount in a program-owned state account.
-      `scripts/solana/system-cpi-web3-smoke.sh` validates the artifact schema,
+      `scripts/solana/system-cpi-live-smoke.sh` validates the artifact schema,
       deploys the ELF on Surfpool with Solana CLI, invokes it through the Rust
       live RPC harness, and checks both recipient lamport delta and state data.
       The sBPF lowering computes the instruction-data pointer from the
@@ -1675,39 +1675,39 @@ Completed alpha slices:
   `bumpSeed`, and `paramSeed` descriptors now lower to Solana seed slices,
   `bump?` participates in the effective seed list, and declared PDA accounts
   can be checked against the derived pubkey.
-- PDA/Rust derivation fixture: `scripts/solana/pda-web3-smoke.sh` reads the
+- PDA/Rust derivation fixture: `scripts/solana/pda-rust-smoke.sh` reads the
   generated SDK Vault `typedSeeds` artifact data and verifies literal/account/
   bump descriptor semantics against `Address::find_program_address` and
   `Address::create_program_address`; the harness also covers UTF-8 and
   instruction-parameter resolver behavior.
 - Live System Program transfer CPI fixture:
-  `scripts/solana/system-cpi-web3-smoke.sh` builds and deploys a generated
+  `scripts/solana/system-cpi-live-smoke.sh` builds and deploys a generated
   transfer CPI program on Surfpool, invokes it through the Rust live RPC harness,
   and proves both the lamport movement and state write.
 - Live System Program create-account CPI fixture:
-  `scripts/solana/system-create-account-cpi-web3-smoke.sh` builds and deploys a
+  `scripts/solana/system-create-account-cpi-live-smoke.sh` builds and deploys a
   generated create-account CPI program on Surfpool, invokes it through the Rust
   live RPC harness, and proves the new account owner/space/lamports plus state
   writes.
 - Live SPL Token transfer-checked CPI fixture:
-  `scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` builds and deploys a
+  `scripts/solana/spl-token-transfer-cpi-live-smoke.sh` builds and deploys a
   generated transfer_checked CPI program on Surfpool, invokes it through the
   Rust live RPC harness, and proves the source/destination token balance deltas
   plus state writes.
 - Live SPL Token ops CPI fixture:
-  `scripts/solana/spl-token-ops-cpi-web3-smoke.sh` builds and deploys a
+  `scripts/solana/spl-token-ops-cpi-live-smoke.sh` builds and deploys a
   generated `mint_to`/`burn`/`approve`/`revoke` CPI program on Surfpool,
   validates the generated four-entrypoint artifact schema, invokes all four
   generated entrypoints through the Rust live RPC harness, and proves
   supply/balance/delegate changes plus state writes.
 - Live SPL Token authority CPI fixture:
-  `scripts/solana/spl-token-authority-cpi-web3-smoke.sh` builds and deploys a
+  `scripts/solana/spl-token-authority-cpi-live-smoke.sh` builds and deploys a
   generated `set_authority` CPI program on Surfpool, validates the generated
   single-entrypoint artifact schema, creates an SPL Token mint through the Rust
   live RPC harness, invokes the generated entrypoint through the Rust harness, and
   proves mint authority moved to the requested new authority plus the marker
   state write.
-- Live scalar event, pubkey log, and data log fixture: `scripts/solana/log-event-web3-smoke.sh`
+- Live scalar event, pubkey log, and data log fixture: `scripts/solana/log-event-live-smoke.sh`
   builds and deploys a generated `events.emit` program on Surfpool, invokes it
   through the Rust live RPC harness, verifies the generated `sol_log_64_` transaction log
   contains the stable `AmountEvent` tag and scalar `amount` field, and proves
@@ -1717,12 +1717,12 @@ Completed alpha slices:
   account's base58 pubkey. It also validates Solana-only `logStateData`
   metadata, invokes `log_state_data`, and proves `sol_log_data` emits a base64
   `Program data:` payload for the state-backed `amount` bytes.
-- Live Clock sysvar fixture: `scripts/solana/clock-sysvar-web3-smoke.sh`
+- Live Clock sysvar fixture: `scripts/solana/clock-sysvar-live-smoke.sh`
   builds and deploys a generated `contextRead checkpointId` program on
   Surfpool, lowers it to `sol_get_clock_sysvar`, invokes it through the Rust
   live RPC harness, and proves the recorded `Clock.slot` matches the observed
   transaction slot.
-- Live memory syscall fixture: `scripts/solana/memory-web3-smoke.sh` builds and
+- Live memory syscall fixture: `scripts/solana/memory-live-smoke.sh` builds and
   deploys a generated `runtime.memory` program on Surfpool, invokes it through
   the Rust live RPC harness, and proves `sol_memcpy_`, `sol_memmove_`,
   `sol_memcmp_`, and `sol_memset_` effects by reading copied value, moved
@@ -1733,7 +1733,7 @@ Completed alpha slices:
   on EVM, and render manifest sections plus sBPF helper calls for
   `sol_set_return_data`, `sol_get_return_data`, feature-gated
   `sol_remaining_compute_units`, and `sol_log_compute_units_`.
-  `scripts/solana/return-data-compute-web3-smoke.sh` builds and deploys the
+  `scripts/solana/return-data-compute-live-smoke.sh` builds and deploys the
   generated `--solana-return-data-compute-elf` fixture on Surfpool, validates
   artifact action metadata, verifies no-data `sol_get_return_data` reads,
   confirms `sol_set_return_data` through Rust RPC simulation return data,
@@ -1741,20 +1741,20 @@ Completed alpha slices:
   records a nonzero remaining-compute-units value, and confirms compute-unit
   logging through transaction logs.
 - Live SHA-256/Keccak-256/Blake3 syscall fixture:
-  `scripts/solana/crypto-hash-web3-smoke.sh` builds and deploys a generated
+  `scripts/solana/crypto-hash-live-smoke.sh` builds and deploys a generated
   Solana-only `crypto.hash` program on Surfpool, invokes `set_preimage`,
   `hash_preimage`, `keccak_preimage`, and `blake3_preimage` through the Rust
   live RPC harness, and proves the account-stored 32-byte digests match Rust
   SHA-256, Keccak-256, and Blake3 references for the same little-endian
   preimage. The Blake3 action is recorded as feature-gated in manifest and
   artifact metadata.
-- Live Rent sysvar fixture: `scripts/solana/rent-sysvar-web3-smoke.sh` builds
+- Live Rent sysvar fixture: `scripts/solana/rent-sysvar-live-smoke.sh` builds
   and deploys a generated Solana-only `sysvar` target-extension program on
   Surfpool, invokes `record_rent` through the Rust live RPC harness, and proves
   the recorded `Rent.lamports_per_byte_year` matches the Rent sysvar account
   data.
 - Live EpochSchedule sysvar fixture:
-  `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` builds and deploys a
+  `scripts/solana/epoch-schedule-sysvar-live-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
   `record_epoch_schedule` through the Rust live RPC harness, and proves the
   recorded `EpochSchedule.slots_per_epoch`,
@@ -1762,7 +1762,7 @@ Completed alpha slices:
   `EpochSchedule.first_normal_epoch`, and `EpochSchedule.first_normal_slot`
   match RPC `getEpochSchedule()` fields.
 - Live EpochRewards sysvar fixture:
-  `scripts/solana/epoch-rewards-sysvar-web3-smoke.sh` builds and deploys a
+  `scripts/solana/epoch-rewards-sysvar-live-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
   `record_epoch_rewards` through the Rust live RPC harness, and proves that
   `sol_get_epoch_rewards_sysvar` records `EpochRewards` fields into state.
@@ -1770,7 +1770,7 @@ Completed alpha slices:
   `total_points` is exposed as low/high `u64` word views until the portable
   scalar layer has first-class wide-value output states.
 - Live LastRestartSlot sysvar fixture:
-  `scripts/solana/last-restart-slot-sysvar-web3-smoke.sh` builds and deploys a
+  `scripts/solana/last-restart-slot-sysvar-live-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
   `record_last_restart_slot` through the Rust live RPC harness, and proves the
   feature-gated `LastRestartSlot.last_restart_slot` read lowers through
@@ -2027,7 +2027,7 @@ Completed developer-surface slices:
   CPI data length, and the generated CPI helper call. The fixture is available
   through target-first CLI as `emit --target solana-sbpf-asm --fixture
   spl-token-close-account-cpi --format s|elf` and through the matching legacy
-  compatibility flags. `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh`
+  compatibility flags. `scripts/solana/spl-token-close-account-cpi-live-smoke.sh`
   adds the live Surfpool/Rust behavior gate: it deploys the generated program,
   creates an empty SPL Token account through the Rust live RPC harness, invokes
   the generated `close_account` CPI path, proves the token account is removed,

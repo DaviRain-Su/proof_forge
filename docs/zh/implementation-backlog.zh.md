@@ -495,14 +495,14 @@
 - [x] Solana SDK 目标扩展通过能力计划元数据路由 `ProofForge.Solana` PDA/CPI API，发射 `manifest.toml` 扩展定义以及入口动作部分，并在 IR 主体之前注入处理程序级辅助调用 (`sol_pda_derive_<name>`, `sol_cpi_<name>`)，同时在 `r1` 中保留 Solana 输入指针。由 `Tests/SolanaSdk.lean`, `Tests/SolanaSdkManifest.lean` 以及可用时的 `scripts/solana/sdk-smoke.sh` 与 `sbpf build` 覆盖。
 - [x] Surfpool/Rust 线上部署冒烟测试 (V-GATE-SOLANA-04)。可选的 `scripts/solana/surfpool-web3-smoke.sh` 门控构建 Counter ELF，启动 Surfpool，使用 Solana CLI 进行部署，通过 Rust live harness 创建一个程序所有的 counter 账户，调用 initialize/increment/get，检查账户数据 0→1→2，并验证 `get` 返回数据。该脚本传递 `--solana-sbpf-arch v0` 以直接生成与 Solana CLI 部署兼容的 ELF，并为 Surfpool 使用 `--use-rpc`。
 - [x] `--solana-elf` 暴露了 `--solana-sbpf-arch v0|v3` 并在 `proof-forge-artifact.json` 中记录选择的架构。默认保持为 `v3`；Surfpool 线上部署使用 `v0`，直到部署的 CLI/运行时堆栈在没有 `--skip-feature-verify` 的情况下接受较新的 sbpf 特性集。- [x] PDA 辅助运行时打包现在在调用 `sol_create_program_address` 之前发射静态 ASCII 种子字节缓冲区、Solana `Slice { ptr, len }` 种子表、动态 program-id 指针计算以及一个 32 字节 PDA 结果缓冲区。由 `Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
-- [x] PDA 类型化种子降级现在保留兼容性 `seeds` 字段，同时为字面量/UTF-8 字节、账户 pubkeys、bump 种子和标量指令数据种子添加面向目标的类型化描述符。Solana 目标扩展处理这些描述符，将 `bump?` 追加到有效 syscall 种子列表，在 manifest/制品元数据中发射 `typed_seeds`/`typedSeeds`，并在 `account?` 存在时根据声明的账户验证派生的 PDA pubkey。由 `Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean`、`Tests/SolanaPdaSeeds.lean`、`scripts/solana/sdk-smoke.sh` 和 `scripts/solana/pda-web3-smoke.sh` 覆盖。
+- [x] PDA 类型化种子降级现在保留兼容性 `seeds` 字段，同时为字面量/UTF-8 字节、账户 pubkeys、bump 种子和标量指令数据种子添加面向目标的类型化描述符。Solana 目标扩展处理这些描述符，将 `bump?` 追加到有效 syscall 种子列表，在 manifest/制品元数据中发射 `typed_seeds`/`typedSeeds`，并在 `account?` 存在时根据声明的账户验证派生的 PDA pubkey。由 `Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean`、`Tests/SolanaPdaSeeds.lean`、`scripts/solana/sdk-smoke.sh` 和 `scripts/solana/pda-rust-smoke.sh` 覆盖。
 - [x] 标准 Solana 协议 SDK 辅助程序现在涵盖系统程序 (System Program) 转账/创建账户以及 SPL Token transfer_checked/mint_to/burn/approve/revoke/close_account/set_authority。它们通过带有 `solana.cpi.protocol`、规范 `data_layout`、账户元数据 (account metas)、签名者种子和指令数据源名称的目标能力元数据进行路由，并包含在生成的 manifest 以及制品 JSON 中。由 `Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean`、`Tests/SolanaCpiPacking.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] 运行时分配器目标扩展现在建模 Solana 默认的向下增长 bump 分配器 (`heap_start = "0x300000000"`, `heap_bytes = 32768`)，以及一个与 Pinocchio 风格无堆入口对齐的 `noAllocator`/deny-dynamic 选项。所选分配器通过 `runtime.allocator` 能力元数据路由，并出现在 `manifest.toml`、`proof-forge-artifact.json` 和汇编元数据中。由 `Tests/SolanaAllocator.lean`、`Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
-- [x] 运行时内存目标扩展现在通过 `runtime.memory` 能力元数据路由仅限 Solana 的 SDK 操作，并将入口操作降级为基于生成的状态账户偏移量的 `sol_memcpy_`、`sol_memcmp_` 和 `sol_memset_` 辅助程序。生成的 manifest 和制品 JSON 记录 `[[solana.entrypoint_memory]]` / `memoryActions`；Rust live RPC 测试框架在程序拥有的账户上验证复制的字节、移动的字节、比较结果和填充模式。由 `Tests/SolanaMemory.lean` 和 `scripts/solana/memory-web3-smoke.sh` 覆盖。
+- [x] 运行时内存目标扩展现在通过 `runtime.memory` 能力元数据路由仅限 Solana 的 SDK 操作，并将入口操作降级为基于生成的状态账户偏移量的 `sol_memcpy_`、`sol_memcmp_` 和 `sol_memset_` 辅助程序。生成的 manifest 和制品 JSON 记录 `[[solana.entrypoint_memory]]` / `memoryActions`；Rust live RPC 测试框架在程序拥有的账户上验证复制的字节、移动的字节、比较结果和填充模式。由 `Tests/SolanaMemory.lean` 和 `scripts/solana/memory-live-smoke.sh` 覆盖。
 - [x] 返回数据和计算预算目标扩展现在通过 `runtime.return_data` 和 `runtime.compute_units` 能力元数据路由仅限 Solana 的 SDK 操作。返回数据操作将状态支持的字节切片降级为 `sol_set_return_data`，并可以通过 `sol_get_return_data` 读取最近的 CPI 返回数据缓冲区/程序 id；计算预算操作降级受特性门控的 `sol_remaining_compute_units` syscall 并将观察到的剩余 CU 值写入状态，分析操作则降级 `sol_log_compute_units_`。生成的 manifest 记录 `[[solana.entrypoint_return_data]]` 和 `[[solana.entrypoint_compute_units]]`。由 `Tests/SolanaReturnDataCompute.lean` 覆盖。
 - [x] 生成的 Solana SDK 指令 schema 现在使用模块范围的多账户列表，而不是旧的单账户 manifest。该 schema 包含状态账户、PDA 账户、CPI 账户和可执行 CPI 程序账户，且 sBPF 后端根据相同的 schema 计算 `INSTRUCTION_DATA` 偏移量。生成的 prologue 根据 schema 验证签名者/可写约束以及程序拥有的账户。账户列表在 `manifest.toml` 和 `proof-forge-artifact.json` 中均被发射。由 `Tests/SolanaSdkManifest.lean`、`Tests/SolanaCpiPacking.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] 系统程序 (System Program) 转账/创建账户和 SPL Token CPI 指令数据打包将标准指令字节发射到 C `SolInstruction` 负载中。系统转账/创建账户使用 bincode 风格的 `u32` 鉴别器以及 `u64` lamports/space 和所有者 pubkey 字段；SPL Token `transfer_checked`、`mint_to`、`burn`、`approve` 和 `revoke` 使用标准代币指令标签和金额/精度布局，`close_account` 封装指令标签 `9`，而 `set_authority` 封装了指令标签 `6`、权限类型 `MintTokens` 以及源自只读输入账户的新权限公钥。值源可以绑定到生成的标量状态偏移量、数字字面量或解码后的标量入口参数。CPI 助手还封装了程序 id 字节、绑定到生成的多账户输入布局的 C `SolAccountMeta[]`、`SolAccountInfo[]` 条目、签名者种子表以及系统调用寄存器设置。由 `Tests/SolanaCpiPacking.lean`、`Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
-- [x] System Program transfer CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCpi` 构建了一个生成的 `--solana-system-cpi-elf` fixture，其入口读取标量 `lamports` 指令参数，执行 System Program transfer CPI，并将转账金额记录在程序拥有的状态账户中。`scripts/solana/system-cpi-web3-smoke.sh` 验证制品架构，使用 Solana CLI 在 Surfpool 上部署 ELF，通过 Rust live RPC harness 调用它，并检查接收者的 lamport 增量和状态数据。sBPF 降级在直接账户映射下从序列化的账户布局计算指令数据指针，并将其保留在 `r9` 中，以便内部助手调用不会在被调用者堆栈帧之间丢失它。覆盖范围：`just solana-system-cpi-web3` / V-GATE-SOLANA-10。
+- [x] System Program transfer CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCpi` 构建了一个生成的 `--solana-system-cpi-elf` fixture，其入口读取标量 `lamports` 指令参数，执行 System Program transfer CPI，并将转账金额记录在程序拥有的状态账户中。`scripts/solana/system-cpi-live-smoke.sh` 验证制品架构，使用 Solana CLI 在 Surfpool 上部署 ELF，通过 Rust live RPC harness 调用它，并检查接收者的 lamport 增量和状态数据。sBPF 降级在直接账户映射下从序列化的账户布局计算指令数据指针，并将其保留在 `r9` 中，以便内部助手调用不会在被调用者堆栈帧之间丢失它。覆盖范围：`just solana-system-cpi-web3` / V-GATE-SOLANA-10。
 - [x] System Program `create_account` CPI 现在具有活跃的 Surfpool/Web3.js 行为门控。`ProofForge.Solana.Examples.SystemCreateAccountCpi` 构建了一个生成的 `--solana-system-create-account-cpi-elf` fixture，其入口读取标量 `lamports` 和 `space` 指令参数，使用付款人和新账户签名者执行 System Program `create_account` CPI，创建一个程序拥有的账户，并将这两个值记录在现有的程序拥有的状态账户中。Web3.js harness 检查新账户所有者、数据长度、lamports 和记录的状态值。覆盖范围：`just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11。
 - [x] SPL Token `transfer_checked` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` 构建了一个生成的 `--solana-spl-token-transfer-cpi-elf` fixture，其入口读取标量 `amount` 指令参数，使用源权限签名者执行 SPL Token `transfer_checked` CPI，并将金额记录在程序拥有的状态中。Rust live RPC harness 创建一个 mint 以及源/目标代币账户，检查代币余额增量，并检查状态记录。sBPF 降级现在在每个入口/助手堆栈帧中构建一个运行时账户指针表，因此可变大小的 SPL Token 账户数据不会使内部助手调用之间的账户偏移量失效。覆盖范围：`just solana-spl-token-transfer-cpi-web3` / V-GATE-SOLANA-12。
 - [x] 入口指令数据解码现在将第 0 字节视为入口标签，并将来自 `instruction_data+1` 的封装标量参数解码为堆栈局部变量。初始标量 ABI 支持 `U64`、`U32` 和 `Bool`，在 `manifest.toml`/`proof-forge-artifact.json` 中发射每个入口的参数架构和最小指令数据长度，使用 `error_instruction_data` 拒绝短有效载荷，并向 CPI 值绑定公开相同的固定输入偏移量，因此诸如 SPL Token `transfer_checked` 之类的 SDK 调用可以从用户指令参数而不是占位符中获取 `amount`。由 `Tests/SolanaCpiPacking.lean`、`Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
@@ -529,32 +529,32 @@
 
 已完成的 alpha 切片：- 指令 ABI 硬化：参数有效载荷长度边界检查、`manifest.toml` 和 `proof-forge-artifact.json` 中每个入口的参数 schema 以及稳定的标量参数元数据现已就绪。
 - PDA 类型化种子降级：`literalSeed`/`utf8Seed`、`accountSeed`、`bumpSeed` 和 `paramSeed` 描述符现在降级为 Solana 种子切片，`bump?` 参与有效种子列表，并且可以根据派生的公钥检查声明的 PDA 账户。
-- PDA/Rust 派生测试固件：`scripts/solana/pda-web3-smoke.sh` 读取生成的 SDK Vault `typedSeeds` 制品数据，并根据 `Address::find_program_address` 和 `Address::create_program_address` 验证字面量/账户/bump 描述符语义；该 harness 还涵盖了 UTF-8 和指令参数解析器行为。
-- 实时 System Program 转账 CPI 测试固件：`scripts/solana/system-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的转账 CPI 程序，通过 Rust live RPC harness 调用它，并证明 lamport 转移和状态写入。
-- 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Rust live RPC 测试框架调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
-- 实时 SPL Token transfer-checked CPI 测试固件：`scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 transfer_checked CPI 程序，通过 Rust live RPC 测试框架调用它，并证明源/目标代币余额增量以及状态写入。
-- 实时 SPL Token 操作 CPI 测试固件：`scripts/solana/spl-token-ops-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `mint_to`/`burn`/`approve`/`revoke` CPI 程序，验证生成的四入口制品 schema，通过 Rust live RPC 测试框架调用所有四个生成的入口，并证明供应量/余额/委托更改以及状态写入。
-- 实时 SPL Token 权限 CPI 测试固件：`scripts/solana/spl-token-authority-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `set_authority` CPI 程序，验证生成的单入口制品 schema，通过 Rust live RPC 测试框架创建 SPL Token mint，调用生成的入口，并证明铸币权限已转移到请求的新权限以及标记状态写入。
-- 实时标量事件、公钥日志和数据日志测试固件：`scripts/solana/log-event-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `events.emit` 程序，通过 Rust live RPC 测试框架调用它，验证生成的 `sol_log_64_` 交易日志包含稳定的 `AmountEvent` 标签和标量 `amount` 字段，并证明程序拥有的状态账户记录了相同的值。同一测试固件现在还验证仅限 Solana 的 `logAccountPubkey` 元数据，调用生成的 `log_state_pubkey` 入口，并证明 `sol_log_pubkey` 记录了状态账户的 base58 公钥。它还验证仅限 Solana 的 `logStateData` 元数据，调用 `log_state_data`，并证明 `sol_log_data` 为状态支持的 `amount` 字节发射一个 base64 `Program data:` 有效载荷。
-- 实时 Clock sysvar 测试固件：`scripts/solana/clock-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `contextRead checkpointId` 程序，将其降级为 `sol_get_clock_sysvar`，通过 Rust live RPC 测试框架调用它，并证明记录的 `Clock.slot` 与观察到的交易槽位匹配。
-- 实时内存系统调用测试固件：`scripts/solana/memory-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `runtime.memory` 程序，通过 Rust live RPC 测试框架调用它，并通过从程序拥有的状态中读取复制的值、移动的值、比较结果和填充字节，证明 `sol_memcpy_`、`sol_memmove_`、`sol_memcmp_` 和 `sol_memset_` 的效果。
-- 返回数据/计算单元 SDK 测试固件：`Tests/SolanaReturnDataCompute.lean` 证明 `runtime.return_data` 和 `runtime.compute_units` 通过仅限 Solana 的能力元数据路由，在 EVM 上拒绝，并为 `sol_set_return_data`、`sol_get_return_data`、特性门控的 `sol_remaining_compute_units` 和 `sol_log_compute_units_` 渲染清单部分以及 sBPF 辅助调用。 `scripts/solana/return-data-compute-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `--solana-return-data-compute-elf` 测试固件，验证制品 action 元数据，验证无数据的 `sol_get_return_data` 读取，
+- PDA/Rust 派生测试固件：`scripts/solana/pda-rust-smoke.sh` 读取生成的 SDK Vault `typedSeeds` 制品数据，并根据 `Address::find_program_address` 和 `Address::create_program_address` 验证字面量/账户/bump 描述符语义；该 harness 还涵盖了 UTF-8 和指令参数解析器行为。
+- 实时 System Program 转账 CPI 测试固件：`scripts/solana/system-cpi-live-smoke.sh` 在 Surfpool 上构建并部署生成的转账 CPI 程序，通过 Rust live RPC harness 调用它，并证明 lamport 转移和状态写入。
+- 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-live-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Rust live RPC 测试框架调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
+- 实时 SPL Token transfer-checked CPI 测试固件：`scripts/solana/spl-token-transfer-cpi-live-smoke.sh` 在 Surfpool 上构建并部署生成的 transfer_checked CPI 程序，通过 Rust live RPC 测试框架调用它，并证明源/目标代币余额增量以及状态写入。
+- 实时 SPL Token 操作 CPI 测试固件：`scripts/solana/spl-token-ops-cpi-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `mint_to`/`burn`/`approve`/`revoke` CPI 程序，验证生成的四入口制品 schema，通过 Rust live RPC 测试框架调用所有四个生成的入口，并证明供应量/余额/委托更改以及状态写入。
+- 实时 SPL Token 权限 CPI 测试固件：`scripts/solana/spl-token-authority-cpi-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `set_authority` CPI 程序，验证生成的单入口制品 schema，通过 Rust live RPC 测试框架创建 SPL Token mint，调用生成的入口，并证明铸币权限已转移到请求的新权限以及标记状态写入。
+- 实时标量事件、公钥日志和数据日志测试固件：`scripts/solana/log-event-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `events.emit` 程序，通过 Rust live RPC 测试框架调用它，验证生成的 `sol_log_64_` 交易日志包含稳定的 `AmountEvent` 标签和标量 `amount` 字段，并证明程序拥有的状态账户记录了相同的值。同一测试固件现在还验证仅限 Solana 的 `logAccountPubkey` 元数据，调用生成的 `log_state_pubkey` 入口，并证明 `sol_log_pubkey` 记录了状态账户的 base58 公钥。它还验证仅限 Solana 的 `logStateData` 元数据，调用 `log_state_data`，并证明 `sol_log_data` 为状态支持的 `amount` 字节发射一个 base64 `Program data:` 有效载荷。
+- 实时 Clock sysvar 测试固件：`scripts/solana/clock-sysvar-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `contextRead checkpointId` 程序，将其降级为 `sol_get_clock_sysvar`，通过 Rust live RPC 测试框架调用它，并证明记录的 `Clock.slot` 与观察到的交易槽位匹配。
+- 实时内存系统调用测试固件：`scripts/solana/memory-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `runtime.memory` 程序，通过 Rust live RPC 测试框架调用它，并通过从程序拥有的状态中读取复制的值、移动的值、比较结果和填充字节，证明 `sol_memcpy_`、`sol_memmove_`、`sol_memcmp_` 和 `sol_memset_` 的效果。
+- 返回数据/计算单元 SDK 测试固件：`Tests/SolanaReturnDataCompute.lean` 证明 `runtime.return_data` 和 `runtime.compute_units` 通过仅限 Solana 的能力元数据路由，在 EVM 上拒绝，并为 `sol_set_return_data`、`sol_get_return_data`、特性门控的 `sol_remaining_compute_units` 和 `sol_log_compute_units_` 渲染清单部分以及 sBPF 辅助调用。 `scripts/solana/return-data-compute-live-smoke.sh` 在 Surfpool 上构建并部署生成的 `--solana-return-data-compute-elf` 测试固件，验证制品 action 元数据，验证无数据的 `sol_get_return_data` 读取，
   通过 Rust RPC 模拟 return data 确认 `sol_set_return_data`，检查一个
   包含 program id 字的同指令 set/get 往返，记录一个
   非零的 remaining-compute-units 值，并通过交易日志确认 compute-unit 日志记录。
 - 实时 SHA-256/Keccak-256/Blake3 syscall fixture：
-  `scripts/solana/crypto-hash-web3-smoke.sh` 在 Surfpool 上构建并部署一个生成的
+  `scripts/solana/crypto-hash-live-smoke.sh` 在 Surfpool 上构建并部署一个生成的
   仅限 Solana 的 `crypto.hash` 程序，通过 Rust live RPC 测试框架调用 `set_preimage`、
   `hash_preimage`、`keccak_preimage` 和 `blake3_preimage`，并
   证明账户存储的 32 字节摘要与相同小端序
   原像的 Rust SHA-256、Keccak-256 和 Blake3 参考值匹配。Blake3 action 在 manifest 和
   制品元数据中被记录为 feature-gated。
-- 实时 Rent sysvar fixture：`scripts/solana/rent-sysvar-web3-smoke.sh` 在
+- 实时 Rent sysvar fixture：`scripts/solana/rent-sysvar-live-smoke.sh` 在
   Surfpool 上构建并部署一个生成的仅限 Solana 的 `sysvar` 目标扩展程序，
   通过 Rust live RPC 测试框架调用 `record_rent`，并证明记录的
   `Rent.lamports_per_byte_year` 与 Rent sysvar 账户数据匹配。
 - 实时 EpochSchedule sysvar fixture：
-  `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
+  `scripts/solana/epoch-schedule-sysvar-live-smoke.sh` 在 Surfpool 上构建并部署一个
   生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_epoch_schedule`，并证明记录的
   `EpochSchedule.slots_per_epoch`、
@@ -562,7 +562,7 @@
   `EpochSchedule.first_normal_epoch` 和 `EpochSchedule.first_normal_slot`
   与 RPC `getEpochSchedule()` 字段匹配。
 - 实时 EpochRewards sysvar fixture：
-  `scripts/solana/epoch-rewards-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
+  `scripts/solana/epoch-rewards-sysvar-live-smoke.sh` 在 Surfpool 上构建并部署一个
   生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_epoch_rewards`，并证明
   `sol_get_epoch_rewards_sysvar` 将 `EpochRewards` 字段记录到状态中。
@@ -570,7 +570,7 @@
   `total_points` 被公开为低/高 `u64` 字视图，直到可移植
   标量层拥有一等宽值输出状态。
 - 实时 LastRestartSlot sysvar fixture：
-  `scripts/solana/last-restart-slot-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
+  `scripts/solana/last-restart-slot-sysvar-live-smoke.sh` 在 Surfpool 上构建并部署一个
   生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_last_restart_slot`，并证明 feature-gated
   `LastRestartSlot.last_restart_slot` 读取通过 `sol_get_sysvar` 降级并
@@ -735,7 +735,7 @@
   CPI helper 调用。该 fixture 可通过 target-first CLI
   `emit --target solana-sbpf-asm --fixture spl-token-close-account-cpi --format s|elf`
   以及对应 legacy 兼容 flag 发射。
-  `scripts/solana/spl-token-close-account-cpi-web3-smoke.sh` 新增 live
+  `scripts/solana/spl-token-close-account-cpi-live-smoke.sh` 新增 live
   Surfpool/Rust 行为门控：它会部署生成的程序，通过 Rust live RPC 测试框架创建空
   SPL Token account，调用生成的 `close_account` CPI 路径，证明 token account 已被
   移除，验证租金 lamports 转入 destination account，并检查 marker state 写入。
