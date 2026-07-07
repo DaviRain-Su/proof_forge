@@ -1709,7 +1709,7 @@ Completed alpha slices:
   state write.
 - Live scalar event, pubkey log, and data log fixture: `scripts/solana/log-event-web3-smoke.sh`
   builds and deploys a generated `events.emit` program on Surfpool, invokes it
-  through Web3.js, verifies the generated `sol_log_64_` transaction log
+  through the Rust live RPC harness, verifies the generated `sol_log_64_` transaction log
   contains the stable `AmountEvent` tag and scalar `amount` field, and proves
   the program-owned state account recorded the same value. The same fixture now
   validates Solana-only `logAccountPubkey` metadata, invokes the generated

@@ -364,7 +364,7 @@ solana-spl-token-2022-pausable-cpi-web3:
 solana-spl-token-2022-transfer-hook-web3:
     scripts/solana/spl-token-2022-transfer-hook-web3-smoke.sh
 
-# Run a live Solana log/event smoke on Surfpool with Web3.js.
+# Run a live Solana log/event smoke on Surfpool with the Rust RPC harness.
 solana-log-event-web3:
     scripts/solana/log-event-web3-smoke.sh
 
