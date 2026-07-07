@@ -1586,14 +1586,14 @@ partial progress is visible before the full acceptance criteria close:
       existing program-owned state account. The Web3.js harness checks the new
       account owner, data length, lamports, and recorded state values. Coverage:
       `just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11.
-- [x] SPL Token `transfer_checked` CPI now has a live Surfpool/Web3.js behavior
+- [x] SPL Token `transfer_checked` CPI now has a live Surfpool/Rust behavior
       gate. `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` builds a
       generated `--solana-spl-token-transfer-cpi-elf` fixture whose entrypoint
       reads a scalar `amount` instruction parameter, performs an SPL Token
       `transfer_checked` CPI with the source authority signer, and records the
-      amount in program-owned state. The Web3.js harness creates a mint plus
-      source/destination token accounts through `@solana/spl-token`, checks the
-      token balance deltas, and checks the state record. The sBPF lowering now
+      amount in program-owned state. The Rust live RPC harness creates a mint
+      plus source/destination token accounts, checks the token balance deltas,
+      and checks the state record. The sBPF lowering now
       builds a runtime account pointer table in each entry/helper stack frame so
       variable-size SPL Token account data does not invalidate account offsets
       across internal helper calls. Coverage:
@@ -1691,9 +1691,9 @@ Completed alpha slices:
   writes.
 - Live SPL Token transfer-checked CPI fixture:
   `scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` builds and deploys a
-  generated transfer_checked CPI program on Surfpool, creates SPL Token test
-  accounts with `@solana/spl-token`, invokes it through Web3.js, and proves the
-  source/destination token balance deltas plus state writes.
+  generated transfer_checked CPI program on Surfpool, invokes it through the
+  Rust live RPC harness, and proves the source/destination token balance deltas
+  plus state writes.
 - Live SPL Token ops CPI fixture:
   `scripts/solana/spl-token-ops-cpi-web3-smoke.sh` builds and deploys a
   generated `mint_to`/`burn`/`approve`/`revoke` CPI program on Surfpool,
@@ -1846,9 +1846,9 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token transfer live-equivalence harness:
   `scripts/solana/pinocchio-spl-token-transfer-live-equivalence.sh` is wired to
   build the ProofForge ELF and the checked-in Pinocchio Token reference ELF,
-  deploy both programs to one Surfpool instance, invoke the same Web3.js +
-  `@solana/spl-token` transfer_checked scenario for each, and compare
-  source/destination token balance deltas plus the amount state write. The
+  deploy both programs to one Surfpool instance, invoke the same Rust live RPC
+  transfer_checked scenario for each, and compare source/destination token
+  balance deltas plus the amount state write. The
   harness currently skips when `cargo-build-sbf` cannot find Solana rustc/
   platform-tools.
 - Pinocchio SPL Token ops reference contract:

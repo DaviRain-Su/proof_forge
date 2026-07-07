@@ -101,6 +101,23 @@ pub fn create_empty_associated_token_account(
     Ok(account)
 }
 
+pub fn mint_to(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    amount: u64,
+) -> Result<String> {
+    let instruction = mint_to_instruction(mint, destination, authority.pubkey(), amount);
+    if payer.pubkey() == authority.pubkey() {
+        rpc.send_and_confirm(&[instruction], &[payer])
+    } else {
+        rpc.send_and_confirm(&[instruction], &[payer, authority])
+    }
+    .context("failed to mint SPL Token amount")
+}
+
 pub fn associated_token_address(
     wallet: &Address,
     token_program: &Address,
@@ -173,6 +190,26 @@ fn initialize_mint_instruction(
         accounts: vec![
             AccountMeta::new(mint, false),
             AccountMeta::new_readonly(rent_sysvar_id(), false),
+        ],
+        data,
+    }
+}
+
+fn mint_to_instruction(
+    mint: Address,
+    destination: Address,
+    authority: Address,
+    amount: u64,
+) -> Instruction {
+    let mut data = Vec::with_capacity(9);
+    data.push(7);
+    data.extend_from_slice(&amount.to_le_bytes());
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(mint, false),
+            AccountMeta::new(destination, false),
+            AccountMeta::new_readonly(authority, true),
         ],
         data,
     }

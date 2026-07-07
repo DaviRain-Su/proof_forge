@@ -3,7 +3,7 @@
 #
 # Builds the generated ProofForge SPL Token transfer_checked CPI ELF and the
 # checked-in Pinocchio reference ELF, deploys both programs to the same
-# Surfpool instance, invokes the same Web3.js token transfer scenario against
+# Surfpool instance, invokes the same Rust token transfer scenario against
 # each program, and compares the token balance deltas plus state writes.
 #
 # Exit codes:
@@ -26,12 +26,9 @@ PINOCCHIO_ELF="$OUT_DIR/$PINOCCHIO_PROJECT_NAME.so"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 PROOF_FORGE_PROGRAM_KEYPAIR="$OUT_DIR/proofforge-program-keypair.json"
 PINOCCHIO_PROGRAM_KEYPAIR="$OUT_DIR/pinocchio-program-keypair.json"
-JS_TEMPLATE="$REPO_ROOT/Tests/solana/spl_token_transfer_cpi_web3_smoke.mjs"
-NODE_PROJECT="$OUT_DIR/web3"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
 KEYGEN="${SOLANA_KEYGEN:-solana-keygen}"
-NPM_BIN="${NPM:-npm}"
 CARGO_BUILD_SBF_BIN="${CARGO_BUILD_SBF:-cargo-build-sbf}"
 SBPF_ARCH="${PROOF_FORGE_SOLANA_SPL_TOKEN_TRANSFER_CPI_SBPF_ARCH:-v0}"
 SOLANA_RUSTUP_TOOLCHAIN="${PROOF_FORGE_PINOCCHIO_RUSTUP_TOOLCHAIN:-1.89.0-sbpf-solana-v1.52}"
@@ -39,7 +36,6 @@ RPC_HOST="${PROOF_FORGE_SURFPOOL_HOST:-127.0.0.1}"
 RPC_PORT="${PROOF_FORGE_PINOCCHIO_SPL_TOKEN_TRANSFER_SURFPOOL_PORT:-8912}"
 WS_PORT="${PROOF_FORGE_PINOCCHIO_SPL_TOKEN_TRANSFER_SURFPOOL_WS_PORT:-8913}"
 RPC_URL="http://$RPC_HOST:$RPC_PORT"
-WS_URL="ws://$RPC_HOST:$WS_PORT"
 SURFPOOL_LOG_DIR="$OUT_DIR/surfpool-logs"
 TOKEN_DECIMALS="${PROOF_FORGE_SOLANA_TOKEN_DECIMALS:-9}"
 TRANSFER_AMOUNT="${PROOF_FORGE_SOLANA_TOKEN_TRANSFER_AMOUNT:-250000000}"
@@ -56,14 +52,12 @@ command -v "$SOLANA_BIN" >/dev/null 2>&1 || skip "solana CLI not on PATH (set SO
 command -v "$KEYGEN" >/dev/null 2>&1 || skip "solana-keygen not on PATH (set SOLANA_KEYGEN=/path/to/solana-keygen)"
 command -v "$CARGO_BUILD_SBF_BIN" >/dev/null 2>&1 || skip "cargo-build-sbf not on PATH"
 command -v sbpf >/dev/null 2>&1 || skip "sbpf not on PATH"
-command -v node >/dev/null 2>&1 || skip "node not on PATH"
-command -v "$NPM_BIN" >/dev/null 2>&1 || skip "npm not on PATH (set NPM=/path/to/npm)"
+command -v cargo >/dev/null 2>&1 || skip "cargo not on PATH"
 command -v python3 >/dev/null 2>&1 || fail "python3 not on PATH"
-[ -f "$JS_TEMPLATE" ] || fail "Web3.js smoke template not found: $JS_TEMPLATE"
 [ -f "$REFERENCE_DIR/Cargo.toml" ] || fail "Pinocchio reference Cargo.toml missing: $REFERENCE_DIR/Cargo.toml"
 
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR" "$PINOCCHIO_BUILD_DIR" "$NODE_PROJECT" "$SURFPOOL_LOG_DIR"
+mkdir -p "$OUT_DIR" "$PINOCCHIO_BUILD_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== Pinocchio SPL Token transfer live equivalence step 1: build ProofForge fixture ELF ==="
 lake env proof-forge emit --target solana-sbpf-asm --fixture spl-token-transfer-cpi --format elf --solana-sbpf-arch "$SBPF_ARCH" \
@@ -153,33 +147,23 @@ echo "=== Pinocchio SPL Token transfer live equivalence step 5: deploy both prog
   "$PINOCCHIO_ELF" \
   || fail "Pinocchio program deploy failed"
 
-echo "=== Pinocchio SPL Token transfer live equivalence step 6: run Web3.js behavior checks ==="
-cp "$JS_TEMPLATE" "$NODE_PROJECT/spl_token_transfer_cpi_web3_smoke.mjs"
-if [ ! -f "$NODE_PROJECT/package.json" ]; then
-  ( cd "$NODE_PROJECT" && "$NPM_BIN" init -y >/dev/null ) \
-    || fail "npm init failed"
-fi
-( cd "$NODE_PROJECT" && "$NPM_BIN" install --silent @solana/web3.js@^1.98.0 @solana/spl-token@^0.4.14 ) \
-  || fail "npm install @solana/web3.js @solana/spl-token failed"
-
+echo "=== Pinocchio SPL Token transfer live equivalence step 6: run Rust behavior checks ==="
 PROOF_FORGE_SOLANA_RPC_URL="$RPC_URL" \
-PROOF_FORGE_SOLANA_WS_URL="$WS_URL" \
 PROOF_FORGE_SOLANA_PAYER="$PAYER_KEYPAIR" \
 PROOF_FORGE_SOLANA_PROGRAM_ID="$PROOF_FORGE_PROGRAM_ID" \
 PROOF_FORGE_SOLANA_TOKEN_DECIMALS="$TOKEN_DECIMALS" \
 PROOF_FORGE_SOLANA_TOKEN_TRANSFER_AMOUNT="$TRANSFER_AMOUNT" \
 PROOF_FORGE_SOLANA_TOKEN_INITIAL_AMOUNT="$INITIAL_AMOUNT" \
-  node "$NODE_PROJECT/spl_token_transfer_cpi_web3_smoke.mjs" > "$OUT_DIR/proofforge-result.json" \
-  || fail "Web3.js ProofForge SPL Token transfer_checked CPI checks failed"
+  cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-harness-solana --bin spl_token_transfer_cpi_live_smoke > "$OUT_DIR/proofforge-result.json" \
+  || fail "Rust ProofForge SPL Token transfer_checked CPI checks failed"
 PROOF_FORGE_SOLANA_RPC_URL="$RPC_URL" \
-PROOF_FORGE_SOLANA_WS_URL="$WS_URL" \
 PROOF_FORGE_SOLANA_PAYER="$PAYER_KEYPAIR" \
 PROOF_FORGE_SOLANA_PROGRAM_ID="$PINOCCHIO_PROGRAM_ID" \
 PROOF_FORGE_SOLANA_TOKEN_DECIMALS="$TOKEN_DECIMALS" \
 PROOF_FORGE_SOLANA_TOKEN_TRANSFER_AMOUNT="$TRANSFER_AMOUNT" \
 PROOF_FORGE_SOLANA_TOKEN_INITIAL_AMOUNT="$INITIAL_AMOUNT" \
-  node "$NODE_PROJECT/spl_token_transfer_cpi_web3_smoke.mjs" > "$OUT_DIR/pinocchio-result.json" \
-  || fail "Web3.js Pinocchio SPL Token transfer_checked CPI checks failed"
+  cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-harness-solana --bin spl_token_transfer_cpi_live_smoke > "$OUT_DIR/pinocchio-result.json" \
+  || fail "Rust Pinocchio SPL Token transfer_checked CPI checks failed"
 
 python3 - "$OUT_DIR/proofforge-result.json" "$OUT_DIR/pinocchio-result.json" <<'PY'
 import json

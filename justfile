@@ -342,7 +342,7 @@ solana-pinocchio-install-sbf-tools:
 solana-system-create-account-cpi-web3:
     scripts/solana/system-create-account-cpi-web3-smoke.sh
 
-# Run a live SPL Token transfer_checked CPI smoke on Surfpool with Web3.js.
+# Run a live SPL Token transfer_checked CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-transfer-cpi-web3:
     scripts/solana/spl-token-transfer-cpi-web3-smoke.sh
 
