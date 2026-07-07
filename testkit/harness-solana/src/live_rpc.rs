@@ -39,6 +39,19 @@ impl LiveRpc {
         self.call("getMinimumBalanceForRentExemption", json!([space]))
     }
 
+    pub fn balance(&self, account: Address) -> Result<u64> {
+        let response: BalanceResponse = self.call(
+            "getBalance",
+            json!([
+                account.to_string(),
+                {
+                    "commitment": "confirmed"
+                }
+            ]),
+        )?;
+        Ok(response.value)
+    }
+
     pub fn send_and_confirm(
         &self,
         instructions: &[Instruction],
@@ -244,6 +257,11 @@ struct LatestBlockhashResponse {
 #[derive(Debug, Deserialize)]
 struct LatestBlockhashValue {
     blockhash: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BalanceResponse {
+    value: u64,
 }
 
 #[derive(Debug, Deserialize)]

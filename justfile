@@ -268,7 +268,7 @@ solana-token-2022-non-transferable-web3:
 solana-pda-web3:
     scripts/solana/pda-web3-smoke.sh
 
-# Run a live System Program transfer CPI smoke on Surfpool with Web3.js.
+# Run a live System Program transfer CPI smoke on Surfpool with the Rust harness.
 solana-system-cpi-web3:
     scripts/solana/system-cpi-web3-smoke.sh
 

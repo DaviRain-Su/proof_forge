@@ -1564,14 +1564,14 @@ partial progress is visible before the full acceptance criteria close:
       layout, signer seed tables, and syscall register setup. Covered by
       `Tests/SolanaCpiPacking.lean`, `Tests/SolanaSdkManifest.lean`, and
       `scripts/solana/sdk-smoke.sh`.
-- [x] System Program transfer CPI now has a live Surfpool/Web3.js behavior
+- [x] System Program transfer CPI now has a live Surfpool/Rust behavior
       gate. `ProofForge.Solana.Examples.SystemCpi` builds a generated
       `--solana-system-cpi-elf` fixture whose entrypoint reads a scalar
       `lamports` instruction parameter, performs a System Program transfer CPI,
       and records the transferred amount in a program-owned state account.
       `scripts/solana/system-cpi-web3-smoke.sh` validates the artifact schema,
-      deploys the ELF on Surfpool with Solana CLI, invokes it through
-      `@solana/web3.js`, and checks both recipient lamport delta and state data.
+      deploys the ELF on Surfpool with Solana CLI, invokes it through the Rust
+      live RPC harness, and checks both recipient lamport delta and state data.
       The sBPF lowering computes the instruction-data pointer from the
       serialized account layout under direct account mapping and keeps it in
       `r9` so internal helper calls do not lose it across callee stack frames.
@@ -1681,8 +1681,8 @@ Completed alpha slices:
   instruction-parameter resolver behavior.
 - Live System Program transfer CPI fixture:
   `scripts/solana/system-cpi-web3-smoke.sh` builds and deploys a generated
-  transfer CPI program on Surfpool, invokes it through Web3.js, and proves both
-  the lamport movement and state write.
+  transfer CPI program on Surfpool, invokes it through the Rust live RPC harness,
+  and proves both the lamport movement and state write.
 - Live System Program create-account CPI fixture:
   `scripts/solana/system-create-account-cpi-web3-smoke.sh` builds and deploys a
   generated create-account CPI program on Surfpool, invokes it through Web3.js,
@@ -1786,7 +1786,7 @@ Completed beta scaffolding slices:
 - Pinocchio System transfer live-equivalence harness:
   `scripts/solana/pinocchio-system-transfer-live-equivalence.sh` is wired to
   build the ProofForge ELF and the checked-in Pinocchio reference ELF, deploy
-  both programs to one Surfpool instance, invoke the same Web3.js transfer
+  both programs to one Surfpool instance, invoke the same Rust live transfer
   scenario for each, and compare recipient lamport deltas plus state writes.
   The harness currently skips when `cargo-build-sbf` cannot find Solana rustc/
   platform-tools.
