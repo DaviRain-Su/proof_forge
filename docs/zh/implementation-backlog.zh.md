@@ -1591,7 +1591,8 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   `initialize_immutable_owner`、`initialize_permanent_delegate`、
   `initialize_interest_bearing_mint`、`enable_required_memo_transfers`
   `initialize_transfer_hook`、`initialize_pausable_config`、`pause` 和 `resume`；
-  生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态以及 Pausable 的 pause/resume 状态切换。
+  生成程序的 Token-2022 direct-CPI Surfpool/Web3.js gate 会验证初始化后的扩展状态，
+  Pausable direct-CPI Surfpool/Rust gate 会验证 `PausableConfig` 以及 pause/resume 状态切换。
 - ✅ P1：Token-2022 transfer-hook execute/extra-account-meta 路由现在具备生成的
   hook 程序 fixture、外部 `Execute` discriminator 调度、按 entrypoint 区分的账户约束、
   validation account 的 PDA signer seeds、静态 extra-account-meta TLV 序列化、

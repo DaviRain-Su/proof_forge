@@ -3528,7 +3528,8 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   `enable_required_memo_transfers`, `initialize_transfer_hook`,
   `initialize_pausable_config`, `pause`, and `resume`; generated-program
   Token-2022 direct-CPI Surfpool/Web3.js gates verify the initialized extension
-  state and Pausable pause/resume transitions.
+  state, while the Pausable direct-CPI Surfpool/Rust gate verifies
+  `PausableConfig` plus pause/resume transitions.
 - ✅ P1: Token-2022 transfer-hook execute/extra-account-meta routing now has a
   generated hook-program fixture with external `Execute` discriminator
   dispatch, per-entrypoint account constraints, PDA signer seeds for the

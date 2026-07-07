@@ -9,6 +9,7 @@ use spl_token_2022_interface::{
     extension::{
         immutable_owner::ImmutableOwner,
         non_transferable::{NonTransferable, NonTransferableAccount},
+        pausable::PausableConfig,
         transfer_fee::{
             instruction as transfer_fee_instruction, TransferFeeAmount, TransferFeeConfig,
         },
@@ -120,6 +121,27 @@ pub fn create_transfer_fee_mint(
     Ok(mint)
 }
 
+pub fn create_pausable_mint_account(rpc: &LiveRpc, payer: &Keypair) -> Result<Keypair> {
+    let token_program = token_2022_program_id();
+    let mint = Keypair::new();
+    let space =
+        ExtensionType::try_calculate_account_len::<Token2022MintState>(&[ExtensionType::Pausable])
+            .map_err(|err| {
+                anyhow!("failed to calculate Token-2022 pausable mint length: {err:?}")
+            })?;
+    let lamports = rpc.minimum_balance_for_rent_exemption(space as u64)?;
+    let create = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        lamports,
+        space as u64,
+        &token_program,
+    );
+    rpc.send_and_confirm(&[create], &[payer, &mint])
+        .context("failed to create Token-2022 pausable mint account")?;
+    Ok(mint)
+}
+
 pub fn create_empty_associated_token_account(
     rpc: &LiveRpc,
     payer: &Keypair,
@@ -155,6 +177,23 @@ pub fn mint_to(
     .map_err(|err| anyhow!("failed to build Token-2022 mint_to instruction: {err:?}"))?;
     send_authority_instruction(rpc, payer, authority, instruction)
         .context("failed to mint Token-2022 amount")
+}
+
+pub fn initialize_mint(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    decimals: u8,
+    mint_authority: Address,
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let instruction =
+        token_instruction::initialize_mint(&token_program, &mint, &mint_authority, None, decimals)
+            .map_err(|err| {
+                anyhow!("failed to build Token-2022 initialize_mint instruction: {err:?}")
+            })?;
+    rpc.send_and_confirm(&[instruction], &[payer])
+        .context("failed to initialize Token-2022 mint")
 }
 
 pub fn transfer_checked(
@@ -373,6 +412,21 @@ pub fn assert_transfer_fee_config(
     Ok(())
 }
 
+pub fn assert_pausable_config(data: &[u8], authority: Address, paused: bool) -> Result<()> {
+    let config = pausable_config(data)?;
+    ensure!(
+        config.authority.0.to_bytes() == authority.to_bytes(),
+        "pausable authority mismatch: expected {authority}, got {}",
+        config.authority.0
+    );
+    let actual_paused = bool::from(config.paused);
+    ensure!(
+        actual_paused == paused,
+        "pausable paused state mismatch: expected {paused}, got {actual_paused}"
+    );
+    Ok(())
+}
+
 pub fn calculate_epoch_fee(data: &[u8], epoch: u64, amount: u64) -> Result<u64> {
     transfer_fee_config(data)?
         .calculate_epoch_fee(epoch, amount)
@@ -433,6 +487,15 @@ fn transfer_fee_config(data: &[u8]) -> Result<TransferFeeConfig> {
         .get_extension::<TransferFeeConfig>()
         .copied()
         .map_err(|err| anyhow!("mint missing TransferFeeConfig extension: {err:?}"))
+}
+
+fn pausable_config(data: &[u8]) -> Result<PausableConfig> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<PausableConfig>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing PausableConfig extension: {err:?}"))
 }
 
 fn transfer_checked_instruction(
