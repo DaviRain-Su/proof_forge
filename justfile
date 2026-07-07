@@ -380,7 +380,7 @@ solana-rent-sysvar-web3:
 solana-epoch-schedule-sysvar-web3:
     scripts/solana/epoch-schedule-sysvar-web3-smoke.sh
 
-# Run a live Solana EpochRewards sysvar smoke on Surfpool with Web3.js.
+# Run a live Solana EpochRewards sysvar smoke on Surfpool with the Rust RPC harness.
 solana-epoch-rewards-sysvar-web3:
     scripts/solana/epoch-rewards-sysvar-web3-smoke.sh
 

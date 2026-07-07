@@ -1762,7 +1762,7 @@ Completed alpha slices:
 - Live EpochRewards sysvar fixture:
   `scripts/solana/epoch-rewards-sysvar-web3-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
-  `record_epoch_rewards` through Web3.js, and proves that
+  `record_epoch_rewards` through the Rust live RPC harness, and proves that
   `sol_get_epoch_rewards_sysvar` records `EpochRewards` fields into state.
   `parent_blockhash` is exposed as four little-endian `u64` word views and
   `total_points` is exposed as low/high `u64` word views until the portable

@@ -563,7 +563,7 @@
   与 RPC `getEpochSchedule()` 字段匹配。
 - 实时 EpochRewards sysvar fixture：
   `scripts/solana/epoch-rewards-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
-  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Web3.js 调用
+  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_epoch_rewards`，并证明
   `sol_get_epoch_rewards_sysvar` 将 `EpochRewards` 字段记录到状态中。
   `parent_blockhash` 被公开为四个小端序 `u64` 字视图，且
