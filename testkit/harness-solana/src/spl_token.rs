@@ -19,6 +19,8 @@ pub struct TokenAccount {
     pub mint: Address,
     pub owner: Address,
     pub amount: u64,
+    pub delegate: Option<Address>,
+    pub delegated_amount: u64,
 }
 
 #[derive(Debug)]
@@ -133,14 +135,16 @@ pub fn associated_token_address(
 
 pub fn parse_token_account(data: &[u8]) -> Result<TokenAccount> {
     ensure!(
-        data.len() >= 72,
-        "token account data must be at least 72 bytes, got {}",
+        data.len() >= 129,
+        "token account data must be at least 129 bytes, got {}",
         data.len()
     );
     Ok(TokenAccount {
         mint: address_at(data, 0, "token account mint")?,
         owner: address_at(data, 32, "token account owner")?,
         amount: u64_at(data, 64, "token account amount")?,
+        delegate: coption_address_at(data, 72, "token account delegate")?,
+        delegated_amount: u64_at(data, 121, "token account delegated amount")?,
     })
 }
 

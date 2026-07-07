@@ -1697,10 +1697,9 @@ Completed alpha slices:
 - Live SPL Token ops CPI fixture:
   `scripts/solana/spl-token-ops-cpi-web3-smoke.sh` builds and deploys a
   generated `mint_to`/`burn`/`approve`/`revoke` CPI program on Surfpool,
-  validates the generated four-entrypoint artifact schema, creates SPL Token
-  test accounts with `@solana/spl-token`, invokes all four generated
-  entrypoints through Web3.js, and proves supply/balance/delegate changes plus
-  state writes.
+  validates the generated four-entrypoint artifact schema, invokes all four
+  generated entrypoints through the Rust live RPC harness, and proves
+  supply/balance/delegate changes plus state writes.
 - Live SPL Token authority CPI fixture:
   `scripts/solana/spl-token-authority-cpi-web3-smoke.sh` builds and deploys a
   generated `set_authority` CPI program on Surfpool, validates the generated
@@ -1865,10 +1864,10 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token ops live-equivalence harness:
   `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` is wired to
   build the ProofForge ELF and the checked-in Pinocchio Token ops reference
-  ELF, deploy both programs to one Surfpool instance, invoke the same Web3.js +
-  `@solana/spl-token` mint/burn/approve/revoke scenario for each, and compare
-  token effects plus all four amount/marker state writes. The harness currently
-  skips when `cargo-build-sbf` cannot find Solana rustc/platform-tools.
+  ELF, deploy both programs to one Surfpool instance, invoke the same Rust live
+  RPC mint/burn/approve/revoke scenario for each, and compare token effects plus
+  all four amount/marker state writes. The harness currently skips when
+  `cargo-build-sbf` cannot find Solana rustc/platform-tools.
 - Pinocchio SPL Token authority reference contract:
   `references/solana/pinocchio/spl-token-authority` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token `set_authority`

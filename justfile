@@ -346,7 +346,7 @@ solana-system-create-account-cpi-web3:
 solana-spl-token-transfer-cpi-web3:
     scripts/solana/spl-token-transfer-cpi-web3-smoke.sh
 
-# Run a live SPL Token mint_to/burn/approve/revoke CPI smoke on Surfpool with Web3.js.
+# Run a live SPL Token mint_to/burn/approve/revoke CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-ops-cpi-web3:
     scripts/solana/spl-token-ops-cpi-web3-smoke.sh
 

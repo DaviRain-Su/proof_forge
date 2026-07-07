@@ -533,7 +533,7 @@
 - 实时 System Program 转账 CPI 测试固件：`scripts/solana/system-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的转账 CPI 程序，通过 Rust live RPC harness 调用它，并证明 lamport 转移和状态写入。
 - 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Rust live RPC 测试框架调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
 - 实时 SPL Token transfer-checked CPI 测试固件：`scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 transfer_checked CPI 程序，通过 Rust live RPC 测试框架调用它，并证明源/目标代币余额增量以及状态写入。
-- 实时 SPL Token 操作 CPI 测试固件：`scripts/solana/spl-token-ops-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `mint_to`/`burn`/`approve`/`revoke` CPI 程序，验证生成的四入口制品 schema，使用 `@solana/spl-token` 创建 SPL Token 测试账户，通过 Web3.js 调用所有四个生成的入口，并证明供应量/余额/委托更改以及状态写入。
+- 实时 SPL Token 操作 CPI 测试固件：`scripts/solana/spl-token-ops-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `mint_to`/`burn`/`approve`/`revoke` CPI 程序，验证生成的四入口制品 schema，通过 Rust live RPC 测试框架调用所有四个生成的入口，并证明供应量/余额/委托更改以及状态写入。
 - 实时 SPL Token 权限 CPI 测试固件：`scripts/solana/spl-token-authority-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `set_authority` CPI 程序，验证生成的单入口制品 schema，通过 Rust live RPC 测试框架创建 SPL Token mint，调用生成的入口，并证明铸币权限已转移到请求的新权限以及标记状态写入。
 - 实时标量事件、公钥日志和数据日志测试固件：`scripts/solana/log-event-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `events.emit` 程序，通过 Rust live RPC 测试框架调用它，验证生成的 `sol_log_64_` 交易日志包含稳定的 `AmountEvent` 标签和标量 `amount` 字段，并证明程序拥有的状态账户记录了相同的值。同一测试固件现在还验证仅限 Solana 的 `logAccountPubkey` 元数据，调用生成的 `log_state_pubkey` 入口，并证明 `sol_log_pubkey` 记录了状态账户的 base58 公钥。它还验证仅限 Solana 的 `logStateData` 元数据，调用 `log_state_data`，并证明 `sol_log_data` 为状态支持的 `amount` 字节发射一个 base64 `Program data:` 有效载荷。
 - 实时 Clock sysvar 测试固件：`scripts/solana/clock-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `contextRead checkpointId` 程序，将其降级为 `sol_get_clock_sysvar`，通过 Rust live RPC 测试框架调用它，并证明记录的 `Clock.slot` 与观察到的交易槽位匹配。
@@ -606,7 +606,7 @@
 - Pinocchio SPL Token 操作参考合约：
   `references/solana/pinocchio/spl-token-ops` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SplTokenOpsCpi` 相同的 SPL Token `mint_to`/`burn`/`approve`/`revoke` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` 发射 ProofForge SPL Token 操作 CPI 制品，并将其四个指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、SPL Token 指令合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token 操作实时等效性测试框架：
-  `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 操作参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Web3.js + `@solana/spl-token` mint/burn/approve/revoke 场景，并比较代币影响以及所有四个金额/标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
+  `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 操作参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live RPC mint/burn/approve/revoke 场景，并比较代币影响以及所有四个金额/标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Pinocchio SPL Token authority 参考合约：
   `references/solana/pinocchio/spl-token-authority` 包含一个已签入的、针对与 `ProofForge.Solana.Examples.SplTokenAuthorityCpi` 相同的 SPL Token `set_authority` 账户 schema 的无分配器 Pinocchio 参考。gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` 发射 ProofForge SPL Token authority CPI 制品，并将其指令 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、`SetAuthority` 指令合约以及标记状态写入合约与参考清单/源代码进行对比。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 针对 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token authority 实时等效性测试 harness：
