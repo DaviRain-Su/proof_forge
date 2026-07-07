@@ -1,8 +1,8 @@
 # RoleGatedToken Shared Scenario
 
 A token with role-gated minting: only accounts holding the `minter` role
-can call `mint`. Combines AccessControl role membership with ERC-20 token
-semantics.
+can call `mint`. Combines role membership with fungible-token balance and
+transfer semantics.
 
 ## Three-chain status
 

@@ -11,6 +11,7 @@ import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.Options
 import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Cli.TargetJson
+import ProofForge.Cli.TokenLoader
 import ProofForge.Contract.Learn
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token
@@ -43,6 +44,27 @@ def parseLearnTokenInput (opts : CliOptions) (modeName : String) :
   match (← ProofForge.Contract.Token.Learn.parseFile input) with
   | .ok decl => pure (input, decl)
   | .error err => throw <| IO.userError s!"{input}: {err}"
+
+private def fileEndsWith (input : FilePath) (suffix : String) : Bool :=
+  input.toString.endsWith suffix
+
+private def tokenValidationKey (sourceKind : String) : String :=
+  if sourceKind == "lean-token-source" then
+    "leanTokenLoading"
+  else
+    "learnTokenParsing"
+
+unsafe def parseTokenInput (opts : CliOptions) (modeName : String) :
+    IO (FilePath × ProofForge.Contract.Token.Learn.TokenDecl × String) := do
+  let input ← learnInput opts modeName
+  if fileEndsWith input ".lean" then
+    let (id?, spec) ← ProofForge.Cli.TokenLoader.loadToken input opts.root? opts.moduleName?
+    let id := id?.getD (leanBaseName input)
+    pure (input, { id := id, spec := spec }, "lean-token-source")
+  else
+    match (← ProofForge.Contract.Token.Learn.parseFile input) with
+    | .ok decl => pure (input, decl, "learn-token-source")
+    | .error err => throw <| IO.userError s!"{input}: {err}"
 
 def learnFixtureName (input : FilePath) : String :=
   input.fileName.getD input.toString
@@ -180,13 +202,14 @@ def tokenSolanaDeploymentPlanJson
   ]
 
 def tokenPlanJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
+    (sourceKind : String)
     (profile : ProofForge.Target.TargetProfile)
     (plan : ProofForge.Contract.Token.TokenPlan)
     (sourceArtifact : String)
     (solanaDeployment? : Option ProofForge.Contract.Token.SolanaTokenDeploymentPlan := none) : String :=
   jsonObject #[
     ("format", jsonString "proof-forge-token-plan-v0"),
-    ("sourceKind", jsonString "learn-token-source"),
+    ("sourceKind", jsonString sourceKind),
     ("token", tokenSpecJson decl),
     ("target", jsonString profile.id),
     ("targetFamily", jsonString profile.family.id),
@@ -202,7 +225,7 @@ def tokenPlanJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
       ("source", sourceArtifact)
     ]),
     ("validation", jsonObject #[
-      ("learnTokenParsing", jsonString "passed"),
+      (tokenValidationKey sourceKind, jsonString "passed"),
       ("targetRouting", jsonString "passed"),
       ("planGeneration", jsonString "passed")
     ])
@@ -241,12 +264,13 @@ def tokenEvmEventsJson (events : Array EventAbi) : String :=
   ])
 
 def tokenEvmArtifactJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
+    (sourceKind : String)
     (profile : ProofForge.Target.TargetProfile)
     (plan : ProofForge.Contract.Token.TokenPlan)
     (sourceArtifact yulArtifact bytecodeArtifact entrypointsJson eventsJson : String) : String :=
   jsonObject #[
     ("format", jsonString "proof-forge-token-artifact-v0"),
-    ("sourceKind", jsonString "learn-token-source"),
+    ("sourceKind", jsonString sourceKind),
     ("token", tokenSpecJson decl),
     ("target", jsonString profile.id),
     ("targetFamily", jsonString profile.family.id),
@@ -265,7 +289,7 @@ def tokenEvmArtifactJson (decl : ProofForge.Contract.Token.Learn.TokenDecl)
       ("bytecode", bytecodeArtifact)
     ]),
     ("validation", jsonObject #[
-      ("learnTokenParsing", jsonString "passed"),
+      (tokenValidationKey sourceKind, jsonString "passed"),
       ("targetRouting", jsonString "passed"),
       ("erc20IrLowering", jsonString "passed"),
       ("solcStrictAssembly", jsonString "passed")
@@ -378,6 +402,7 @@ def compileLearnTokenEvm (opts : CliOptions)
     (profile : ProofForge.Target.TargetProfile)
     (input : FilePath)
     (decl : ProofForge.Contract.Token.Learn.TokenDecl)
+    (sourceKind : String)
     (plan : ProofForge.Contract.Token.TokenPlan) : IO UInt32 := do
   let spec := ProofForge.Contract.Token.EvmSpec.specFor decl.spec
   let module ← hydrateEvmSelectors opts.cast spec.module
@@ -400,7 +425,7 @@ def compileLearnTokenEvm (opts : CliOptions)
   let entrypointsJson ← liftExceptString (tokenEvmEntrypointsJson module)
   let eventsJson := tokenEvmEventsJson events
   writeTextFile metadataOutput
-    (tokenEvmArtifactJson decl profile plan sourceArtifact yulArtifact bytecodeArtifact entrypointsJson
+    (tokenEvmArtifactJson decl sourceKind profile plan sourceArtifact yulArtifact bytecodeArtifact entrypointsJson
       eventsJson ++ "\n")
   IO.println s!"wrote {yulOutput}"
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
@@ -411,6 +436,7 @@ def compileLearnTokenPlan (opts : CliOptions)
     (profile : ProofForge.Target.TargetProfile)
     (input : FilePath)
     (decl : ProofForge.Contract.Token.Learn.TokenDecl)
+    (sourceKind : String)
     (plan : ProofForge.Contract.Token.TokenPlan) : IO UInt32 := do
   let output := opts.output?.getD (defaultLearnTokenPlanOutput decl profile)
   let sourceArtifact ← artifactEntryJson input
@@ -421,20 +447,20 @@ def compileLearnTokenPlan (opts : CliOptions)
       | .error err => throw <| IO.userError err
     else
       pure none
-  writeTextFile output (tokenPlanJson decl profile plan sourceArtifact solanaDeployment? ++ "\n")
+  writeTextFile output (tokenPlanJson decl sourceKind profile plan sourceArtifact solanaDeployment? ++ "\n")
   IO.println s!"wrote {output}"
   return 0
 
-def compileLearnTokenTarget (opts : CliOptions) : IO UInt32 := do
+unsafe def compileLearnTokenTarget (opts : CliOptions) : IO UInt32 := do
   let profile ← learnTokenTargetProfile opts
-  let (input, decl) ← parseLearnTokenInput opts "--learn-token"
+  let (input, decl, sourceKind) ← parseTokenInput opts "--learn-token"
   let plan ←
     match ProofForge.Contract.Token.planForTarget profile decl.spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err
   if profile.id == ProofForge.Target.evm.id then
-    compileLearnTokenEvm opts profile input decl plan
+    compileLearnTokenEvm opts profile input decl sourceKind plan
   else
-    compileLearnTokenPlan opts profile input decl plan
+    compileLearnTokenPlan opts profile input decl sourceKind plan
 
 end ProofForge.Cli

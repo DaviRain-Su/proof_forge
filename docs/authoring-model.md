@@ -101,8 +101,11 @@ import ProofForge.Contract.Stdlib.ERC20;
 ```
 
 Each `import` expands to that module's `mixin` action. Standalone stdlib
-contracts use `use mixin;` after defining the mixin in the same file. See
-`Examples/Evm/Contracts/SimpleToken.lean` and `OwnableERC20.lean`.
+contracts use `use mixin;` after defining the mixin in the same file. The
+ERC-style composition fixtures live under `Examples/Evm/Contracts/` because
+they intentionally exercise EVM stdlib and ABI behavior. Shared token product
+examples should use the higher-level `TokenSpec` intent boundary instead; see
+`Examples/Shared/FungibleToken.lean`.
 
 `ProofForge.Contract.Token` is the current token SDK planning boundary.
 Lean-authored `TokenSpec` values route to ERC-20 on EVM or to structured Solana

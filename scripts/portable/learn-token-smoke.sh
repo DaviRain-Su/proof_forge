@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Legacy Learn token SDK smoke.
+# Token SDK smoke.
 #
-# This gate exercises the existing Learn token parser across target routing:
-#   - EVM: Learn token -> ERC-20 Yul -> solc bytecode -> artifact metadata.
-#   - Solana: Learn token -> TokenSpec -> SPL Token / Token-2022 plan JSON.
+# This gate exercises both token intent entrypoints across target routing:
+#   - Lean TokenSpec -> EVM ERC-20 artifact / Solana SPL Token plan.
+#   - Legacy Learn token -> TokenSpec -> the same target-specific outputs.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -16,6 +16,7 @@ SOLANA_DIR="$OUT_DIR/solana"
 
 PROOF_TOKEN="Examples/Learn/ProofToken.learn"
 FEE_TOKEN="Examples/Learn/FeeToken.learn"
+LEAN_TOKEN="Examples/Shared/FungibleToken.lean"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -41,7 +42,43 @@ rm -rf "$OUT_DIR"
 mkdir -p "$EVM_DIR" "$SOLANA_DIR"
 
 if command -v solc >/dev/null 2>&1; then
-  echo "=== Learn token step 1: emit EVM ERC-20 Yul/bytecode ==="
+  echo "=== Token intent step 1: emit Lean TokenSpec to EVM ERC-20 Yul/bytecode ==="
+  LEAN_EVM_YUL="$EVM_DIR/FungibleToken.erc20.yul"
+  LEAN_EVM_BIN="$EVM_DIR/FungibleToken.erc20.bin"
+  LEAN_EVM_ARTIFACT="$EVM_DIR/FungibleToken.erc20.artifact.json"
+
+  lake env proof-forge build --target evm --token --root . \
+    --yul-output "$LEAN_EVM_YUL" \
+    --artifact-output "$LEAN_EVM_ARTIFACT" \
+    -o "$LEAN_EVM_BIN" \
+    "$LEAN_TOKEN" \
+    || fail "proof-forge build --target evm --token failed for Lean TokenSpec"
+
+  require_file "$LEAN_EVM_YUL"
+  require_file "$LEAN_EVM_BIN"
+  require_file "$LEAN_EVM_ARTIFACT"
+  require_contains "$LEAN_EVM_YUL" 'object "FungibleToken"' "Lean TokenSpec ERC-20 Yul object"
+  require_contains "$LEAN_EVM_YUL" "case 0x70a08231" "Lean TokenSpec ERC-20 balanceOf selector"
+  require_contains "$LEAN_EVM_YUL" "case 0xa9059cbb" "Lean TokenSpec ERC-20 transfer selector"
+
+  python3 - "$LEAN_EVM_ARTIFACT" <<'PY'
+import json
+import sys
+
+artifact = json.load(open(sys.argv[1]))
+assert artifact["format"] == "proof-forge-token-artifact-v0"
+assert artifact["sourceKind"] == "lean-token-source"
+assert artifact["target"] == "evm"
+assert artifact["standard"] == "erc20"
+assert artifact["artifactKind"] == "evm-erc20-contract"
+assert artifact["validation"]["leanTokenLoading"] == "passed"
+selectors = {entry["signature"]: entry["selector"] for entry in artifact["abi"]["entrypoints"]}
+assert selectors["balanceOf(address)"] == "70a08231"
+assert selectors["transfer(address,uint256)"] == "a9059cbb"
+print("lean evm token artifact: ok")
+PY
+
+  echo "=== Token intent step 2: emit legacy Learn token to EVM ERC-20 Yul/bytecode ==="
   EVM_YUL="$EVM_DIR/ProofToken.erc20.yul"
   EVM_BIN="$EVM_DIR/ProofToken.erc20.bin"
   EVM_ARTIFACT="$EVM_DIR/ProofToken.erc20.artifact.json"
@@ -93,7 +130,30 @@ else
   echo "SKIP: solc not on PATH; EVM ERC-20 token bytecode check skipped"
 fi
 
-echo "=== Learn token step 2: emit Solana SPL Token plan ==="
+echo "=== Token intent step 3: emit Lean TokenSpec to Solana SPL Token plan ==="
+LEAN_SOLANA_SPL_PLAN="$SOLANA_DIR/FungibleToken.solana-token-plan.json"
+lake env proof-forge build --target solana-sbpf-asm --token --root . \
+  -o "$LEAN_SOLANA_SPL_PLAN" \
+  "$LEAN_TOKEN" \
+  || fail "proof-forge build --target solana-sbpf-asm --token failed for Lean TokenSpec"
+
+require_file "$LEAN_SOLANA_SPL_PLAN"
+python3 - "$LEAN_SOLANA_SPL_PLAN" <<'PY'
+import json
+import sys
+
+plan = json.load(open(sys.argv[1]))
+assert plan["format"] == "proof-forge-token-plan-v0"
+assert plan["sourceKind"] == "lean-token-source"
+assert plan["target"] == "solana-sbpf-asm"
+assert plan["standard"] == "spl-token"
+assert plan["artifactKind"] == "solana-spl-token-plan"
+assert plan["validation"]["leanTokenLoading"] == "passed"
+assert "spl-token.transfer_checked" in plan["operations"]
+print("lean solana spl-token plan: ok")
+PY
+
+echo "=== Token intent step 4: emit legacy Learn token to Solana SPL Token plan ==="
 SOLANA_SPL_PLAN="$SOLANA_DIR/ProofToken.solana-token-plan.json"
 lake env proof-forge build --target solana-sbpf-asm --token \
   -o "$SOLANA_SPL_PLAN" \
@@ -130,10 +190,10 @@ for name in [
     assert name in names
 assert plan["solana"]["extensions"] == []
 assert plan["validation"]["planGeneration"] == "passed"
-print("solana spl-token plan: ok")
+print("learn solana spl-token plan: ok")
 PY
 
-echo "=== Learn token step 3: emit Solana Token-2022 plan ==="
+echo "=== Token intent step 5: emit legacy Learn token to Solana Token-2022 plan ==="
 SOLANA_TOKEN_2022_PLAN="$SOLANA_DIR/FeeToken.solana-token-plan.json"
 lake env proof-forge build --target solana-sbpf-asm --token \
   -o "$SOLANA_TOKEN_2022_PLAN" \
@@ -167,10 +227,13 @@ for name in [
 ]:
     assert name in names
 assert plan["validation"]["planGeneration"] == "passed"
-print("solana token-2022 plan: ok")
+print("learn solana token-2022 plan: ok")
 PY
 
-echo "=== Learn token step 4: validate Solana token plans with Rust harness ==="
+echo "=== Token intent step 6: validate Solana token plans with Rust harness ==="
+cargo run --manifest-path testkit/harness-solana/Cargo.toml \
+  --bin token_plan_smoke -- "$LEAN_SOLANA_SPL_PLAN" \
+  || fail "Lean Solana SPL Token plan Rust validation failed"
 cargo run --manifest-path testkit/harness-solana/Cargo.toml \
   --bin token_plan_smoke -- "$SOLANA_SPL_PLAN" \
   || fail "Solana SPL Token plan Rust validation failed"

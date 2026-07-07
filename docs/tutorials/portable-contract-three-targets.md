@@ -129,16 +129,26 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 
 ValueVault budget baselines live in `testkit/scenarios/value-vault.toml`.
 
-## Step 6 — Compose stdlib modules from shared source (optional)
+## Step 6 — Use high-level token intent (optional)
 
-Portable Counter/ValueVault demonstrate the cross-target product path. EVM
-stdlib modules (`Ownable`, `Pausable`, `ERC20`, `ReentrancyGuard`) compose
-through `import` / `open` inside `contract_source`; see
-`Examples/Shared/SimpleToken.lean` and
-[authoring-model.md](../authoring-model.md). Those stdlib-focused examples are
-single-source examples with EVM golden/runtime gates and Solana package
-generation today; NEAR address-keyed map lowering remains capability-gated.
-Counter/ValueVault remain the canonical three-target reference.
+Portable Counter/ValueVault demonstrate chain-neutral contract logic. Fungible
+tokens use the higher-level `TokenSpec` intent boundary instead of naming a
+chain protocol in source:
+
+```bash
+lake env proof-forge build --target evm --token --root . \
+  -o build/shared-fungible-token/FungibleToken.erc20.bin \
+  --yul-output build/shared-fungible-token/FungibleToken.erc20.yul \
+  Examples/Shared/FungibleToken.lean
+
+lake env proof-forge build --target solana-sbpf-asm --token --root . \
+  -o build/shared-fungible-token/FungibleToken.solana-token-plan.json \
+  Examples/Shared/FungibleToken.lean
+```
+
+The source stays target-neutral; the EVM target chooses an ERC-20-compatible
+artifact and the Solana target chooses an SPL Token / Token-2022 plan. EVM
+stdlib composition examples remain under `Examples/Evm/Contracts/`.
 
 ## Checklist
 
@@ -150,6 +160,8 @@ Counter/ValueVault remain the canonical three-target reference.
 - [ ] `just testkit-budget-gate` passes (behavior + resource budgets).
 - [ ] Artifact metadata records `sourceKind: contract-sdk` and the expected
       capabilities for your module.
+- [ ] Token examples use `TokenSpec` or another high-level intent boundary
+      instead of naming target protocols in shared source.
 
 ## Next steps
 

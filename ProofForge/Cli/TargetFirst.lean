@@ -153,12 +153,32 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
   | "evm", true, _, some "bytecode", false => Except.ok "--learn"
   | "evm", true, _, none, true => Except.ok "--learn-token"
   | "evm", true, _, none, false => Except.ok "--learn"
+  | "evm", false, _, some "yul", true =>
+      if isLeanSource then
+        Except.error "proof-forge build --target evm --token --format yul is not yet implemented"
+      else
+        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
+  | "evm", false, _, some "bytecode", true =>
+      if isLeanSource then
+        Except.ok "--learn-token"
+      else
+        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
+  | "evm", false, _, none, true =>
+      if isLeanSource then
+        Except.ok "--learn-token"
+      else
+        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
   | "evm", false, _, some "yul", _ =>
       if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-yul"
   | "evm", false, _, _, _ =>
       if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-bytecode"
   | "wasm-near", true, _, _, _ =>
       Except.error "proof-forge build --target wasm-near from .learn source is not yet implemented"
+  | "wasm-near", false, _, _, true =>
+      if isLeanSource then
+        Except.ok "--learn-token"
+      else
+        Except.error "proof-forge build --target wasm-near --token requires a .lean TokenSpec or .learn token source"
   | "wasm-near", false, fixture?, format?, _ =>
       if isLeanSource then
         if format?.isSome && format? != some "wat" then
@@ -181,6 +201,11 @@ def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Optio
   | "wasm-cosmwasm", false, _, _, _ => Except.ok "--emit-counter-ir-cosmwasm"
   | "solana-sbpf-asm", true, _, _, true => Except.ok "--learn-token"
   | "solana-sbpf-asm", true, _, _, false => Except.ok "--learn"
+  | "solana-sbpf-asm", false, _, _, true =>
+      if isLeanSource then
+        Except.ok "--learn-token"
+      else
+        Except.error "proof-forge build --target solana-sbpf-asm --token requires a .lean TokenSpec or .learn token source"
   | "solana-sbpf-asm", false, _, _, _ =>
       if isLeanSource then
         Except.ok "--contract-source-sbpf"

@@ -24,20 +24,18 @@ Each file carries the concrete `evm`, `solana-sbpf-asm`, and `wasm-near`
 commands in its header. The compiler test fixtures with equivalent Counter and
 ValueVault semantics live in `ProofForge/Contract/Examples/`.
 
-## Shared Stdlib Composition Examples
+## High-Level Intent Examples
 
-These examples are also authored once in `Examples/Shared`, but target support
-is gated by backend capability coverage:
+These examples are not protocol-specific contract code. They describe a
+product-level intent once and let target routing choose the chain form:
 
 | Example | Source | Current target status |
 |---|---|---|
-| SimpleToken | [SimpleToken.lean](SimpleToken.lean) | EVM golden/runtime gates; Solana assembly/package generation; NEAR address-keyed map lowering still gated |
-| OwnableERC20 | [OwnableERC20.lean](OwnableERC20.lean) | EVM golden/runtime gates; Solana assembly/package generation; NEAR address-keyed map lowering still gated |
-| AccessControlProbe | [AccessControlProbe.lean](AccessControlProbe.lean) | EVM golden/runtime gates; Solana assembly/package generation; NEAR address-keyed map lowering still gated |
+| FungibleToken | [FungibleToken.lean](FungibleToken.lean) | `TokenSpec` lowers to an EVM ERC-20-compatible artifact or a Solana SPL Token / Token-2022 plan; NEAR token lowering is still gated |
 
-The matching paths under `Examples/Evm/Contracts/` are symlink compatibility
-entrypoints so existing EVM golden and Foundry scripts keep working while the
-canonical source lives here.
+The source does not mention ERC-20, SPL Token, Token-2022, or NEP-141. Those
+names are target outputs chosen below the shared intent layer.
 
 Legacy `.learn` examples remain parser/equivalence fixtures. New product
-examples should use ordinary `.lean` files with `contract_source`.
+examples should use ordinary `.lean` files with `contract_source` or a
+higher-level intent SDK such as `TokenSpec`.

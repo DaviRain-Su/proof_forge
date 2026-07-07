@@ -5,10 +5,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Canonical portable RoleGatedToken shared across primary targets.
 
 This is the first "complex business logic" shared scenario: it combines
-AccessControl (role membership) with ERC-20 token semantics, so that
+role membership with fungible-token balance and transfer semantics, so that
 only accounts holding the `minter` role can call `mint`. The same source
-compiles to EVM (via stdlib compose), Solana (via account/PDA constraints),
-and NEAR (via signer-based role checks).
+compiles to EVM, Solana, and NEAR through target routing.
 
 Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 `--target`:

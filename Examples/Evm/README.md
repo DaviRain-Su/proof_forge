@@ -2,7 +2,7 @@
 
 This directory keeps EVM-specific fixtures for ProofForge's unified portable
 entry path: golden Yul files, Foundry runtime smokes, constructor/proxy probes,
-and compatibility entrypoints for shared examples.
+and stdlib/protocol-specific composition examples.
 
 Portable examples that should compile by changing only `--target` belong in
 [Examples/Shared](../Shared/README.md).
@@ -39,15 +39,15 @@ lake env proof-forge build --target evm \
 ```
 
 `Counter`, `ValueVault`, `RoleGatedToken`, and `StakingVault` are the primary
-multi-target shared scenarios. `SimpleToken`, `OwnableERC20`, and
-`AccessControlProbe` are authored in `Examples/Shared/` as stdlib composition
-examples; the same filenames under `Contracts/` are compatibility symlinks for
-EVM golden and Foundry scripts.
+multi-target shared contract scenarios.
 
-`ArrayExample.lean`, `VerifiedVault.lean`, constructor probes, proxy probes, and
-the `stdlib/` wrappers are EVM-focused fixtures because they exercise
-EVM-specific ABI, deployment, callvalue/native-transfer, or golden-output
-behavior.
+`SimpleToken`, `OwnableERC20`, `AccessControlProbe`, `ArrayExample.lean`,
+`VerifiedVault.lean`, constructor probes, proxy probes, and the `stdlib/`
+wrappers are EVM-focused fixtures because they exercise EVM ABI, ERC-style
+stdlib composition, deployment, callvalue/native-transfer, or golden-output
+behavior. Chain-neutral token intent lives in
+`Examples/Shared/FungibleToken.lean` as a `TokenSpec`; the EVM target lowers
+that intent to an ERC-20-compatible artifact.
 
 No `.evm-methods` sidecar is required. The CLI loads `spec : ContractSpec` from
 the Lean module and lowers through the portable IR EVM backend.
@@ -77,4 +77,6 @@ scripts/evm/foundry-smoke.sh
 
 The canonical shared examples live in [Examples/Shared](../Shared/README.md).
 See [docs/shared-scenario.md](../../docs/shared-scenario.md) for the Counter and
-ValueVault scenario details.
+ValueVault scenario details. See
+[Examples/Shared/FungibleToken.lean](../Shared/FungibleToken.lean) for the
+target-neutral token-intent example.

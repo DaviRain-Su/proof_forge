@@ -1,7 +1,8 @@
 # ProofForge EVM 示例
 
 本目录保存 ProofForge 统一 portable 入口的 EVM 专用 fixture：golden Yul
-文件、Foundry 运行时冒烟测试、constructor/proxy probe，以及 shared 示例的兼容入口。
+文件、Foundry 运行时冒烟测试、constructor/proxy probe，以及 stdlib/protocol-specific
+composition 示例。
 
 只需改变 `--target` 就应编译到不同链的 portable 示例，应放在
 [Examples/Shared](../../Examples/Shared/README.md)。
@@ -38,13 +39,14 @@ lake env proof-forge build --target evm \
 ```
 
 `Counter`、`ValueVault`、`RoleGatedToken` 和 `StakingVault` 是主要的多目标
-shared 场景。`SimpleToken`、`OwnableERC20` 和 `AccessControlProbe` 作为
-stdlib composition 示例在 `Examples/Shared/` 编写；`Contracts/` 下的同名文件是
-EVM golden 和 Foundry 脚本的兼容 symlink。
+shared contract 场景。
 
-`ArrayExample.lean`、`VerifiedVault.lean`、constructor probe、proxy probe 和
-`stdlib/` wrapper 是 EVM-focused fixture，因为它们覆盖 EVM 专用 ABI、部署、
-callvalue/native-transfer 或 golden-output 行为。
+`SimpleToken`、`OwnableERC20`、`AccessControlProbe`、`ArrayExample.lean`、
+`VerifiedVault.lean`、constructor probe、proxy probe 和 `stdlib/` wrapper 是
+EVM-focused fixture，因为它们覆盖 EVM ABI、ERC-style stdlib composition、部署、
+callvalue/native-transfer 或 golden-output 行为。Chain-neutral token intent 位于
+`Examples/Shared/FungibleToken.lean`，形式是 `TokenSpec`；EVM target 会把该 intent
+降低为 ERC-20-compatible artifact。
 
 不需要 `.evm-methods` sidecar。CLI 会从 Lean 模块加载 `spec : ContractSpec`，并通过 portable IR EVM 后端降级。
 
@@ -71,4 +73,5 @@ scripts/evm/foundry-smoke.sh
 
 canonical shared 示例位于 [Examples/Shared](../../Examples/Shared/README.md)。
 Counter 和 ValueVault 场景细节见
-[docs/shared-scenario.md](../../docs/shared-scenario.md)。
+[docs/shared-scenario.md](../../docs/shared-scenario.md)。Target-neutral token-intent
+示例见 [Examples/Shared/FungibleToken.lean](../../Examples/Shared/FungibleToken.lean)。

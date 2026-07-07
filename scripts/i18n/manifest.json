@@ -19,7 +19,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/authoring-model.md": {
-    "sha256": "d67828d54bcdc380026537e14fb8854b1436e15b7d516abb9c18cd6066b139dd",
+    "sha256": "dc1bbd5f742dd8042191fdd04006414ef968e9605017ec40e09eee03f2ff9afd",
     "zh": "docs/zh/authoring-model.zh.md",
     "model": "gemini-3-flash-preview"
   },
@@ -44,7 +44,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/tutorials/portable-contract-three-targets.md": {
-    "sha256": "c049b3ac391cc3848abcfacd377db09c0d5d4e1e584efd2c4cc1ea7ccc6a865f",
+    "sha256": "9cce3148f86d0d7d06f39bb3f1ddb23a896c32346c02de29f46b1823e77104d0",
     "zh": "docs/zh/tutorials/portable-contract-three-targets.zh.md",
     "model": "manual"
   },
@@ -120,7 +120,7 @@
     "model": "gemini-3-flash-preview"
   },
   "Examples/Evm/README.md": {
-    "sha256": "9ab7afd8fed6b4f5a38ee9691a2680a70dc3a2556238b41059426936961f7383",
+    "sha256": "535c22fb5d2efc05946d7bd41189daf0556486c2efe417da9529c3f0af6ed15d",
     "zh": "docs/zh/examples-evm-README.zh.md",
     "model": "gemini-3-flash-preview"
   },
