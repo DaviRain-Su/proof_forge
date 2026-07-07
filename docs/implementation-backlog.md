@@ -1754,8 +1754,8 @@ Completed alpha slices:
 - Live EpochSchedule sysvar fixture:
   `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` builds and deploys a
   generated Solana-only `sysvar` target-extension program on Surfpool, invokes
-  `record_epoch_schedule` through Web3.js, and proves the recorded
-  `EpochSchedule.slots_per_epoch`,
+  `record_epoch_schedule` through the Rust live RPC harness, and proves the
+  recorded `EpochSchedule.slots_per_epoch`,
   `EpochSchedule.leader_schedule_slot_offset`, `EpochSchedule.warmup`,
   `EpochSchedule.first_normal_epoch`, and `EpochSchedule.first_normal_slot`
   match RPC `getEpochSchedule()` fields.

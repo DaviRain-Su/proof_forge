@@ -555,7 +555,7 @@
   `Rent.lamports_per_byte_year` 与 Rent sysvar 账户数据匹配。
 - 实时 EpochSchedule sysvar fixture：
   `scripts/solana/epoch-schedule-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署一个
-  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Web3.js 调用
+  生成的仅限 Solana 的 `sysvar` 目标扩展程序，通过 Rust live RPC 测试框架调用
   `record_epoch_schedule`，并证明记录的
   `EpochSchedule.slots_per_epoch`、
   `EpochSchedule.leader_schedule_slot_offset`、`EpochSchedule.warmup`、

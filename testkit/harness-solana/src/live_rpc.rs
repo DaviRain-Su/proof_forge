@@ -39,6 +39,10 @@ impl LiveRpc {
         self.call("getMinimumBalanceForRentExemption", json!([space]))
     }
 
+    pub fn epoch_schedule(&self) -> Result<EpochSchedule> {
+        self.call("getEpochSchedule", json!([]))
+    }
+
     pub fn balance(&self, account: Address) -> Result<u64> {
         let response: BalanceResponse = self.call(
             "getBalance",
@@ -317,9 +321,14 @@ pub fn create_program_state(
 }
 
 pub fn read_u64_le(data: &[u8]) -> Result<u64> {
+    read_u64_le_at(data, 0)
+}
+
+pub fn read_u64_le_at(data: &[u8], offset: usize) -> Result<u64> {
+    let end = offset.checked_add(8).context("u64 read offset overflow")?;
     let bytes: [u8; 8] = data
-        .get(..8)
-        .context("expected at least 8 bytes")?
+        .get(offset..end)
+        .with_context(|| format!("expected at least {end} bytes"))?
         .try_into()
         .expect("slice length is fixed");
     Ok(u64::from_le_bytes(bytes))
@@ -361,6 +370,19 @@ struct LatestBlockhashValue {
 #[derive(Debug, Deserialize)]
 struct BalanceResponse {
     value: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EpochSchedule {
+    #[serde(rename = "slotsPerEpoch")]
+    pub slots_per_epoch: u64,
+    #[serde(rename = "leaderScheduleSlotOffset")]
+    pub leader_schedule_slot_offset: u64,
+    pub warmup: bool,
+    #[serde(rename = "firstNormalEpoch")]
+    pub first_normal_epoch: u64,
+    #[serde(rename = "firstNormalSlot")]
+    pub first_normal_slot: u64,
 }
 
 #[derive(Debug, Deserialize)]
