@@ -35,5 +35,8 @@ solana-signer = "3.0.0"
 solana-system-interface = { version = "3.1.0", features = ["bincode"] }
 solana-transaction-error = "3.3.1"
 solana-transaction = { version = "3.1.0", features = ["bincode"] }
+spl-tlv-account-resolution = "0.11.1"
+spl-type-length-value = "0.9.1"
 spl-token-2022-interface = "2.1.0"
+spl-transfer-hook-interface = "2.1.0"
 toml = "0.8"

@@ -382,9 +382,12 @@ solana-spl-token-2022-pausable-cpi-live:
 # Compatibility alias for the former Web3.js-backed gate name.
 solana-spl-token-2022-pausable-cpi-web3: solana-spl-token-2022-pausable-cpi-live
 
-# Run a live Token-2022 transfer-hook execute/extra-account-meta smoke on Surfpool with Web3.js.
-solana-spl-token-2022-transfer-hook-web3:
-    scripts/solana/spl-token-2022-transfer-hook-web3-smoke.sh
+# Run a live Token-2022 transfer-hook execute/extra-account-meta smoke on Surfpool with the Rust RPC harness.
+solana-spl-token-2022-transfer-hook-live:
+    scripts/solana/spl-token-2022-transfer-hook-live-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-2022-transfer-hook-web3: solana-spl-token-2022-transfer-hook-live
 
 # Run a live Solana log/event smoke on Surfpool with the Rust RPC harness.
 solana-log-event-web3:

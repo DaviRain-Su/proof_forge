@@ -246,8 +246,16 @@ pub fn parse_mint_account(data: &[u8]) -> Result<MintAccount> {
 }
 
 pub fn create_system_wallet(rpc: &LiveRpc, payer: &Keypair) -> Result<Keypair> {
-    let wallet = Keypair::new();
     let lamports = rpc.minimum_balance_for_rent_exemption(0)?;
+    create_funded_system_wallet(rpc, payer, lamports)
+}
+
+pub fn create_funded_system_wallet(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    lamports: u64,
+) -> Result<Keypair> {
+    let wallet = Keypair::new();
     let ix = solana_system_interface::instruction::create_account(
         &payer.pubkey(),
         &wallet.pubkey(),

@@ -2,9 +2,10 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, ensure, Context, Result};
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use spl_tlv_account_resolution::state::ExtraAccountMetaList;
 use spl_token_2022_interface::{
     extension::{
         immutable_owner::ImmutableOwner,
@@ -13,11 +14,14 @@ use spl_token_2022_interface::{
         transfer_fee::{
             instruction as transfer_fee_instruction, TransferFeeAmount, TransferFeeConfig,
         },
+        transfer_hook::{instruction as transfer_hook_instruction, TransferHook},
         BaseStateWithExtensions, ExtensionType, StateWithExtensions,
     },
     instruction as token_instruction,
     state::{Account as Token2022AccountState, Mint as Token2022MintState},
 };
+use spl_transfer_hook_interface::instruction as transfer_hook_interface_instruction;
+use spl_type_length_value::state::TlvStateBorrowed;
 
 use crate::{
     live_rpc::LiveRpc,
@@ -28,6 +32,15 @@ use crate::{
 };
 
 pub const TOKEN_2022_PROGRAM_ID: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
+
+#[derive(Debug, Clone)]
+pub struct TransferHookExtraAccountMeta {
+    pub discriminator: u8,
+    pub address: Address,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
 
 pub fn token_2022_program_id() -> Address {
     Address::from_str(TOKEN_2022_PROGRAM_ID).expect("Token-2022 program id is valid")
@@ -142,6 +155,26 @@ pub fn create_pausable_mint_account(rpc: &LiveRpc, payer: &Keypair) -> Result<Ke
     Ok(mint)
 }
 
+pub fn create_transfer_hook_mint_account(rpc: &LiveRpc, payer: &Keypair) -> Result<Keypair> {
+    let token_program = token_2022_program_id();
+    let mint = Keypair::new();
+    let space = ExtensionType::try_calculate_account_len::<Token2022MintState>(&[
+        ExtensionType::TransferHook,
+    ])
+    .map_err(|err| anyhow!("failed to calculate Token-2022 transfer-hook mint length: {err:?}"))?;
+    let lamports = rpc.minimum_balance_for_rent_exemption(space as u64)?;
+    let create = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        lamports,
+        space as u64,
+        &token_program,
+    );
+    rpc.send_and_confirm(&[create], &[payer, &mint])
+        .context("failed to create Token-2022 transfer-hook mint account")?;
+    Ok(mint)
+}
+
 pub fn create_empty_associated_token_account(
     rpc: &LiveRpc,
     payer: &Keypair,
@@ -194,6 +227,32 @@ pub fn initialize_mint(
             })?;
     rpc.send_and_confirm(&[instruction], &[payer])
         .context("failed to initialize Token-2022 mint")
+}
+
+pub fn initialize_transfer_hook_mint(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    decimals: u8,
+    mint_authority: Address,
+    transfer_hook_authority: Address,
+    transfer_hook_program_id: Address,
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let initialize_hook = transfer_hook_instruction::initialize(
+        &token_program,
+        &mint,
+        Some(transfer_hook_authority),
+        Some(transfer_hook_program_id),
+    )
+    .map_err(|err| anyhow!("failed to build Token-2022 transfer-hook init instruction: {err:?}"))?;
+    let initialize_mint =
+        token_instruction::initialize_mint(&token_program, &mint, &mint_authority, None, decimals)
+            .map_err(|err| {
+                anyhow!("failed to build Token-2022 initialize_mint instruction: {err:?}")
+            })?;
+    rpc.send_and_confirm(&[initialize_hook, initialize_mint], &[payer])
+        .context("failed to initialize Token-2022 transfer-hook mint")
 }
 
 pub fn transfer_checked(
@@ -361,6 +420,61 @@ pub fn expect_transfer_checked_failure(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_checked_with_hook(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    transfer_hook_program_id: Address,
+    amount: u64,
+    decimals: u8,
+) -> Result<String> {
+    let instruction = transfer_checked_with_hook_instruction(
+        rpc,
+        source,
+        mint,
+        destination,
+        authority.pubkey(),
+        transfer_hook_program_id,
+        amount,
+        decimals,
+    )?;
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to transfer checked Token-2022 amount with transfer hook")
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn expect_transfer_checked_with_hook_failure(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    transfer_hook_program_id: Address,
+    amount: u64,
+    decimals: u8,
+) -> Result<crate::live_rpc::ExpectedTransactionFailure> {
+    let instruction = transfer_checked_with_hook_instruction(
+        rpc,
+        source,
+        mint,
+        destination,
+        authority.pubkey(),
+        transfer_hook_program_id,
+        amount,
+        decimals,
+    )?;
+    if payer.pubkey() == authority.pubkey() {
+        rpc.send_and_confirm_expect_failure(&[instruction], &[payer])
+    } else {
+        rpc.send_and_confirm_expect_failure(&[instruction], &[payer, authority])
+    }
+}
+
 pub fn parse_account(data: &[u8]) -> Result<TokenAccount> {
     parse_token_account(data)
 }
@@ -425,6 +539,61 @@ pub fn assert_pausable_config(data: &[u8], authority: Address, paused: bool) -> 
         "pausable paused state mismatch: expected {paused}, got {actual_paused}"
     );
     Ok(())
+}
+
+pub fn assert_transfer_hook_config(
+    data: &[u8],
+    authority: Address,
+    transfer_hook_program_id: Address,
+) -> Result<()> {
+    let config = transfer_hook_config(data)?;
+    ensure!(
+        config.authority.0.to_bytes() == authority.to_bytes(),
+        "transfer-hook authority mismatch: expected {authority}, got {}",
+        config.authority.0
+    );
+    ensure!(
+        config.program_id.0.to_bytes() == transfer_hook_program_id.to_bytes(),
+        "transfer-hook program id mismatch: expected {transfer_hook_program_id}, got {}",
+        config.program_id.0
+    );
+    Ok(())
+}
+
+pub fn transfer_hook_extra_account_meta_address(
+    mint: Address,
+    program_id: Address,
+) -> (Address, u8) {
+    Address::find_program_address(
+        &[TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED, mint.as_ref()],
+        &program_id,
+    )
+}
+
+pub fn transfer_hook_extra_account_meta_space(count: usize) -> Result<usize> {
+    ExtraAccountMetaList::size_of(count).map_err(|err| {
+        anyhow!("failed to calculate transfer-hook extra-account-meta size: {err:?}")
+    })
+}
+
+pub fn transfer_hook_extra_account_metas(data: &[u8]) -> Result<Vec<TransferHookExtraAccountMeta>> {
+    let tlv_state = TlvStateBorrowed::unpack(data)
+        .map_err(|err| anyhow!("failed to parse transfer-hook extra-account-meta TLV: {err:?}"))?;
+    let metas = ExtraAccountMetaList::unpack_with_tlv_state::<
+        transfer_hook_interface_instruction::ExecuteInstruction,
+    >(&tlv_state)
+    .map_err(|err| anyhow!("failed to parse transfer-hook execute extra-account metas: {err:?}"))?;
+    metas
+        .iter()
+        .map(|meta| {
+            Ok(TransferHookExtraAccountMeta {
+                discriminator: meta.discriminator,
+                address: Address::from(meta.address_config),
+                is_signer: bool::from(meta.is_signer),
+                is_writable: bool::from(meta.is_writable),
+            })
+        })
+        .collect()
 }
 
 pub fn calculate_epoch_fee(data: &[u8], epoch: u64, amount: u64) -> Result<u64> {
@@ -498,6 +667,15 @@ fn pausable_config(data: &[u8]) -> Result<PausableConfig> {
         .map_err(|err| anyhow!("mint missing PausableConfig extension: {err:?}"))
 }
 
+fn transfer_hook_config(data: &[u8]) -> Result<TransferHook> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<TransferHook>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing TransferHook extension: {err:?}"))
+}
+
 fn transfer_checked_instruction(
     source: Address,
     mint: Address,
@@ -518,6 +696,132 @@ fn transfer_checked_instruction(
         decimals,
     )
     .map_err(|err| anyhow!("failed to build Token-2022 transfer_checked instruction: {err:?}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_checked_with_hook_instruction(
+    rpc: &LiveRpc,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: Address,
+    transfer_hook_program_id: Address,
+    amount: u64,
+    decimals: u8,
+) -> Result<Instruction> {
+    let mut instruction =
+        transfer_checked_instruction(source, mint, destination, authority, amount, decimals)?;
+    add_transfer_hook_extra_accounts(
+        rpc,
+        &mut instruction,
+        source,
+        mint,
+        destination,
+        authority,
+        transfer_hook_program_id,
+        amount,
+    )?;
+    Ok(instruction)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_transfer_hook_extra_accounts(
+    rpc: &LiveRpc,
+    instruction: &mut Instruction,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: Address,
+    transfer_hook_program_id: Address,
+    amount: u64,
+) -> Result<()> {
+    for required in [source, mint, destination, authority] {
+        ensure!(
+            instruction
+                .accounts
+                .iter()
+                .any(|meta| meta.pubkey == required),
+            "transfer-hook transfer instruction missing required account {required}"
+        );
+    }
+
+    let validation_account =
+        transfer_hook_extra_account_meta_address(mint, transfer_hook_program_id).0;
+    let validation_data = rpc.account_data(validation_account).with_context(|| {
+        format!("failed to read transfer-hook validation account {validation_account}")
+    })?;
+    let tlv_state = TlvStateBorrowed::unpack(&validation_data)
+        .map_err(|err| anyhow!("failed to parse transfer-hook validation TLV: {err:?}"))?;
+    let extra_metas = ExtraAccountMetaList::unpack_with_tlv_state::<
+        transfer_hook_interface_instruction::ExecuteInstruction,
+    >(&tlv_state)
+    .map_err(|err| anyhow!("failed to parse transfer-hook execute extra-account metas: {err:?}"))?;
+
+    let mut execute_instruction = transfer_hook_interface_instruction::execute(
+        &transfer_hook_program_id,
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        amount,
+    );
+    execute_instruction
+        .accounts
+        .push(AccountMeta::new_readonly(validation_account, false));
+    let mut account_key_datas = Vec::with_capacity(execute_instruction.accounts.len());
+    for meta in &execute_instruction.accounts {
+        let data = rpc
+            .account_info_optional(meta.pubkey)
+            .with_context(|| format!("failed to fetch account data for {}", meta.pubkey))?
+            .map(|account| account.data);
+        account_key_datas.push((meta.pubkey, data));
+    }
+
+    for extra_meta in extra_metas.iter() {
+        let mut meta = extra_meta
+            .resolve(
+                &execute_instruction.data,
+                &execute_instruction.program_id,
+                |index| {
+                    account_key_datas
+                        .get(index)
+                        .map(|(pubkey, data)| (pubkey, data.as_deref()))
+                },
+            )
+            .map_err(|err| anyhow!("failed to resolve transfer-hook extra account: {err:?}"))?;
+        de_escalate_account_meta(&mut meta, &execute_instruction.accounts);
+        let data = rpc
+            .account_info_optional(meta.pubkey)
+            .with_context(|| format!("failed to fetch extra account data for {}", meta.pubkey))?
+            .map(|account| account.data);
+        account_key_datas.push((meta.pubkey, data));
+        execute_instruction.accounts.push(meta);
+    }
+
+    instruction
+        .accounts
+        .extend_from_slice(&execute_instruction.accounts[5..]);
+    instruction
+        .accounts
+        .push(AccountMeta::new_readonly(transfer_hook_program_id, false));
+    instruction
+        .accounts
+        .push(AccountMeta::new_readonly(validation_account, false));
+    Ok(())
+}
+
+fn de_escalate_account_meta(meta: &mut AccountMeta, existing: &[AccountMeta]) {
+    if let Some(is_writable) = existing
+        .iter()
+        .filter(|existing_meta| existing_meta.pubkey == meta.pubkey)
+        .map(|existing_meta| existing_meta.is_writable)
+        .reduce(|acc, value| acc || value)
+    {
+        if !is_writable {
+            meta.is_writable = false;
+        }
+    }
+    meta.is_signer = false;
 }
 
 fn send_authority_instruction(

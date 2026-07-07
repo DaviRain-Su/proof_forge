@@ -1597,9 +1597,10 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   hook 程序 fixture、外部 `Execute` discriminator 调度、按 entrypoint 区分的账户约束、
   validation account 的 PDA signer seeds、静态 extra-account-meta TLV 序列化、
   manifest/IDL 元数据、target-first fixture 路由，以及
-  `just solana-spl-token-2022-transfer-hook-web3` Surfpool/Web3.js 验证：初始化
-  validation PDA、通过 Web3.js 路由两个静态 extra accounts、接受允许的转账，
-  并拒绝超限转账。
+  `just solana-spl-token-2022-transfer-hook-live` Surfpool/Rust 验证：初始化
+  validation PDA、通过 Rust 构造的带 hook account 的 Token-2022 transfer-checked
+  指令路由两个静态 extra accounts、接受允许的转账，并拒绝超限转账。旧的
+  `just solana-spl-token-2022-transfer-hook-web3` recipe 保留为兼容别名。
 - ✅ P1：Associated Token `create_idempotent` CPI 已具备 builder helper、
   typed `Surface` wrapper、`contract_source` 语法、target-first fixture 路由、
   manifest/IDL/artifact 元数据（包含所选 token program）、

@@ -3535,9 +3535,12 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   dispatch, per-entrypoint account constraints, PDA signer seeds for the
   validation account, static extra-account-meta TLV serialization, manifest/IDL
   metadata, target-first fixture routing, and
-  `just solana-spl-token-2022-transfer-hook-web3` Surfpool/Web3.js validation
-  for initializing the validation PDA, routing two static extra accounts through
-  Web3.js, accepting an allowed transfer, and rejecting an over-limit transfer.
+  `just solana-spl-token-2022-transfer-hook-live` Surfpool/Rust validation for
+  initializing the validation PDA, routing two static extra accounts through a
+  Rust-built Token-2022 transfer-checked instruction with hook accounts,
+  accepting an allowed transfer, and rejecting an over-limit transfer. The old
+  `just solana-spl-token-2022-transfer-hook-web3` recipe remains a compatibility
+  alias.
 - ✅ P1: Associated Token `create_idempotent` CPI now has builder helpers,
   typed `Surface` wrappers, `contract_source` syntax, target-first fixture
   routing, manifest/IDL/artifact metadata including the selected token program,
