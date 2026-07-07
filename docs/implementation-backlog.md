@@ -2709,13 +2709,14 @@ Tasks:
   input path reuses the Lean `TokenSpec` plan, emits both SPL Token and
   Token-2022 structured plan JSON, and validates the plan offline with the
   Rust `token_plan_smoke` harness.
-- Done: add `scripts/solana/token-plan-web3-smoke.sh` / `just
-  solana-token-plan-web3` to execute the structured legacy SPL Token plan on
-  Surfpool. The live runner creates the mint and associated token accounts,
-  mints initial supply, executes the planned `mint_to`, `transfer_checked`,
-  `approve`, `burn`, `revoke`, and mint-authority `set_authority` operations,
-  and validates balances, supply, delegate state, and authority revocation with
-  Web3.js reads.
+- Done: add `scripts/solana/token-plan-live-smoke.sh` / `just
+  solana-token-plan-live` to execute the structured legacy SPL Token plan on
+  Surfpool with a Rust harness. The former `solana-token-plan-web3` entrypoint
+  remains as a compatibility alias. The live runner creates the mint and
+  associated token accounts, mints initial supply, executes the planned
+  `mint_to`, `transfer_checked`, `approve`, `burn`, `revoke`, and
+  mint-authority `set_authority` operations, and validates balances, supply,
+  delegate state, and authority revocation with Rust RPC account reads.
 - Done: add `scripts/solana/token-2022-transfer-fee-web3-smoke.sh` / `just
   solana-token-2022-transfer-fee-web3` to execute the structured Token-2022
   transfer-fee plan on Surfpool. The live runner initializes `TransferFeeConfig`,

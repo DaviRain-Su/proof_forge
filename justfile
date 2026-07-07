@@ -194,9 +194,12 @@ learn-token-smoke:
 learn-token-evm-vm:
     scripts/evm/learn-token-erc20-vm-smoke.sh
 
-# Run a live Solana SPL Token plan smoke on Surfpool with Web3.js.
-solana-token-plan-web3:
-    scripts/solana/token-plan-web3-smoke.sh
+# Run a live Solana SPL Token plan smoke on Surfpool with the Rust harness.
+solana-token-plan-live:
+    scripts/solana/token-plan-live-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-token-plan-web3: solana-token-plan-live
 
 # Run the Wasm-NEAR target-first CLI, metadata, deploy-manifest, and offline-host smoke.
 near-target-first:

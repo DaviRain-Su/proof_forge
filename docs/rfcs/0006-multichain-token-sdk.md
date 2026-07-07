@@ -152,7 +152,8 @@ Solana uses existing capabilities such as `account.explicit`, `crosscall.cpi`,
 7. **Done:** add Surfpool live execution for the legacy SPL Token plan itself:
    mint creation, associated token account creation, initial `mint_to`,
    planned `mint_to`, `transfer_checked`, `approve`, `burn`, `revoke`, and
-   mint-authority `set_authority`, with Web3.js balance/supply/delegate checks.
+   mint-authority `set_authority`, with Rust RPC balance/supply/delegate
+   checks.
 8. **Partially done:** add Surfpool live execution for Token-2022 extension
    plans. Transfer-fee initialization and `TransferCheckedWithFee` now have a
    Surfpool/Web3.js gate, including direct withheld-fee withdraw and

@@ -120,6 +120,76 @@ pub fn mint_to(
     .context("failed to mint SPL Token amount")
 }
 
+pub fn transfer_checked(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: &Keypair,
+    amount: u64,
+    decimals: u8,
+) -> Result<String> {
+    let instruction = transfer_checked_instruction(
+        source,
+        mint,
+        destination,
+        authority.pubkey(),
+        amount,
+        decimals,
+    );
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to transfer checked SPL Token amount")
+}
+
+pub fn approve_delegate(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    delegate: Address,
+    owner: &Keypair,
+    amount: u64,
+) -> Result<String> {
+    let instruction = approve_instruction(source, delegate, owner.pubkey(), amount);
+    send_authority_instruction(rpc, payer, owner, instruction)
+        .context("failed to approve SPL Token delegate")
+}
+
+pub fn burn(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    account: Address,
+    mint: Address,
+    owner: &Keypair,
+    amount: u64,
+) -> Result<String> {
+    let instruction = burn_instruction(account, mint, owner.pubkey(), amount);
+    send_authority_instruction(rpc, payer, owner, instruction)
+        .context("failed to burn SPL Token amount")
+}
+
+pub fn revoke_delegate(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    source: Address,
+    owner: &Keypair,
+) -> Result<String> {
+    let instruction = revoke_instruction(source, owner.pubkey());
+    send_authority_instruction(rpc, payer, owner, instruction)
+        .context("failed to revoke SPL Token delegate")
+}
+
+pub fn revoke_mint_authority(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    authority: &Keypair,
+) -> Result<String> {
+    let instruction = set_mint_authority_instruction(mint, authority.pubkey(), None);
+    send_authority_instruction(rpc, payer, authority, instruction)
+        .context("failed to revoke SPL Token mint authority")
+}
+
 pub fn associated_token_address(
     wallet: &Address,
     token_program: &Address,
@@ -216,6 +286,114 @@ fn mint_to_instruction(
             AccountMeta::new_readonly(authority, true),
         ],
         data,
+    }
+}
+
+fn transfer_checked_instruction(
+    source: Address,
+    mint: Address,
+    destination: Address,
+    authority: Address,
+    amount: u64,
+    decimals: u8,
+) -> Instruction {
+    let mut data = Vec::with_capacity(10);
+    data.push(12);
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.push(decimals);
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(source, false),
+            AccountMeta::new_readonly(mint, false),
+            AccountMeta::new(destination, false),
+            AccountMeta::new_readonly(authority, true),
+        ],
+        data,
+    }
+}
+
+fn approve_instruction(
+    source: Address,
+    delegate: Address,
+    owner: Address,
+    amount: u64,
+) -> Instruction {
+    let mut data = Vec::with_capacity(9);
+    data.push(4);
+    data.extend_from_slice(&amount.to_le_bytes());
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(source, false),
+            AccountMeta::new_readonly(delegate, false),
+            AccountMeta::new_readonly(owner, true),
+        ],
+        data,
+    }
+}
+
+fn burn_instruction(account: Address, mint: Address, owner: Address, amount: u64) -> Instruction {
+    let mut data = Vec::with_capacity(9);
+    data.push(8);
+    data.extend_from_slice(&amount.to_le_bytes());
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(account, false),
+            AccountMeta::new(mint, false),
+            AccountMeta::new_readonly(owner, true),
+        ],
+        data,
+    }
+}
+
+fn revoke_instruction(source: Address, owner: Address) -> Instruction {
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(source, false),
+            AccountMeta::new_readonly(owner, true),
+        ],
+        data: vec![5],
+    }
+}
+
+fn set_mint_authority_instruction(
+    mint: Address,
+    current_authority: Address,
+    new_authority: Option<Address>,
+) -> Instruction {
+    let mut data = Vec::with_capacity(35);
+    data.push(6);
+    data.push(0);
+    match new_authority {
+        Some(authority) => {
+            data.push(1);
+            data.extend_from_slice(authority.as_ref());
+        }
+        None => data.push(0),
+    }
+    Instruction {
+        program_id: spl_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(mint, false),
+            AccountMeta::new_readonly(current_authority, true),
+        ],
+        data,
+    }
+}
+
+fn send_authority_instruction(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    authority: &Keypair,
+    instruction: Instruction,
+) -> Result<String> {
+    if payer.pubkey() == authority.pubkey() {
+        rpc.send_and_confirm(&[instruction], &[payer])
+    } else {
+        rpc.send_and_confirm(&[instruction], &[payer, authority])
     }
 }
 
