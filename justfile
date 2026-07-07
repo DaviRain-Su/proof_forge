@@ -328,7 +328,7 @@ solana-pinocchio-live-equivalence:
 solana-pinocchio-install-sbf-tools:
     PATH="$HOME/.cargo/bin:$PATH" cargo-build-sbf --install-only --force-tools-install --tools-version v1.52
 
-# Run a live System Program create_account CPI smoke on Surfpool with Web3.js.
+# Run a live System Program create_account CPI smoke on Surfpool with the Rust RPC harness.
 solana-system-create-account-cpi-web3:
     scripts/solana/system-create-account-cpi-web3-smoke.sh
 

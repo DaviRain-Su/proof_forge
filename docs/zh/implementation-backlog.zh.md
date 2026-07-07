@@ -531,7 +531,7 @@
 - PDA 类型化种子降级：`literalSeed`/`utf8Seed`、`accountSeed`、`bumpSeed` 和 `paramSeed` 描述符现在降级为 Solana 种子切片，`bump?` 参与有效种子列表，并且可以根据派生的公钥检查声明的 PDA 账户。
 - PDA/Rust 派生测试固件：`scripts/solana/pda-web3-smoke.sh` 读取生成的 SDK Vault `typedSeeds` 制品数据，并根据 `Address::find_program_address` 和 `Address::create_program_address` 验证字面量/账户/bump 描述符语义；该 harness 还涵盖了 UTF-8 和指令参数解析器行为。
 - 实时 System Program 转账 CPI 测试固件：`scripts/solana/system-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的转账 CPI 程序，通过 Rust live RPC harness 调用它，并证明 lamport 转移和状态写入。
-- 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Web3.js 调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
+- 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Rust live RPC 测试框架调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
 - 实时 SPL Token transfer-checked CPI 测试固件：`scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 transfer_checked CPI 程序，使用 `@solana/spl-token` 创建 SPL Token 测试账户，通过 Web3.js 调用它，并证明源/目标代币余额增量以及状态写入。
 - 实时 SPL Token 操作 CPI 测试固件：`scripts/solana/spl-token-ops-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `mint_to`/`burn`/`approve`/`revoke` CPI 程序，验证生成的四入口制品 schema，使用 `@solana/spl-token` 创建 SPL Token 测试账户，通过 Web3.js 调用所有四个生成的入口，并证明供应量/余额/委托更改以及状态写入。
 - 实时 SPL Token 权限 CPI 测试固件：`scripts/solana/spl-token-authority-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `set_authority` CPI 程序，验证生成的单入口制品 schema，通过 `@solana/spl-token` 创建 SPL Token mint，通过 Web3.js 调用生成的入口，并证明铸币权限已转移到请求的新权限以及标记状态写入。
@@ -598,7 +598,7 @@
 - Pinocchio System 创建账户参考合约：
   `references/solana/pinocchio/system-create-account` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SystemCreateAccountCpi` 相同的 System Program `create_account` 账户 schema。Gate `scripts/solana/pinocchio-system-create-account-equivalence.sh` 发射 ProofForge 创建账户 CPI 制品，并将其指令标签、双参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、lamports/空间/所有者合约以及双字段状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-system` 对参考进行类型检查。
 - Pinocchio System 创建账户实时等效性测试框架：
-  `scripts/solana/pinocchio-system-create-account-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Web3.js 创建账户场景，并比较 lamports/空间输入以及两者的状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
+  `scripts/solana/pinocchio-system-create-account-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live 创建账户场景，并比较 lamports/空间输入以及两者的状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Pinocchio SPL Token 转账参考合约：
   `references/solana/pinocchio/spl-token-transfer` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` 相同的 SPL Token `transfer_checked` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-transfer-equivalence.sh` 发射 ProofForge SPL Token CPI 制品，并将其指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、精度/金额合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token 转账实时等效性测试框架：

@@ -20,6 +20,12 @@ pub struct LiveRpc {
     client: Client,
 }
 
+pub struct LiveAccountInfo {
+    pub data: Vec<u8>,
+    pub lamports: u64,
+    pub owner: Address,
+}
+
 impl LiveRpc {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
@@ -170,7 +176,7 @@ impl LiveRpc {
         bail!("transaction not available for {signature}")
     }
 
-    pub fn account_data(&self, account: Address) -> Result<Vec<u8>> {
+    pub fn account_info_optional(&self, account: Address) -> Result<Option<LiveAccountInfo>> {
         let response: AccountInfoResponse = self.call(
             "getAccountInfo",
             json!([
@@ -181,10 +187,19 @@ impl LiveRpc {
                 }
             ]),
         )?;
-        let account_info = response
+        response
             .value
-            .with_context(|| format!("account not found: {account}"))?;
-        decode_base64_pair(account_info.data, "account data")
+            .map(|account_info| account_info.into_live_account_info())
+            .transpose()
+    }
+
+    pub fn account_info(&self, account: Address) -> Result<LiveAccountInfo> {
+        self.account_info_optional(account)?
+            .with_context(|| format!("account not found: {account}"))
+    }
+
+    pub fn account_data(&self, account: Address) -> Result<Vec<u8>> {
+        Ok(self.account_info(account)?.data)
     }
 
     pub fn account_data_u64(&self, account: Address) -> Result<u64> {
@@ -393,6 +408,20 @@ struct AccountInfoResponse {
 #[derive(Debug, Deserialize)]
 struct AccountInfo {
     data: (String, String),
+    lamports: u64,
+    owner: String,
+}
+
+impl AccountInfo {
+    fn into_live_account_info(self) -> Result<LiveAccountInfo> {
+        let owner = Address::from_str(&self.owner)
+            .with_context(|| format!("invalid account owner {}", self.owner))?;
+        Ok(LiveAccountInfo {
+            data: decode_base64_pair(self.data, "account data")?,
+            lamports: self.lamports,
+            owner,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

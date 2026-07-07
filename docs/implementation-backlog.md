@@ -1686,8 +1686,9 @@ Completed alpha slices:
   and proves both the lamport movement and state write.
 - Live System Program create-account CPI fixture:
   `scripts/solana/system-create-account-cpi-web3-smoke.sh` builds and deploys a
-  generated create-account CPI program on Surfpool, invokes it through Web3.js,
-  and proves the new account owner/space/lamports plus state writes.
+  generated create-account CPI program on Surfpool, invokes it through the Rust
+  live RPC harness, and proves the new account owner/space/lamports plus state
+  writes.
 - Live SPL Token transfer-checked CPI fixture:
   `scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` builds and deploys a
   generated transfer_checked CPI program on Surfpool, creates SPL Token test
@@ -1827,7 +1828,7 @@ Completed beta scaffolding slices:
 - Pinocchio System create-account live-equivalence harness:
   `scripts/solana/pinocchio-system-create-account-live-equivalence.sh` is
   wired to build the ProofForge ELF and the checked-in Pinocchio reference ELF,
-  deploy both programs to one Surfpool instance, invoke the same Web3.js
+  deploy both programs to one Surfpool instance, invoke the same Rust
   create-account scenario for each, and compare lamports/space inputs plus
   both state writes. The harness currently skips when `cargo-build-sbf` cannot
   find Solana rustc/platform-tools.

@@ -3,7 +3,7 @@
 #
 # Builds the generated ProofForge System create_account CPI ELF and the
 # checked-in Pinocchio reference ELF, deploys both programs to the same
-# Surfpool instance, invokes the same Web3.js create-account scenario against
+# Surfpool instance, invokes the same Rust create-account scenario against
 # each program, and compares the observable account creation plus state writes.
 #
 # Exit codes:
@@ -26,12 +26,9 @@ PINOCCHIO_ELF="$OUT_DIR/$PINOCCHIO_PROJECT_NAME.so"
 PAYER_KEYPAIR="$OUT_DIR/payer.json"
 PROOF_FORGE_PROGRAM_KEYPAIR="$OUT_DIR/proofforge-program-keypair.json"
 PINOCCHIO_PROGRAM_KEYPAIR="$OUT_DIR/pinocchio-program-keypair.json"
-JS_TEMPLATE="$REPO_ROOT/Tests/solana/system_create_account_cpi_web3_smoke.mjs"
-NODE_PROJECT="$OUT_DIR/web3"
 SURFPOOL_BIN="${SURFPOOL:-surfpool}"
 SOLANA_BIN="${SOLANA:-solana}"
 KEYGEN="${SOLANA_KEYGEN:-solana-keygen}"
-NPM_BIN="${NPM:-npm}"
 CARGO_BUILD_SBF_BIN="${CARGO_BUILD_SBF:-cargo-build-sbf}"
 SBPF_ARCH="${PROOF_FORGE_SOLANA_SYSTEM_CREATE_ACCOUNT_CPI_SBPF_ARCH:-v0}"
 SOLANA_RUSTUP_TOOLCHAIN="${PROOF_FORGE_PINOCCHIO_RUSTUP_TOOLCHAIN:-1.89.0-sbpf-solana-v1.52}"
@@ -53,14 +50,12 @@ command -v "$SOLANA_BIN" >/dev/null 2>&1 || skip "solana CLI not on PATH (set SO
 command -v "$KEYGEN" >/dev/null 2>&1 || skip "solana-keygen not on PATH (set SOLANA_KEYGEN=/path/to/solana-keygen)"
 command -v "$CARGO_BUILD_SBF_BIN" >/dev/null 2>&1 || skip "cargo-build-sbf not on PATH"
 command -v sbpf >/dev/null 2>&1 || skip "sbpf not on PATH"
-command -v node >/dev/null 2>&1 || skip "node not on PATH"
-command -v "$NPM_BIN" >/dev/null 2>&1 || skip "npm not on PATH (set NPM=/path/to/npm)"
+command -v cargo >/dev/null 2>&1 || skip "cargo not on PATH"
 command -v python3 >/dev/null 2>&1 || fail "python3 not on PATH"
-[ -f "$JS_TEMPLATE" ] || fail "Web3.js smoke template not found: $JS_TEMPLATE"
 [ -f "$REFERENCE_DIR/Cargo.toml" ] || fail "Pinocchio reference Cargo.toml missing: $REFERENCE_DIR/Cargo.toml"
 
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR" "$PINOCCHIO_BUILD_DIR" "$NODE_PROJECT" "$SURFPOOL_LOG_DIR"
+mkdir -p "$OUT_DIR" "$PINOCCHIO_BUILD_DIR" "$SURFPOOL_LOG_DIR"
 
 echo "=== Pinocchio create_account live equivalence step 1: build ProofForge fixture ELF ==="
 lake env proof-forge emit --target solana-sbpf-asm --fixture system-create-account-cpi --format elf --solana-sbpf-arch "$SBPF_ARCH" \
@@ -150,27 +145,19 @@ echo "=== Pinocchio create_account live equivalence step 5: deploy both programs
   "$PINOCCHIO_ELF" \
   || fail "Pinocchio program deploy failed"
 
-echo "=== Pinocchio create_account live equivalence step 6: run Web3.js behavior checks ==="
-cp "$JS_TEMPLATE" "$NODE_PROJECT/system_create_account_cpi_web3_smoke.mjs"
-if [ ! -f "$NODE_PROJECT/package.json" ]; then
-  ( cd "$NODE_PROJECT" && "$NPM_BIN" init -y >/dev/null ) \
-    || fail "npm init failed"
-fi
-( cd "$NODE_PROJECT" && "$NPM_BIN" install --silent @solana/web3.js@^1.98.0 ) \
-  || fail "npm install @solana/web3.js failed"
-
+echo "=== Pinocchio create_account live equivalence step 6: run Rust behavior checks ==="
 PROOF_FORGE_SOLANA_RPC_URL="$RPC_URL" \
 PROOF_FORGE_SOLANA_PAYER="$PAYER_KEYPAIR" \
 PROOF_FORGE_SOLANA_PROGRAM_ID="$PROOF_FORGE_PROGRAM_ID" \
 PROOF_FORGE_SOLANA_CREATE_SPACE="$SPACE" \
-  node "$NODE_PROJECT/system_create_account_cpi_web3_smoke.mjs" > "$OUT_DIR/proofforge-result.json" \
-  || fail "Web3.js ProofForge System create_account CPI checks failed"
+  cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-harness-solana --bin system_create_account_cpi_live_smoke > "$OUT_DIR/proofforge-result.json" \
+  || fail "Rust ProofForge System create_account CPI checks failed"
 PROOF_FORGE_SOLANA_RPC_URL="$RPC_URL" \
 PROOF_FORGE_SOLANA_PAYER="$PAYER_KEYPAIR" \
 PROOF_FORGE_SOLANA_PROGRAM_ID="$PINOCCHIO_PROGRAM_ID" \
 PROOF_FORGE_SOLANA_CREATE_SPACE="$SPACE" \
-  node "$NODE_PROJECT/system_create_account_cpi_web3_smoke.mjs" > "$OUT_DIR/pinocchio-result.json" \
-  || fail "Web3.js Pinocchio System create_account CPI checks failed"
+  cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-harness-solana --bin system_create_account_cpi_live_smoke > "$OUT_DIR/pinocchio-result.json" \
+  || fail "Rust Pinocchio System create_account CPI checks failed"
 
 python3 - "$OUT_DIR/proofforge-result.json" "$OUT_DIR/pinocchio-result.json" <<'PY'
 import json
