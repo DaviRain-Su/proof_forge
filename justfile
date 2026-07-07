@@ -396,7 +396,7 @@ solana-memory-web3:
 solana-crypto-hash-web3:
     scripts/solana/crypto-hash-web3-smoke.sh
 
-# Run a live Solana return-data/compute-units syscall smoke on Surfpool with Web3.js.
+# Run a live Solana return-data/compute-units syscall smoke on Surfpool with the Rust RPC harness.
 solana-return-data-compute-web3:
     scripts/solana/return-data-compute-web3-smoke.sh
 

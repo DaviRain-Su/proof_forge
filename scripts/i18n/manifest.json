@@ -50,7 +50,7 @@
     "model": "manual"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "58a5efce6f819ace06f9e32d06b4d44967b79d25d2cfc2db93a73c5db529c8b2",
+    "sha256": "119b4338c6737e0325ba2997cae2163273a1bbdd6fdfddb88532bb1392d97865",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual"
   },
@@ -65,10 +65,10 @@
     "model": "manual"
   },
   "docs/validation-gates.md": {
-    "sha256": "3e85b9db2119c230bfc8e0daeab730112c0e531ca74b7544625f6b227f73833b",
+    "sha256": "59794ba99cf0d7df157e035d5860905ecf45d5ec96c8615c3ed90fcef0f0c804",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual",
-    "en_sha256": "3e85b9db2119c230bfc8e0daeab730112c0e531ca74b7544625f6b227f73833b"
+    "en_sha256": "59794ba99cf0d7df157e035d5860905ecf45d5ec96c8615c3ed90fcef0f0c804"
   },
   "docs/rfcs/README.md": {
     "sha256": "7d82abd698f149faae7f7a8f9785917eff046618573bb3cf76572c32a4280940",

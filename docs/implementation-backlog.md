@@ -1736,9 +1736,10 @@ Completed alpha slices:
   `scripts/solana/return-data-compute-web3-smoke.sh` builds and deploys the
   generated `--solana-return-data-compute-elf` fixture on Surfpool, validates
   artifact action metadata, verifies no-data `sol_get_return_data` reads,
-  confirms `sol_set_return_data` through Web3.js simulation returnData, checks a
-  same-instruction set/get roundtrip including program id words, records a
-  nonzero remaining-compute-units value, and confirms compute-unit logging.
+  confirms `sol_set_return_data` through Rust RPC simulation return data,
+  checks a same-instruction set/get roundtrip including program id words,
+  records a nonzero remaining-compute-units value, and confirms compute-unit
+  logging through transaction logs.
 - Live SHA-256/Keccak-256/Blake3 syscall fixture:
   `scripts/solana/crypto-hash-web3-smoke.sh` builds and deploys a generated
   Solana-only `crypto.hash` program on Surfpool, invokes `set_preimage`,

@@ -539,9 +539,9 @@
 - 实时 Clock sysvar 测试固件：`scripts/solana/clock-sysvar-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `contextRead checkpointId` 程序，将其降级为 `sol_get_clock_sysvar`，通过 Rust live RPC 测试框架调用它，并证明记录的 `Clock.slot` 与观察到的交易槽位匹配。
 - 实时内存系统调用测试固件：`scripts/solana/memory-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `runtime.memory` 程序，通过 Rust live RPC 测试框架调用它，并通过从程序拥有的状态中读取复制的值、移动的值、比较结果和填充字节，证明 `sol_memcpy_`、`sol_memmove_`、`sol_memcmp_` 和 `sol_memset_` 的效果。
 - 返回数据/计算单元 SDK 测试固件：`Tests/SolanaReturnDataCompute.lean` 证明 `runtime.return_data` 和 `runtime.compute_units` 通过仅限 Solana 的能力元数据路由，在 EVM 上拒绝，并为 `sol_set_return_data`、`sol_get_return_data`、特性门控的 `sol_remaining_compute_units` 和 `sol_log_compute_units_` 渲染清单部分以及 sBPF 辅助调用。 `scripts/solana/return-data-compute-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 `--solana-return-data-compute-elf` 测试固件，验证制品 action 元数据，验证无数据的 `sol_get_return_data` 读取，
-  通过 Web3.js 模拟 returnData 确认 `sol_set_return_data`，检查一个
+  通过 Rust RPC 模拟 return data 确认 `sol_set_return_data`，检查一个
   包含 program id 字的同指令 set/get 往返，记录一个
-  非零的 remaining-compute-units 值，并确认 compute-unit 日志记录。
+  非零的 remaining-compute-units 值，并通过交易日志确认 compute-unit 日志记录。
 - 实时 SHA-256/Keccak-256/Blake3 syscall fixture：
   `scripts/solana/crypto-hash-web3-smoke.sh` 在 Surfpool 上构建并部署一个生成的
   仅限 Solana 的 `crypto.hash` 程序，通过 Web3.js 调用 `set_preimage`、
