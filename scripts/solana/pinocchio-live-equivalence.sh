@@ -3,7 +3,7 @@
 #
 # Each child gate builds the generated ProofForge ELF and the checked-in
 # Pinocchio reference ELF, deploys both programs to one Surfpool instance, and
-# compares observable Web3.js behavior. A child exit code of 2 means the gate
+# compares observable Rust live behavior. A child exit code of 2 means the gate
 # skipped because a live prerequisite is missing.
 set -u -o pipefail
 

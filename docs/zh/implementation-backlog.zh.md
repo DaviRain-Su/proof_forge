@@ -470,10 +470,10 @@
 - 添加 `--solana-elf` CLI 模式：发射 `.s` 然后调用 `sbpf build`。
 - 在生成 `.s` 的同时生成指令清单 (`manifest.toml`)。
 - 创建 `Examples/Solana/Counter.lean` + 清单。
-- 运行 `sbpf test` (Mollusk) 以及 Surfpool/Web3.js 实时部署冒烟测试。
+- 运行 `sbpf test` (Mollusk) 以及 Surfpool/Rust 实时部署冒烟测试。
 
 验收标准：- Counter 场景（初始化、增加、获取）通过 `sbpf test`。
-- Surfpool/Web3.js 实时冒烟测试通过（可选，取决于工具可用性）。
+- Surfpool/Rust 实时冒烟测试通过（可选，取决于工具可用性）。
 - 能力检查器拒绝使用不支持的能力的 IR 模块，并提供引用目标 id 和能力 id 的清晰诊断信息。
 - 同一个可移植 IR Counter 模块降级到 EVM 和 Solana。
 - 制品元数据记录 `target: "solana-sbpf-asm"`、`irVersion`、入口以及使用的能力。
@@ -493,7 +493,7 @@
 - [x] `Examples/Solana/Counter.lean` + 清单作为一个自包含示例。包括一个被追踪的 `Counter.golden.s` 和 `Counter.manifest.toml`，以及一个可在 CI 运行的、进行发射和差异对比的 `scripts/solana/build-examples.sh`。
 - [x] 能力检查器拒绝不支持的能力/目标组合，并提供引用目标 id 和能力 id 的清晰诊断信息。作为 V-GATE-SOLANA-05 的基础；通过 `Tests/SolanaDiagnostics.lean` 和 `scripts/solana/diagnostic-smoke.sh` 进行测试。
 - [x] Solana SDK 目标扩展通过能力计划元数据路由 `ProofForge.Solana` PDA/CPI API，发射 `manifest.toml` 扩展定义以及入口动作部分，并在 IR 主体之前注入处理程序级辅助调用 (`sol_pda_derive_<name>`, `sol_cpi_<name>`)，同时在 `r1` 中保留 Solana 输入指针。由 `Tests/SolanaSdk.lean`, `Tests/SolanaSdkManifest.lean` 以及可用时的 `scripts/solana/sdk-smoke.sh` 与 `sbpf build` 覆盖。
-- [x] Surfpool/Rust 线上部署冒烟测试 (V-GATE-SOLANA-04)。可选的 `scripts/solana/surfpool-web3-smoke.sh` 门控构建 Counter ELF，启动 Surfpool，使用 Solana CLI 进行部署，通过 Rust live harness 创建一个程序所有的 counter 账户，调用 initialize/increment/get，检查账户数据 0→1→2，并验证 `get` 返回数据。该脚本传递 `--solana-sbpf-arch v0` 以直接生成与 Solana CLI 部署兼容的 ELF，并为 Surfpool 使用 `--use-rpc`。
+- [x] Surfpool/Rust 线上部署冒烟测试 (V-GATE-SOLANA-04)。可选的 `scripts/solana/counter-live-smoke.sh` 门控构建 Counter ELF，启动 Surfpool，使用 Solana CLI 进行部署，通过 Rust live harness 创建一个程序所有的 counter 账户，调用 initialize/increment/get，检查账户数据 0→1→2，并验证 `get` 返回数据。该脚本传递 `--solana-sbpf-arch v0` 以直接生成与 Solana CLI 部署兼容的 ELF，并为 Surfpool 使用 `--use-rpc`。
 - [x] `--solana-elf` 暴露了 `--solana-sbpf-arch v0|v3` 并在 `proof-forge-artifact.json` 中记录选择的架构。默认保持为 `v3`；Surfpool 线上部署使用 `v0`，直到部署的 CLI/运行时堆栈在没有 `--skip-feature-verify` 的情况下接受较新的 sbpf 特性集。- [x] PDA 辅助运行时打包现在在调用 `sol_create_program_address` 之前发射静态 ASCII 种子字节缓冲区、Solana `Slice { ptr, len }` 种子表、动态 program-id 指针计算以及一个 32 字节 PDA 结果缓冲区。由 `Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] PDA 类型化种子降级现在保留兼容性 `seeds` 字段，同时为字面量/UTF-8 字节、账户 pubkeys、bump 种子和标量指令数据种子添加面向目标的类型化描述符。Solana 目标扩展处理这些描述符，将 `bump?` 追加到有效 syscall 种子列表，在 manifest/制品元数据中发射 `typed_seeds`/`typedSeeds`，并在 `account?` 存在时根据声明的账户验证派生的 PDA pubkey。由 `Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean`、`Tests/SolanaPdaSeeds.lean`、`scripts/solana/sdk-smoke.sh` 和 `scripts/solana/pda-rust-smoke.sh` 覆盖。
 - [x] 标准 Solana 协议 SDK 辅助程序现在涵盖系统程序 (System Program) 转账/创建账户以及 SPL Token transfer_checked/mint_to/burn/approve/revoke/close_account/set_authority。它们通过带有 `solana.cpi.protocol`、规范 `data_layout`、账户元数据 (account metas)、签名者种子和指令数据源名称的目标能力元数据进行路由，并包含在生成的 manifest 以及制品 JSON 中。由 `Tests/SolanaSdk.lean`、`Tests/SolanaSdkManifest.lean`、`Tests/SolanaCpiPacking.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
@@ -503,7 +503,7 @@
 - [x] 生成的 Solana SDK 指令 schema 现在使用模块范围的多账户列表，而不是旧的单账户 manifest。该 schema 包含状态账户、PDA 账户、CPI 账户和可执行 CPI 程序账户，且 sBPF 后端根据相同的 schema 计算 `INSTRUCTION_DATA` 偏移量。生成的 prologue 根据 schema 验证签名者/可写约束以及程序拥有的账户。账户列表在 `manifest.toml` 和 `proof-forge-artifact.json` 中均被发射。由 `Tests/SolanaSdkManifest.lean`、`Tests/SolanaCpiPacking.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] 系统程序 (System Program) 转账/创建账户和 SPL Token CPI 指令数据打包将标准指令字节发射到 C `SolInstruction` 负载中。系统转账/创建账户使用 bincode 风格的 `u32` 鉴别器以及 `u64` lamports/space 和所有者 pubkey 字段；SPL Token `transfer_checked`、`mint_to`、`burn`、`approve` 和 `revoke` 使用标准代币指令标签和金额/精度布局，`close_account` 封装指令标签 `9`，而 `set_authority` 封装了指令标签 `6`、权限类型 `MintTokens` 以及源自只读输入账户的新权限公钥。值源可以绑定到生成的标量状态偏移量、数字字面量或解码后的标量入口参数。CPI 助手还封装了程序 id 字节、绑定到生成的多账户输入布局的 C `SolAccountMeta[]`、`SolAccountInfo[]` 条目、签名者种子表以及系统调用寄存器设置。由 `Tests/SolanaCpiPacking.lean`、`Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] System Program transfer CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCpi` 构建了一个生成的 `--solana-system-cpi-elf` fixture，其入口读取标量 `lamports` 指令参数，执行 System Program transfer CPI，并将转账金额记录在程序拥有的状态账户中。`scripts/solana/system-cpi-live-smoke.sh` 验证制品架构，使用 Solana CLI 在 Surfpool 上部署 ELF，通过 Rust live RPC harness 调用它，并检查接收者的 lamport 增量和状态数据。sBPF 降级在直接账户映射下从序列化的账户布局计算指令数据指针，并将其保留在 `r9` 中，以便内部助手调用不会在被调用者堆栈帧之间丢失它。覆盖范围：`just solana-system-cpi-web3` / V-GATE-SOLANA-10。
-- [x] System Program `create_account` CPI 现在具有活跃的 Surfpool/Web3.js 行为门控。`ProofForge.Solana.Examples.SystemCreateAccountCpi` 构建了一个生成的 `--solana-system-create-account-cpi-elf` fixture，其入口读取标量 `lamports` 和 `space` 指令参数，使用付款人和新账户签名者执行 System Program `create_account` CPI，创建一个程序拥有的账户，并将这两个值记录在现有的程序拥有的状态账户中。Web3.js harness 检查新账户所有者、数据长度、lamports 和记录的状态值。覆盖范围：`just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11。
+- [x] System Program `create_account` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCreateAccountCpi` 构建了一个生成的 `--solana-system-create-account-cpi-elf` fixture，其入口读取标量 `lamports` 和 `space` 指令参数，使用付款人和新账户签名者执行 System Program `create_account` CPI，创建一个程序拥有的账户，并将这两个值记录在现有的程序拥有的状态账户中。Rust live RPC harness 检查新账户所有者、数据长度、lamports 和记录的状态值。覆盖范围：`just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11。
 - [x] SPL Token `transfer_checked` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` 构建了一个生成的 `--solana-spl-token-transfer-cpi-elf` fixture，其入口读取标量 `amount` 指令参数，使用源权限签名者执行 SPL Token `transfer_checked` CPI，并将金额记录在程序拥有的状态中。Rust live RPC harness 创建一个 mint 以及源/目标代币账户，检查代币余额增量，并检查状态记录。sBPF 降级现在在每个入口/助手堆栈帧中构建一个运行时账户指针表，因此可变大小的 SPL Token 账户数据不会使内部助手调用之间的账户偏移量失效。覆盖范围：`just solana-spl-token-transfer-cpi-web3` / V-GATE-SOLANA-12。
 - [x] 入口指令数据解码现在将第 0 字节视为入口标签，并将来自 `instruction_data+1` 的封装标量参数解码为堆栈局部变量。初始标量 ABI 支持 `U64`、`U32` 和 `Bool`，在 `manifest.toml`/`proof-forge-artifact.json` 中发射每个入口的参数架构和最小指令数据长度，使用 `error_instruction_data` 拒绝短有效载荷，并向 CPI 值绑定公开相同的固定输入偏移量，因此诸如 SPL Token `transfer_checked` 之类的 SDK 调用可以从用户指令参数而不是占位符中获取 `amount`。由 `Tests/SolanaCpiPacking.lean`、`Tests/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 
@@ -519,11 +519,11 @@
   <https://docs.rs/pinocchio> 和
   <https://github.com/anza-xyz/pinocchio>。
 
-基准：截至 2026-07-02，Solana 路径已具备直接 sBPF 汇编发射能力，通过 Surfpool/Web3.js 进行 Counter 部署、SDK 能力元数据、生成的 manifest/制品输出、模块级多账户 schema、标准 System/SPL Token CPI 数据打包、bump-allocator 元数据、标量入口参数解码、类型化 PDA seed 降级、实时 System Program 转账及 create-account CPI 验证、实时 SPL Token `transfer_checked` CPI 验证、实时 SPL Token `mint_to`/`burn`/`approve`/`revoke` CPI 验证，以及实时 SPL Token `set_authority` CPI 验证，加上通过 `sol_log_64_` 进行的实时标量 `events.emit` 日志验证、通过 `sol_log_pubkey` 进行的实时账户公钥日志验证、通过 `sol_log_data` 进行的实时状态支持数据日志验证，以及针对 `contextRead checkpointId` 的实时 `Clock.slot` sysvar 验证，加上通过 `sol_memcpy_`、`sol_memmove_`、`sol_memcmp_` 和 `sol_memset_` 进行的实时 `runtime.memory` 验证，加上通过 `sol_sha256`、`sol_keccak256` 和特性门控的 `sol_blake3` 进行的实时仅限 Solana 的 `crypto.hash` 验证，以及通过 `sol_get_rent_sysvar` 进行的实时 `Rent.lamports_per_byte_year` sysvar 验证。它还涵盖了通过 `sol_get_epoch_schedule_sysvar` 对所有当前 RPC 暴露的 `EpochSchedule` 字段的实时验证：`slots_per_epoch`、`leader_schedule_slot_offset`、`warmup`、`first_normal_epoch` 和 `first_normal_slot`，加上通过 `sol_get_epoch_rewards_sysvar` 对 `distribution_starting_block_height`、`num_partitions`、`parent_blockhash_word0..3`、`total_points_low/high`、`total_rewards`、`distributed_rewards` 和 `active` 进行的实时 `EpochRewards` 验证，加上通过带有 `SysvarLastRestartS1ot1111111111111111111111` sysvar id 的 `sol_get_sysvar` 进行的特性门控实时 `LastRestartSlot.last_restart_slot` 验证。实时 SDK 覆盖范围现在包括将 `runtime.return_data` 降级为 `sol_set_return_data` 和 `sol_get_return_data`，并带有空读取、设置返回模拟以及同指令设置/获取往返检查，以及将 `runtime.compute_units` 降级为特性门控的 `sol_remaining_compute_units` 状态写入，并通过 `sol_log_compute_units_` 进行分析日志记录。以下预估假设有一名工程师在该分支上工作，当前的直接汇编架构保持稳定，且本地 `sbpf`/Surfpool/Solana CLI 工具链持续可用。
+基准：截至 2026-07-02，Solana 路径已具备直接 sBPF 汇编发射能力，通过 Surfpool/Rust 进行 Counter 部署、SDK 能力元数据、生成的 manifest/制品输出、模块级多账户 schema、标准 System/SPL Token CPI 数据打包、bump-allocator 元数据、标量入口参数解码、类型化 PDA seed 降级、实时 System Program 转账及 create-account CPI 验证、实时 SPL Token `transfer_checked` CPI 验证、实时 SPL Token `mint_to`/`burn`/`approve`/`revoke` CPI 验证，以及实时 SPL Token `set_authority` CPI 验证，加上通过 `sol_log_64_` 进行的实时标量 `events.emit` 日志验证、通过 `sol_log_pubkey` 进行的实时账户公钥日志验证、通过 `sol_log_data` 进行的实时状态支持数据日志验证，以及针对 `contextRead checkpointId` 的实时 `Clock.slot` sysvar 验证，加上通过 `sol_memcpy_`、`sol_memmove_`、`sol_memcmp_` 和 `sol_memset_` 进行的实时 `runtime.memory` 验证，加上通过 `sol_sha256`、`sol_keccak256` 和特性门控的 `sol_blake3` 进行的实时仅限 Solana 的 `crypto.hash` 验证，以及通过 `sol_get_rent_sysvar` 进行的实时 `Rent.lamports_per_byte_year` sysvar 验证。它还涵盖了通过 `sol_get_epoch_schedule_sysvar` 对所有当前 RPC 暴露的 `EpochSchedule` 字段的实时验证：`slots_per_epoch`、`leader_schedule_slot_offset`、`warmup`、`first_normal_epoch` 和 `first_normal_slot`，加上通过 `sol_get_epoch_rewards_sysvar` 对 `distribution_starting_block_height`、`num_partitions`、`parent_blockhash_word0..3`、`total_points_low/high`、`total_rewards`、`distributed_rewards` 和 `active` 进行的实时 `EpochRewards` 验证，加上通过带有 `SysvarLastRestartS1ot1111111111111111111111` sysvar id 的 `sol_get_sysvar` 进行的特性门控实时 `LastRestartSlot.last_restart_slot` 验证。实时 SDK 覆盖范围现在包括将 `runtime.return_data` 降级为 `sol_set_return_data` 和 `sol_get_return_data`，并带有空读取、设置返回模拟以及同指令设置/获取往返检查，以及将 `runtime.compute_units` 降级为特性门控的 `sol_remaining_compute_units` 状态写入，并通过 `sol_log_compute_units_` 进行分析日志记录。以下预估假设有一名工程师在该分支上工作，当前的直接汇编架构保持稳定，且本地 `sbpf`/Surfpool/Solana CLI 工具链持续可用。
 
 | 级别 | 预估工作量 | 完成标准 |
 |---|---:|---|
-| SDK alpha：可用的 Solana 程序 | 3-5 个专注工程日 | 简单程序可以使用状态、PDA seed、标量指令参数、System Program CPI、SPL Token CPI、日志/返回数据，并进行 Web3.js 行为测试，无需手动编写汇编补丁。 |
+| SDK alpha：可用的 Solana 程序 | 3-5 个专注工程日 | 简单程序可以使用状态、PDA seed、标量指令参数、System Program CPI、SPL Token CPI、日志/返回数据，并进行 Rust live 行为测试，无需手动编写汇编补丁。 |
 | SDK beta：可参照的 Solana 后端 | 2-3 个专注周 | ProofForge 输出与相同账户 schema 的 Rust/Pinocchio fixtures 进行对比，涵盖关键 syscall，验证实时 CPI 行为，并支持每个入口的账户 schema。 |
 | Anchor/Pinocchio 级别的开发者界面 | beta 之后 4-6 个专注周 | SDK 提供账户约束、类型化账户/数据辅助工具、IDL/客户端生成、更丰富的 SPL/Token-2022 覆盖，以及可与框架级工作流相媲美的稳定诊断。 |
 
@@ -585,7 +585,7 @@
   2026-07-03 本地运行 `just solana-pinocchio-live-equivalence` 时，Surfpool、
   Agave `solana-cli 3.1.12`、`cargo-build-sbf 3.1.12` 和 `sbpf 0.2.2`
   都已安装，但五个 live dual-deploy 子 gate 全部在 ProofForge 程序部署阶段失败。
-  `solana program deploy --use-rpc` 在部署 Pinocchio 参考程序和执行 Web3.js 行为检查之前，
+  `solana program deploy --use-rpc` 在部署 Pinocchio 参考程序和执行 Rust live 行为检查之前，
   就以 `Failed to parse ELF file: invalid file header` 拒绝生成的 ProofForge ELF。
   triage 显示，当前 blueshift `sbpf build --arch v0` 输出的是一个只有单个 segment、
   没有 section table、且 `e_flags = 3` 的裸 ELF；Agave 内置的
@@ -716,13 +716,13 @@
   `invoke ... system_create_account(...) owner ...` 形式。
   `ProofForge.Solana.Examples.SystemCreateAccountCpi` 使用这些形式而不是
   低级 builder API，同时保留了现有的生成
-  汇编、manifest、制品以及 Surfpool/Web3.js 行为门控。
+  汇编、manifest、制品以及 Surfpool/Rust 行为门控。
 - SPL Token 权限源代码语法：
   `ProofForge.Contract.Source` 现在暴露了源代码级的
   `cpi ... spl_token_set_authority(...) authority_type(...) signer_seeds [...]`
   和 `invoke ... spl_token_set_authority(...) authority_type(...) signer_seeds
   [...]` forms. `ProofForge.Solana.Examples.SplTokenAuthorityCpi` 在 Lean `.lean`
-  fixture 中使用这些形式，并且生成的制品、Surfpool/Web3.js
+  fixture 中使用这些形式，并且生成的制品、Surfpool/Rust
   行为门控和 Pinocchio 引用门控都验证了相同的降级
   边界。
 - SPL Token close-account 源代码语法：

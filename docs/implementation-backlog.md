@@ -1402,12 +1402,12 @@ Tasks:
 - Add `--solana-elf` CLI mode: emit `.s` then invoke `sbpf build`.
 - Generate instruction manifest (`manifest.toml`) alongside the `.s`.
 - Create `Examples/Solana/Counter.lean` + manifest.
-- Run `sbpf test` (Mollusk) and a Surfpool/Web3.js live deployment smoke.
+- Run `sbpf test` (Mollusk) and a Surfpool/Rust live deployment smoke.
 
 Acceptance criteria:
 
 - Counter scenario (initialize, increment, get) passes `sbpf test`.
-- Surfpool/Web3.js live smoke passes (optional, gated on tool availability).
+- Surfpool/Rust live smoke passes (optional, gated on tool availability).
 - Capability checker rejects IR modules using unsupported capabilities with a
   clear diagnostic citing target id and capability id.
 - Same portable IR Counter module lowers to both EVM and Solana.
@@ -1478,7 +1478,7 @@ partial progress is visible before the full acceptance criteria close:
       `Tests/SolanaSdk.lean`, `Tests/SolanaSdkManifest.lean`, and
       `scripts/solana/sdk-smoke.sh` with `sbpf build` when available.
 - [x] Surfpool/Rust live deployment smoke (V-GATE-SOLANA-04). The optional
-      `scripts/solana/surfpool-web3-smoke.sh` gate builds the Counter ELF,
+      `scripts/solana/counter-live-smoke.sh` gate builds the Counter ELF,
       starts Surfpool, deploys with the Solana CLI, creates a program-owned
       counter account via the Rust live harness, invokes initialize/increment/get,
       checks account data 0→1→2, and validates `get` return data. The script
@@ -1577,13 +1577,13 @@ partial progress is visible before the full acceptance criteria close:
       serialized account layout under direct account mapping and keeps it in
       `r9` so internal helper calls do not lose it across callee stack frames.
       Coverage: `just solana-system-cpi-web3` / V-GATE-SOLANA-10.
-- [x] System Program `create_account` CPI now has a live Surfpool/Web3.js
+- [x] System Program `create_account` CPI now has a live Surfpool/Rust
       behavior gate. `ProofForge.Solana.Examples.SystemCreateAccountCpi`
       builds a generated `--solana-system-create-account-cpi-elf` fixture whose
       entrypoint reads scalar `lamports` and `space` instruction parameters,
       performs a System Program `create_account` CPI with payer and new-account
       signers, creates a program-owned account, and records both values in the
-      existing program-owned state account. The Web3.js harness checks the new
+      existing program-owned state account. The Rust live RPC harness checks the new
       account owner, data length, lamports, and recorded state values. Coverage:
       `just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11.
 - [x] SPL Token `transfer_checked` CPI now has a live Surfpool/Rust behavior
@@ -1624,7 +1624,7 @@ Reference docs driving this roadmap:
   <https://github.com/anza-xyz/pinocchio>.
 
 Baseline: as of 2026-07-02, the Solana path has direct sBPF assembly emission,
-Counter deployment through Surfpool/Web3.js, SDK capability metadata, generated
+Counter deployment through Surfpool/Rust, SDK capability metadata, generated
 manifest/artifact output, module-wide multi-account schemas, standard
 System/SPL Token CPI data packing, bump-allocator metadata, scalar entrypoint
 parameter decoding, typed PDA seed lowering, live System Program transfer plus
@@ -1661,7 +1661,7 @@ the current direct-assembly architecture staying stable, and local
 
 | Level | Estimated effort | Done when |
 |---|---:|---|
-| SDK alpha: usable Solana programs | 3-5 focused engineering days | Simple programs can use state, PDA seeds, scalar instruction parameters, System Program CPI, SPL Token CPI, logs/return data, and Web3.js behavior tests without hand-written assembly patches. |
+| SDK alpha: usable Solana programs | 3-5 focused engineering days | Simple programs can use state, PDA seeds, scalar instruction parameters, System Program CPI, SPL Token CPI, logs/return data, and Rust live behavior tests without hand-written assembly patches. |
 | SDK beta: reference-comparable Solana backend | 2-3 focused weeks | ProofForge output is compared against Rust/Pinocchio fixtures for the same account schema, covers key syscalls, validates live CPI behavior, and supports per-entrypoint account schemas. |
 | Anchor/Pinocchio-class developer surface | 4-6 focused weeks after beta | The SDK offers account constraints, typed account/data helpers, IDL/client generation, richer SPL/Token-2022 coverage, and stable diagnostics comparable to a framework-level workflow. |
 
@@ -1800,7 +1800,7 @@ Completed beta scaffolding slices:
   0.2.2` installed failed all five live dual-deploy children at ProofForge
   program deployment. `solana program deploy --use-rpc` rejects the generated
   ProofForge ELF with `Failed to parse ELF file: invalid file header` before
-  the Pinocchio reference deployment or Web3.js behavior checks run. Triage
+  the Pinocchio reference deployment or Rust live behavior checks run. Triage
   showed the current blueshift `sbpf build --arch v0` output is a one-segment
   bare ELF with no section table and `e_flags = 3`; Agave's embedded
   `solana-sbpf 0.13.1` strict loader expects a Solana-compatible v3 layout
@@ -2008,13 +2008,13 @@ Completed developer-surface slices:
   `invoke ... system_create_account(...) owner ...` forms.
   `ProofForge.Solana.Examples.SystemCreateAccountCpi` uses those forms instead
   of the lower-level builder API while preserving the existing generated
-  assembly, manifest, artifact, and Surfpool/Web3.js behavior gate.
+  assembly, manifest, artifact, and Surfpool/Rust behavior gate.
 - SPL Token authority source syntax:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... spl_token_set_authority(...) authority_type(...) signer_seeds [...]`
   and `invoke ... spl_token_set_authority(...) authority_type(...) signer_seeds
   [...]` forms. `ProofForge.Solana.Examples.SplTokenAuthorityCpi` uses those
-  forms in a Lean `.lean` fixture, and the generated artifact, Surfpool/Web3.js
+  forms in a Lean `.lean` fixture, and the generated artifact, Surfpool/Rust
   behavior gate, and Pinocchio reference gates all validate the same lowering
   boundary.
 - SPL Token close-account source syntax:
@@ -2100,7 +2100,7 @@ Remaining priority slices:
    checked Token-2022 extension routes and remaining SPL variants beyond the
    covered mint-authority `set_authority` path. Associated Token account setup
    now has `create_idempotent` builder/surface/source syntax, sBPF packing,
-   target-first fixture routing, and a Surfpool/Web3.js behavior gate, without
+   target-first fixture routing, and a Surfpool/Rust behavior gate, without
    moving those details into portable IR.
 6. Developer ergonomics and framework surface (3-5 days per iteration): extend
    the new surface layer toward Lean `.lean`/Lean SDK contract syntax with richer

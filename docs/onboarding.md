@@ -85,7 +85,7 @@ Install these only when working on the matching target or gate:
 | Target area | Tools |
 |---|---|
 | EVM | Foundry (`cast`, `forge`), `solc` |
-| Solana | `sbpf`, Solana CLI, `solana-keygen`, Node/npm for Web3.js smokes, Surfpool for live local tests |
+| Solana | `sbpf`, Solana CLI, `solana-keygen`, Cargo for Rust live harnesses, Surfpool for live local tests; Node/npm only for generated JS client checks |
 | Wasm/NEAR | `wat2wasm`; NEAR sandbox only for live deployment work |
 | Psy/DPN | `psyup`, `dargo` |
 | Aleo | `leo` |

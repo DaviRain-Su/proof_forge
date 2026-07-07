@@ -74,7 +74,7 @@ capability 支持和 lowering。传入 `--report-format json` 可以得到机器
 | Target 范围 | 工具 |
 |---|---|
 | EVM | Foundry（`cast`, `forge`）、`solc` |
-| Solana | `sbpf`、Solana CLI、`solana-keygen`、用于 Web3.js smoke 的 Node/npm、用于 live local tests 的 Surfpool |
+| Solana | `sbpf`、Solana CLI、`solana-keygen`、用于 Rust live harness 的 Cargo、用于 live local tests 的 Surfpool；Node/npm 仅用于生成的 JS client 检查 |
 | Wasm/NEAR | `wat2wasm`；只有 live deployment 工作需要 NEAR sandbox |
 | Psy/DPN | `psyup`、`dargo` |
 | Aleo | `leo` |

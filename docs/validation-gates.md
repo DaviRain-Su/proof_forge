@@ -166,7 +166,7 @@ optional.
     kept in sync by `scripts/solana/build-examples.sh`.
   - **V-GATE-SOLANA-04** — Counter scenario passes
     a Surfpool local simnet deployment and Rust RPC behavior smoke. Script:
-    `scripts/solana/surfpool-web3-smoke.sh` (optional, gated on `surfpool`,
+    `scripts/solana/counter-live-smoke.sh` (optional, gated on `surfpool`,
     Solana CLI, `sbpf`, and Cargo). The script builds the Counter ELF,
     starts Surfpool, deploys with `solana program deploy --use-rpc`, creates a
     program-owned counter account through the Rust live harness, invokes

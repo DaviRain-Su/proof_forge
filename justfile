@@ -182,6 +182,10 @@ solana-emit-control:
 solana-sdk-smoke:
     scripts/solana/sdk-smoke.sh
 
+# Run a live Solana Counter deploy/invoke smoke on Surfpool with the Rust harness.
+solana-counter-live:
+    scripts/solana/counter-live-smoke.sh
+
 # Run the portable ValueVault SDK smoke across EVM Yul and Solana sBPF outputs.
 portable-value-vault:
     scripts/portable/value-vault-smoke.sh
