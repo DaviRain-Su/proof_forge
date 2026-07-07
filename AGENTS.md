@@ -72,9 +72,11 @@ entrypoint (see `.woodpecker.yml` on Codeberg and `.github/workflows/ci.yml` on 
   `lake env proof-forge ...`, `lake env lean --run Tests/Foo.lean`).
 - `just evm-all` / `just evm-anvil-deploy` start their own local Anvil instance; no
   external RPC or funded key is required.
-- Solana `*-web3`/live Pinocchio gates and `just psy-all` (Dargo-backed Psy smokes)
-  require extra tools not installed here (`surfpool`/Node web3 deps, `dargo`, Solana
-  SBF platform-tools). They are outside the default `just check` path; the Lean-only
+- Solana `*-web3` compatibility names are wrappers checked by `just solana-light`;
+  they must only forward to the Rust/live gates. Solana live Pinocchio gates and
+  `just psy-all` (Dargo-backed Psy smokes)
+  require extra tools not installed here (`surfpool`, `dargo`, Solana CLI/SBF
+  platform-tools). They are outside the default `just check` path; the Lean-only
   Solana gates (`just solana-light`) and Psy static gates (`psy-diagnostics`,
   `psy-coverage`, `psy-metadata*`) *are* in `just check` and the `build-test` CI job.
   Skip the live-network gates unless explicitly requested.

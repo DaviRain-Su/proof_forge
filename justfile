@@ -512,8 +512,12 @@ solana-emit-asm:
 solana-plan-smoke:
     scripts/solana/plan-smoke.sh
 
+# Check that legacy Web3.js Solana entrypoints only forward to Rust/live gates.
+solana-web3-compat:
+    python3 scripts/solana/check-web3-compat-wrappers.py
+
 # Run all Solana gates that are safe for default CI.
-solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-pinocchio-reference-equivalence solana-refinement-smoke
+solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-web3-compat solana-pinocchio-reference-equivalence solana-refinement-smoke
 
 # Check shared-vs-target example topology.
 examples-topology:
