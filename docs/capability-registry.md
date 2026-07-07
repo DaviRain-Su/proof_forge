@@ -61,15 +61,38 @@ remain uniform.
 | `runtime.return_data` | Target runtime return-data buffer operations | N | N | N | Y | N | N | N | N |
 | `runtime.compute_units` | Target runtime compute-budget introspection | N | N | N | P | N | N | N | N |
 | `crosscall.cpi` | Solana CPI with account metas | N | N | N | Y | N | N | N | N |
+| `arith.checked` | Integer arithmetic reverts on overflow (Solidity 0.8 semantics) | Y | N | N | N | N | N | N | N |
 | `zk.circuit` | Compile entrypoints into target circuit definitions | N | N | N | N | N | N | Y | N |
 | `zk.proof` | Target proof generation or verification flow | N | N | N | N | N | N | P | N |
 
 ## Id Naming Rules
 
 - Format: `<domain>.<operation>` or `<domain>.<variant>` (lowercase, dot-separated).
-- Domains: `storage`, `caller`, `value`, `events`, `crosscall`, `env`, `control`, `data`, `crypto`, `assertions`, `account`, `runtime`, `zk`.
+- Domains: `storage`, `caller`, `value`, `events`, `crosscall`, `env`, `control`, `data`, `crypto`, `assertions`, `account`, `runtime`, `arith`, `zk`.
 - Artifact metadata lists the ids used by a build (see RFC 0002 artifact schema).
 - Diagnostics must cite capability id and target id on rejection.
+
+## Semantic Divergence Notes
+
+These capabilities document known cross-target semantic divergences that the
+capability gate exposes but does not yet enforce per-node. They are the place
+to look when a portable contract behaves differently across targets.
+
+### `arith.checked` — integer overflow semantics
+
+The portable IR `Expr.add/.sub/.mul` nodes do not carry an explicit overflow
+mode. Today the lowering is target-driven and **differs silently**:
+
+- **EVM** lowers these to Solidity-0.8-style checked arithmetic (`__pf_checked_add/sub/mul`) that reverts the transaction on U256 overflow/underflow. EVM therefore declares `arith.checked`.
+- **Solana (sBPF)** and **NEAR (Wasm)** lower to native `add64/mul64` / `i64.add` which **wrap silently** on overflow. They do **not** declare `arith.checked`.
+
+This is the single most material cross-target semantic divergence in the
+platform: the same `a.add(b)` expression reverts on EVM but silently produces a
+wrapped value on Solana/NEAR. The `arith.checked` capability makes this
+divergence visible at the profile and artifact-metadata layer. A future
+AST-level `OverflowMode` (planned) will let contract authors opt into wrapping
+semantics explicitly; until then, contracts relying on checked-overflow
+reverts must restrict to EVM-only targets.
 
 ## Candidate Capabilities Not Yet Registered
 

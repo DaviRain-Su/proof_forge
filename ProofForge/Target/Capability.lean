@@ -29,6 +29,7 @@ inductive Capability where
   | runtimeComputeUnits
   | storagePda
   | crosscallCpi
+  | checkedArithmetic
   | zkCircuit
   | zkProof
   deriving BEq, DecidableEq, Repr
@@ -59,6 +60,7 @@ def Capability.id : Capability → String
   | .runtimeComputeUnits => "runtime.compute_units"
   | .storagePda => "storage.pda"
   | .crosscallCpi => "crosscall.cpi"
+  | .checkedArithmetic => "arith.checked"
   | .zkCircuit => "zk.circuit"
   | .zkProof => "zk.proof"
 

@@ -165,17 +165,23 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       .ok (vn ++ #[ .instruction { opcode := .stxdw, dst := some .r1, off := some (.num absOff), src := some .r2 } ], ctx')
     | none => .error { message := s!"unknown state: {stateId}" }
   | .effect (.storageMapSet stateId key value) | .effect (.storageMapInsert stateId key value) => do
-    -- Find matching key or empty slot, write (key, value)
+    -- Find matching key or empty slot, write (key, value).
+    -- Capacity is read from the state declaration so the linear scan stays
+    -- within the allocated slab; key==0 is treated as an empty slot and
+    -- therefore cannot be stored as a real key (Solana map sentinel).
     match ctx.stateAbsOff? stateId with
     | none => .error { message := s!"unknown map state: {stateId}" }
     | some mapBase => do
+      let maxEntries ←
+        match mapStateCapacity? ctx.stateDecls stateId with
+        | some capacity => .ok capacity
+        | none => .error { message := s!"state `{stateId}` is not a map state" }
       let (kn, ctx') ← lowerExpr ctx key
       let (keyScratch, ctx') := ctx'.allocScratch
       let (loopLabel, ctx') := ctx'.freshLabel
       let (writeLabel, ctx') := ctx'.freshLabel
       let (endLabel, ctx') := ctx'.freshLabel
       let entrySize := 16
-      let maxEntries := 256
       -- Lower value after key
       let (vn2, ctx') ← lowerExpr ctx' value
       .ok (kn ++ #[

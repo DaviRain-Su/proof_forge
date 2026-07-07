@@ -829,6 +829,12 @@ partial def execStmt (state : State) (frame : Frame) : Statement →
         .ok (stateAfterRhs, frame, none)
       else
         .error s!"assertion failed: {message}"
+  | .revert message =>
+      -- User-visible transaction rollback. Surfaced via the revert-shaped
+      -- error string consumed by `ExecResult.ofExcept` / `runEntrypointResult`.
+      .error s!"revert: {message}"
+  | .revertWithError errorRef =>
+      .error s!"revert: assertion_id={errorRef.assertionId}"
   | .ifElse condition thenBody elseBody => do
       let (nextState, conditionValue) ← evalExpr state frame condition
       let selectedBody := if ← truthy conditionValue then thenBody else elseBody
@@ -881,6 +887,35 @@ partial def execWhileLoop
     .ok (stateAfterCond, frame, none)
 end
 
+/-! ## Three-valued execution result
+
+The interpreter historically returned `Except String`, which conflates two
+distinct outcomes: a user-visible transaction rollback (e.g. `assert` failure,
+explicit `revert`) and an internal interpreter error (unsupported construct).
+`ExecResult` separates the two so that contract reverts become first-class.
+The legacy `Except String` interface is preserved for existing callers; use
+`ExecResult.ofExcept` to lift an `Except String` outcome into `ExecResult`. -/
+
+inductive ExecResult (α : Type) where
+  | ok (value : α)
+  | reverted (message : String)
+  | error (message : String)
+  deriving Repr
+
+/-- Classify an interpreter error string as a revert (user-visible rollback) or
+a true error (interpreter gap). -/
+def ExecResult.isRevertMessage (message : String) : Bool :=
+  message.startsWith "assertion failed:" || message = "revert" ||
+    message.startsWith "revert:"
+
+/-- Lift a legacy `Except String` outcome into `ExecResult`, classifying
+revert-shaped error strings as `.reverted` and everything else as `.error`. -/
+def ExecResult.ofExcept {α : Type} (outcome : Except String α) : ExecResult α :=
+  match outcome with
+  | .ok v => .ok v
+  | .error msg =>
+      if isRevertMessage msg then .reverted msg else .error msg
+
 def runEntrypointWithArgs (state : State) (entrypoint : Entrypoint) (args : Array Value)
     (structs : Array StructDecl := #[]) : Except String (State × Option Value) := do
   let frame ← bindParams entrypoint.params args structs
@@ -889,6 +924,18 @@ def runEntrypointWithArgs (state : State) (entrypoint : Entrypoint) (args : Arra
 def runEntrypoint (state : State) (entrypoint : Entrypoint) :
     Except String (State × Option Value) :=
   runEntrypointWithArgs state entrypoint #[]
+
+/-- Same as `runEntrypointWithArgs` but returns a three-valued `ExecResult`
+distinguishing `ok` / `reverted` / `error`. -/
+def runEntrypointWithArgsResult (state : State) (entrypoint : Entrypoint)
+    (args : Array Value) (structs : Array StructDecl := #[]) :
+    ExecResult (State × Option Value) :=
+  ExecResult.ofExcept (runEntrypointWithArgs state entrypoint args structs)
+
+/-- Same as `runEntrypoint` but returns a three-valued `ExecResult`. -/
+def runEntrypointResult (state : State) (entrypoint : Entrypoint) :
+    ExecResult (State × Option Value) :=
+  runEntrypointWithArgsResult state entrypoint #[]
 
 /-! FV-2 metatheory anchors for the executable semantics. These are intentionally
 small, but they make the interpreter's determinism and bounded-loop measure

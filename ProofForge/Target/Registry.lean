@@ -94,6 +94,7 @@ def evm : TargetProfile := {
     .dataStruct,
     .cryptoHash,
     .assertions,
+    .checkedArithmetic,
     .accountExplicit
   ]
   requiredTools := #["solc", "foundry"]
