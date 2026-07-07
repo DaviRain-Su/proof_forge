@@ -117,6 +117,27 @@ source-of-truth docs and states when they must be updated.
 
 ## Planned behavior label
 
+Unimplemented behavior must be labeled **Planned** or **Research**, not
+described as current product behavior.
+
+## Doc sync checklist
+
+When a change touches any row below, update the listed docs in the **same PR**
+and run `just doc-sync-audit` (advisory; writes `build/doc-sync-audit.md`).
+
+| Code / config change | Update these docs |
+|----------------------|-------------------|
+| `ProofForge/Target/Registry.lean` (id, stage, capabilities) | README Backend Status, `docs/targets/<target>.md`, `docs/capability-registry.md`, `docs/targets/README.md` |
+| `ProofForge/Cli/Fixture.lean` (supported targets/fixtures) | README emit examples, `docs/validation-gates.md`, AGENTS.md registry vs CLI table |
+| Root `justfile` CI-tracked recipe | `docs/validation-gates.md`, AGENTS.md if in `just check` |
+| `ProofForge/Contract/Stdlib/*` | `docs/sdk-ecosystem-gaps-2026-07.md`, README stdlib bullet if user-facing |
+| `Examples/Shared/*` or portable scenario smokes | `docs/shared-scenario.md`, `docs/validation-gates.md` |
+| Gate closure (G0/P0/G1) | `docs/gate-status.md`, `docs/implementation-backlog.md` |
+| Accepted RFC / decision | RFC status line, `docs/decisions.md`, nearest target note |
+
+Full audit register: [doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md).
+Mechanical diff: `scripts/docs/audit-doc-code-sync.sh`.
+
 Any command, target, artifact field, or validation path not implemented in this
 repository must be labeled `Planned` or `Research`, not written as current
 behavior.

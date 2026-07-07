@@ -962,6 +962,23 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
     else #[]
   .ok { name := ep.name, locals := locals, body := { insns := resetPrefix ++ paramPrologue ++ bodyInsns }, exportName := ep.name }
 
+/- Core lowering body once the surface `ModulePlan` and the data-layout `Ctx`
+have been derived. Exposed so the plan-driven path
+(`ProofForge.Backend.WasmNear.NearModulePlan.lowerModuleFromPlan`) can reuse the
+exact same body without re-deriving the layout inline. This mirrors Solana's
+`lowerModuleCoreWithSeed` extraction in `SbpfAsm.lean`. The body is a pure
+function of `(mod, modulePlan, ctx)` — it does not re-derive any layout. -/
+def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan)
+    (ctx : Ctx) : Except EmitError ProofForge.Compiler.Wasm.Module := do
+  let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
+  let hasPanic := !ctx.panics.isEmpty
+  let imports := importsForModulePlan modulePlan mod.allocator hasPanic
+  let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
+  let globals := globalsForModulePlan modulePlan mod.allocator
+  .ok { imports := imports, globals := globals, funcs := funcs,
+        memory := some { min := 1 },
+        dataSegments := dataSegmentsForModulePlan modulePlan ctx }
+
 def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := ProofForge.Target.HostBridge.near) : Except EmitError ProofForge.Compiler.Wasm.Module := do
   if bridge == ProofForge.Target.HostBridge.cosmWasm then
     err "EmitWat: CosmWasm bridge lowering is implemented in Backend.CosmWasm.EmitWat; use that module for wasm-cosmwasm"
@@ -973,14 +990,7 @@ def lowerModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBri
     | .error planErr => err s!"EmitWat: {planErr.message}"
   let ctx := loweringCtxForModule mod
   validateScratchCapacities mod ctx.strings ctx.panics ctx.crosscallStrings
-  let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
-  let hasPanic := !ctx.panics.isEmpty
-  let imports := importsForModulePlan modulePlan mod.allocator hasPanic
-  let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
-  let globals := globalsForModulePlan modulePlan mod.allocator
-  .ok { imports := imports, globals := globals, funcs := funcs,
-        memory := some { min := 1 },
-        dataSegments := dataSegmentsForModulePlan modulePlan ctx }
+  lowerModuleCoreWithCtx mod modulePlan ctx
 
 def renderCheckedModule (mod : ProofForge.IR.Module) (bridge : ProofForge.Target.HostBridge := .near) :
     Except EmitError String := do

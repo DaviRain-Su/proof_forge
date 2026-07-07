@@ -4,13 +4,30 @@
 
 ProofForge is a Lean 4 compiler/CLI (`proof-forge`) that lowers Lean smart-contract
 sources to portable IR and target artifacts. Implemented backends live on `main`:
-`evm` (Lean → portable IR → Yul → `solc` → bytecode, validated by Foundry + Anvil),
-`solana-sbpf-asm` (portable IR → sBPF assembly → ELF, validated by Mollusk + Pinocchio
-equivalence), `wasm-near` (portable IR → Wasm AST → WAT → `wat2wasm`), `move-sui`
-(Counter MVP, local `sui move build/test`), `psy-dpn` (`.psy` → Dargo), plus research
-spikes `aleo-leo` and `wasm-cloudflare-workers`. See README "Backend Status" for the
-full stage table. Default CI runs the EVM, Solana-light, NEAR, and Psy static gates;
-Solana live-network/Pinocchio gates and `just psy-all` need extra tools (see below).
+`evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm` (Counter spike),
+`move-aptos` (Counter spike), `move-sui` (Counter MVP), `psy-dpn`, plus
+research spikes `aleo-leo` and `wasm-cloudflare-workers`. The formal-verification
+target `quint` is CLI-only (not in `--list-targets`). See README "Backend Status"
+for the full stage table. Default CI runs the EVM, Solana-light, NEAR, and Psy
+static gates; Solana live-network/Pinocchio gates and `just psy-all` need extra
+tools (see below).
+
+### Registry vs CLI-only targets
+
+| Surface | Targets |
+|---------|---------|
+| `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `move-aptos`, `move-sui`, `psy-dpn` |
+| `proof-forge emit --target …` (fixture whitelist) | above plus `aleo-leo`, `quint` (spikes / verification; not deployment registry entries) |
+
+### `just check` vs GitHub `build-test`
+
+| In `just check` (Woodpecker default) | In GitHub `build-test` only |
+|--------------------------------------|-----------------------------|
+| `build`, `target-registry`, `sdk-schema`, `cli-deploy`, `cli-check`, EVM plan/semantic plan, `solana-light`, NEAR target-first + Wasm-NEAR plan gates, Psy static gates, Quint gates, `testkit`, portable Counter multi-target | `psy-golden-sources`, full `evm-ir-smokes` + Foundry + Anvil, formal semantics anchors (`Evm.Refinement`, `NearWasmFormal`, `IROwnership`), `emitwat-ci-smoke`, NEAR diagnostic/IR coverage manifests, portable RoleGatedToken + StakingVault |
+
+Optional GitHub jobs (continue-on-error): `aleo-smoke`, `cloudflare-smoke`,
+`cosmwasm-smoke`, `aptos-smoke`, `solana-pinocchio-live`. Sui gates (`just sui-*`)
+are local-only (need `sui` CLI).
 
 ### Toolchain (already installed in the VM snapshot)
 - `lean`/`lake` come from `elan`; the version is pinned by `lean-toolchain`. A VM-snapshot

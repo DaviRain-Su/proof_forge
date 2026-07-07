@@ -157,3 +157,14 @@ Bad:
 - Move codegen is string templates without IR constraints.
 - ZK targets hide proof/circuit restrictions from the capability checker.
 - Docs and CLI drift apart.
+
+### 8. Doc↔code sync (2026-07)
+
+When reviewing PRs that touch registry, CLI, `justfile` gates, Stdlib, or shared
+examples:
+
+- [ ] Nearest English source-of-truth doc updated (see
+      [development-standards.md](development-standards.md) Doc sync checklist).
+- [ ] `just doc-sync-audit` run locally if target ids, gates, or capability
+      matrix changed (advisory P0 mechanical drift).
+- [ ] Unimplemented paths labeled **Planned** / **Research**, not current behavior.

@@ -120,20 +120,38 @@ does not add or edit CI jobs.
 | CI baseline | `.github/workflows/ci.yml` `build-test` job | GitHub Actions Ubuntu, `just` 1.48.0, elan, Foundry stable, `solc` 0.8.30, Node.js 22, `@informalsystems/quint`, Temurin Java 17 | Clean-environment `just build`, `just target-registry`, `just evm-plan`, `just solana-light`, `just docs-check`, Wasm-NEAR diagnostic smoke, Wasm-NEAR/EmitWat IR coverage manifests, IR ownership rules, Wasm-NEAR formal semantics anchors, EmitWat offline host smoke including the ValueVault 11-step return/log trace, Wasm-NEAR target-first smoke (`just near-target-first`), `just psy-golden-sources`, Psy diagnostic smoke, Psy IR coverage manifest, Psy plan-driven metadata unit tests (`just psy-metadata`), Psy metadata validation unit tests (`just psy-metadata-validation`), Psy metadata CLI smoke (`just psy-metadata-cli`), Quint MBT replay gate (`just quint-mbt-gate`), Quint model-check gate (`just quint-model-gate`), EVM diagnostic smoke, EVM IR coverage manifest, EVM ABI scalar IR smoke, EVM AssertProbe IR smoke, EVM AssignmentProbe IR smoke, EVM AssignOpProbe IR smoke, EVM ConditionalProbe IR smoke, EVM LoopProbe IR smoke, EVM ContextProbe IR smoke, EVM EventProbe IR smoke, EVM CrosscallProbe IR smoke, EVM ExpressionProbe IR smoke, EVM HashProbe IR smoke, EVM MapProbe IR smoke, EVM TypedMapProbe IR smoke, EVM StorageArrayProbe IR smoke, EVM StorageStructProbe IR smoke, EVM TypedStorageProbe IR smoke, EVM ArrayValueProbe IR smoke, EVM StructArrayValueProbe IR smoke, EVM StructValueProbe IR smoke, EVM AbiAggregateProbe IR smoke, EVM metadata/deploy-manifest validation, EVM compile, Foundry smoke, and Anvil deploy smoke. CI keeps separate GitHub Actions steps for failure localization, but each common gate is invoked through the root `justfile` recipe. | Optional Dargo target smokes, non-Ubuntu behavior |
 | Aleo Counter IR smoke | `scripts/aleo/counter-smoke.sh` | `leo` CLI (4.0.2 tested) on `PATH`; `python3`; Lean toolchain from `lean-toolchain` | Portable IR `Counter` lowers to a Leo 4.0 program with `@noupgrade constructor` and `fn ... -> Final` entry points, matches `Examples/Aleo/Counter.golden.leo`, `leo build` produces `main.aleo` and `abi.json`, `leo test` passes, and `proof-forge-artifact.json` schema validation passes | Private records, transitions, proofs, direct Aleo Instructions, devnet deployment, cross-target equivalence, standalone `.avm` file |
 | Aleo PureMath IR smoke | `scripts/aleo/pure-math-smoke.sh` | `leo` CLI (4.0.2 tested) on `PATH`; `python3`; Lean toolchain from `lean-toolchain` | Portable IR pure functions with params, `if/else`, `boundedFor`, `assign`, `assignOp`, and `assert` lower to a Leo 4.0 program, match `Examples/Aleo/PureMath.golden.leo`, `leo build` produces `main.aleo` and `abi.json`, `leo test` passes, and `proof-forge-artifact.json` schema validation passes | Stateful parameterized entrypoints, non-local assignment targets, dynamic loop bounds, standalone `.avm` file |
+| CosmWasm Counter WAT smoke | `just cosmwasm-counter-smoke` | `wat2wasm`, `cosmwasm-check`; Lean toolchain from `lean-toolchain` | Emits Counter WAT for `wasm-cosmwasm`, diffs against `Examples/CosmWasm/Counter.golden.wat`, validates Wasm with `cosmwasm-check` | `contract_source` CosmWasm Counter, cw-multi-test integration |
+| CLI target-first smoke | `just cli-target-first` | Lean toolchain from `lean-toolchain` | Exercises target-first `emit`/`build`/`check` routing for whitelisted fixture triples (RFC 0009 M1/M3) | M4 legacy-flag removal, full `contract_source` on every target |
+| Aptos Counter Move smoke | `just aptos-counter-smoke` | `aptos` CLI; Lean toolchain from `lean-toolchain` | Emits Counter Move package for `move-aptos`, runs `aptos move test` against golden fixtures | `contract_source` Aptos Counter, testkit harness |
 
 ## Planned gates that are not runnable yet
 
-The following gates are `Planned` and do not exist in CI or as scripts:
+The following gates are still `Planned` or only partially landed:
 
-- `proof-forge build --target <id>` — unified target-oriented build command.
-- `proof-forge test --target <id>` — unified target-oriented test command.
-- Non-EVM, non-Psy `proof-forge-artifact.json` validation — artifact metadata
-  schema validation for targets that do not yet write metadata.
-- Golden Yul/output snapshots — regression detection via snapshot diffing.
-- CosmWasm smoke — `cosmwasm-check` or `cw-multi-test` validation.
-- Solana sBPF assembly gates (target `solana-sbpf-asm`, D-026). These become
-  runnable as Workstreams 6–7 land; the `sbpf` toolchain is validated locally
-  (build + disassemble round-trip + `sbpf test` on the counter example):
+- `proof-forge test --target <id>` — unified target-oriented test command (RFC
+  0009 M4; legacy per-target smokes remain authoritative).
+- Non-EVM, non-Psy `proof-forge-artifact.json` validation for every spike
+  target — schema validation exists for EVM, NEAR emit paths, Psy, and partial
+  Solana metadata; CosmWasm/Aptos/Sui/CF Workers coverage is incomplete.
+- Full `contract_source` build for CosmWasm and Aptos — Counter uses golden
+  fixtures and `emit --fixture counter` today (`Examples/CosmWasm/Counter.golden.wat`,
+  `Examples/Aptos/Counter/golden/`).
+
+**Partially landed (see Current gates — do not treat as Planned):**
+
+- Target-first `proof-forge build|emit|check --target …` — M1/M3 landed;
+  `just cli-target-first` and `just near-target-first` exercise the surface;
+  M4 legacy-alias removal remains open (RFC 0009).
+- EVM example golden diffs — tracked under `Examples/Evm/*.golden.yul` and
+  enforced by `scripts/evm/build-examples.sh` / `just evm-build-examples`.
+- CosmWasm Counter smoke — `just cosmwasm-counter-smoke` (optional GitHub job).
+
+## Solana sBPF assembly gate catalog (mixed status)
+
+The Solana entries below were authored as a planning checklist. Several phases
+are **complete** on `main`; items without a "complete" note remain open or
+optional. Default CI runs `just solana-light`; live Surfpool/Web3 gates are
+optional.
   - **V-GATE-SOLANA-01** — `--emit-sbpf-asm` produces valid `.s` accepted by
     `sbpf build` (no assembly errors). Script: `scripts/solana/emit-asm-smoke.sh` (runnable, Phase 0 complete).
   - **V-GATE-SOLANA-02** — `sbpf build` produces a valid ELF that

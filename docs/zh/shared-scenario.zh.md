@@ -188,9 +188,10 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 |---|---|---|
 | **所有主链** | `Examples/Shared/Counter.lean`、`Examples/Shared/ValueVault.lean`（`contract_source`） | **代码库中** — `just portable-counter-multi-target`、`just portable-value-vault` |
 | EVM | `Examples/Evm/Contracts/Counter.lean` | **代码库中**（EVM 示例树） |
-| CosmWasm | `Examples/CosmWasm/Counter.lean` | 已规划，不在代码库中 |
+| CosmWasm | `Examples/CosmWasm/Counter.golden.wat` | **代码库中 (Spike)** — 通过 `proof-forge emit --target wasm-cosmwasm --fixture counter` 生成 golden WAT；`just cosmwasm-counter-smoke` |
 | Solana | `Examples/Solana/Counter.lean` + manifest | **代码库中**（IR fixture 参考） |
-| Aptos | `Examples/Move/Aptos/Counter/` | 已规划，不在代码库中 |
+| Aptos | `Examples/Aptos/Counter/golden/` | **代码库中 (Spike)** — golden Move module；`just aptos-counter-smoke` |
+| Cloudflare Workers | `Examples/CloudflareWorkers/Counter/` + `emit --format ts` | **代码库中 (Spike)** — TS package + `scripts/ts/counter-ir-smoke.sh` |
 | Psy DPN | `Examples/Psy/*.golden.psy`, `scripts/psy/*-smoke.sh` | **代码库中** |
 
 ## v0 范围之外

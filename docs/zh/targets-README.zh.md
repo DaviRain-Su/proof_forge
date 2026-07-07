@@ -23,7 +23,8 @@
 - `Experimental` 仅在针对窄能力集具备 SDK/构建/冒烟覆盖，且文档指明了制品元数据、CI 或可选 CI、能力支持及示例时退出。
 - `Supported` 要求具备稳定的 CLI、制品元数据、CI、文档以及至少一个共享场景测试。
 
-**Experimental** 并不意味着“损坏”——EVM 已具备 CI 和 Foundry 冒烟测试，但缺乏目标注册表和可移植 IR 集成。
+**Experimental** 并不意味着“损坏”——三条 Gate P0 链（`evm`、`solana-sbpf-asm`、
+`wasm-near`）已经有生产级本地/CI 门禁，但 capability 覆盖仍窄于完整链 SDK。
 
 ## 目标组合排期边界
 
@@ -56,7 +57,8 @@
 |---|---|---|
 | [Psy DPN](../targets/psy-dpn.md) | Experimental subset | 生成 `.psy`/Dargo 的路径保持维护；不推进 capability-completion，除非安排新的 ZK/circuit lane。 |
 | [Aleo Leo](targets/aleo-leo.zh.md) | Research spike | Counter/PureMath sourcegen 和 smoke 保持维护；当前不安排新的 ZK-app 实现路线。 |
-| [Cloudflare Workers](../targets/cloudflare-workers.md) | Research off-chain host | TypeScript Worker demo 作为 off-chain host 参考保留；当前不做产品扩展。 |
+| [Cloudflare Workers](../targets/cloudflare-workers.md) | Research spike（TS emit） | TypeScript Worker demo 作为 off-chain host 参考保留；当前不做产品扩展。 |
+| [Sui Move](move-family.md) | Counter MVP | Counter package 与本地 `just sui-*` gates 保持维护；超出 Counter 的扩展等待 D-007 中的 Aptos M4。 |
 
 ## Tier-1 候选
 
@@ -76,7 +78,6 @@ spike 后，才会从 docs-only 状态恢复。
 |---|---|---|
 | [Stellar Soroban](targets/stellar-soroban.zh.md) | Wasm host | CosmWasm 证明 host-adapter split 后才打开。 |
 | [Internet Computer](targets/internet-computer.zh.md) | Wasm host | 需要 Wasm-host split，再加 async/inter-canister design note。 |
-| Sui Move | Move/object sourcegen | 在 Aptos 证明 Move printer 和 sourcegen lane 后跟进。 |
 | [Algorand AVM](targets/algorand-avm.zh.md) | Source package generation | 停在后续 sourcegen-lane exit 之后。 |
 | [Cardano Plutus/Aiken](targets/cardano-plutus-aiken.zh.md) | eUTXO validator sourcegen | 停在后续 sourcegen-lane exit 之后。 |
 | [Tezos Michelson/LIGO](targets/tezos-michelson-ligo.zh.md) | Source package generation | 停在后续 sourcegen-lane exit 之后。 |

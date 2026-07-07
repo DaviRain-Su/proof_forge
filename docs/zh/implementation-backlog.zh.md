@@ -44,6 +44,7 @@
 | R4：capability 粒度太粗 | 当前阶段不 churn capability id；storage 已经拆成 scalar/map/array/PDA，Solana account 语义也已与 storage pattern 分离建模 | 把跨目标运行时差异交给预算和诊断义务：每个 target 必须显式拒绝不支持形状，并为支持形状锁定资源预算 |
 | R5：docs-first target notes 形成隐藏沉没成本 | 排期层面已关闭：D-045 和 target roadmap 在 Gate P0 关闭前把产品硬化限制在 `solana-sbpf-asm`、`evm`、`wasm-near` | 保留 research notes 作为库存；显式排期 Tier-1 M3/M4，而不是让旧 research notes 自动变成实现范围 |
 | R6：Lean/工具链入门摩擦 | 部分关闭：`docs/onboarding.md` 已存在并列出核心工具链和各目标工具；但 editor workspace config、templates 和 scaffolding 仍是开放 DX 工作 | 补 VS Code/Cursor workspace recommendations 和最小项目模板 |
+| R7：文档状态落后于已落地 spike（CF Workers TS、CosmWasm/Aptos golden fixtures、move-sui Counter MVP） | 已在当前 `main` 关闭：[doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md) 与 `just doc-sync-audit` | 当 registry、门禁或 Backend Status 表变化时，重新运行 advisory audit |
 
 因此，这次评审之后的直接工程顺序是：
 

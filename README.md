@@ -41,13 +41,15 @@ with local `sui move build/test` validation.
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Baseline (mature) | golden Yul, diagnostics, Foundry runtime smoke (15 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2) |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental (production-grade gates) | golden Yul, diagnostics, Foundry runtime smoke (15 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
 | `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Web3.js live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
 | `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening |
+| `wasm-cosmwasm` | portable IR → `EmitWat` → WAT → `wat2wasm` | Spike | Counter golden WAT, `just cosmwasm-counter-smoke` (optional GH job; needs `cosmwasm-check`) |
+| `move-aptos` | portable IR → Aptos Move package | Spike | Counter golden Move module, `just aptos-counter-smoke` (optional GH job; needs `aptos`) |
 | `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike | Counter/PureMath golden fixtures and smokes |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research (off-chain host, D-033) | `tsc` type-check, `wrangler` dry-run |
+| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike (CLI-only; not in `--list-targets`) | Counter/PureMath golden fixtures and smokes |
+| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike | `tsc` type-check, `wrangler` dry-run |
 
 The multi-chain Token SDK (`TokenSpec`, [RFC 0006](docs/rfcs/0006-multichain-token-sdk.md))
 routes one token intent to ERC-20 bytecode on EVM or SPL Token / Token-2022
@@ -61,7 +63,7 @@ Install `just` from [casey/just](https://github.com/casey/just); the root
 ```sh
 just --list        # all recipes
 just build         # lake build
-just check         # fast static gates (Lean + EVM + Psy)
+just check         # fast static gates (Lean + EVM plan + Solana-light + NEAR + Psy static + testkit + Quint)
 just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
 just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
 just sui-counter-smoke                 # local Sui Move Counter build/test

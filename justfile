@@ -105,6 +105,16 @@ shared-validate-smoke:
     lake build ProofForge.Backend.SharedValidate
     lake env lean --run Tests/SharedValidate.lean
 
+# Check the RFC 0014 Phase 3 shared lowering diagnostic contract (LoweringDiagnostic + LoweringError typeclass).
+diagnostic-smoke:
+    lake build ProofForge.Backend.Diagnostic
+    lake env lean --run Tests/Diagnostic.lean
+
+# Check RFC 0014 Phase 6a inductive IR trace semantics (IRTraceMatches + soundness by induction).
+ir-step-semantics-smoke:
+    lake build ProofForge.IR.StepSemantics ProofForge.Backend.Evm.Refinement
+    lake env lean --run Tests/IRStepSemantics.lean
+
 # Check that executable scripts/testkit callers use target-first CLI commands.
 cli-target-first:
     python3 scripts/cli/check-target-first-migration.py
@@ -187,6 +197,11 @@ near-target-first:
 wasm-near-plan:
     lake build proof-forge ProofForge.IR.Examples.NearCrosscallProbe
     lake env lean --run Tests/WasmNearPlan.lean
+
+# Run the NearModulePlan golden + dual-path parity smoke (Tier B gate, Step B).
+# Builds the plan, diffs against golden, and asserts plan-driven WAT == inline WAT.
+near-plan-smoke:
+    scripts/near/plan-smoke.sh
 
 # Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
 wasm-near-ft-transfer-call:
@@ -400,6 +415,10 @@ solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-s
 docs-check:
     scripts/i18n/check-sync.sh
 
+# Mechanical doc↔code drift report (advisory; see docs/doc-code-sync-audit-2026-07.md).
+doc-sync-audit:
+    scripts/docs/audit-doc-code-sync.sh
+
 # Emit Counter .qnt model and run `quint verify`. Skips if Java < 17.
 quint-model-gate:
     scripts/quint/model-check-gate.sh
@@ -411,6 +430,18 @@ quint-mbt-gate:
 # Replay a sampled Quint MBT trace through the EVM backend (Counter Foundry smoke).
 quint-evm-backend-replay-gate:
     scripts/quint/evm-backend-replay-gate.sh
+
+# NearReplay shim smoke: pure Lean string-render check (no quint/offline-host spawn).
+quint-near-replay-smoke:
+    lake build ProofForge.Backend.Quint.NearReplay
+    lake env lean --run Tests/Quint/NearReplaySmoke.lean
+
+# SolanaReplay shim smoke: pure Lean string-render check (no mollusk/sbpf/quint spawn).
+# Not wired into `just check` — running end-to-end needs SBF platform-tools not
+# installed here per AGENTS.md; the smoke is a pure-Lean string check.
+quint-solana-replay-smoke:
+    lake build ProofForge.Backend.Quint.SolanaReplay
+    lake env lean --run Tests/Quint/SolanaReplaySmoke.lean
 
 # Unified Quint IR model gate: emit, verify, MBT, IR replay, and Counter EVM backend replay.
 quint-ir-model-gate:
@@ -434,7 +465,7 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
 # Run the fast local baseline used before broader target smokes.
-check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first wasm-near-plan wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate
+check: build target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

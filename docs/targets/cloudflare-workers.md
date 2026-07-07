@@ -4,7 +4,10 @@ Target id: **`wasm-cloudflare-workers`**
 
 Family: **Wasm host**
 
-Stage: **Research** — target profile and capability map accepted into the registry; no local backend yet.
+Stage: **Spike** — target profile in the registry; Counter IR lowers to
+TypeScript via `ProofForge.Compiler.TS.Emit` (`scripts/ts/counter-ir-smoke.sh`,
+optional GitHub `cloudflare-smoke` job). A future Zig/Wasm host-bridge route
+remains **Planned** research, not the current product path.
 
 Related: [Wasm family](wasm-family.md), [Capability registry](../capability-registry.md), [Shared scenario](../shared-scenario.md), [RFC 0002](../rfcs/0002-target-implementation-design.md).
 
@@ -20,7 +23,21 @@ Because Workers is not a blockchain, many chain-specific capabilities are
 reinterpreted or unsupported. The portable core (pure logic, state transitions,
 types, proofs) stays identical; only the capability adapter changes.
 
-## Pipeline
+## Pipeline (landed spike)
+
+```text
+portable IR (Counter fixture)
+  -> ProofForge.Compiler.TS.Emit
+  -> TypeScript Worker module (build/ts/Counter.ts)
+  -> tsc type-check + wrangler dry-run
+  -> optional wrangler dev smoke
+```
+
+A longer-term Zig/Wasm host-bridge route (EmitZig → wasm32 → Wrangler) is
+**Planned** research documented below for comparison; it is not what `main`
+runs today.
+
+## Pipeline (Planned — Zig/Wasm research)
 
 ```text
 Lean contract
@@ -63,7 +80,7 @@ def wasmCloudflareWorkers : TargetProfile := {
     .dataStruct,
     .assertions
   ],
-  requiredTools := #["zig", "wrangler"]
+  requiredTools := #["tsc", "wrangler"]
 }
 ```
 
@@ -140,27 +157,27 @@ Example HTTP mapping for Counter:
 v0 should use KV for Counter; v1 should introduce DO as an optional
 `storage.scalar.strong` capability.
 
-## Build Commands (planned)
+## Build Commands
 
 ```sh
-proof-forge build --target wasm-cloudflare-workers \
-  --out build/cloudflare-workers \
-  Examples/CloudflareWorkers/Counter.lean
+lake env proof-forge emit --target wasm-cloudflare-workers \
+  --fixture counter --format ts -o build/ts/Counter.ts
+scripts/ts/counter-ir-smoke.sh
 ```
 
-Smoke:
+Smoke (package under `Examples/CloudflareWorkers/Counter/`):
 
 ```sh
-wrangler dev
-# or
-npx miniflare build/cloudflare-workers
+scripts/ts/counter-ir-smoke.sh
+# or, after emit:
+npx wrangler deploy --dry-run
 ```
 
 ## Example Location
 
 | Target | Path | Status |
 |---|---|---|
-| Cloudflare Workers | `Examples/CloudflareWorkers/Counter.lean` | Planned, not in repo |
+| Cloudflare Workers | `Examples/CloudflareWorkers/Counter/` + IR emit `--format ts` | **In repo (Spike)** |
 
 ## Open Questions
 
@@ -174,8 +191,9 @@ npx miniflare build/cloudflare-workers
 
 ## Acceptance Criteria for Spike Exit
 
-- [ ] `wasm-cloudflare-workers` target profile is in the registry.
-- [ ] Counter example compiles to a Workers-compatible `.wasm`.
+- [x] `wasm-cloudflare-workers` target profile is in the registry.
+- [x] Counter IR emits TypeScript accepted by `tsc` and `wrangler` dry-run.
 - [ ] `wrangler dev` serves `POST /increment` and `GET /count` correctly.
-- [ ] Artifact metadata records `target: wasm-cloudflare-workers` and
-      capabilities used.
+- [x] Artifact metadata records `target: wasm-cloudflare-workers` and
+      capabilities used (emit path).
+- [ ] Wasm/Zig host-bridge route (optional research exit).

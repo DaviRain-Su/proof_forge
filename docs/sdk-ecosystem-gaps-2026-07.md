@@ -45,7 +45,7 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| UUPS proxy | Missing | UpgradePolicy rejects non-immutable EVM policies | P1 |
+| UUPS proxy | Partial | `ProofForge/Contract/Stdlib/UUPSProxy.lean` and `UUPSUpgradeable.lean` stdlib mixins (ERC-1967 slot + delegatecall fallback); semantic-plan and golden Yul coverage exist. **Gap:** `UpgradePolicy` still rejects non-immutable EVM deployment policies for product contracts | P1 |
 | Transparent proxy | Missing | Same rejection | P1 |
 | Beacon proxy | Missing | Same rejection | P2 |
 | Diamonds (EIP-2535) | Missing | No facet/loupe storage pattern | P2 |

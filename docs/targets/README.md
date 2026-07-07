@@ -29,8 +29,9 @@ Related: [Documentation index](../INDEX.md),
 - `Supported` requires stable CLI, artifact metadata, CI, docs, and at least
   one shared scenario test.
 
-**Experimental** does not mean "broken" — EVM has CI and Foundry smoke but lacks
-target registry and portable IR integration.
+**Experimental** does not mean "broken" — the three Gate P0 chains (`evm`,
+`solana-sbpf-asm`, `wasm-near`) have production-grade local/CI gates while
+capability coverage remains narrower than a full chain SDK.
 
 ## Portfolio Scheduling Boundary
 
@@ -65,7 +66,8 @@ is limited to CI stability, security fixes, and documentation maintenance.
 |---|---|---|
 | [Psy DPN](psy-dpn.md) | Experimental subset | Generated `.psy`/Dargo path stays maintained; no capability-completion push until a ZK/circuit lane is scheduled. |
 | [Aleo Leo](aleo-leo.md) | Research spike | Counter/PureMath sourcegen and smokes stay maintained; no new ZK-app lane is currently scheduled. |
-| [Cloudflare Workers](cloudflare-workers.md) | Research off-chain host | TypeScript Worker demo stays as an off-chain host reference; no product expansion is currently scheduled. |
+| [Cloudflare Workers](cloudflare-workers.md) | Research spike (TS emit) | Counter TypeScript Worker demo stays as an off-chain host reference; no product expansion is currently scheduled. |
+| [Sui Move](move-family.md) | Counter MVP | Counter package + local `just sui-*` gates stay maintained; beyond-Counter expansion waits for Aptos M4 per D-007. |
 
 ## Tier-1 Candidates
 
@@ -87,7 +89,6 @@ spike is scheduled.
 |---|---|---|
 | [Stellar Soroban](stellar-soroban.md) | Wasm host | Opens after CosmWasm proves the host-adapter split. |
 | [Internet Computer](internet-computer.md) | Wasm host | Requires the Wasm-host split plus an async/inter-canister design note. |
-| Sui Move | Move/object sourcegen | Follows Aptos after the Move printer and sourcegen lane are proven. |
 | [Algorand AVM](algorand-avm.md) | Source package generation | Parked behind a later sourcegen-lane exit. |
 | [Cardano Plutus/Aiken](cardano-plutus-aiken.md) | eUTXO validator sourcegen | Parked behind a later sourcegen-lane exit. |
 | [Tezos Michelson/LIGO](tezos-michelson-ligo.md) | Source package generation | Parked behind a later sourcegen-lane exit. |

@@ -115,17 +115,29 @@
 | CI 基准 | `.github/workflows/ci.yml` `build-test` 任务 | GitHub Actions Ubuntu、`just` 1.48.0、elan、Foundry stable、`solc` 0.8.30、Node.js 22、`@informalsystems/quint`、Temurin Java 17 | 清洁环境 `just build`、`just target-registry`、`just evm-plan`、`just solana-light`、`just docs-check`、Wasm-NEAR 诊断冒烟测试、Wasm-NEAR/EmitWat IR 覆盖率清单、IR 所有权规则、Wasm-NEAR 形式化语义锚点、EmitWat 离线宿主冒烟测试、`just psy-golden-sources`、Psy 诊断冒烟测试、Psy IR 覆盖率清单、Psy plan-driven metadata 单元测试（`just psy-metadata`）、Psy metadata validation 单元测试（`just psy-metadata-validation`）、Psy metadata CLI 冒烟测试（`just psy-metadata-cli`）、Quint MBT replay 门控（`just quint-mbt-gate`）、Quint model-check 门控（`just quint-model-gate`）、EVM 诊断冒烟测试、EVM IR 覆盖率清单、EVM ABI 标量 IR 冒烟测试、EVM AssertProbe IR 冒烟测试、EVM AssignmentProbe IR 冒烟测试、EVM AssignOpProbe IR 冒烟测试、EVM ConditionalProbe IR 冒烟测试、EVM LoopProbe IR 冒烟测试、EVM ContextProbe IR 冒烟测试、EVM EventProbe IR 冒烟测试、EVM CrosscallProbe IR 冒烟测试、EVM ExpressionProbe IR 冒烟测试、EVM HashProbe IR 冒烟测试、EVM MapProbe IR 冒烟测试、EVM TypedMapProbe IR 冒烟测试、EVM StorageArrayProbe IR 冒烟测试、EVM StorageStructProbe IR 冒烟测试、EVM TypedStorageProbe IR 冒烟测试、EVM ArrayValueProbe IR 冒烟测试、EVM StructArrayValueProbe IR 冒烟测试、EVM StructValueProbe IR 冒烟测试、EVM AbiAggregateProbe IR 冒烟测试、EVM 元数据/部署清单验证、EVM 编译、Foundry 冒烟测试以及 Anvil 部署冒烟测试。CI 保留独立的 GitHub Actions 步骤用于故障定位，但每个通用门控都通过根 `justfile` 配方调用。 | 可选的 Dargo 目标冒烟测试，非 Ubuntu 行为 |
 | Aleo Counter IR 冒烟测试 | `scripts/aleo/counter-smoke.sh` | `leo` CLI (4.0.2 tested) on `PATH`; `python3`; Lean toolchain from `lean-toolchain` | 可移植 IR `Counter` 降级为带有 `@noupgrade constructor` 和 `fn ... -> Final` 入口的 Leo 4.0 程序，匹配 `Examples/Aleo/Counter.golden.leo`，`leo build` 生成 `main.aleo` 和 `abi.json`，`leo test` 通过，且 `proof-forge-artifact.json` 模式验证通过 | 私有记录、转换、证明、直接 Aleo 指令、devnet 部署、跨目标等效性、独立 `.avm` 文件 |
 | Aleo PureMath IR 冒烟测试 | `scripts/aleo/pure-math-smoke.sh` | `leo` CLI (4.0.2 tested) on `PATH`; `python3`; Lean toolchain from `lean-toolchain` | 带有参数的可移植 IR 纯函数、`if/else`、`boundedFor`、`assign`、`assignOp` 和 `assert` 降级为 Leo 4.0 程序，匹配 `Examples/Aleo/PureMath.golden.leo`，`leo build` 生成 `main.aleo` 和 `abi.json`，`leo test` 通过，且 `proof-forge-artifact.json` 模式验证通过 | 有状态的参数化入口、非局部赋值目标、动态循环边界、独立 `.avm` 文件 |
+| CosmWasm Counter WAT 冒烟测试 | `just cosmwasm-counter-smoke` | `wat2wasm`、`cosmwasm-check`；来自 `lean-toolchain` 的 Lean 工具链 | 为 `wasm-cosmwasm` 发射 Counter WAT，与 `Examples/CosmWasm/Counter.golden.wat` 做 diff，并用 `cosmwasm-check` 验证 Wasm | `contract_source` CosmWasm Counter、cw-multi-test 集成 |
+| CLI target-first 冒烟测试 | `just cli-target-first` | 来自 `lean-toolchain` 的 Lean 工具链 | 针对白名单 fixture triples 练习 target-first `emit`/`build`/`check` 路由（RFC 0009 M1/M3） | M4 legacy-flag removal、每个 target 上完整的 `contract_source` |
+| Aptos Counter Move 冒烟测试 | `just aptos-counter-smoke` | `aptos` CLI；来自 `lean-toolchain` 的 Lean 工具链 | 为 `move-aptos` 发射 Counter Move package，并针对 golden fixtures 运行 `aptos move test` | `contract_source` Aptos Counter、testkit harness |
 
 ## 尚未可运行的计划门控
 
-以下门控处于 `Planned` 状态，且不存在于 CI 或脚本中：
+以下门禁仍为 `Planned` 或只部分落地：
 
-- `proof-forge build --target <id>` — 统一的面向目标的构建命令。
-- `proof-forge test --target <id>` — 统一的面向目标的测试命令。
-- 非 EVM、非 Psy 的 `proof-forge-artifact.json` 验证 — 针对尚未写入元数据的目标的制品元数据 schema 验证。
-- 黄金 Yul/输出快照 — 通过快照差异对比进行回归检测。
-- CosmWasm 冒烟测试 — `cosmwasm-check` 或 `cw-multi-test` 验证。
-- Solana sBPF 汇编门禁（目标 `solana-sbpf-asm`，D-026）。随着工作流 6–7 的落地，这些将变为可运行状态；`sbpf` 工具链已在本地验证（构建 + 反汇编往返 + 针对 counter 示例的 `sbpf test`）：
+- `proof-forge test --target <id>` — 统一的面向目标的测试命令（RFC 0009 M4；legacy per-target smokes 仍是权威路径）。
+- 每个 spike target 的非 EVM、非 Psy `proof-forge-artifact.json` 验证 — EVM、NEAR emit paths、Psy 和部分 Solana metadata 已有 schema 验证；CosmWasm/Aptos/Sui/CF Workers 覆盖尚不完整。
+- CosmWasm 和 Aptos 的完整 `contract_source` build — Counter 当前使用 golden fixtures 和 `emit --fixture counter`（`Examples/CosmWasm/Counter.golden.wat`、`Examples/Aptos/Counter/golden/`）。
+
+**部分落地（见 Current gates，不要视为 Planned）：**
+
+- Target-first `proof-forge build|emit|check --target ...` — M1/M3 已落地；`just cli-target-first` 和 `just near-target-first` 会练习该 surface；M4 legacy-alias removal 仍开放（RFC 0009）。
+- EVM example golden diffs — 在 `Examples/Evm/*.golden.yul` 下跟踪，并由 `scripts/evm/build-examples.sh` / `just evm-build-examples` 强制执行。
+- CosmWasm Counter smoke — `just cosmwasm-counter-smoke`（可选 GitHub job）。
+
+## Solana sBPF 汇编门禁目录（混合状态）
+
+以下 Solana 条目最初作为计划清单编写。若干阶段已在 `main` 上**完成**；没有
+"complete" 说明的条目仍然开放或可选。默认 CI 运行 `just solana-light`；
+live Surfpool/Web3 gates 是可选项。
   - **V-GATE-SOLANA-01** — `--emit-sbpf-asm` 生成被 `sbpf build` 接受的有效 `.s`（无汇编错误）。脚本：`scripts/solana/emit-asm-smoke.sh`（可运行，阶段 0 已完成）。
   - **V-GATE-SOLANA-02** — `sbpf build` 生成一个 `sbpf disassemble` 可往返处理的有效 ELF。脚本：`scripts/solana/emit-asm-smoke.sh`（可运行，阶段 0 已完成）。
   - **V-GATE-SOLANA-03** — Counter 场景（initialize、increment、get）通过 `sbpf test` (Mollusk) 验证。脚本：`scripts/solana/counter-smoke.sh`（阶段 1 已完成；4 个 Mollusk 断言：initialize→0，increment 0→1，increment 5→6，get→return_data）。发射的 `.s` 现在包含账户验证前导代码（可写性 + 所有者检查），并附带 `manifest.toml`；被追踪的 `Examples/Solana/Counter.golden.s` / `Counter.manifest.toml` 由 `scripts/solana/build-examples.sh` 保持同步。

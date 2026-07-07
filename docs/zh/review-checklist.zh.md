@@ -153,3 +153,11 @@ Psy/DPN 评审重点：
 - Move 代码生成是缺乏 IR 约束的字符串模板。
 - ZK 目标向能力检查器隐藏证明/电路限制。
 - 文档与 CLI 产生脱节。
+
+### 8. 文档↔代码同步（2026-07）
+
+当评审触及 registry、CLI、`justfile` gates、Stdlib 或 shared examples 的 PR 时：
+
+- [ ] 最近的英文真值来源文档已更新（见 [development-standards.md](development-standards.md) 的文档同步清单）。
+- [ ] 如果 target ids、gates 或 capability matrix 改变，已在本地运行 `just doc-sync-audit`（advisory P0 mechanical drift）。
+- [ ] 未实现路径标记为 **Planned** / **Research**，而不是当前行为。

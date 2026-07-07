@@ -61,7 +61,7 @@ EVM 已经端到端遵循这一形状（`Backend/Evm/{Validate,Plan,Lower,IR}`�
 |---|---|---|---|
 | **A** | 共享 IR 操作语义（`IR/Semantics.lean`）是基准；每个后端针对 IR 子集（语义当前覆盖的部分）通过共享场景的 trace obligation。 | 中等——语义已存在但需增长（FV-2/FV-3）。 | **否**（已确认的依赖；由 FV 工作流跟踪）。 |
 | **B** | 共享 lowering *契约*：逐后端的 `validateModule*` + `*ModulePlan` + `lowerToAst` + plan 驱动的 metadata + golden `*-semantic-plan` smoke。 | EVM 已完成；Psy 易–中等；NEAR 中等；Solana 中等–困难。 | **是。** |
-| **C-diff** | 差分 trace replay：Quint MBT 后端从 `IR.Semantics` 生成 ITF trace，并针对每个后端实际发出的制品 replay（EVM 通过 Foundry；Solana 通过 Mollusk；NEAR 通过 offline-host）。作为完整目标链形式化语义的务实替代。 | EVM 已落地（`just quint-evm-backend-replay-gate`）；任何后端一旦存在 `*ModulePlan` 即可推广。 | **部分。** RFC 0014 消费 Quint 后端的 trace 做端到端 smoke；不重新设计 Quint 后端本身。 |
+| **C-diff** | 差分 trace replay：Quint MBT 后端从 `IR.Semantics` 生成 ITF trace，并针对每个后端实际发出的制品 replay（EVM 通过 Foundry；Solana 通过 Mollusk；NEAR 通过 offline-host）。作为完整目标链形式化语义的务实替代。 | EVM 已落地（`just quint-evm-backend-replay-gate`）；任何后端一旦存在 `*ModulePlan` 即可推广。2026-07-07 审计选定 NEAR 为下一个候选（见 `docs/quint-cdiff-multi-backend-design.md`）。 | **部分。** RFC 0014 消费 Quint 后端的 trace 做端到端 smoke；不重新设计 Quint 后端本身。 |
 | **C-proof** | 机器可检查的端到端 refinement：Lean IR 语义 ⟷ 形式化目标链执行模型。 | 困难。EVM 可借鉴 `powdr-labs/evm-semantics`（一台通过 `ethereum/tests` 的 Lean EVM 语义）。Solana 仍是研究（FV-4）：没有现成的 sBPF Lean 语义。 | **否**（明确的非目标）。 |
 
 **把旧的 Tier C 拆成 C-diff 与 C-proof 是关键决策。** 它把「我们能用同一份场景跑
@@ -111,7 +111,7 @@ powdr 式集成）的路径；Tier C-diff 则是其他所有后端的务实底�
 - 证明外部工具链（`solc`、`sbpf`、`wat2wasm`、`dargo`、Mollusk）。这些按照 `docs/formal-verification.md` 保持在证明 TCB 之外。
 - 在初始范围内将契约扩展到 CosmWasm、Move（Sui/Aptos）、Aleo、Cloudflare TS。这些可在四个主要后端对齐之后跟进。
 - 替换现有的 AST printer 或外部工具调用。契约位于 AST 层*之上*；printer 保持原样。
-- 强制每个后端在第一天就长出 EVM 形态的 `ExprPlan`/`StmtPlan` body plan。Body planning 被后置（Phase 5），且只在有价值的地方进行。
+- 强制每个后端在第一天就长出 EVM 形态的 `ExprPlan`/`StmtPlan` body plan。Body planning 被后置（Phase 6），且只在有价值的地方进行。
 
 ## 各后端当前状态
 
@@ -268,11 +268,11 @@ just <target>-semantic-plan   -- 更深：entrypoint、event、body plan（如�
 just semantic-plan-matrix     -- 运行 evm + psy + near + solana 的 semantic-plan gate
 ```
 
-Golden plan 快照（Phase 6 stretch）会将 plan 序列化为 JSON 供人工 review；这是一个待定问题，而非 Phase 1–4 的要求。
+Golden plan 快照（Phase 7 stretch）会将 plan 序列化为 JSON 供人工 review；这是一个待定问题，而非 Phase 1–5 的要求。
 
 ## 分阶段实施
 
-每个阶段都可独立交付且可干净回退。Phase 0–3 属于 Tier B；Phase 4 开启 Tier C 接缝但不交付完整证明。
+每个阶段都可独立交付且可干净回退。Phase 0–4 属于 Tier B；Phase 5 开启 Tier C 接缝但不交付完整证明。
 
 ### Phase 0 —— Lowering 接口文档（4–6 周）
 
@@ -334,33 +334,170 @@ Golden plan 快照（Phase 6 stretch）会将 plan 序列化为 JSON 供人工 r
 
 **风险：** `SbpfAsm.lean` 约 1.7k LOC，且喂给 golden asm + Pinocchio reference-equivalence gate；重构必须保持它们字节稳定。建议在 feature flag（如 `--solana-plan=v2`）后落地，并在证明 golden parity 后切换。
 
-**范围裁剪：** body planning（Solana 的 `ExprPlan`/`StmtPlan`）→ Phase 5。
+**范围裁剪：** body planning（Solana 的 `ExprPlan`/`StmtPlan`）→ Phase 6。
 
-### Phase 3 —— NEAR plan 层（8–12 周）
+### Phase 3 —— 共享 diagnostic 契约（前置项，2026-07-07 落地）
 
-**里程碑：**
+**状态：** 最小桩已落地。Build green，smoke green，未改动任何现有 diagnostic 字节。
 
-- 添加 `ProofForge/Backend/WasmNear/Plan.lean`（`NearModulePlan`）。
-- `EmitWat` 消费 plan：`validateModule` → `buildModulePlan` → `lowerToAst`（镜像 EVM 的 `lowerModuleWithPlan`）。
-- 添加 `Tests/NearSemanticPlan.lean` 和 `just near-semantic-plan`。
-- `WasmNear/Refinement.lean` 在当前重新推导 export/import 的地方消费 plan。
+**动机：** Phase 1 发现 `validateCapabilities`、返回路径检查、标识符合法性、
+`ensureNumericType` 不可安全统一，因为每个后端的错误类型、规则和消息都不同。共享
+diagnostic 词汇是将共享 validate 面扩展到 Phase 1 四个纯 helper 之外的前置项。本阶段
+引入它，但不迁移任何后端。
+
+**已落地内容（最小、安全的桩）：**
+
+- `ProofForge/Backend/Diagnostic.lean`（新增）——`LoweringDiagnostic`
+  （`message` + 可选的 `backend?` / `severity` / `code?` 元数据）、`Severity`、
+  `LoweringError` typeclass 契约、两个 trivial adapter（`LoweringDiagnostic` 恒等、
+  `String`，对应 `SharedValidate` 当前使用的 `Except String` 形状）、
+  `fromTargetDiagnostic` 与 `liftSharedError`。
+- `Tests/Diagnostic.lean`（新增，9 例）钉死字节稳定性不变式：
+  `LoweringDiagnostic.render` **只**输出 `message`，因此任何委托给它的后端看到的
+  输出与现有 `<Name>.render := err.message` 字节一致。
+- `justfile`：`diagnostic-smoke` recipe 加入 `check`。
+
+**设计决策（共享类型 + typeclass，非仅 typeclass）：** 字段级审计（见
+[`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md)）表明每个后端的
+lowering/plan/emit 错误类型*已经是*同一形状——单字段
+`structure <Name> where message : String`，其 `render` 为 `err.message`。因此共享具体
+类型是合理的，而非过早抽象：仅 typeclass 契约会让 `SharedValidate` 继续返回
+`Except String`（Phase 1 现状），而那正是本阶段要超越的。可选元数据字段不参与
+`render`，故不会扰动 golden diagnostic。
+
+**未做的事（明确的后续项，已登记）：**
+
+- **逐后端 `LoweringError` 实例。** 每个后端的具体错误类型
+  （`Evm.Validate.LowerError`、`WasmNear.IR.LowerError`、…）应声明一个 trivial adapter
+  实例。纯增量；不改变任何 `.render` 字节。一个后端一个 PR，让每个后端的 golden 套件
+  防御漂移。
+- **将 `SharedValidate` helper 迁移到返回 `Except LoweringDiagnostic α`。** 会改变
+  `SharedError` 与每个折叠它的调用点。原理上通过 `liftSharedError` 安全，但 diff 更大；
+  在 adapter 实例落地后进行。
+- **统一 `validateCapabilities` / 返回路径检查 / 标识符合法性 / `ensureNumericType`。**
+  共享 `Diagnostic` 类型是*前置项*，不是充分条件——逐后端规则和消息也必须先对齐。
+  推迟到后续阶段。
+
+**Diagnostic 稳定性：** 不变。`Tests/Diagnostic.lean` 钉死
+`LoweringDiagnostic.render` 只输出裸 `message`。未触碰任何后端的具体 `render`；无需
+更新任何 golden diagnostic 测试。
 
 **改动清单：**
 
-- `ProofForge/Backend/WasmNear/Plan.lean`（新增）、`EmitWat.lean`、`IR.lean`
-- `ProofForge/Backend/WasmNear/Refinement.lean`
+- `ProofForge/Backend/Diagnostic.lean`（新增）
+- `Tests/Diagnostic.lean`（新增）
+- `justfile`（`diagnostic-smoke`，加入 `check`）
+- `docs/shared-diagnostic-design.md`（新增——字段级审计 + 设计）
+- `docs/rfcs/0014-…`（本 RFC）、`docs/zh/rfcs/0014-…`（翻译同步）
 
-**风险：** WAT golden 变更；离线宿主 smoke 必须保持字节稳定。与 Phase 2 相同的 feature-flag 策略。
+**风险：** 桩无风险（纯增量，无后端签名变更）。后续 adapter PR 若意外改变 `s!"..."`
+插值会导致 golden 漂移；通过一后端一 PR 与各后端 golden 套件缓解。
 
-**范围裁剪：** Lean 中的完整 Wasm 指令语义（Tier C-proof，推迟）。
+**范围裁剪：** 将后端迁移到 `LoweringDiagnostic` 作为公开错误类型；统一逐后端验证
+规则。两者均为后续项。
 
-### Phase 4 —— Refinement 接缝（持续）
+### Phase 4 —— NEAR plan 层（8–12 周）
 
-Phase 4 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆成两条路径。
+**审计发现（2026-07-07）。** 对三个候选后端（NEAR、Psy、Move-Sui）的审计纠正了
+早先"无 `WasmNear/Plan.lean`"的说法：`WasmNear.Plan.lean` 已存在并定义了
+`ModulePlan` + `buildModulePlan` + `ModuleSurface`，且 `EmitWat.lowerModule` 已消费它
+来驱动 host imports 与 helper-function 裁剪（由 `Tests/WasmNearPlan.lean` /
+`just wasm-near-plan` 把关）。剩余差距比 Solana 当年更窄：数据布局 `Ctx`
+（scalar key 指针、map prefix 指针、string pool、panic pool、crosscall string pool）
+仍在 `EmitWat.lowerModule` 顶部内联构建，而非由 plan 派生。完整审计、逐后端可行性
+表、字段级设计与迁移路径见
+[`docs/multi-backend-moduleplan-design.md`](../../multi-backend-moduleplan-design.md)。
 
-**路径 4a —— Tier C-diff 跨后端推广（工程性）。**
+**选定的首个候选：NEAR。** 整个 `Ctx` 都是 plan-可派生的（没有 lowering-local 的可变
+状态需要拆分，不像 Solana 的 `locals`/`nextLabel`/`allocator`），因此迁移规模比
+Phase 2 更小。Psy 与 Move-Sui 推迟：Psy 的 `PsyModulePlan` 已被消费且为 metadata-only
+（在引入 body planning 之前收益低，这是 Phase 6 的产品决策），Move-Sui 是 Counter MVP
+spike、没有真正的 lowering（`SuiModulePlan` 需要先于真正的 Move lowering 构建，而非
+反之）。
 
-- 在每个后端于 Phase 2/3 落地 `*ModulePlan` 后，镜像现有的
+**里程碑：**
+
+- Step A（仅类型，增量）—— **已落地（commit 61cfa7a9）。** 添加了
+  `ProofForge/Backend/WasmNear/NearModulePlan.lean`，包含 `NearModulePlan`、
+  `NearLayoutPlan`、`NearLowerCtxSeed`，以及一个针对
+  `ProofForge.IR.Examples.Counter.module` 的 `buildNearModulePlan`。不接入 EmitWat。
+  添加了 `Tests/NearModulePlan.lean`、`Examples/WasmNear/Counter/golden/plan.txt`、
+  `just near-plan-smoke`（镜像 `solana-plan-smoke`）。
+- Step B（plan 构建 + `Ctx.fromSeed`，增量）—— **已落地（2026-07-07）。**
+  实现了 `Ctx.fromPlanSeed`（从 plan 的 seed + layout 重建 `EmitWat.Ctx`；整个
+  `Ctx` 都是 plan 派生的，因为 NEAR 没有 lowering-local 可变状态，不同于 Solana 的
+  `locals`/`nextLabel`/`allocator`），以及 `lowerModuleFromPlan`（将重建的 `Ctx`
+  交给从内联路径抽出的共享 `EmitWat.lowerModuleCoreWithCtx` 体，镜像 Solana 的
+  `lowerModuleCoreWithSeed`）。`EmitWat.lowerModule` 中的内联 `Ctx` 构建保留
+  （双路径），直到 Step C。`near-plan-smoke` gate 现在还运行双路径 parity 检查：
+  对 `Counter`，plan 驱动 WAT 与内联 WAT 必须字节一致（断言为 `MATCH N chars`）。
+  结果：`Counter: MATCH 2228 chars`。`lake build`、`just wasm-near-plan` 及冻结的
+  `Counter.golden.wat` 均不受影响。
+- Step B.2（将 parity 覆盖扩展到非标量状态形状）—— **已落地（2026-07-07）。**
+  扩展 `Tests/NearModulePlan.lean`，添加 `moduleFor` 解析器与三个子模块 fixture，
+  镜像 Solana Phase 2 的 array/map/struct 探针：`EvmMapProbe`（map 状态，u64 键
+  `balances`）、`EvmStorageArrayProbe`（array 状态，`values` 长度 3）、
+  `EvmStorageStructProbe`（struct 状态，`current : Point`）。每个子模块只使用
+  NEAR 后端已支持的 lowering 路径。`scripts/near/plan-smoke.sh` 现在遍历全部四个
+  fixture（Counter + 三个新增），生成并 diff 每个 plan golden 并逐个运行 parity
+  检查。在 `Examples/WasmNear/<Fixture>/golden/` 下添加新的 golden `plan.txt`。
+  Parity 结果（plan 驱动 WAT == 内联 WAT，字节一致）：`Counter: MATCH 2228 chars`、
+  `EvmMapProbe: MATCH 3498 chars`、`EvmStorageArrayProbe: MATCH 4703 chars`、
+  `EvmStorageStructProbe: MATCH 3375 chars`。覆盖现已横跨标量 / map / array /
+  struct 状态形状；内联 `Ctx` 构建仍保留（双路径）直到 Step C，此时已有广泛覆盖
+  证据可依赖。
+- Step C（切换默认）：parity 稳定后，将默认切到 v2，删除内联 `Ctx` 构建，并让
+  `WasmNear/Refinement.lean` 从重新推导 export/import 改为读取
+  `NearModulePlan.surface` + `NearModulePlan.layout`。
+
+**改动清单：**
+
+- Step A：`ProofForge/Backend/WasmNear/NearModulePlan.lean`（新增）、
+  `Tests/NearModulePlan.lean`（新增）、`Examples/WasmNear/Counter/golden/plan.txt`
+  （新增）、`scripts/near/plan-smoke.sh`（新增）、`justfile`。
+- Step B：`ProofForge/Backend/WasmNear/NearModulePlan.lean`（`Ctx.fromPlanSeed`、
+  `lowerModuleFromPlan`、`renderModuleFromPlan`；`NearStatePlan`/`NearMapPlan` 现在
+  携带 `ValueType`，使 seed 能重建 `StateInfo`/`MapInfo`）、
+  `ProofForge/Backend/WasmNear/EmitWat.lean`（从 `lowerModule` 抽出
+  `lowerModuleCoreWithCtx` 以打破 import 环）、`Tests/NearModulePlan.lean`（双路径
+  parity 检查）、`scripts/near/plan-smoke.sh`（`--parity`）、`justfile`。
+- Step B.2：`Tests/NearModulePlan.lean`（`moduleFor` + `mapSubModule` /
+  `arraySubModule` / `structSubModule`）、`scripts/near/plan-smoke.sh`
+  （多 fixture 循环）、`Examples/WasmNear/{EvmMapProbe,EvmStorageArrayProbe,
+  EvmStorageStructProbe}/golden/plan.txt`（新 golden）。
+- Step C：`ProofForge/Backend/WasmNear/EmitWat.lean`、
+  `ProofForge/Backend/WasmNear/Refinement.lean`。
+
+**风险：** WAT golden 变更；离线宿主 smoke 必须保持字节稳定。与 Phase 2 相同的
+feature-flag 策略（CI 中同时跑两条路径，parity 稳定后切换默认）。
+
+**范围裁剪：** Lean 中的完整 Wasm 指令语义（Tier C-proof，推迟）；Rust sourcegen 路径
+（`WasmNear/IR.lean`）不在范围内（一条无 `Ctx` 的平行 lowering）；`ExportPlan`
+（每个 entrypoint 一条）推迟到 Phase 4.2。
+
+**推迟的后端：**
+
+- **Psy** —— `PsyModulePlan` 已存在并被 `Psy/IR.lean` 经 `BuildContext` 消费；
+  没有 `LowerCtx` 需要拆分。把 plan 扩展到 entrypoint/body 形状（`ExprPlan`/`StmtPlan`）
+  是 Phase 6 的产品决策，不是 Phase 4 的重构。
+- **Move-Sui** —— 一个 Counter MVP spike，没有真正的 lowering。`SuiModulePlan`
+  需要先于真正的 Move lowering 构建（struct/entrypoint/state/capability plan），
+  这是 Phase 6+ 的研究项，不是 Phase 4。
+
+### Phase 5 —— Refinement 接缝（持续）
+
+Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆成两条路径。
+
+**路径 5a —— Tier C-diff 跨后端推广（工程性）。**
+
+完整的逐后端可行性审计、抽象 replay 接口（从 `EvmReplay` 泛化）、所选下一个候选（NEAR）的字段级设计，以及延迟后端的理由，见
+[`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。摘要：
+
+- **当前覆盖（2026-07-07 审计）：** 仅 EVM（`EvmReplay.lean`、`just quint-evm-backend-replay-gate`）。replay 接口是一个纯 Lean 的 trace → harness 渲染器（`renderFoundryTest`），把 ITF trace 降级为 Solidity/Foundry 测试；目标工具链（`forge`）执行它。链中立的 trace 解释（`resolveActionName`、`buildArgs`、`entrypointMap`、`buildInitialState`、`compareStates`、`itfValueToIr`）位于 `Replay.lean`，每个 shim 都复用它。
+- **所选下一个候选：NEAR。** `runtime/offline-host`（wasmtime）在树内、无需外部 RPC，其 CLI 是一个扁平参数列表（`run <wat> <exports...> --inputs-hex <...>`）。`NearReplay.lean` shim 从同一份 ITF trace 渲染该参数列表；offline-host 执行它。这比 EVM 更简单（EVM 渲染一整个 Solidity 测试文件）。本步落地的最小类型-only stub（`ProofForge/Backend/Quint/NearReplay.lean` + `Tests/Quint/NearReplaySmoke.lean` + `just quint-near-replay-smoke`）**不**接线进 CI。Step B（完整 `renderOfflineHostArgs`、spawn `quint` + offline-host 的包装测试、gate 脚本、`just quint-near-backend-replay-gate`）是后续工作。
+- **推荐顺序：** EVM（已完成）→ NEAR（stub 已落地）→ Solana（stub 已落地；Mollusk 作为 Rust crate 在树内，`SolanaModulePlan` 暴露 discriminator/account schema；shim 渲染 Rust Mollusk 测试文件）→ Psy（第 3，受限于 `dargo` 此处未安装）→ Move-Sui / Aleo / Cloudflare（延迟，研究性 spike，无真实 lowering）。
+- **多模块渲染（2026-07-07）：** 三个 C-diff shim 不再仅限 Counter。`EvmReplay` 将 mutating/read/init 步骤渲染泛化为可编码 entrypoint ABI 参数（Counter 路径字节一致；ValueVault 现可渲染）。`NearReplay` 的 `init` 分支泛化为查找模块的 `initialize` entrypoint 并从 ITF nondet picks 编码其参数（原先硬编码 `("initialize", "")` 丢弃参数；Counter 路径字节一致），其 smoke 现覆盖 ValueVault。`SolanaReplay` 将账户列表与状态布局经由 `SolanaModulePlan`（Tier B）驱动，而非硬编码 Counter 账户，其 smoke 覆盖 ValueVault（多标量）与 `EvmMapProbe` map 子模块（非标量状态，v1 降级为跳过字节级 account-data 断言）。这些 smoke 是纯字符串渲染检查，**不**接线进 `just check`。详见 `docs/quint-cdiff-multi-backend-design.md` §15。
+- 在每个后端于 Phase 2/4 落地 `*ModulePlan` 后，镜像现有的
   `just quint-evm-backend-replay-gate` 模式：
   - Solana：`just quint-solana-backend-replay-gate`——Quint MBT ITF trace →
     对发出的 `.so` 做 Mollusk 调用（Tier C-diff；避免需要 Lean sBPF 语义）。
@@ -370,44 +507,79 @@ Phase 4 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 - 每个 gate 消费同一份 `IR.Semantics` 派生的 trace；只有 replay harness 逐后端
   不同。`*ModulePlan` 正是让发出的制品足够稳定、可做 trace 级差分测试的关键。
 
-**路径 4b —— Tier C-proof 接缝（研究性）。**
+**路径 5b —— Tier C-proof 可行性评估（2026-07-07 完成）。**
 
-- 添加 `ProofForge/Backend/Solana/Refinement.lean` 骨架：针对 selector-dispatched asm 表面的 Counter IR trace obligation（无完整 sBPF 语义）。
-- 将 `Tests/NearWasmFormal.lean` 接线为在非空时导入 Solana obligation（CI build-gated）。
-- EVM：研究把 `Evm.Refinement.TraceObligation` 投射到一台外部 Lean EVM 语义（如 `powdr-labs/evm-semantics`，它通过官方 `ethereum/tests` conformance 套件）上，而非 `Evm.YulSemantics` 的树内可执行 Yul 子集。这是一次研究性集成；此处只勾勒接缝，不交付。
-- 将 [`docs/formal-verification.md`](../formal-verification.md) 的 FV-8（ValueVault 不变式）链接到逐后端 obligation。
+完整的可行性评估已完成，记录于 [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md)。结论摘要：
+
+- **现状并非机器检查 refinement。** `Evm.Refinement.lean` 与 `ValueVaultInvariant.lean` 以 `native_decide` 对*固定*场景（Counter、ValueVault 等）做可执行 trace 等价检查，不是全称量化的 simulation 证明。`ValueVaultInvariant.lean` 只对*default* inputs 检查会计不变式，而非对所有 `ScenarioInputs`。
+- **目标语义。** Lean 4 EVM+Yul 形式化模型是 [`leonardoalt/EVMYulLean`](https://github.com/leonardoalt/EVMYulLean)（Nethermind 维护，powdr 生态引用）。它是 Lean 4，通过官方 `ethereum/tests` Cancun 套件 22,330/22,332（99.99%），在 opcode 级建模 EVM 字节码（`EVM.State`、`step`），也覆盖 Yul。它是独立语义，不是 refinement 框架——simulation obligation 由 ProofForge 承担。注：`powdr-labs/powdr` 是*另一个* Rust zkVM 工具包，*不是* EVM 语义依赖。
+- **最大阻塞（IR 侧）。** `IR.Semantics` 是解释器（`runEntrypointWithArgs`），不是小步 `step : State → Option State` 关系。simulation 证明需要显式 step 关系 + 归纳原理。这是首要前置项，且无需新依赖。
+- **第二阻塞（目标侧）。** 树内 `Evm.YulSemantics` 是*伪* Yul 语义（伪 keccak、简化存储），未做 conformance 测试。真正的 Tier C-proof 需要 `EVMYulLean` 的字节码 `step`，即添加 `lake` 依赖。
+- **存储布局桥接。** IR 扁平 `State` 与 EVM 256 位 storage slot 的映射当前只在 lowering 中隐式编码；`Evm.Plan.ModulePlan` 存储布局是让它显式化的正确位置（Tier B 工作的副收益）。
+
+**分阶段路线图（取代之前的"研究接缝"草案）：**
+
+- **Phase 6a —— 把 `Evm.Refinement` 收紧为真正的 simulation（内部，无新依赖）。**
+  引入 `ProofForge/IR/StepSemantics.lean`，定义小步 `step` 关系；把 `irTraceOk` 重述为归纳谓词 `IRTraceMatches`；用归纳法证明 soundness（而非 `native_decide`）。保留现有 `native_decide` 定理作为回归 smoke。交付物：首批全称量化 IR 侧 trace 引理。
+  **状态（2026-07-07 落地）：** `ProofForge/IR/StepSemantics.lean` 定义了通用归纳谓词 `IRTraceMatches`（按 call list 结构归纳，两个构造器 `nil`/`cons`），通用 runner `runTraceListGen`，以及 `runTraceListGen_sound`——用 `induction calls generalizing s` 完成证明（而非 `native_decide`），这是 Tier C-proof 链中首个全称量化 IR 侧 trace 引理。`IRTraceMatches` 上的 `Decidable` 实例（通过 iff 桥到 `runTraceListGen`）使 `native_decide` 能在固定场景上重证。设计选择 (b)：按 call list 大步归纳（保留现有大步解释器 `runEntrypointWithArgs` 作为原子步；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` 与 `just ir-step-semantics-smoke`（接线进 `just check`）锚定该层。详见 [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md) 的 Phase 6a「已落地」说明。
+  **状态（2026-07-07）：已落地。** `ProofForge/IR/StepSemantics.lean` 定义了通用归纳谓词 `IRTraceMatches`（对 call list 结构归纳，两个构造子 `nil`/`cons`），通用执行器 `runTraceListGen`，以及 `runTraceListGen_sound`——用 `induction calls generalizing s`（非 `native_decide`）消解，是 Tier C-proof 链中首个全称量化 IR 侧 trace 引理（对所有状态 `s` 与所有 call list，执行器与归纳谓词在 `.ok` 上一致，`.error` 为 `True`）。另有 completeness 引理与 iff 桥。`IRTraceMatches` 上的 `Decidable` 实例计算 `runTraceListGen` 并比较 observable 数组，使 `native_decide` 能把固定场景定理重证为 `IRTraceMatches` 实例而不改变真值。设计选择 (b)：对 call list 做大步归纳（保留现有大步解释器 `runEntrypointWithArgs` 作为原子步；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok`/`value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke`（接线进 `just check`）锚定该层。详见 `docs/tier-c-proof-feasibility.md` 的 Phase 6a "已落地"段落。
+  **状态（2026-07-07）：已落地。** `ProofForge/IR/StepSemantics.lean` 定义泛型归纳谓词 `IRTraceMatches`（对 call list 结构归纳），泛型 runner `runTraceListGen`，以及用 `induction calls generalizing s` 证明的 `runTraceListGen_sound`（非 `native_decide`）——这是首条全称量化 IR 侧 trace 引理。`IRTraceMatches` 上的 `Decidable` instance（通过 iff 桥到 `runTraceListGen`）让 `native_decide` 可重新证明固定场景定理。设计选择 (b)：对 call list 做大步归纳（保留现有大步解释器 `runEntrypointWithArgs` 作为原子步；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke`（已接线进 `just check`）锚定该层。见 [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md) Phase 6a"已落地"段落。
+  **状态（2026-07-07）：已落地。** `ProofForge/IR/StepSemantics.lean` 定义通用归纳谓词 `IRTraceMatches`（按 call list 结构递归）、通用 runner `runTraceListGen`，以及用 `induction calls generalizing s`（非 `native_decide`）证明的 `runTraceListGen_sound` —— 首个全称量化 IR 侧 trace 引理。`IRTraceMatches` 上的 `Decidable` instance（经 iff 桥到 `runTraceListGen`）使 `native_decide` 可在固定场景上重证。设计选择 (b)：按 call list 大步归纳（保留现有大步解释器 `runEntrypointWithArgs` 作为原子步；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke`（接线进 `just check`）锚定该层。见 `docs/tier-c-proof-feasibility.md` Phase 6a "已落地"小节。
+  **状态（2026-07-07）：已落地。** `ProofForge/IR/StepSemantics.lean` 定义了通用归纳谓词 `IRTraceMatches`（按 call list 结构归纳），通用 runner `runTraceListGen`，以及 `runTraceListGen_sound`——以 `induction calls generalizing s` 证成（不是 `native_decide`），这是 Tier C-proof 链中首个全称量化 IR 侧 trace 引理。`IRTraceMatches` 上的 `Decidable` 实例（经 iff 桥接 `runTraceListGen`）让 `native_decide` 可重证固定场景定理。设计选择 (b)：按 call list 做大步归纳（保留现有大步解释器 `runEntrypointWithArgs` 作为原子 step；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke`（已接线进 `just check`）锚定此层。详见 [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md) 的 Phase 6a "已落地"小节。
+  **状态（2026-07-07）：已落地。** `ProofForge/IR/StepSemantics.lean` 定义泛化归纳谓词 `IRTraceMatches`（按 call list 结构递归）、泛化 runner `runTraceListGen`，并以 `induction calls generalizing s`（而非 `native_decide`）证明 `runTraceListGen_sound`——首个全称量化 IR 侧 trace 引理。`IRTraceMatches` 上的 `Decidable` 实例（经与 `runTraceListGen` 的 iff 桥接）让 `native_decide` 重证固定场景定理。设计选择 (b)：在 call list 上做 big-step 归纳（保留现有 big-step 解释器 `runEntrypointWithArgs` 作为原子步；小步 `step` 关系推迟到 6b+）。`Evm.Refinement.lean` 新增 `counter_ir_trace_matches_inductive` 与 `value_vault_ir_trace_matches_inductive`，保留现有 `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` 作为回归 smoke。`Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke`（已接线进 `just check`）锚定该层。详见 [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md) 的 Phase 6a"已落地"小节。
+- **Phase 6b —— 把 `EVMYulLean` EVM 字节码语义集成为 lake 依赖。**
+  在 `lakefile.lean` 添加 `leonardoalt/EVMYulLean` `require`；为 CI-only conformance 拉 `EthereumTests` 子模块。提供薄适配器 `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean`，暴露与 `ObservableStep` 对齐的 `EVM.state`/`step`。交付物：一台 conformance 测试过的、可在 Lean 证明中调用的 EVM 字节码语义。
+  **状态（2026-07-07）：阻塞 —— 仅落地 seam。** 集成经调查因 Lean 工具链 + mathlib 版本不匹配而阻塞：`EVMYulLean` 锁定 `leanprover/lean4:v4.22.0` + `mathlib4 @ v4.22.0`，而 ProofForge 锁定 `leanprover/lean4:v4.31.0` 且无 mathlib 依赖。单一 lake 工作区只用一个工具链；mathlib v4.22.0 无法在 lean v4.31.0 下编译，且 ProofForge 不降级（会破坏现有 378 任务构建）。`require` 项未加入 `lakefile.lean`；`lake build` 保持绿色。落地了 stub 适配器 `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` 作为 seam，其公开接口（`State`、`step`、`runBytecode`，对齐 `Refinement.ObservableStep`）由 stub 固定，含 `sorry`-free stub 定理（`step_noop`、`runBytecode_empty`）。完整阻塞记录、将使用的确切按 commit 锁定的 `require` 语法，以及解决路径（等 EVMYulLean 把工具链 pin 升到与 ProofForge 兼容的 Lean 版本及配套 mathlib tag，再加 `require` 并在有网络的环境 `lake update`）见 [`docs/phase-6b-integration-blockers.md`](../phase-6b-integration-blockers.md)。未改动任何 `Refinement.lean` 定理（接线是 Phase 6c）；未加 smoke gate（按任务要求，仅在集成成功时才加 smoke）。
+- **Phase 6c —— 证明 Counter 的 IR → 字节码 refinement。** 定义 Counter 模块（单个 U64 标量 → 一个 storage slot）的 simulation 关系 `R : IR.State ↔ EVM.State`；为 `initialize`/`increment`/`get` 分别证明 `R`-simulation；通过对 call list 归纳提升为 trace 定理。交付物：首个端到端机器检查 refinement。
+- **Phase 6d —— 扩展到 ValueVault（storage map + events）。** 扩展 `R` 把 IR map state 映射到 EVM storage slot 前缀（用 `Evm.Plan.ModulePlan`）；为全部七个 entrypoint 证明 refinement，含 event 发射；对 `ScenarioInputs` 全称量证明 `value_vault_accounting_invariant`。交付物：从 IR 携带到字节码的全称量化合约不变式。
+- **Phase 6e —— 泛化 simulation 框架。** 抽取可复用的参数化 `SimulationFramework`，使同一模式原则上可瞄准 Solana（Mollusk/Pinocchio）或 NEAR（offline-host wasm）。注：非 EVM 链的 Tier C-proof 需要各自的形式化目标语义，目前不存在；此阶段为探索性，非 EVM 链在此类语义出现前留在 Tier C-diff。
 
 **改动清单：**
 
-- 路径 4a：`scripts/quint/*-backend-replay-gate.sh`（逐后端新增）、
+- 路径 5a：`scripts/quint/*-backend-replay-gate.sh`（逐后端新增）、
   `ProofForge/Backend/Quint/{Solana,Near,Psy}Replay.lean`（新增，镜像现有
-  `EvmReplay.lean`）、`justfile` recipe。
-- 路径 4b：`ProofForge/Backend/Solana/Refinement.lean`（新增）、
-  `Tests/NearWasmFormal.lean`、
-  `ProofForge/Contract/Examples/ValueVaultInvariant.lean`。
+  `EvmReplay.lean`）、`justfile` recipe。**本步落地（additive stub）：**
+  `ProofForge/Backend/Quint/NearReplay.lean`、`Tests/Quint/NearReplaySmoke.lean`、
+  `just quint-near-replay-smoke`（不接线进 `just check`）。**2026-07-07 落地（Solana stub）：**
+  `ProofForge/Backend/Quint/SolanaReplay.lean`、`Tests/Quint/SolanaReplaySmoke.lean`、
+  `just quint-solana-replay-smoke`（不接线进 `just check`——端到端运行需要此处未安装的 SBF
+  platform-tools，见 AGENTS.md）。Solana shim 渲染一个 Rust Mollusk 测试文件（设计文档的
+  option (a)——镜像 EVM 的 Solidity 测试渲染和树内 `Tests/solana/counter_mollusk.rs.tpl`
+  模板）；account-model 翻译（通过 `Manifest.externalDiscriminatorBytes?` 取指令
+  discriminator + 单个可写 state account + 小端 instruction-data 字节）是相对 NEAR 的主要
+  额外工作。见
+  [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。
+- 路径 5b：`docs/tier-c-proof-feasibility.md`（新增 —— 本步落地）。
+  **2026-07-07 落地（Phase 6a）：** `ProofForge/IR/StepSemantics.lean`、
+  `Tests/IRStepSemantics.lean`、`just ir-step-semantics-smoke`（接线进 `just check`）、
+  `ProofForge/Backend/Evm/Refinement.lean` 桥接定理
+  （`counter_ir_trace_matches_inductive`、`value_vault_ir_trace_matches_inductive`）。
+  未来：`ProofForge/Backend/Evm/EvmBytecodeSemantics.lean`（6b）、
+  `lakefile.lean` `EVMYulLean` 依赖（6b）。
 
-**风险：** 夸大"已证明"的内容——路径 4a 是差分测试（Tier C-diff），不是证明；路径 4b 仍是接缝（Counter/ValueVault trace 形状），不是 Tier C-proof 完整性。
+**风险：** 夸大"已证明"的内容——路径 5a 是差分测试（Tier C-diff），不是证明；路径 5b 现有的 `Evm.Refinement`/`ValueVaultInvariant` 是 `native_decide` 可执行检查，不是机器检查 refinement。分阶段路线图（6a–6e）是通往真正 Tier C-proof 的具体路径，其中 6a 是无需新依赖的第一步。
 
-**范围裁剪：** Solana 的 Tier C-proof（Lean 中的完整 syscall 语义）。
+**范围裁剪：** Solana 的 Tier C-proof（Lean 中的完整 syscall 语义——无现成形式化 sBPF 语义）。NEAR/Psy 同样推迟，待形式化目标语义出现；它们留在 Tier C-diff。完整 `ethereum/tests` 覆盖与所有 EVM opcode 不在范围内——conformance 是 `EVMYulLean` 的职责；ProofForge 只需其适配器正确。
 
-### Phase 5–6（stretch）
+### Phase 6–7（stretch）
 
-- **Phase 5：** Psy body plan；Solana `ExprPlan`/`StmtPlan`；EVM 按 `docs/implementation-backlog.md` 完成 `StmtPlan` ownership。
-- **Phase 6：** `.evm-plan.json` / `.solana-plan.json` / `.near-plan.json` 快照供人工 review（RFC 0004 待定问题）；若 Phase 0–4 形状稳定，考虑 lowering 契约的 Lean typeclass 编码。
+- **Phase 6：** Psy body plan；Solana `ExprPlan`/`StmtPlan`；EVM 按 `docs/implementation-backlog.md` 完成 `StmtPlan` ownership。
+- **Phase 7：** `.evm-plan.json` / `.solana-plan.json` / `.near-plan.json` 快照供人工 review（RFC 0004 待定问题）；若 Phase 0–5 形状稳定，考虑 lowering 契约的 Lean typeclass 编码。
 
 ## 可行性 / 难度
 
 | 后端 | Tier B 难度 | 原因 | 复用 EVM？ |
 |---|---|---|---|
 | EVM | 已完成 | 参考栈。 | 不适用 |
-| Psy | 易–中等 | `PsyModulePlan` 已存在；扩展 + 对齐接缝。 | Metadata + storage-shape plan 思路。 |
-| NEAR | 中等 | 已有强 `validateModule`；重构在于从 `EmitWat`/`IR` 中抽取 plan。 | Plan 驱动的 metadata 模式。 |
-| Solana | 中等–困难 | 新的 `AccountPlan`/`InstructionDataPlan`/`CpiPlan`；在约 1.7k LOC 模块中将 `LowerCtx` → plan 派生的重构，且 golden gate 字节稳定。 | Helper/event plan *模式*；account/syscall plan 是新的。 |
+| Solana | 中等–困难（已在 main） | 新的 `AccountPlan`/`InstructionDataPlan`/`CpiPlan`；在约 1.7k LOC 模块中将 `LowerCtx` → plan 派生的重构，且 golden gate 字节稳定。 | Helper/event plan *模式*；account/syscall plan 是新的。 |
+| NEAR | 易–中等（Phase 4 首选） | `WasmNear.Plan.ModulePlan` 已存在并被 `EmitWat` 消费（驱动 host imports/helpers）；剩余差距仅是把数据布局 `Ctx` 外化为 plan 字段，整个 `Ctx` 都是 plan-可派生的，没有 lowering-local 可变状态需要拆分。详见 `docs/multi-backend-moduleplan-design.md`。 | Plan 驱动的 metadata + helper-discovery 模式。 |
+| Psy | 易（对齐接缝；推迟） | `PsyModulePlan` 已存在并被消费；没有 `LowerCtx` 需要拆分。扩展到 body planning 是 Phase 6 产品决策。 | Metadata + storage-shape plan 思路。 |
+| Move-Sui | 困难（研究项；推迟） | Counter MVP spike，无真正 lowering；`SuiModulePlan` 须先于真正 lowering 构建，属 Phase 6+。 | 无。 |
 | CosmWasm | 中等（后续） | 克隆 NEAR 拆分。 | NEAR > EVM。 |
 
 **依赖：**
 
-1. FV-2 IR 语义增长（Tier A）——Phase 4 obligation 需要它才能覆盖标量 + 固定聚合之外的更多内容。
+1. FV-2 IR 语义增长（Tier A）——Phase 5 obligation 需要它才能覆盖标量 + 固定聚合之外的更多内容。
 2. FV-3 ownership 规则——Phase 1 ownership hook 依赖于在范围内 IR 子集上 ownership 已是 sound 的。
 3. `Target.resolveModule` / diagnostic——已就位（V-GATE-SOLANA-05、EVM/Psy `validateCapabilities`）。
 4. Testkit 共享场景（`testkit/scenarios/*.toml`）——Tier A/B 跨后端 parity 的公认 oracle。
@@ -415,44 +587,57 @@ Phase 4 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 ## 备选方案
 
 - **将 EVM `ModulePlan` 逐字克隆到每个后端。** 拒绝：RFC 0004 非目标明确保持目标 plan 类型为目标特定；account/CPI、host-import 和 circuit 模型与 storage slot + ABI selector 不同构。本 RFC 沿用同一边界。
-- **通过 Lean typeclass 进行纯形式化统一。** 推迟：一旦 Phase 0–4 形状稳定，typeclass 编码是可行的，但在 Solana/NEAR plan 存在之前锁定它会有过早抽象的风险。作为 Phase 6 的待定问题跟踪。
+- **通过 Lean typeclass 进行纯形式化统一。** 推迟：一旦 Phase 0–5 形状稳定，typeclass 编码是可行的，但在 Solana/NEAR plan 存在之前锁定它会有过早抽象的风险。作为 Phase 7 的待定问题跟踪。
 - **维持现状。** 拒绝：在 Solana 上，强制执行分散在 diagnostic、golden asm、Mollusk 和 surfpool/Web3 之中，没有可检查的 plan。这让 review 更困难、阻碍 Tier A/C 挂载，并使 Solana 成为唯一没有 `*-semantic-plan` gate 的主要后端。
 
 ## 风险
 
 - **`SbpfAsm.lean` 重构回归。** 缓解：feature flag `--solana-plan=v2`，切换前 golden-parity gate。
 - **Diagnostic message 变更。** Phase 1 移动共享检查；golden diagnostic 快照必须一起更新。缓解：每个后端一个 PR，CI 变红会很明显。
-- **NEAR 上 WAT golden 变更。** 同一缓解；Phase 3 由离线宿主 smoke parity 门控。
+- **NEAR 上 WAT golden 变更。** 同一缓解；Phase 4 由离线宿主 smoke parity 门控。
 - **RFC 0004 边界漂移。** 本 RFC 不得被解读为"每个后端采纳 EVM 的 plan 类型"。非目标章节已明确。
 - **CI 时间增长。** 新的 `*-semantic-plan` gate 增加的是仅 Lean 的 smoke；它们不替代任何东西但很廉价。`just semantic-plan-matrix` 对 reviewer 是 opt-in 的，在测量代价前不加入 `just check`。
-- **过早抽象。** Phase 0 保持为文档；Phase 1 是最小可回退抽取（共享 validate）。若 Phase 1 干净落地，Phase 2/3 继续；否则在 Solana/NEAR 工作前重新审视本 RFC。
+- **过早抽象。** Phase 0 保持为文档；Phase 1 是最小可回退抽取（共享 validate）。若 Phase 1 干净落地，Phase 2/4 继续；否则在 Solana/NEAR 工作前重新审视本 RFC。
 
 ## 缺点
 
 - 前期工程代价（仅 Phase 2 就 10–16 周）才有用户可见收益。收益面向 reviewer（可检查 plan、golden smoke）和面向形式化（refinement 接缝），而非新产品能力。
-- 若契约在 Solana/NEAR plan 存在之前被过度规约，有过早抽象风险。通过将 Lean typeclass 编码后置到 Phase 6 来缓解。
+- 若契约在 Solana/NEAR plan 存在之前被过度规约，有过早抽象风险。通过将 Lean typeclass 编码后置到 Phase 7 来缓解。
 
 ## 待定问题
 
-- Plan 制品是否应序列化为 JSON 供人工 review（Phase 6 stretch）？RFC 0004 将此留作开放；本 RFC 继承该问题。
-- CosmWasm 现在就跟随 NEAR 拆分，还是在 Phase 3 落地之后？
-- Lowering 契约是否应编码为 Lean typeclass？若是，在哪个阶段（Phase 0 桩 vs Phase 6 稳定形状）？
+- Plan 制品是否应序列化为 JSON 供人工 review（Phase 7 stretch）？RFC 0004 将此留作开放；本 RFC 继承该问题。
+- CosmWasm 现在就跟随 NEAR 拆分，还是在 Phase 4 落地之后？
+- Lowering 契约是否应编码为 Lean typeclass？若是，在哪个阶段（Phase 0 桩 vs Phase 7 稳定形状）？
 - `just semantic-plan-matrix` 应该属于 `just check`、`just ci`，还是一个独立的仅 reviewer 入口？
 - **Phase 2+ 前置项 —— 共享 Diagnostic 类型。** Phase 1 盘点表明
   `validateCapabilities`、返回路径检查、标识符合法性、`ensureNumericType`
   当前不可安全统一，因为 EVM 与 NEAR 的签名、规则、diagnostic 字符串不同。
   是否应引入共享 `Diagnostic` 类型（带各后端 wrapper），使这些检查能在后续
   阶段统一而不改动现有 golden diagnostic 输出？这不阻塞 Phase 2
-  （SolanaModulePlan）或 Phase 3（NEAR plan），但共享 validate 面要超越
+  （SolanaModulePlan）或 Phase 4（NEAR plan），但共享 validate 面要超越
   Phase 1 落地的四个纯 helper 的话，必须先做这一步。
+
+  **决议（2026-07-07，Phase 3 桩落地）：** 是——在 `ProofForge.Backend.Diagnostic`
+  中引入共享具体 `LoweringDiagnostic` 类型*加* `LoweringError` typeclass 契约。字段级
+  审计（见 [`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md)）表明
+  每个后端的 lowering/plan/emit 错误类型已是同一形状——单字段
+  `structure <Name> where message : String`，其 `render` 为 `err.message`——故共享具体
+  类型是合理的，非过早抽象。共享 `render` **只**输出 `message`，因此委托的后端看到字节
+  一致的输出；可选的 `backend?` / `severity` / `code?` 字段是 CLI 报告层的元数据，不参与
+  `render`。后端保留其具体错误类型并以 trivial adapter 实现 typeclass；`SharedValidate`
+  的 `SharedError = String` 在桩中不迁移。这为"共享 validate 面超越 Phase 1"目标解锁了
+  后续（逐后端 adapter 实例落地后），但其本身并不统一
+  `validateCapabilities` / 返回路径检查 / 标识符合法性 / `ensureNumericType`——那些仍需
+  先对齐逐后端规则和消息。见下方「Phase 3 —— 共享 diagnostic 契约」小节。
 
 ## 后续工作
 
 - **Tier A：** 按 FV-2/FV-3 增长 `IR/Semantics.lean`，使共享场景 trace obligation 覆盖每个对齐后端的 map/storage/event。
-- **Tier C-diff：** 随着每个后端 `*ModulePlan` 落地，把 Quint backend replay harness 推广到 EVM 之外（Solana 通过 Mollusk、NEAR 通过 offline-host、Psy 通过 `dargo execute`）。长期目标：每个主要后端都有一个 `just quint-<target>-backend-replay-gate`。
-- **Tier C-proof：** 深化 `Evm.Refinement` 和 `WasmNear.Refinement`；在 Phase 4 Counter 接缝之外添加面向 syscall-aware obligation 的 `Solana.Refinement`。评估集成一台外部 Lean EVM 语义（如 `powdr-labs/evm-semantics`）作为 EVM refinement obligation 的目标执行模型（替换或增强树内 `Evm.YulSemantics` 可执行子集）。
+- **Tier C-diff：** 随着每个后端 `*ModulePlan` 落地，把 Quint backend replay harness 推广到 EVM 之外（Solana 通过 Mollusk、NEAR 通过 offline-host、Psy 通过 `dargo execute`）。长期目标：每个主要后端都有一个 `just quint-<target>-backend-replay-gate`。审计 + 抽象 replay 接口 + `NearReplay` 字段级设计 + 最小 additive stub 于 2026-07-07 落地；见 [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。NEAR 是所选的下一个候选（stub 已落地），Solana 是第 2（stub 已落地，渲染 Rust Mollusk 测试文件），Psy 是第 3（受限于 `dargo` 此处未安装），Move-Sui/Aleo/Cloudflare 延迟（研究性 spike）。一个类型-only 的 `SolanaReplay.lean` stub（渲染 Rust Mollusk 测试文件，option (a)）于 2026-07-07 落地。见 [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md) 获取逐后端可行性表、抽象 replay 接口、以及 `NearReplay`（§7）与 `SolanaReplay`（§8.1）的字段级设计。
+- **Tier C-proof：** 深化 `Evm.Refinement` 和 `WasmNear.Refinement`；在 Phase 5 Counter 接缝之外添加面向 syscall-aware obligation 的 `Solana.Refinement`。评估集成一台外部 Lean EVM 语义（如 `powdr-labs/evm-semantics`）作为 EVM refinement obligation 的目标执行模型（替换或增强树内 `Evm.YulSemantics` 可执行子集）。
 - 用于 CI 中跨后端 plan diff 的 **plan JSON 快照**。
-- 在 Phase 0–4 形状被证明之后的 lowering 契约 **Lean typeclass**。
+- 在 Phase 0–5 形状被证明之后的 lowering 契约 **Lean typeclass**。
 
 ## 参考
 

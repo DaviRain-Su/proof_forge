@@ -49,6 +49,7 @@ disposition is:
 | R4: capability granularity is too coarse | Do not churn capability ids in the current phase; storage is already split into scalar/map/array/PDA, and Solana account semantics are modeled separately from storage patterns | Treat cross-target runtime differences as budget/diagnostic obligations: each target must reject unsupported shapes explicitly and pin resource budgets for supported ones |
 | R5: docs-first target notes create hidden sunk cost | Closed at the scheduling layer: D-045 and the target roadmap restricted product hardening to `solana-sbpf-asm`, `evm`, and `wasm-near` until Gate P0 closed | Keep research notes as inventory; schedule Tier-1 M3/M4 explicitly rather than letting old research notes create automatic implementation scope |
 | R6: Lean/toolchain onboarding friction | Partially closed: `docs/onboarding.md` exists and names the core toolchain and per-target tools, but editor workspace config, templates, and scaffolding remain open DX work | Add VS Code/Cursor workspace recommendations and a minimal project template after the NEAR/Wasm P0-3 closure, unless onboarding friction blocks P0 work earlier |
+| R7: doc status lagged behind landed spikes (CF Workers TS, CosmWasm/Aptos golden fixtures, move-sui Counter MVP) | Closed on current `main`: [doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md) and `just doc-sync-audit` | Re-run advisory audit when registry, gates, or Backend Status table changes |
 
 The immediate engineering order after this review is therefore:
 

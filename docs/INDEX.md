@@ -1,9 +1,10 @@
 # ProofForge Documentation Index
 
 ProofForge is a Lean-first multi-chain smart contract platform. The trunk
-contains the EVM baseline plus Solana (sBPF assembly), NEAR (EmitWat), Psy/DPN,
-Aleo Leo, and Cloudflare Workers backends behind one portable IR and capability
-registry, following the 2026-07 branch consolidation.
+contains the EVM baseline plus Solana (sBPF assembly), NEAR (EmitWat), Sui
+(Counter MVP), CosmWasm and Aptos (Counter spikes), Psy/DPN, Aleo Leo, and
+Cloudflare Workers (TypeScript spike) backends behind one portable IR and
+capability registry, following the 2026-07 branch consolidation.
 
 **Current phase:** Gate P0 is closed for the three primary product chains:
 `solana-sbpf-asm`, `evm`, and `wasm-near`. The next hardening lane is the
@@ -58,6 +59,7 @@ Editable hand-drawn-style diagrams for presentations and onboarding — open on
 - [RFC 0004: EVM semantic plan and Yul AST boundary](rfcs/0004-evm-semantic-plan.md): target-semantic EVM plan layer between portable IR and low-level Yul syntax.
 - [Capability registry](capability-registry.md): canonical capability ids.
 - [Shared scenario: Counter](shared-scenario.md): cross-target acceptance test.
+- [Doc↔code sync audit (2026-07)](doc-code-sync-audit-2026-07.md): drift register and maintenance checklist.
 - [Tutorial: one module, three targets](tutorials/portable-contract-three-targets.md): portable `contract_source` walkthrough (CS-5.3).
 
 ## RFCs

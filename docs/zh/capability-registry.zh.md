@@ -24,31 +24,32 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 > sBPF assembly。Solana 使用 `crosscall.cpi`（不是 `crosscall.invoke`）和
 > `storage.pda`，这些按 D-027 保持为 Solana 特定能力。
 
-| 能力 id | 可移植含义 | EVM | NEAR | CosmWasm | Solana | Aptos | Sui | Psy DPN |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `storage.scalar` | 单个持久化标量 | Y | Y | Y | Y | Y | Y | Y |
-| `storage.map` | 键值对或映射存储 | Y | Y | Y | P | P | P | P |
-| `storage.array` | 固定大小的索引存储数组 | P | P | N | Y | N | N | P |
-| `caller.sender` | 交易签名者/调用者 | Y | Y | Y | Y | Y | Y | P |
-| `value.native` | 调用附带的原生代币 | Y | Y | Y | Y | Y | Y | P |
-| `events.emit` | 结构化日志/事件输出 | Y | Y | Y | Y | Y | Y | Y |
-| `crosscall.invoke` | 调用另一个合约/程序 | Y | N | Y | N | Y | Y | P |
-| `env.block` | 区块高度/时间/链 id 读取 | Y | Y | P | P | P | P | P |
-| `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P |
-| `control.bounded_loop` | 目标可展开或静态处理的有界循环 | N | P | N | P | N | N | P |
-| `data.fixed_array` | 固定大小数组值类型、字面量和索引表达式 | P | P | N | Y | N | N | P |
-| `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P |
-| `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | Y | Y |
-| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | N | P |
-| `account.explicit` | 具名账户/对象/资源绑定 | P | Y | N | Y | Y | Y | P |
-| `storage.pda` | 程序派生地址状态 | N | N | N | Y | N | N | N |
-| `runtime.allocator` | 目标运行时堆分配器约定 | N | Y | P | Y | P | P | P |
-| `runtime.memory` | 目标运行时内存操作 | N | N | N | Y | N | N | N |
-| `runtime.return_data` | 目标运行时返回数据缓冲区操作 | N | N | N | Y | N | N | N |
-| `runtime.compute_units` | 目标运行时计算预算自省 | N | N | N | P | N | N | N |
-| `crosscall.cpi` | 带有账户元数据的 Solana CPI | N | N | N | Y | N | N | N |
-| `zk.circuit` | 将入口编译为目标电路定义 | N | N | N | N | N | N | Y |
-| `zk.proof` | 目标证明生成或验证流 | N | N | N | N | N | N | P |
+| 能力 id | 可移植含义 | EVM | NEAR | CosmWasm | Solana | Aptos | Sui | Psy DPN | CF Workers |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `storage.scalar` | 单个持久化标量 | Y | Y | Y | Y | Y | Y | Y | Y |
+| `storage.map` | 键值对或映射存储 | Y | Y | Y | P | P | N | P | Y |
+| `storage.array` | 固定大小的索引存储数组 | P | P | N | Y | N | N | P | N |
+| `caller.sender` | 交易签名者/调用者 | Y | Y | Y | Y | Y | N | P | Y |
+| `value.native` | 调用附带的原生代币 | Y | Y | Y | Y | Y | N | P | N |
+| `events.emit` | 结构化日志/事件输出 | Y | Y | Y | Y | Y | N | Y | Y |
+| `crosscall.invoke` | 调用另一个合约/程序 | Y | Y | Y | N | Y | N | P | Y |
+| `env.block` | 区块高度/时间/链 id 读取 | Y | Y | P | P | P | N | P | P |
+| `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P | Y |
+| `control.bounded_loop` | 目标可展开或静态处理的有界循环 | P | P | N | P | N | N | P | Y |
+| `data.fixed_array` | 固定大小数组值类型、字面量和索引表达式 | P | P | N | Y | N | N | P | Y |
+| `data.dynamic_bytes` | 动态长度 bytes/string 值类型和 head-tail ABI 编码 | Y | N | N | N | N | N | N | N |
+| `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P | Y |
+| `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | N | Y | Y |
+| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | N | Y | Y |
+| `account.explicit` | 具名账户/对象/资源绑定 | P | Y | N | Y | Y | Y | P | N |
+| `storage.pda` | 程序派生地址状态 | N | N | N | Y | N | N | N | N |
+| `runtime.allocator` | 目标运行时堆分配器约定 | N | N | N | Y | N | N | N | N |
+| `runtime.memory` | 目标运行时内存操作 | N | N | N | Y | N | N | N | N |
+| `runtime.return_data` | 目标运行时返回数据缓冲区操作 | N | N | N | Y | N | N | N | N |
+| `runtime.compute_units` | 目标运行时计算预算自省 | N | N | N | P | N | N | N | N |
+| `crosscall.cpi` | 带有账户元数据的 Solana CPI | N | N | N | Y | N | N | N | N |
+| `zk.circuit` | 将入口编译为目标电路定义 | N | N | N | N | N | N | Y | N |
+| `zk.proof` | 目标证明生成或验证流 | N | N | N | N | N | N | P | N |
 
 ## Id 命名规则
 

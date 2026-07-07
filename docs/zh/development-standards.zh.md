@@ -100,4 +100,24 @@
 
 ## 计划行为标签
 
+未实现的行为必须标记为 **Planned** 或 **Research**，不能描述成当前产品行为。
+
+## 文档同步清单
+
+当更改触及下列任一行时，请在**同一个 PR** 中更新列出的文档，并运行
+`just doc-sync-audit`（advisory；写入 `build/doc-sync-audit.md`）。
+
+| 代码 / 配置更改 | 需要更新的文档 |
+|----------------------|-------------------|
+| `ProofForge/Target/Registry.lean`（id、stage、capabilities） | README Backend Status、`docs/targets/<target>.md`、`docs/capability-registry.md`、`docs/targets/README.md` |
+| `ProofForge/Cli/Fixture.lean`（支持的 targets/fixtures） | README emit examples、`docs/validation-gates.md`、AGENTS.md registry vs CLI table |
+| 根 `justfile` 中 CI 跟踪的 recipe | `docs/validation-gates.md`；如果进入 `just check`，还要更新 AGENTS.md |
+| `ProofForge/Contract/Stdlib/*` | `docs/sdk-ecosystem-gaps-2026-07.md`；若用户可见，还要更新 README stdlib bullet |
+| `Examples/Shared/*` 或 portable scenario smokes | `docs/shared-scenario.md`、`docs/validation-gates.md` |
+| Gate closure（G0/P0/G1） | `docs/gate-status.md`、`docs/implementation-backlog.md` |
+| Accepted RFC / decision | RFC status line、`docs/decisions.md`、最近的 target note |
+
+完整审计登记：[doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md)。
+机械 diff：`scripts/docs/audit-doc-code-sync.sh`。
+
 任何未在此仓库中实现的任务命令、目标、制品字段或验证路径必须标记为 `Planned` 或 `Research`，不得写为当前行为。

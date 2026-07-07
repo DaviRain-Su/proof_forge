@@ -1,0 +1,44 @@
+targetId: wasm-near
+artifactKind: wasm-wat
+irVersion: portable-ir-v0
+moduleName: EvmStorageStructProbe
+surface:
+  usesEventApi: false
+  usesPromiseCreate: false
+  usesPromiseThen: false
+  usesPromiseResults: false
+  usesStorageRead: true
+  usesStorageWrite: true
+  usesNativeValue: false
+  usesHashMake: false
+  usesHashPreimage: false
+  usesHashTwoToOne: false
+  usesHashEq: false
+  usesPowU32: false
+  usesPowU64: false
+  usesMemcpy: false
+  usesArrAlloc: false
+  usesArrDealloc: false
+  scalarReadTypes: []
+  scalarWriteTypes: [U64]
+  u64IndexedReadTypes: []
+  u64IndexedWriteTypes: []
+  hashIndexedReadTypes: []
+  hashIndexedWriteTypes: []
+  returnTypes: [U64]
+layout:
+  stringPoolEnd: 43000
+  scalars:
+  before: type=U64 keyPtr=0 keyLen=6
+  current: type=Point keyPtr=7 keyLen=7
+  after: type=U64 keyPtr=15 keyLen=5
+  maps:
+  strings:
+  panics:
+  crosscallStrings:
+lowerCtxSeed:
+  keyBuf: 4096
+  mapkeyBuf: 12500
+  stringBase: 43000
+  crosscallStringBase: 49000
+  structs: [Point]

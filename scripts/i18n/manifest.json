@@ -1,7 +1,8 @@
 {
   "README.md": {
-    "sha256": "488e33bc3a88e8a20767c7adf438070d89dc95ae965909cde7e5dff2e4bcacf0",
-    "translated": false
+    "sha256": "edb531c61d64b7cec9d4d7bc20471591407b739021be872f7bd4028bbf27d1e4",
+    "translated": false,
+    "model": "manual"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -9,7 +10,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "95801ce1475d632a3ba955bba14a696ccfdc5e31ddccf09ff36c683da5ef34b5",
+    "sha256": "50f7317ce8cd4f527963afd5eec5f243f76fc9905749cffda47232afa6248292",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual"
   },
@@ -29,7 +30,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/capability-registry.md": {
-    "sha256": "3e4e12733f19cdf81011fe0487e814b31d41ce5a2028c0e751f477b17bc65291",
+    "sha256": "23c4caaa7d0cb61dcc7bc7da6c7bc5af0cf10fc6f8e768d9657d10c15e8a22c1",
     "zh": "docs/zh/capability-registry.zh.md",
     "model": "manual"
   },
@@ -39,9 +40,9 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/shared-scenario.md": {
-    "sha256": "2280687b8e250eec49b98a49bb6c1bde3950b6d59f768c6fcbc885cea6bc5954",
+    "sha256": "ac03894848f5820de7e56c0f3c2e02ce747918f4d6044a54765e38096ffd7998",
     "zh": "docs/zh/shared-scenario.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/tutorials/portable-contract-three-targets.md": {
     "sha256": "9cce3148f86d0d7d06f39bb3f1ddb23a896c32346c02de29f46b1823e77104d0",
@@ -49,24 +50,24 @@
     "model": "manual"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "8c03990ea7aeded65e426ce64ce975584328ccff971b34f988351b46cc2c3cd1",
+    "sha256": "fe3596f940e1e695bb7c13a5a8d4ef10690ffae689d426c852dddb92ded23ccc",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual"
   },
   "docs/review-checklist.md": {
-    "sha256": "ff8faffc195d72e1d47fbd6c3a12fd90b284c591131c0a0031ab5841e26dc707",
+    "sha256": "c2a11658b0c9f51316f973e88195de3bc26f9863a1b81016b8f364a22856c979",
     "zh": "docs/zh/review-checklist.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/development-standards.md": {
-    "sha256": "fc8f8c70c8ec373d84c53fe15797c76c02b062b67832c56c622a8f030891d0b0",
+    "sha256": "8c54183965a9bdb7bc163c93570cdfb3b059c302588e44b98568183f961c162f",
     "zh": "docs/zh/development-standards.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/validation-gates.md": {
-    "sha256": "049dd51eda8d44cee328f9d75f259d675db73bb0ce171d5d92de068c24429f27",
+    "sha256": "5f1efebc1ed0e3acbf868f9285d8382a524d0dbb542a84f18c650765dfa8ba90",
     "zh": "docs/zh/validation-gates.zh.md",
-    "model": "gemini-3-flash-preview",
+    "model": "manual",
     "en_sha256": "049dd51eda8d44cee328f9d75f259d675db73bb0ce171d5d92de068c24429f27"
   },
   "docs/rfcs/README.md": {
@@ -80,9 +81,9 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/rfcs/0002-target-implementation-design.md": {
-    "sha256": "aa2cf6eb05287f02a159a18cd15544a357266443d683547da4e539145487f498",
+    "sha256": "5258e5b468f1c4bdea952e79d52c161a268cd4904c408295c2d418725b1aa38e",
     "zh": "docs/zh/rfcs/0002-target-implementation-design.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/rfcs/0003-portable-ir-and-runtime.md": {
     "sha256": "3aefc1c866b49eba2d6a8c2f6a80d969c9b61615f421263b03aa06adc169fee0",
@@ -95,9 +96,9 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/README.md": {
-    "sha256": "c435968be0998d3b641ad707d48001d1b3b67f71753d1e5010a463debafe5935",
+    "sha256": "c868eace5ce86443309e6a710243cf114f3077a9499b4797af7d7a2b6b88a30a",
     "zh": "docs/zh/targets-README.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual"
   },
   "docs/targets/evm.md": {
     "sha256": "021759d13db528667a27577d472ea035270438c05e4125acb40764ab7f1146d9",

@@ -12,6 +12,7 @@ import ProofForge.IR.Examples.EventProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.EvmContextProbe
 import ProofForge.IR.Semantics
+import ProofForge.IR.StepSemantics
 
 namespace ProofForge.Backend.Evm.Refinement
 
@@ -1105,6 +1106,47 @@ theorem context_evm_yul_surface_trace_entrypoints :
 
 theorem context_evm_yul_executable_trace_ok :
     contextTraceObligation.evmYulTraceOk = true := by
+  native_decide
+
+/-! Phase 6a — inductive `IRTraceMatches` bridge (Tier C-proof step 1).
+
+The existing `counter_ir_observable_trace_ok` /
+`value_vault_ir_observable_trace_ok` theorems above are `native_decide`
+executable trace-equivalence checks on FIXED scenarios. They stay as a
+regression smoke. The theorems below re-prove the SAME observable trace
+property as instances of the inductive `IRTraceMatches` predicate from
+`ProofForge.IR.StepSemantics`, which is structurally recursive over the
+call list and has a soundness lemma discharged by `induction` (see
+`StepSemantics.runTraceListGen_sound`).
+
+The bridge: `StepSemantics.runTraceListGen runEntrypointObservable` is the
+generic inductive runner instantiated with this module's atomic per-call
+step. Its `Decidable` instance on `IRTraceMatches` computes the runner and
+compares the observable array, so the fixed-scenario theorems below
+discharge via `native_decide` and agree with the existing
+`*_ir_observable_trace_ok` checks above. We thus have BOTH the fast
+`native_decide` check AND the inductive `IRTraceMatches` statement, agreeing
+on the fixed scenarios. The universally-quantified soundness lemma
+(`runTraceListGen_sound`, by `induction calls`) lives in
+`StepSemantics.lean` and is the first universally-quantified IR-side trace
+lemma in the Tier C-proof chain.
+-/
+
+/-- The Counter observable trace matches the inductive `IRTraceMatches`
+predicate (Tier C-proof inductive statement, fixed scenario). The
+`Decidable` instance on `IRTraceMatches` computes `runTraceListGen` and
+compares observables, so this discharges via `native_decide` on the fixed
+Counter scenario, agreeing with `counter_ir_observable_trace_ok` above. -/
+theorem counter_ir_trace_matches_inductive :
+    ProofForge.IR.StepSemantics.IRTraceMatches runEntrypointObservable
+      IR.Semantics.State.empty counterTraceCalls.toList counterExpectedTrace := by
+  native_decide
+
+/-- The ValueVault observable trace matches the inductive `IRTraceMatches`
+predicate (Tier C-proof inductive statement, fixed scenario). -/
+theorem value_vault_ir_trace_matches_inductive :
+    ProofForge.IR.StepSemantics.IRTraceMatches runEntrypointObservable
+      IR.Semantics.State.empty valueVaultTraceCalls.toList valueVaultExpectedTrace := by
   native_decide
 
 end ProofForge.Backend.Evm.Refinement

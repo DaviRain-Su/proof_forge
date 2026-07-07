@@ -85,8 +85,8 @@ Unifying the *contract* (not the plan algebra) makes three things possible:
 | Tier | Meaning | Cost | In scope for this RFC? |
 |---|---|---|---|
 | **A** | Shared IR operational semantics (`IR/Semantics.lean`) is the ground truth; every backend passes shared-scenario trace obligations for the IR subset semantics currently covers. | Medium — semantics exists but must grow (FV-2/FV-3). | **No** (acknowledged dependency; tracked by FV workstream). |
-| **B** | Shared lowering *contract*: per-backend `validateModule*` + `*ModulePlan` + `lowerToAst` + plan-driven metadata + golden `*-semantic-plan` smokes. | EVM done; Psy easy–medium; NEAR medium; Solana medium–hard. | **Yes.** |
-| **C-diff** | Differential trace replay: the Quint MBT backend generates ITF traces from `IR.Semantics` and replays them against each backend's actual emitted artifact (bytecode via Foundry for EVM; Mollusk for Solana; offline-host for NEAR). Acts as a pragmatic substitute for a full target-chain formal semantics. | EVM landed (`just quint-evm-backend-replay-gate`); portable to any backend once its `*ModulePlan` exists. | **Partial.** RFC 0014 consumes the Quint backend's traces for end-to-end smoke; it does not redesign the Quint backend itself. |
+| **B** | Shared lowering *contract*: per-backend `validateModule*` + `*ModulePlan` + `lowerToAst` + plan-driven metadata + golden `*-semantic-plan` smokes. | EVM done; Solana done; NEAR easy–medium (Phase 4 chosen first); Psy easy (deferred); Move-Sui hard (deferred). | **Yes.** |
+| **C-diff** | Differential trace replay: the Quint MBT backend generates ITF traces from `IR.Semantics` and replays them against each backend's actual emitted artifact (bytecode via Foundry for EVM; Mollusk for Solana; offline-host for NEAR). Acts as a pragmatic substitute for a full target-chain formal semantics. | EVM landed (`just quint-evm-backend-replay-gate`); portable to any backend once its `*ModulePlan` exists. 2026-07-07 audit selected NEAR as the next candidate (see `docs/quint-cdiff-multi-backend-design.md`). | **Partial.** RFC 0014 consumes the Quint backend's traces for end-to-end smoke; it does not redesign the Quint backend itself. |
 | **C-proof** | Machine-checked end-to-end refinement: Lean IR-semantics ⟷ formal target-chain execution model. | Hard. EVM can lean on `powdr-labs/evm-semantics` (a Lean EVM semantics passing `ethereum/tests`). Solana is research (FV-4): no off-the-shelf sBPF Lean semantics exists. | **No** (explicit non-goal). |
 
 **Splitting the old Tier C into C-diff and C-proof is load-bearing.** It separates
@@ -157,7 +157,7 @@ remains a non-goal.
 - Replacing the existing AST printers or external tool invocations. The contract
   sits *above* the AST layer; printers stay as they are.
 - Forcing every backend to grow EVM-shaped `ExprPlan`/`StmtPlan` body plans on
-  day one. Body planning is backloaded (Phase 5) and only where it pays.
+  day one. Body planning is backloaded (Phase 6) and only where it pays.
 
 ## Current state per backend
 
@@ -287,7 +287,7 @@ Concretely per backend:
 - `ManifestPlan` — linkage fields the manifest/IDL/client emitters read.
 
 Body planning (`ExprPlan`/`StmtPlan` for Solana instructions) is **deferred**
-to Phase 5; Phase 2 plans only the layout/dispatch/CPI/account schema.
+to Phase 6; Phase 2 plans only the layout/dispatch/CPI/account schema.
 
 **NEAR**: `NearModulePlan` covers:
 
@@ -298,7 +298,7 @@ to Phase 5; Phase 2 plans only the layout/dispatch/CPI/account schema.
 - `PromisePlan` (future) — crosscall lowering targets; today crosscall →
   Promise lowering is a documented EmitWat gap.
 
-**Psy**: `PsyModulePlan` is extended **later** (Phase 5) toward entrypoint/body
+**Psy**: `PsyModulePlan` is extended **later** (Phase 6) toward entrypoint/body
 plans; initial scope keeps the existing metadata-only plan and aligns the
 `buildModulePlan` → `buildModuleWithPlan` seam to the shared contract.
 
@@ -369,13 +369,13 @@ Plus a unified comparison entry:
 just semantic-plan-matrix     -- runs evm + psy + near + solana semantic-plan gates
 ```
 
-Golden plan snapshots (Phase 6 stretch) would serialize plans to JSON for human
-review; that is an open question, not a Phase 1–4 requirement.
+Golden plan snapshots (Phase 7 stretch) would serialize plans to JSON for human
+review; that is an open question, not a Phase 1–5 requirement.
 
 ## Phased rollout
 
-Each phase is independently shippable and reverses cleanly. Phases 0–3 are
-Tier B; Phase 4 begins the Tier C seam without delivering full proofs.
+Each phase is independently shippable and reverses cleanly. Phases 0–4 are
+Tier B; Phase 5 begins the Tier C seam without delivering full proofs.
 
 ### Phase 0 — Lowering interface document (4–6 weeks)
 
@@ -453,38 +453,223 @@ reference-equivalence gates; refactor must keep them byte-stable. Recommend
 landing behind a feature flag (e.g. `--solana-plan=v2`) and switching after
 golden parity is demonstrated.
 
-**Scope cut:** body planning (`ExprPlan`/`StmtPlan` for Solana) → Phase 5.
+**Scope cut:** body planning (`ExprPlan`/`StmtPlan` for Solana) → Phase 6.
 
-### Phase 3 — NEAR plan layer (8–12 weeks)
+### Phase 3 — Shared diagnostic contract (prerequisite, landed 2026-07-07)
 
-**Milestones:**
+**Status:** Minimal stub landed. Build green, smoke green, no existing
+diagnostic bytes changed.
 
-- Add `ProofForge/Backend/WasmNear/Plan.lean` (`NearModulePlan`).
-- `EmitWat` consumes the plan: `validateModule` → `buildModulePlan` →
-  `lowerToAst` (mirroring EVM's `lowerModuleWithPlan`).
-- Add `Tests/NearSemanticPlan.lean` and `just near-semantic-plan`.
-- `WasmNear/Refinement.lean` consumes the plan where it currently re-derives
-  exports/imports.
+**Motivation:** Phase 1 found that `validateCapabilities`, the return-path
+check, identifier validity, and `ensureNumericType` could not be safely unified
+because each backend's error type, rules, and messages differ. A shared
+diagnostic vocabulary is the prerequisite for growing the shared validate
+surface beyond the four Phase 1 pure helpers. This phase introduces it without
+migrating any backend.
+
+**What was landed (the minimal, safe stub):**
+
+- `ProofForge/Backend/Diagnostic.lean` (new) — `LoweringDiagnostic`
+  (`message` + optional `backend?` / `severity` / `code?` metadata),
+  `Severity`, the `LoweringError` typeclass contract, two trivial adapters
+  (`LoweringDiagnostic` identity, `String` for the `Except String` shape
+  `SharedValidate` uses today), `fromTargetDiagnostic`, and `liftSharedError`.
+- `Tests/Diagnostic.lean` (new, 9 cases) pins the byte-stability invariant:
+  `LoweringDiagnostic.render` outputs **only** `message`, so any backend
+  delegating to it sees byte-identical output to its existing
+  `<Name>.render := err.message`.
+- `justfile`: `diagnostic-smoke` recipe added to `check`.
+
+**Design decision (shared type + typeclass, not typeclass-only):** a field-level
+audit (see [`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md))
+showed every backend lowering/plan/emit error type is *already* the same shape —
+a single-field `structure <Name> where message : String` whose `render` is
+`err.message`. A shared concrete type is therefore justified, not premature: a
+typeclass-only contract would leave `SharedValidate` returning `Except String`
+(the Phase 1 status quo), which is what this phase grows beyond. The optional
+metadata fields do not participate in `render`, so they cannot perturb golden
+diagnostics.
+
+**What was NOT done (deferred follow-ups, explicitly tracked):**
+
+- **Per-backend `LoweringError` instances.** Each backend's concrete error type
+  (`Evm.Validate.LowerError`, `WasmNear.IR.LowerError`, …) should declare a
+  trivial adapter instance. Purely additive; no `.render` bytes change. One PR
+  per backend so each backend's golden suite guards against drift.
+- **Migrating `SharedValidate` helpers to return
+  `Except LoweringDiagnostic α`.** Changes `SharedError` and every call site
+  that folds it. Safe in principle via `liftSharedError`, but a wider diff;
+  lands after the adapter instances.
+- **Unifying `validateCapabilities` / the return-path check / identifier
+  validity / `ensureNumericType`.** A shared `Diagnostic` type is a
+  *prerequisite*, not a sufficient condition — the per-backend rules and
+  messages must also be aligned first. Deferred to a later phase.
+
+**Diagnostic stability:** unchanged. `Tests/Diagnostic.lean` pins
+`LoweringDiagnostic.render` to the bare `message`. No backend's concrete
+`render` was touched; no golden diagnostic test needed updating.
 
 **Touch list:**
 
-- `ProofForge/Backend/WasmNear/Plan.lean` (new), `EmitWat.lean`, `IR.lean`
-- `ProofForge/Backend/WasmNear/Refinement.lean`
+- `ProofForge/Backend/Diagnostic.lean` (new)
+- `Tests/Diagnostic.lean` (new)
+- `justfile` (`diagnostic-smoke`, wired into `check`)
+- `docs/shared-diagnostic-design.md` (new — field-level audit + design)
+- `docs/rfcs/0014-…` (this RFC), `docs/zh/rfcs/0014-…` (translation sync)
+
+**Risks:** none for the stub (purely additive, no backend signature changes).
+Follow-up adapter PRs risk golden churn if an adapter accidentally changes a
+`s!"..."` interpolation; mitigated by one-PR-per-backend and each backend's
+golden suite.
+
+**Scope cut:** migrating backends onto `LoweringDiagnostic` as their public
+error type; unifying the per-backend validation rules. Both are follow-ups.
+
+### Phase 4 — NEAR plan layer (8–12 weeks)
+
+**Audit finding (2026-07-07).** An audit of the three candidate backends (NEAR, Psy,
+Move-Sui) corrected the earlier "No `WasmNear/Plan.lean`" claim: `WasmNear.Plan.lean`
+already exists and defines `ModulePlan` + `buildModulePlan` + `ModuleSurface`, and
+`EmitWat.lowerModule` already consumes it to drive host imports and helper-function
+pruning (gated by `Tests/WasmNearPlan.lean` / `just wasm-near-plan`). The remaining gap
+is narrower than Solana's was: the data-layout `Ctx` (scalar key pointers, map prefix
+pointers, string pool, panic pool, crosscall string pool) is still built inline at the
+top of `EmitWat.lowerModule` rather than plan-derived. The full audit, per-backend
+feasibility table, field-level design, and migration path are in
+[`docs/multi-backend-moduleplan-design.md`](../multi-backend-moduleplan-design.md).
+
+**Chosen first candidate: NEAR.** The whole `Ctx` is plan-derived (no lowering-local
+mutable state to split out, unlike Solana's `locals`/`nextLabel`/`allocator`), so the
+migration is smaller than Phase 2 was. Psy and Move-Sui are deferred: Psy's
+`PsyModulePlan` is already consumed and metadata-only (low payoff without body
+planning, a Phase 6 product question), and Move-Sui is a Counter MVP spike with no
+real lowering (a `SuiModulePlan` would have to precede building one).
+
+**Milestones:**
+
+- Step A (types only, additive) — **LANDED (commit 61cfa7a9).** Added
+  `ProofForge/Backend/WasmNear/NearModulePlan.lean` with `NearModulePlan`,
+  `NearLayoutPlan`, `NearLowerCtxSeed`, and a `buildNearModulePlan` for
+  `ProofForge.IR.Examples.Counter.module`. Not wired into EmitWat. Added
+  `Tests/NearModulePlan.lean`, `Examples/WasmNear/Counter/golden/plan.txt`,
+  and `just near-plan-smoke` (mirroring `solana-plan-smoke`).
+- Step B (plan construction + `Ctx.fromSeed`, additive) — **LANDED (2026-07-07).**
+  Implemented `Ctx.fromPlanSeed` (reconstructs `EmitWat.Ctx` from the plan's seed +
+  layout; the whole `Ctx` is plan-derived since NEAR has no lowering-local mutable
+  state) and `lowerModuleFromPlan` (drives lowering by handing the reconstructed
+  `Ctx` to a shared `EmitWat.lowerModuleCoreWithCtx` body extracted from the
+  inline path, mirroring Solana's `lowerModuleCoreWithSeed`). The inline `Ctx`
+  construction in `EmitWat.lowerModule` is kept (dual-path) until Step C. The
+  `near-plan-smoke` gate now also runs a dual-path parity check: for `Counter`,
+  plan-driven WAT and inline WAT must be byte-identical (asserted as `MATCH N
+  chars`). Result: `Counter: MATCH 2228 chars`. `lake build`, `just
+  wasm-near-plan`, and the frozen `Counter.golden.wat` are unaffected.
+- Step B.2 (widen parity coverage to non-scalar state shapes) — **LANDED
+  (2026-07-07).** Extended `Tests/NearModulePlan.lean` with a `moduleFor`
+  resolver and three sub-module fixtures mirroring the Solana Phase 2
+  array/map/struct probes: `EvmMapProbe` (map state, u64-keyed `balances`),
+  `EvmStorageArrayProbe` (array state, `values` length 3),
+  `EvmStorageStructProbe` (struct state, `current : Point`). Each sub-module
+  only exercises lowering paths the NEAR backend already supports.
+  `scripts/near/plan-smoke.sh` now loops over all four fixtures (Counter +
+  three new), generating + diffing each plan golden and running the parity
+  check per fixture. New golden `plan.txt` files added under
+  `Examples/WasmNear/<Fixture>/golden/`. Parity results (plan-driven WAT ==
+  inline WAT, byte-identical): `Counter: MATCH 2228 chars`, `EvmMapProbe:
+  MATCH 3498 chars`, `EvmStorageArrayProbe: MATCH 4703 chars`,
+  `EvmStorageStructProbe: MATCH 3375 chars`. Coverage now spans scalar / map /
+  array / struct state shapes; the inline `Ctx` construction is still kept
+  (dual-path) until Step C, which now has wide coverage evidence to lean on.
+- Step C (switch default): after parity holds, flip the default to v2, delete the
+  inline `Ctx` construction, and switch `WasmNear/Refinement.lean` from re-deriving
+  exports/imports to reading `NearModulePlan.surface` + `NearModulePlan.layout`.
+
+**Touch list:**
+
+- Step A: `ProofForge/Backend/WasmNear/NearModulePlan.lean` (new),
+  `Tests/NearModulePlan.lean` (new), `Examples/WasmNear/Counter/golden/plan.txt`
+  (new), `scripts/near/plan-smoke.sh` (new), `justfile`.
+- Step B: `ProofForge/Backend/WasmNear/NearModulePlan.lean` (`Ctx.fromPlanSeed`,
+  `lowerModuleFromPlan`, `renderModuleFromPlan`; `NearStatePlan`/`NearMapPlan`
+  now carry `ValueType` so the seed can rebuild `StateInfo`/`MapInfo`),
+  `ProofForge/Backend/WasmNear/EmitWat.lean` (`lowerModuleCoreWithCtx` extracted
+  from `lowerModule` to break the import cycle),
+  `Tests/NearModulePlan.lean` (dual-path parity check), `scripts/near/plan-smoke.sh`
+  (`--parity`), `justfile`.
+- Step B.2: `Tests/NearModulePlan.lean` (`moduleFor` + `mapSubModule` /
+  `arraySubModule` / `structSubModule`), `scripts/near/plan-smoke.sh`
+  (multi-fixture loop), `Examples/WasmNear/{EvmMapProbe,EvmStorageArrayProbe,
+  EvmStorageStructProbe}/golden/plan.txt` (new goldens).
+- Step C: `ProofForge/Backend/WasmNear/EmitWat.lean`,
+  `ProofForge/Backend/WasmNear/Refinement.lean`.
 
 **Risks:** WAT golden churn; offline-host smokes must remain byte-stable. Same
-feature-flag strategy as Phase 2.
+feature-flag strategy as Phase 2 (run both paths in CI, flip default after parity).
 
-**Scope cut:** full Wasm instruction semantics in Lean (Tier C, deferred).
+**Scope cut:** full Wasm instruction semantics in Lean (Tier C, deferred); the Rust
+sourcegen path (`WasmNear/IR.lean`) is out of scope (a parallel lowering with no
+`Ctx`); `ExportPlan` (one entry per entrypoint) deferred to Phase 4.2.
 
-### Phase 4 — Refinement seam (ongoing)
+**Deferred backends:**
 
-Phase 4 splits cleanly into two paths now that the Quint verification backend
+- **Psy** — `PsyModulePlan` already exists and is consumed by `Psy/IR.lean` via
+  `BuildContext`; there is no `LowerCtx` to split. Extending the plan to cover
+  entrypoint/body shapes (`ExprPlan`/`StmtPlan`) is a Phase 6 product decision, not a
+  Phase 4 refactor.
+- **Move-Sui** — a Counter MVP spike with no real lowering. A `SuiModulePlan` would
+  have to precede building a real Move lowering (struct/entrypoint/state/capability
+  plans), which is a Phase 6+ research item, not Phase 4.
+
+### Phase 5 — Refinement seam (ongoing)
+
+Phase 5 splits cleanly into two paths now that the Quint verification backend
 exists as a Tier C-diff vehicle.
 
-**Path 4a — Tier C-diff cross-backend rollout (engineering).**
+**Path 5a — Tier C-diff cross-backend rollout (engineering).**
 
+A full per-backend feasibility audit, the abstract replay interface (generalizing
+from `EvmReplay`), the field-level design for the chosen next candidate (NEAR), and
+the deferred backends with rationale are in
+[`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md).
+Summary:
+
+- **Current coverage (2026-07-07 audit):** EVM only (`EvmReplay.lean`,
+  `just quint-evm-backend-replay-gate`). The replay interface is a pure Lean
+  trace → harness renderer (`renderFoundryTest`) that lowers an ITF trace to a
+  Solidity/Foundry test; the target toolchain (`forge`) executes it. The
+  chain-neutral trace interpretation (`resolveActionName`, `buildArgs`,
+  `entrypointMap`, `buildInitialState`, `compareStates`, `itfValueToIr`) lives
+  in `Replay.lean` and is reused by every shim.
+- **Chosen next candidate: NEAR.** The `runtime/offline-host` (wasmtime) is
+  in-tree, needs no external RPC, and its CLI is a flat arg list
+  (`run <wat> <exports...> --inputs-hex <...>`). A `NearReplay.lean` shim renders
+  that arg list from the same ITF trace; the offline-host executes it. This is
+  simpler than EVM (which renders a Solidity test file). A minimal type-only stub
+  (`ProofForge/Backend/Quint/NearReplay.lean` + `Tests/Quint/NearReplaySmoke.lean`
+  + `just quint-near-replay-smoke`) is landed in this step; it is **not** wired
+  into CI. Step B (full `renderOfflineHostArgs`, the wrapping test that spawns
+  `quint` + offline-host, the gate script, `just
+  quint-near-backend-replay-gate`) is a follow-up.
+- **Recommended order:** EVM (done) → NEAR (stub landed) → Solana (stub
+  landed; Mollusk is in-tree as a Rust crate, `SolanaModulePlan` exposes the
+  discriminator/account schema; the shim renders a Rust Mollusk test file) → Psy
+  (3rd, blocked on `dargo` not installed here) → Move-Sui / Aleo / Cloudflare
+  (deferred, research spikes with no real lowering).
+- **Multi-module rendering (2026-07-07):** the three C-diff shims are no longer
+  Counter-only. `EvmReplay` generalizes its mutating/read/init step rendering
+  to encode entrypoint ABI args (Counter path byte-identical; ValueVault now
+  renders). `NearReplay` generalizes its `init` branch to look up the module's
+  `initialize` entrypoint and encode its args from the ITF nondet picks
+  (previously hard-coded `("initialize", "")`; Counter path byte-identical),
+  and its smoke now covers ValueVault. `SolanaReplay` routes its account list
+  and state layout through the `SolanaModulePlan` (Tier B) instead of a
+  hard-coded Counter account, and its smoke covers ValueVault (multi-scalar)
+  and an `EvmMapProbe` map sub-module (non-scalar state, with a v1 degradation
+  that skips byte-level account-data assertion). The smokes are pure
+  string-render checks, not wired into `just check`. See
+  `docs/quint-cdiff-multi-backend-design.md` §15.
 - Mirror the existing `just quint-evm-backend-replay-gate` pattern on every
-  backend once its `*ModulePlan` lands in Phase 2/3:
+  backend once its `*ModulePlan` lands in Phase 2/4:
   - Solana: `just quint-solana-backend-replay-gate` — Quint MBT ITF trace →
     Mollusk invocation against the emitted `.so` (Tier C-diff; avoids needing a
     Lean sBPF semantics).
@@ -495,57 +680,152 @@ exists as a Tier C-diff vehicle.
   harness differs per backend. The `*ModulePlan` is what makes the emitted
   artifact stable enough for trace-level differential testing.
 
-**Path 4b — Tier C-proof seam (research).**
+**Path 5b — Tier C-proof feasibility (assessed 2026-07-07).**
 
-- Add `ProofForge/Backend/Solana/Refinement.lean` skeleton: Counter IR trace
-  obligation against the selector-dispatched asm surface (no full sBPF
-  semantics).
-- Wire `Tests/NearWasmFormal.lean` to import Solana obligations when non-empty
-  (CI build-gated).
-- EVM: investigate projecting `Evm.Refinement.TraceObligation` onto an
-  external Lean EVM semantics (e.g. `powdr-labs/evm-semantics`, which passes
-  the official `ethereum/tests` conformance suites) instead of
-  `Evm.YulSemantics`'s in-tree executable Yul subset. This is a research
-  integration; the seam is sketched here, not delivered.
-- Link [`docs/formal-verification.md`](../formal-verification.md) FV-8
-  (ValueVault invariants) to per-backend obligations.
+A full feasibility assessment has been completed and is recorded in
+[`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md). Summary of findings:
 
-**Touch list:**
+- **Current state is *not* a machine-checked refinement.** `Evm.Refinement.lean`
+  and `ValueVaultInvariant.lean` discharge `native_decide` executable trace-equivalence
+  checks on *fixed* scenarios (Counter, ValueVault, etc.), not universally-quantified
+  simulation proofs. `ValueVaultInvariant.lean` checks the accounting invariant for the
+  *default* inputs only, not for all `ScenarioInputs`.
+- **Target semantics.** The Lean 4 EVM+Yul formal model is
+  [`leonardoalt/EVMYulLean`](https://github.com/leonardoalt/EVMYulLean) (Nethermind-maintained,
+  referenced by the powdr ecosystem). It is Lean 4, passes 22,330/22,332 (99.99%) of the
+  official `ethereum/tests` Cancun suite, models EVM bytecode at the opcode level
+  (`EVM.State`, `step`), and also covers Yul. It is a standalone semantics, not a
+  refinement framework — the simulation obligation is ProofForge's. Note: `powdr-labs/powdr`
+  is a *separate* Rust zkVM toolkit and is *not* the EVM semantics dependency.
+- **Biggest blocker (IR side).** `IR.Semantics` is an interpreter
+  (`runEntrypointWithArgs`), not a small-step `step : State → Option State` relation. A
+  simulation proof requires an explicit step relation + induction principle. This is the
+  first prerequisite and needs no new dependency.
+- **Second blocker (target side).** The in-tree `Evm.YulSemantics` is a *pseudo*-Yul
+  semantics (pseudo-keccak, simplified storage) not conformance-tested. A real Tier
+  C-proof wants the `EVMYulLean` bytecode `step`, which means adding a `lake` dependency.
+- **Storage layout bridging.** IR flat `State` vs EVM 256-bit storage slots is currently
+  encoded only implicitly in the lowering; `Evm.Plan.ModulePlan` storage layout is the
+  right place to make it explicit (a side-benefit of the Tier B work).
 
-- Path 4a: `scripts/quint/*-backend-replay-gate.sh` (new per backend),
+**Phased roadmap (replaces the previous "research seam" sketch):**
+
+- **Phase 6a — Tighten `Evm.Refinement` to a real simulation (internal, no new dep).**
+  Introduce `ProofForge/IR/StepSemantics.lean` with a small-step `step` relation;
+  reformulate `irTraceOk` as an inductive `IRTraceMatches` predicate; prove soundness by
+  induction (not `native_decide`). Keep existing `native_decide` theorems as regression smoke.
+  Deliverable: first universally-quantified IR-side trace lemmas.
+  **Status (2026-07-07): landed.** `ProofForge/IR/StepSemantics.lean` defines the generic
+  inductive `IRTraceMatches` predicate (structurally recursive over the call list), a
+  generic `runTraceListGen` runner, and `runTraceListGen_sound` discharged by
+  `induction calls generalizing s` (NOT `native_decide`) — the first universally-quantified
+  IR-side trace lemma. A `Decidable` instance on `IRTraceMatches` (via the iff bridge to
+  `runTraceListGen`) lets `native_decide` re-prove the fixed-scenario theorems. Design
+  choice (b): big-step induction over the call list (keep the existing big-step interpreter
+  `runEntrypointWithArgs` as the atomic step; small-step `step` relation deferred to 6b+).
+  `Evm.Refinement.lean` adds `counter_ir_trace_matches_inductive` and
+  `value_vault_ir_trace_matches_inductive`, preserving the existing
+  `counter_ir_observable_trace_ok` / `value_vault_ir_observable_trace_ok` as regression
+  smoke. `Tests/IRStepSemantics.lean` + `just ir-step-semantics-smoke` (wired into
+  `just check`) anchor the layer. See the Phase 6a "landed" note in
+  [`docs/tier-c-proof-feasibility.md`](../tier-c-proof-feasibility.md).
+- **Phase 6b — Integrate `EVMYulLean` EVM bytecode semantics as a lake dependency.**
+  Add `leonardoalt/EVMYulLean` as a `require` in `lakefile.lean`; pull `EthereumTests`
+  submodule for CI-only conformance. Provide a thin adapter
+  `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` exposing `EVM.state`/`step` aligned
+  with `ObservableStep`. Deliverable: a conformance-tested EVM bytecode semantics callable
+  from Lean proofs.
+  **Status (2026-07-07): blocked — seam only.** The integration was investigated and found
+  blocked by a Lean toolchain + mathlib version mismatch: `EVMYulLean` pins
+  `leanprover/lean4:v4.22.0` + `mathlib4 @ v4.22.0`, while ProofForge pins
+  `leanprover/lean4:v4.31.0` and has no mathlib dep. A single lake workspace uses one
+  toolchain; mathlib v4.22.0 will not compile under lean v4.31.0, and ProofForge is NOT
+  downgraded (would break the 378-job build). The `require` entry was NOT added to
+  `lakefile.lean`; `lake build` stays green. A stub adapter
+  `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` was landed as the seam, with the
+  public surface (`State`, `step`, `runBytecode`, aligned to `Refinement.ObservableStep`)
+  fixed by the stub and `sorry`-free stub theorems (`step_noop`, `runBytecode_empty`). The
+  full blocker record, the exact pinned-`commit` `require` syntax that would be used, and
+  the resolution path (wait for EVMYulLean to pin a ProofForge-compatible Lean toolchain +
+  matching mathlib tag, then add the `require` and `lake update` in an environment with
+  network access) are in [`docs/phase-6b-integration-blockers.md`](../phase-6b-integration-blockers.md).
+  No `Refinement.lean` theorem was touched (wiring is Phase 6c); no smoke gate was added
+  (per the task, the smoke is added only if integration succeeded).
+- **Phase 6c — Prove IR → bytecode refinement for Counter.** Define the simulation relation
+  `R : IR.State ↔ EVM.State` for the Counter module (single U64 scalar → one storage slot);
+  prove `R`-simulation for `initialize`/`increment`/`get`; lift to a trace theorem by
+  induction over the call list. Deliverable: first end-to-end machine-checked refinement.
+- **Phase 6d — Extend to ValueVault (storage map + events).** Extend `R` to map IR map
+  state to EVM storage slot prefixes (using `Evm.Plan.ModulePlan`); prove refinement for
+  all seven entrypoints including event emission; prove
+  `value_vault_accounting_invariant` universally quantified over `ScenarioInputs`.
+  Deliverable: a universally-quantified contract invariant carried from IR to bytecode.
+- **Phase 6e — Generalize the simulation framework.** Extract a reusable
+  parametric `SimulationFramework` so the same pattern can in principle target Solana
+  (Mollusk/Pinocchio) or NEAR (offline-host wasm). Note: Tier C-proof for non-EVM chains
+  requires a formal target semantics for each, which does not exist today; this phase is
+  exploratory and non-EVM chains remain in Tier C-diff until such semantics exist.
+
+**Touch list (updated):**
+
+- Path 5a: `scripts/quint/*-backend-replay-gate.sh` (new per backend),
   `ProofForge/Backend/Quint/{Solana,Near,Psy}Replay.lean` (new, mirroring
-  existing `EvmReplay.lean`), `justfile` recipes.
-- Path 4b: `ProofForge/Backend/Solana/Refinement.lean` (new),
-  `Tests/NearWasmFormal.lean`,
-  `ProofForge/Contract/Examples/ValueVaultInvariant.lean`.
+  existing `EvmReplay.lean`), `justfile` recipes. **Landed in this step
+  (additive stub):** `ProofForge/Backend/Quint/NearReplay.lean`,
+  `Tests/Quint/NearReplaySmoke.lean`, `just quint-near-replay-smoke` (not wired
+  into `just check`). **Landed 2026-07-07 (Solana stub):**
+  `ProofForge/Backend/Quint/SolanaReplay.lean`,
+  `Tests/Quint/SolanaReplaySmoke.lean`, `just quint-solana-replay-smoke` (not
+  wired into `just check` — running end-to-end needs SBF platform-tools not
+  installed here per AGENTS.md). The Solana shim renders a Rust Mollusk test
+  file (option (a) from the design doc — mirrors EVM's Solidity test rendering
+  and the in-tree `Tests/solana/counter_mollusk.rs.tpl` template); the
+  account-model translation (instruction discriminator via
+  `Manifest.externalDiscriminatorBytes?` + single writable state account +
+  little-endian instruction-data bytes) is the main extra work vs NEAR. See
+  [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md).
+- Path 5b: `docs/tier-c-proof-feasibility.md` (new — landed this step).
+  **Landed 2026-07-07 (Phase 6a):** `ProofForge/IR/StepSemantics.lean`,
+  `Tests/IRStepSemantics.lean`, `just ir-step-semantics-smoke` (wired into `just check`),
+  `ProofForge/Backend/Evm/Refinement.lean` bridge theorems
+  (`counter_ir_trace_matches_inductive`, `value_vault_ir_trace_matches_inductive`).
+  Future: `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` (6b),
+  `lakefile.lean` `EVMYulLean` dependency (6b).
 
-**Risks:** overstating what is "proven" — Path 4a is differential testing
-(Tier C-diff), not a proof; Path 4b remains a seam (Counter/ValueVault trace
-shape), not Tier C-proof completeness.
+**Risks:** overstating what is "proven" — Path 5a is differential testing
+(Tier C-diff), not a proof; Path 5b's current `Evm.Refinement`/`ValueVaultInvariant`
+are `native_decide` executable checks, not machine-checked refinement. The phased
+roadmap (6a–6e) is the concrete path to a real Tier C-proof, with 6a as the
+no-new-dependency first step.
 
-**Scope cut:** Tier C-proof for Solana (full syscall semantics in Lean).
+**Scope cut:** Tier C-proof for Solana (full syscall semantics in Lean — no
+off-the-shelf formal sBPF semantics exists). Tier C-proof for NEAR/Psy likewise
+deferred pending formal target semantics; they stay in Tier C-diff. Full
+`ethereum/tests` coverage and all EVM opcodes are out of scope — conformance is
+`EVMYulLean`'s job; ProofForge only needs its adapter to be correct.
 
-### Phase 5–6 (stretch)
+### Phase 6–7 (stretch)
 
-- **Phase 5:** Psy body plans; Solana `ExprPlan`/`StmtPlan`; EVM completes
+- **Phase 6:** Psy body plans; Solana `ExprPlan`/`StmtPlan`; EVM completes
   `StmtPlan` ownership per `docs/implementation-backlog.md`.
-- **Phase 6:** `.evm-plan.json` / `.solana-plan.json` / `.near-plan.json`
+- **Phase 7:** `.evm-plan.json` / `.solana-plan.json` / `.near-plan.json`
   snapshots for human review (RFC 0004 open question); consider Lean typeclass
-  encoding of the lowering contract if Phase 0–4 shapes stabilize.
+  encoding of the lowering contract if Phase 0–5 shapes stabilize.
 
 ## Feasibility / difficulty
 
 | Backend | Tier B difficulty | Why | Reuse from EVM? |
 |---|---|---|---|
 | EVM | Done | Reference stack. | N/A |
-| Psy | Easy–medium | `PsyModulePlan` exists; extend + align seam. | Metadata + storage-shape plan ideas. |
-| NEAR | Medium | Strong `validateModule` already; refactor is about extracting plan from `EmitWat`/`IR`. | Plan-driven metadata pattern. |
-| Solana | Medium–hard | New `AccountPlan`/`InstructionDataPlan`/`CpiPlan`; `LowerCtx` → plan-derived refactor in a ~1.7k-LOC module with byte-stable golden gates. | Helper/event plan *patterns*; account/syscall plans are new. |
+| Solana | Medium–hard (landed on `main`) | New `AccountPlan`/`InstructionDataPlan`/`CpiPlan`; `LowerCtx` → plan-derived refactor in a ~1.7k-LOC module with byte-stable golden gates. | Helper/event plan *patterns*; account/syscall plans are new. |
+| NEAR | Easy–medium (Phase 4 first candidate) | `WasmNear.Plan.ModulePlan` already exists and is consumed by `EmitWat` (drives host imports/helpers); the remaining gap is externalizing the data-layout `Ctx` into plan fields, and the whole `Ctx` is plan-derivable with no lowering-local mutable state to split. See `docs/multi-backend-moduleplan-design.md`. | Plan-driven metadata + helper-discovery pattern. |
+| Psy | Easy (seam alignment; deferred) | `PsyModulePlan` exists and is consumed; no `LowerCtx` to split. Extending to body planning is a Phase 6 product decision. | Metadata + storage-shape plan ideas. |
+| Move-Sui | Hard (research; deferred) | Counter MVP spike with no real lowering; a `SuiModulePlan` must precede building a real Move lowering, a Phase 6+ item. | None. |
 | CosmWasm | Medium (later) | Clone NEAR split. | NEAR > EVM. |
 
 **Dependencies:**
 
-1. FV-2 IR semantics growth (Tier A) — needed for Phase 4 obligations to cover
+1. FV-2 IR semantics growth (Tier A) — needed for Phase 5 obligations to cover
    more than scalars + fixed aggregates.
 2. FV-3 ownership rules — Phase 1 ownership hook depends on ownership being
    sound for the IR subset in scope.
@@ -561,9 +841,9 @@ shape), not Tier C-proof completeness.
   host-import, and circuit models are not isomorphic to storage slots + ABI
   selectors. This RFC carries the same boundary forward.
 - **Formal-only unification via a Lean typeclass.** Deferred: the typeclass
-  encoding is plausible once Phase 0–4 shapes stabilize, but locking it in
+  encoding is plausible once Phase 0–5 shapes stabilize, but locking it in
   before Solana/NEAR plans exist risks premature abstraction. Tracked as an
-  open question for Phase 6.
+  open question for Phase 7.
 - **Status quo.** Rejected: on Solana, enforcement is scattered across
   diagnostics, golden asm, Mollusk, and surfpool/Web3 with no inspectable plan.
   That makes review harder, blocks Tier A/C attachment, and leaves Solana as
@@ -576,7 +856,7 @@ shape), not Tier C-proof completeness.
 - **Diagnostic message churn.** Phase 1 moves shared checks; golden diagnostic
   snapshots must update together. Mitigation: single PR per backend, CI red
   is loud.
-- **WAT golden churn on NEAR.** Same mitigation; Phase 3 is gated by
+- **WAT golden churn on NEAR.** Same mitigation; Phase 4 is gated by
   offline-host smoke parity.
 - **RFC 0004 boundary drift.** This RFC must not be read as "every backend
   adopts EVM's plan types". The non-goals section is explicit.
@@ -585,7 +865,7 @@ shape), not Tier C-proof completeness.
   reviewers, not added to `just check` until costs are measured.
 - **Premature abstraction.** Phase 0 stays documentation; Phase 1 is the
   smallest reversible extraction (shared validate). If Phase 1 lands cleanly,
-  Phase 2/3 proceed; if not, the RFC is revisited before Solana/NEAR work.
+  Phase 2/4 proceed; if not, the RFC is revisited before Solana/NEAR work.
 
 ## Drawbacks
 
@@ -594,15 +874,15 @@ shape), not Tier C-proof completeness.
   formal-facing (refinement seam), not a new product capability.
 - Risk of premature abstraction if the contract is over-specified before
   Solana/NEAR plans exist. Mitigated by backloading Lean typeclass encoding to
-  Phase 6.
+  Phase 7.
 
 ## Open questions
 
-- Should plan artifacts be serialized to JSON for human review (Phase 6
+- Should plan artifacts be serialized to JSON for human review (Phase 7
   stretch)? RFC 0004 leaves this open; this RFC inherits the question.
-- Should CosmWasm follow the NEAR split now or after Phase 3 lands?
+- Should CosmWasm follow the NEAR split now or after Phase 4 lands?
 - Should the lowering contract be encoded as a Lean typeclass, and if so, at
-  which stage (Phase 0 stub vs Phase 6 stable shape)?
+  which stage (Phase 0 stub vs Phase 7 stable shape)?
 - Should `just semantic-plan-matrix` be part of `just check`, `just ci`, or a
   separate reviewer-only entry?
 - **Phase 2+ prerequisite — shared Diagnostic type.** Phase 1 inventory showed
@@ -611,9 +891,28 @@ shape), not Tier C-proof completeness.
   different signatures, rules, and diagnostic strings. Should a shared
   `Diagnostic` type be introduced (with per-backend wrappers) so these checks
   can be unified in a later phase without churning existing golden diagnostic
-  output? This does not block Phase 2 (SolanaModulePlan) or Phase 3 (NEAR plan)
+  output? This does not block Phase 2 (SolanaModulePlan) or Phase 4 (NEAR plan)
   but is required before the "shared validate" surface can grow beyond the four
   pure helpers landed in Phase 1.
+
+  **Resolution (2026-07-07, Phase 3 stub landed):** yes — introduce a shared
+  concrete `LoweringDiagnostic` type *plus* a `LoweringError` typeclass contract
+  in `ProofForge.Backend.Diagnostic`. A field-level audit (see
+  [`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md)) showed
+  every backend lowering/plan/emit error type is already the same shape — a
+  single-field `structure <Name> where message : String` whose `render` is
+  `err.message` — so a shared concrete type is justified, not premature. The
+  shared `render` outputs **only** `message`, so backends delegating to it see
+  byte-identical output; the optional `backend?` / `severity` / `code?` fields
+  are metadata for the CLI report layer and do not participate in `render`.
+  Backends keep their concrete error types and implement the typeclass with a
+  trivial adapter; `SharedValidate`'s `SharedError = String` is not migrated in
+  the stub. This unblocks the "shared validate surface grows beyond Phase 1"
+  goal as a follow-up (after per-backend adapter instances land), but does not
+  by itself unify `validateCapabilities` / the return-path check / identifier
+  validity / `ensureNumericType` — those still require aligning the per-backend
+  rules and messages first. See the "Phase 3 — Shared diagnostic contract"
+  subsection below.
 
 ## Future work
 
@@ -622,15 +921,29 @@ shape), not Tier C-proof completeness.
 - **Tier C-diff:** generalize the Quint backend replay harness beyond EVM
   (Solana via Mollusk, NEAR via offline-host, Psy via `dargo execute`) as each
   backend's `*ModulePlan` lands. Long-term goal: one
-  `just quint-<target>-backend-replay-gate` per primary backend.
+  `just quint-<target>-backend-replay-gate` per primary backend. Audit +
+  abstract replay interface + field-level `NearReplay` design + minimal
+  additive stub landed 2026-07-07; see
+  [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md). A per-backend
+  feasibility audit and the abstract replay interface are recorded in
+  [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md);
+  NEAR is the chosen next candidate (stub landed), Solana is 2nd (stub landed,
+  Rust Mollusk test rendering), Psy is 3rd
+  (tool-blocked), Move-Sui/Aleo/Cloudflare are deferred (research spikes). Audit (2026-07-07)
+  chose NEAR as the next candidate; a type-only `NearReplay.lean` stub landed.
+  A type-only `SolanaReplay.lean` stub (rendering a Rust Mollusk test file,
+  option (a)) landed 2026-07-07.
+  See [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)
+  for the per-backend feasibility table, the abstract replay interface, and the
+  field-level `NearReplay` (§7) and `SolanaReplay` (§8.1) designs.
 - **Tier C-proof:** deepen `Evm.Refinement` and `WasmNear.Refinement`; add
-  `Solana.Refinement` beyond the Phase 4 Counter seam toward syscall-aware
+  `Solana.Refinement` beyond the Phase 5 Counter seam toward syscall-aware
   obligations. Evaluate integrating an external Lean EVM semantics such as
   `powdr-labs/evm-semantics` as the target execution model for the EVM
   refinement obligations (replacing or augmenting the in-tree
   `Evm.YulSemantics` executable subset).
 - **Plan JSON snapshots** for cross-backend plan diffing in CI.
-- **Lean typeclass** for the lowering contract once Phase 0–4 shapes are
+- **Lean typeclass** for the lowering contract once Phase 0–5 shapes are
   proven.
 
 ## References

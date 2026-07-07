@@ -117,18 +117,22 @@ structure TargetProfile where
   smokeTests : Array SmokeTest
 ```
 
-初始目标 id：
+初始 target id（历史快照；当前阶段见 [Backend Status](../../README.md)
+和 [doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md)）：
 
-| 目标 id | 家族 | 制品 | 状态 |
+| Target id | 家族 | 制品 | 状态（2026-07 `main`） |
 |---|---|---|---|
-| `evm` | EVM | 运行时字节码 | 已实现基线 |
-| `wasm-near` | Wasm 宿主 | NEAR 兼容 Wasm | 已在 Lean 分叉中进行 Research |
-| `wasm-cosmwasm` | Wasm 宿主 | CosmWasm Wasm | 新实现路径 |
-| `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | 新的首选 Research 路径 |
-| `solana-zig-fork` | Solana | Solana sBPF ELF `.so` | 备选/参考路径 |
-| `move-sui` | Move | Sui Move 包 | Research/源代码生成路径 |
-| `move-aptos` | Move | Aptos Move 包 | Research/源代码生成路径 |
-| `psy-dpn` | ZK 电路源代码生成 | DPN 电路 JSON + ABI | Experimental/源代码生成路径 |
+| `evm` | EVM | Runtime bytecode | Experimental — 生产级门禁（Gate P0） |
+| `wasm-near` | Wasm 宿主 | NEAR 兼容 Wasm | Experimental — `main` 上的 EmitWat（Gate P0） |
+| `wasm-cosmwasm` | Wasm 宿主 | CosmWasm Wasm | Spike — Counter golden WAT + optional CI |
+| `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | **Deprecated**（D-026；使用 `solana-sbpf-asm`） |
+| `solana-zig-fork` | Solana | Solana sBPF ELF `.so` | **Deprecated**（D-005/D-026） |
+| `solana-sbpf-asm` | Solana | sBPF ELF | Experimental — 规范路线（Gate P0） |
+| `move-sui` | Move | Sui Move 包 | Counter MVP — 本地 `just sui-*` gates |
+| `move-aptos` | Move | Aptos Move 包 | Spike — Counter golden Move |
+| `psy-dpn` | ZK 电路源代码生成 | DPN circuit JSON + ABI | Experimental subset |
+| `wasm-cloudflare-workers` | Wasm 宿主（off-chain） | TypeScript Worker | Research spike — TS emit |
+| `aleo-leo` | ZK / Leo | Leo package | Research spike — 仅 CLI（D-025） |
 
 未来 Research（在排期前不在注册表中）：`wasm-polkadot` (ink!)。
 参见 [decisions.md](../decisions.md)。

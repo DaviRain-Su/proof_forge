@@ -32,12 +32,15 @@ ProofForge 的目标是：一份经过验证的 Lean 合约代码库，可以在
 
 | Target id | 管线 | 阶段 | 本地验证 |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | 基线（成熟） | golden Yul、诊断、Foundry 运行时冒烟、Anvil 部署 |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Web3.js live 冒烟、Pinocchio 等价性门禁、Memo CPI、Token-2022 扩展（transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable） |
-| `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟、artifact/deploy metadata |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental（生产级门禁） | golden Yul、诊断、Foundry 运行时冒烟（15 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Web3.js live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
+| `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
+| `wasm-cosmwasm` | portable IR → EmitWat → WAT → `wat2wasm` | Spike | Counter golden WAT、`just cosmwasm-counter-smoke`（可选 CI） |
+| `move-aptos` | portable IR → Aptos Move 包 | Spike | Counter golden Move、`just aptos-counter-smoke`（可选 CI） |
+| `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike | Counter/PureMath golden fixture 与冒烟 |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research（链下宿主，D-033） | `tsc` 类型检查、`wrangler` dry-run |
+| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike（仅 CLI） | Counter/PureMath golden fixture 与冒烟 |
+| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike | `tsc` 类型检查、`wrangler` dry-run |
 
 多链 Token SDK（`TokenSpec`，[RFC 0006](../rfcs/0006-multichain-token-sdk.md)）
 把同一份 token 意图在 EVM 上路由为 ERC-20 bytecode，在 Solana 上路由为
@@ -51,9 +54,10 @@ SPL Token / Token-2022 部署计划。
 ```sh
 just --list        # 所有 recipe
 just build         # lake build
-just check         # 快速静态门禁（Lean + EVM + Psy）
+just check         # 快速静态门禁（Lean + EVM plan + Solana-light + NEAR + Psy static + testkit + Quint）
 just evm-all       # 完整 EVM 门禁：示例编译、Foundry 冒烟、Anvil 部署
-just ci            # 本地跑完整 CI 序列
+just portable-counter-four-target-sdk  # EVM、Solana、NEAR、Sui 的 Counter SDK layout
+just sui-counter-smoke                 # 本地 Sui Move Counter build/test
 ```
 
 直接用 Lake 构建：

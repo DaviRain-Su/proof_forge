@@ -131,18 +131,23 @@ structure TargetProfile where
   smokeTests : Array SmokeTest
 ```
 
-Initial target ids:
+Initial target ids (historical snapshot — see [Backend Status](../../README.md)
+and [doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md) for
+current stages):
 
-| Target id | Family | Artifact | Status |
+| Target id | Family | Artifact | Status (2026-07 on `main`) |
 |---|---|---|---|
-| `evm` | EVM | Runtime bytecode | Implemented baseline |
-| `wasm-near` | Wasm host | NEAR-compatible Wasm | Researched in Lean fork |
-| `wasm-cosmwasm` | Wasm host | CosmWasm Wasm | New implementation track |
-| `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | New preferred research track |
-| `solana-zig-fork` | Solana | Solana sBPF ELF `.so` | Fallback/reference track |
-| `move-sui` | Move | Sui Move package | Research/codegen track |
-| `move-aptos` | Move | Aptos Move package | Research/codegen track |
-| `psy-dpn` | ZK circuit sourcegen | DPN circuit JSON + ABI | Experimental/codegen track |
+| `evm` | EVM | Runtime bytecode | Experimental — production-grade gates (Gate P0) |
+| `wasm-near` | Wasm host | NEAR-compatible Wasm | Experimental — EmitWat on `main` (Gate P0) |
+| `wasm-cosmwasm` | Wasm host | CosmWasm Wasm | Spike — Counter golden WAT + optional CI |
+| `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | **Deprecated** (D-026; use `solana-sbpf-asm`) |
+| `solana-zig-fork` | Solana | Solana sBPF ELF `.so` | **Deprecated** (D-005/D-026) |
+| `solana-sbpf-asm` | Solana | sBPF ELF | Experimental — canonical route (Gate P0) |
+| `move-sui` | Move | Sui Move package | Counter MVP — local `just sui-*` gates |
+| `move-aptos` | Move | Aptos Move package | Spike — Counter golden Move |
+| `psy-dpn` | ZK circuit sourcegen | DPN circuit JSON + ABI | Experimental subset |
+| `wasm-cloudflare-workers` | Wasm host (off-chain) | TypeScript Worker | Research spike — TS emit |
+| `aleo-leo` | ZK / Leo | Leo package | Research spike — CLI-only (D-025) |
 
 Future research (not in registry until scheduled): `wasm-polkadot` (ink!).
 See [decisions.md](../decisions.md).

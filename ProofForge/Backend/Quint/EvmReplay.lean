@@ -1,4 +1,5 @@
 import ProofForge.IR.Contract
+import ProofForge.IR.Semantics
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Model
 import ProofForge.Backend.Quint.Replay
@@ -6,6 +7,7 @@ import ProofForge.Backend.Quint.Replay
 namespace ProofForge.Backend.Quint.EvmReplay
 
 open ProofForge.IR
+open ProofForge.IR.Semantics
 open ProofForge.Backend.Quint
 open ProofForge.Backend.Quint.Replay
 
@@ -19,6 +21,11 @@ structure EvmReplayConfig where
   readSignature : String
   /-- ITF / IR state variable name checked after mutating steps, e.g. `count`. -/
   primaryStateVar : String
+  /-- Optional Solidity signature for the initialize entrypoint. Defaults to
+  `initialize()` (the Counter fixture shape). Modules whose `initialize` takes
+  args (e.g. ValueVault's `initialize(uint256)`) override this so the init step
+  encodes the args from the ITF nondet picks. -/
+  initSignature : String := "initialize()"
 
 def indent (n : Nat) (lines : List String) : String :=
   let pad := String.ofList (List.replicate n ' ')
@@ -48,38 +55,94 @@ def solidityCallSignature (ep : Entrypoint) : Except EvmReplayError String := do
   else
     .ok s!"{ep.name}()"
 
+/-- Render an IR scalar value as a Solidity literal for `abi.encodeWithSignature`.
+All integer widths widen to `uint256` (the EVM ABI word width); booleans render
+as `true`/`false`; addresses render as a `uint160` literal. -/
+def renderSolidityArg (v : ProofForge.IR.Semantics.Value) : Except EvmReplayError String :=
+  match v with
+  | .u8 n | .u32 n | .u64 n | .u128 n => .ok (toString n)
+  | .bool b => .ok (if b then "true" else "false")
+  | .address n => .ok (toString n)
+  | other => .error { message := s!"EVM replay cannot render arg literal: {repr other}" }
+
+/-- Render the comma-separated argument literal list for an
+`abi.encodeWithSignature(sig, <args...>)` call. Returns the empty string for
+nullary entrypoints so the Counter path is byte-identical to the v1 renderer. -/
+def renderAbiArgList (args : Array ProofForge.IR.Semantics.Value) : Except EvmReplayError String := do
+  let mut out := ""
+  let mut first := true
+  for arg in args do
+    let s ← renderSolidityArg arg
+    out := if first then s else out ++ ", " ++ s
+    first := false
+  pure out
+
 def renderReadAssertion (_cfg : EvmReplayConfig) (expected : Nat) : String :=
   s!"assertEq(readState(target), {expected});"
 
-def renderInitStep (cfg : EvmReplayConfig) (stepIdx : Nat) (expected : Nat) : Except EvmReplayError String := do
-  if expected != 0 then
-    .error { message := s!"EVM replay v1 only supports Quint `init` resetting `{cfg.primaryStateVar}` to 0, got {expected}" }
-  else
-    let okVar := s!"initOk{stepIdx}"
-    .ok <| String.intercalate "\n" [
-      s!"// step {stepIdx}: init -> {cfg.primaryStateVar} = {expected}",
-      s!"(bool {okVar},) = target.call(abi.encodeWithSignature(\"initialize()\"));",
-      s!"assertTrue({okVar});",
-      renderReadAssertion cfg expected
-    ]
+/-- Resolve the `initialize` entrypoint (if present) so init steps with args
+can encode them. Counter's `initialize` is nullary; ValueVault's takes `initial`. -/
+def initializeEntrypoint? (irModule : ProofForge.IR.Module) : Option Entrypoint :=
+  irModule.entrypoints.find? (fun ep => ep.name == "initialize")
 
-def renderMutatingStep (cfg : EvmReplayConfig) (stepIdx : Nat) (ep : Entrypoint) (expected : Nat) : Except EvmReplayError String := do
-  let sig ← solidityCallSignature ep
-  let okVar := s!"callOk{stepIdx}"
+def renderInitStep (cfg : EvmReplayConfig) (irModule : ProofForge.IR.Module)
+    (stepIdx : Nat) (expected : Nat) (picks : List (String × ITF.Value)) :
+    Except EvmReplayError String := do
+  let okVar := s!"initOk{stepIdx}"
+  let initEp? := initializeEntrypoint? irModule
+  -- If the module's `initialize` takes args, encode them from the ITF nondet
+  -- picks; otherwise fall back to the configured nullary `initSignature`.
+  -- The read-back assertion is the real correctness check; v1's `expected != 0`
+  -- guard is dropped so modules like ValueVault (whose `initialize(initial)`
+  -- sets the primary scalar to a non-zero value) render correctly. Counter's
+  -- init (nullary, expected=0) renders byte-identically to the v1 path.
+  let callExpr ← match initEp? with
+  | some ep =>
+    let args ← buildArgs ep picks |>.mapError (fun err => { message := err.message })
+    let argList ← renderAbiArgList args
+    let sig ← solidityCallSignature ep
+    if args.isEmpty then
+      .ok s!"abi.encodeWithSignature(\"{sig}\")"
+    else
+      .ok s!"abi.encodeWithSignature(\"{sig}\", {argList})"
+  | none =>
+    .ok s!"abi.encodeWithSignature(\"{cfg.initSignature}\")"
   .ok <| String.intercalate "\n" [
-    s!"// step {stepIdx}: {ep.name} -> {cfg.primaryStateVar} = {expected}",
-    "(bool " ++ okVar ++ ",) = target.call(abi.encodeWithSignature(\"" ++ sig ++ "\"));",
+    s!"// step {stepIdx}: init -> {cfg.primaryStateVar} = {expected}",
+    s!"(bool {okVar},) = target.call({callExpr});",
     s!"assertTrue({okVar});",
     renderReadAssertion cfg expected
   ]
 
-def renderReadStep (cfg : EvmReplayConfig) (stepIdx : Nat) (ep : Entrypoint) (expected : Nat) : Except EvmReplayError String := do
+def renderMutatingStep (cfg : EvmReplayConfig) (stepIdx : Nat) (ep : Entrypoint)
+    (args : Array ProofForge.IR.Semantics.Value) (expected : Nat) : Except EvmReplayError String := do
   let sig ← solidityCallSignature ep
+  let argList ← renderAbiArgList args
+  let payload := if args.isEmpty then
+    s!"abi.encodeWithSignature(\"{sig}\")"
+  else
+    s!"abi.encodeWithSignature(\"{sig}\", {argList})"
+  let okVar := s!"callOk{stepIdx}"
+  .ok <| String.intercalate "\n" [
+    s!"// step {stepIdx}: {ep.name} -> {cfg.primaryStateVar} = {expected}",
+    s!"(bool {okVar},) = target.call({payload});",
+    s!"assertTrue({okVar});",
+    renderReadAssertion cfg expected
+  ]
+
+def renderReadStep (cfg : EvmReplayConfig) (stepIdx : Nat) (ep : Entrypoint)
+    (args : Array ProofForge.IR.Semantics.Value) (expected : Nat) : Except EvmReplayError String := do
+  let sig ← solidityCallSignature ep
+  let argList ← renderAbiArgList args
+  let payload := if args.isEmpty then
+    s!"abi.encodeWithSignature(\"{sig}\")"
+  else
+    s!"abi.encodeWithSignature(\"{sig}\", {argList})"
   let okVar := s!"readOk{stepIdx}"
   let resultVar := s!"readResult{stepIdx}"
   .ok <| String.intercalate "\n" [
     s!"// step {stepIdx}: {ep.name} (read) -> {cfg.primaryStateVar} = {expected}",
-    "(bool " ++ okVar ++ ", bytes memory " ++ resultVar ++ ") = target.call(abi.encodeWithSignature(\"" ++ sig ++ "\"));",
+    s!"(bool {okVar}, bytes memory {resultVar}) = target.call({payload});",
     s!"assertTrue({okVar});",
     s!"assertEq(abi.decode({resultVar}, (uint256)), {expected});",
     renderReadAssertion cfg expected
@@ -91,17 +154,17 @@ def renderTraceStep (irModule : ProofForge.IR.Module) (cfg : EvmReplayConfig) (e
   let actionName ← resolveActionName irModule state.actionTaken state.nondetPicks
       |>.mapError (fun err => { message := err.message })
   if actionName == "init" then
-    renderInitStep cfg stepIdx expected
+    renderInitStep cfg irModule stepIdx expected state.nondetPicks
   else
     let entrypoint ← match Std.HashMap.get? epMap actionName with
       | some ep => .ok ep
       | none => .error { message := s!"unknown entrypoint `{actionName}` for EVM replay" }
-    if !entrypoint.params.isEmpty then
-      .error { message := s!"EVM replay v1 does not encode entrypoint args for `{entrypoint.name}`" }
-    else if entrypoint.returns != .unit then
-      renderReadStep cfg stepIdx entrypoint expected
+    let args ← buildArgs entrypoint state.nondetPicks
+      |>.mapError (fun err => { message := err.message })
+    if entrypoint.returns != .unit then
+      renderReadStep cfg stepIdx entrypoint args expected
     else
-      renderMutatingStep cfg stepIdx entrypoint expected
+      renderMutatingStep cfg stepIdx entrypoint args expected
 
 def renderTraceSteps (irModule : ProofForge.IR.Module) (cfg : EvmReplayConfig) (trace : ITF.Trace) : Except EvmReplayError String := do
   if trace.states.isEmpty then
