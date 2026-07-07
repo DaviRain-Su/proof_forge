@@ -8,9 +8,14 @@ use solana_signer::Signer;
 use spl_tlv_account_resolution::state::ExtraAccountMetaList;
 use spl_token_2022_interface::{
     extension::{
+        default_account_state::DefaultAccountState,
         immutable_owner::ImmutableOwner,
+        interest_bearing_mint::InterestBearingConfig,
+        memo_transfer::MemoTransfer,
+        metadata_pointer::MetadataPointer,
         non_transferable::{NonTransferable, NonTransferableAccount},
         pausable::PausableConfig,
+        permanent_delegate::PermanentDelegate,
         transfer_fee::{
             instruction as transfer_fee_instruction, TransferFeeAmount, TransferFeeConfig,
         },
@@ -18,7 +23,7 @@ use spl_token_2022_interface::{
         BaseStateWithExtensions, ExtensionType, StateWithExtensions,
     },
     instruction as token_instruction,
-    state::{Account as Token2022AccountState, Mint as Token2022MintState},
+    state::{Account as Token2022AccountState, AccountState, Mint as Token2022MintState},
 };
 use spl_transfer_hook_interface::instruction as transfer_hook_interface_instruction;
 use spl_type_length_value::state::TlvStateBorrowed;
@@ -175,6 +180,52 @@ pub fn create_transfer_hook_mint_account(rpc: &LiveRpc, payer: &Keypair) -> Resu
     Ok(mint)
 }
 
+pub fn create_mint_account_with_extensions(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    extensions: &[ExtensionType],
+    label: &str,
+) -> Result<Keypair> {
+    let token_program = token_2022_program_id();
+    let mint = Keypair::new();
+    let space = ExtensionType::try_calculate_account_len::<Token2022MintState>(extensions)
+        .map_err(|err| anyhow!("failed to calculate Token-2022 {label} mint length: {err:?}"))?;
+    let lamports = rpc.minimum_balance_for_rent_exemption(space as u64)?;
+    let create = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        lamports,
+        space as u64,
+        &token_program,
+    );
+    rpc.send_and_confirm(&[create], &[payer, &mint])
+        .with_context(|| format!("failed to create Token-2022 {label} mint account"))?;
+    Ok(mint)
+}
+
+pub fn create_token_account_with_extensions(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    extensions: &[ExtensionType],
+    label: &str,
+) -> Result<Keypair> {
+    let token_program = token_2022_program_id();
+    let account = Keypair::new();
+    let space = ExtensionType::try_calculate_account_len::<Token2022AccountState>(extensions)
+        .map_err(|err| anyhow!("failed to calculate Token-2022 {label} account length: {err:?}"))?;
+    let lamports = rpc.minimum_balance_for_rent_exemption(space as u64)?;
+    let create = solana_system_interface::instruction::create_account(
+        &payer.pubkey(),
+        &account.pubkey(),
+        lamports,
+        space as u64,
+        &token_program,
+    );
+    rpc.send_and_confirm(&[create], &[payer, &account])
+        .with_context(|| format!("failed to create Token-2022 {label} token account"))?;
+    Ok(account)
+}
+
 pub fn create_empty_associated_token_account(
     rpc: &LiveRpc,
     payer: &Keypair,
@@ -219,14 +270,44 @@ pub fn initialize_mint(
     decimals: u8,
     mint_authority: Address,
 ) -> Result<String> {
+    initialize_mint_with_freeze_authority(rpc, payer, mint, decimals, mint_authority, None)
+}
+
+pub fn initialize_mint_with_freeze_authority(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    mint: Address,
+    decimals: u8,
+    mint_authority: Address,
+    freeze_authority: Option<Address>,
+) -> Result<String> {
     let token_program = token_2022_program_id();
-    let instruction =
-        token_instruction::initialize_mint(&token_program, &mint, &mint_authority, None, decimals)
-            .map_err(|err| {
-                anyhow!("failed to build Token-2022 initialize_mint instruction: {err:?}")
-            })?;
+    let instruction = token_instruction::initialize_mint(
+        &token_program,
+        &mint,
+        &mint_authority,
+        freeze_authority.as_ref(),
+        decimals,
+    )
+    .map_err(|err| anyhow!("failed to build Token-2022 initialize_mint instruction: {err:?}"))?;
     rpc.send_and_confirm(&[instruction], &[payer])
         .context("failed to initialize Token-2022 mint")
+}
+
+pub fn initialize_account(
+    rpc: &LiveRpc,
+    payer: &Keypair,
+    account: Address,
+    mint: Address,
+    owner: Address,
+) -> Result<String> {
+    let token_program = token_2022_program_id();
+    let instruction =
+        token_instruction::initialize_account(&token_program, &account, &mint, &owner).map_err(
+            |err| anyhow!("failed to build Token-2022 initialize_account instruction: {err:?}"),
+        )?;
+    rpc.send_and_confirm(&[instruction], &[payer])
+        .context("failed to initialize Token-2022 account")
 }
 
 pub fn initialize_transfer_hook_mint(
@@ -560,6 +641,88 @@ pub fn assert_transfer_hook_config(
     Ok(())
 }
 
+pub fn assert_metadata_pointer_config(
+    data: &[u8],
+    authority: Address,
+    metadata_address: Address,
+) -> Result<()> {
+    let config = metadata_pointer_config(data)?;
+    ensure!(
+        config.authority.0.to_bytes() == authority.to_bytes(),
+        "metadata-pointer authority mismatch: expected {authority}, got {}",
+        config.authority.0
+    );
+    ensure!(
+        config.metadata_address.0.to_bytes() == metadata_address.to_bytes(),
+        "metadata-pointer address mismatch: expected {metadata_address}, got {}",
+        config.metadata_address.0
+    );
+    Ok(())
+}
+
+pub fn assert_default_account_state(data: &[u8], expected: AccountState) -> Result<()> {
+    let config = default_account_state_config(data)?;
+    let actual = config.state;
+    let expected_u8 = u8::from(expected);
+    ensure!(
+        actual == expected_u8,
+        "default account state mismatch: expected {expected_u8}, got {actual}"
+    );
+    Ok(())
+}
+
+pub fn assert_immutable_owner_account(data: &[u8]) -> Result<()> {
+    let state = StateWithExtensions::<Token2022AccountState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 account extensions: {err:?}"))?;
+    state
+        .get_extension::<ImmutableOwner>()
+        .map_err(|err| anyhow!("account missing ImmutableOwner extension: {err:?}"))?;
+    Ok(())
+}
+
+pub fn assert_permanent_delegate(data: &[u8], delegate: Address) -> Result<()> {
+    let config = permanent_delegate_config(data)?;
+    ensure!(
+        config.delegate.0.to_bytes() == delegate.to_bytes(),
+        "permanent delegate mismatch: expected {delegate}, got {}",
+        config.delegate.0
+    );
+    Ok(())
+}
+
+pub fn assert_interest_bearing_config(
+    data: &[u8],
+    rate_authority: Address,
+    current_rate: i16,
+) -> Result<()> {
+    let config = interest_bearing_config(data)?;
+    ensure!(
+        config.rate_authority.0.to_bytes() == rate_authority.to_bytes(),
+        "interest-bearing rate authority mismatch: expected {rate_authority}, got {}",
+        config.rate_authority.0
+    );
+    let actual_rate = i16::from(config.current_rate);
+    ensure!(
+        actual_rate == current_rate,
+        "interest-bearing current rate mismatch: expected {current_rate}, got {actual_rate}"
+    );
+    Ok(())
+}
+
+pub fn assert_memo_transfer(data: &[u8], required: bool) -> Result<()> {
+    let state = StateWithExtensions::<Token2022AccountState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 account extensions: {err:?}"))?;
+    let config = state
+        .get_extension::<MemoTransfer>()
+        .map_err(|err| anyhow!("account missing MemoTransfer extension: {err:?}"))?;
+    let actual = bool::from(config.require_incoming_transfer_memos);
+    ensure!(
+        actual == required,
+        "memo-transfer required flag mismatch: expected {required}, got {actual}"
+    );
+    Ok(())
+}
+
 pub fn transfer_hook_extra_account_meta_address(
     mint: Address,
     program_id: Address,
@@ -674,6 +837,42 @@ fn transfer_hook_config(data: &[u8]) -> Result<TransferHook> {
         .get_extension::<TransferHook>()
         .copied()
         .map_err(|err| anyhow!("mint missing TransferHook extension: {err:?}"))
+}
+
+fn metadata_pointer_config(data: &[u8]) -> Result<MetadataPointer> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<MetadataPointer>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing MetadataPointer extension: {err:?}"))
+}
+
+fn default_account_state_config(data: &[u8]) -> Result<DefaultAccountState> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<DefaultAccountState>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing DefaultAccountState extension: {err:?}"))
+}
+
+fn permanent_delegate_config(data: &[u8]) -> Result<PermanentDelegate> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<PermanentDelegate>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing PermanentDelegate extension: {err:?}"))
+}
+
+fn interest_bearing_config(data: &[u8]) -> Result<InterestBearingConfig> {
+    let state = StateWithExtensions::<Token2022MintState>::unpack(data)
+        .map_err(|err| anyhow!("failed to parse Token-2022 mint extensions: {err:?}"))?;
+    state
+        .get_extension::<InterestBearingConfig>()
+        .copied()
+        .map_err(|err| anyhow!("mint missing InterestBearingConfig extension: {err:?}"))
 }
 
 fn transfer_checked_instruction(

@@ -371,9 +371,12 @@ solana-spl-token-close-account-cpi-web3:
 solana-associated-token-cpi-web3:
     scripts/solana/associated-token-cpi-web3-smoke.sh
 
-# Run a live Token-2022 transfer-fee direct CPI smoke on Surfpool with Web3.js.
-solana-spl-token-2022-cpi-web3:
-    scripts/solana/spl-token-2022-cpi-web3-smoke.sh
+# Run a live Token-2022 direct CPI smoke on Surfpool with the Rust RPC harness.
+solana-spl-token-2022-cpi-live:
+    scripts/solana/spl-token-2022-cpi-live-smoke.sh
+
+# Compatibility alias for the former Web3.js-backed gate name.
+solana-spl-token-2022-cpi-web3: solana-spl-token-2022-cpi-live
 
 # Run a live Token-2022 Pausable direct CPI smoke on Surfpool with the Rust RPC harness.
 solana-spl-token-2022-pausable-cpi-live:

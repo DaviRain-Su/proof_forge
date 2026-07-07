@@ -3527,7 +3527,7 @@ land in `contract_source` / Token SDK syntax, not Builder fixtures.
   `initialize_permanent_delegate`, `initialize_interest_bearing_mint`, and
   `enable_required_memo_transfers`, `initialize_transfer_hook`,
   `initialize_pausable_config`, `pause`, and `resume`; generated-program
-  Token-2022 direct-CPI Surfpool/Web3.js gates verify the initialized extension
+  Token-2022 direct-CPI Surfpool/Rust gate verifies the initialized extension
   state, while the Pausable direct-CPI Surfpool/Rust gate verifies
   `PausableConfig` plus pause/resume transitions.
 - ✅ P1: Token-2022 transfer-hook execute/extra-account-meta routing now has a
