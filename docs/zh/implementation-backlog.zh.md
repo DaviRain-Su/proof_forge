@@ -1102,7 +1102,7 @@
 - 已完成：添加遗留 Learn 代币意图源语法、`ProofForge.Contract.Token.Learn`、`Examples/Learn/ProofToken.learn`、`Examples/Learn/FeeToken.learn`、`Tests/TokenLearn.lean` 以及作为进入 `TokenSpec` 兼容路径的 `proof-forge --learn-token --target <id>` 计划发射。
 - 已完成：为 Learn 代币源添加首个 EVM ERC-20 制品发射器：`ProofForge.Contract.Token.Evm`、`Tests/TokenEvm.lean`、元数据中的标准 ERC-20 选择器/事件、Yul 生成，以及通过 `--learn-token --target evm` 进行的 `solc --strict-assembly` 字节码验证。
 - 已完成：添加 `scripts/portable/token-intent-smoke.sh` / `just token-intent-smoke` 以验证 shared Lean `TokenSpec` intent 路径，并把 legacy Learn token 路径作为等价 fixture 保留；`just learn-token-smoke` 仍是兼容 alias。
-- 已完成：添加 `scripts/evm/learn-token-erc20-vm-smoke.sh` / `just learn-token-evm-vm` 以在进程内 Rust `revm` harness 中部署生成的 ERC-20 创建字节码，并验证标准 ERC-20 调用、Transfer/Approval 主题以及余额不足 revert 行为。
+- 已完成：添加 `scripts/evm/token-intent-evm-vm-smoke.sh` / `just token-intent-evm-vm`，从 shared Lean `TokenSpec` intent 生成 ERC-20 创建字节码，并在进程内 Rust `revm` harness 中部署验证标准 ERC-20 调用、Transfer/Approval 主题以及余额不足 revert 行为；`scripts/evm/learn-token-erc20-vm-smoke.sh` / `just learn-token-evm-vm` 仍作为兼容入口保留。
 - 已完成：在 Lean `TokenSpec` 层实现 Solana SPL Token / Token-2022 部署计划渲染。`solanaTokenDeploymentPlan` 现在记录 mint 账户创建、关联代币账户、`mint_to`、`transfer_checked`、`approve`、`burn`、`revoke`、权限变更、Token-2022 扩展初始化、Solana 程序 id 以及源文档引用。
 - 已完成：将 `transfer_fee`、`non_transferable`、`confidential_transfer` 和 `transfer_hook` 等 Token-2022 特性路由至 Token-2022 扩展元数据，而非自定义单代币程序。规划器会拒绝已记录的不兼容 `transfer_fee` + `non_transferable` 组合。
 - 已完成：扩展 `scripts/portable/token-intent-smoke.sh`，使 `Examples/Shared/FungibleToken.lean` 和遗留 `.learn` 输入路径都复用 Lean `TokenSpec` 计划，发射结构化 Solana token plan JSON，并使用 Rust `token_plan_smoke` harness 离线验证计划。

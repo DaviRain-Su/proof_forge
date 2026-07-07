@@ -2692,10 +2692,12 @@ Tasks:
   token-intent-smoke` to validate the shared Lean `TokenSpec` intent path and
   keep the legacy Learn token path as an equivalence fixture; `just
   learn-token-smoke` remains a compatibility alias.
-- Done: add `scripts/evm/learn-token-erc20-vm-smoke.sh` / `just
-  learn-token-evm-vm` to deploy the generated ERC-20 creation bytecode in an
-  in-process Rust `revm` harness and validate standard ERC-20 calls,
-  Transfer/Approval topics, and insufficient-balance revert behavior.
+- Done: add `scripts/evm/token-intent-evm-vm-smoke.sh` / `just
+  token-intent-evm-vm` to deploy the generated ERC-20 creation bytecode from
+  the shared Lean `TokenSpec` intent in an in-process Rust `revm` harness and
+  validate standard ERC-20 calls, Transfer/Approval topics, and
+  insufficient-balance revert behavior; `scripts/evm/learn-token-erc20-vm-smoke.sh`
+  / `just learn-token-evm-vm` remain compatibility entrypoints.
 - Done: implement Solana SPL Token / Token-2022 deployment plan rendering at
   the Lean `TokenSpec` layer. `solanaTokenDeploymentPlan` now records mint
   account creation, associated token accounts, `mint_to`, `transfer_checked`,

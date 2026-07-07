@@ -203,9 +203,12 @@ token-intent-smoke:
 # Compatibility alias for the former Learn-token-centric smoke name.
 learn-token-smoke: token-intent-smoke
 
-# Run the Learn-token ERC-20 artifact in a local Rust/revm VM.
-learn-token-evm-vm:
-    scripts/evm/learn-token-erc20-vm-smoke.sh
+# Run the shared token intent EVM artifact in a local Rust/revm VM.
+token-intent-evm-vm:
+    scripts/evm/token-intent-evm-vm-smoke.sh
+
+# Compatibility alias for the former Learn-token EVM VM smoke name.
+learn-token-evm-vm: token-intent-evm-vm
 
 # Run a live Solana SPL Token plan smoke on Surfpool with the Rust harness.
 solana-token-plan-live:
