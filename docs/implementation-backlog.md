@@ -2688,8 +2688,8 @@ Tasks:
   Solana Token-2022 plan path from Learn source.
 - Done: add `scripts/evm/learn-token-erc20-vm-smoke.sh` / `just
   learn-token-evm-vm` to deploy the generated ERC-20 creation bytecode in an
-  EthereumJS VM and validate standard ERC-20 calls, Transfer/Approval topics,
-  and insufficient-balance revert behavior.
+  in-process Rust `revm` harness and validate standard ERC-20 calls,
+  Transfer/Approval topics, and insufficient-balance revert behavior.
 - Done: implement Solana SPL Token / Token-2022 deployment plan rendering at
   the Lean `TokenSpec` layer. `solanaTokenDeploymentPlan` now records mint
   account creation, associated token accounts, `mint_to`, `transfer_checked`,
@@ -2702,8 +2702,8 @@ Tasks:
   `non_transferable` combination.
 - Done: extend `scripts/portable/learn-token-smoke.sh` so the legacy `.learn`
   input path reuses the Lean `TokenSpec` plan, emits both SPL Token and
-  Token-2022 structured plan JSON, and validates the plan offline with
-  `@solana/spl-token` / `@solana/web3.js` instruction builders.
+  Token-2022 structured plan JSON, and validates the plan offline with the
+  Rust `token_plan_smoke` harness.
 - Done: add `scripts/solana/token-plan-web3-smoke.sh` / `just
   solana-token-plan-web3` to execute the structured legacy SPL Token plan on
   Surfpool. The live runner creates the mint and associated token accounts,

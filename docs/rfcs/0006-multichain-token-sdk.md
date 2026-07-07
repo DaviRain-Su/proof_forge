@@ -135,8 +135,8 @@ Solana uses existing capabilities such as `account.explicit`, `crosscall.cpi`,
    through `proof-forge --learn-token --target <id>`.
 3. **Partially done:** add EVM ERC-20 Yul/bytecode emission with standard core
    selectors and Transfer/Approval event topics. The generated creation
-   bytecode now has an EthereumJS VM behavior gate for standard ERC-20 calls
-   and event topics. Remaining work: broader Foundry/Web3 coverage and stronger
+   bytecode now has a Rust `revm` behavior gate for standard ERC-20 calls and
+   event topics. Remaining work: broader Foundry/Web3 coverage and stronger
    access-control policies for optional minting.
 4. **Done:** add Solana SPL Token / Token-2022 plan rendering at the Lean
    `TokenSpec` layer, including mint account creation, associated token
@@ -147,8 +147,8 @@ Solana uses existing capabilities such as `account.explicit`, `crosscall.cpi`,
    `non_transferable`, `confidential_transfer`, and `transfer_hook`, plus a
    planner diagnostic for the incompatible `transfer_fee` +
    `non_transferable` combination documented by Solana.
-6. **Done:** add offline Web3.js validation for the generated Solana token
-   plans using `@solana/spl-token` instruction builders.
+6. **Done:** add offline Rust validation for the generated Solana token plans
+   using the `token_plan_smoke` harness.
 7. **Done:** add Surfpool live execution for the legacy SPL Token plan itself:
    mint creation, associated token account creation, initial `mint_to`,
    planned `mint_to`, `transfer_checked`, `approve`, `burn`, `revoke`, and

@@ -8,15 +8,14 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
+export PATH="$HOME/.elan/bin:$HOME/.local/bin:$HOME/.foundry/bin:$PATH"
 
 OUT_DIR="${PROOF_FORGE_LEARN_TOKEN_OUT:-build/portable/learn-token}"
 EVM_DIR="$OUT_DIR/evm"
 SOLANA_DIR="$OUT_DIR/solana"
-NODE_PROJECT="$SOLANA_DIR/web3"
 
 PROOF_TOKEN="Examples/Learn/ProofToken.learn"
 FEE_TOKEN="Examples/Learn/FeeToken.learn"
-WEB3_TEMPLATE="Tests/solana/token_plan_web3_smoke.mjs"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -36,6 +35,7 @@ require_contains() {
 
 command -v lake >/dev/null 2>&1 || fail "lake not on PATH"
 command -v python3 >/dev/null 2>&1 || fail "python3 not on PATH"
+command -v cargo >/dev/null 2>&1 || fail "cargo not on PATH"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$EVM_DIR" "$SOLANA_DIR"
@@ -170,22 +170,12 @@ assert plan["validation"]["planGeneration"] == "passed"
 print("solana token-2022 plan: ok")
 PY
 
-if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-  echo "=== Learn token step 4: validate Solana token plans with @solana/spl-token ==="
-  rm -rf "$NODE_PROJECT"
-  mkdir -p "$NODE_PROJECT"
-  cp "$WEB3_TEMPLATE" "$NODE_PROJECT/token_plan_web3_smoke.mjs"
-  (
-    cd "$NODE_PROJECT"
-    npm init -y >/dev/null 2>&1
-    npm install --silent @solana/web3.js@^1.98.0 @solana/spl-token@^0.4.14
-  ) || fail "npm install @solana/web3.js @solana/spl-token failed"
-  node "$NODE_PROJECT/token_plan_web3_smoke.mjs" "$SOLANA_SPL_PLAN" \
-    || fail "Solana SPL Token plan Web3.js validation failed"
-  node "$NODE_PROJECT/token_plan_web3_smoke.mjs" "$SOLANA_TOKEN_2022_PLAN" \
-    || fail "Solana Token-2022 plan Web3.js validation failed"
-else
-  echo "SKIP: node or npm not on PATH; Solana token plan Web3.js validation skipped"
-fi
+echo "=== Learn token step 4: validate Solana token plans with Rust harness ==="
+cargo run --manifest-path testkit/harness-solana/Cargo.toml \
+  --bin token_plan_smoke -- "$SOLANA_SPL_PLAN" \
+  || fail "Solana SPL Token plan Rust validation failed"
+cargo run --manifest-path testkit/harness-solana/Cargo.toml \
+  --bin token_plan_smoke -- "$SOLANA_TOKEN_2022_PLAN" \
+  || fail "Solana Token-2022 plan Rust validation failed"
 
 echo "learn-token-smoke: PASS"
