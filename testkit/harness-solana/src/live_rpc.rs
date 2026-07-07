@@ -122,6 +122,30 @@ impl LiveRpc {
         read_u64_le(&bytes)
     }
 
+    pub fn transaction_logs(&self, signature: &str) -> Result<Vec<String>> {
+        for _ in 0..60 {
+            let response: Option<TransactionResponse> = self.call_nullable(
+                "getTransaction",
+                json!([
+                    signature,
+                    {
+                        "commitment": "confirmed",
+                        "maxSupportedTransactionVersion": 0
+                    }
+                ]),
+            )?;
+            if let Some(tx) = response {
+                if let Some(logs) = tx.meta.and_then(|meta| meta.log_messages) {
+                    if !logs.is_empty() {
+                        return Ok(logs);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        bail!("transaction logs not available for {signature}")
+    }
+
     pub fn account_data(&self, account: Address) -> Result<Vec<u8>> {
         let response: AccountInfoResponse = self.call(
             "getAccountInfo",
@@ -209,6 +233,42 @@ impl LiveRpc {
             .result
             .with_context(|| format!("RPC {method} response missing result"))
     }
+
+    fn call_nullable<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<Option<T>> {
+        let response: Value = self
+            .client
+            .post(&self.url)
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": params,
+            }))
+            .send()
+            .with_context(|| format!("RPC {method} request failed"))?
+            .error_for_status()
+            .with_context(|| format!("RPC {method} returned HTTP error"))?
+            .json()
+            .with_context(|| format!("RPC {method} returned invalid JSON"))?;
+        if let Some(error) = response.get("error").filter(|value| !value.is_null()) {
+            let error: RpcError = serde_json::from_value(error.clone())
+                .with_context(|| format!("RPC {method} returned invalid error JSON"))?;
+            bail!(
+                "RPC {method} failed: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
+        let result = response
+            .get("result")
+            .with_context(|| format!("RPC {method} response missing result"))?;
+        if result.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(result.clone())
+            .map(Some)
+            .with_context(|| format!("RPC {method} returned invalid result JSON"))
+    }
 }
 
 pub fn read_keypair(path: impl AsRef<Path>) -> Result<Keypair> {
@@ -291,6 +351,17 @@ struct ReturnData {
     #[serde(rename = "programId")]
     program_id: String,
     data: (String, String),
+}
+
+#[derive(Debug, Deserialize)]
+struct TransactionResponse {
+    meta: Option<TransactionMeta>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransactionMeta {
+    #[serde(rename = "logMessages")]
+    log_messages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

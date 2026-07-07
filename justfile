@@ -272,7 +272,7 @@ solana-pda-web3:
 solana-system-cpi-web3:
     scripts/solana/system-cpi-web3-smoke.sh
 
-# Run a live Memo Program CPI smoke on Surfpool with Web3.js.
+# Run a live Memo Program CPI smoke on Surfpool with the Rust harness.
 solana-memo-cpi-web3:
     scripts/solana/memo-cpi-web3-smoke.sh
 

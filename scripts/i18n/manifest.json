@@ -1,6 +1,6 @@
 {
   "README.md": {
-    "sha256": "edb531c61d64b7cec9d4d7bc20471591407b739021be872f7bd4028bbf27d1e4",
+    "sha256": "ab1779bc55216024ddce32cada81dbcf5d3384e7316fbabef9ec90845c224afc",
     "translated": false,
     "model": "manual"
   },
@@ -65,7 +65,7 @@
     "model": "manual"
   },
   "docs/validation-gates.md": {
-    "sha256": "655913d11aa015d13dd62b294a99e84623a1893f8e1ad51508a3f37f425003ca",
+    "sha256": "dec831481b7b6460178fcaaa7a0d739f49aa0f5f820f75d592f75a92fe7770d9",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual",
     "en_sha256": "049dd51eda8d44cee328f9d75f259d675db73bb0ce171d5d92de068c24429f27"
