@@ -85,7 +85,7 @@ missing.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| PDA derivation | Covered | `Surface.lean` typed seeds; `pda-web3-smoke.sh` validates | — |
+| PDA derivation | Covered | `Surface.lean` typed seeds; Rust `pda-web3-smoke.sh` validation | — |
 | Account constraints (signer/writable/owner) | Covered | Signer/writable checks lower to the sBPF prologue; owner checks now cover current-program ownership, executable program accounts, and named owner-account references, with missing owner references rejected during lowering | — |
 | Multi-account schemas | Covered | Manifest composes state + PDA + CPI + declared accounts | — |
 | Close account | Covered | `spl_token_close_account` builder/surface/Learn syntax and CLI fixture routes lower to `spl-token.close_account` metadata and sBPF instruction tag `9`; `just solana-spl-token-close-account-cpi-web3` deploys the generated program on Surfpool, closes an empty SPL Token account through CPI, verifies the account is removed, destination lamports receive rent, and marker state is recorded. Pinocchio equivalence remains a reference-breadth follow-up | — |

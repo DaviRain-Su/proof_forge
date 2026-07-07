@@ -249,7 +249,7 @@ solana-token-2022-transfer-fee-web3:
 solana-token-2022-non-transferable-web3:
     scripts/solana/token-2022-non-transferable-web3-smoke.sh
 
-# Run Solana PDA typed-seed Web3.js derivation smoke. Skips when Node/npm are unavailable.
+# Run Solana PDA typed-seed Rust derivation smoke.
 solana-pda-web3:
     scripts/solana/pda-web3-smoke.sh
 

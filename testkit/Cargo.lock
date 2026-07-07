@@ -2640,6 +2640,7 @@ dependencies = [
  "mollusk-svm",
  "proof-forge-testkit-core",
  "serde",
+ "serde_json",
  "solana-account",
  "solana-address 2.6.1",
  "solana-instruction",

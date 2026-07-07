@@ -1673,10 +1673,10 @@ Completed alpha slices:
   `bumpSeed`, and `paramSeed` descriptors now lower to Solana seed slices,
   `bump?` participates in the effective seed list, and declared PDA accounts
   can be checked against the derived pubkey.
-- PDA/Web3.js derivation fixture: `scripts/solana/pda-web3-smoke.sh` reads the
+- PDA/Rust derivation fixture: `scripts/solana/pda-web3-smoke.sh` reads the
   generated SDK Vault `typedSeeds` artifact data and verifies literal/account/
-  bump descriptor semantics against `PublicKey.findProgramAddressSync` and
-  `PublicKey.createProgramAddressSync`; the harness also covers UTF-8 and
+  bump descriptor semantics against `Address::find_program_address` and
+  `Address::create_program_address`; the harness also covers UTF-8 and
   instruction-parameter resolver behavior.
 - Live System Program transfer CPI fixture:
   `scripts/solana/system-cpi-web3-smoke.sh` builds and deploys a generated

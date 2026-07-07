@@ -528,7 +528,7 @@
 
 已完成的 alpha 切片：- 指令 ABI 硬化：参数有效载荷长度边界检查、`manifest.toml` 和 `proof-forge-artifact.json` 中每个入口的参数 schema 以及稳定的标量参数元数据现已就绪。
 - PDA 类型化种子降级：`literalSeed`/`utf8Seed`、`accountSeed`、`bumpSeed` 和 `paramSeed` 描述符现在降级为 Solana 种子切片，`bump?` 参与有效种子列表，并且可以根据派生的公钥检查声明的 PDA 账户。
-- PDA/Web3.js 派生测试固件：`scripts/solana/pda-web3-smoke.sh` 读取生成的 SDK Vault `typedSeeds` 制品数据，并根据 `PublicKey.findProgramAddressSync` 和 `PublicKey.createProgramAddressSync` 验证字面量/账户/bump 描述符语义；该 harness 还涵盖了 UTF-8 和指令参数解析器行为。
+- PDA/Rust 派生测试固件：`scripts/solana/pda-web3-smoke.sh` 读取生成的 SDK Vault `typedSeeds` 制品数据，并根据 `Address::find_program_address` 和 `Address::create_program_address` 验证字面量/账户/bump 描述符语义；该 harness 还涵盖了 UTF-8 和指令参数解析器行为。
 - 实时 System Program 转账 CPI 测试固件：`scripts/solana/system-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的转账 CPI 程序，通过 Web3.js 调用它，并证明 lamport 转移和状态写入。
 - 实时 System Program 创建账户 CPI 测试固件：`scripts/solana/system-create-account-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的创建账户 CPI 程序，通过 Web3.js 调用它，并证明新账户的所有者/空间/lamports 以及状态写入。
 - 实时 SPL Token transfer-checked CPI 测试固件：`scripts/solana/spl-token-transfer-cpi-web3-smoke.sh` 在 Surfpool 上构建并部署生成的 transfer_checked CPI 程序，使用 `@solana/spl-token` 创建 SPL Token 测试账户，通过 Web3.js 调用它，并证明源/目标代币余额增量以及状态写入。
