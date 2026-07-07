@@ -2,23 +2,22 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-# NearModulePlan golden + dual-path parity smoke
+# NearModulePlan golden + single-path render smoke
 
 Build the `NearModulePlan` for a named fixture and write its rendered form to a
 path provided on the command line. The shell gate compares the output to the
 golden copy at `Examples/WasmNear/<Fixture>/golden/plan.txt`.
 
-Step B (RFC 0014 Phase 4) extends this with a dual-path parity check: for each
-fixture, lower via the plan-driven path (`NearModulePlan.renderModuleFromPlan`)
-and via the existing inline path (`EmitWat.renderModule`), and assert the two
-WAT outputs are byte-identical. This proves the plan-driven lowering preserves
-semantics — the same guarantee Solana Phase 2 got with its `MATCH` assertions.
-
-Step B.2 extends parity coverage beyond Counter to non-scalar state shapes,
-mirroring how Solana Phase 2 widened to `EvmStorageArrayProbe` / `EvmMapProbe` /
-`EvmStorageStructProbe`. Each non-Counter fixture uses a sub-module whose
-entrypoints only exercise lowering paths the NEAR backend supports, so the
-plan-driven WAT emits cleanly and stays byte-identical to the inline path.
+Step C (RFC 0014 Phase 4) retired the dual-path parity check that landed in
+Step B/B.2: there is now only one lowering path. `EmitWat.lowerModule` derives
+its `Ctx` via `EmitWat.buildLowerCtx` → `EmitWat.Ctx.fromPlanSeed`, the same
+reconstruction `NearModulePlan.Ctx.fromPlanSeed` uses, so the two paths cannot
+drift and a "two paths agree" check is no longer meaningful. This smoke is now
+a single-path regression gate:
+- the plan golden diff pins the layout artifact (`plan.txt`), and
+- the `--render` flag renders the module via the plan-driven path
+  (`NearModulePlan.renderModuleFromPlan`) and asserts the WAT emits cleanly,
+  reporting the char count so byte-churn is observable in CI logs.
 
 Fixtures covered:
 - `Counter`               — scalar state (the original MVP)
@@ -42,8 +41,8 @@ open ProofForge.IR
 
 /-- Map-state sub-module: u64-keyed map using only `storageMapGet` (expr) and
 `storageMapSet` (statement) — the two map lowering paths the NEAR backend fully
-supports. Mirrors the Solana `mapSubModule` shape so plan-driven and inline WAT
-emit cleanly and stay byte-identical. -/
+supports. Mirrors the Solana `mapSubModule` shape so plan-driven WAT emits
+cleanly. -/
 def mapSubModule : Module := {
   name := "EvmMapProbe"
   state := #[ProofForge.IR.Examples.EvmMapProbe.stateBefore,
@@ -87,29 +86,27 @@ def moduleFor (name : String) : Option Module :=
   | "EvmStorageStructProbe" => some structSubModule
   | _ => none
 
-/-- Dual-path parity check: lower `mod` via the plan-driven path and the
-existing inline path, return `ok n` (the shared char count) if the two WAT
-outputs are byte-identical, or `error msg` otherwise. -/
-def parityCheck (mod : Module) : Except String Nat := do
+/-- Single-path render check: lower `mod` via the plan-driven path
+(`NearModulePlan.renderModuleFromPlan`) and return `ok n` (the WAT char count)
+if the WAT emits cleanly, or `error msg` otherwise. Step C retired the
+dual-path parity check; this is now the regression gate that confirms the
+plan-driven lowering still emits for each fixture, with the char count
+surfaced in CI logs so byte-churn is observable. -/
+def renderCheck (mod : Module) : Except String Nat := do
   let plan ← match buildNearModulePlan mod with
     | .ok p => pure p
     | .error e => .error s!"plan build failed: {e.message}"
-  let planWAT ← match renderModuleFromPlan mod plan with
+  let wat ← match renderModuleFromPlan mod plan with
     | .ok s => pure s
     | .error e => .error s!"plan-driven render failed: {e.message}"
-  let inlineWAT ← match renderModule mod with
-    | .ok s => pure s
-    | .error e => .error s!"inline render failed: {e.message}"
-  if planWAT != inlineWAT then
-    .error s!"WAT mismatch: plan-driven ({planWAT.length} chars) != inline ({inlineWAT.length} chars)"
-  else .ok planWAT.length
+  .ok wat.length
 
 def main (args : List String) : IO UInt32 := do
   let fixtureName := args[0]?.getD "Counter"
   let path := args[1]?.getD (s!"build/wasm-near/{fixtureName}.plan.txt")
-  let runParity := args.contains "--parity"
+  let runRender := args.contains "--render"
   if args.length > 3 then
-    IO.eprintln "usage: NearModulePlan <fixture> <output-path> [--parity]"
+    IO.eprintln "usage: NearModulePlan <fixture> <output-path> [--render]"
     return 2
   match moduleFor fixtureName with
   | none =>
@@ -124,13 +121,13 @@ def main (args : List String) : IO UInt32 := do
       let rendered := plan.render
       IO.FS.writeFile path rendered
       IO.println s!"wrote NearModulePlan ({fixtureName}) to {path}"
-      if runParity then
-        match parityCheck module with
+      if runRender then
+        match renderCheck module with
         | .error msg =>
-          IO.eprintln s!"PARITY FAIL ({fixtureName}): {msg}"
+          IO.eprintln s!"RENDER FAIL ({fixtureName}): {msg}"
           return 1
         | .ok n =>
-          IO.println s!"PARITY OK ({fixtureName}): MATCH {n} chars"
+          IO.println s!"RENDER OK ({fixtureName}): {n} chars"
       return 0
 
 end ProofForge.Tests.NearModulePlan

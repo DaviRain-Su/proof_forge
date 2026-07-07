@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
-# V-GATE-SOLANA-06: SolanaModulePlan golden smoke.
+# V-GATE-SOLANA-06: SolanaModulePlan golden + single-path render smoke.
 #
-# Builds the Solana semantic plan for each fixture and compares it to the
-# golden copy at Examples/Solana/<Fixture>/golden/plan.txt.
+# Builds the Solana semantic plan for each fixture, compares it to the golden
+# copy at Examples/Solana/<Fixture>/golden/plan.txt, AND (Step C) runs the
+# single-path render check: plan-driven sBPF assembly must emit cleanly for
+# each fixture.
 #
-# Fixtures (RFC 0014 Tier B — array/map/struct state extension):
-#   Counter               — scalar state (original MVP)
+# Fixtures (RFC 0014 Phase 2 — Step C plan-driven lowering, single path):
+#   Counter               — scalar state (the original MVP)
 #   EvmStorageArrayProbe  — array state (`values`, length 3)
 #   EvmMapProbe           — map state (`balances`, capacity 128)
 #   EvmStorageStructProbe — struct state (`current` : Point)
 #
-# This is the Tier B gate for the Solana backend: it validates that the
-# semantic plan artifact is stable and deterministic before assembly lowering.
+# This is the Tier B gate for the Solana backend's semantic plan. Step C made
+# the plan-driven path the ONLY lowering path: SbpfAsm.lowerModuleCore derives
+# its LowerCtx via SbpfAsm.buildLowerCtx -> SbpfAsm.LowerCtx.fromPlanSeed, the
+# same reconstruction Solana.Plan.LowerCtx.fromSeed uses, so the plan is the
+# authoritative source for lowering decisions. The dual-path parity check that
+# landed in Phase 2 is retired (there is no second path to agree with); this
+# gate is now a single-path regression gate: the plan golden diff pins the
+# semantic artifact and the --render flag confirms the plan-driven lowering
+# still emits sBPF assembly for each fixture, with the char count surfaced in
+# CI logs so byte-churn is observable.
 
 set -euo pipefail
 
@@ -27,7 +37,7 @@ FIXTURES=(
 
 mkdir -p build/solana
 
-echo "=== V-GATE-SOLANA-06: SolanaModulePlan golden smoke ==="
+echo "=== V-GATE-SOLANA-06: SolanaModulePlan golden + render smoke ==="
 
 total=${#FIXTURES[@]}
 step=0
@@ -44,14 +54,14 @@ for fixture in "${FIXTURES[@]}"; do
     continue
   fi
 
-  echo "[${step}/${total}] generating ${fixture} SolanaModulePlan..."
-  if ! lake env lean --run Tests/SolanaModulePlan.lean "$fixture" "$OUTPUT"; then
-    echo "FAIL: plan generation failed for ${fixture}" >&2
+  echo "[${step}/${total}] generating ${fixture} SolanaModulePlan + render check..."
+  if ! lake env lean --run Tests/SolanaModulePlan.lean "$fixture" "$OUTPUT" --render; then
+    echo "FAIL: plan generation / render failed for ${fixture}" >&2
     fail=$((fail + 1))
     continue
   fi
 
-  echo "  diff against golden..."
+  echo "  diff plan against golden..."
   if ! diff -u "$GOLDEN" "$OUTPUT"; then
     echo "FAIL: generated plan differs from golden for ${fixture}" >&2
     fail=$((fail + 1))

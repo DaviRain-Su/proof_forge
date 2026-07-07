@@ -126,6 +126,8 @@ powdr 式集成）的路径；Tier C-diff 则是其他所有后端的务实底�
 
 CI：`just evm-plan`（`Tests/EvmPlan.lean`）、`just evm-semantic-plan`（`Tests/EvmSemanticPlan.lean`），以及 `lake build ProofForge.Backend.Evm.Refinement`（定理从 `Tests/NearWasmFormal.lean` 以 `#check` 锚定）。
 
+**EVM 审计（2026-07-07，RFC 0014 Tier B 参考后端）。** 在 Solana 与 NEAR 完成 Step C 之后，对 EVM 做了一次镜像审计，确认 EVM 是否存在类似的、绕过 `Evm.Plan.ModulePlan` 的内联 `Ctx` 式推导（即 Step C 双路径模式）。**结论：EVM 已经是干净的 plan-only，无需 Step C 重构。** Lowering 派发为 `lowerModule module = lowerModuleWithPlan module (buildSemanticPlan module)`（严格）与 `lowerModuleBestEffort module = lowerModuleWithPlan module (buildSemanticPlanBestEffort module)`（best-effort），两者都经由 `lowerModuleWithPlan`。EVM 根本没有 `Ctx` / `LowerCtx` 结构体——plan 被直接消费。`lowerModule` 与 `lowerModuleBestEffort` 的拆分（commit `06e57e12`）是有意的严格 vs best-effort，并非 Step C 双路径：两者都经过 plan。`lowerModuleWithPlan` 内部的 best-effort 回退（当 plan 的 entrypoint/dispatch 数组不完整时回退到 `lowerEntrypoint` / `dispatchBlock`）也是 plan 驱动的——每个回退都通过 `Lower.buildEntrypointSurfacePlan` 构建一个 `EntrypointPlan` / `DispatchPlan` 并调用对应的 `*WithPlan` 函数。不存在绕过 plan 的内联 storage / ABI / dispatch 推导。EVM 是其他后端对齐的参考实现；它从未积累 Solana（`buildCtx`）与 NEAR（内联 `Ctx` 装配）在 Step C 之前携带的内联 `Ctx` 残留。完整审计、调用点表与验证见 [`docs/multi-backend-moduleplan-design.md`](../../multi-backend-moduleplan-design.md) §14。`lake build` 绿；`just evm-plan` / `just evm-semantic-plan` / `just evm-build-examples` 通过；frozen EVM golden 未变。
+
 ### NEAR（validate 丰富、plan 匮乏、形式化强）
 
 - `ProofForge/Backend/WasmNear/IR.lean` —— `validateModule`：capability + 标识符 + state + 逐入口 param/return/type + 返回路径检查。
@@ -325,6 +327,26 @@ Golden plan 快照（Phase 7 stretch）会将 plan 序列化为 JSON 供人工 r
 - 添加 `ProofForge/Backend/Solana/Plan.lean`，含 `SolanaModulePlan` 及上述子 plan。
 - 重构 `SbpfAsm.lowerModuleCore`，使 `LowerCtx` **从 plan 派生**，而非内联构建。为 `CapabilityPlan` extension 保留 `lowerModuleWithPlan`。
 - 添加 `Tests/SolanaSemanticPlan.lean` 和 `just solana-semantic-plan`，镜像 `evm-plan`（layout + entrypoint + manifest + CPI/account schema 一致性）。
+- Step C（切换默认）—— **已落地（2026-07-07）。** plan-driven 路径现在是唯一的
+  lowering 路径。原先位于 `SbpfAsm.lowerModuleCore` 旁的内联 `buildCtx`（通过
+  `buildStateOffsetsAtBase` 派生 `stateFieldOffsets` 并逐字段装配 `LowerCtx`）已
+  删除；`lowerModuleCore` 现在通过 `SbpfAsm.buildLowerCtx` →
+  `SbpfAsm.LowerCtx.fromPlanSeed` 派生其 `LowerCtx`（由拥有 `LowerCtx` 类型的
+  `SbpfAsm` 拥有；`Solana.Plan.LowerCtx.fromSeed` 委托给它，保持 import 图单向）。
+  共享的 `lowerModuleCoreWithSeed` 体不变。Phase 2 落地的双路径 parity 检查退役
+  （已无第二条路径可对齐）；`Tests/SolanaModulePlan.lean` 现为单路径回归 gate
+  （plan golden diff + `--render` 确认 plan-driven lowering 仍能发出 sBPF 汇编，
+  字符数出现在 CI 日志中）。`scripts/solana/plan-smoke.sh` 切换为 `--render`。
+  所有 `SbpfAsm.lowerModule`/`renderModule`/`lowerModuleWithPlan` 调用点
+  （Cli.lean、九个 `Tests/Solana*.lean` 发射测试、`Package.renderPackageWithPlan`）
+  现在自动经由 plan 派生的 `LowerCtx` 进行 lowering。验证：`lake build` green；
+  `just solana-plan-smoke` 通过（4/4）；`just solana-build-examples` 通过
+  （`Counter.s` 匹配冻结 golden）；`just solana-lean` 与 `just solana-emit-control`
+  通过；冻结的 `.s` golden（`Counter.golden.s`、`ValueVault.golden.s`）及所有
+  `plan.txt` golden 不变。Render 字符数：Counter 3830、EvmStorageArrayProbe 6609、
+  EvmMapProbe 4470、EvmStorageStructProbe 2707，确认字节稳定。
+
+  **EVM 审计（2026-07-07，Solana + NEAR Step C 之后）。** 对 EVM（参考 Tier B 后端）的镜像审计确认 EVM 已经是干净的 plan-only，无需 Step C 重构：`lowerModule` 委托给 `lowerModuleWithPlan module (buildSemanticPlan module)`，EVM 没有 `Ctx` / `LowerCtx` 结构体，且严格/best-effort 拆分两侧都经由 plan。EVM 是 Solana 与 NEAR 对齐的参考实现；它从未携带内联 `Ctx` 残留。完整结论见 [`docs/multi-backend-moduleplan-design.md`](../../multi-backend-moduleplan-design.md) §14。
 
 **改动清单：**
 
@@ -338,7 +360,9 @@ Golden plan 快照（Phase 7 stretch）会将 plan 序列化为 JSON 供人工 r
 
 ### Phase 3 —— 共享 diagnostic 契约（前置项，2026-07-07 落地）
 
-**状态：** 最小桩已落地。Build green，smoke green，未改动任何现有 diagnostic 字节。
+**状态：** 桩于 2026-07-07 落地；后续 A（逐后端实例）与 B（`SharedValidate`
+迁移）于 2026-07-07 落地。Build green，smoke green，未改动任何现有 diagnostic
+字节。
 
 **动机：** Phase 1 发现 `validateCapabilities`、返回路径检查、标识符合法性、
 `ensureNumericType` 不可安全统一，因为每个后端的错误类型、规则和消息都不同。共享
@@ -367,13 +391,25 @@ lowering/plan/emit 错误类型*已经是*同一形状——单字段
 
 **未做的事（明确的后续项，已登记）：**
 
-- **逐后端 `LoweringError` 实例。** 每个后端的具体错误类型
-  （`Evm.Validate.LowerError`、`WasmNear.IR.LowerError`、…）应声明一个 trivial adapter
-  实例。纯增量；不改变任何 `.render` 字节。一个后端一个 PR，让每个后端的 golden 套件
-  防御漂移。
-- **将 `SharedValidate` helper 迁移到返回 `Except LoweringDiagnostic α`。** 会改变
-  `SharedError` 与每个折叠它的调用点。原理上通过 `liftSharedError` 安全，但 diff 更大；
-  在 adapter 实例落地后进行。
+- **逐后端 `LoweringError` 实例——已于 2026-07-07 落地（后续 A）。** 三个
+  Tier-B 完成的后端（EVM、Solana、NEAR）现已在审计表中列出的全部 8 个具体错误类型
+  上携带 trivial `LoweringError` adapter 实例
+  （`Evm.Validate.LowerError`、`Evm.IR.LowerError`、`Evm.Plan.PlanError`、
+  `Solana.SbpfAsm.LowerError`、`Solana.Plan.PlanError`、`WasmNear.IR.LowerError`、
+  `WasmNear.Plan.PlanError`、`WasmNear.EmitWat.EmitError`）。每个实例为
+  `toDiagnostic := fun e => { message := e.message, backend? := some "<backend>" }`，
+  并依赖 class 默认 `render`。`Tests/Diagnostic.lean` 从 9 例扩展到 17 例，断言
+  `LoweringError.toDiagnostic err |>.render` 等于各后端自身的 `<Name>.render err`
+  与裸 `message`。其余后端（Psy、CosmWasm、Aleo、Move、Quint）在其 Tier-B 工作落地时
+  按同一 trivial 模式补齐。
+- **将 `SharedValidate` helper 迁移到返回 `Except LoweringDiagnostic α`
+  ——已于 2026-07-07 落地（后续 B）。** `SharedError` 现为 `LoweringDiagnostic` 的
+  alias。`ensureType` 与 `checkOwnership` 构造 `{ message := ... }` 而非返回裸
+  `String`；消息*文本*字节一致。调用方（`Evm/Validate.lean`、`Evm/IR.lean`、
+  `WasmNear/IR.lean`）从 `.error message => .error { message := message }` 改为
+  `.error diag => .error { message := diag.message }`。`Tests/SharedValidate.lean`
+  适配为在 `Except LoweringDiagnostic` 上模式匹配并检查 `diag.message`；全部 12 例
+  通过，包括仍钉死精确字节的 `testEnsureTypeMismatchMessage`。
 - **统一 `validateCapabilities` / 返回路径检查 / 标识符合法性 / `ensureNumericType`。**
   共享 `Diagnostic` 类型是*前置项*，不是充分条件——逐后端规则和消息也必须先对齐。
   推迟到后续阶段。
@@ -382,7 +418,7 @@ lowering/plan/emit 错误类型*已经是*同一形状——单字段
 `LoweringDiagnostic.render` 只输出裸 `message`。未触碰任何后端的具体 `render`；无需
 更新任何 golden diagnostic 测试。
 
-**改动清单：**
+**改动清单（桩）：**
 
 - `ProofForge/Backend/Diagnostic.lean`（新增）
 - `Tests/Diagnostic.lean`（新增）
@@ -390,11 +426,33 @@ lowering/plan/emit 错误类型*已经是*同一形状——单字段
 - `docs/shared-diagnostic-design.md`（新增——字段级审计 + 设计）
 - `docs/rfcs/0014-…`（本 RFC）、`docs/zh/rfcs/0014-…`（翻译同步）
 
-**风险：** 桩无风险（纯增量，无后端签名变更）。后续 adapter PR 若意外改变 `s!"..."`
-插值会导致 golden 漂移；通过一后端一 PR 与各后端 golden 套件缓解。
+**改动清单（后续 A + B，2026-07-07 落地）：**
 
-**范围裁剪：** 将后端迁移到 `LoweringDiagnostic` 作为公开错误类型；统一逐后端验证
-规则。两者均为后续项。
+- `ProofForge/Backend/Evm/{Plan,Validate,IR}.lean`——在 `PlanError` /
+  `LowerError`（×2）上添加 `LoweringError` 实例；`Evm.Validate` / `Evm.IR` 的
+  `ensureType` wrapper 改为折叠 `diag.message`。
+- `ProofForge/Backend/Solana/{SbpfAsm,Plan}.lean`——在 `LowerError` /
+  `PlanError` 上添加 `LoweringError` 实例。
+- `ProofForge/Backend/WasmNear/{IR,Plan,EmitWat}.lean`——在 `LowerError` /
+  `PlanError` / `EmitError` 上添加 `LoweringError` 实例；`WasmNear.IR` 的
+  `ensureType` wrapper 改为折叠 `diag.message`。
+- `ProofForge/Backend/SharedValidate.lean`——`SharedError` alias 重定向到
+  `LoweringDiagnostic`；`ensureType` / `checkOwnership` 构造 `{ message := ... }`；
+  模块文档补充 Phase 3 迁移说明。
+- `Tests/Diagnostic.lean`——从 9 例扩展到 17 例（逐后端实例检查）。
+- `Tests/SharedValidate.lean`——harness 适配到 `Except LoweringDiagnostic`；
+  消息字节不变。
+- `docs/shared-diagnostic-design.md`、`docs/rfcs/0014-…`、
+  `docs/zh/rfcs/0014-…`——后续 A & B 标记为已落地。
+
+**风险：** 桩无风险（纯增量，无后端签名变更）。后续 A & B 若 adapter 或
+`SharedValidate` 迁移意外改变 `s!"..."` 插值会导致 golden 漂移；通过扩展后的
+`Tests/Diagnostic.lean`（实例级字节钉死）与 `testEnsureTypeMismatchMessage`
+（共享 helper 字节钉死），以及各后端的 plan/diagnostic golden 套件缓解。实践中无
+golden 字节移动（EVM/Solana/NEAR plan smoke 与 shared-validate smoke 全部通过）。
+
+**范围裁剪：** 将后端迁移到 `LoweringDiagnostic` 作为公开错误类型（即完全替换具体
+`LowerError` 类型）；统一逐后端验证规则。两者仍为后续项。
 
 ### Phase 4 —— NEAR plan 层（8–12 周）
 
@@ -446,9 +504,22 @@ spike、没有真正的 lowering（`SuiModulePlan` 需要先于真正的 Move lo
   `EvmStorageStructProbe: MATCH 3375 chars`。覆盖现已横跨标量 / map / array /
   struct 状态形状；内联 `Ctx` 构建仍保留（双路径）直到 Step C，此时已有广泛覆盖
   证据可依赖。
-- Step C（切换默认）：parity 稳定后，将默认切到 v2，删除内联 `Ctx` 构建，并让
-  `WasmNear/Refinement.lean` 从重新推导 export/import 改为读取
-  `NearModulePlan.surface` + `NearModulePlan.layout`。
+- Step C（切换默认）—— **已落地（2026-07-07）。** plan-driven 路径现在是唯一的
+  lowering 路径。`EmitWat.lowerModule` 顶部的内联 ad-hoc `Ctx` 装配已删除；
+  `lowerModule` 现在通过 `EmitWat.buildLowerCtx` → `EmitWat.Ctx.fromPlanSeed`
+  派生其 `Ctx`（由拥有 `Ctx` 类型的 `EmitWat` 拥有；`NearModulePlan.Ctx.fromPlanSeed`
+  委托给它，保持 import 图单向）。共享的 `lowerModuleCoreWithCtx` 体不变。
+  `NearModulePlan.lowerModuleFromPlan` 现在运行与 lowering 入口相同的
+  `EmitWat.validateScratchCapacities` gate，弥补了 Step B 的一个缺口。双路径
+  parity 检查已退役（没有第二条路径需要一致）；`Tests/NearModulePlan.lean`
+  现在是单路径回归 gate（plan golden diff + `--render` 确认 plan-driven lowering
+  仍能发出 WAT，字符数在 CI 日志中可见）。`WasmNear/Refinement.lean` 通过其
+  现有的 `EmitWat.lowerModule` 调用点（现已 plan-driven）自动读取 plan-driven
+  输出；无需修改 `Refinement.lean` 代码。验证：`lake build` 通过；`just
+  near-plan-smoke` 通过（4/4）；`just wasm-near-plan` 通过；冻结的 WAT golden
+  和所有 `plan.txt` golden 不变；render 字符数与 Step B.2 parity 结果完全一致
+  （Counter 2228、EvmMapProbe 3498、EvmStorageArrayProbe 4703、
+  EvmStorageStructProbe 3375），确认字节稳定。
 
 **改动清单：**
 
@@ -465,8 +536,14 @@ spike、没有真正的 lowering（`SuiModulePlan` 需要先于真正的 Move lo
   `arraySubModule` / `structSubModule`）、`scripts/near/plan-smoke.sh`
   （多 fixture 循环）、`Examples/WasmNear/{EvmMapProbe,EvmStorageArrayProbe,
   EvmStorageStructProbe}/golden/plan.txt`（新 golden）。
-- Step C：`ProofForge/Backend/WasmNear/EmitWat.lean`、
-  `ProofForge/Backend/WasmNear/Refinement.lean`。
+- Step C：`ProofForge/Backend/WasmNear/EmitWat.lean`（新增 `Ctx.fromPlanSeed` +
+  `buildLowerCtx`；删除 `lowerModule` 中的内联 `Ctx` 装配，改为通过 `buildLowerCtx`
+  → `Ctx.fromPlanSeed` 路由）、`ProofForge/Backend/WasmNear/NearModulePlan.lean`
+  （`Ctx.fromPlanSeed` 委托给 `EmitWat.Ctx.fromPlanSeed`；`lowerModuleFromPlan`
+  运行 `validateScratchCapacities`）、`Tests/NearModulePlan.lean`（双路径 parity
+  检查转为单路径 `--render` 回归 gate）、`scripts/near/plan-smoke.sh`
+  （`--parity` → `--render`）。`ProofForge/Backend/WasmNear/Refinement.lean` 不变
+  —— 其 `EmitWat.lowerModule` 调用点现在自动通过 plan-driven `Ctx` 降级。
 
 **风险：** WAT golden 变更；离线宿主 smoke 必须保持字节稳定。与 Phase 2 相同的
 feature-flag 策略（CI 中同时跑两条路径，parity 稳定后切换默认）。

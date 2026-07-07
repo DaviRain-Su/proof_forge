@@ -3,6 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Init.Data.String.Basic
+import ProofForge.Backend.Diagnostic
 
 namespace ProofForge.Backend.WasmNear.Diagnostics
 
@@ -26,6 +27,10 @@ def crosscallTypedUnsupportedMessage : String :=
 structure EmitError where
   message : String
   deriving Repr, Inhabited
+
+instance : ProofForge.Backend.Diagnostic.LoweringError EmitError where
+  toDiagnostic := fun e =>
+    { message := e.message, backend? := some "wasm-near" }
 
 def err (msg : String) : Except EmitError α := .error { message := msg }
 

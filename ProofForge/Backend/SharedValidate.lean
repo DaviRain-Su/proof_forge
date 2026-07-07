@@ -36,24 +36,40 @@ The optional ownership hook (`IR.Ownership.checkModule`) is left as a
 documented stub: NEAR/CosmWasm already wire it from `EmitWat.renderCheckedModule`,
 and EVM/Psy/Solana opt-in is deferred per the constraint that Phase 1 must not
 introduce new ownership failures.
+
+## Phase 3 migration (2026-07-07)
+
+The helpers now return `Except LoweringDiagnostic α` instead of
+`Except String α`. `SharedError` is now an alias for `LoweringDiagnostic`
+(see `ProofForge.Backend.Diagnostic`). The `message` text produced by each
+helper is byte-identical to the Phase 1 output — only the error *type*
+changed, not the error *content*. Each backend call site that previously
+pattern-matched `.error message` now pattern-matches `.error diag` and folds
+`diag.message` into its own concrete `LowerError`, preserving byte-identical
+`.render` output. `Tests/SharedValidate.lean` pins the exact message bytes
+(`testEnsureTypeMismatchMessage`).
 -/
 
+import ProofForge.Backend.Diagnostic
 import ProofForge.IR.Contract
 import ProofForge.IR.Ownership
 
 namespace ProofForge.Backend.SharedValidate
 
 open ProofForge.IR
+open ProofForge.Backend.Diagnostic
 
 /-- A minimal, backend-neutral error type used by the shared helpers.
 
-Every primary backend already models its `LowerError` as a thin wrapper around
-a `message : String` (see `Evm.Validate.LowerError`, `WasmNear.IR.LowerError`).
-Rather than refactor those public error types — which would be a Phase 2+
-concern and risks churn — the shared helpers return `Except String` and let
-each call site wrap the string into its own `LowerError` with the smallest
-possible diff. `ensureType` is the canonical example. -/
-abbrev SharedError := String
+Phase 3 migrated this alias from `String` to `LoweringDiagnostic`. Every
+primary backend models its `LowerError` as a thin wrapper around a
+`message : String` (see `Evm.Validate.LowerError`, `WasmNear.IR.LowerError`),
+and each now carries a trivial `LoweringError` adapter instance (RFC 0014
+Phase 3). The shared helpers therefore return `Except LoweringDiagnostic α`
+and each call site folds the shared diagnostic into its own `LowerError` via
+its adapter. `LoweringDiagnostic.render` outputs only `message`, so the
+rendered bytes are identical to the previous `Except String` shape. -/
+abbrev SharedError := LoweringDiagnostic
 
 /-! ## Type-checking helpers shared across backends
 
@@ -71,7 +87,7 @@ def ensureType (context : String) (expected actual : ValueType) :
   if expected == actual then
     .ok ()
   else
-    .error s!"{context} expected `{expected.name}`, got `{actual.name}`"
+    .error { message := s!"{context} expected `{expected.name}`, got `{actual.name}`" }
 
 /-! ## Entry-point environment construction
 
@@ -142,11 +158,11 @@ A backend that wishes to opt in can call `checkOwnership module` and fold the
 text (NEAR/CosmWasm) see no change. -/
 
 /-- Run the IR ownership checker and surface its rendered message as a shared
-error. Opt-in: backends that lower owned heap (NEAR, CosmWasm) already call
+diagnostic. Opt-in: backends that lower owned heap (NEAR, CosmWasm) already call
 `IR.Ownership.checkModule` directly; EVM/Psy/Solana are NOT wired in Phase 1. -/
 def checkOwnership (module : Module) : Except SharedError Unit :=
   match ProofForge.IR.Ownership.checkModule module with
   | .ok _ => .ok ()
-  | .error err => .error err.render
+  | .error err => .error { message := err.render }
 
 end ProofForge.Backend.SharedValidate

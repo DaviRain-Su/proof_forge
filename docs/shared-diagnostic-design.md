@@ -1,6 +1,6 @@
 # Shared lowering diagnostic contract — design note
 
-Status: **Phase 3 stub landed (2026-07-07)**
+Status: **Phase 3 landed + follow-ups A & B landed (2026-07-07)**
 
 Companion to [RFC 0014](rfcs/0014-unified-semantic-lowering-contract.md) Phase 3.
 This note records the field-level audit of every backend lowering/plan/emit
@@ -105,18 +105,38 @@ can ignore them entirely and still implement the contract.
 
 ### Deferred (explicitly called out in RFC 0014 Phase 3)
 
-- **Per-backend `LoweringError` instances.** Each backend
-  (`Evm.Validate.LowerError`, `Evm.IR.LowerError`, `WasmNear.IR.LowerError`, …)
-  should declare a `LoweringError` instance with a trivial adapter
-  `⟨fun e => { message := e.message }, fun e => e.message⟩`. This is purely
-  additive and cannot change any `.render` bytes, but doing it one backend at a
-  time keeps the diff reviewable and lets each backend's golden suite guard
-  against accidental drift. Tracked as follow-up tasks.
+- **Per-backend `LoweringError` instances — LANDED (2026-07-07, follow-up A).**
+  The three Tier-B-completed backends (EVM, Solana, NEAR) now carry trivial
+  `LoweringError` adapter instances on every concrete error type listed in the
+  audit table above:
+  - `Evm.Validate.LowerError`, `Evm.IR.LowerError`, `Evm.Plan.PlanError`
+  - `Solana.SbpfAsm.LowerError`, `Solana.Plan.PlanError`
+  - `WasmNear.IR.LowerError`, `WasmNear.Plan.PlanError`,
+    `WasmNear.EmitWat.EmitError`
+
+  Each instance is `toDiagnostic := fun e => { message := e.message, backend?
+  := some "<backend>" }`, and relies on the class default `render` (which
+  delegates to `LoweringDiagnostic.render`, i.e. the bare `message`). This is
+  byte-identical to each backend's existing `<Name>.render := err.message`.
+  `Tests/Diagnostic.lean` was extended from 9 to 17 cases: one per backend
+  error type constructs an error, converts via `LoweringError.toDiagnostic`,
+  and asserts the shared `render` equals the backend's own `render` and the
+  bare `message`. The remaining backends (Psy, CosmWasm, Aleo, Move, Quint)
+  are not yet wired — they follow the same trivial pattern when their Tier-B
+  work lands.
 - **Migrating `SharedValidate` helpers to return `Except LoweringDiagnostic α`
-  instead of `Except String`.** This changes the `SharedError` alias and every
-  call site that folds it. Safe in principle (the bytes are identical via
-  `liftSharedError`), but it is a wider diff and belongs in a follow-up that
-  lands after the backend adapter instances exist.
+  — LANDED (2026-07-07, follow-up B).** `SharedError` is now an alias for
+  `LoweringDiagnostic` (previously `String`). `ensureType` and
+  `checkOwnership` now construct `{ message := ... }` instead of returning a
+  bare `String`; the message *text* is byte-identical to the Phase 1 output.
+  Callers (`Evm/Validate.lean`, `Evm/IR.lean`, `WasmNear/IR.lean`) were
+  updated from `.error message => .error { message := message }` to
+  `.error diag => .error { message := diag.message }` — wrapping the shared
+  diagnostic's `message` into the backend's concrete `LowerError`. The
+  caller's observable `.render` is byte-identical.
+  `testEnsureTypeMismatchMessage` in `Tests/SharedValidate.lean` still pins
+  the exact message bytes; the harness was adapted to pattern-match on
+  `Except LoweringDiagnostic` and check `diag.message`. All 12 cases pass.
 - **Unifying `validateCapabilities`, the return-path check, identifier
   validity, and `ensureNumericType`.** These remain per-backend (Phase 1
   finding): their signatures, rules, and messages differ. A shared `Diagnostic`
@@ -128,15 +148,17 @@ can ignore them entirely and still implement the contract.
 
 ## 4. Migration path
 
-1. **Phase 3 (this stub):** shared type + contract + trivial adapters + smoke.
-   No backend signature changes. No golden can move.
-2. **Follow-up A:** add `LoweringError` instances to each backend's concrete
-   error type (one PR per backend). Each instance is two lines; no call site
-   changes; each backend's golden suite guards bytes.
-3. **Follow-up B:** migrate `SharedValidate` helpers to return
-   `Except LoweringDiagnostic α`. Each backend's `lowerValidate` /
-   `capabilityError` wrapper folds the shared diagnostic into its concrete
-   type. Bytes preserved by construction.
+1. **Phase 3 (stub, landed 2026-07-07):** shared type + contract + trivial
+   adapters + smoke. No backend signature changes. No golden can move.
+2. **Follow-up A (landed 2026-07-07):** added `LoweringError` instances to each
+   Tier-B backend's concrete error type (EVM, Solana, NEAR — 8 error types
+   total). Each instance is two lines; no call site changes; the extended
+   `Tests/Diagnostic.lean` (17 cases) guards bytes at the instance level.
+3. **Follow-up B (landed 2026-07-07):** migrated `SharedValidate` helpers to
+   return `Except LoweringDiagnostic α`. `SharedError` is now an alias for
+   `LoweringDiagnostic`. Each backend's `ensureType` wrapper folds
+   `diag.message` into its concrete `LowerError`. Bytes preserved by
+   construction and pinned by `testEnsureTypeMismatchMessage`.
 4. **Follow-up C (post-Phase 2/3):** revisit whether `validateCapabilities`,
    the return-path check, identifier validity, and `ensureNumericType` can be
    unified now that a shared diagnostic and aligned rules exist. This is the

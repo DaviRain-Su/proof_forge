@@ -1,5 +1,6 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Backend.Diagnostic
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmNear.ExprAnalysis
 
@@ -14,6 +15,10 @@ structure PlanError where
 
 def err (message : String) : Except PlanError α :=
   .error { message }
+
+instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
+  toDiagnostic := fun e =>
+    { message := e.message, backend? := some "wasm-near" }
 
 inductive ContextExprPlan where
   | userId

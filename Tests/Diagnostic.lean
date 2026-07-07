@@ -18,14 +18,25 @@ without depending on any backend module:
   * `liftSharedError` lifts the `Except String` shape used by `SharedValidate`
     today into `Except LoweringDiagnostic` without perturbing the message.
 
-It deliberately does **not** test any backend's concrete error type — backend
-adapter instances are follow-up work tracked in RFC 0014 Phase 3, not part of
-this minimal stub.
+It deliberately does **not** test any backend's concrete error type in the
+minimal stub; the per-backend adapter instances landed in the Phase 3
+follow-up (2026-07-07) are now covered by the `testEvm*Instance` /
+`testSolana*Instance` / `testWasmNear*Instance` cases below, which pin the
+byte-stability invariant at the instance level: `LoweringError.toDiagnostic
+err |>.render` must equal the backend's own `<Name>.render err`.
 
 Mirrors the harness style of `Tests/SharedValidate.lean`.
 -/
 
 import ProofForge.Backend.Diagnostic
+import ProofForge.Backend.Evm.IR
+import ProofForge.Backend.Evm.Plan
+import ProofForge.Backend.Evm.Validate
+import ProofForge.Backend.Solana.Plan
+import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.WasmNear.EmitWat
+import ProofForge.Backend.WasmNear.IR
+import ProofForge.Backend.WasmNear.Plan
 
 namespace ProofForge.Tests.Diagnostic
 
@@ -136,6 +147,88 @@ def testLiftSharedErrorErr : IO Bool := do
       "liftSharedError preserves error message"
 
 -- ---------------------------------------------------------------------------
+-- Per-backend LoweringError instances (RFC 0014 Phase 3 follow-up)
+--
+-- Each backend's concrete error type now carries a trivial `LoweringError`
+-- adapter. These checks construct one error per backend, convert it via
+-- `LoweringError.toDiagnostic`, and assert that the shared `render` is
+-- byte-identical to the backend's own `<Name>.render := err.message`. This
+-- pins the diagnostic-stability invariant at the instance level.
+-- ---------------------------------------------------------------------------
+
+def testEvmValidateInstance : IO Bool := do
+  let err : ProofForge.Backend.Evm.Validate.LowerError := { message := "evm-validate probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend "Evm.Validate.LowerError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "evm-validate probe"
+    "Evm.Validate.LowerError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testEvmIRInstance : IO Bool := do
+  let err : ProofForge.Backend.Evm.IR.LowerError := { message := "evm-ir probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend "Evm.IR.LowerError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "evm-ir probe"
+    "Evm.IR.LowerError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testEvmPlanInstance : IO Bool := do
+  let err : ProofForge.Backend.Evm.Plan.PlanError := { message := "evm-plan probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend "Evm.Plan.PlanError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "evm-plan probe"
+    "Evm.Plan.PlanError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testSolanaSbpfAsmInstance : IO Bool := do
+  let err : ProofForge.Backend.Solana.SbpfAsm.LowerError := { message := "solana-sbpf probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend
+    "Solana.SbpfAsm.LowerError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "solana-sbpf probe"
+    "Solana.SbpfAsm.LowerError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testSolanaPlanInstance : IO Bool := do
+  let err : ProofForge.Backend.Solana.Plan.PlanError := { message := "solana-plan probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend
+    "Solana.Plan.PlanError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "solana-plan probe"
+    "Solana.Plan.PlanError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testWasmNearIRInstance : IO Bool := do
+  let err : ProofForge.Backend.WasmNear.IR.LowerError := { message := "near-ir probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  let viaBackend := err.render
+  let ok1 ← requireEqStr viaClass viaBackend
+    "WasmNear.IR.LowerError instance matches backend render"
+  let ok2 ← requireEqStr viaClass "near-ir probe"
+    "WasmNear.IR.LowerError instance renders bare message"
+  pure (ok1 && ok2)
+
+def testWasmNearPlanInstance : IO Bool := do
+  let err : ProofForge.Backend.WasmNear.Plan.PlanError := { message := "near-plan probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  -- WasmNear.Plan.PlanError has no explicit `.render`, but the instance's
+  -- default `render` projects to `LoweringDiagnostic.render`, which is the
+  -- bare `message` — matching the `err` helper's behavior.
+  requireEqStr viaClass "near-plan probe"
+    "WasmNear.Plan.PlanError instance renders bare message"
+
+def testWasmNearEmitWatInstance : IO Bool := do
+  let err : ProofForge.Backend.WasmNear.EmitWat.EmitError := { message := "near-emit probe" }
+  let viaClass := LoweringError.toDiagnostic err |>.render
+  requireEqStr viaClass "near-emit probe"
+    "WasmNear.EmitWat.EmitError instance renders bare message"
+
+-- ---------------------------------------------------------------------------
 -- Main harness
 -- ---------------------------------------------------------------------------
 
@@ -150,7 +243,15 @@ def main : IO UInt32 := do
     testRenderDefaultUsesToDiagnostic,
     testFromTargetDiagnostic,
     testLiftSharedErrorOk,
-    testLiftSharedErrorErr
+    testLiftSharedErrorErr,
+    testEvmValidateInstance,
+    testEvmIRInstance,
+    testEvmPlanInstance,
+    testSolanaSbpfAsmInstance,
+    testSolanaPlanInstance,
+    testWasmNearIRInstance,
+    testWasmNearPlanInstance,
+    testWasmNearEmitWatInstance
   ]
   for test in cases do
     let ok ← test

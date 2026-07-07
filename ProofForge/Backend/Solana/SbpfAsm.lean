@@ -461,7 +461,7 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
       match schema.inputLayout.accounts[0]? with
       | some accountLayout => .ok accountLayout.dataStart
       | none => .error { message := "Solana account schema must contain at least one state account" }
-  let ctx ← buildCtx module stateDataOff
+  let ctx := buildLowerCtx module stateDataOff
   lowerModuleCoreWithSeed module schema.accounts schema.inputLayout extensions ctx
 
 partial def lowerModule (module : IR.Module) : Except LowerError (Array AstNode) :=

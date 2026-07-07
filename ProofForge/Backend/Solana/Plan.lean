@@ -26,6 +26,7 @@ See `docs/solana-module-plan-design.md` for the full design.
 
 import ProofForge.IR.Contract
 import ProofForge.Target.Plan
+import ProofForge.Backend.Diagnostic
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.StateLayout
@@ -140,6 +141,17 @@ structure PlanError where
 
 def PlanError.render (err : PlanError) : String := err.message
 
+/-! ## Shared diagnostic contract adapter (RFC 0014 Phase 3)
+
+Trivial `LoweringError` instance: projects `PlanError` into the shared
+`LoweringDiagnostic` shape, tagging `backend? := "solana-sbpf-asm"`. The class
+default `render` delegates to `LoweringDiagnostic.render`, which outputs only
+`message`, so this is byte-identical to `PlanError.render` above. Purely
+additive metadata; no existing call site or golden diagnostic is affected. -/
+instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
+  toDiagnostic := fun e =>
+    { message := e.message, backend? := some "solana-sbpf-asm" }
+
 -- ============================================================================
 -- Building the plan from an IR module
 -- ============================================================================
@@ -164,7 +176,7 @@ def buildStateFieldPlan (module : Module) (acctDataOff : Nat) : Array SolanaStat
           byteSize := stateDeclSize decl
           absOff := field.absOff }
 
-def buildAccountPlan (module : Module) (extensions : ProgramExtensions)
+def buildAccountPlan (_module : Module) (_extensions : ProgramExtensions)
     (accounts : Array AccountEntry) (specs : Array (Nat × Bool)) : Array SolanaAccountPlan :=
   accounts.mapIdx fun idx account =>
     let (dataSize, _) := specs[idx]?.getD (0, false)
@@ -175,7 +187,7 @@ def buildAccountPlan (module : Module) (extensions : ProgramExtensions)
       owner := account.owner
       dataSize := dataSize }
 
-def scalarParamPlan? (epName : String) (name : String) (ty : ValueType) (offset : Nat) :
+def scalarParamPlan? (_epName : String) (name : String) (ty : ValueType) (offset : Nat) :
     Except PlanError (Option (SolanaInstructionParamPlan × Nat)) :=
   match scalarParamSize? ty with
   | none => .ok none
@@ -278,7 +290,7 @@ def renderNat (n : Nat) : String := toString n
 def renderBool (b : Bool) : String := if b then "true" else "false"
 
 def indent (n : Nat) (s : String) : String :=
-  String.mk (List.replicate n ' ') ++ s
+  String.ofList (List.replicate n ' ') ++ s
 
 def joinLines (lines : List String) : String :=
   String.intercalate "\n" lines
@@ -345,21 +357,24 @@ def SolanaModulePlan.render (plan : SolanaModulePlan) : String :=
 -- ============================================================================
 
 /-- Build a `LowerCtx` from the plan's lowering seed, without re-deriving state
-offsets or account layout from the IR module. -/
+offsets or account layout from the IR module. Delegates to
+`SbpfAsm.LowerCtx.fromPlanSeed` (the `LowerCtx` owner) so the plan path and the
+`SbpfAsm.lowerModuleCore` lowering entry share one reconstruction path and
+cannot drift. The lowering-local mutable fields (`locals`, `nextLocalOffset`,
+`scratchOffset`, `nextLabel`, `allocator`) are initialised to their entry
+defaults inside `LowerCtx.fromPlanSeed`. -/
 def LowerCtx.fromSeed (seed : SolanaLowerCtxSeed) : SbpfAsm.LowerCtx :=
-  { stateFieldOffsets := seed.stateFieldOffsets
-    structs := seed.structs
-    stateDecls := seed.stateDecls
-    locals := #[]
-    nextLocalOffset := 8
-    scratchOffset := 8
-    nextLabel := 0
-    allocator := Allocator.new }
+  SbpfAsm.LowerCtx.fromPlanSeed
+    seed.stateFieldOffsets seed.structs seed.stateDecls
 
 /-- Lower a module using a pre-built `SolanaModulePlan`. This is the Tier B
 contract entry point: the lowering is a pure function of the plan (plus the IR
-module's statement bodies). The capability check is re-run here because it is
-a read-only validation gate, not a lowering decision. -/
+module's statement bodies). The reconstructed `LowerCtx` is handed to the
+shared `SbpfAsm.lowerModuleCoreWithSeed` body — the exact same body
+`SbpfAsm.lowerModuleCore` uses (Step C made it the only path) — so the
+plan-driven output is identical to the lowering entry's output. The
+capability check is re-run here because it is a read-only validation gate, not
+a lowering decision. -/
 def lowerModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
     Except SbpfAsm.LowerError (Array AstNode) := do
   SbpfAsm.validateCapabilities module
@@ -368,7 +383,10 @@ def lowerModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
   SbpfAsm.lowerModuleCoreWithSeed module seed.manifestAccounts seed.inputLayout
     seed.extensions ctx
 
-/-- Render a module to sBPF assembly text via the plan-driven path. -/
+/-- Render a module to sBPF assembly text via the plan-driven path. Step C
+made the plan-driven path the only lowering path, so this and
+`SbpfAsm.renderModule` share the same `lowerModuleCoreWithSeed` body via
+`LowerCtx.fromSeed` / `SbpfAsm.LowerCtx.fromPlanSeed`. -/
 def renderModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
     Except SbpfAsm.LowerError String := do
   let nodes ← lowerModuleFromPlan module plan

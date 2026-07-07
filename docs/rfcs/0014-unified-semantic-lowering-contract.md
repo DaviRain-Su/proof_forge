@@ -183,6 +183,31 @@ CI: `just evm-plan` (`Tests/EvmPlan.lean`), `just evm-semantic-plan`
 (`Tests/EvmSemanticPlan.lean`), and `lake build ProofForge.Backend.Evm.Refinement`
 (theorems are `#check`-anchored from `Tests/NearWasmFormal.lean`).
 
+**EVM audit (2026-07-07, RFC 0014 Tier B reference backend).** A mirror audit
+of EVM was performed after Solana and NEAR completed their Step C, asking
+whether EVM had any analogous inline `Ctx`-like derivation that bypasses
+`Evm.Plan.ModulePlan` (the Step C dual-path pattern). **Finding: EVM is
+already cleanly plan-only — no Step C refactor was needed.** The lowering
+dispatch is `lowerModule module = lowerModuleWithPlan module (buildSemanticPlan module)`
+(strict) and `lowerModuleBestEffort module = lowerModuleWithPlan module (buildSemanticPlanBestEffort module)`
+(best-effort); both route through `lowerModuleWithPlan`. EVM has no `Ctx` /
+`LowerCtx` struct at all — the plan is consumed directly. The
+`lowerModule` vs `lowerModuleBestEffort` split (commit `06e57e12`) is
+intentional strict-vs-best-effort, not a Step C dual-path: both go through a
+plan. The internal best-effort fallbacks in `lowerModuleWithPlan`
+(`lowerEntrypoint` / `dispatchBlock` when the plan's entrypoint/dispatch
+arrays are incomplete) are also plan-routed — each builds an
+`EntrypointPlan` / `DispatchPlan` via `Lower.buildEntrypointSurfacePlan` and
+calls the corresponding `*WithPlan` function. There is no inline storage /
+ABI / dispatch derivation duplicating the plan. EVM is the reference
+implementation the other backends were aligned to; it never accumulated the
+inline `Ctx` residue that Solana (`buildCtx`) and NEAR (inline `Ctx`
+assembly) carried before their Step C. Full audit, call-site table, and
+verification in
+[`docs/multi-backend-moduleplan-design.md`](../multi-backend-moduleplan-design.md)
+§14. `lake build` green; `just evm-plan` / `just evm-semantic-plan` /
+`just evm-build-examples` pass; frozen EVM goldens unchanged.
+
 ### NEAR (validate-rich, plan-poor, formal-strong)
 
 - `ProofForge/Backend/WasmNear/IR.lean` — `validateModule`: capabilities +
@@ -440,6 +465,39 @@ does not block it.
 - Add `Tests/SolanaSemanticPlan.lean` and `just solana-semantic-plan`,
   mirroring `evm-plan` (layout + entrypoint + manifest + CPI/account schema
   consistency).
+- Step C (switch default) — **LANDED (2026-07-07).** The plan-driven path is the
+  ONLY lowering path. The inline `buildCtx` that previously lived beside
+  `SbpfAsm.lowerModuleCore` (deriving `stateFieldOffsets` via
+  `buildStateOffsetsAtBase` and assembling `LowerCtx` field-by-field) is
+  deleted; `lowerModuleCore` now derives its `LowerCtx` via
+  `SbpfAsm.buildLowerCtx` → `SbpfAsm.LowerCtx.fromPlanSeed` (owned by `SbpfAsm`,
+  which owns the `LowerCtx` type; `Solana.Plan.LowerCtx.fromSeed` delegates to
+  it, keeping the import graph one-directional). The shared
+  `lowerModuleCoreWithSeed` body is unchanged. The dual-path parity check that
+  landed in Phase 2 is retired (there is no second path to agree with);
+  `Tests/SolanaModulePlan.lean` is now a single-path regression gate (plan
+  golden diff + `--render` confirms the plan-driven lowering still emits sBPF
+  assembly, char count surfaced in CI logs). `scripts/solana/plan-smoke.sh`
+  switches to `--render`. All `SbpfAsm.lowerModule`/`renderModule`/
+  `lowerModuleWithPlan` call sites (Cli.lean, the nine `Tests/Solana*.lean`
+  emission tests, `Package.renderPackageWithPlan`) now lower through the
+  plan-derived `LowerCtx` automatically. Verification: `lake build` green;
+  `just solana-plan-smoke` passes (4/4); `just solana-build-examples` passes
+  (`Counter.s` matches frozen golden); `just solana-lean` and
+  `just solana-emit-control` pass; frozen `.s` goldens
+  (`Counter.golden.s`, `ValueVault.golden.s`) and all `plan.txt` goldens
+  unchanged. Render char counts: Counter 3830, EvmStorageArrayProbe 6609,
+  EvmMapProbe 4470, EvmStorageStructProbe 2707, confirming byte-stability.
+
+  **EVM audit (2026-07-07, after Solana + NEAR Step C).** A mirror audit of
+  EVM (the reference Tier B backend) confirmed EVM was already cleanly
+  plan-only and needed no Step C refactor: `lowerModule` delegates to
+  `lowerModuleWithPlan module (buildSemanticPlan module)`, EVM has no `Ctx` /
+  `LowerCtx` struct, and the strict/best-effort split is plan-routed on both
+  sides. EVM is the reference implementation Solana and NEAR were aligned to;
+  it never carried the inline `Ctx` residue. Full finding in
+  [`docs/multi-backend-moduleplan-design.md`](../multi-backend-moduleplan-design.md)
+  §14.
 
 **Touch list:**
 
@@ -457,8 +515,9 @@ golden parity is demonstrated.
 
 ### Phase 3 — Shared diagnostic contract (prerequisite, landed 2026-07-07)
 
-**Status:** Minimal stub landed. Build green, smoke green, no existing
-diagnostic bytes changed.
+**Status:** Stub landed 2026-07-07; follow-ups A (per-backend instances) and B
+(`SharedValidate` migration) landed 2026-07-07. Build green, smoke green, no
+existing diagnostic bytes changed.
 
 **Motivation:** Phase 1 found that `validateCapabilities`, the return-path
 check, identifier validity, and `ensureNumericType` could not be safely unified
@@ -492,14 +551,28 @@ diagnostics.
 
 **What was NOT done (deferred follow-ups, explicitly tracked):**
 
-- **Per-backend `LoweringError` instances.** Each backend's concrete error type
-  (`Evm.Validate.LowerError`, `WasmNear.IR.LowerError`, …) should declare a
-  trivial adapter instance. Purely additive; no `.render` bytes change. One PR
-  per backend so each backend's golden suite guards against drift.
+- **Per-backend `LoweringError` instances — LANDED 2026-07-07 (follow-up A).**
+  The three Tier-B-completed backends (EVM, Solana, NEAR) now carry trivial
+  `LoweringError` adapter instances on all 8 concrete error types listed in the
+  audit (`Evm.Validate.LowerError`, `Evm.IR.LowerError`, `Evm.Plan.PlanError`,
+  `Solana.SbpfAsm.LowerError`, `Solana.Plan.PlanError`, `WasmNear.IR.LowerError`,
+  `WasmNear.Plan.PlanError`, `WasmNear.EmitWat.EmitError`). Each instance is
+  `toDiagnostic := fun e => { message := e.message, backend? := some
+  "<backend>" }` and relies on the class default `render`. `Tests/Diagnostic.lean`
+  was extended from 9 to 17 cases, asserting `LoweringError.toDiagnostic err
+  |>.render` equals each backend's own `<Name>.render err` and the bare
+  `message`. Remaining backends (Psy, CosmWasm, Aleo, Move, Quint) follow the
+  same trivial pattern when their Tier-B work lands.
 - **Migrating `SharedValidate` helpers to return
-  `Except LoweringDiagnostic α`.** Changes `SharedError` and every call site
-  that folds it. Safe in principle via `liftSharedError`, but a wider diff;
-  lands after the adapter instances.
+  `Except LoweringDiagnostic α` — LANDED 2026-07-07 (follow-up B).**
+  `SharedError` is now an alias for `LoweringDiagnostic`. `ensureType` and
+  `checkOwnership` construct `{ message := ... }` instead of returning a bare
+  `String`; the message *text* is byte-identical. Callers (`Evm/Validate.lean`,
+  `Evm/IR.lean`, `WasmNear/IR.lean`) were updated from `.error message =>
+  .error { message := message }` to `.error diag => .error { message :=
+  diag.message }`. `Tests/SharedValidate.lean` was adapted to pattern-match on
+  `Except LoweringDiagnostic` and check `diag.message`; all 12 cases pass,
+  including `testEnsureTypeMismatchMessage` which still pins the exact bytes.
 - **Unifying `validateCapabilities` / the return-path check / identifier
   validity / `ensureNumericType`.** A shared `Diagnostic` type is a
   *prerequisite*, not a sufficient condition — the per-backend rules and
@@ -509,7 +582,7 @@ diagnostics.
 `LoweringDiagnostic.render` to the bare `message`. No backend's concrete
 `render` was touched; no golden diagnostic test needed updating.
 
-**Touch list:**
+**Touch list (stub):**
 
 - `ProofForge/Backend/Diagnostic.lean` (new)
 - `Tests/Diagnostic.lean` (new)
@@ -517,13 +590,37 @@ diagnostics.
 - `docs/shared-diagnostic-design.md` (new — field-level audit + design)
 - `docs/rfcs/0014-…` (this RFC), `docs/zh/rfcs/0014-…` (translation sync)
 
+**Touch list (follow-ups A + B, landed 2026-07-07):**
+
+- `ProofForge/Backend/Evm/{Plan,Validate,IR}.lean` — `LoweringError` instances
+  on `PlanError` / `LowerError` (×2); `Evm.Validate` / `Evm.IR` `ensureType`
+  wrapper updated to fold `diag.message`.
+- `ProofForge/Backend/Solana/{SbpfAsm,Plan}.lean` — `LoweringError` instances
+  on `LowerError` / `PlanError`.
+- `ProofForge/Backend/WasmNear/{IR,Plan,EmitWat}.lean` — `LoweringError`
+  instances on `LowerError` / `PlanError` / `EmitError`; `WasmNear.IR`
+  `ensureType` wrapper updated to fold `diag.message`.
+- `ProofForge/Backend/SharedValidate.lean` — `SharedError` alias retargeted
+  to `LoweringDiagnostic`; `ensureType` / `checkOwnership` construct
+  `{ message := ... }`; module doc updated with Phase 3 migration note.
+- `Tests/Diagnostic.lean` — extended from 9 to 17 cases (per-backend instance
+  checks).
+- `Tests/SharedValidate.lean` — harness adapted to `Except LoweringDiagnostic`;
+  message bytes unchanged.
+- `docs/shared-diagnostic-design.md`, `docs/rfcs/0014-…`,
+  `docs/zh/rfcs/0014-…` — follow-ups A & B marked landed.
+
 **Risks:** none for the stub (purely additive, no backend signature changes).
-Follow-up adapter PRs risk golden churn if an adapter accidentally changes a
-`s!"..."` interpolation; mitigated by one-PR-per-backend and each backend's
-golden suite.
+Follow-ups A & B risk golden churn if an adapter or the `SharedValidate`
+migration accidentally changes a `s!"..."` interpolation; mitigated by the
+extended `Tests/Diagnostic.lean` (instance-level byte pin) and
+`testEnsureTypeMismatchMessage` (shared-helper byte pin), plus each backend's
+plan/diagnostic golden suite. No golden bytes moved in practice (EVM/Solana/NEAR
+plan smokes and the shared-validate smoke all pass).
 
 **Scope cut:** migrating backends onto `LoweringDiagnostic` as their public
-error type; unifying the per-backend validation rules. Both are follow-ups.
+error type (i.e. replacing the concrete `LowerError` types entirely);
+unifying the per-backend validation rules. Both remain follow-ups.
 
 ### Phase 4 — NEAR plan layer (8–12 weeks)
 
@@ -580,9 +677,26 @@ real lowering (a `SuiModulePlan` would have to precede building one).
   `EvmStorageStructProbe: MATCH 3375 chars`. Coverage now spans scalar / map /
   array / struct state shapes; the inline `Ctx` construction is still kept
   (dual-path) until Step C, which now has wide coverage evidence to lean on.
-- Step C (switch default): after parity holds, flip the default to v2, delete the
-  inline `Ctx` construction, and switch `WasmNear/Refinement.lean` from re-deriving
-  exports/imports to reading `NearModulePlan.surface` + `NearModulePlan.layout`.
+- Step C (switch default) — **LANDED (2026-07-07).** The plan-driven path is
+  the ONLY lowering path. The inline ad-hoc `Ctx` assembly at the top of
+  `EmitWat.lowerModule` is deleted; `lowerModule` now derives its `Ctx` via
+  `EmitWat.buildLowerCtx` → `EmitWat.Ctx.fromPlanSeed` (owned by `EmitWat`,
+  which owns the `Ctx` type; `NearModulePlan.Ctx.fromPlanSeed` delegates to
+  it, keeping the import graph one-directional). The shared
+  `lowerModuleCoreWithCtx` body is unchanged. `NearModulePlan.lowerModuleFromPlan`
+  now runs the same `EmitWat.validateScratchCapacities` gate as the lowering
+  entry, closing a Step B gap. The dual-path parity check is retired (there
+  is no second path to agree with); `Tests/NearModulePlan.lean` is now a
+  single-path regression gate (plan golden diff + `--render` confirms the
+  plan-driven lowering still emits WAT, char count surfaced in CI logs).
+  `WasmNear/Refinement.lean` reads the plan-driven output automatically via
+  its existing `EmitWat.lowerModule` call sites (now plan-driven); no
+  `Refinement.lean` code change was needed. Verification: `lake build` green;
+  `just near-plan-smoke` passes (4/4); `just wasm-near-plan` passes; frozen
+  WAT goldens and all `plan.txt` goldens unchanged; render char counts match
+  Step B.2 parity results exactly (Counter 2228, EvmMapProbe 3498,
+  EvmStorageArrayProbe 4703, EvmStorageStructProbe 3375), confirming
+  byte-stability.
 
 **Touch list:**
 
@@ -600,8 +714,16 @@ real lowering (a `SuiModulePlan` would have to precede building one).
   `arraySubModule` / `structSubModule`), `scripts/near/plan-smoke.sh`
   (multi-fixture loop), `Examples/WasmNear/{EvmMapProbe,EvmStorageArrayProbe,
   EvmStorageStructProbe}/golden/plan.txt` (new goldens).
-- Step C: `ProofForge/Backend/WasmNear/EmitWat.lean`,
-  `ProofForge/Backend/WasmNear/Refinement.lean`.
+- Step C: `ProofForge/Backend/WasmNear/EmitWat.lean` (`Ctx.fromPlanSeed` +
+  `buildLowerCtx` added; inline `Ctx` assembly in `lowerModule` deleted;
+  `lowerModule` now routes through the plan-derived `Ctx`),
+  `ProofForge/Backend/WasmNear/NearModulePlan.lean` (`Ctx.fromPlanSeed`
+  delegates to `EmitWat.Ctx.fromPlanSeed`; `lowerModuleFromPlan` runs
+  `validateScratchCapacities`), `Tests/NearModulePlan.lean` (dual-path
+  parity → single-path `--render` gate), `scripts/near/plan-smoke.sh`
+  (`--parity` → `--render`). `ProofForge/Backend/WasmNear/Refinement.lean`
+  is unchanged — its `EmitWat.lowerModule` call sites now lower through the
+  plan-derived `Ctx` automatically.
 
 **Risks:** WAT golden churn; offline-host smokes must remain byte-stable. Same
 feature-flag strategy as Phase 2 (run both paths in CI, flip default after parity).

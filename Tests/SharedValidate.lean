@@ -17,6 +17,11 @@ genuinely shared helpers extracted in Phase 1:
     control-flow-returns predicate previously duplicated inside EVM
     (`Evm.Validate` + `Evm.IR`).
 
+Phase 3 note (2026-07-07): the helpers now return `Except LoweringDiagnostic`
+instead of `Except String`. The harness below checks `diag.message` against the
+previous pinned strings, so `testEnsureTypeMismatchMessage` still guards the
+exact message bytes.
+
 It deliberately does **not** test:
 
   * `validateCapabilities` — not shared (EVM resolves a CapabilityPlan,
@@ -31,6 +36,7 @@ It deliberately does **not** test:
 Mirrors the harness style of `Tests/IROwnership.lean` and `Tests/EvmPlan.lean`.
 -/
 
+import ProofForge.Backend.Diagnostic
 import ProofForge.Backend.SharedValidate
 import ProofForge.IR.Contract
 
@@ -38,6 +44,7 @@ namespace ProofForge.Tests.SharedValidate
 
 open ProofForge.IR
 open ProofForge.Backend.SharedValidate
+open ProofForge.Backend.Diagnostic
 
 /-- Tiny entrypoint used to exercise `sharedParamBindings` / return-path
 predicates without pulling in a full example module. -/
@@ -58,20 +65,21 @@ def sampleModule : Module := {
 -- ensureType
 -- ---------------------------------------------------------------------------
 
-def requireOk (name : String) (result : Except String Unit) : IO Bool := do
+def requireOk (name : String) (result : Except LoweringDiagnostic Unit) : IO Bool := do
   match result with
   | .ok _ =>
     IO.println s!"shared-validate: ok: {name}"
     pure true
-  | .error message =>
+  | .error diag =>
     IO.eprintln s!"shared-validate: FAILED: {name}"
-    IO.eprintln s!"  expected success, got: {message}"
+    IO.eprintln s!"  expected success, got: {diag.render}"
     pure false
 
-def requireError (name : String) (result : Except String Unit) (expected : String) :
+def requireError (name : String) (result : Except LoweringDiagnostic Unit) (expected : String) :
     IO Bool := do
   match result with
-  | .error message =>
+  | .error diag =>
+    let message := diag.message
     if message == expected then
       IO.println s!"shared-validate: ok: {name}"
       pure true

@@ -1,5 +1,6 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Backend.Diagnostic
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
@@ -21,6 +22,10 @@ structure PlanError where
 
 def PlanError.render (err : PlanError) : String :=
   err.message
+
+instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
+  toDiagnostic := fun e =>
+    { message := e.message, backend? := some "evm" }
 
 def PlanError.fromDiagnostic (err : Diagnostic) : PlanError := {
   message := err.render

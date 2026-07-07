@@ -11,6 +11,7 @@ helpers for the Solana sBPF assembly backend.
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
+import ProofForge.Backend.Diagnostic
 import ProofForge.Backend.Solana.Asm
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.StateLayout
@@ -45,6 +46,10 @@ structure LowerError where
   deriving Repr, Inhabited
 
 def LowerError.render (err : LowerError) : String := err.message
+
+instance : ProofForge.Backend.Diagnostic.LoweringError LowerError where
+  toDiagnostic := fun e =>
+    { message := e.message, backend? := some "solana-sbpf-asm" }
 
 def diagnosticError (err : ProofForge.Target.Diagnostic) : LowerError := {
   message := err.render
@@ -233,9 +238,34 @@ frame. The label counter and state-field offsets are preserved by the caller. -/
 def LowerCtx.resetLocals (ctx : LowerCtx) : LowerCtx :=
   { ctx with locals := #[], nextLocalOffset := 8, scratchOffset := 8, allocator := Allocator.new }
 
-def buildCtx (module : Module) (stateDataOff : Nat) : Except LowerError LowerCtx := do
+/-- Reconstruct a `LowerCtx` from a plan seed plus the lowering-local mutable
+fields reset to their entry defaults. This is the plan-driven context builder
+shared by `Solana.Plan.LowerCtx.fromSeed` and the direct assembly lowering
+entry. -/
+def LowerCtx.fromPlanSeed
+    (stateFieldOffsets : Array (String × Nat))
+    (structs : Array StructDecl)
+    (stateDecls : Array StateDecl) : LowerCtx :=
+  { stateFieldOffsets
+    structs
+    stateDecls
+    locals := #[]
+    nextLocalOffset := 8
+    scratchOffset := 8
+    nextLabel := 0
+    allocator := Allocator.new }
+
+/-- Build the lowering context through the same seed shape recorded in
+`SolanaModulePlan`, so the direct and plan-driven lowering paths cannot drift. -/
+def buildLowerCtx (module : IR.Module) (stateDataOff : Nat) : LowerCtx :=
   let offsets := buildStateOffsetsAtBase module stateDataOff
-  return { stateFieldOffsets := offsets.map (fun f => (f.id, f.absOff)), structs := module.structs, stateDecls := module.state, locals := #[], nextLocalOffset := 8, scratchOffset := 8, nextLabel := 0, allocator := Allocator.new }
+  LowerCtx.fromPlanSeed
+    (offsets.map (fun f => (f.id, f.absOff)))
+    module.structs
+    module.state
+
+def buildCtx (module : Module) (stateDataOff : Nat) : Except LowerError LowerCtx := do
+  .ok (buildLowerCtx module stateDataOff)
 
 def SPL_TOKEN_ACCOUNT_DATA_SIZE : Nat := 165
 def SPL_TOKEN_MINT_DATA_SIZE : Nat := 82

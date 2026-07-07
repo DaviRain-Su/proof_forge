@@ -1,6 +1,6 @@
 # Multi-backend ModulePlan — feasibility assessment and design
 
-Status: **Phase 4 Step A + Step B + Step B.2 landed** (plan-driven NEAR lowering, dual-path parity green across scalar/map/array/struct state)
+Status: **Phase 4 Step A + Step B + Step B.2 + Step C landed** (plan-driven NEAR lowering is the only path; inline `Ctx` deleted; dual-path parity retired) **+ Solana Phase 2 Step C landed** (plan-driven Solana lowering is the only path; inline `buildCtx` deleted; dual-path parity retired) **+ EVM audit landed** (EVM confirmed already plan-only; no Step C refactor needed)
 
 Date: 2026-07-07
 
@@ -302,18 +302,53 @@ construction is replaced by `Ctx.fromSeed`, which produces the same fields).
   `EvmMapProbe`/`EvmStorageArrayProbe`/`EvmStorageStructProbe` already cover
   the non-scalar state shapes and mirror Solana's fixture set exactly.
 
-**Step C — Switch default.**
-- After parity holds over N consecutive CI runs, flip the default to v2 and delete
-  the inline `Ctx` construction.
-- `WasmNear/Refinement.lean` switches from re-deriving exports/imports to reading
-  `NearModulePlan.surface` + `NearModulePlan.layout`.
+**Step C — Switch default. — LANDED (2026-07-07).**
+- The plan-driven path is the ONLY lowering path. The inline ad-hoc `Ctx`
+  assembly at the top of `EmitWat.lowerModule` (the lines that called
+  `stateLayout`/`mapLayout`/`stringPool`/`panicPool`/`crosscallStringInfos` and
+  assembled `Ctx` field-by-field) is deleted. `EmitWat.lowerModule` now
+  derives its `Ctx` via `EmitWat.buildLowerCtx` → `EmitWat.Ctx.fromPlanSeed`,
+  the same reconstruction `NearModulePlan.Ctx.fromPlanSeed` uses, so the
+  `*ModulePlan` is the authoritative source for lowering decisions and the
+  two paths cannot drift. The shared `lowerModuleCoreWithCtx` body is
+  unchanged.
+- `EmitWat.Ctx.fromPlanSeed` is owned by `EmitWat` (which owns the `Ctx`
+  type); `NearModulePlan.Ctx.fromPlanSeed` delegates to it. This keeps the
+  import graph one-directional (`NearModulePlan` imports `EmitWat`, not vice
+  versa) and ensures the plan artifact and the lowering entry share one
+  reconstruction path.
+- `NearModulePlan.lowerModuleFromPlan` now runs the same
+  `EmitWat.validateScratchCapacities` gate as the lowering entry, closing a
+  Step B gap where the plan path skipped scratch-capacity validation.
+- The dual-path parity check that landed in Step B/B.2 is retired: there is
+  no second path to agree with. `Tests/NearModulePlan.lean` is now a
+  single-path regression gate — the plan golden diff pins the layout artifact
+  and the `--render` flag confirms the plan-driven lowering still emits WAT
+  for each fixture, with the char count surfaced in CI logs so byte-churn is
+  observable. `scripts/near/plan-smoke.sh` switches `--parity` to `--render`.
+- `WasmNear/Refinement.lean` reads the plan-driven output automatically:
+  its `EmitWat.lowerModule` call sites now lower through the plan-derived
+  `Ctx`, so the plan is the authoritative source for the refinement
+  obligations too. No `Refinement.lean` code change was needed — the dispatch
+  switch in `EmitWat.lowerModule` itself routes through the plan.
+- Verification: `lake build` green; `just near-plan-smoke` passes (4/4
+  fixtures, plan golden diff + plan-driven render); `just wasm-near-plan`
+  passes (WAT surface pruning unchanged); frozen WAT goldens
+  (`Counter.golden.wat`, `ValueVault.golden.wat`) and all `plan.txt` goldens
+  unchanged. Render char counts match the Step B.2 parity results exactly
+  (Counter 2228, EvmMapProbe 3498, EvmStorageArrayProbe 4703,
+  EvmStorageStructProbe 3375), confirming byte-stability.
 
 **Byte-stability guard.** The existing `Examples/WasmNear/Counter.golden.wat` and
 `ValueVault.golden.wat` pin the WAT output. The `just wasm-near-plan` smoke pins the
 host-import/helper surface. `just near-plan-smoke` pins the layout plan as a golden
-text artifact (Step A) AND asserts dual-path WAT parity (Step B), mirroring
-`solana-plan-smoke`. Step B's extraction is purely additive to the lowering body,
-so the inline path and the frozen WAT goldens are unchanged.
+text artifact (Step A) and, since Step C, asserts the plan-driven lowering still
+emits WAT for each fixture (the `--render` flag), mirroring `solana-plan-smoke`.
+Step B's extraction was purely additive to the lowering body, so the inline path
+and the frozen WAT goldens were unchanged through Step B.2; Step C deleted the
+inline path only after the wider parity coverage proved the plan-driven path
+preserves semantics across scalar / map / array / struct state shapes. The
+frozen WAT goldens and all `plan.txt` goldens are unchanged by Step C.
 
 ## 7. Deferred backends
 
@@ -354,11 +389,12 @@ backend is correctly listed in RFC 0014 non-goals ("extending the contract to ..
 Move (Sui/Aptos) ... in the initial scope. Those may follow once the four primary
 backends are aligned").
 
-## 8. Landed stub + Step B wiring: `NearModulePlan.lean`
+## 8. Landed stub + Step B/B.2/C wiring: `NearModulePlan.lean`
 
 Because NEAR is confirmed easy and the stub is purely additive (no lowering-path
-changes), Step A delivered a minimal type-only stub, and Step B wired it into
-lowering:
+changes), Step A delivered a minimal type-only stub, Step B wired it into
+lowering (dual-path), Step B.2 widened parity coverage, and Step C made the
+plan-driven path the only path:
 
 Step A (commit 61cfa7a9):
 
@@ -403,6 +439,33 @@ Step B.2 (2026-07-07):
 - Coverage now spans scalar / map / array / struct state shapes; the inline
   `Ctx` construction is still kept (dual-path) until Step C.
 
+Step C (2026-07-07):
+
+- The plan-driven path is the ONLY lowering path. The inline ad-hoc `Ctx`
+  assembly at the top of `EmitWat.lowerModule` is deleted; `lowerModule`
+  now derives its `Ctx` via `EmitWat.buildLowerCtx` →
+  `EmitWat.Ctx.fromPlanSeed` (owned by `EmitWat`, which owns the `Ctx` type).
+  `NearModulePlan.Ctx.fromPlanSeed` delegates to it, keeping the import
+  graph one-directional and ensuring the plan artifact and the lowering entry
+  share one reconstruction path.
+- `NearModulePlan.lowerModuleFromPlan` now runs the same
+  `EmitWat.validateScratchCapacities` gate as the lowering entry, closing a
+  Step B gap where the plan path skipped scratch-capacity validation.
+- `Tests/NearModulePlan.lean` converted from a dual-path parity check to a
+  single-path regression gate: the `--parity` flag (plan-driven WAT vs inline
+  WAT) is replaced by `--render` (plan-driven WAT emits cleanly, char count
+  surfaced in CI logs). The plan golden diff remains. The 4 fixtures
+  (Counter, EvmMapProbe, EvmStorageArrayProbe, EvmStorageStructProbe) stay
+  as the coverage set.
+- `scripts/near/plan-smoke.sh` switches `--parity` to `--render`.
+- `WasmNear/Refinement.lean` reads the plan-driven output automatically via
+  its existing `EmitWat.lowerModule` call sites (now plan-driven); no code
+  change needed.
+- Verification: `lake build` green; `just near-plan-smoke` passes (4/4);
+  `just wasm-near-plan` passes; frozen WAT goldens and all `plan.txt`
+  goldens unchanged. Render char counts match Step B.2 parity results
+  exactly, confirming byte-stability.
+
 ## 9. RFC 0014 Phase 4 update summary
 
 RFC 0014 Phase 4 (en + zh) is updated to:
@@ -442,7 +505,186 @@ RFC 0014 Phase 4 (en + zh) is updated to:
   RFC 0004 non-goal.
 - **Move-Sui / Psy plan implementation.** Deferred per §7.
 
-## 12. References
+## 13. Solana Phase 2 Step C (plan-driven lowering, single path)
+
+Solana Phase 2 landed `SolanaModulePlan` + `lowerModuleFromPlan` on `main`
+ahead of this NEAR feasibility doc. The Phase 2 work routed `Package.renderPackage`
+through `Plan.lowerModuleFromPlan`, but `SbpfAsm.lowerModuleCore` still built its
+`LowerCtx` inline via `buildCtx` — a separate lowering path that derived
+`stateFieldOffsets`/`structs`/`stateDecls` directly from the IR module. Dual-path
+parity (plan-driven asm vs inline asm) was verified byte-identical for the four
+fixtures (Counter, EvmStorageArrayProbe, EvmMapProbe, EvmStorageStructProbe).
+
+**Step C (RFC 0014 Phase 2, landed 2026-07-07).** Mirrors NEAR Step C exactly:
+the inline `buildCtx` is deleted; `SbpfAsm.lowerModuleCore` now derives its
+`LowerCtx` via `SbpfAsm.buildLowerCtx` → `SbpfAsm.LowerCtx.fromPlanSeed`, the
+same reconstruction `Solana.Plan.LowerCtx.fromSeed` delegates to, so the
+`*ModulePlan` is the authoritative source for lowering decisions and the two
+paths cannot drift. The shared `lowerModuleCoreWithSeed` body is unchanged.
+
+- `SbpfAsm.LowerCtx.fromPlanSeed` is owned by `SbpfAsm` (which owns the
+  `LowerCtx` type); `Solana.Plan.LowerCtx.fromSeed` delegates to it. This keeps
+  the import graph one-directional (`Plan.lean` imports `SbpfAsm.lean`, not
+  vice versa), mirroring how `NearModulePlan.Ctx.fromPlanSeed` delegates to
+  `EmitWat.Ctx.fromPlanSeed`.
+- `Tests/SolanaModulePlan.lean` is converted from a golden-only check to a
+  single-path regression gate: the plan golden diff pins the semantic artifact
+  and the `--render` flag renders the module via the plan-driven path
+  (`Solana.Plan.renderModuleFromPlan`), surfacing the sBPF assembly char count
+  in CI logs so byte-churn is observable. The dual-path parity check is retired
+  (there is no second path to agree with). The 4 fixtures
+  (Counter, EvmStorageArrayProbe, EvmMapProbe, EvmStorageStructProbe) stay as
+  the coverage set.
+- `scripts/solana/plan-smoke.sh` switches to the `--render` flag and rebrands
+  from "golden smoke" to "golden + render smoke", mirroring
+  `scripts/near/plan-smoke.sh`.
+- No Step C exceptions needed: all `SbpfAsm.lowerModule`/`renderModule`/
+  `lowerModuleWithPlan`/`renderModuleWithPlan` call sites (Cli.lean's three
+  Counter/ErrorRefProbe/ControlFlowAssertProbe emit paths, the nine
+  `Tests/Solana*.lean` emission tests, and `Package.renderPackageWithPlan`)
+  route through `lowerModuleCore` and now lower through the plan-derived
+  `LowerCtx` automatically.
+- Verification: `lake build` green; `just solana-plan-smoke` passes (4/4,
+  plan golden diff + plan-driven render); `just solana-build-examples`
+  passes (`Counter.s` and `manifest.toml` match frozen goldens);
+  `just solana-lean` and `just solana-emit-control` pass (all `SbpfAsm`
+  emission tests unaffected); frozen `.s` goldens (`Counter.golden.s`,
+  `ValueVault.golden.s`) and all `plan.txt` goldens unchanged. Render char
+  counts: Counter 3830, EvmStorageArrayProbe 6609, EvmMapProbe 4470,
+  EvmStorageStructProbe 2707.
+
+## 14. EVM audit (RFC 0014 Tier B reference backend, 2026-07-07)
+
+EVM is the reference Tier B backend: `Evm.Plan.ModulePlan` has existed the longest
+and is consumed by `Evm.IR.lowerModuleWithPlan`. Solana and NEAR just completed
+their Step C (deleting inline `Ctx` builders, making the `*ModulePlan` the sole
+authoritative source for lowering decisions). This section records the
+mirror audit of EVM: does EVM have any analogous inline residue / dual-path
+that can be cleaned up, or is it already cleanly plan-only?
+
+### 14.1 Audit finding — EVM is already plan-only
+
+**Finding: EVM is already cleanly plan-only. No Step C refactor was needed.**
+
+The lowering dispatch in `ProofForge/Backend/Evm/IR.lean` is:
+
+- `lowerModule module = lowerModuleWithPlan module (buildSemanticPlan module)`
+  (strict; `buildSemanticPlan` wraps `Lower.buildFullModulePlan`).
+- `lowerModuleBestEffort module = lowerModuleWithPlan module (buildSemanticPlanBestEffort module)`
+  (best-effort; `buildSemanticPlanBestEffort` falls back to `Plan.buildModulePlan`
+  then a default plan if the strict build errors, so diagnostic smokes that feed
+  unsupported shapes still render the expected diagnostic rather than aborting at
+  plan time).
+- `renderModule module = render (lowerModule module)`.
+- `renderModuleBestEffort module = render (lowerModuleBestEffort module)`.
+
+Both lowering entries route through `lowerModuleWithPlan`. There is **no** inline
+`Ctx`-like derivation that bypasses `Evm.Plan.ModulePlan`: EVM does not use a
+`Ctx` / `LowerCtx` struct at all — the plan is consumed directly. A grep for
+`buildCtx` / `Ctx.` / `structure Ctx` in `Evm/IR.lean` returns no matches,
+confirming EVM never had the Solana/NEAR-style ephemeral lowering context to
+delete.
+
+The `lowerModule` vs `lowerModuleBestEffort` split (commit `06e57e12`) is
+intentional and is **not** a Step C dual-path: both go through a plan. The
+strict entry fails fast on plan-construction errors; the best-effort entry
+catches them so diagnostic smokes can render the unsupported-shape diagnostic
+from the lowering pass instead of aborting at plan time. This is the same
+strict-vs-best-effort distinction the other backends use, just factored into
+two named entry points.
+
+### 14.2 Internal best-effort fallbacks are plan-routed too
+
+`lowerModuleWithPlan` has internal completeness checks
+(`entrypointBodyPlanIsComplete`, `dispatchEntrypointPlanIsComplete`) that fall
+back to `lowerEntrypoint module entrypoint` / `dispatchBlock module` when the
+plan's entrypoint/dispatch arrays are not fully populated. These fallbacks are
+**not** a Step C dual-path either: each fallback still builds a plan and routes
+through a `*WithPlan` function:
+
+- `lowerEntrypoint module entrypoint` builds `Lower.buildEntrypointSurfacePlan`
+  and calls `lowerEntrypointWithPlan module entrypoint entrypointPlan`.
+- `dispatchBlock module` builds `dispatchPlanForModule` (which itself calls
+  `Lower.buildEntrypointSurfacePlan` per entrypoint) and calls
+  `dispatchBlockWithPlan module dispatchPlan`.
+
+So even the best-effort fallback path reaches Yul through a plan-derived
+`EntrypointPlan` / `DispatchPlan`. There is no code path that derives storage
+slots, ABI selectors, or dispatch tables directly from the IR module without
+going through a plan node. The `lowerEntrypointBodyWithPlan?` → `lowerStatements`
+fallback inside `lowerEntrypointWithPlan` is a per-statement-body best-effort
+fallback (planned `StmtPlan` body where supported, legacy statement lowering
+where not), not a parallel Ctx derivation — it reads the entrypoint plan's
+params/returns and the module's storage layout, which come from the plan.
+
+### 14.3 No inline storage / ABI / dispatch derivation duplicating the plan
+
+The audit specifically checked for inline derivation in `lowerModule` that
+duplicates what `Evm.Plan.ModulePlan` carries:
+
+- **Storage slots:** `lowerModule` does not compute storage slots inline.
+  `Evm.Plan.storageLayout` / `stateInfo?` / `scalarStorageTargetPlan` /
+  `mapValueSlotPlan` / `arraySlotPlan` / `structFieldSlotPlan` etc. live on
+  the plan and are consumed by the lowering via plan-target structures
+  (`ScalarStorageTargetPlan`, `MapReadTargetPlan`, `ArrayWriteTargetPlan`,
+  …). The `lowerModuleWithPlan` body reads `plan.entrypoints`,
+  `plan.dispatch`, `plan.helpers`, `plan.crosscalls`, `plan.creates`,
+  `plan.localArrayGetLengths`, `plan.nestedLocalArrayGetShapes`.
+- **ABI selectors:** `EntrypointPlan.selector` and `AbiParamPlan` are plan
+  fields, built by `Lower.buildEntrypointSurfacePlan` /
+  `Lower.assembleFullPlan`. The dispatch cases in
+  `dispatchCaseWithEntrypointPlan` read `entrypointPlan.params` /
+  `entrypointPlan.returns` — no inline selector computation in `lowerModule`.
+- **Dispatch tables:** `DispatchPlan` (entrypoints + default) is built by
+  `Plan.moduleDispatchPlan` / `Lower.assembleFullPlan` and consumed by
+  `dispatchBlockWithPlan`. `moduleDispatchDefaultPlan` (the revert/uups/
+  fallback/receive choice) is plan-owned.
+
+There is no inline duplication. EVM is the reference implementation the
+other backends were aligned to; it did not accumulate the inline `Ctx`
+residue that Solana and NEAR carried before their Step C.
+
+### 14.4 Call sites
+
+All call sites route through the plan-driven dispatch automatically. No call
+site bypasses the plan:
+
+| Call site | Path used |
+|---|---|
+| `ProofForge/Cli.lean:4923` (`proof-forge build --target evm`) | `Evm.IR.lowerModule` → `lowerModuleWithPlan module (buildSemanticPlan module)` |
+| `ProofForge/Cli/Evm.lean:9` (`renderYul`) | `Evm.IR.renderModule` → `lowerModule` → `lowerModuleWithPlan` |
+| `ProofForge/Backend/Evm/Refinement.lean:390,434` (trace obligations) | `Evm.IR.lowerModule` → `lowerModuleWithPlan` |
+| `Tests/TokenEvm.lean:25` | `Evm.IR.lowerModule` → `lowerModuleWithPlan` |
+| `Tests/EvmDiagnostics.lean:560` (diagnostic smoke) | `Evm.IR.renderModule` (strict) — renders the diagnostic from `buildSemanticPlan`/lowering rather than best-effort, so the unsupported-shape diagnostic is surfaced |
+| `docs/tier-c-proof-feasibility.md`, `docs/rfcs/0004-evm-semantic-plan.md`, `docs/zh/rfcs/0004-evm-semantic-plan.zh.md` | documentation references only |
+
+`lowerModuleBestEffort` / `renderModuleBestEffort` have **no external call
+sites** today (they were added in commit `06e57e12` as the strict/best-effort
+split surface; diagnostic smokes currently use the strict `renderModule`).
+They remain available for smokes that want to render past plan-construction
+errors.
+
+### 14.5 Action taken
+
+**Documented as already plan-only. No `IR.lean` refactor was performed.**
+EVM did not need a Step C cleanup because it never had the inline `Ctx`
+builder that Solana (`buildCtx`) and NEAR (the inline `Ctx` assembly at the
+top of `EmitWat.lowerModule`) carried. The strict/best-effort split is
+intentional and plan-routed on both sides. Forcing a refactor here would
+have been busywork that risked the frozen EVM goldens for no gain.
+
+### 14.6 Verification
+
+- `lake build` green (378 jobs, no errors; only pre-existing linter warnings).
+- `just evm-plan` passes (`Tests/EvmPlan.lean`).
+- `just evm-semantic-plan` passes (`Tests/EvmSemanticPlan.lean`).
+- `just evm-build-examples` passes — bytecode emitted for all examples
+  (Counter, ValueVault, ReentrancyGuard, UUPSProxy, VerifiedVault, …);
+  frozen EVM goldens (`Examples/Evm/*.golden.yul`) unchanged.
+- Working tree clean before and after the gate runs (no golden churn).
+- No `IR.lean` change, so byte-stability is trivially preserved.
+
+## 15. References
 
 - [RFC 0014](rfcs/0014-unified-semantic-lowering-contract.md) — Phase 4 source.
 - [target-lowering-interface.md](target-lowering-interface.md) — per-backend

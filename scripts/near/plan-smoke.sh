@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# V-GATE-NEAR-06: NearModulePlan golden + dual-path parity smoke.
+# V-GATE-NEAR-06: NearModulePlan golden + single-path render smoke.
 #
 # Builds the NearModulePlan for each fixture, compares it to the golden copy
-# at Examples/WasmNear/<Fixture>/golden/plan.txt, AND (Step B / B.2) runs the
-# dual-path parity check: plan-driven WAT vs inline EmitWat WAT must be
-# byte-identical.
+# at Examples/WasmNear/<Fixture>/golden/plan.txt, AND (Step C) runs the
+# single-path render check: plan-driven WAT must emit cleanly for each fixture.
 #
-# Fixtures (RFC 0014 Phase 4 — Step B plan-driven lowering + Step B.2 coverage):
+# Fixtures (RFC 0014 Phase 4 — Step C plan-driven lowering, single path):
 #   Counter               — scalar state (the original MVP)
 #   EvmMapProbe           — map state (`balances`, u64-keyed, sub-module)
 #   EvmStorageArrayProbe  — array state (`values`, length 3, sub-module)
 #   EvmStorageStructProbe — struct state (`current` : Point, sub-module)
 #
-# This is the Tier B gate for the NEAR backend's data-layout plan. Step B
-# wires the plan into lowering via NearModulePlan.lowerModuleFromPlan, which
-# reuses EmitWat.lowerModuleCoreWithCtx (the shared body extracted from the
-# inline path). Step B.2 widens parity coverage to non-scalar state shapes
-# (map / array / struct) before Step C deletes the inline path. The inline Ctx
-# construction in EmitWat.lowerModule is kept (dual-path) until Step C.
+# This is the Tier B gate for the NEAR backend's data-layout plan. Step C made
+# the plan-driven path the ONLY lowering path: EmitWat.lowerModule derives its
+# Ctx via EmitWat.buildLowerCtx -> EmitWat.Ctx.fromPlanSeed, the same
+# reconstruction NearModulePlan.Ctx.fromPlanSeed uses, so the plan is the
+# authoritative source for lowering decisions. The dual-path parity check that
+# landed in Step B/B.2 is retired (there is no second path to agree with);
+# this gate is now a single-path regression gate: the plan golden diff pins
+# the layout artifact and the --render flag confirms the plan-driven lowering
+# still emits WAT for each fixture, with the char count surfaced in CI logs
+# so byte-churn is observable.
 
 set -euo pipefail
 
@@ -33,7 +36,7 @@ FIXTURES=(
 
 mkdir -p build/wasm-near
 
-echo "=== V-GATE-NEAR-06: NearModulePlan golden + parity smoke ==="
+echo "=== V-GATE-NEAR-06: NearModulePlan golden + render smoke ==="
 
 total=${#FIXTURES[@]}
 step=0
@@ -50,9 +53,9 @@ for fixture in "${FIXTURES[@]}"; do
     continue
   fi
 
-  echo "[${step}/${total}] generating ${fixture} NearModulePlan + parity check..."
-  if ! lake env lean --run Tests/NearModulePlan.lean "$fixture" "$OUTPUT" --parity; then
-    echo "FAIL: plan generation / parity failed for ${fixture}" >&2
+  echo "[${step}/${total}] generating ${fixture} NearModulePlan + render check..."
+  if ! lake env lean --run Tests/NearModulePlan.lean "$fixture" "$OUTPUT" --render; then
+    echo "FAIL: plan generation / render failed for ${fixture}" >&2
     fail=$((fail + 1))
     continue
   fi
