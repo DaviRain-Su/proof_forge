@@ -1744,9 +1744,9 @@ Completed alpha slices:
 - Live SHA-256/Keccak-256/Blake3 syscall fixture:
   `scripts/solana/crypto-hash-web3-smoke.sh` builds and deploys a generated
   Solana-only `crypto.hash` program on Surfpool, invokes `set_preimage`,
-  `hash_preimage`, `keccak_preimage`, and `blake3_preimage` through Web3.js, and
-  proves the account-stored 32-byte digests match Node SHA-256 and
-  `@noble/hashes` Keccak-256/Blake3 references for the same little-endian
+  `hash_preimage`, `keccak_preimage`, and `blake3_preimage` through the Rust
+  live RPC harness, and proves the account-stored 32-byte digests match Rust
+  SHA-256, Keccak-256, and Blake3 references for the same little-endian
   preimage. The Blake3 action is recorded as feature-gated in manifest and
   artifact metadata.
 - Live Rent sysvar fixture: `scripts/solana/rent-sysvar-web3-smoke.sh` builds

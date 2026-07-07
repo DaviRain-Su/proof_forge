@@ -544,10 +544,10 @@
   非零的 remaining-compute-units 值，并通过交易日志确认 compute-unit 日志记录。
 - 实时 SHA-256/Keccak-256/Blake3 syscall fixture：
   `scripts/solana/crypto-hash-web3-smoke.sh` 在 Surfpool 上构建并部署一个生成的
-  仅限 Solana 的 `crypto.hash` 程序，通过 Web3.js 调用 `set_preimage`、
+  仅限 Solana 的 `crypto.hash` 程序，通过 Rust live RPC 测试框架调用 `set_preimage`、
   `hash_preimage`、`keccak_preimage` 和 `blake3_preimage`，并
   证明账户存储的 32 字节摘要与相同小端序
-  原像的 Node SHA-256 和 `@noble/hashes` Keccak-256/Blake3 参考值匹配。Blake3 action 在 manifest 和
+  原像的 Rust SHA-256、Keccak-256 和 Blake3 参考值匹配。Blake3 action 在 manifest 和
   制品元数据中被记录为 feature-gated。
 - 实时 Rent sysvar fixture：`scripts/solana/rent-sysvar-web3-smoke.sh` 在
   Surfpool 上构建并部署一个生成的仅限 Solana 的 `sysvar` 目标扩展程序，

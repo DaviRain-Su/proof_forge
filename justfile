@@ -392,7 +392,7 @@ solana-last-restart-slot-sysvar-web3:
 solana-memory-web3:
     scripts/solana/memory-web3-smoke.sh
 
-# Run a live Solana SHA-256/Keccak-256 syscall smoke on Surfpool with Web3.js.
+# Run a live Solana SHA-256/Keccak-256/Blake3 syscall smoke on Surfpool with the Rust RPC harness.
 solana-crypto-hash-web3:
     scripts/solana/crypto-hash-web3-smoke.sh
 
