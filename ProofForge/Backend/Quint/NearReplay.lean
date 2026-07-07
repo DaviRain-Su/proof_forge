@@ -38,16 +38,17 @@ The chain-neutral trace interpretation (`resolveActionName`, `entrypointMap`,
 
 import ProofForge.IR.Contract
 import ProofForge.IR.Semantics
+import ProofForge.Backend.Quint.BackendReplay
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
 
 namespace ProofForge.Backend.Quint.NearReplay
 
 open ProofForge.IR.Semantics
+open ProofForge.Backend.Quint.BackendReplay
 open ProofForge.Backend.Quint.Replay
 
-structure NearReplayError where
-  message : String
+abbrev NearReplayError := BackendReplayError
 
 /-- Per-backend config: where the WAT artifact lives and how to observe primary
 state. Mirrors `EvmReplayConfig` but with a Wasm export name instead of a
@@ -61,23 +62,9 @@ structure NearReplayConfig where
 format, matching `ScenarioStep.portable_input_bytes_le` in the testkit core).
 Only scalar argument types are supported in v1; aggregates are deferred. -/
 def encodeArgLe (v : Value) : Except NearReplayError String :=
-  match v with
-  | .u8 n => .ok (toLeHex 1 n)
-  | .u32 n => .ok (toLeHex 4 n)
-  | .u64 n => .ok (toLeHex 8 n)
-  | .u128 n => .ok (toLeHex 16 n)
-  | .bool b => .ok (toLeHex 1 (if b then 1 else 0))
-  | .address n => .ok (toLeHex 8 n)
-  | .hash a b c d =>
-      -- 32 bytes: a||b||c||d, each 8 bytes little-endian
-      let s := toLeHex 8 a ++ toLeHex 8 b ++ toLeHex 8 c ++ toLeHex 8 d
-      .ok s
-  | .unit => .ok ""
-  | other => .error { message := s!"NearReplay v1 cannot encode argument: {repr other}" }
-where
-  toLeHex (byteLen : Nat) (n : Nat) : String :=
-    let bytes := (List.range byteLen).map (fun i => (n / (256 ^ i)) % 256)
-    String.intercalate "" (bytes.map (fun b => Nat.toDigits 16 b |>.foldl (fun acc d => acc ++ s!"{d}") ""))
+  match encodeScalarLeHex v with
+  | .ok hex => .ok hex
+  | .error err => .error { message := s!"NearReplay v1 cannot encode argument: {err.message}" }
 
 /-- Encode an array of IR argument values as a single hex string (concatenated
 little-endian bytes). -/
@@ -87,18 +74,12 @@ def encodeArgsLe (args : Array Value) : Except NearReplayError String := do
     out := out ++ (← encodeArgLe arg)
   pure out
 
-/-- Whether an entrypoint is a read (returns a non-unit value) vs a mutating call.
-Used to decide whether to append a trailing getter read-back (v1). -/
-def isReadEntrypoint (ep : ProofForge.IR.Entrypoint) : Bool :=
-  ep.returns != .unit && !ep.params.isEmpty == false || (ep.returns != .unit && ep.params.isEmpty)
-
 /-- Render the offline-host argument list for one trace step. Returns the export
 name to invoke and its hex input (empty string for nullary entrypoints). -/
 def renderStep (irModule : ProofForge.IR.Module)
     (epMap : Std.HashMap String ProofForge.IR.Entrypoint) (state : ITF.State)
     : Except NearReplayError (String × String) := do
-  let actionName ← resolveActionName irModule state.actionTaken state.nondetPicks
-    |>.mapError (fun err => { message := err.message })
+  let actionName ← traceActionName irModule state
   if actionName == "init" then
     -- NEAR `initialize` is a normal export; the offline-host persists state across
     -- calls, so init runs first. If the module's `initialize` takes args (e.g.
@@ -106,8 +87,7 @@ def renderStep (irModule : ProofForge.IR.Module)
     -- for nullary `initialize` (Counter) the hex is empty, matching the v1 path.
     match Std.HashMap.get? epMap "initialize" with
     | some ep =>
-      let args ← buildArgs ep state.nondetPicks
-        |>.mapError (fun err => { message := err.message })
+      let args ← entrypointArgs ep state.nondetPicks
       let hex ← encodeArgsLe args
       pure ("initialize", hex)
     | none => pure ("initialize", "")
@@ -115,8 +95,7 @@ def renderStep (irModule : ProofForge.IR.Module)
     let entrypoint ← match Std.HashMap.get? epMap actionName with
       | some ep => .ok ep
       | none => .error { message := s!"unknown entrypoint `{actionName}` for NEAR replay" }
-    let args ← buildArgs entrypoint state.nondetPicks
-      |>.mapError (fun err => { message := err.message })
+    let args ← entrypointArgs entrypoint state.nondetPicks
     let hex ← encodeArgsLe args
     pure (entrypoint.name, hex)
 

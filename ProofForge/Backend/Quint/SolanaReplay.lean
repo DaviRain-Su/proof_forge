@@ -71,6 +71,7 @@ The chain-neutral trace interpretation (`resolveActionName`, `entrypointMap`,
 
 import ProofForge.IR.Contract
 import ProofForge.IR.Semantics
+import ProofForge.Backend.Quint.BackendReplay
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
 import ProofForge.Backend.Solana.Manifest
@@ -80,12 +81,12 @@ namespace ProofForge.Backend.Quint.SolanaReplay
 
 open ProofForge.IR
 open ProofForge.IR.Semantics
+open ProofForge.Backend.Quint.BackendReplay
 open ProofForge.Backend.Quint.Replay
 open ProofForge.Backend.Solana.Manifest
 open ProofForge.Backend.Solana.Plan
 
-structure SolanaReplayError where
-  message : String
+abbrev SolanaReplayError := BackendReplayError
 
 /-- Per-backend config: where the sBPF ELF + keypair live and how to observe
 the primary scalar state. Mirrors `EvmReplayConfig` (`bytecodeHex` /
@@ -124,39 +125,17 @@ structure SolanaReplayPlan where
   /-- Byte size of the primary scalar. Falls back to `cfg.primaryStateByteSize`. -/
   primaryFieldByteSize : Nat
 
-def indent (n : Nat) (lines : List String) : String :=
-  let pad := String.ofList (List.replicate n ' ')
-  String.intercalate "\n" (lines.map (fun line => pad ++ line))
-
-/-- Read the primary scalar state variable as a Nat from an ITF state. -/
-def itfNatValue (state : ITF.State) (varName : String) : Except SolanaReplayError Nat :=
-  match state.vars.find? (fun (k, _) => k == varName) with
-  | some (_, .int n) => .ok n
-  | some (_, v) => .error { message := s!"expected int for `{varName}` in ITF state {state.index}, got {repr v}" }
-  | none => .error { message := s!"missing ITF field `{varName}` in state {state.index}" }
-
 /-- Render a Nat as a Rust little-endian byte-array literal body, e.g.
 `[1u8, 0, 0, 0, 0, 0, 0, 0]` for `n=1, byteSize=8`. -/
 def renderLeBytes (byteSize : Nat) (n : Nat) : String :=
-  let bytes := (List.range byteSize).map (fun i => (n / (256 ^ i)) % 256)
-  String.intercalate ", " (bytes.map (fun b => toString b))
+  renderRustLeBytes byteSize n
 
 /-- Encode an IR scalar argument value as little-endian byte string for the
 instruction-data payload. Only scalar argument types are supported in v1;
 aggregates are deferred (matches the EVM/NEAR v1 scalar-args constraint). -/
 def encodeArgLe (v : Value) : Except SolanaReplayError (Array Nat) :=
   match v with
-  | .u8 n => .ok #[(n % 256)]
-  | .u32 n => .ok #[(n % 256), (n / 256 % 256), (n / 65536 % 256), (n / 16777216 % 256)]
-  | .u64 n =>
-      .ok #[(n % 256), (n / 256 % 256), (n / 65536 % 256), (n / 16777216 % 256),
-            (n / 4294967296 % 256), (n / 1099511627776 % 256),
-            (n / 281474976710656 % 256), (n / 72057594037927936 % 256)]
-  | .u128 n =>
-      -- 16 bytes little-endian; n is Nat so this is exact for the bounded MBT range.
-      .ok ((List.range 16).map (fun i => (n / (256 ^ i)) % 256) |>.toArray)
-  | .bool b => .ok #[if b then 1 else 0]
-  | .unit => .ok #[]
+  | .u8 _ | .u32 _ | .u64 _ | .u128 _ | .bool _ | .unit => encodeScalarLeBytes v
   | other => .error { message := s!"SolanaReplay v1 cannot encode argument: {repr other}" }
 
 /-- Encode an array of IR argument values as a single byte array
@@ -259,8 +238,7 @@ def renderTraceStep (module : ProofForge.IR.Module) (cfg : SolanaReplayConfig)
     (tags : Std.HashMap String Nat)
     (prevValue expected : Nat) (stepIdx : Nat) (state : ITF.State) :
     Except SolanaReplayError String := do
-  let actionName ← resolveActionName module state.actionTaken state.nondetPicks
-    |>.mapError (fun err => { message := err.message })
+  let actionName ← traceActionName module state
   -- The Quint `init` action maps to the IR `initialize` entrypoint (the
   -- Counter fixture's first entrypoint), mirroring NearReplay's init handling.
   let resolvedName := if actionName == "init" then "initialize" else actionName
@@ -303,8 +281,7 @@ def renderTraceStep (module : ProofForge.IR.Module) (cfg : SolanaReplayConfig)
       .error { message := s!"unknown entrypoint `{actionName}` (resolved `{resolvedName}`) for Solana replay" }
   | some entrypoint =>
     let tag := (tags.get? resolvedName).getD 0
-    let args ← buildArgs entrypoint state.nondetPicks
-      |>.mapError (fun err => { message := err.message })
+    let args ← entrypointArgs entrypoint state.nondetPicks
     let dataLiteral ← renderInstructionData entrypoint tag args
     let isRead := isReadEntrypoint entrypoint
     let testName := s!"test_step_{stepIdx}"

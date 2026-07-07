@@ -6,4 +6,5 @@ import ProofForge.Backend.Quint.Liveness
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
 import ProofForge.Backend.Quint.Replay
+import ProofForge.Backend.Quint.BackendReplay
 import ProofForge.Backend.Quint.EvmReplay

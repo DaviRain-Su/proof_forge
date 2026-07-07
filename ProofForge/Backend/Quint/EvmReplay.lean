@@ -1,6 +1,7 @@
 import ProofForge.IR.Contract
 import ProofForge.IR.Semantics
 import ProofForge.Backend.Quint.ITF
+import ProofForge.Backend.Quint.BackendReplay
 import ProofForge.Backend.Quint.Model
 import ProofForge.Backend.Quint.Replay
 
@@ -9,10 +10,10 @@ namespace ProofForge.Backend.Quint.EvmReplay
 open ProofForge.IR
 open ProofForge.IR.Semantics
 open ProofForge.Backend.Quint
+open ProofForge.Backend.Quint.BackendReplay
 open ProofForge.Backend.Quint.Replay
 
-structure EvmReplayError where
-  message : String
+abbrev EvmReplayError := BackendReplayError
 
 structure EvmReplayConfig where
   bytecodeHex : String
@@ -26,16 +27,6 @@ structure EvmReplayConfig where
   args (e.g. ValueVault's `initialize(uint256)`) override this so the init step
   encodes the args from the ITF nondet picks. -/
   initSignature : String := "initialize()"
-
-def indent (n : Nat) (lines : List String) : String :=
-  let pad := String.ofList (List.replicate n ' ')
-  String.intercalate "\n" (lines.map (fun line => pad ++ line))
-
-def itfNatValue (state : ITF.State) (varName : String) : Except EvmReplayError Nat :=
-  match state.vars.find? (fun (k, _) => k == varName) with
-  | some (_, .int n) => .ok n
-  | some (_, v) => .error { message := s!"expected int for `{varName}` in ITF state {state.index}, got {repr v}" }
-  | none => .error { message := s!"missing ITF field `{varName}` in state {state.index}" }
 
 def solidityAbiType (t : ValueType) : Except EvmReplayError String :=
   match t with
@@ -98,7 +89,7 @@ def renderInitStep (cfg : EvmReplayConfig) (irModule : ProofForge.IR.Module)
   -- init (nullary, expected=0) renders byte-identically to the v1 path.
   let callExpr ← match initEp? with
   | some ep =>
-    let args ← buildArgs ep picks |>.mapError (fun err => { message := err.message })
+    let args ← entrypointArgs ep picks
     let argList ← renderAbiArgList args
     let sig ← solidityCallSignature ep
     if args.isEmpty then
@@ -151,16 +142,14 @@ def renderReadStep (cfg : EvmReplayConfig) (stepIdx : Nat) (ep : Entrypoint)
 def renderTraceStep (irModule : ProofForge.IR.Module) (cfg : EvmReplayConfig) (epMap : Std.HashMap String Entrypoint)
     (stepIdx : Nat) (state : ITF.State) : Except EvmReplayError String := do
   let expected ← itfNatValue state cfg.primaryStateVar
-  let actionName ← resolveActionName irModule state.actionTaken state.nondetPicks
-      |>.mapError (fun err => { message := err.message })
+  let actionName ← traceActionName irModule state
   if actionName == "init" then
     renderInitStep cfg irModule stepIdx expected state.nondetPicks
   else
     let entrypoint ← match Std.HashMap.get? epMap actionName with
       | some ep => .ok ep
       | none => .error { message := s!"unknown entrypoint `{actionName}` for EVM replay" }
-    let args ← buildArgs entrypoint state.nondetPicks
-      |>.mapError (fun err => { message := err.message })
+    let args ← entrypointArgs entrypoint state.nondetPicks
     if entrypoint.returns != .unit then
       renderReadStep cfg stepIdx entrypoint args expected
     else

@@ -12,9 +12,9 @@ export names and the `--inputs-hex` flag.
 It renders harnesses for **two** IR modules — `Counter` (scalar state, nullary
 entrypoints) and `ValueVault` (multi-scalar state, entrypoints with args) —
 proving the shim is not Counter-specific. The render function is already
-module-agnostic (it reuses `Replay.buildArgs` + `encodeArgsLe`), so no
-`NearReplay.lean` change is required; the multi-module coverage comes from the
-smoke supplying a ValueVault config + trace.
+module-agnostic (it reuses shared replay arg parsing + `encodeArgsLe`); the
+multi-module coverage comes from the smoke supplying a ValueVault config +
+trace.
 
 It does **not** spawn `quint` or the offline-host; it is a pure Lean string check.
 The full end-to-end gate (Step B) is a follow-up.
@@ -120,7 +120,14 @@ def main : IO UInt32 := do
   ]
   let r1 ← runCase "Counter" ProofForge.IR.Examples.Counter.module counterCfg counterTrace counterChecks
   let r2 ← runCase "ValueVault" ProofForge.IR.Examples.ValueVault.module valueVaultCfg valueVaultTrace vvChecks
-  if r1 && r2 then
+  let hexOk ←
+    match encodeArgLe (ProofForge.IR.Semantics.Value.u8 10),
+          encodeArgLe (ProofForge.IR.Semantics.Value.u64 15) with
+    | .ok "0a", .ok "0f00000000000000" => pure true
+    | gotA, gotB =>
+        IO.eprintln s!"FAIL NearReplaySmoke: padded hex encoding got {repr gotA}, {repr gotB}"
+        pure false
+  if r1 && r2 && hexOk then
     IO.println "PASS NearReplaySmoke"
     pure 0
   else
