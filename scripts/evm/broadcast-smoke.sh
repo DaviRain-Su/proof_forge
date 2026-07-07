@@ -24,6 +24,8 @@ fi
 
 mkdir -p "$OUT_DIR" "$RUN_DIR"
 
+lake build proof-forge Examples.Shared.Counter >/dev/null
+
 lake env proof-forge build \
   --target evm \
   --root . \

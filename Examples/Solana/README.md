@@ -1,22 +1,26 @@
 # Solana sBPF Examples
 
-This directory contains self-contained examples for the canonical Solana route
+This directory contains Solana-specific compatibility entrypoints, golden
+assembly, and manifest fixtures for the canonical Solana route
 `solana-sbpf-asm` (D-026): direct sBPF assembly codegen from the portable IR,
 assembled and linked by the [blueshift-gg/sbpf](https://github.com/blueshift-gg/sbpf)
 toolchain.
 
 ## `Counter.lean`
 
-A minimal counter program in portable IR with three entrypoints:
+`Counter.lean` imports the canonical shared Counter source from
+`Examples/Shared/Counter.lean`; it preserves the historical Solana example path
+without duplicating the contract logic. The generated module has three
+entrypoints:
 
 - `initialize` — writes `0` to the single scalar `count` account field.
 - `increment` — reads `count`, adds one, and writes it back.
 - `get` — returns `count` through `sol_set_return_data`.
 
-The example is compiled by the same backend fixture used by the target-first
-`emit --target solana-sbpf-asm --fixture counter` command. Running that command
-also writes a `manifest.toml` sidecar describing the instruction tags and the
-single writable account owned by the program.
+The tracked golden assembly is compiled by the same backend fixture used by the
+target-first `emit --target solana-sbpf-asm --fixture counter` command. Running
+that command also writes a `manifest.toml` sidecar describing the instruction
+tags and the single writable account owned by the program.
 
 ```sh
 lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format s \

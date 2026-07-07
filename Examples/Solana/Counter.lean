@@ -2,12 +2,13 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-A minimal Solana counter program expressed directly in the portable IR.
-This is the self-contained Phase 1 example for the `solana-sbpf-asm` route:
-there is no Solana-specific surface syntax yet, so the example builds the
-`ProofForge.IR.Contract.Module` that the sBPF backend lowers to `.s`.
+Solana compatibility wrapper for the canonical portable Counter.
 
-Compile to sBPF assembly:
+The contract logic lives in `Examples.Shared.Counter`; this file preserves the
+historical Solana example path for docs and local experiments. Use the shared
+source directly when demonstrating target-independent authoring.
+
+Compile the shared source to sBPF assembly:
   lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format s \
     -o build/solana/Counter.s \
     --artifact-output build/solana/proof-forge-artifact.json
@@ -20,50 +21,14 @@ Build the Solana ELF (requires `sbpf` on PATH):
   lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf -o build/solana/Counter.so
 -/
 
-import ProofForge.IR.Contract
+import Examples.Shared.Counter
 
 namespace Examples.Solana.Counter
 
-open ProofForge.IR
+def spec : ProofForge.Contract.ContractSpec :=
+  Examples.Shared.Counter.spec
 
-def stateCount : StateDecl := {
-  id := "count"
-  kind := .scalar
-  type := .u64
-}
-
-def initializeEntrypoint : Entrypoint := {
-  name := "initialize"
-  selector? := some "8129fc1c"
-  returns := .unit
-  body := #[
-    .effect (.storageScalarWrite "count" (.literal (.u64 0)))
-  ]
-}
-
-def incrementEntrypoint : Entrypoint := {
-  name := "increment"
-  selector? := some "d09de08a"
-  returns := .unit
-  body := #[
-    .letBind "n" .u64 (.effect (.storageScalarRead "count")),
-    .effect (.storageScalarWrite "count" (.add (.local "n") (.literal (.u64 1))))
-  ]
-}
-
-def getEntrypoint : Entrypoint := {
-  name := "get"
-  selector? := some "6d4ce63c"
-  returns := .u64
-  body := #[
-    .return (.effect (.storageScalarRead "count"))
-  ]
-}
-
-def module : Module := {
-  name := "Counter"
-  state := #[stateCount]
-  entrypoints := #[initializeEntrypoint, incrementEntrypoint, getEntrypoint]
-}
+def module : ProofForge.IR.Module :=
+  spec.module
 
 end Examples.Solana.Counter

@@ -6,6 +6,7 @@ package «proof-forge» where
 
 lean_lib ProofForge where
   roots := #[
+    `Examples,
     `ProofForge,
     `ProofForge.Psy,
     `ProofForge.Target,

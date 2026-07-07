@@ -48,9 +48,21 @@ def packageFile (label path : String)
 
 unsafe def requireCounterEquivalence : IO Unit := do
   let shared ← loadSharedSpec "Examples/Shared/Counter.lean"
+  let evm ← loadSharedSpec "Examples/Evm/Contracts/Counter.lean"
+  let solana ← loadSharedSpec "Examples/Solana/Counter.lean"
   let learn ← parseLearnSpec "Examples/Learn/Counter.learn"
   requireSameModule "Shared Counter vs canonical contract_source"
     shared.module ProofForge.Contract.Examples.Counter.module
+  requireSameModule "EVM Counter compatibility wrapper vs shared contract_source"
+    evm.module shared.module
+  require (evm.evmConstructorParams == #[{ name := "initial", abiType := "uint256" }])
+    "EVM Counter wrapper lost constructor param metadata"
+  require (evm.evmConstructorInitBindings == #[
+      { stateId := "count", paramName := "initial", kind := .scalarU64 }
+    ])
+    "EVM Counter wrapper lost constructor init binding metadata"
+  requireSameModule "Solana Counter compatibility wrapper vs shared contract_source"
+    solana.module shared.module
   requireSameModule "Legacy Learn Counter vs shared contract_source"
     learn.module shared.module
 

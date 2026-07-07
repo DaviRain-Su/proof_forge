@@ -41,6 +41,10 @@ lake env proof-forge build --target evm \
 `Counter`, `ValueVault`, `RoleGatedToken`, and `StakingVault` are the primary
 multi-target shared contract scenarios.
 
+`Examples/Evm/Contracts/Counter.lean` is a compatibility wrapper around
+`Examples/Shared/Counter.lean`. It imports the shared Counter logic and adds only
+EVM deploy-time constructor metadata used by constructor-init smokes.
+
 `SimpleToken`, `OwnableERC20`, `AccessControlProbe`, `ArrayExample.lean`,
 `VerifiedVault.lean`, constructor probes, proxy probes, and the `stdlib/`
 wrappers are EVM-focused fixtures because they exercise EVM ABI, ERC-style

@@ -203,9 +203,9 @@ scenario through generated `.psy` source and Dargo validation.
 | Target | Path | Status |
 |---|---|---|
 | **All primary chains** | `Examples/Shared/Counter.lean`, `Examples/Shared/ValueVault.lean` (`contract_source`) | **In repo** — `just portable-counter-multi-target`, `just portable-value-vault` |
-| EVM | `Examples/Evm/Contracts/Counter.lean` | **In repo** (EVM examples tree) |
+| EVM | `Examples/Evm/Contracts/Counter.lean` | **In repo** — compatibility wrapper around the shared Counter with EVM constructor-init metadata |
 | CosmWasm | `Examples/CosmWasm/Counter.golden.wat` | **In repo (Spike)** — golden WAT via `proof-forge emit --target wasm-cosmwasm --fixture counter`; `just cosmwasm-counter-smoke` |
-| Solana | `Examples/Solana/Counter.lean` + manifest | **In repo** (IR fixture reference) |
+| Solana | `Examples/Solana/Counter.lean` + manifest | **In repo** — compatibility wrapper around the shared Counter plus sBPF golden/manifest fixtures |
 | Aptos | `Examples/Aptos/Counter/golden/` | **In repo (Spike)** — golden Move module; `just aptos-counter-smoke` |
 | Cloudflare Workers | `Examples/CloudflareWorkers/Counter/` + `emit --format ts` | **In repo (Spike)** — TS package + `scripts/ts/counter-ir-smoke.sh` |
 | Psy DPN | `Examples/Psy/*.golden.psy`, `scripts/psy/*-smoke.sh` | **In repo** |

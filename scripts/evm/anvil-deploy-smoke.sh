@@ -53,6 +53,8 @@ else
   proof_forge=(lake env proof-forge)
 fi
 
+(cd "$ROOT" && lake build proof-forge Examples.Shared.Counter >/dev/null)
+
 rebuild_counter_with_profile() {
   local proof_forge_args=(
     build

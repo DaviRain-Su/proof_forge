@@ -43,7 +43,7 @@ has_prebuild_target() {
 
 while IFS= read -r -d '' lean_file; do
   while IFS= read -r line; do
-    if [[ "$line" =~ ^import[[:space:]]+(ProofForge[A-Za-z0-9_.]*) ]]; then
+    if [[ "$line" =~ ^import[[:space:]]+((ProofForge|Examples)[A-Za-z0-9_.]*) ]]; then
       module="${BASH_REMATCH[1]}"
       if ! has_prebuild_target "$module"; then
         prebuild_targets+=("$module")

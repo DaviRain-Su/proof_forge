@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 cd "$ROOT"
-lake build proof-forge >/dev/null
+lake build proof-forge Examples.Shared.Counter >/dev/null
 lake env lean --run Tests/EvmDiagnostics.lean
 
 run_cli_diagnostic() {

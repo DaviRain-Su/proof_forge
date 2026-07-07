@@ -187,9 +187,9 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 | 目标 | 路径 | 状态 |
 |---|---|---|
 | **所有主链** | `Examples/Shared/Counter.lean`、`Examples/Shared/ValueVault.lean`（`contract_source`） | **代码库中** — `just portable-counter-multi-target`、`just portable-value-vault` |
-| EVM | `Examples/Evm/Contracts/Counter.lean` | **代码库中**（EVM 示例树） |
+| EVM | `Examples/Evm/Contracts/Counter.lean` | **代码库中** — shared Counter 的兼容 wrapper，附带 EVM constructor-init metadata |
 | CosmWasm | `Examples/CosmWasm/Counter.golden.wat` | **代码库中 (Spike)** — 通过 `proof-forge emit --target wasm-cosmwasm --fixture counter` 生成 golden WAT；`just cosmwasm-counter-smoke` |
-| Solana | `Examples/Solana/Counter.lean` + manifest | **代码库中**（IR fixture 参考） |
+| Solana | `Examples/Solana/Counter.lean` + manifest | **代码库中** — shared Counter 的兼容 wrapper，附带 sBPF golden/manifest fixtures |
 | Aptos | `Examples/Aptos/Counter/golden/` | **代码库中 (Spike)** — golden Move module；`just aptos-counter-smoke` |
 | Cloudflare Workers | `Examples/CloudflareWorkers/Counter/` + `emit --format ts` | **代码库中 (Spike)** — TS package + `scripts/ts/counter-ir-smoke.sh` |
 | Psy DPN | `Examples/Psy/*.golden.psy`, `scripts/psy/*-smoke.sh` | **代码库中** |
