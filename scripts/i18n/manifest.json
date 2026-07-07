@@ -65,10 +65,10 @@
     "model": "manual"
   },
   "docs/validation-gates.md": {
-    "sha256": "a826c44cfdd8d640b5264e7a92f33f7f03496abd7fc30bc858085f357d8224a8",
+    "sha256": "246fef435aab5e85a76c2de81d7dfc34b00555a607f7525538fc02d4c6b1d28e",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual",
-    "en_sha256": "a826c44cfdd8d640b5264e7a92f33f7f03496abd7fc30bc858085f357d8224a8"
+    "en_sha256": "246fef435aab5e85a76c2de81d7dfc34b00555a607f7525538fc02d4c6b1d28e"
   },
   "docs/rfcs/README.md": {
     "sha256": "7d82abd698f149faae7f7a8f9785917eff046618573bb3cf76572c32a4280940",

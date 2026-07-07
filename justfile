@@ -202,15 +202,19 @@ solana-counter-live:
 portable-value-vault:
     scripts/portable/value-vault-smoke.sh
 
+# Check that legacy Learn-token gate names only forward to token intent gates.
+token-compat-wrappers:
+    python3 scripts/portable/check-token-compat-wrappers.py
+
 # Run the shared token intent SDK smoke across EVM and Solana target outputs.
-token-intent-smoke:
+token-intent-smoke: token-compat-wrappers
     scripts/portable/token-intent-smoke.sh
 
 # Compatibility alias for the former Learn-token-centric smoke name.
 learn-token-smoke: token-intent-smoke
 
 # Run the shared token intent EVM artifact in a local Rust/revm VM.
-token-intent-evm-vm:
+token-intent-evm-vm: token-compat-wrappers
     scripts/evm/token-intent-evm-vm-smoke.sh
 
 # Compatibility alias for the former Learn-token EVM VM smoke name.
