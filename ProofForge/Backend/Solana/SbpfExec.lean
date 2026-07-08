@@ -409,6 +409,52 @@ theorem stepInst_lsh64_reg_ok
   rw [← hlhs, ← hrhs]
   rfl
 
+theorem stepInst_and64_reg_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .and64 (some dst) (some src) none none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    stepInst program state instr =
+      .ok (nextPc (setReg state dst (Nat.land lhs rhs))) := by
+  subst hinst
+  rw [← hlhs, ← hrhs]
+  rfl
+
+theorem stepInst_and64_imm_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .and64 (some dst) none none (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs) :
+    stepInst program state instr =
+      .ok (nextPc (setReg state dst (Nat.land lhs rhs))) := by
+  subst hinst
+  rw [← hlhs]
+  rfl
+
+theorem stepInst_or64_reg_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .or64 (some dst) (some src) none none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    stepInst program state instr =
+      .ok (nextPc (setReg state dst (Nat.lor lhs rhs))) := by
+  subst hinst
+  rw [← hlhs, ← hrhs]
+  rfl
+
+theorem stepInst_or64_imm_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .or64 (some dst) none none (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs) :
+    stepInst program state instr =
+      .ok (nextPc (setReg state dst (Nat.lor lhs rhs))) := by
+  subst hinst
+  rw [← hlhs]
+  rfl
+
 theorem stepInst_lddw_ok
     (program : Program) (state : State) (dst : Reg) (value : Nat)
     (instr : Inst)
@@ -586,6 +632,52 @@ theorem step_lsh64_reg_ok
     step program state = .ok (nextPc (setReg state dst (Nat.shiftLeft lhs rhs))) :=
   step_of_stepInst_ok hready hdecoded
     (stepInst_lsh64_reg_ok program state dst src lhs rhs _ rfl hlhs hrhs)
+
+theorem step_and64_reg_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .and64 (some dst) (some src) none none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.land lhs rhs))) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_and64_reg_ok program state dst src lhs rhs _ rfl hlhs hrhs)
+
+theorem step_and64_imm_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .and64 (some dst) none none (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.land lhs rhs))) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_and64_imm_ok program state dst lhs rhs _ rfl hlhs)
+
+theorem step_or64_reg_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .or64 (some dst) (some src) none none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.lor lhs rhs))) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_or64_reg_ok program state dst src lhs rhs _ rfl hlhs hrhs)
+
+theorem step_or64_imm_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .or64 (some dst) none none (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.lor lhs rhs))) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_or64_imm_ok program state dst lhs rhs _ rfl hlhs)
 
 theorem step_lddw_ok
     {program : Program} {state : State} {dst : Reg} {value : Nat}
@@ -803,5 +895,41 @@ theorem reduction_stxdw_at_ok
     (hvalue : regGet state.regs src = value) :
     StepReduction program state (execStore state addr value) :=
   StepReduction.of_readyOpcodeAt hat (step_stxdw_at_ok hat haddr hvalue)
+
+theorem step_and64_reg_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .and64 (some dst) (some src) none none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.land lhs rhs))) :=
+  step_and64_reg_ok hat.stepReady hat.currentInst? hlhs hrhs
+
+theorem reduction_and64_reg_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .and64 (some dst) (some src) none none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    StepReduction program state (nextPc (setReg state dst (Nat.land lhs rhs))) :=
+  StepReduction.of_readyOpcodeAt hat (step_and64_reg_at_ok hat hlhs hrhs)
+
+theorem step_or64_reg_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .or64 (some dst) (some src) none none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    step program state = .ok (nextPc (setReg state dst (Nat.lor lhs rhs))) :=
+  step_or64_reg_ok hat.stepReady hat.currentInst? hlhs hrhs
+
+theorem reduction_or64_reg_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .or64 (some dst) (some src) none none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs) :
+    StepReduction program state (nextPc (setReg state dst (Nat.lor lhs rhs))) :=
+  StepReduction.of_readyOpcodeAt hat (step_or64_reg_at_ok hat hlhs hrhs)
 
 end ProofForge.Backend.Solana.SbpfExec
