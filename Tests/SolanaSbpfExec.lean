@@ -29,6 +29,12 @@ open ProofForge.Backend.Solana.SbpfExecSmoke
 
 #check smoke_runSteps
 #check smoke_runSteps_via_provider
+#check jump_taken_reductionChain
+#check jeq_taken_reductionChain
+#check smoke_jump_jne_taken_runSteps
+#check smoke_jump_jeq_taken_runSteps
+#check smoke_jump_jne_taken_runSteps_via_provider
+#check smoke_jump_jeq_taken_runSteps_via_provider
 
 end ProofForge.Tests.SolanaSbpfExec
 
