@@ -5811,6 +5811,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   ]
   let directAssignStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -5827,6 +5828,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "scalar assignment StmtPlan-to-Yul helper must assign helper result"
   let directAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      true
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -5848,6 +5850,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "scalar compound assignment StmtPlan-to-Yul helper must assign helper result"
   let directArrayAssignStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module arrayEnv)
@@ -5863,6 +5866,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "static local-array assignment StmtPlan-to-Yul helper must assign literal"
   let directArrayAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      true
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module arrayEnv)
@@ -5884,6 +5888,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "static local-array compound assignment StmtPlan-to-Yul helper must assign helper result"
   let directStructAssignStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStructValueProbe.module structEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStructValueProbe.module structEnv)
@@ -5899,6 +5904,7 @@ def testScalarAssignmentPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "static local-struct field assignment StmtPlan-to-Yul helper must assign literal"
   let directStructArrayAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+      true
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStructArrayValueProbe.module structArrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStructArrayValueProbe.module structArrayEnv)
@@ -5942,16 +5948,15 @@ def testScalarAssignmentPlanToYul : IO Unit := do
     "scalar compound assignment plan-to-yul"
   require (assignOpStmts.size == 1) "scalar compound assignment plan-to-yul statement count"
   match assignOpStmts[0]! with
-  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "add" args) => do
       require (names == #["n"]) "scalar compound assignment plan-to-yul target"
-      require (name == "__pf_checked_add") "scalar compound assignment plan-to-yul helper"
       require (args.size == 2) "scalar compound assignment plan-to-yul arg count"
       match args[1]! with
       | Lean.Compiler.Yul.Expr.builtin name _ =>
           -- Packed read: and(shr(..., sload(...)), mask)
           require (name == "and") "scalar compound assignment plan-to-yul rhs opcode (packed read = and)"
       | _ => throw <| IO.userError "scalar compound assignment plan-to-yul rhs must be packed read (and)"
-  | _ => throw <| IO.userError "scalar compound assignment plan-to-yul must assign helper result"
+  | _ => throw <| IO.userError "scalar compound assignment plan-to-yul must assign arith result"
   let arrayAssignStmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.Counter.module
@@ -5976,11 +5981,10 @@ def testScalarAssignmentPlanToYul : IO Unit := do
     "static local-array compound assignment plan-to-yul integration"
   require (arrayAssignOpStmts.size == 1) "static local-array compound assignment plan-to-yul integration statement count"
   match arrayAssignOpStmts[0]! with
-  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "add" args) => do
       require (names == #["__proof_forge_array_xs_0"]) "static local-array compound assignment plan-to-yul integration target"
-      require (name == "__pf_checked_add") "static local-array compound assignment plan-to-yul integration helper"
       require (args.size == 2) "static local-array compound assignment plan-to-yul integration arg count"
-  | _ => throw <| IO.userError "static local-array compound assignment plan-to-yul integration must assign helper result"
+  | _ => throw <| IO.userError "static local-array compound assignment plan-to-yul integration must assign arith result"
   let structAssignStmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.EvmStructValueProbe.module
@@ -6005,11 +6009,10 @@ def testScalarAssignmentPlanToYul : IO Unit := do
     "static local-struct field compound assignment plan-to-yul integration"
   require (structAssignOpStmts.size == 1) "static local-struct field compound assignment plan-to-yul integration statement count"
   match structAssignOpStmts[0]! with
-  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "add" args) => do
       require (names == #["__proof_forge_struct_p_y"]) "static local-struct field compound assignment plan-to-yul integration target"
-      require (name == "__pf_checked_add") "static local-struct field compound assignment plan-to-yul integration helper"
       require (args.size == 2) "static local-struct field compound assignment plan-to-yul integration arg count"
-  | _ => throw <| IO.userError "static local-struct field compound assignment plan-to-yul integration must assign helper result"
+  | _ => throw <| IO.userError "static local-struct field compound assignment plan-to-yul integration must assign arith result"
   let structArrayAssignStmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.EvmStructArrayValueProbe.module
@@ -6034,11 +6037,10 @@ def testScalarAssignmentPlanToYul : IO Unit := do
     "static local struct-array field compound assignment plan-to-yul integration"
   require (structArrayAssignOpStmts.size == 1) "static local struct-array field compound assignment plan-to-yul integration statement count"
   match structArrayAssignOpStmts[0]! with
-  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
+  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "add" args) => do
       require (names == #["__proof_forge_array_struct_people_0_score"]) "static local struct-array field compound assignment plan-to-yul integration target"
-      require (name == "__pf_checked_add") "static local struct-array field compound assignment plan-to-yul integration helper"
       require (args.size == 2) "static local struct-array field compound assignment plan-to-yul integration arg count"
-  | _ => throw <| IO.userError "static local struct-array field compound assignment plan-to-yul integration must assign helper result"
+  | _ => throw <| IO.userError "static local struct-array field compound assignment plan-to-yul integration must assign arith result"
   let dynamicStructArrayAssignStmts ← requireOk
     (lowerAssignStmt
       ProofForge.IR.Examples.EvmStructArrayValueProbe.module
@@ -7612,6 +7614,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
   let directWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -7643,6 +7646,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper must lower to sstore"
   let directAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
+      true
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -7761,6 +7765,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "scalar storage read effect must lower through packed target plan"
   let directPlannedWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -7781,6 +7786,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "planned scalar storage write target helper must lower to sstore"
   let directPlannedAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -7873,7 +7879,12 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
                   match addArgs[0]! with
                   | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
                   | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
-              | _ => throw <| IO.userError "scalar storage assign_op packed value must be helper call"
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs => do
+                  require (addArgs.size == 2) "scalar storage assign_op plan-to-yul wrapping add arg count"
+                  match addArgs[0]! with
+                  | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
+                  | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
+              | _ => throw <| IO.userError "scalar storage assign_op packed value must be arith call/builtin"
           | _ => throw <| IO.userError "scalar storage assign_op must have shl in packed write"
       | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul must lower to sstore"
@@ -9719,6 +9730,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
   | _ => throw <| IO.userError "nested storage path write plan-to-yul must lower to block"
   let directAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.storagePathAssignOpExprTargetEffectStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
@@ -9754,6 +9766,13 @@ def testStoragePathWritePlanToYul : IO Unit := do
                         foundStorageReadValue := foundStorageReadValue ||
                           (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  if addArgs.size == 2 then
+                    match addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
+                        foundStorageReadValue := foundStorageReadValue ||
+                          (readName == "and" && readArgs.size == 2)
+                    | _ => pure ()
               | _ => pure ()
         | _ => pure ()
       require foundPlannedSlot "storage path assign_op expr-target helper must use planned slot"
@@ -9761,6 +9780,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
   | _ => throw <| IO.userError "storage path assign_op expr-target StmtPlan-to-Yul helper must lower to block"
   let directPlannedAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
+      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.EvmStorageArrayProbe.module arrayEnv)
@@ -9782,9 +9802,11 @@ def testStoragePathWritePlanToYul : IO Unit := do
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   foundPlannedAssign := foundPlannedAssign ||
                     (addName == "__pf_checked_add" && addArgs.size == 2)
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  foundPlannedAssign := foundPlannedAssign || (addArgs.size == 2)
               | _ => pure ()
         | _ => pure ()
-      require foundPlannedAssign "planned storage path assign_op target helper must use checked add"
+      require foundPlannedAssign "planned storage path assign_op target helper must use arith (checked add or wrapping add)"
   | _ => throw <| IO.userError "planned storage path assign_op target helper must lower to block"
   let fallbackArrayAssignOpStmt ← requireOk
     (lowerEffectStmt
@@ -9818,10 +9840,12 @@ def testStoragePathWritePlanToYul : IO Unit := do
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.call addName addArgs =>
                   foundCheckedAssign := foundCheckedAssign ||
                     (slotName == "_slot" && addName == "__pf_checked_add" && addArgs.size == 2)
+              | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  foundCheckedAssign := foundCheckedAssign || (slotName == "_slot" && addArgs.size == 2)
               | _, _ => pure ()
         | _ => pure ()
       require foundSlotDecl "fallback array storage path assign_op must declare ToYul slot temp"
-      require foundCheckedAssign "fallback array storage path assign_op must use ToYul checked assignment frame"
+      require foundCheckedAssign "fallback array storage path assign_op must use ToYul arith assignment frame"
   | _ => throw <| IO.userError "fallback array storage path assign_op plan-to-yul must lower to block"
   let directMapAssign ← requireOk
     (lowerEffectStmt
@@ -9873,6 +9897,13 @@ def testStoragePathWritePlanToYul : IO Unit := do
                         foundStorageReadValue := foundStorageReadValue ||
                           (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
+              | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  if slotName == "_slot" && addArgs.size == 2 then
+                    match addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
+                        foundStorageReadValue := foundStorageReadValue ||
+                          (readName == "and" && readArgs.size == 2)
+                    | _ => pure ()
               | _, _ => pure ()
         | _ => pure ()
       require foundStorageReadValue "nested map storage path assign_op value must lower storage read through plan"
@@ -9897,6 +9928,13 @@ def testStoragePathWritePlanToYul : IO Unit := do
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
+                    match addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
+                        foundStorageReadValue := foundStorageReadValue ||
+                          (readName == "and" && readArgs.size == 2)
+                    | _ => pure ()
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  if addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
@@ -9927,11 +9965,28 @@ def testStoragePathWritePlanToYul : IO Unit := do
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
-                    match addArgs[1]! with
-                    | Lean.Compiler.Yul.Expr.call rhsAddName rhsAddArgs =>
+                    match addArgs[0]!, addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.call rhsAddName rhsAddArgs, _ =>
                         foundCheckedValue := foundCheckedValue ||
                           (rhsAddName == "__pf_checked_add" && rhsAddArgs.size == 2)
-                    | _ => pure ()
+                    | _, Lean.Compiler.Yul.Expr.call rhsAddName rhsAddArgs =>
+                        foundCheckedValue := foundCheckedValue ||
+                          (rhsAddName == "__pf_checked_add" && rhsAddArgs.size == 2)
+                    | _, _ => pure ()
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  if addArgs.size == 2 then
+                    match addArgs[0]!, addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.call rhsAddName rhsAddArgs, _ =>
+                        foundCheckedValue := foundCheckedValue ||
+                          (rhsAddName == "__pf_checked_add" && rhsAddArgs.size == 2)
+                    | _, Lean.Compiler.Yul.Expr.call rhsAddName rhsAddArgs =>
+                        foundCheckedValue := foundCheckedValue ||
+                          (rhsAddName == "__pf_checked_add" && rhsAddArgs.size == 2)
+                    | Lean.Compiler.Yul.Expr.builtin "add" rhsAddArgs, _ =>
+                        foundCheckedValue := foundCheckedValue || (rhsAddArgs.size == 2)
+                    | _, Lean.Compiler.Yul.Expr.builtin "add" rhsAddArgs =>
+                        foundCheckedValue := foundCheckedValue || (rhsAddArgs.size == 2)
+                    | _, _ => pure ()
               | _ => pure ()
         | _ => pure ()
       require foundCheckedValue "struct field storage path assign_op value must lower through checked add plan"
@@ -9956,6 +10011,13 @@ def testStoragePathWritePlanToYul : IO Unit := do
               match args[1]! with
               | Lean.Compiler.Yul.Expr.call addName addArgs =>
                   if addName == "__pf_checked_add" && addArgs.size == 2 then
+                    match addArgs[1]! with
+                    | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
+                        foundStorageReadValue := foundStorageReadValue ||
+                          (readName == "and" && readArgs.size == 2)
+                    | _ => pure ()
+              | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                  if addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||

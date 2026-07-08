@@ -72,15 +72,17 @@ def scalarStorageTargetReadExpr
     target.byteWidth
 
 def scalarStorageAssignOpStatements
+    (overflowChecked : Bool)
     (op : AssignOp)
     (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
     (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
   let packedRead := scalarStoragePackedReadExpr storageSlot byteOffset byteWidth
-  let computedValue := checkedArithExpr op packedRead valueExpr
+  let computedValue := arithExpr overflowChecked op packedRead valueExpr
   scalarStorageWriteStatements storageSlot computedValue byteOffset byteWidth
 
 def scalarStorageEffectPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
@@ -96,12 +98,13 @@ def scalarStorageEffectPlanStatements
       let storageSlot ← storageSlotFor stateId
       let (byteOffset, byteWidth) ← packingFor stateId
       let rhs ← exprPlanExpr mkError lowerExpr lowerEffect value
-      .ok <| scalarStorageAssignOpStatements op storageSlot rhs byteOffset byteWidth
+      .ok <| scalarStorageAssignOpStatements overflowChecked op storageSlot rhs byteOffset byteWidth
   | _ =>
       .error (mkError "EVM EffectPlan-to-Yul scalar storage effect lowering expected storageScalarWrite/storageScalarAssignOp")
 
 def scalarStorageEffectStmtPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
@@ -109,12 +112,13 @@ def scalarStorageEffectStmtPlanStatements
     (packingFor : String → Except ε (Nat × Nat)) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      scalarStorageEffectPlanStatements mkError lowerExpr lowerEffect storageSlotFor packingFor effect
+      scalarStorageEffectPlanStatements overflowChecked mkError lowerExpr lowerEffect storageSlotFor packingFor effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul scalar storage effect lowering expected effect")
 
 def scalarStorageTargetEffectPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
@@ -126,18 +130,19 @@ def scalarStorageTargetEffectPlanStatements
   | .storageScalarAssignOpTarget target op value => do
       let targetSlot ← storageSlotExpr mkError lowerExpr target.slot
       let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
-      .ok <| scalarStorageAssignOpStatements op targetSlot valueExpr target.byteOffset target.byteWidth
+      .ok <| scalarStorageAssignOpStatements overflowChecked op targetSlot valueExpr target.byteOffset target.byteWidth
   | _ =>
       .error (mkError "EVM EffectPlan-to-Yul planned scalar storage lowering expected storageScalarWriteTarget/storageScalarAssignOpTarget")
 
 def scalarStorageTargetEffectStmtPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      scalarStorageTargetEffectPlanStatements mkError lowerExpr lowerEffect effect
+      scalarStorageTargetEffectPlanStatements overflowChecked mkError lowerExpr lowerEffect effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned scalar storage lowering expected effect")
 
@@ -713,6 +718,7 @@ def storagePathWriteExprTargetEffectStmtPlanStatements
       .error (mkError "EVM StmtPlan-to-Yul planned storage path write expr lowering expected effect")
 
 def storagePathAssignOpTargetStatements
+    (overflowChecked : Bool)
     (op : AssignOp)
     (value : Lean.Compiler.Yul.Expr) :
     StoragePathWriteTarget → Array Lean.Compiler.Yul.Statement
@@ -726,7 +732,7 @@ def storagePathAssignOpTargetStatements
           .varDecl #[{ name := "_slot" }] (some slot),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
             Lean.Compiler.Yul.Expr.id "_slot",
-            checkedArithExpr op
+            arithExpr overflowChecked op
               (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"])
               value
           ])
@@ -739,7 +745,7 @@ def storagePathAssignOpTargetStatements
           .varDecl #[{ name := "_presence_slot" }] (some presenceSlot),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
             Lean.Compiler.Yul.Expr.id "_slot",
-            checkedArithExpr op
+            arithExpr overflowChecked op
               (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"])
               value
           ]),
@@ -752,12 +758,13 @@ def storagePathAssignOpTargetStatements
 
 def storagePathAssignOpTargetEffectPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .storagePathAssignOpTarget target op value => do
-      .ok <| storagePathAssignOpTargetStatements op
+      .ok <| storagePathAssignOpTargetStatements overflowChecked op
         (← exprPlanExpr mkError lowerExpr lowerEffect value)
         (← storagePathWriteTargetFromPlan mkError lowerExpr target)
   | _ =>
@@ -765,17 +772,19 @@ def storagePathAssignOpTargetEffectPlanStatements
 
 def storagePathAssignOpTargetEffectStmtPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      storagePathAssignOpTargetEffectPlanStatements mkError lowerExpr lowerEffect effect
+      storagePathAssignOpTargetEffectPlanStatements overflowChecked mkError lowerExpr lowerEffect effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned storage path assign_op lowering expected effect")
 
 def storagePathAssignOpExprTargetEffectPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
@@ -783,7 +792,7 @@ def storagePathAssignOpExprTargetEffectPlanStatements
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .storagePathAssignOpExprTarget target op value => do
       .ok <| storagePathAssignOpTargetStatements
-        op
+        overflowChecked op
         (← exprPlanExpr mkError lowerExpr lowerEffect value)
         (← storagePathWriteExprTargetFromPlan mkError lowerPlanExpr target)
   | _ =>
@@ -791,13 +800,14 @@ def storagePathAssignOpExprTargetEffectPlanStatements
 
 def storagePathAssignOpExprTargetEffectStmtPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
     (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      storagePathAssignOpExprTargetEffectPlanStatements mkError lowerExpr lowerEffect lowerPlanExpr effect
+      storagePathAssignOpExprTargetEffectPlanStatements overflowChecked mkError lowerExpr lowerEffect lowerPlanExpr effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned storage path assign_op expr lowering expected effect")
 

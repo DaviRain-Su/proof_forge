@@ -1083,6 +1083,7 @@ def assembleFullPlan (basePlan : ModulePlan) (module : Module) : Except LowerErr
     localArrayGetLengths := localArrayGetLengths
     nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
     usesCheckedArithmetic := usesCheckedArithmetic
+    overflowChecked := module.overflowChecked
     contextOps := contextOps
     helpers := helpers
     mapAssignOps := mapAssignOps

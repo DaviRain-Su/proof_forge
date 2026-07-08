@@ -576,6 +576,12 @@ structure ModulePlan where
   localArrayGetLengths : Array Nat
   nestedLocalArrayGetShapes : Array (Array Nat)
   usesCheckedArithmetic : Bool
+  /-- Mirror of `Module.overflowChecked`: when false, add/sub/mul lower to
+      wrapping Yul builtins (Solana/NEAR semantics); when true, to checked-revert
+      helpers (Solidity 0.8 semantics). `usesCheckedArithmetic` reports whether
+      any entrypoint actually contains such an op; this field drives the
+      lowering mode. See Track 0.1 in `docs/zh/execution-plan-2026-07.md`. -/
+  overflowChecked : Bool := false
   metadata : MetadataPlan
   contextOps : Array ContextPlan
   deriving Repr

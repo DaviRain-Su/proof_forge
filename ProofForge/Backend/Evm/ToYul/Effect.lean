@@ -477,6 +477,7 @@ def scalarAssignmentTargetName
 
 def scalarAssignmentStmtPlanStatements
     {ε : Type}
+    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
@@ -493,7 +494,7 @@ def scalarAssignmentStmtPlanStatements
       .ok #[
         Lean.Compiler.Yul.Statement.assignment
           #[targetName]
-          (checkedArithExpr op
+          (arithExpr overflowChecked op
             (Lean.Compiler.Yul.Expr.id targetName)
             (← exprPlanExpr mkError lowerExpr lowerEffect value))
       ]

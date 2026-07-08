@@ -466,6 +466,7 @@ def lowerAggregateScalarAssignmentStmt
         | some op => ProofForge.Backend.Evm.Plan.StmtPlan.assignOp targetPlan op valuePlan
       if exprPlanIsStaticAggregateScalarTarget targetPlan then
         ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+          module.overflowChecked
           toYulError
           (fun expr => lowerExpr module env expr)
           (lowerPlanEffectExpr module env)

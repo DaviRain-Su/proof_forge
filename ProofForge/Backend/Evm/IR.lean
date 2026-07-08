@@ -332,7 +332,7 @@ def plannedMapHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
       helpers.push ProofForge.Backend.Evm.ToYul.mapSetReturnHelperFunction
     else
       helpers
-  helpers ++ plan.mapAssignOps.map ProofForge.Backend.Evm.ToYul.mapAssignHelperFunction
+  helpers ++ plan.mapAssignOps.map (ProofForge.Backend.Evm.ToYul.mapAssignHelperFunction plan.overflowChecked)
 
 def plannedArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=

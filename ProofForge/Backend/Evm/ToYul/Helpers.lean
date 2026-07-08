@@ -14,11 +14,21 @@ def checkedAddName : String := "__pf_checked_add"
 def checkedSubName : String := "__pf_checked_sub"
 def checkedMulName : String := "__pf_checked_mul"
 
-def checkedArithExpr (op : AssignOp) (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
+/-- Arithmetic lowering for an `AssignOp`. When `overflowChecked` is true,
+add/sub/mul lower to checked-revert helpers (Solidity 0.8 semantics); when
+false they lower to wrapping Yul builtins (matching Solana sBPF and NEAR Wasm
+native behavior). This is the single point that honors `Module.overflowChecked`
+in the EVM lowering — see `docs/formal-verification.md` FV-5 and
+Track 0.1 in `docs/zh/execution-plan-2026-07.md`. -/
+def arithExpr (overflowChecked : Bool) (op : AssignOp)
+    (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
   match op with
-  | .add => Lean.Compiler.Yul.call checkedAddName #[lhs, rhs]
-  | .sub => Lean.Compiler.Yul.call checkedSubName #[lhs, rhs]
-  | .mul => Lean.Compiler.Yul.call checkedMulName #[lhs, rhs]
+  | .add => if overflowChecked then Lean.Compiler.Yul.call checkedAddName #[lhs, rhs]
+           else Lean.Compiler.Yul.builtin "add" #[lhs, rhs]
+  | .sub => if overflowChecked then Lean.Compiler.Yul.call checkedSubName #[lhs, rhs]
+           else Lean.Compiler.Yul.builtin "sub" #[lhs, rhs]
+  | .mul => if overflowChecked then Lean.Compiler.Yul.call checkedMulName #[lhs, rhs]
+           else Lean.Compiler.Yul.builtin "mul" #[lhs, rhs]
   | .div => Lean.Compiler.Yul.builtin "div" #[lhs, rhs]
   | .mod => Lean.Compiler.Yul.builtin "mod" #[lhs, rhs]
   | .bitAnd => Lean.Compiler.Yul.builtin "and" #[lhs, rhs]
@@ -26,6 +36,10 @@ def checkedArithExpr (op : AssignOp) (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.C
   | .bitXor => Lean.Compiler.Yul.builtin "xor" #[lhs, rhs]
   | .shiftLeft => Lean.Compiler.Yul.builtin "shl" #[rhs, lhs]
   | .shiftRight => Lean.Compiler.Yul.builtin "shr" #[rhs, lhs]
+
+/-- Legacy checked-only alias; prefer `arithExpr` so the overflow mode is explicit. -/
+def checkedArithExpr (op : AssignOp) (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
+  arithExpr true op lhs rhs
 
 /-- The 2^256 - 1 max word value, used for overflow checks. -/
 def maxUint256 : Nat := 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
@@ -277,7 +291,7 @@ def mapBaseHelperFunctions : Array Lean.Compiler.Yul.Statement := #[
   mapSetReturnHelperFunction
 ]
 
-def mapAssignHelperFunction (op : AssignOp) : Lean.Compiler.Yul.Statement :=
+def mapAssignHelperFunction (overflowChecked : Bool) (op : AssignOp) : Lean.Compiler.Yul.Statement :=
   .funcDef (Helper.mapAssign op).name
     #[{ name := "slot" }, { name := "key" }, { name := "value" }]
     #[]
@@ -286,7 +300,7 @@ def mapAssignHelperFunction (op : AssignOp) : Lean.Compiler.Yul.Statement :=
         .varDecl #[{ name := "_slot" }] (some (helperCall Helper.mapSlot #[Lean.Compiler.Yul.Expr.id "slot", Lean.Compiler.Yul.Expr.id "key"])),
         .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
           Lean.Compiler.Yul.Expr.id "_slot",
-          checkedArithExpr op (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"]) (Lean.Compiler.Yul.Expr.id "value")
+          arithExpr overflowChecked op (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"]) (Lean.Compiler.Yul.Expr.id "value")
         ]),
         .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
           helperCall Helper.mapPresenceSlot #[Lean.Compiler.Yul.Expr.id "slot", Lean.Compiler.Yul.Expr.id "key"],
@@ -295,7 +309,7 @@ def mapAssignHelperFunction (op : AssignOp) : Lean.Compiler.Yul.Statement :=
       ]
     }
 
-def mapHelperFunctions (assignOps : Array AssignOp) : Array Lean.Compiler.Yul.Statement :=
-  mapBaseHelperFunctions ++ assignOps.map mapAssignHelperFunction
+def mapHelperFunctions (overflowChecked : Bool) (assignOps : Array AssignOp) : Array Lean.Compiler.Yul.Statement :=
+  mapBaseHelperFunctions ++ assignOps.map (mapAssignHelperFunction overflowChecked)
 
 end ProofForge.Backend.Evm.ToYul

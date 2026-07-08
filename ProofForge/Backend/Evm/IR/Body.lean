@@ -538,6 +538,7 @@ def lowerPlannedBodyEffectPlan
   match effect with
   | .storageScalarWriteTarget .. | .storageScalarAssignOpTarget .. =>
       ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+        module.overflowChecked
         toYulError
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
@@ -562,12 +563,14 @@ def lowerPlannedBodyEffectPlan
           match ProofForge.Backend.Evm.Lower.scalarStorageTargetPlan? module stateId with
           | some target =>
               ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
                 (.effect (.storageScalarWriteTarget target value))
           | none =>
               ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
+                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
@@ -582,12 +585,14 @@ def lowerPlannedBodyEffectPlan
           match ProofForge.Backend.Evm.Lower.scalarStorageTargetPlan? module stateId with
           | some target =>
               ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
                 (.effect (.storageScalarAssignOpTarget target op value))
           | none =>
               ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
+                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
@@ -752,12 +757,14 @@ def lowerPlannedBodyEffectPlan
         (.effect effect)
   | .storagePathAssignOpTarget .. =>
       ProofForge.Backend.Evm.ToYul.storagePathAssignOpTargetEffectStmtPlanStatements
+        module.overflowChecked
         toYulError
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (.effect effect)
   | .storagePathAssignOpExprTarget .. =>
       ProofForge.Backend.Evm.ToYul.storagePathAssignOpExprTargetEffectStmtPlanStatements
+        module.overflowChecked
         toYulError
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
@@ -853,6 +860,7 @@ mutual
     | .assign target value => do
         let statements ←
           ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+            module.overflowChecked
             toYulError
             (fun expr => lowerExpr module env expr)
             (lowerPlanEffectExpr module env)
@@ -861,6 +869,7 @@ mutual
     | .assignOp target op value => do
         let statements ←
           ProofForge.Backend.Evm.ToYul.scalarAssignmentStmtPlanStatements
+            module.overflowChecked
             toYulError
             (fun expr => lowerExpr module env expr)
             (lowerPlanEffectExpr module env)
