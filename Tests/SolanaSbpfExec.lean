@@ -22,6 +22,10 @@ open ProofForge.Backend.Solana.SbpfExecSmoke
 #check reduction_mov64_imm_at_ok
 #check reduction_and64_reg_at_ok
 #check reduction_or64_reg_at_ok
+#check reduction_jeq_imm_taken_at_ok
+#check reduction_jeq_reg_taken_at_ok
+#check reduction_jne_imm_taken_at_ok
+#check reduction_jne_reg_taken_at_ok
 
 #check smoke_runSteps
 #check smoke_runSteps_via_provider

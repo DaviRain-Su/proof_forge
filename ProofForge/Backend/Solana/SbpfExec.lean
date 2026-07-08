@@ -525,6 +525,90 @@ theorem stepInst_ja_imm_ok
   subst hinst
   rfl
 
+theorem stepInst_jeq_imm_taken_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jeq (some dst) none (some (.num target)) (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    stepInst program state instr = .ok (execJump state target) := by
+  subst hinst
+  exact stepInstCondJump_jeq_imm_taken program state dst lhs rhs target hlhs hcond
+
+theorem stepInst_jeq_imm_fallthrough_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jeq (some dst) none (some (.num target)) (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    stepInst program state instr = .ok (nextPc state) := by
+  subst hinst
+  exact stepInstCondJump_jeq_imm_fallthrough program state dst lhs rhs target hlhs hcond
+
+theorem stepInst_jeq_reg_taken_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jeq (some dst) (some src) (some (.num target)) none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    stepInst program state instr = .ok (execJump state target) := by
+  subst hinst
+  exact stepInstCondJump_jeq_reg_taken program state dst src lhs rhs target hlhs hrhs hcond
+
+theorem stepInst_jeq_reg_fallthrough_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jeq (some dst) (some src) (some (.num target)) none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    stepInst program state instr = .ok (nextPc state) := by
+  subst hinst
+  exact stepInstCondJump_jeq_reg_fallthrough program state dst src lhs rhs target hlhs hrhs hcond
+
+theorem stepInst_jne_imm_taken_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jne (some dst) none (some (.num target)) (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    stepInst program state instr = .ok (execJump state target) := by
+  subst hinst
+  exact stepInstCondJump_jne_imm_taken program state dst lhs rhs target hlhs hcond
+
+theorem stepInst_jne_imm_fallthrough_ok
+    (program : Program) (state : State) (dst : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jne (some dst) none (some (.num target)) (some (.num rhs)))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    stepInst program state instr = .ok (nextPc state) := by
+  subst hinst
+  exact stepInstCondJump_jne_imm_fallthrough program state dst lhs rhs target hlhs hcond
+
+theorem stepInst_jne_reg_taken_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jne (some dst) (some src) (some (.num target)) none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    stepInst program state instr = .ok (execJump state target) := by
+  subst hinst
+  exact stepInstCondJump_jne_reg_taken program state dst src lhs rhs target hlhs hrhs hcond
+
+theorem stepInst_jne_reg_fallthrough_ok
+    (program : Program) (state : State) (dst src : Reg) (lhs rhs target : Nat)
+    (instr : Inst)
+    (hinst : instr = inst .jne (some dst) (some src) (some (.num target)) none)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    stepInst program state instr = .ok (nextPc state) := by
+  subst hinst
+  exact stepInstCondJump_jne_reg_fallthrough program state dst src lhs rhs target hlhs hrhs hcond
+
 theorem stepInst_exit_ok
     (program : Program) (state : State) (r0 : Nat)
     (instr : Inst) (hinst : instr = inst .exit none none none none)
@@ -747,6 +831,106 @@ theorem step_ja_imm_ok
   step_of_stepInst_ok hready hdecoded
     (stepInst_ja_imm_ok program state target _ rfl)
 
+theorem step_jeq_imm_taken_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (execJump state target) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jeq_imm_taken_ok program state dst lhs rhs target _ rfl hlhs hcond)
+
+theorem step_jeq_imm_fallthrough_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (nextPc state) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jeq_imm_fallthrough_ok program state dst lhs rhs target _ rfl hlhs hcond)
+
+theorem step_jeq_reg_taken_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jeq (some dst) (some src) (some (.num target)) none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (execJump state target) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jeq_reg_taken_ok program state dst src lhs rhs target _ rfl hlhs hrhs hcond)
+
+theorem step_jeq_reg_fallthrough_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jeq (some dst) (some src) (some (.num target)) none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (nextPc state) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jeq_reg_fallthrough_ok program state dst src lhs rhs target _ rfl hlhs hrhs hcond)
+
+theorem step_jne_imm_taken_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jne (some dst) none (some (.num target)) (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (execJump state target) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jne_imm_taken_ok program state dst lhs rhs target _ rfl hlhs hcond)
+
+theorem step_jne_imm_fallthrough_ok
+    {program : Program} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jne (some dst) none (some (.num target)) (some (.num rhs))))
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (nextPc state) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jne_imm_fallthrough_ok program state dst lhs rhs target _ rfl hlhs hcond)
+
+theorem step_jne_reg_taken_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jne (some dst) (some src) (some (.num target)) none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (execJump state target) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jne_reg_taken_ok program state dst src lhs rhs target _ rfl hlhs hrhs hcond)
+
+theorem step_jne_reg_fallthrough_ok
+    {program : Program} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hready : StepReady program state)
+    (hdecoded :
+      currentInst? program state =
+        some (inst .jne (some dst) (some src) (some (.num target)) none))
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (nextPc state) :=
+  step_of_stepInst_ok hready hdecoded
+    (stepInst_jne_reg_fallthrough_ok program state dst src lhs rhs target _ rfl hlhs hrhs hcond)
+
 theorem step_exit_ok
     {program : Program} {state : State} {r0 : Nat}
     (hready : StepReady program state)
@@ -931,5 +1115,157 @@ theorem reduction_or64_reg_at_ok
     (hrhs : regGet state.regs src = rhs) :
     StepReduction program state (nextPc (setReg state dst (Nat.lor lhs rhs))) :=
   StepReduction.of_readyOpcodeAt hat (step_or64_reg_at_ok hat hlhs hrhs)
+
+theorem step_jeq_imm_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (execJump state target) :=
+  step_jeq_imm_taken_ok hat.stepReady hat.currentInst? hlhs hcond
+
+theorem reduction_jeq_imm_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    StepReduction program state (execJump state target) :=
+  StepReduction.of_readyOpcodeAt hat (step_jeq_imm_taken_at_ok hat hlhs hcond)
+
+theorem step_jeq_imm_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (nextPc state) :=
+  step_jeq_imm_fallthrough_ok hat.stepReady hat.currentInst? hlhs hcond
+
+theorem reduction_jeq_imm_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    StepReduction program state (nextPc state) :=
+  StepReduction.of_readyOpcodeAt hat (step_jeq_imm_fallthrough_at_ok hat hlhs hcond)
+
+theorem step_jeq_reg_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (execJump state target) :=
+  step_jeq_reg_taken_ok hat.stepReady hat.currentInst? hlhs hrhs hcond
+
+theorem reduction_jeq_reg_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    StepReduction program state (execJump state target) :=
+  StepReduction.of_readyOpcodeAt hat (step_jeq_reg_taken_at_ok hat hlhs hrhs hcond)
+
+theorem step_jeq_reg_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (nextPc state) :=
+  step_jeq_reg_fallthrough_ok hat.stepReady hat.currentInst? hlhs hrhs hcond
+
+theorem reduction_jeq_reg_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jeq (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    StepReduction program state (nextPc state) :=
+  StepReduction.of_readyOpcodeAt hat (step_jeq_reg_fallthrough_at_ok hat hlhs hrhs hcond)
+
+theorem step_jne_imm_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (execJump state target) :=
+  step_jne_imm_taken_ok hat.stepReady hat.currentInst? hlhs hcond
+
+theorem reduction_jne_imm_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs ≠ rhs) :
+    StepReduction program state (execJump state target) :=
+  StepReduction.of_readyOpcodeAt hat (step_jne_imm_taken_at_ok hat hlhs hcond)
+
+theorem step_jne_imm_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (nextPc state) :=
+  step_jne_imm_fallthrough_ok hat.stepReady hat.currentInst? hlhs hcond
+
+theorem reduction_jne_imm_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) none (some (.num target)) (some (.num rhs))) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hcond : lhs = rhs) :
+    StepReduction program state (nextPc state) :=
+  StepReduction.of_readyOpcodeAt hat (step_jne_imm_fallthrough_at_ok hat hlhs hcond)
+
+theorem step_jne_reg_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    step program state = .ok (execJump state target) :=
+  step_jne_reg_taken_ok hat.stepReady hat.currentInst? hlhs hrhs hcond
+
+theorem reduction_jne_reg_taken_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs ≠ rhs) :
+    StepReduction program state (execJump state target) :=
+  StepReduction.of_readyOpcodeAt hat (step_jne_reg_taken_at_ok hat hlhs hrhs hcond)
+
+theorem step_jne_reg_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    step program state = .ok (nextPc state) :=
+  step_jne_reg_fallthrough_ok hat.stepReady hat.currentInst? hlhs hrhs hcond
+
+theorem reduction_jne_reg_fallthrough_at_ok
+    {program : Program} {pc : Nat} {state : State} {dst src : Reg} {lhs rhs target : Nat}
+    (hat : ReadyOpcodeAt program pc
+      (inst .jne (some dst) (some src) (some (.num target)) none) state)
+    (hlhs : regGet state.regs dst = lhs)
+    (hrhs : regGet state.regs src = rhs)
+    (hcond : lhs = rhs) :
+    StepReduction program state (nextPc state) :=
+  StepReduction.of_readyOpcodeAt hat (step_jne_reg_fallthrough_at_ok hat hlhs hrhs hcond)
 
 end ProofForge.Backend.Solana.SbpfExec
