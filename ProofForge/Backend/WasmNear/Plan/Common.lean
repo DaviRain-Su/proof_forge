@@ -223,7 +223,7 @@ mutual
         match ← inferExprType module env base with
         | .structType structName => structFieldTypeOf module structName fieldName
         | type => err s!"wasm-near plan expected struct value, got `{type.name}`"
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs => do
         let lhsType ← inferExprType module env lhs

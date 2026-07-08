@@ -82,9 +82,9 @@ mutual
             ensureStructLocalFieldType typeName fieldName fieldType
             .ok fieldType
         | other => .error { message := s!"field `{fieldName}` requires struct value, got `{other.name}`" }
-    | .add lhs rhs => do inferBinaryNumericType "addition" module env lhs rhs
-    | .sub lhs rhs => do inferBinaryNumericType "subtraction" module env lhs rhs
-    | .mul lhs rhs => do inferBinaryNumericType "multiplication" module env lhs rhs
+    | .add lhs rhs _ => do inferBinaryNumericType "addition" module env lhs rhs
+    | .sub lhs rhs _ => do inferBinaryNumericType "subtraction" module env lhs rhs
+    | .mul lhs rhs _ => do inferBinaryNumericType "multiplication" module env lhs rhs
     | .div lhs rhs => do inferBinaryNumericType "division" module env lhs rhs
     | .mod lhs rhs => do inferBinaryNumericType "modulo" module env lhs rhs
     | .pow lhs rhs => do inferBinaryNumericType "exponentiation" module env lhs rhs

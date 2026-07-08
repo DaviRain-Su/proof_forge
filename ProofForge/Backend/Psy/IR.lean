@@ -82,9 +82,9 @@ mutual
         .ok <| .structLit structName items
     | .field base fieldName => do
         .ok <| .field (← buildExpr ctx base) fieldName
-    | .add lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .add (← buildExpr ctx rhs)
-    | .sub lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .sub (← buildExpr ctx rhs)
-    | .mul lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .mul (← buildExpr ctx rhs)
+    | .add lhs rhs _ => do .ok <| .binary (← buildExpr ctx lhs) .add (← buildExpr ctx rhs)
+    | .sub lhs rhs _ => do .ok <| .binary (← buildExpr ctx lhs) .sub (← buildExpr ctx rhs)
+    | .mul lhs rhs _ => do .ok <| .binary (← buildExpr ctx lhs) .mul (← buildExpr ctx rhs)
     | .div lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .div (← buildExpr ctx rhs)
     | .mod lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .mod (← buildExpr ctx rhs)
     | .pow lhs rhs => do .ok <| .binary (← buildExpr ctx lhs) .pow (← buildExpr ctx rhs)

@@ -761,7 +761,7 @@ def testCounterSemanticPlanEntrypoints : IO Unit := do
       requireScalarStorageTarget target 0 0 8 "counter plan increment read target"
   | _ => throw <| IO.userError "counter plan increment first statement must read count"
   match ← requireAt inc.body 1 "counter plan increment missing second statement" with
-  | .effect (.storageScalarWriteTarget target (.checkedArith .add (.local name) (.literalWord value))) => do
+  | .effect (.storageScalarWriteTarget target (.checkedArith .add (.local name) (.literalWord value) _)) => do
       requireScalarStorageTarget target 0 0 8 "counter plan increment storage write target"
       require (name == "n") "counter plan increment add lhs"
       require (value == 1) "counter plan increment add rhs"
@@ -7258,7 +7258,7 @@ def testScalarEventPlanToYul : IO Unit := do
       let words ← requireAt dataFieldWords 0 "event data statement Lower missing words"
       require (words.size == 1) "event data statement Lower word count"
       match words[0]? with
-      | some (ExprPlan.checkedArith .add (ExprPlan.local "n") (ExprPlan.literalWord 1)) => pure ()
+      | some (ExprPlan.checkedArith .add (ExprPlan.local "n") (ExprPlan.literalWord 1) _) => pure ()
       | _ => throw <| IO.userError "event data statement Lower word must be planned checked add"
   | _ => throw <| IO.userError "event data statement Lower must produce eventEmitWords"
   let plannedIndexedEffect ← requireValidateOk

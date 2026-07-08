@@ -221,8 +221,8 @@ partial def exprPlanExpr
       .ok (Lean.Compiler.Yul.builtin name (← args.mapM (exprPlanExpr mkError lowerExpr lowerEffect)))
   | .helperCall helper args => do
       .ok (helperCall helper (← args.mapM (exprPlanExpr mkError lowerExpr lowerEffect)))
-  | .checkedArith op lhs rhs => do
-      .ok (checkedArithExpr op
+  | .checkedArith op lhs rhs oc => do
+      .ok (arithExpr oc op
         (← exprPlanExpr mkError lowerExpr lowerEffect lhs)
         (← exprPlanExpr mkError lowerExpr lowerEffect rhs))
   | .hashPack a b c d => do

@@ -449,15 +449,15 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
   | .field base fieldName => do
       let (nextState, baseValue) ← evalExpr state frame base
       .ok (nextState, ← structFieldValue baseValue fieldName)
-  | .add lhs rhs => do
+  | .add lhs rhs _ => do
       let (stateAfterLhs, lhsValue) ← evalExpr state frame lhs
       let (stateAfterRhs, rhsValue) ← evalExpr stateAfterLhs frame rhs
       .ok (stateAfterRhs, ← evalNumericBinary "add" (· + ·) lhsValue rhsValue)
-  | .sub lhs rhs => do
+  | .sub lhs rhs _ => do
       let (stateAfterLhs, lhsValue) ← evalExpr state frame lhs
       let (stateAfterRhs, rhsValue) ← evalExpr stateAfterLhs frame rhs
       .ok (stateAfterRhs, ← evalNumericBinary "sub" (· - ·) lhsValue rhsValue)
-  | .mul lhs rhs => do
+  | .mul lhs rhs _ => do
       let (stateAfterLhs, lhsValue) ← evalExpr state frame lhs
       let (stateAfterRhs, rhsValue) ← evalExpr stateAfterLhs frame rhs
       .ok (stateAfterRhs, ← evalNumericBinary "mul" (· * ·) lhsValue rhsValue)

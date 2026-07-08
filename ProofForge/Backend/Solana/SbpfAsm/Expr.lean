@@ -158,17 +158,17 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
           AstNode.instruction { opcode := .sub64, dst := some .r2, imm := some (.num fieldOff) },
           AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r2, off := some (.num 0) }
         ], ctx')
-  | .add lhs rhs => do
+  | .add lhs rhs _ => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratch, ctx) := ctx.allocScratch
     let (rn, ctx) ← lowerExpr ctx rhs
     .ok (lowerBinaryCombine ln rn .add64 scratch, ctx)
-  | .sub lhs rhs => do
+  | .sub lhs rhs _ => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratch, ctx) := ctx.allocScratch
     let (rn, ctx) ← lowerExpr ctx rhs
     .ok (lowerOrderedBinaryCombine ln rn .sub64 scratch, ctx)
-  | .mul lhs rhs => do
+  | .mul lhs rhs _ => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratch, ctx) := ctx.allocScratch
     let (rn, ctx) ← lowerExpr ctx rhs

@@ -102,9 +102,9 @@ mutual
     | .structLit _ fields =>
         fields.foldlM (init := ()) fun _ field => checkExpr entrypoint env field.snd
     | .field base _ => checkExpr entrypoint env base
-    | .add lhs rhs
-    | .sub lhs rhs
-    | .mul lhs rhs
+    | .add lhs rhs _
+    | .sub lhs rhs _
+    | .mul lhs rhs _
     | .div lhs rhs
     | .mod lhs rhs
     | .pow lhs rhs

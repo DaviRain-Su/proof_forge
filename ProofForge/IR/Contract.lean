@@ -146,9 +146,9 @@ mutual
     | memoryArrayGet (array index : Expr)
     | structLit (typeName : String) (fields : Array (String × Expr))
     | field (base : Expr) (fieldName : String)
-    | add (lhs rhs : Expr)
-    | sub (lhs rhs : Expr)
-    | mul (lhs rhs : Expr)
+    | add (lhs rhs : Expr) (overflowChecked : Bool := true)
+    | sub (lhs rhs : Expr) (overflowChecked : Bool := true)
+    | mul (lhs rhs : Expr) (overflowChecked : Bool := true)
     | div (lhs rhs : Expr)
     | mod (lhs rhs : Expr)
     | pow (lhs rhs : Expr)
@@ -374,9 +374,9 @@ mutual
         fields.foldl (fun acc field => acc ++ field.snd.capabilities) #[.dataStruct]
     | .field base _ =>
         #[.dataStruct] ++ base.capabilities
-    | .add lhs rhs => lhs.capabilities ++ rhs.capabilities
-    | .sub lhs rhs => lhs.capabilities ++ rhs.capabilities
-    | .mul lhs rhs => lhs.capabilities ++ rhs.capabilities
+    | .add lhs rhs _ => lhs.capabilities ++ rhs.capabilities
+    | .sub lhs rhs _ => lhs.capabilities ++ rhs.capabilities
+    | .mul lhs rhs _ => lhs.capabilities ++ rhs.capabilities
     | .div lhs rhs => lhs.capabilities ++ rhs.capabilities
     | .mod lhs rhs => lhs.capabilities ++ rhs.capabilities
     | .pow lhs rhs => lhs.capabilities ++ rhs.capabilities

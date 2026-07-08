@@ -80,11 +80,19 @@ to look when a portable contract behaves differently across targets.
 
 ### `arith.checked` — integer overflow semantics
 
-The portable IR `Expr.add/.sub/.mul` nodes do not carry an explicit overflow
-mode. Today the lowering is target-driven and **differs silently**:
+The portable IR `Expr.add/.sub/.mul` nodes each carry an explicit
+`overflowChecked : Bool` field (default `true`, matching Solidity 0.8 / EVM
+checked-arithmetic semantics). The `+!`/`-!`/`*!` surface operators and the
+`Builder.add/sub/mul`/`Surface.add/sub/mul` helpers default to `true`, so a
+plain `.add lhs rhs` lowers to checked-revert on EVM and to native wrapping on
+Solana/NEAR. The lowering is per-node and no longer silently divergent:
 
-- **EVM** lowers these to Solidity-0.8-style checked arithmetic (`__pf_checked_add/sub/mul`) that reverts the transaction on U256 overflow/underflow. EVM therefore declares `arith.checked`.
-- **Solana (sBPF)** and **NEAR (Wasm)** lower to native `add64/mul64` / `i64.add` which **wrap silently** on overflow. They do **not** declare `arith.checked`.
+- **EVM** lowers a node to Solidity-0.8-style checked arithmetic (`__pf_checked_add/sub/mul`) that reverts on overflow when `overflowChecked := true`, and to wrapping Yul builtins (`add`/`sub`/`mul`) when `overflowChecked := false`. EVM therefore declares `arith.checked`.
+- **Solana (sBPF)** and **NEAR (Wasm)** ignore the per-node flag and always lower to native `add64/mul64` / `i64.add` which **wrap silently** on overflow. They do **not** declare `arith.checked`.
+
+The per-node flag controls EVM lowering but does **not** declare the
+`arith.checked` capability on its own (a portable contract using `+!` still
+resolves to all targets, wrapping on Solana/NEAR).
 
 This is the single most material cross-target semantic divergence in the
 platform: the same `a.add(b)` expression reverts on EVM but silently produces a
@@ -97,9 +105,10 @@ A contract author declares the checked-overflow intent by setting
 **rejects** such a module on any target profile that does not declare
 `arith.checked` (currently Solana and NEAR). The default is `false` (portable
 wrapping arithmetic), which is the safe cross-target default and routes to all
-targets. Per-target lowering still follows each backend's native behavior
-(EVM always lowers to checked arithmetic regardless of the flag, matching
-Solidity 0.8); the flag + gate make the *intent-vs-target* mismatch a
+targets. Per-target lowering follows the per-node `overflowChecked` flag on
+EVM (checked-revert when `true`, wrapping when `false`, matching Solidity 0.8
+for the default `true`), and always wraps on Solana/NEAR; the flag + gate make
+the *intent-vs-target* mismatch a
 rejected resolution rather than a silent behavioral difference. FV-5 tracks
 deepening this to width-aware IR reference semantics (overflow as an
 observable trace outcome inside `evalNumericBinary`); see

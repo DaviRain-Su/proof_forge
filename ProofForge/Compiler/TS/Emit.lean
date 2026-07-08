@@ -140,9 +140,9 @@ mutual
   partial def emitExpr (expected : ValueType) : ProofForge.IR.Expr → EmitTSM ProofForge.Compiler.TS.Expr
     | .literal l => pure (emitLit l)
     | .local name => pure (.ident name)
-    | .add lhs rhs => emitBinOp expected .add lhs rhs
-    | .sub lhs rhs => emitBinOp expected .sub lhs rhs
-    | .mul lhs rhs => emitBinOp expected .mul lhs rhs
+    | .add lhs rhs _ => emitBinOp expected .add lhs rhs
+    | .sub lhs rhs _ => emitBinOp expected .sub lhs rhs
+    | .mul lhs rhs _ => emitBinOp expected .mul lhs rhs
     | .div lhs rhs => emitBinOp expected .div lhs rhs
     | .mod lhs rhs => emitBinOp expected .mod lhs rhs
     | .eq lhs rhs => emitCmpOp .eq lhs rhs

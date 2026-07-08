@@ -68,14 +68,23 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 
 ### `arith.checked` — 整数溢出语义
 
-portable IR 的 `Expr.add/.sub/.mul` 节点没有携带显式溢出模式。当前 lowering
-由目标驱动，并且会**静默产生差异**：
+portable IR 的 `Expr.add/.sub/.mul` 节点各自携带一个显式的
+`overflowChecked : Bool` 字段（默认 `true`，匹配 Solidity 0.8 / EVM
+checked-arithmetic 语义）。`+!`/`-!`/`*!` 表层运算符以及
+`Builder.add/sub/mul`/`Surface.add/sub/mul` helper 默认为 `true`，因此一个
+普通的 `.add lhs rhs` 在 EVM 上 lowered 为 checked-revert，在 Solana/NEAR 上
+lowered 为原生 wrap。lowering 现在是按节点的，不再静默产生差异：
 
-- **EVM** 将这些操作 lowered 为 Solidity-0.8 风格的 checked arithmetic
-  (`__pf_checked_add/sub/mul`)，在 U256 overflow/underflow 时 revert 交易。因此 EVM
-  声明 `arith.checked`。
-- **Solana (sBPF)** 和 **NEAR (Wasm)** lowered 为原生 `add64/mul64` /
-  `i64.add`，在 overflow 时会**静默 wrap**。它们不声明 `arith.checked`。
+- **EVM** 在 `overflowChecked := true` 时把节点 lowered 为 Solidity-0.8 风格的
+  checked arithmetic (`__pf_checked_add/sub/mul`)，在 overflow 时 revert 交易；
+  在 `overflowChecked := false` 时 lowered 为 wrapping Yul builtin
+  (`add`/`sub`/`mul`)。因此 EVM 声明 `arith.checked`。
+- **Solana (sBPF)** 和 **NEAR (Wasm)** 忽略按节点 flag，始终 lowered 为原生
+  `add64/mul64` / `i64.add`，在 overflow 时会**静默 wrap**。它们不声明
+  `arith.checked`。
+
+按节点 flag 控制 EVM lowering，但**不会**自行声明 `arith.checked` 能力
+（使用 `+!` 的 portable 合约仍可解析到所有目标，在 Solana/NEAR 上 wrap）。
 
 这是平台当前最重要的跨目标语义分歧：同一个 `a.add(b)` 表达式在 EVM 上会 revert，
 但在 Solana/NEAR 上会静默产生 wrapped value。`arith.checked` 能力让这个分歧在
@@ -85,8 +94,9 @@ profile 和 artifact metadata 层可见。
 这会让模块声明 `arith.checked` 能力，而 `Target.defaultResolve` 中的能力门会在任何未声明
 `arith.checked` 的目标 profile（当前为 Solana 和 NEAR）上**拒绝**该模块。默认值是
 `false`（portable wrapping arithmetic），这是安全的跨目标默认值并可路由到所有目标。
-每个后端的 lowering 仍遵循其原生行为（EVM 总是 lowered 为 checked arithmetic，不论该
-flag 如何，匹配 Solidity 0.8）；这个 flag + gate 会把 *intent-vs-target* mismatch 变成
+每个后端的 lowering 遵循按节点 `overflowChecked` flag（EVM 在 `true` 时
+checked-revert，在 `false` 时 wrapping，对默认 `true` 匹配 Solidity 0.8），并在
+Solana/NEAR 上始终 wrap；这个 flag + gate 会把 *intent-vs-target* mismatch 变成
 被拒绝的 resolution，而不是静默行为差异。FV-5 跟踪把这一点深化为 width-aware IR reference
 semantics（在 `evalNumericBinary` 内把 overflow 作为 observable trace outcome）；见
 [formal-verification.md](formal-verification.md) FV-5。

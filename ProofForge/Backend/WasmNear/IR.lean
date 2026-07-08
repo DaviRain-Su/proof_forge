@@ -92,9 +92,9 @@ mutual
         .error { message := "struct literals are not supported by wasm-near IR v0" }
     | .field _ _ =>
         .error { message := "struct field access is not supported by wasm-near IR v0" }
-    | .add lhs rhs => do .ok s!"({← lowerExpr module lhs} + {← lowerExpr module rhs})"
-    | .sub lhs rhs => do .ok s!"({← lowerExpr module lhs} - {← lowerExpr module rhs})"
-    | .mul lhs rhs => do .ok s!"({← lowerExpr module lhs} * {← lowerExpr module rhs})"
+    | .add lhs rhs _ => do .ok s!"({← lowerExpr module lhs} + {← lowerExpr module rhs})"
+    | .sub lhs rhs _ => do .ok s!"({← lowerExpr module lhs} - {← lowerExpr module rhs})"
+    | .mul lhs rhs _ => do .ok s!"({← lowerExpr module lhs} * {← lowerExpr module rhs})"
     | .div lhs rhs => do .ok s!"({← lowerExpr module lhs} / {← lowerExpr module rhs})"
     | .mod lhs rhs => do .ok s!"({← lowerExpr module lhs} % {← lowerExpr module rhs})"
     | .pow lhs rhs => do

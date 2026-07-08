@@ -423,7 +423,7 @@ mutual
           return mergeContextExprPlans acc (← contextOpsFromExpr field.snd)
     | .field base _ =>
         contextOpsFromExpr base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
@@ -616,7 +616,7 @@ mutual
         return mergeModuleSurfaces (← surfaceFromExpr module env array) (← surfaceFromExpr module env index)
     | .field base _ =>
         surfaceFromExpr module env base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs

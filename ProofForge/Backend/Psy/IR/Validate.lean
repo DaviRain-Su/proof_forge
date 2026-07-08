@@ -73,15 +73,15 @@ mutual
             structFieldType module typeName fieldName
         | other =>
             .error { message := s!"field `{fieldName}` requires struct value, got `{other.name}`" }
-    | .add lhs rhs => do
+    | .add lhs rhs _ => do
         let lhsType ← inferExprType module env lhs
         let rhsType ← inferExprType module env rhs
         ensureSameNumericType "addition" lhsType rhsType
-    | .sub lhs rhs => do
+    | .sub lhs rhs _ => do
         let lhsType ← inferExprType module env lhs
         let rhsType ← inferExprType module env rhs
         ensureSameNumericType "subtraction" lhsType rhsType
-    | .mul lhs rhs => do
+    | .mul lhs rhs _ => do
         let lhsType ← inferExprType module env lhs
         let rhsType ← inferExprType module env rhs
         ensureSameNumericType "multiplication" lhsType rhsType

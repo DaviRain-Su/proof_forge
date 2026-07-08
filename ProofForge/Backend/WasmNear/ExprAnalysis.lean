@@ -20,10 +20,10 @@ partial def canDuplicateExpr : Expr → Bool
   | .memoryArrayGet array index => canDuplicateExpr array && canDuplicateExpr index
   | .structLit _ fields => fields.all (fun field => canDuplicateExpr field.snd)
   | .field base _ => canDuplicateExpr base
-  | .add lhs rhs
-  | .sub lhs rhs
-  | .mul lhs rhs
-  | .div lhs rhs
+    | .add lhs rhs _
+    | .sub lhs rhs _
+    | .mul lhs rhs _
+    | .div lhs rhs
   | .mod lhs rhs
   | .pow lhs rhs
   | .bitAnd lhs rhs

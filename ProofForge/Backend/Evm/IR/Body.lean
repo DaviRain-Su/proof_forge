@@ -254,7 +254,7 @@ mutual
     | .storageLoad _ => true
     | .builtin _ args => args.all exprPlanSupportsPlannedBody
     | .helperCall _ args => args.all exprPlanSupportsPlannedBody
-    | .checkedArith _ lhs rhs => exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
+    | .checkedArith _ lhs rhs _ => exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
     | .hashPack a b c d =>
         exprPlanSupportsPlannedBody a &&
         exprPlanSupportsPlannedBody b &&

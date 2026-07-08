@@ -48,12 +48,24 @@ The FV proves "IR ⟷ target", but the **IR itself still has the original-review
 is what makes the FV meaningful (you want to prove a *correct* IR, not one with silent
 divergences). **All three verified STILL OPEN (2026-07-08):**
 
-- **0.1 overflow, node-level** — `overflowChecked` is set NOWHERE but the FV-5 test fixture; `+!`
-  doesn't set it; EVM always lowers `.add` to checked-revert while Solana/NEAR always wrap →
-  **the single most material cross-target divergence, silently unguarded on every real contract.**
-  Fix: carry an overflow mode on the IR `.add`/`.sub`/`.mul` node (or wire `+!`/`contract_source`
-  elaboration to `overflowChecked`) and reject the intent-vs-target mismatch. Files:
-  `IR/Contract.lean`, `Contract/Source.lean`, `Target/Adapter.lean`, `Backend/Evm/ToYul/Helpers.lean`.
+- **0.1 overflow, node-level** — DONE (2026-07-08). `IR.Expr.add/.sub/.mul` now carry an
+  `overflowChecked : Bool := true` field (default checked, matching Solidity 0.8 / EVM
+  semantics). `Builder.add/sub/mul` and `Surface.add/sub/mul` default to `:= true` and
+  forward to the constructor; `+!`/`-!`/`*!` use this default. The EVM lowering reads the
+  per-node flag (`arithExpr oc op` in `Backend/Evm/ToYul/Helpers.lean`) and emits
+  checked-revert (`__pf_checked_*`) when `true`, wrapping Yul builtins when `false`.
+  `ExprPlan.checkedArith` carries the flag through to the Yul emit path
+  (`Backend/Evm/ToYul/Effect.lean`). Per the cross-target portability decision (wrap on
+  non-EVM), `Expr.capabilities` does **not** emit `.checkedArithmetic` from the node flag
+  (so a portable contract using `+!` still resolves to all targets and wraps on
+  Solana/NEAR, which ignore `oc`). The module-level `Module.overflowChecked` remains the
+  capability gate path used by FV-5 (`checkedCounterModule` fixture). All existing gates
+  green: `just evm-semantic-plan`, `just fv5-overflow-smoke`, `just value-vault-wasm-refinement-smoke`,
+  `just solana-lean`, `just shared-validate-smoke`, `just ir-counter-semantics-smoke`,
+  `just counter-universal-refinement-smoke`. (Note: `just docs-check` remains red as a
+  pre-existing `docs/targets/README.md` translation-sync staleness, now also flagging
+  `docs/capability-registry.md` whose `arith.checked` section was updated to describe the
+  new node-level field.)
 - **0.2 capability derivation** — `capabilityCallsForSpec` is intent-OR-module (`if calls.size == 0`);
   module capabilities silently drop when intents exist, so `resolveSpec` can return `.ok` for a
   module using an unsupported capability. Fix: `intent ∪ module` (dedup). File: `Target/Adapter.lean`.

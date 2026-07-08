@@ -462,9 +462,9 @@ mutual
       match lookupLocal? env name with
       | some t => .ok (#[.localGet name], t)
       | none => err s!"EmitWat: unknown local `{name}`"
-    | .add a b => lowerNumBin ctx env "add" a b
-    | .sub a b => lowerNumBin ctx env "sub" a b
-    | .mul a b => lowerNumBin ctx env "mul" a b
+    | .add a b _ => lowerNumBin ctx env "add" a b
+    | .sub a b _ => lowerNumBin ctx env "sub" a b
+    | .mul a b _ => lowerNumBin ctx env "mul" a b
     | .div a b => lowerNumBin ctx env "div_u" a b
     | .mod a b => lowerNumBin ctx env "rem_u" a b
     | .bitAnd a b => lowerNumBin ctx env "and" a b

@@ -24,12 +24,12 @@ mutual
           match ctx.locals.lookup name with
           | some expr => .ok expr
           | none => .ok (.local name)
-    | .add lhs rhs => .ok (.binOp .add (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
-    | .sub lhs rhs =>
+    | .add lhs rhs _ => .ok (.binOp .add (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .sub lhs rhs _ =>
         let l ← lowerExpr ctx lhs
         let r ← lowerExpr ctx rhs
         .ok (.ite (.binOp .ge l r) (.binOp .sub l r) (.literalInt 0))
-    | .mul lhs rhs => .ok (.binOp .mul (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
+    | .mul lhs rhs _ => .ok (.binOp .mul (← lowerExpr ctx lhs) (← lowerExpr ctx rhs))
     | .div lhs rhs =>
         let l ← lowerExpr ctx lhs
         let r ← lowerExpr ctx rhs

@@ -55,7 +55,7 @@ mutual
     | storageLoad (slot : StorageSlotPlan)
     | builtin (name : String) (args : Array ExprPlan)
     | helperCall (helper : Helper) (args : Array ExprPlan)
-    | checkedArith (op : AssignOp) (lhs rhs : ExprPlan)
+    | checkedArith (op : AssignOp) (lhs rhs : ExprPlan) (overflowChecked : Bool := true)
     | hashPack (a b c d : ExprPlan)
     | context (field : ContextExprPlan)
     | crosscall (mode : CrosscallMode) (target methodId : ExprPlan)
@@ -609,7 +609,7 @@ mutual
     | .structLit _ fields =>
         fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
     | .field base _ => contextOpsFromExpr base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs

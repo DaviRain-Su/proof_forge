@@ -164,7 +164,7 @@ mutual
     | .memoryArrayGet array index => collectExprEvents (collectExprEvents events array) index
     | .structLit _ fields => fields.foldl (fun acc field => collectExprEvents acc field.snd) events
     | .field base _ => collectExprEvents events base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs

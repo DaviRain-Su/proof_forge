@@ -201,14 +201,14 @@ def u32 (value : Nat) : ProofForge.IR.Expr :=
 def boolOr (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.boolOr lhs rhs
 
-def add (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.add lhs rhs
+def add (lhs rhs : ProofForge.IR.Expr) (overflowChecked : Bool := true) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.add lhs rhs overflowChecked
 
-def sub (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.sub lhs rhs
+def sub (lhs rhs : ProofForge.IR.Expr) (overflowChecked : Bool := true) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.sub lhs rhs overflowChecked
 
-def mul (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.mul lhs rhs
+def mul (lhs rhs : ProofForge.IR.Expr) (overflowChecked : Bool := true) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.mul lhs rhs overflowChecked
 
 def div (lhs rhs : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.div lhs rhs

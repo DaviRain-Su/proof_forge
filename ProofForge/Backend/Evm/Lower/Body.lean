@@ -651,8 +651,8 @@ def eventPlanForFields
     fieldPlans := fieldPlans.push (EventFieldPlan.mk field.fst fieldType false)
   .ok (EventPlan.mk name signature fieldPlans)
 
-def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) : ExprPlan :=
-  .checkedArith op lhs rhs
+def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) (overflowChecked : Bool := true) : ExprPlan :=
+  .checkedArith op lhs rhs overflowChecked
 
 def fixedArrayScalarLeafType? : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
@@ -1007,12 +1007,12 @@ mutual
             match ← localArrayStructFieldExprPlan? module env base fieldName with
             | some plan => .ok plan
             | none => .ok (.structField (← buildExprPlan module env base) fieldName)
-    | .add lhs rhs => do
-        .ok (assignExprPlan .add (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
-    | .sub lhs rhs => do
-        .ok (assignExprPlan .sub (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
-    | .mul lhs rhs => do
-        .ok (assignExprPlan .mul (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
+    | .add lhs rhs oc => do
+        .ok (assignExprPlan .add (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
+    | .sub lhs rhs oc => do
+        .ok (assignExprPlan .sub (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
+    | .mul lhs rhs oc => do
+        .ok (assignExprPlan .mul (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
     | .div lhs rhs => do
         .ok (assignExprPlan .div (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
     | .mod lhs rhs => do

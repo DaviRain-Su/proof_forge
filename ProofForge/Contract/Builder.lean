@@ -260,14 +260,14 @@ def contextRead (field : ContextField) : Expr :=
 def eventEmit (name : String) (fields : Array (String × Expr)) : Effect :=
   .eventEmit name fields
 
-def add (lhs rhs : Expr) : Expr :=
-  .add lhs rhs
+def add (lhs rhs : Expr) (overflowChecked : Bool := true) : Expr :=
+  .add lhs rhs overflowChecked
 
-def sub (lhs rhs : Expr) : Expr :=
-  .sub lhs rhs
+def sub (lhs rhs : Expr) (overflowChecked : Bool := true) : Expr :=
+  .sub lhs rhs overflowChecked
 
-def mul (lhs rhs : Expr) : Expr :=
-  .mul lhs rhs
+def mul (lhs rhs : Expr) (overflowChecked : Bool := true) : Expr :=
+  .mul lhs rhs overflowChecked
 
 def div (lhs rhs : Expr) : Expr :=
   .div lhs rhs

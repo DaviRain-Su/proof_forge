@@ -48,7 +48,7 @@ mutual
     | .memoryArrayGet array index => collectArrayLitsExpr array ++ collectArrayLitsExpr index
     | .structLit _ fields => fields.foldl (fun acc f => acc ++ collectArrayLitsExpr f.snd) #[]
     | .field base _ => collectArrayLitsExpr base
-    | .add a b | .sub a b | .mul a b | .div a b | .mod a b | .pow a b
+    | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b => collectArrayLitsExpr a ++ collectArrayLitsExpr b
@@ -114,7 +114,7 @@ mutual
     | .memoryArrayGet array index => collectStructLitsExpr array ++ collectStructLitsExpr index
     | .structLit typeName fields => #[typeName] ++ fields.foldl (fun acc f => acc ++ collectStructLitsExpr f.snd) #[]
     | .field base _ => collectStructLitsExpr base
-    | .add a b | .sub a b | .mul a b | .div a b | .mod a b | .pow a b
+    | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b => collectStructLitsExpr a ++ collectStructLitsExpr b

@@ -359,9 +359,9 @@ mutual
     | .memoryArrayGet _ _ => .error { message := "memory arrays are not supported by wasm-near IR v0" }
     | .structLit typeName _ => .ok (.structType typeName)
     | .field _ _ => .error { message := "struct field access is not supported by wasm-near IR v0" }
-    | .add lhs rhs => do ensureSameNumericType "addition" (← inferExprType module env lhs) (← inferExprType module env rhs)
-    | .sub lhs rhs => do ensureSameNumericType "subtraction" (← inferExprType module env lhs) (← inferExprType module env rhs)
-    | .mul lhs rhs => do ensureSameNumericType "multiplication" (← inferExprType module env lhs) (← inferExprType module env rhs)
+    | .add lhs rhs _ => do ensureSameNumericType "addition" (← inferExprType module env lhs) (← inferExprType module env rhs)
+    | .sub lhs rhs _ => do ensureSameNumericType "subtraction" (← inferExprType module env lhs) (← inferExprType module env rhs)
+    | .mul lhs rhs _ => do ensureSameNumericType "multiplication" (← inferExprType module env lhs) (← inferExprType module env rhs)
     | .div lhs rhs => do ensureSameNumericType "division" (← inferExprType module env lhs) (← inferExprType module env rhs)
     | .mod lhs rhs => do ensureSameNumericType "modulo" (← inferExprType module env lhs) (← inferExprType module env rhs)
     | .pow lhs rhs => do ensureSameNumericType "exponentiation" (← inferExprType module env lhs) (← inferExprType module env rhs)

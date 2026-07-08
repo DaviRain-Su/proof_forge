@@ -87,7 +87,7 @@ mutual
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env field.snd))
     | .field base _ =>
         crosscallHelperSpecsFromExpr module env base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
@@ -351,7 +351,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldlM (init := #[]) fun acc arg => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module arg))
-    | .checkedArith _ lhs rhs
+    | .checkedArith _ lhs rhs _
     | .arrayGet lhs rhs
     | .hashTwoToOne lhs rhs => do
         .ok (mergeCrosscallHelperSpecs
@@ -575,7 +575,7 @@ mutual
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr field.snd)
     | .field base _ =>
         createHelperSpecsFromExpr base
-    | .add lhs rhs | .sub lhs rhs | .mul lhs rhs | .div lhs rhs | .mod lhs rhs
+    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
     | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
@@ -750,7 +750,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := #[]) fun acc arg =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan arg)
-    | .checkedArith _ lhs rhs
+    | .checkedArith _ lhs rhs _
     | .arrayGet lhs rhs
     | .hashTwoToOne lhs rhs =>
         mergeCreateHelperSpecs

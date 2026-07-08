@@ -90,7 +90,7 @@ mutual
         storageSlotPlanUsesCheckedArithmetic slot
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.any exprPlanUsesCheckedArithmetic
-    | .checkedArith op lhs rhs =>
+    | .checkedArith op lhs rhs _ =>
         needsCheckedArithmetic op ||
           exprPlanUsesCheckedArithmetic lhs ||
           exprPlanUsesCheckedArithmetic rhs
@@ -352,7 +352,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := emptyLocalArrayHelperRequirements) fun acc arg =>
           mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan arg)
-    | .checkedArith _ lhs rhs
+    | .checkedArith _ lhs rhs _
     | .hashTwoToOne lhs rhs =>
         mergeLocalArrayHelperRequirements
           (localArrayHelperRequirementsFromExprPlan lhs)
@@ -678,7 +678,7 @@ mutual
         let nested := args.foldl (init := #[]) fun acc arg =>
           mergeHelperSets acc (plannedHelpersFromExprPlan arg)
         HelperSet.insert nested helper
-    | .checkedArith _ lhs rhs
+    | .checkedArith _ lhs rhs _
     | .arrayGet lhs rhs =>
         mergeHelperSets
           (plannedHelpersFromExprPlan lhs)
@@ -961,7 +961,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := #[]) fun acc arg =>
           mergeContextPlans acc (contextOpsFromExprPlan arg)
-    | .checkedArith _ lhs rhs
+    | .checkedArith _ lhs rhs _
     | .hashTwoToOne lhs rhs =>
         mergeContextPlans
           (contextOpsFromExprPlan lhs)

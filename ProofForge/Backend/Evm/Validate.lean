@@ -64,9 +64,9 @@ mutual
             ensureStructLocalFieldType typeName fieldName fieldType
             .ok fieldType
         | other => .error { message := s!"field `{fieldName}` requires struct value, got `{other.name}`" }
-    | .add lhs rhs => do inferBinaryNumericType "addition" module env lhs rhs
-    | .sub lhs rhs => do inferBinaryNumericType "subtraction" module env lhs rhs
-    | .mul lhs rhs => do inferBinaryNumericType "multiplication" module env lhs rhs
+    | .add lhs rhs _ => do inferBinaryNumericType "addition" module env lhs rhs
+    | .sub lhs rhs _ => do inferBinaryNumericType "subtraction" module env lhs rhs
+    | .mul lhs rhs _ => do inferBinaryNumericType "multiplication" module env lhs rhs
     | .div lhs rhs => do inferBinaryNumericType "division" module env lhs rhs
     | .mod lhs rhs => do inferBinaryNumericType "modulo" module env lhs rhs
     | .pow lhs rhs => do inferBinaryNumericType "exponentiation" module env lhs rhs
@@ -826,7 +826,7 @@ mutual
     | .contextRead _ | .eventEmit _ _ | .eventEmitIndexed _ _ _ => false
 
   partial def exprUsesCheckedArithmetic : Expr → Bool
-    | .add _ _ | .sub _ _ | .mul _ _ => true
+    | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
     | .literal _ | .local _ | .nativeValue => false
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i

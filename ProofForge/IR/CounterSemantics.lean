@@ -42,7 +42,7 @@ mutual
           match frame.read name with
           | some value => .ok (state, value)
           | none => .error s!"unknown local `{name}`"
-      | .add lhs rhs => do
+      | .add lhs rhs _ => do
           let (stateAfterLhs, lhsValue) ← evalExprFuel fuel state frame lhs
           let (stateAfterRhs, rhsValue) ← evalExprFuel fuel stateAfterLhs frame rhs
           .ok (stateAfterRhs, ← evalNumericBinary "add" (· + ·) lhsValue rhsValue)

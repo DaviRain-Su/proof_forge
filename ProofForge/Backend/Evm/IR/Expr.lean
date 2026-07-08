@@ -397,12 +397,12 @@ mutual
         .error { message := "struct literals must be consumed by a struct local binding or field access in IR EVM v0" }
     | .field base fieldName =>
         lowerLocalStructFieldExpr module env base fieldName
-    | .add lhs rhs => do
-        lowerExprThroughPlan module env (.add lhs rhs)
-    | .sub lhs rhs => do
-        lowerExprThroughPlan module env (.sub lhs rhs)
-    | .mul lhs rhs => do
-        lowerExprThroughPlan module env (.mul lhs rhs)
+    | .add lhs rhs oc => do
+        lowerExprThroughPlan module env (.add lhs rhs oc)
+    | .sub lhs rhs oc => do
+        lowerExprThroughPlan module env (.sub lhs rhs oc)
+    | .mul lhs rhs oc => do
+        lowerExprThroughPlan module env (.mul lhs rhs oc)
     | .div lhs rhs => do
         lowerExprThroughPlan module env (.div lhs rhs)
     | .mod lhs rhs => do
@@ -762,9 +762,9 @@ mutual
 partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .literal _ => true
   | .local _ => true
-  | .add lhs rhs
-  | .sub lhs rhs
-  | .mul lhs rhs
+  | .add lhs rhs _
+  | .sub lhs rhs _
+  | .mul lhs rhs _
   | .div lhs rhs
   | .mod lhs rhs
   | .pow lhs rhs

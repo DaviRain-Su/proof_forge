@@ -51,9 +51,9 @@ mutual
   partial def expr : Expr → Except AST.LowerError Expression
     | .literal l => .ok (.literal (lit l))
     | .local name => .ok (.identifier name)
-    | .add lhs rhs => do .ok (.binary ⟨.add, ← expr lhs, ← expr rhs⟩)
-    | .sub lhs rhs => do .ok (.binary ⟨.sub, ← expr lhs, ← expr rhs⟩)
-    | .mul lhs rhs => do .ok (.binary ⟨.mul, ← expr lhs, ← expr rhs⟩)
+    | .add lhs rhs _ => do .ok (.binary ⟨.add, ← expr lhs, ← expr rhs⟩)
+    | .sub lhs rhs _ => do .ok (.binary ⟨.sub, ← expr lhs, ← expr rhs⟩)
+    | .mul lhs rhs _ => do .ok (.binary ⟨.mul, ← expr lhs, ← expr rhs⟩)
     | .div lhs rhs => do .ok (.binary ⟨.div, ← expr lhs, ← expr rhs⟩)
     | .mod lhs rhs => do .ok (.binary ⟨.mod, ← expr lhs, ← expr rhs⟩)
     | .eq lhs rhs => do .ok (.binary ⟨.eq, ← expr lhs, ← expr rhs⟩)
@@ -132,9 +132,9 @@ end
 
 partial def hasEffectExpr : Expr → Bool
   | .effect _ => true
-  | .add lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-  | .sub lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-  | .mul lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
+  | .add lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
+  | .sub lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
+  | .mul lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
   | .div lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
   | .mod lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
   | .pow lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
