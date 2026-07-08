@@ -1,0 +1,150 @@
+import ProofForge.Backend.Refinement.Core
+import ProofForge.Backend.Refinement.CounterUniversal
+import ProofForge.Backend.WasmNear.CosmWasmHost
+import ProofForge.Backend.WasmNear.CounterWasmRefinement
+import ProofForge.Backend.WasmNear.WasmExec
+import ProofForge.IR.CounterSemantics
+import ProofForge.IR.StepSemantics
+
+/-! ## Counter IR ↔ Wasm core universal refinement on CosmWasm host (WASM-5b).
+
+Chain-genericity test: Counter reuses the SAME host-agnostic
+`counterWasmCoreTraceStep` from `CounterWasmRefinement` (the shared `WasmExec`
+core tail). Only the host instantiation differs — CosmWasm `db_read`/`db_write`
+via `CosmWasmHost` instead of NEAR `storage_read`/`storage_write` via
+`NearHost`. The abstract storage-word core and universal induction are unchanged.
+-/
+
+namespace ProofForge.Backend.WasmNear.CounterCosmWasmRefinement
+
+open ProofForge.IR
+open ProofForge.IR.Semantics
+open ProofForge.IR.CounterSemantics
+open ProofForge.IR.StepSemantics
+open ProofForge.Backend.Refinement
+open ProofForge.Backend.Refinement.CounterUniversal
+open ProofForge.Backend.WasmNear.WasmInterpreter
+open ProofForge.Backend.WasmNear.WasmExec
+open ProofForge.Backend.WasmNear.CosmWasmHost
+open ProofForge.Backend.WasmNear.CounterWasmRefinement
+
+abbrev IRState := CounterWasmRefinement.IRState
+abbrev CounterCall := CounterWasmRefinement.CounterCall
+abbrev counterIRStep := CounterWasmRefinement.counterIRStep
+abbrev CoreState := CounterWasmRefinement.CounterWasmCoreState
+abbrev CounterWasmRel := CounterWasmRefinement.CounterWasmRel
+abbrev counterWasmCoreTraceStep := CounterWasmRefinement.counterWasmCoreTraceStep
+abbrev counterTraceSafeAfterInitialize := CounterWasmRefinement.counterTraceSafeAfterInitialize
+abbrev counterTraceSafeFromCount := CounterWasmRefinement.counterTraceSafeFromCount
+abbrev CounterStepSafe := CounterWasmRefinement.CounterStepSafe
+
+/-! ### Per-entrypoint simulation (same abstract core, CosmWasm host axis) -/
+
+theorem counterCosmWasm_initialize_simulates
+    {irState core nextIr observable}
+    (hirStep : counterIRStep irState .initialize = .ok (nextIr, observable)) :
+    ∃ nextCore,
+      counterWasmCoreTraceStep core .initialize = .ok (nextCore, observable) ∧
+      CounterWasmRel nextIr nextCore :=
+  counterWasmCore_initialize_simulates hirStep
+
+theorem counterCosmWasm_increment_simulates
+    {irState core nextIr observable}
+    (hrel : CounterWasmRel irState core)
+    (hirStep : counterIRStep irState .increment = .ok (nextIr, observable)) :
+    ∃ nextCore,
+      counterWasmCoreTraceStep core .increment = .ok (nextCore, observable) ∧
+      CounterWasmRel nextIr nextCore :=
+  counterWasmCore_increment_simulates hrel hirStep
+
+theorem counterCosmWasm_get_simulates
+    {irState core nextIr observable}
+    (hrel : CounterWasmRel irState core)
+    (hirStep : counterIRStep irState .get = .ok (nextIr, observable)) :
+    ∃ nextCore,
+      counterWasmCoreTraceStep core .get = .ok (nextCore, observable) ∧
+      CounterWasmRel nextIr nextCore :=
+  counterWasmCore_get_simulates hrel hirStep
+
+theorem counterCosmWasm_step_simulates
+    (call : CounterCall) {irState : IRState} {core : CoreState}
+    (hrel : CounterWasmRel irState core) :
+    ∃ nextIr nextCore observable,
+      counterIRStep irState call = .ok (nextIr, observable) ∧
+      counterWasmCoreTraceStep core call = .ok (nextCore, observable) ∧
+      CounterWasmRel nextIr nextCore :=
+  counterWasmCore_step_simulates_from_obligations counterWasmCoreObligations call hrel
+
+theorem counterCosmWasm_trace_simulates
+    (calls : List CounterCall) {irState : IRState} {core : CoreState}
+    (hrel : CounterWasmRel irState core) :
+    ∃ finalIr finalCore observables,
+      runTraceListGen counterIRStep calls irState = .ok (finalIr, observables) ∧
+      runTraceListGen counterWasmCoreTraceStep calls core = .ok (finalCore, observables) ∧
+      CounterWasmRel finalIr finalCore ∧
+      IRTraceMatches counterIRStep irState calls observables ∧
+      IRTraceMatches counterWasmCoreTraceStep core calls observables :=
+  counterWasmCore_trace_simulates_from_obligations counterWasmCoreObligations calls hrel
+
+theorem counterCosmWasm_trace_simulates_after_initialize
+    (calls : List CounterCall) (irState : IRState) (core : CoreState) :
+    ∃ finalIr finalCore observables,
+      runTraceListGen counterIRStep (.initialize :: calls) irState =
+        .ok (finalIr, observables) ∧
+      runTraceListGen counterWasmCoreTraceStep (.initialize :: calls) core =
+        .ok (finalCore, observables) ∧
+      CounterWasmRel finalIr finalCore ∧
+      IRTraceMatches counterIRStep irState (.initialize :: calls) observables ∧
+      IRTraceMatches counterWasmCoreTraceStep core (.initialize :: calls) observables :=
+  counterWasmCore_trace_simulates_after_initialize_from_obligations
+    counterWasmCoreObligations calls irState core
+
+theorem counterCosmWasm_safe_trace_simulates_after_initialize
+    (calls : List CounterCall) (irState : IRState) (core : CoreState)
+    (hsafe : counterTraceSafeAfterInitialize calls = true) :
+    ∃ finalIr finalCore observables,
+      runTraceListGen counterIRStep (.initialize :: calls) irState =
+        .ok (finalIr, observables) ∧
+      runTraceListGen counterWasmCoreTraceStep (.initialize :: calls) core =
+        .ok (finalCore, observables) ∧
+      CounterWasmRel finalIr finalCore ∧
+      IRTraceMatches counterIRStep irState (.initialize :: calls) observables ∧
+      IRTraceMatches counterWasmCoreTraceStep core (.initialize :: calls) observables :=
+  counterWasmCore_safe_trace_simulates_after_initialize_from_obligations
+    counterWasmCoreSafeObligations calls irState core hsafe
+
+theorem counterCosmWasm_canonical_safe_trace_simulates :
+    ∃ finalIr finalCore observables,
+      runTraceListGen counterIRStep
+        (.initialize :: [.get, .increment, .get]) State.empty =
+        .ok (finalIr, observables) ∧
+      runTraceListGen counterWasmCoreTraceStep
+        (.initialize :: [.get, .increment, .get]) { storage := #[], returnValue := #[] } =
+        .ok (finalCore, observables) ∧
+      CounterWasmRel finalIr finalCore := by
+  obtain ⟨finalIr, finalCore, observables, hirTrace, hcoreTrace, hrelFinal, _, _⟩ :=
+    counterCosmWasm_safe_trace_simulates_after_initialize
+      [.get, .increment, .get] State.empty { storage := #[], returnValue := #[] }
+      counterTraceSafe_initialize_get_increment_get
+  exact ⟨finalIr, finalCore, observables, hirTrace, hcoreTrace, hrelFinal⟩
+
+/-- Chain axis: CosmWasm `db_write` updates the shared byte-level storage table
+that both host families use; the abstract Counter core reads the same scalar
+`count` regardless of bridge. -/
+theorem counterCosmWasm_host_db_write_preserves_count_storage
+    (state : WasmExec.State) (keyPtr keyLen valuePtr valueLen : Nat) (count : Nat)
+    (hbridge : state.host.bridge = ProofForge.Target.HostBridge.cosmWasm)
+    (hkey : readBytes state.memory keyPtr keyLen = counterWasmCountKey)
+    (hvalue : readBytes state.memory valuePtr valueLen = natToLEBytes 8 count) :
+    StateStepReduction (hostCallStep "db_write")
+        (stackPush
+          (stackPush
+            (stackPush
+              (stackPush state keyPtr) keyLen) valuePtr) valueLen)
+      { state with
+        host := { state.host with
+          storage := writeStorage state.host.storage counterWasmCountKey (natToLEBytes 8 count) } } :=
+  hostCallStep_cosmWasm_db_write_stack_reduction state keyPtr keyLen valuePtr valueLen
+    counterWasmCountKey (natToLEBytes 8 count) hbridge hkey hvalue
+
+end ProofForge.Backend.WasmNear.CounterCosmWasmRefinement

@@ -280,4 +280,87 @@ theorem valueVaultCoreTraceStep_initialize
       .ok ({ storage := canonicalCoreStorage initial 0 0 initial 0 1, returnValue := #[] }, 0) := by
   simp [valueVaultWasmCoreTraceStep]
 
+theorem valueVaultCoreTraceStep_deposit
+    (core : ValueVaultWasmCoreState) (balance released fees lastCheckpoint operations amount : Nat) :
+    valueVaultWasmCoreTraceStep
+        ({ core with storage := canonicalCoreStorage balance released fees amount lastCheckpoint operations })
+        (.deposit amount) =
+      .ok (⟨canonicalCoreStorage (balance + amount) released fees amount lastCheckpoint (operations + 1), #[], core.checkpoint⟩, 0) := by
+  let st := { core with storage := canonicalCoreStorage balance released fees amount lastCheckpoint operations }
+  have hb := valueVaultCoreScalar_balance_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hr := valueVaultCoreScalar_released_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hf := valueVaultCoreScalar_fees_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hlc := valueVaultCoreScalar_lastCheckpoint_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hop := valueVaultCoreScalar_operations_of_storage st balance released fees amount lastCheckpoint operations rfl
+  dsimp [valueVaultWasmCoreTraceStep]
+  simp [hb, hr, hf, hlc, hop]
+  rfl
+
+theorem valueVaultCoreTraceStep_chargeFee
+    (core : ValueVaultWasmCoreState)
+    (balance released fees lastCheckpoint operations gross fee_bps : Nat) :
+    valueVaultWasmCoreTraceStep
+        ({ core with storage := canonicalCoreStorage balance released fees (gross - (gross * fee_bps) / 10000) lastCheckpoint operations })
+        (.chargeFee gross fee_bps) =
+      .ok (⟨canonicalCoreStorage (balance + (gross - (gross * fee_bps) / 10000)) released (fees + (gross * fee_bps) / 10000) (gross - (gross * fee_bps) / 10000) lastCheckpoint (operations + 1), #[], core.checkpoint⟩, 0) := by
+  let fee := (gross * fee_bps) / 10000
+  let net := gross - fee
+  let st := { core with storage := canonicalCoreStorage balance released fees net lastCheckpoint operations }
+  have hb := valueVaultCoreScalar_balance_of_storage st balance released fees net lastCheckpoint operations rfl
+  have hr := valueVaultCoreScalar_released_of_storage st balance released fees net lastCheckpoint operations rfl
+  have hf := valueVaultCoreScalar_fees_of_storage st balance released fees net lastCheckpoint operations rfl
+  have hlc := valueVaultCoreScalar_lastCheckpoint_of_storage st balance released fees net lastCheckpoint operations rfl
+  have hop := valueVaultCoreScalar_operations_of_storage st balance released fees net lastCheckpoint operations rfl
+  dsimp [valueVaultWasmCoreTraceStep]
+  simp [hb, hr, hf, hlc, hop]
+  rfl
+
+theorem valueVaultCoreTraceStep_release
+    (core : ValueVaultWasmCoreState)
+    (balance released fees lastCheckpoint operations amount : Nat) :
+    valueVaultWasmCoreTraceStep
+        ({ core with storage := canonicalCoreStorage balance released fees amount lastCheckpoint operations })
+        (.release amount) =
+      .ok (⟨canonicalCoreStorage (balance - amount) (released + amount) fees amount lastCheckpoint (operations + 1), #[], core.checkpoint⟩, 0) := by
+  let st := { core with storage := canonicalCoreStorage balance released fees amount lastCheckpoint operations }
+  have hb := valueVaultCoreScalar_balance_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hr := valueVaultCoreScalar_released_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hf := valueVaultCoreScalar_fees_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hlc := valueVaultCoreScalar_lastCheckpoint_of_storage st balance released fees amount lastCheckpoint operations rfl
+  have hop := valueVaultCoreScalar_operations_of_storage st balance released fees amount lastCheckpoint operations rfl
+  dsimp [valueVaultWasmCoreTraceStep]
+  simp [hb, hr, hf, hlc, hop]
+  rfl
+
+theorem valueVaultCoreTraceStep_getBalance
+    (core : ValueVaultWasmCoreState) (balance released fees lastValue lastCheckpoint operations : Nat) :
+    valueVaultWasmCoreTraceStep
+        ({ core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations })
+        .getBalance =
+      .ok ({ core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations },
+        balance) := by
+  let st := { core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations }
+  have hb := valueVaultCoreScalar_balance_of_storage st balance released fees lastValue lastCheckpoint operations rfl
+  dsimp [valueVaultWasmCoreTraceStep]
+  simp [hb]
+  rfl
+
+theorem valueVaultCoreTraceStep_getNetValue
+    (core : ValueVaultWasmCoreState) (balance released fees lastValue lastCheckpoint operations : Nat) :
+    valueVaultWasmCoreTraceStep
+        ({ core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations })
+        .getNetValue =
+      .ok ({ core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations },
+        balance - fees) := by
+  let st := { core with storage := canonicalCoreStorage balance released fees lastValue lastCheckpoint operations }
+  have hb := valueVaultCoreScalar_balance_of_storage st balance released fees lastValue lastCheckpoint operations rfl
+  have hf := valueVaultCoreScalar_fees_of_storage st balance released fees lastValue lastCheckpoint operations rfl
+  dsimp [valueVaultWasmCoreTraceStep]
+  simp [hb, hf]
+  rfl
+
+theorem valueVaultTraceSafe_canonical_tail :
+    valueVaultTraceSafeAfterInitialize [.deposit 5, .getNetValue] = true := by
+  native_decide
+
 end ProofForge.Backend.WasmNear.ValueVaultWasmExec

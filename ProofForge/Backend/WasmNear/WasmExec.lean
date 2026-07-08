@@ -259,6 +259,16 @@ theorem splitStackArgs_stackPush3 (state : State) (a b c : Nat) :
   have hlt : ¬ state.valueStack.size + 1 + 1 + 1 < 3 := by omega
   simp [splitStackArgs, stackPush, Array.extract_push, hle1, hlepos2, hlt]
 
+theorem splitStackArgs_stackPush4 (state : State) (a b c d : Nat) :
+    splitStackArgs
+        (stackPush (stackPush (stackPush (stackPush state a) b) c) d) 4 =
+      .ok (#[a, b, c, d], state) := by
+  have hle1 : ¬ state.valueStack.size + 1 ≤ state.valueStack.size := by omega
+  have hlepos2 : state.valueStack.size ≤ state.valueStack.size + 1 + 1 := by omega
+  have hlepos3 : state.valueStack.size ≤ state.valueStack.size + 1 + 1 + 1 := by omega
+  have hlt : ¬ state.valueStack.size + 1 + 1 + 1 + 1 < 4 := by omega
+  simp [splitStackArgs, stackPush, Array.extract_push, hle1, hlepos2, hlepos3, hlt]
+
 theorem splitStackArgs_stackPush5 (state : State) (a b c d e : Nat) :
     splitStackArgs
         (stackPush (stackPush (stackPush (stackPush (stackPush state a) b) c) d) e) 5 =
