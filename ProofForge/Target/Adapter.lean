@@ -34,12 +34,18 @@ def intentCapabilityCalls (spec : ProofForge.Contract.ContractSpec) : Array Capa
 def moduleCapabilityCalls (module : ProofForge.IR.Module) : Array CapabilityCall :=
   module.capabilities.map (fun capability => CapabilityCall.fromCapability capability)
 
+/-- Capability calls for a spec: union of intent-declared and module-derived
+capabilities, deduplicated. Previously this was intent-OR-module (intents
+silently dropped module capabilities when present), which let `resolveSpec`
+return `.ok` for a module using an unsupported capability. -/
 def capabilityCallsForSpec (spec : ProofForge.Contract.ContractSpec) : Array CapabilityCall :=
-  let calls := intentCapabilityCalls spec
-  if calls.size == 0 then
-    moduleCapabilityCalls spec.module
-  else
-    calls
+  let intentCalls := intentCapabilityCalls spec
+  let moduleCalls := moduleCapabilityCalls spec.module
+  (intentCalls ++ moduleCalls).foldl
+    (fun acc call =>
+      if acc.any (fun existing => existing == call) then acc
+      else acc.push call)
+    #[]
 
 def defaultMetadata (profile : TargetProfile) (spec : ProofForge.Contract.ContractSpec) : Array TargetMetadata := #[
   { key := "contract", value := spec.name },

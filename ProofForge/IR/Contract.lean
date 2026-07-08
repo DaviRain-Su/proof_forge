@@ -419,7 +419,7 @@ mutual
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
-        #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
+        #[.nearPromise] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .nearPromiseThen parentPromise callbackMethod args deposit =>
         #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++

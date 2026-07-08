@@ -7,14 +7,14 @@ namespace ProofForge.Target
 structure TargetMetadata where
   key : String
   value : String
-  deriving Repr
+  deriving Repr, BEq
 
 structure CapabilityCall where
   capability : Capability
   operation : String
   source? : Option String := none
   metadata : Array TargetMetadata := #[]
-  deriving Repr
+  deriving Repr, BEq
 
 def CapabilityCall.fromCapability (capability : Capability) (source? : Option String := none)
     (metadata : Array TargetMetadata := #[]) : CapabilityCall := {
