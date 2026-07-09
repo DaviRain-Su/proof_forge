@@ -103,6 +103,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$STORAGE_NESTED_AGGREGATE_RESULT" \
+  --dargo-ran \
   --capability data.struct \
   --capability data.fixed_array \
   --capability storage.scalar \

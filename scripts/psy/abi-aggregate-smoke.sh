@@ -120,6 +120,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$ABI_STRUCT_PARAM_RESULT; $ABI_ARRAY_PARAM_RESULT; $ABI_STRUCT_RETURN_RESULT" \
+  --dargo-ran \
   --capability data.struct \
   --capability data.fixed_array \
   --capability zk.circuit \

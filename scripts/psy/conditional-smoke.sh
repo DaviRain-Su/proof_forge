@@ -103,6 +103,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$CONDITIONAL_RESULT" \
+  --dargo-ran \
   --capability control.conditional \
   --capability storage.scalar \
   --capability assertions.check \

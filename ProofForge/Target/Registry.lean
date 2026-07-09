@@ -315,7 +315,6 @@ def psyDpn : TargetProfile := {
     .storageMap,
     .storageArray,
     .callerSender,
-    .valueNative,
     .eventsEmit,
     .crosscallInvoke,
     .envBlock,

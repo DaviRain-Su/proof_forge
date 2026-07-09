@@ -17,6 +17,6 @@ impl GenericEntrypointProbeRef {
 }
 
 #[test]
-fn test_GenericEntrypointProbe_fixture() {
+fn test_generic_entrypoint_probe_fixture() {
     let _c = GenericEntrypointProbeRef::new(ContractMetadata::current());
 }

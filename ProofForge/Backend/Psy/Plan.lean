@@ -286,33 +286,42 @@ partial def stmtCrosscallTargets (s : IR.Statement) : Array String :=
   | .return v => exprCrosscallTargets v
   | _ => #[]
 
-/-- The Psy test function name for a module (mirrors IR.testFunctionName). -/
+/-! ## Test function naming (general) -/
+
+/-- Convert a CamelCase module name to snake_case, preserving alphanumeric
+acronym runs (`U32`, `U64`) as single tokens.
+
+Examples: `Counter` → `counter`, `U32HashPackingProbe` → `u32_hash_packing_probe`,
+`StorageNestedAggregateProbe` → `storage_nested_aggregate_probe`,
+`ElseIfProbe` → `else_if_probe`. -/
+def snakeCase (name : String) : String :=
+  let chars := name.toList.toArray
+  let rec go (i : Nat) (rest : Array Char) (acc : String) : String :=
+    if i >= chars.size then acc
+    else
+      let c := chars[i]!
+      let next? := chars[i+1]?
+      let boundary :=
+        if i = 0 then false
+        else
+          let prev := chars[i-1]!
+          -- boundary between an uppercase run and Upper+lower: "...Else|If..."
+          (prev.isUpper && c.isUpper && next?.all (·.isLower))
+          -- boundary between lower/digit and upper: "...u32|Hash..."
+          || ((prev.isLower || prev.isDigit) && c.isUpper)
+      let acc' := if boundary then acc.push '_' else acc
+      go (i + 1) chars (acc'.push c.toLower)
+  go 0 chars ""
+
+/-- The Psy test function name for a module.
+
+Fixture modules with known-shape test bodies (see `buildTestBody`) use a
+descriptive lifecycle name. All other modules — including any general
+`contract_source` — get `test_{snake_case name}_fixture`, a compile-only
+construction smoke. -/
 def testFunctionName (module : Module) : String :=
-  if module.name == "StorageNestedAggregateProbe" then "test_storage_nested_aggregate_probe_fixture"
-  else if module.name == "ConditionalProbe" then "test_conditional_probe_fixture"
-  else if module.name == "ElseIfProbe" then "test_else_if_probe_fixture"
-  else if module.name == "ArithmeticProbe" then "test_arithmetic_probe_fixture"
-  else if module.name == "U32ArithmeticProbe" then "test_u32_arithmetic_probe_fixture"
-  else if module.name == "BitwiseProbe" then "test_bitwise_probe_fixture"
-  else if module.name == "BoolStorageArrayProbe" then "test_bool_storage_array_probe_fixture"
-  else if module.name == "BoolStorageScalarProbe" then "test_bool_storage_scalar_probe_fixture"
-  else if module.name == "U32HashPackingProbe" then "test_u32_hash_packing_probe_fixture"
-  else if module.name == "U32StorageScalarProbe" then "test_u32_storage_scalar_probe_fixture"
-  else if module.name == "U32StorageArrayProbe" then "test_u32_storage_array_probe_fixture"
-  else if module.name == "ExpressionPredicateProbe" then "test_expression_predicate_probe_fixture"
-  else if module.name == "NestedAggregateProbe" then "test_nested_aggregate_probe_fixture"
-  else if module.name == "AbiAggregateProbe" then "test_abi_aggregate_probe_fixture"
-  else if module.name == "StructArrayProbe" then "test_struct_array_probe_fixture"
-  else if module.name == "StructProbe" then "test_struct_probe_fixture"
-  else if module.name == "ArrayProbe" then "test_array_probe_fixture"
-  else if module.name == "LoopProbe" then "test_loop_probe_fixture"
-  else if module.name == "AssertProbe" then "test_assert_probe_fixture"
-  else if module.name == "MapProbe" then "test_map_probe_fixture"
-  else if module.name == "HashProbe" then "test_hash_probe_fixture"
-  else if module.name == "HashStorageProbe" then "test_hash_storage_probe_fixture"
-  else if module.name == "ContextProbe" then "test_context_probe_fixture"
-  else if module.name == "Counter" then "test_counter_lifecycle"
-  else s!"test_{module.name}_fixture"
+  if module.name == "Counter" then "test_counter_lifecycle"
+  else s!"test_{snakeCase module.name}_fixture"
 
 /-- The `impl <Name>Ref` name for a module. -/
 def capitalizedRefName (module : Module) : String :=
@@ -511,6 +520,11 @@ def buildTestBody (module : Module) : Except PlanError (Array String) := do
       s!"assert_eq({refName}::classify(), 1, \"else-if chain selects the equality branch\");"
     ]
   else
+    /- General fallback for any module that does not match a known fixture
+       shape — including future `contract_source` inputs. The emitted test only
+       constructs the contract so the Psy/Dargo compiler can type-check and
+       lower it; it makes no semantic assertion because the lowerer has no way
+       to derive expected values from arbitrary IR. -/
     .ok #[
       s!"let _c = {refName}::new(ContractMetadata::current());"
     ]

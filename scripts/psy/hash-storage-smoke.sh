@@ -113,6 +113,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$SCALAR_RESULT; $ARRAY_RESULT" \
+  --dargo-ran \
   --capability storage.scalar \
   --capability storage.array \
   --capability zk.circuit \

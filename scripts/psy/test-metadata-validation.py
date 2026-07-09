@@ -18,13 +18,16 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 WRITER = ROOT / "scripts" / "psy" / "write-artifact-metadata.py"
 
 
-def make_stub_files(dir: Path) -> dict:
+def make_stub_files(dir: Path, exec_log_content: bytes = b"log") -> dict:
     """Create minimal stub artifact files for the writer."""
     file_names = ["source.psy", "pkg.psy", "circuit.json", "abi.json", "exec.log", "Dargo.toml"]
-    contents = [b"// psy source", b"// package source", b"{}", b"{}", b"log", b"[package]"]
+    contents = [b"// psy source", b"// package source", b"{}", b"{}", exec_log_content, b"[package]\ntype = \"bin\"\n[dependencies]\n"]
     for name, content in zip(file_names, contents):
         (dir / name).write_bytes(content)
     return {k: str(dir / k) for k in file_names}
+
+
+VALIDATOR = ROOT / "scripts" / "psy" / "validate-artifact-metadata.py"
 
 
 def make_plan_meta(
@@ -257,6 +260,171 @@ def test_plan_caps_not_subset() -> bool:
         return True
 
 
+def test_default_validation_not_run() -> bool:
+    """Without --dargo-ran, validation keys default to 'notRun'."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(capabilities=["zk.circuit"])
+        paths = make_stub_files(tmpdir)
+        plan_file = tmpdir / "plan-meta.json"
+        plan_file.write_text(meta)
+        out_file = tmpdir / "artifact.json"
+        result = subprocess.run([
+            sys.executable, str(WRITER),
+            "--root", str(tmpdir),
+            "--fixture", "TestProbe",
+            "--source", paths["source.psy"],
+            "--package-source", paths["pkg.psy"],
+            "--circuit-json", paths["circuit.json"],
+            "--abi-json", paths["abi.json"],
+            "--execute-log", paths["exec.log"],
+            "--dargo-manifest", paths["Dargo.toml"],
+            "--out", str(out_file),
+            "--dargo", "/bin/true",
+            "--execute-result", "result_vm: [0]",
+            "--plan-metadata", str(plan_file),
+            "--capability", "zk.circuit",
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FAIL: test_default_validation_not_run: writer failed: {result.stderr}")
+            return False
+        data = json.loads(out_file.read_text())
+        v = data["validation"]
+        for key in ("dargoTest", "dargoCompile", "dargoExecute", "dargoGenerateAbi", "dargoPackage"):
+            if v.get(key) != "notRun":
+                print(f"FAIL: test_default_validation_not_run: {key} should be notRun, got {v.get(key)}")
+                return False
+        print("ok: test_default_validation_not_run")
+        return True
+
+
+def test_dargo_ran_marks_passed() -> bool:
+    """--dargo-ran marks every Dargo validation key as 'passed'."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(capabilities=["zk.circuit"])
+        paths = make_stub_files(tmpdir)
+        plan_file = tmpdir / "plan-meta.json"
+        plan_file.write_text(meta)
+        out_file = tmpdir / "artifact.json"
+        result = subprocess.run([
+            sys.executable, str(WRITER),
+            "--root", str(tmpdir),
+            "--fixture", "TestProbe",
+            "--source", paths["source.psy"],
+            "--package-source", paths["pkg.psy"],
+            "--circuit-json", paths["circuit.json"],
+            "--abi-json", paths["abi.json"],
+            "--execute-log", paths["exec.log"],
+            "--dargo-manifest", paths["Dargo.toml"],
+            "--out", str(out_file),
+            "--dargo", "/bin/true",
+            "--execute-result", "result_vm: [0]",
+            "--plan-metadata", str(plan_file),
+            "--capability", "zk.circuit",
+            "--dargo-ran",
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FAIL: test_dargo_ran_marks_passed: writer failed: {result.stderr}")
+            return False
+        data = json.loads(out_file.read_text())
+        v = data["validation"]
+        for key in ("dargoTest", "dargoCompile", "dargoExecute", "dargoGenerateAbi", "dargoPackage"):
+            if v.get(key) != "passed":
+                print(f"FAIL: test_dargo_ran_marks_passed: {key} should be passed, got {v.get(key)}")
+                return False
+        print("ok: test_dargo_ran_marks_passed")
+        return True
+
+
+def test_validator_rejects_notrun_with_execute_result() -> bool:
+    """Validator must reject dargoExecute=notRun when executeResult is verifiable."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(capabilities=["zk.circuit"])
+        # Validator requires packageSource sha256 == source sha256; use same content.
+        paths = make_stub_files(tmpdir, exec_log_content=b"result_vm: [0]\n")
+        (tmpdir / "pkg.psy").write_bytes((tmpdir / "source.psy").read_bytes())
+        plan_file = tmpdir / "plan-meta.json"
+        plan_file.write_text(meta)
+        out_file = tmpdir / "artifact.json"
+        # Write metadata without --dargo-ran so dargoExecute defaults to notRun
+        wresult = subprocess.run([
+            sys.executable, str(WRITER),
+            "--root", str(tmpdir),
+            "--fixture", "TestProbe",
+            "--source", paths["source.psy"],
+            "--package-source", paths["pkg.psy"],
+            "--circuit-json", paths["circuit.json"],
+            "--abi-json", paths["abi.json"],
+            "--execute-log", paths["exec.log"],
+            "--dargo-manifest", paths["Dargo.toml"],
+            "--out", str(out_file),
+            "--dargo", "/bin/true",
+            "--execute-result", "result_vm: [0]",
+            "--plan-metadata", str(plan_file),
+            "--capability", "zk.circuit",
+        ], capture_output=True, text=True)
+        if wresult.returncode != 0:
+            print(f"FAIL: test_validator_rejects_notrun_with_execute_result: writer failed: {wresult.stderr}")
+            return False
+        vresult = subprocess.run([
+            sys.executable, str(VALIDATOR),
+            "--root", str(tmpdir),
+            str(out_file),
+        ], capture_output=True, text=True)
+        if vresult.returncode == 0:
+            print("FAIL: test_validator_rejects_notrun_with_execute_result: validator should reject notRun+dargoExecute with verifiable executeResult")
+            return False
+        if "dargoExecute" not in vresult.stderr:
+            print(f"FAIL: test_validator_rejects_notrun_with_execute_result: error should mention dargoExecute: {vresult.stderr}")
+            return False
+        print("ok: test_validator_rejects_notrun_with_execute_result")
+        return True
+
+
+def test_validator_accepts_passed_with_dargo_ran() -> bool:
+    """Validator accepts metadata where --dargo-ran marked all keys passed."""
+    with tempfile.TemporaryDirectory() as d:
+        tmpdir = Path(d)
+        meta = make_plan_meta(capabilities=["zk.circuit"])
+        paths = make_stub_files(tmpdir, exec_log_content=b"result_vm: [0]\n")
+        (tmpdir / "pkg.psy").write_bytes((tmpdir / "source.psy").read_bytes())
+        plan_file = tmpdir / "plan-meta.json"
+        plan_file.write_text(meta)
+        out_file = tmpdir / "artifact.json"
+        wresult = subprocess.run([
+            sys.executable, str(WRITER),
+            "--root", str(tmpdir),
+            "--fixture", "TestProbe",
+            "--source", paths["source.psy"],
+            "--package-source", paths["pkg.psy"],
+            "--circuit-json", paths["circuit.json"],
+            "--abi-json", paths["abi.json"],
+            "--execute-log", paths["exec.log"],
+            "--dargo-manifest", paths["Dargo.toml"],
+            "--out", str(out_file),
+            "--dargo", "/bin/true",
+            "--execute-result", "result_vm: [0]",
+            "--plan-metadata", str(plan_file),
+            "--capability", "zk.circuit",
+            "--dargo-ran",
+        ], capture_output=True, text=True)
+        if wresult.returncode != 0:
+            print(f"FAIL: test_validator_accepts_passed_with_dargo_ran: writer failed: {wresult.stderr}")
+            return False
+        vresult = subprocess.run([
+            sys.executable, str(VALIDATOR),
+            "--root", str(tmpdir),
+            str(out_file),
+        ], capture_output=True, text=True)
+        if vresult.returncode != 0:
+            print(f"FAIL: test_validator_accepts_passed_with_dargo_ran: validator rejected: {vresult.stderr}")
+            return False
+        print("ok: test_validator_accepts_passed_with_dargo_ran")
+        return True
+
+
 def main() -> int:
     tests = [
         test_pass_case,
@@ -270,6 +438,10 @@ def main() -> int:
         test_duplicate_events,
         test_plan_caps_subset_of_smoke,
         test_plan_caps_not_subset,
+        test_default_validation_not_run,
+        test_dargo_ran_marks_passed,
+        test_validator_rejects_notrun_with_execute_result,
+        test_validator_accepts_passed_with_dargo_ran,
     ]
     failures = 0
     for test in tests:

@@ -237,7 +237,11 @@ use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)
         Except.error s!"proof-forge build --target solana-sbpf-asm does not support format '{format?.getD ""}' without a Lean contract source input"
   | "psy-dpn", true, _, _, _ =>
       Except.error "proof-forge build --target psy-dpn from .learn source is not yet implemented"
-  | "psy-dpn", false, _, _, _ => Except.ok "--emit-counter-ir-psy"
+  | "psy-dpn", false, _, _, _ =>
+      if isLeanSource then
+        Except.error "proof-forge build --target psy-dpn does not support contract source input yet; the psy-dpn backend is fixture/sourcegen only. Use: proof-forge emit --target psy-dpn --fixture <name>"
+      else
+        Except.ok "--emit-counter-ir-psy"
   | "aleo-leo", true, _, _, _ =>
       Except.error "proof-forge build --target aleo-leo from .learn source is not yet implemented"
   | "aleo-leo", false, _, _, _ => Except.ok "--emit-counter-ir-leo"

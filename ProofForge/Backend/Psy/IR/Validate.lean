@@ -189,7 +189,8 @@ mutual
         .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by Psy IR v0" }
     | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
         .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by Psy IR v0" }
-    | .nativeValue => .ok .u64
+    | .nativeValue =>
+        .error { message := "native value inspection is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         let targetType ← inferExprType module env target
         ensureType "crosscall target contract id" .u64 targetType
@@ -631,14 +632,14 @@ def validateState (module : Module) : Except LowerError Unit := do
         | none =>
             .error { message := s!"state `{state.id}` references unknown struct `{typeName}`" }
     | .scalar, other =>
-        .error { message := s!"state `{state.id}` has unsupported Psy IR v0 type `{other.name}`" }
+        .error { message := s!"state `{state.id}` uses scalar storage of type `{other.name}`; Psy IR v0 scalar storage only supports U32, Bool, Hash, U64, and deriveStorage structs (U8 and Address are valid Psy types but not yet wired as storage scalars)" }
     | .map .hash capacity, .hash =>
         if capacity == 0 then
-          .error { message := s!"map state `{state.id}` must have non-zero capacity" }
+            .error { message := s!"map state `{state.id}` must have non-zero capacity" }
         else
-          pure ()
+            pure ()
     | .map keyType _, valueType =>
-        .error { message := s!"map state `{state.id}` has unsupported Psy IR v0 type Map<{keyType.name}, {valueType.name}>; only Map<Hash, Hash, N> is supported" }
+        .error { message := s!"state `{state.id}` has unsupported Psy IR v0 map type Map<{keyType.name}, {valueType.name}>; only Map<Hash, Hash, N> is supported as storage" }
     | .array length, .bool =>
         if length == 0 then
           .error { message := s!"array state `{state.id}` must have non-zero length" }

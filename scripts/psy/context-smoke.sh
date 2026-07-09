@@ -102,6 +102,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "result_vm: [15]" \
+  --dargo-ran \
   --capability caller.sender \
   --capability account.explicit \
   --capability env.block \

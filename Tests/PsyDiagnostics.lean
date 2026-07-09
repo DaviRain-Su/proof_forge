@@ -557,6 +557,36 @@ def nativeValueExprModule : Module := {
   }]
 }
 
+/-- Module that reads `contextRead .timestamp`. The `.envBlock` capability is
+declared (checkpointId is supported), but timestamp is not — the builder must
+reject it in `mapContextField` rather than silently emit wrong code. -/
+def badContextTimestampModule : Module := {
+  name := "BadContextTimestamp"
+  state := #[markerState]
+  entrypoints := #[{
+    name := "bad"
+    returns := .u64
+    body := #[
+      .return (.effect (.contextRead .timestamp))
+    ]
+  }]
+}
+
+/-- Module with U8 scalar storage. U8 is a valid Psy type but not wired as a
+storage scalar — the validator must reject it with a storage-specific message,
+not a generic "unsupported type" message. -/
+def u8ScalarStorageModule : Module := {
+  name := "BadU8ScalarStorage"
+  state := #[{ id := "flag", kind := .scalar, type := .u8 }]
+  entrypoints := #[{
+    name := "bad"
+    returns := .u64
+    body := #[
+      .return (.effect (.storageScalarRead "flag"))
+    ]
+  }]
+}
+
 def typedCrosscallModule : Module := {
   name := "BadTypedCrosscall"
   state := #[markerState]
@@ -576,7 +606,7 @@ def valueTypedCrosscallModule : Module := {
     name := "bad"
     returns := .u64
     body := #[
-      .return (.crosscallInvokeValueTyped (.literal (.u64 1)) (.literal (.u64 2)) .nativeValue #[] .u64)
+      .return (.crosscallInvokeValueTyped (.literal (.u64 1)) (.literal (.u64 2)) (.literal (.u64 0)) #[] .u64)
     ]
   }]
 }
@@ -730,7 +760,7 @@ def cases : Array (String × Module × String) := #[
   (
     "unsupported map key/value shape",
     unsupportedMapModule,
-    "map state `bad_map` has unsupported Psy IR v0 type Map<U64, U64>; only Map<Hash, Hash, N> is supported"
+    "state `bad_map` has unsupported Psy IR v0 map type Map<U64, U64>; only Map<Hash, Hash, N> is supported as storage"
   ),
   (
     "unsupported unit array state",
@@ -925,7 +955,17 @@ def cases : Array (String × Module × String) := #[
   (
     "native value not supported",
     nativeValueExprModule,
-    "native value inspection is not supported by Psy IR v0"
+    "target `psy-dpn` does not support capability `value.native`: capability is not present in the target profile"
+  ),
+  (
+    "context timestamp unsupported",
+    badContextTimestampModule,
+    "Psy IR v0 context read `timestamp` is not supported; only userId, contractId, and checkpointId are available"
+  ),
+  (
+    "u8 scalar storage unsupported",
+    u8ScalarStorageModule,
+    "state `flag` uses scalar storage of type `U8`; Psy IR v0 scalar storage only supports U32, Bool, Hash, U64, and deriveStorage structs (U8 and Address are valid Psy types but not yet wired as storage scalars)"
   ),
   (
     "typed crosscall unsupported",

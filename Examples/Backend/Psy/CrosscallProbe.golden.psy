@@ -16,6 +16,6 @@ impl CrosscallProbeRef {
 }
 
 #[test]
-fn test_CrosscallProbe_fixture() {
+fn test_crosscall_probe_fixture() {
     let _c = CrosscallProbeRef::new(ContractMetadata::current());
 }

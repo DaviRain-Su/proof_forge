@@ -160,6 +160,14 @@ def main : IO UInt32 := do
   requireErrorContains
     ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Product/Counter.lean"]
     #["move-sui", "source", "out of scope"]
+  /- Psy source-build fail-closed (PF-P0-01): a .lean contract source must be
+     rejected with a stable diagnostic, never silently substituted by Counter. -/
+  requireErrorContains
+    ["build", "--target", "psy-dpn", "--root", ".", "-o", "build/source-sdk/psy-dpn", "Examples/Product/Counter.lean"]
+    #["psy-dpn", "source input", "fixture/sourcegen"]
+  requireErrorContains
+    ["build", "--target", "psy-dpn", "--root", ".", "-o", "build/source-sdk/psy-dpn", "Examples/Product/ValueVault.lean"]
+    #["psy-dpn", "source input", "fixture/sourcegen"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]

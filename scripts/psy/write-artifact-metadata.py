@@ -37,6 +37,54 @@ def dargo_version(dargo: str) -> Optional[str]:
     return output.stdout.strip() or None
 
 
+VALIDATION_KEYS = (
+    "dargoTest",
+    "dargoCompile",
+    "dargoExecute",
+    "dargoGenerateAbi",
+    "dargoPackage",
+    "deployManifest",
+)
+
+ALLOWED_STATUSES = ("notRun", "passed", "failed", "unavailable")
+
+
+def parse_validation_statuses(raw: Optional[str]) -> dict:
+    """Parse a `key=status,...` override string into a dict.
+
+    Unknown keys, unknown statuses, or malformed pairs are rejected. The
+    executeResult field is always carried by the explicit --execute-result
+    flag and is not part of this map.
+    """
+    statuses: dict = {}
+    if not raw:
+        return statuses
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise SystemExit(
+                f"write-artifact-metadata: --validation-status entry '{token}' "
+                f"is not a key=status pair"
+            )
+        key, _, value = token.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key not in VALIDATION_KEYS:
+            raise SystemExit(
+                f"write-artifact-metadata: --validation-status key '{key}' "
+                f"is not one of {VALIDATION_KEYS}"
+            )
+        if value not in ALLOWED_STATUSES:
+            raise SystemExit(
+                f"write-artifact-metadata: --validation-status '{key}={value}' "
+                f"is not one of {ALLOWED_STATUSES}"
+            )
+        statuses[key] = value
+    return statuses
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -54,7 +102,38 @@ def main() -> int:
     parser.add_argument("--capability", action="append", default=[])
     parser.add_argument("--dependency", action="append", default=[])
     parser.add_argument("--plan-metadata")
+    parser.add_argument(
+        "--validation-status",
+        default="",
+        help=(
+            "Comma-separated key=status overrides for Dargo validation keys. "
+            "Allowed statuses: notRun, passed, failed, unavailable. "
+            "Keys not listed default to 'notRun'."
+        ),
+    )
+    parser.add_argument(
+        "--dargo-ran",
+        action="store_true",
+        help=(
+            "Convenience flag for smoke scripts: mark every Dargo validation "
+            "key as 'passed'. Used after a full Dargo test/compile/execute/abi/"
+            "package cycle succeeded. Equivalent to --validation-status "
+            "dargoTest=passed,dargoCompile=passed,..."
+        ),
+    )
     args = parser.parse_args()
+
+    overrides = parse_validation_statuses(args.validation_status)
+    dargo_keys = (
+        "dargoTest",
+        "dargoCompile",
+        "dargoExecute",
+        "dargoGenerateAbi",
+        "dargoPackage",
+    )
+    default_status = "passed" if args.dargo_ran else "notRun"
+    validation = {key: overrides.get(key, default_status) for key in dargo_keys}
+    validation["executeResult"] = args.execute_result
 
     root = Path(args.root)
     artifacts = {
@@ -65,17 +144,9 @@ def main() -> int:
         "executeLog": file_entry(root, Path(args.execute_log)),
         "dargoManifest": file_entry(root, Path(args.dargo_manifest)),
     }
-    validation = {
-        "dargoTest": "passed",
-        "dargoCompile": "passed",
-        "dargoExecute": "passed",
-        "dargoGenerateAbi": "passed",
-        "dargoPackage": "passed",
-        "executeResult": args.execute_result,
-    }
     if args.deploy_json:
         artifacts["deployJson"] = file_entry(root, Path(args.deploy_json))
-        validation["deployManifest"] = "passed"
+        validation["deployManifest"] = overrides.get("deployManifest", default_status)
 
     metadata = {
         "schemaVersion": 1,

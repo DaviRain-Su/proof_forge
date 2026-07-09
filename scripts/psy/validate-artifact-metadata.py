@@ -79,14 +79,29 @@ def main() -> int:
 
     validation = expect_object(metadata.get("validation"), "validation")
     for key in REQUIRED_VALIDATIONS:
-        expect(validation.get(key) == "passed", f"validation.{key} must be passed")
+        status = validation.get(key)
+        expect(
+            status in ("notRun", "passed", "failed", "unavailable"),
+            f"validation.{key} must be one of: notRun, passed, failed, unavailable (got {status!r})",
+        )
     if "deployJson" in artifacts:
-        expect(validation.get("deployManifest") == "passed", "validation.deployManifest must be passed when artifacts.deployJson is present")
+        status = validation.get("deployManifest")
+        expect(
+            status in ("notRun", "passed", "failed", "unavailable"),
+            f"validation.deployManifest must be one of: notRun, passed, failed, unavailable (got {status!r})",
+        )
     execute_result = expect_string(validation.get("executeResult"), "validation.executeResult")
 
     execute_log = (root / artifacts["executeLog"]["path"]).read_text()
     for expected in [part.strip() for part in execute_result.split(";") if part.strip()]:
         expect(expected in execute_log, f"execute log does not contain expected result: {expected}")
+
+    # Honesty rule: if executeResult was verified against the execute log, then
+    # dargoExecute must be "passed", not "notRun"/"unavailable"/"failed".
+    expect(
+        validation.get("dargoExecute") == "passed",
+        "validation.dargoExecute must be 'passed' when executeResult is verifiable in the execute log",
+    )
 
     return 0
 

@@ -103,6 +103,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$EXPRESSION_PREDICATE_RESULT" \
+  --dargo-ran \
   --capability assertions.check \
   --capability zk.circuit \
   --plan-metadata "$PLAN_METADATA_FILE"

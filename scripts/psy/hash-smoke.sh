@@ -112,6 +112,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$HASH_RESULT; $PAIR_HASH_RESULT" \
+  --dargo-ran \
   --capability crypto.hash \
   --capability zk.circuit \
   --plan-metadata "$PLAN_METADATA_FILE"

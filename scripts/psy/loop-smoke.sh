@@ -103,6 +103,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "$LOOP_RESULT" \
+  --dargo-ran \
   --capability control.bounded_loop \
   --capability storage.scalar \
   --capability zk.circuit \

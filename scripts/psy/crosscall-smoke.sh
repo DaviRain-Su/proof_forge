@@ -93,6 +93,7 @@ python3 "$ROOT/scripts/psy/write-artifact-metadata.py" \
   --out "$METADATA_FILE" \
   --dargo "$DARGO_BIN" \
   --execute-result "result_vm: []" \
+  --dargo-ran \
   --capability crosscall.invoke \
   --capability zk.circuit \
   --dependency target \
