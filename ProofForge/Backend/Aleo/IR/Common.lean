@@ -176,6 +176,25 @@ def isScalarState (ctx : BuildContext) (stateId : String) : Bool :=
   | some { kind := .scalar, .. } => true
   | _ => false
 
+/-! ### Context-field mapping (Leo finalize/proof-context intrinsics)
+
+Leo 4.x exposes on-chain/proof context as `self.caller`, `self.signer`,
+`block.height`, `block.timestamp`, and `network.id` (verified against the
+ProvableHQ/leo `documentation/code_snippets`). Only the fields that map to a
+portable `ValueType` are lowerable: caller/signer → `address`, block height →
+`u32`. `block.timestamp` (i64) and `network.id` (u16) have no portable
+`ValueType`, and there is no self-contract-address intrinsic, so those are
+honest rejects. -/
+
+def mapContextField (field : ContextField) : Except LowerError (ValueType × Expression) :=
+  match field with
+  | .userId | .userIdHash | .origin => .ok (.address, .memberAccess ⟨.identifier "self", "caller"⟩)
+  | .checkpointId => .ok (.u32, .memberAccess ⟨.identifier "block", "height"⟩)
+  | .timestamp => .error { message := "Leo IR v0 does not lower timestamp: Leo `block.timestamp` is i64, which has no portable ValueType" }
+  | .chainId => .error { message := "Leo IR v0 does not lower chainId: Leo `network.id` is u16, which has no portable ValueType" }
+  | .contractId => .error { message := "Leo IR v0 does not lower contractId: Leo has no self-contract-address intrinsic" }
+  | f => .error { message := s!"Leo IR v0 does not lower context field `{f.name}`" }
+
 /-! ### Effect detection (drives the async/finalize split) -/
 
 mutual

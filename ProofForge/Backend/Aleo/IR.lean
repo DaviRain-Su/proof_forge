@@ -173,8 +173,9 @@ mutual
         .ok result
     | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.write/assign_op are statement effects, not expressions" }
-    | .contextRead _ =>
-        .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+    | .contextRead field => do
+        let (_, e) ← mapContextField field
+        .ok e
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
 
@@ -213,7 +214,7 @@ mutual
     | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
         .error { message := "Leo IR v0 does not lower storage-path writes (Road 2)" }
     | .contextRead _ =>
-        .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+        .error { message := "context.read must be used as an expression" }
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
 

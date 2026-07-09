@@ -190,11 +190,12 @@ wasm-soroban-host-smoke:
     lake env lean --run Tests/Backend/Wasm/WasmSorobanHost.lean
 
 # Phase 4 ZK lane: Aleo/Leo registry entry + Counter Leo codegen (Road 1 sourcegen).
-# Also covers the generic map-storage lowering regression + artifact metadata.
+# Also covers the generic map-storage + finalize-context lowering and artifact metadata.
 aleo-leo-codegen-smoke:
     lake build ProofForge.Backend.Aleo.IR ProofForge.Backend.Aleo.Metadata ProofForge.Backend.Aleo.MetadataJson
     lake env lean --run Tests/AleoLeoCodegenSmoke.lean
     lake env lean --run Tests/AleoLeoMapLoweringSmoke.lean
+    lake env lean --run Tests/AleoLeoContextLoweringSmoke.lean
     lake env lean --run Tests/AleoLeoMetadataSmoke.lean
 
 # WASM-5a contract axis: ValueVault universal IR↔Wasm core refinement.
@@ -866,6 +867,10 @@ psy-golden-sources:
 # Run Psy unsupported-shape diagnostic smoke.
 psy-diagnostics:
     scripts/psy/diagnostic-smoke.sh
+
+# Unit test the generalized Psy test-function naming (snake_case derivation).
+psy-test-naming:
+    lake env lean --run Tests/PsyTestNaming.lean
 
 # Check the Psy portable IR coverage manifest.
 psy-coverage:

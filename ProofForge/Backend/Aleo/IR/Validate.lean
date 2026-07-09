@@ -292,8 +292,9 @@ mutual
     | .storagePathRead stateId path => resolveStoragePathType module stateId path
     | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.write/assign_op are statement effects, not expressions" }
-    | .contextRead _ =>
-        .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+    | .contextRead field => do
+        let (t, _) ← mapContextField field
+        .ok t
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
 
@@ -367,7 +368,7 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       let expected ← resolveStoragePathType module stateId path
       discard <| ensureSameNumericType s!"compound assignment {assignOpDiagnosticName op}" expected (← inferExprType module env value)
   | .contextRead _ =>
-      .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+      .error { message := "context.read must be used as an expression" }
   | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
       .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
 
