@@ -197,6 +197,7 @@ aleo-leo-codegen-smoke:
     lake env lean --run Tests/AleoLeoMapLoweringSmoke.lean
     lake env lean --run Tests/AleoLeoContextLoweringSmoke.lean
     lake env lean --run Tests/AleoLeoRecordLoweringSmoke.lean
+    lake env lean --run Tests/AleoLeoRecordTransferSmoke.lean
     lake env lean --run Tests/AleoLeoMetadataSmoke.lean
 
 # WASM-5a contract axis: ValueVault universal IR↔Wasm core refinement.
