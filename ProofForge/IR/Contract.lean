@@ -100,6 +100,10 @@ structure StructDecl where
   fields : Array StructField
   deriveStorage : Bool := false
   isPublic : Bool := true
+  /-- Aleo/ZK opt-in: lower this struct as a Leo `record` (private UTXO-like
+  state with an `owner: address` field). Chain-neutral flag in the spirit of
+  `deriveStorage`; non-Aleo backends ignore it. -/
+  isRecord : Bool := false
   deriving Repr
 
 inductive StateKind where

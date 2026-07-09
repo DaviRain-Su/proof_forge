@@ -376,8 +376,15 @@ lowering): `crypto.hash` expressions (`Poseidon`/`BHP` — also blocked on a
 `Hash`↔`field` type convention, since portable IR hash ops are multi-component
 and Hash-typed), struct-field / storage-path writes (Leo `Struct { f: v, ..base }`
 read-modify-write, needs an AST spread form), events, cross-circuit calls, and
-Road 2 (records/transitions/proof generation). These are currently honest
-rejects.
+Road 2 record CONSUME/transfer (needs private input-record parameters, which
+the portable IR does not express yet).
+
+Road 2 slice 1 LANDED: record DECLARATION + CREATION. An opt-in
+`StructDecl.isRecord` flag (mirroring `deriveStorage`) lowers a struct as a
+Leo `record`; a pure `fn … -> Record` that builds a record literal (e.g.
+`Token { owner: self.caller, amount }`) lowers directly. `Tests/AleoLeoRecordLoweringSmoke.lean`
+witnesses a `mint`-style record creation (verified against `migration/transitions_to_fn`).
+Record consume/spend remains future work.
 
 ## Research Exit Plan
 

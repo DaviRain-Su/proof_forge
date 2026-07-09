@@ -303,7 +303,10 @@ end
 
 /-- Build a Leo `Input` from a portable `(name, type)` parameter. -/
 def makeInput (name : String) (ty : ValueType) : Except LowerError Input := do
-  .ok { name := name, ty := ← valueType ty, mode := .public_ }
+  -- Leo's no-keyword default is `private` (proof-context). Portable IR params
+  -- carry no public/private mode, so default to private; an explicit `public`
+  -- surfaces only if a future IR mode sets `Input.mode := .public_`.
+  .ok { name := name, ty := ← valueType ty, mode := .private_ }
 
 /-- The Leo 4.x return type used for stateful (async/finalize) entrypoints. -/
 def finalizeReturnType : LeoType :=
@@ -371,7 +374,7 @@ def buildMapping (state : StateDecl) : Except LowerError Mapping := do
 def buildComposite (decl : StructDecl) : Except LowerError (Identifier × Composite) := do
   let members ← decl.fields.mapM fun field => do
     .ok { name := field.id, ty := ← valueType field.type }
-  .ok (decl.name, { identifier := decl.name, members, isRecord := false })
+  .ok (decl.name, { identifier := decl.name, members, isRecord := decl.isRecord })
 
 /-- The `@noupgrade constructor()` required by Leo 4.x programs. -/
 def constructor : Constructor :=
