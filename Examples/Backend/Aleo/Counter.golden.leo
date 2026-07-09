@@ -15,9 +15,7 @@ program counter.aleo {
             Mapping::set(count, 0u64, (n + 1u64));
         };
     }
-    fn get() -> Final {
-        return final {
-            Mapping::get_or_use(count, 0u64, 0u64);
-        };
+    view fn get() -> u64 {
+        return Mapping::get_or_use(count, 0u64, 0u64);
     }
 }

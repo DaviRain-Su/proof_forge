@@ -197,73 +197,107 @@ def mapContextField (field : ContextField) : Except LowerError (ValueType × Exp
 
 /-! ### Effect detection (drives the async/finalize split) -/
 
+/-- Classify an `Effect` as a storage write (or event), which forces the
+`fn … -> Final` path. Context reads are neither. -/
+def effectIsWrite (e : Effect) : Bool :=
+  match e with
+  | .storageScalarWrite .. | .storageScalarAssignOp ..
+  | .storageMapInsert .. | .storageMapSet ..
+  | .storageArrayWrite .. | .storageArrayStructFieldWrite ..
+  | .storageDynamicArrayPush .. | .storageDynamicArrayPop ..
+  | .memoryArraySet ..
+  | .storageStructFieldWrite .. | .storagePathWrite .. | .storagePathAssignOp ..
+  | .eventEmit .. | .eventEmitIndexed .. => true
+  | _ => false
+
+/-- Classify an `Effect` as a storage read, which (without writes) yields a
+`view fn`. Context reads are neither (they are allowed in a plain `fn`). -/
+def effectIsRead (e : Effect) : Bool :=
+  match e with
+  | .storageScalarRead .. | .storageMapContains .. | .storageMapGet ..
+  | .storageArrayRead .. | .storageArrayStructFieldRead ..
+  | .storageStructFieldRead .. | .storagePathRead .. => true
+  | _ => false
+
 mutual
-  partial def hasEffectExpr : Expr → Bool
-    | .effect _ => true
-    | .add lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
-    | .sub lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
-    | .mul lhs rhs _ => hasEffectExpr lhs || hasEffectExpr rhs
-    | .div lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .mod lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .pow lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .bitAnd lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .bitOr lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .bitXor lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .shiftLeft lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .shiftRight lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .cast v _ => hasEffectExpr v
-    | .eq lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .ne lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .lt lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .le lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .gt lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .ge lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .boolAnd lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .boolOr lhs rhs => hasEffectExpr lhs || hasEffectExpr rhs
-    | .boolNot v => hasEffectExpr v
-    | .arrayLit _ vs => vs.any hasEffectExpr
-    | .arrayGet a i => hasEffectExpr a || hasEffectExpr i
-    | .structLit _ fs => fs.any (fun (_, e) => hasEffectExpr e)
-    | .field b _ => hasEffectExpr b
-    | .hashValue a b c d => hasEffectExpr a || hasEffectExpr b || hasEffectExpr c || hasEffectExpr d
-    | .hash v => hasEffectExpr v
-    | .hashTwoToOne l r => hasEffectExpr l || hasEffectExpr r
-    | .crosscallInvoke t m args => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
-    | .crosscallInvokeTyped t m args _ => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
-    | .crosscallInvokeValueTyped t m cv args _ => hasEffectExpr t || hasEffectExpr m || hasEffectExpr cv || args.any hasEffectExpr
-    | .crosscallInvokeStaticTyped t m args _ => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
-    | .crosscallInvokeDelegateTyped t m args _ => hasEffectExpr t || hasEffectExpr m || args.any hasEffectExpr
-    | .crosscallCreate cv _ => hasEffectExpr cv
-    | .crosscallCreate2 cv s _ => hasEffectExpr cv || hasEffectExpr s
-    | .nearPromiseThen p m args d =>
-        hasEffectExpr p || hasEffectExpr m || hasEffectExpr d ||
-          args.any (fun arg => hasEffectExpr arg)
+  partial def effectExprIn (p : Effect → Bool) : Expr → Bool
+    | .effect e => p e
+    | .add lhs rhs _ => effectExprIn p lhs || effectExprIn p rhs
+    | .sub lhs rhs _ => effectExprIn p lhs || effectExprIn p rhs
+    | .mul lhs rhs _ => effectExprIn p lhs || effectExprIn p rhs
+    | .div lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .mod lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .pow lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .bitAnd lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .bitOr lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .bitXor lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .shiftLeft lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .shiftRight lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .cast v _ => effectExprIn p v
+    | .eq lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .ne lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .lt lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .le lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .gt lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .ge lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .boolAnd lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .boolOr lhs rhs => effectExprIn p lhs || effectExprIn p rhs
+    | .boolNot v => effectExprIn p v
+    | .arrayLit _ vs => vs.any (effectExprIn p)
+    | .arrayGet a i => effectExprIn p a || effectExprIn p i
+    | .structLit _ fs => fs.any (fun (_, e) => effectExprIn p e)
+    | .field b _ => effectExprIn p b
+    | .hashValue a b c d => effectExprIn p a || effectExprIn p b || effectExprIn p c || effectExprIn p d
+    | .hash v => effectExprIn p v
+    | .hashTwoToOne l r => effectExprIn p l || effectExprIn p r
+    | .crosscallInvoke t m args => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
+    | .crosscallInvokeTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
+    | .crosscallInvokeValueTyped t m cv args _ => effectExprIn p t || effectExprIn p m || effectExprIn p cv || args.any (effectExprIn p)
+    | .crosscallInvokeStaticTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
+    | .crosscallInvokeDelegateTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
+    | .crosscallCreate cv _ => effectExprIn p cv
+    | .crosscallCreate2 cv s _ => effectExprIn p cv || effectExprIn p s
+    | .nearPromiseThen p2 m args d =>
+        effectExprIn p p2 || effectExprIn p m || effectExprIn p d ||
+          args.any (fun arg => effectExprIn p arg)
     | .nearPromiseResultsCount => false
-    | .nearPromiseResultStatus i => hasEffectExpr i
-    | .nearPromiseResultU64 i => hasEffectExpr i
+    | .nearPromiseResultStatus i => effectExprIn p i
+    | .nearPromiseResultU64 i => effectExprIn p i
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
-        hasEffectExpr accountIndex || hasEffectExpr methodId || hasEffectExpr deposit ||
-          args.any (hasEffectExpr ·)
+        effectExprIn p accountIndex || effectExprIn p methodId || effectExprIn p deposit ||
+          args.any (effectExprIn p ·)
     | _ => false
 
-  partial def hasEffect (body : Array IR.Statement) : Bool :=
-    body.any hasEffectStmt
+  partial def effectIn (p : Effect → Bool) (body : Array IR.Statement) : Bool :=
+    body.any (effectStmtIn p)
 
-  partial def hasEffectStmt : IR.Statement → Bool
-    | .effect _ => true
-    | .letBind _ _ v => hasEffectExpr v
-    | .letMutBind _ _ v => hasEffectExpr v
-    | .assign t v => hasEffectExpr t || hasEffectExpr v
-    | .assignOp t _ v => hasEffectExpr t || hasEffectExpr v
-    | .assert c _ _ => hasEffectExpr c
-    | .assertEq l r _ _ => hasEffectExpr l || hasEffectExpr r
-    | .ifElse c thenBody elseBody => hasEffectExpr c || hasEffect thenBody || hasEffect elseBody
-    | .boundedFor _ _ _ body => hasEffect body
-    | .whileLoop c body => hasEffectExpr c || hasEffect body
-    | .return v => hasEffectExpr v
-    | .release _ => false
-    | .revert _ | .revertWithError _ => true
+  partial def effectStmtIn (p : Effect → Bool) : IR.Statement → Bool
+    | .effect e => p e
+    | .letBind _ _ v => effectExprIn p v
+    | .letMutBind _ _ v => effectExprIn p v
+    | .assign t v => effectExprIn p t || effectExprIn p v
+    | .assignOp t _ v => effectExprIn p t || effectExprIn p v
+    | .assert c _ _ => effectExprIn p c
+    | .assertEq l r _ _ => effectExprIn p l || effectExprIn p r
+    | .ifElse c thenBody elseBody => effectExprIn p c || effectIn p thenBody || effectIn p elseBody
+    | .boundedFor _ _ _ body => effectIn p body
+    | .whileLoop c body => effectExprIn p c || effectIn p body
+    | .return v => effectExprIn p v
+    | .release _ | .revert _ | .revertWithError _ => false
 end
+
+/-- A body contains any effect (storage read/write or context). -/
+def hasEffect (body : Array IR.Statement) : Bool := effectIn (fun _ => true) body
+
+/-- A body contains a storage write (or event), forcing the `fn … -> Final` path. -/
+def hasStateWrite (body : Array IR.Statement) : Bool := effectIn effectIsWrite body
+
+/-- A body contains a storage read but is covered by `hasStateWrite` separately. -/
+def hasStateRead (body : Array IR.Statement) : Bool := effectIn effectIsRead body
+
+/-- An expression contains any effect. Used by the finalize builder to decide
+whether a `return value` in a `final {}` block should still run its read. -/
+def hasEffectExpr (e : Expr) : Bool := effectExprIn (fun _ => true) e
 
 /-! ### Identifier validation -/
 

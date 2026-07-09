@@ -359,19 +359,25 @@ lowering** that mirrors `ProofForge.Backend.Psy.IR`:
 
 Coverage now lowered: all arithmetic/bitwise/comparison/boolean ops, `cast`,
 struct literals/field access, array literals/get, `assert`/`assertEq`/`revert`,
-`if/else`, `boundedFor`, `return`, and **scalar + map storage**. The profile
+`if/else`, `boundedFor`, `return`, **scalar + map storage**, and **finalize
+context reads** (`contextRead .userId/.userIdHash/.origin → self.caller`,
+`.checkpointId → block.height`). Entrypoints are split three ways (verified
+against `ProvableHQ/leo`): **write** → `fn … -> Final { return final { … }; }`,
+**read-only** → `view fn … -> T` (the caller receives the value — e.g. the
+Counter `get` now returns the count), **pure** → `fn … -> T`. The profile
 honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
-`mapping u64 => T`). `Tests/AleoLeoMapLoweringSmoke.lean` and
-`Tests/AleoLeoMetadataSmoke.lean` extend the `just aleo-leo-codegen-smoke`
-gate. PureMath golden is byte-identical; Counter `get` refreshed to the generic
-finalize read.
+`mapping u64 => T`). `Tests/AleoLeoMapLoweringSmoke.lean`,
+`Tests/AleoLeoContextLoweringSmoke.lean`, and `Tests/AleoLeoMetadataSmoke.lean`
+extend the `just aleo-leo-codegen-smoke` gate. PureMath golden is
+byte-identical; Counter `get` refreshed to a `view fn` returning `u64`.
 
-**Remaining deepening frontier** (next rounds; need Leo intrinsic verification
-— hashing, finalize context, struct update — before lowering, since these emit
-Leo stdlib/context calls): `crypto.hash` expressions (`Poseidon`/`BHP`),
-`contextRead` (caller/block context in `final`), struct-field / storage-path
-writes (read-modify-write), events, cross-circuit calls, and Road 2
-(records/transitions/proof generation). These are currently honest rejects.
+**Remaining deepening frontier** (need Leo intrinsic / AST work before
+lowering): `crypto.hash` expressions (`Poseidon`/`BHP` — also blocked on a
+`Hash`↔`field` type convention, since portable IR hash ops are multi-component
+and Hash-typed), struct-field / storage-path writes (Leo `Struct { f: v, ..base }`
+read-modify-write, needs an AST spread form), events, cross-circuit calls, and
+Road 2 (records/transitions/proof generation). These are currently honest
+rejects.
 
 ## Research Exit Plan
 

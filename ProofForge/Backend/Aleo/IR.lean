@@ -311,12 +311,19 @@ def finalizeReturnType : LeoType :=
 
 /-- Build a Leo entrypoint `Function` from a portable `Entrypoint`.
 
-Pure entrypoints (no on-chain effects) lower as ordinary functions; stateful
-entrypoints wrap their body in a `return final { … };` block and return `Final`
-(Leo's on-chain finalize model). -/
+Three-way split (verified against the ProvableHQ/leo `functions/view_basic`
+and `style/inline_final` examples):
+
+- **write** (any storage write/event) → `fn … -> Final { return final { … }; }`
+  (Leo's on-chain finalize model);
+- **read-only** (storage reads, no writes) → `view fn … -> T { body }`, which
+  can read mappings/context and *return* the value directly (unlike the Final
+  path, the caller actually receives it);
+- **pure** (no state effects; context reads are allowed in a plain `fn`) →
+  `fn … -> T { body }`. -/
 def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Function := do
   let inputs ← ep.params.mapM fun (n, t) => makeInput n t
-  if hasEffect ep.body then
+  if hasStateWrite ep.body then
     let bodyStmts ← buildFinalizeBody ctx ep.body
     let asyncBlock : Block := { statements := bodyStmts }
     .ok {
@@ -332,9 +339,10 @@ def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Fun
   else
     let ret ← valueType ep.returns
     let bodyStmts ← buildBody ctx ep.body
+    let variant := if hasStateRead ep.body then Variant.view else Variant.entryPoint
     .ok {
       annotations := #[]
-      variant := .entryPoint
+      variant := variant
       identifier := ep.name
       constParameters := #[]
       input := inputs
