@@ -20,20 +20,24 @@ partial def printType : LeoType → Except LowerError String
   | .integer t => .ok (printIntegerType t)
   | .boolean => .ok "bool"
   | .unit => .ok "()"
-  | .address => unsupported "address type"
-  | .array _ _ => unsupported "array type"
+  | .address => .ok "address"
+  | .array element length => do
+      let es ← printType element
+      .ok s!"[{es}; {length}]"
   | .composite name => .ok name
-  | .field => unsupported "field type"
+  | .field => .ok "field"
   | .future _ _ => .ok "Final"  -- downgrade Future<Fn(...)> to Final for Leo 4.0.2
-  | .group => unsupported "group type"
+  | .group => .ok "group"
   | .mapping k v => do
       let ks ← printType k
       let vs ← printType v
       .ok s!"mapping[{ks}, {vs}]"
-  | .scalar => unsupported "scalar type"
-  | .signature => unsupported "signature type"
+  | .scalar => .ok "scalar"
+  | .signature => .ok "signature"
   | .string => .ok "string"
-  | .tuple _ => unsupported "tuple type"
+  | .tuple ts => do
+      let parts ← ts.mapM printType
+      .ok s!"({String.intercalate ", " parts.toList})"
   | .err => unsupported "error type"
 
 def printLiteral : Literal → String

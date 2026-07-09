@@ -339,7 +339,11 @@ lowers the portable IR `Counter` fixture to a Leo 4.0 program with a public
 `mapping`, `@noupgrade constructor`, and `fn ... -> Final` entrypoints. The
 ZK-specific value proposition (private records, transitions, proof
 generation) is future Road 2 work; this profile owns the codegen boundary and
-the `leo build` / `leo test` validation gate. See
+the `leo build` / `leo test` validation gate.
+
+`storageScalar` is declared because the Aleo backend rewrites portable scalar
+state into a single-slot Leo `mapping` (Leo has no scalar storage), so scalar
+storage is faithfully supported from the author's perspective. See
 `docs/targets/aleo-leo.md` for the full capability proposal and research-exit
 plan. -/
 def aleoLeo : TargetProfile := {
@@ -347,6 +351,7 @@ def aleoLeo : TargetProfile := {
   family := .zkCircuitSourcegen
   artifactKind := .leoSource
   capabilities := #[
+    .storageScalar,
     .storageMap,
     .callerSender,
     .envBlock,

@@ -1,23 +1,404 @@
+/-
+Copyright (c) 2026 DaviRain. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+
+# Aleo/Leo IR Lowering
+
+Lowers the portable contract IR (`ProofForge.IR`) into a Leo program AST
+(`ProofForge.Compiler.Leo.AST`), then renders it to `.leo` source via
+`ProofForge.Compiler.Leo.Printer`. This is the `aleo-leo` counterpart of
+`ProofForge.Backend.Psy.IR` and follows the same shape:
+
+1. `Common` owns shared helpers (types, identifiers, storage, effect detection).
+2. `Validate` runs capability + identifier + struct + state + entrypoint-body
+   validation before lowering, so the builder only folds validated shapes.
+3. This module owns the builder: `buildExpr` / `buildStmt` / `buildFunction` /
+   `buildModule`, and the public `renderModule` entrypoint
+   (`validate → build → print`).
+
+Leo-specific lowering rules:
+
+- **Async/finalize split.** Any entrypoint that touches on-chain storage (its
+  body `hasEffect`) lowers its entire body into a `return final { … };` block
+  and returns `Final` (Leo's on-chain finalize model). Pure entrypoints lower
+  as ordinary `fn(params) -> T { body }`.
+- **Scalar→mapping rewrite.** Leo 4.x has no scalar on-chain storage, so a
+  portable scalar state (`state id: scalar T`) becomes a single-slot Leo
+  `mapping id: u64 => T`, read via `Mapping::get_or_use(id, 0u64, <zero>)` and
+  written via `Mapping::set(id, 0u64, value)`. Map states lower directly.
+-/
+
+import Init.Data.Array.Basic
+import Init.Data.String.Basic
 import ProofForge.IR.Contract
-import ProofForge.Target.Check
-import ProofForge.Compiler.Leo.Emit
+import ProofForge.Compiler.Leo.AST
+import ProofForge.Compiler.Leo.Printer
+import ProofForge.Backend.Aleo.IR.Common
+import ProofForge.Backend.Aleo.IR.Validate
 
 namespace ProofForge.Backend.Aleo.IR
 
-open ProofForge.IR
+open ProofForge.IR hiding Statement Literal
+open ProofForge.Compiler.Leo.AST
 
-structure LowerError where
-  message : String
-  deriving Repr, Inhabited
+/-! ### Leo mapping-call builders -/
 
-def LowerError.render (err : LowerError) : String := err.message
+/-- Build a `Mapping::get_or_use(id, key, default)` call expression. -/
+def mappingGetOrUse (id : Identifier) (key default : Expression) : Expression :=
+  .call ⟨#["Mapping", "get_or_use"], #[], #[.identifier id, key, default]⟩
 
-def capabilityError (err : ProofForge.Target.CapabilityError) : LowerError :=
-  { message := ProofForge.Target.CapabilityError.render err }
+/-- Build a `Mapping::set(id, key, value)` call expression. -/
+def mappingSet (id : Identifier) (key value : Expression) : Expression :=
+  .call ⟨#["Mapping", "set"], #[], #[.identifier id, key, value]⟩
 
-/-- Render the full module by lowering to the Leo AST and printing it. -/
-def renderModule (module : Module) : Except LowerError String :=
-  match ProofForge.Compiler.Leo.Emit.renderModule module with
+/-- Build a `Mapping::contains(id, key)` call expression. -/
+def mappingContains (id : Identifier) (key : Expression) : Expression :=
+  .call ⟨#["Mapping", "contains"], #[], #[.identifier id, key]⟩
+
+/-- The zero/empty default expression for a `ValueType`, used as the
+`get_or_use` fallback. Numeric types default to typed `0`, `Bool` to `false`,
+`Address` to `none`. -/
+def defaultExpr (type : ValueType) : Except LowerError Expression :=
+  match type with
+  | .u8 => .ok (.literal (.integer .u8 0))
+  | .u32 => .ok (.literal (.integer .u32 0))
+  | .u64 => .ok (.literal (.integer .u64 0))
+  | .u128 => .ok (.literal (.integer .u128 0))
+  | .bool => .ok (.literal (.boolean false))
+  | .address => .ok (.literal (.none))
+  | other => .error { message := s!"Leo IR v0 has no default literal for `{other.name}` storage" }
+
+/-! ### Expression / statement lowering -/
+
+mutual
+  partial def buildExpr (ctx : BuildContext) : IR.Expr → Except LowerError Expression
+    | .literal l => .ok (.literal (leoLiteral l))
+    | .local name => .ok (.identifier name)
+    | .add lhs rhs _ => do .ok (.binary ⟨.add, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .sub lhs rhs _ => do .ok (.binary ⟨.sub, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .mul lhs rhs _ => do .ok (.binary ⟨.mul, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .div lhs rhs => do .ok (.binary ⟨.div, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .mod lhs rhs => do .ok (.binary ⟨.mod, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .pow lhs rhs => do .ok (.binary ⟨.pow, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .bitAnd lhs rhs => do .ok (.binary ⟨.bitwiseAnd, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .bitOr lhs rhs => do .ok (.binary ⟨.bitwiseOr, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .bitXor lhs rhs => do .ok (.binary ⟨.xor, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .shiftLeft lhs rhs => do .ok (.binary ⟨.shl, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .shiftRight lhs rhs => do .ok (.binary ⟨.shr, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .eq lhs rhs => do .ok (.binary ⟨.eq, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .ne lhs rhs => do .ok (.binary ⟨.neq, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .lt lhs rhs => do .ok (.binary ⟨.lt, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .le lhs rhs => do .ok (.binary ⟨.lte, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .gt lhs rhs => do .ok (.binary ⟨.gt, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .ge lhs rhs => do .ok (.binary ⟨.gte, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .boolAnd lhs rhs => do .ok (.binary ⟨.and, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .boolOr lhs rhs => do .ok (.binary ⟨.or, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .boolNot value => do .ok (.unary ⟨.not, ← buildExpr ctx value⟩)
+    | .cast value target => do .ok (.cast ⟨← buildExpr ctx value, ← valueType target⟩)
+    | .structLit typeName fields => do
+        if fields.isEmpty then
+          .error { message := s!"struct literal `{typeName}` must have at least one field" }
+        let fs ← fields.mapM fun (n, e) => do .ok (n, ← buildExpr ctx e)
+        .ok (.composite typeName fs)
+    | .field base fieldName => do .ok (.memberAccess ⟨← buildExpr ctx base, fieldName⟩)
+    | .arrayGet array index => do
+        .ok (.arrayAccess ⟨← buildExpr ctx array, ← buildExpr ctx index⟩)
+    | .arrayLit _ values => do
+        if values.isEmpty then
+          .error { message := "Leo IR v0 does not support empty fixed-array literals" }
+        let vs ← values.mapM (buildExpr ctx)
+        .ok (.array vs)
+    | .hashValue _ _ _ _ | .hash _ | .hashTwoToOne _ _ =>
+        .error { message := "Leo IR v0 does not lower crypto-hash expressions (use Field/U64 components)" }
+    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
+        .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
+    | .crosscallAbiPacked .. =>
+        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Leo IR v0" }
+    | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
+    | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
+    | .crosscallInvokeDelegateTyped _ _ _ _ =>
+        .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
+    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
+        .error { message := "contract creation is not supported by Leo IR v0" }
+    | .nativeValue =>
+        .error { message := "native value inspection is not supported by Leo IR v0" }
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ =>
+        .error { message := "NEAR promise API is not supported by Leo IR v0" }
+    | .memoryArrayNew _ _ | .memoryArrayLength _ | .memoryArrayGet _ _ =>
+        .error { message := "memory arrays are not supported by Leo IR v0" }
+    | .effect effect => buildEffectExpr ctx effect
+
+  partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Expression
+    | .storageScalarRead stateId => do
+        let t ← requireScalarState ctx stateId
+        let d ← defaultExpr t
+        .ok (mappingGetOrUse stateId scalarSlotKey d)
+    | .storageScalarWrite _ _ =>
+        .error { message := "storage.scalar.write is a statement effect, not an expression" }
+    | .storageScalarAssignOp _ _ _ =>
+        .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
+    | .storageMapContains stateId key => do
+        discard <| requireMapState ctx stateId
+        .ok (mappingContains stateId (← buildExpr ctx key))
+    | .storageMapGet stateId key => do
+        let (_, valueType) ← requireMapState ctx stateId
+        let d ← defaultExpr valueType
+        .ok (mappingGetOrUse stateId (← buildExpr ctx key) d)
+    | .storageMapInsert _ _ _ | .storageMapSet _ _ _ =>
+        .error { message := "storage.map.insert/set are statement effects, not expressions" }
+    | .storageArrayRead _ _ | .storageArrayWrite _ _ _ =>
+        .error { message := "Leo IR v0 does not support array storage" }
+    | .storageArrayStructFieldRead _ _ _ | .storageArrayStructFieldWrite _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support array storage" }
+    | .storageDynamicArrayPush _ _ | .storageDynamicArrayPop _ =>
+        .error { message := "Leo IR v0 does not support dynamic array storage" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory arrays are not supported by Leo IR v0" }
+    | .storageStructFieldRead stateId fieldName => do
+        let t ← requireScalarState ctx stateId
+        let d ← defaultExpr t
+        .ok (.memberAccess ⟨mappingGetOrUse stateId scalarSlotKey d, fieldName⟩)
+    | .storageStructFieldWrite _ _ _ =>
+        .error { message := "storage.struct.field.write is a statement effect, not an expression" }
+    | .storagePathRead stateId path => do
+        let t ← resolveStoragePathType ctx.module stateId path
+        let d ← defaultExpr t
+        let base := mappingGetOrUse stateId scalarSlotKey d
+        let result ← path.foldlM (init := base) fun acc seg => do
+          match seg with
+          | .field fieldName => .ok (.memberAccess ⟨acc, fieldName⟩)
+          | .index index => .ok (.arrayAccess ⟨acc, ← buildExpr ctx index⟩)
+          | .mapKey _ => .error { message := s!"storage path into state `{stateId}` uses a map key, which Leo IR v0 lowers only for map state" }
+        .ok result
+    | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
+        .error { message := "storage.path.write/assign_op are statement effects, not expressions" }
+    | .contextRead _ =>
+        .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+    | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
+        .error { message := "event.emit is a statement effect, not an expression" }
+
+  /-- Lower an `Effect` in statement position to Leo statements (storage writes). -/
+  partial def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError (Array Statement)
+    | .storageScalarRead _ =>
+        .error { message := "storage.scalar.read must be used as an expression" }
+    | .storageScalarWrite stateId value => do
+        let t ← requireScalarState ctx stateId
+        discard <| valueType t
+        .ok #[.expression (mappingSet stateId scalarSlotKey (← buildExpr ctx value))]
+    | .storageScalarAssignOp stateId op value => do
+        let t ← requireScalarState ctx stateId
+        let d ← defaultExpr t
+        let lhs := mappingGetOrUse stateId scalarSlotKey d
+        let rhs : Expression := .binary ⟨assignOpToBinary op, lhs, ← buildExpr ctx value⟩
+        .ok #[.expression (mappingSet stateId scalarSlotKey rhs)]
+    | .storageMapContains _ _ | .storageMapGet _ _ =>
+        .error { message := "storage.map.contains/get must be used as expressions" }
+    | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
+        .ok #[.expression (mappingSet stateId (← buildExpr ctx key) (← buildExpr ctx value))]
+    | .storageArrayRead _ _ | .storageArrayWrite _ _ _ =>
+        .error { message := "Leo IR v0 does not support array storage" }
+    | .storageArrayStructFieldRead _ _ _ | .storageArrayStructFieldWrite _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support array storage" }
+    | .storageDynamicArrayPush _ _ | .storageDynamicArrayPop _ =>
+        .error { message := "Leo IR v0 does not support dynamic array storage" }
+    | .memoryArraySet _ _ _ =>
+        .error { message := "memory arrays are not supported by Leo IR v0" }
+    | .storageStructFieldRead _ _ =>
+        .error { message := "storage.struct.field.read must be used as an expression" }
+    | .storageStructFieldWrite _ _ _ =>
+        .error { message := "Leo IR v0 does not lower struct-field storage writes (read-modify-write is Road 2)" }
+    | .storagePathRead _ _ =>
+        .error { message := "storage.path.read must be used as an expression" }
+    | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
+        .error { message := "Leo IR v0 does not lower storage-path writes (Road 2)" }
+    | .contextRead _ =>
+        .error { message := "Leo IR v0 does not lower context reads (Leo on-chain context model is Road 2)" }
+    | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
+        .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
+
+  /-- Lower a portable IR statement to zero or more Leo statements. -/
+  partial def buildStmt (ctx : BuildContext) : IR.Statement → Except LowerError (Array Statement)
+    | .letBind name ty value => do
+        let v ← buildExpr ctx value
+        .ok #[.definition (.single name) (some (← valueType ty)) v]
+    | .letMutBind name ty value => do
+        let v ← buildExpr ctx value
+        .ok #[.definition (.single name) (some (← valueType ty)) v]
+    | .assign target value => do
+        let v ← buildExpr ctx value
+        let place ← buildAssignPlace ctx target
+        .ok #[.assign place v]
+    | .assignOp target op value => do
+        let v ← buildExpr ctx value
+        let lhs ← buildAssignPlace ctx target
+        .ok #[.assign lhs (.binary ⟨assignOpToBinary op, lhs, v⟩)]
+    | .effect effect => buildEffectStmt ctx effect
+    | .assert condition _ _ => do
+        .ok #[.assert (← buildExpr ctx condition) none]
+    | .assertEq lhs rhs _ _ => do
+        .ok #[.assert (.binary ⟨.eq, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩) none]
+    | .release _ =>
+        .error { message := "release statements are not supported by Leo IR v0" }
+    | .revert _ =>
+        .ok #[.assert (.literal (.boolean false)) none]
+    | .revertWithError _ =>
+        .ok #[.assert (.literal (.boolean false)) none]
+    | .ifElse condition thenBody elseBody => do
+        let c ← buildExpr ctx condition
+        let thenStmts ← buildBody ctx thenBody
+        let elseStmts ← buildBody ctx elseBody
+        .ok #[.conditional c { statements := thenStmts } (some (.block { statements := elseStmts }))]
+    | .boundedFor name start stop body => do
+        let bodyStmts ← buildBody ctx body
+        .ok #[.iteration name (some (.integer .u64))
+                (.literal (.integer .u64 start)) (.literal (.integer .u64 stop))
+                false { statements := bodyStmts }]
+    | .whileLoop _ _ =>
+        .error { message := "while loops are not supported by Leo IR v0; use bounded for" }
+    | .return value => do
+        let v ← buildExpr ctx value
+        .ok #[.returnSt (some v)]
+
+  /-- Lower an assignment-target expression to a Leo place expression. -/
+  partial def buildAssignPlace (ctx : BuildContext) : IR.Expr → Except LowerError Expression
+    | .local name => .ok (.identifier name)
+    | .field base fieldName => do .ok (.memberAccess ⟨← buildAssignPlace ctx base, fieldName⟩)
+    | .arrayGet base index => do
+        .ok (.arrayAccess ⟨← buildAssignPlace ctx base, ← buildExpr ctx index⟩)
+    | _ =>
+        .error { message := "assignment target must be a local, field, or array index" }
+
+  /-- Lower a body of portable statements to a flat array of Leo statements. -/
+  partial def buildBody (ctx : BuildContext) : Array IR.Statement → Except LowerError (Array Statement)
+    | arr => do
+      let mut result := #[]
+      for stmt in arr do
+        let ss ← buildStmt ctx stmt
+        result := result ++ ss
+      .ok result
+
+  /-- Lower a stateful entrypoint body into the Leo `final { … }` block.
+
+  Storage effects lower as usual; a terminal `.return value` whose value carries
+  an effect (e.g. a storage read) is emitted as a plain expression statement
+  (the read still runs on-chain); a pure return is dropped, since the inline
+  finalize model cannot surface a value to the caller (Road 2). -/
+  partial def buildFinalizeBody (ctx : BuildContext) : Array IR.Statement → Except LowerError (Array Statement)
+    | arr => do
+      let mut result := #[]
+      for stmt in arr do
+        match stmt with
+        | .return value =>
+            if hasEffectExpr value then
+              result := result.push (.expression (← buildExpr ctx value))
+        | other =>
+            let ss ← buildStmt ctx other
+            result := result ++ ss
+      .ok result
+end
+
+/-! ### Function / module builders -/
+
+/-- Build a Leo `Input` from a portable `(name, type)` parameter. -/
+def makeInput (name : String) (ty : ValueType) : Except LowerError Input := do
+  .ok { name := name, ty := ← valueType ty, mode := .public_ }
+
+/-- The Leo 4.x return type used for stateful (async/finalize) entrypoints. -/
+def finalizeReturnType : LeoType :=
+  .future #[] .unit
+
+/-- Build a Leo entrypoint `Function` from a portable `Entrypoint`.
+
+Pure entrypoints (no on-chain effects) lower as ordinary functions; stateful
+entrypoints wrap their body in a `return final { … };` block and return `Final`
+(Leo's on-chain finalize model). -/
+def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Function := do
+  let inputs ← ep.params.mapM fun (n, t) => makeInput n t
+  if hasEffect ep.body then
+    let bodyStmts ← buildFinalizeBody ctx ep.body
+    let asyncBlock : Block := { statements := bodyStmts }
+    .ok {
+      annotations := #[]
+      variant := .entryPoint
+      identifier := ep.name
+      constParameters := #[]
+      input := inputs
+      output := #[]
+      outputType := finalizeReturnType
+      block := { statements := #[.returnSt (some (.async asyncBlock))] }
+    }
+  else
+    let ret ← valueType ep.returns
+    let bodyStmts ← buildBody ctx ep.body
+    .ok {
+      annotations := #[]
+      variant := .entryPoint
+      identifier := ep.name
+      constParameters := #[]
+      input := inputs
+      output := #[]
+      outputType := ret
+      block := { statements := bodyStmts }
+    }
+
+/-- Build a Leo `Mapping` declaration from a portable `StateDecl`.
+
+Scalar states rewrite to a single-slot `mapping id: u64 => T`; map states lower
+directly to `mapping id: K => V`. -/
+def buildMapping (state : StateDecl) : Except LowerError Mapping := do
+  match state.kind with
+  | .scalar =>
+      let vt ← valueType state.type
+      .ok { identifier := state.id, keyType := .integer .u64, valueType := vt }
+  | .map keyType _ =>
+      .ok { identifier := state.id, keyType := ← valueType keyType, valueType := ← valueType state.type }
+  | .array _ =>
+      .error { message := s!"state `{state.id}` is array storage; Leo IR v0 does not lower fixed-array storage" }
+  | .dynamicArray =>
+      .error { message := s!"state `{state.id}` is dynamic array storage; Leo IR v0 does not lower dynamic-array storage" }
+
+/-- Build a Leo `Composite` (record/struct) declaration from a portable struct. -/
+def buildComposite (decl : StructDecl) : Except LowerError (Identifier × Composite) := do
+  let members ← decl.fields.mapM fun field => do
+    .ok { name := field.id, ty := ← valueType field.type }
+  .ok (decl.name, { identifier := decl.name, members, isRecord := false })
+
+/-- The `@noupgrade constructor()` required by Leo 4.x programs. -/
+def constructor : Constructor :=
+  { annotations := #[{ name := "noupgrade" }], block := { statements := #[] } }
+
+/-- Emit a full portable IR module as a Leo `Program` AST. -/
+def buildModule (module : Module) : Except LowerError Program := do
+  let ctx : BuildContext := { module }
+  let mappings ← module.state.mapM buildMapping
+  let composites ← module.structs.mapM buildComposite
+  let functions ← module.entrypoints.mapM (buildFunction ctx)
+  let scope : ProgramScope := {
+    programId := module.name.toLower ++ ".aleo"
+    parents := #[]
+    consts := #[]
+    composites := composites
+    mappings := mappings.map (fun m => (m.identifier, m))
+    storageVariables := #[]
+    functions := functions.map (fun f => (f.identifier, f))
+    interfaces := #[]
+    constructor := some constructor
+  }
+  .ok {
+    imports := #[]
+    scopes := #[(module.name.toLower, scope)]
+  }
+
+/-- Render a portable IR module to `.leo` source text.
+
+Public entrypoint: validate the module (`Validate.validateModule`), lower it to
+a Leo `Program` AST (`buildModule`), and print it
+(`Leo.Printer.printProgram`). -/
+def renderModule (module : Module) : Except LowerError String := do
+  validateModule module
+  let p ← buildModule module
+  match ProofForge.Compiler.Leo.Printer.printProgram p with
   | .ok s => .ok s
   | .error e => .error { message := e.message }
 
