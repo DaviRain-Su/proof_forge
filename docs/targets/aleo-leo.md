@@ -13,15 +13,23 @@ validates the Leo source-generation boundary before any code registry changes.
 
 Primary deliverables:
 
-- `ProofForge.Backend.Aleo.IR` lowers the portable IR `Counter` fixture to Leo.
+- `ProofForge.Backend.Aleo.IR` lowers the portable IR to Leo via a generic
+  IR→AST→source pipeline (`IR/Common` + `IR/Validate` + `IR`), mirroring
+  `ProofForge.Backend.Psy.IR`; it is no longer a Counter-only spike.
 - `proof-forge emit --target aleo-leo --fixture counter --format leo` emits
   `Counter.leo`.
 - `Examples/Backend/Aleo/Counter.golden.leo` is the tracked golden fixture.
 - `scripts/aleo/counter-smoke.sh` generates a Leo package, runs `leo build` and
   `leo test`, writes `proof-forge-artifact.json`, and validates the metadata.
-- `ProofForge.Compiler.Leo.Emit` additionally supports pure entrypoints with
-  parameters/return values and control-flow statements (`assert`, `if/else`,
-  `boundedFor`, `assign`, `assignOp`).
+- `ProofForge.Backend.Aleo.IR` additionally supports pure entrypoints with
+  parameters/return values and control-flow statements (`assert`, `assertEq`,
+  `if/else`, `boundedFor`, `assign`, `assignOp`, `revert`), plus **scalar and
+  map storage** (scalar states rewrite to a single-slot Leo `mapping u64 => T`).
+- `ProofForge.Backend.Aleo.Metadata` (+ `MetadataJson`) emit plan-free artifact
+  metadata (entrypoint ABI, on-chain `mapping` state surface, capabilities) for
+  `proof-forge-artifact.json`, matching the Psy/EVM metadata layer.
+- `Tests/AleoLeoMapLoweringSmoke.lean` and `Tests/AleoLeoMetadataSmoke.lean`
+  witness the generic map-storage lowering and the metadata layer in `just check`.
 - `proof-forge emit --target aleo-leo --fixture pure-math --format leo` emits
   `PureMath.leo`.
 - `Examples/Backend/Aleo/PureMath.golden.leo` is the tracked golden fixture.
@@ -331,6 +339,39 @@ lane in the roadmap) for Aleo would require an external Lean 4 Aleo VM
 semantics, which is not yet available; Cairo (`starkware-libs/formal-proofs`)
 and Noir (`reilabs/lampe`) are the ZK targets with ready Lean semantics and
 are prioritised for FV-import once the codegen lane lands.
+
+## Phase 4 Update (2026-07-10): generic lowering + metadata
+
+The Road 1 Counter-spike emitter (`ProofForge.Compiler.Leo.Emit`, which
+hardcoded `initialize`/`get`/`increment`) is replaced by a **generic IR→Leo
+lowering** that mirrors `ProofForge.Backend.Psy.IR`:
+
+- `Backend/Aleo/IR/Common.lean` — LowerError, BuildContext, portable→Leo type
+  map, `hasEffect` (drives the async/finalize split), Leo identifier
+  validation, type-check helpers, scalar→mapping rewrite.
+- `Backend/Aleo/IR/Validate.lean` — `validateCapabilities`/`Identifiers`/
+  `Structs`/`State`/`Entrypoints`/`EntrypointBodies` with full type inference.
+- `Backend/Aleo/IR.lean` — generic `buildExpr`/`buildStmt`/`buildFunction`/
+  `buildModule`/`renderModule` (validate→build→print).
+- `Backend/Aleo/Metadata.lean` + `MetadataJson.lean` — plan-free artifact
+  metadata (entrypoint ABI, on-chain `mapping` state surface, capabilities),
+  matching the Psy/EVM metadata layer.
+
+Coverage now lowered: all arithmetic/bitwise/comparison/boolean ops, `cast`,
+struct literals/field access, array literals/get, `assert`/`assertEq`/`revert`,
+`if/else`, `boundedFor`, `return`, and **scalar + map storage**. The profile
+honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
+`mapping u64 => T`). `Tests/AleoLeoMapLoweringSmoke.lean` and
+`Tests/AleoLeoMetadataSmoke.lean` extend the `just aleo-leo-codegen-smoke`
+gate. PureMath golden is byte-identical; Counter `get` refreshed to the generic
+finalize read.
+
+**Remaining deepening frontier** (next rounds; need Leo intrinsic verification
+— hashing, finalize context, struct update — before lowering, since these emit
+Leo stdlib/context calls): `crypto.hash` expressions (`Poseidon`/`BHP`),
+`contextRead` (caller/block context in `final`), struct-field / storage-path
+writes (read-modify-write), events, cross-circuit calls, and Road 2
+(records/transitions/proof generation). These are currently honest rejects.
 
 ## Research Exit Plan
 

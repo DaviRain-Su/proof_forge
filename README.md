@@ -48,7 +48,7 @@ with local `sui move build/test` validation.
 | `move-aptos` | portable IR → Aptos Move package | Spike | Counter golden Move module, `just aptos-counter-smoke` (optional GH job; needs `aptos`) |
 | `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike (CLI-only; not in `--list-targets`) | Counter/PureMath golden fixtures and smokes |
+| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Registry target (Road 1 sourcegen; Road 2 open) | generic IR→Leo lowering (`Backend/Aleo/IR/{Common,Validate}` + `IR`), scalar+map storage, artifact metadata (`Metadata`/`MetadataJson`), Counter/PureMath goldens + map-lowering + metadata smokes |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike | `tsc` type-check, `wrangler` dry-run |
 
 

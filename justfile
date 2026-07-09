@@ -190,9 +190,12 @@ wasm-soroban-host-smoke:
     lake env lean --run Tests/Backend/Wasm/WasmSorobanHost.lean
 
 # Phase 4 ZK lane: Aleo/Leo registry entry + Counter Leo codegen (Road 1 sourcegen).
+# Also covers the generic map-storage lowering regression + artifact metadata.
 aleo-leo-codegen-smoke:
-    lake build ProofForge.Backend.Aleo.IR
+    lake build ProofForge.Backend.Aleo.IR ProofForge.Backend.Aleo.Metadata ProofForge.Backend.Aleo.MetadataJson
     lake env lean --run Tests/AleoLeoCodegenSmoke.lean
+    lake env lean --run Tests/AleoLeoMapLoweringSmoke.lean
+    lake env lean --run Tests/AleoLeoMetadataSmoke.lean
 
 # WASM-5a contract axis: ValueVault universal IR↔Wasm core refinement.
 value-vault-wasm-refinement-smoke:
