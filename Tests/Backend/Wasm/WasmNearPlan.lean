@@ -519,6 +519,20 @@ def crosscallCreateOnlyModule : Module := {
   nearCrosscallStrings := #["callee.testnet", "remote_call"]
 }
 
+def crosscallValueDeposit : Entrypoint := {
+  name := "call_remote_with_deposit"
+  returns := .u64
+  body := #[.return (.crosscallInvokeValueTyped
+    (.literal (.address 0)) (.literal (.address 1)) (.literal (.u64 7)) #[] .u64)]
+}
+
+def crosscallValueDepositModule : Module := {
+  name := "NearCrosscallValueDeposit"
+  state := #[]
+  entrypoints := #[crosscallValueDeposit]
+  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+}
+
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   let wat ←
     match renderModule crosscallCreateOnlyModule with
@@ -528,7 +542,10 @@ def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   requireContains wat "(import \"env\" \"promise_return\"" "crosscall module must import promise_return"
   requireContains wat "(data (i32.const 49000) \"callee.testnet\")" "crosscall module must emit target account data"
   requireContains wat "(data (i32.const 49015) \"remote_call\")" "crosscall module must emit method name data"
-  requireContains wat "(data (i32.const 48100) \"[]\")" "crosscall module must emit empty JSON args data"
+  requireContains wat "i64.const 0\n    i32.const 48100\n    i64.extend_i32_u\n    i64.const 50000\n    i64.const 50000000000000\n    call $promise_create"
+    "zero-arg crosscall must pass length zero and the reserved zeroed u128 amount pointer"
+  requireContains wat "i64.const 50000\n    i64.const 50000000000000\n    call $promise_create"
+    "zero-deposit crosscall must pass the reserved zeroed u128 amount pointer"
   requireContains wat "call $promise_create" "crosscall module must call promise_create"
   requireContains wat "call $promise_return" "crosscall module must call promise_return"
   requireNotContains wat "(import \"env\" \"promise_then\"" "create-only crosscall module should not import promise_then"
@@ -536,6 +553,18 @@ def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
   requireNotContains wat "(import \"env\" \"promise_result\"" "create-only crosscall module should not import promise_result"
   requireNotContains wat "(import \"env\" \"log_utf8\"" "create-only crosscall module should not import log_utf8"
   requireNotContains wat "(import \"env\" \"current_account_id\"" "create-only crosscall module should not import current_account_id"
+
+def testCrosscallRenderWritesU128DepositPointer : IO Unit := do
+  let wat ←
+    match renderModule crosscallValueDepositModule with
+    | .ok wat => pure wat
+    | .error err => throw <| IO.userError s!"EmitWat value-deposit crosscall render failed: {err.message}"
+  requireContains wat "i32.const 8192\n    i64.const 7\n    i64.store"
+    "non-zero deposit must write its low u64 into the amount buffer"
+  requireContains wat "i32.const 8200\n    i64.const 0\n    i64.store"
+    "non-zero deposit must zero the high u64 of the amount buffer"
+  requireContains wat "i64.const 8192\n    i64.const 50000000000000\n    call $promise_create"
+    "non-zero deposit must pass the u128 amount buffer pointer"
 
 def testNearPromisePlanSurface : IO Unit := do
   let plan ←
@@ -643,6 +672,7 @@ def main : IO UInt32 := do
   testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports
   testCrosscallRenderEncodesU64ArgsJson
   testCrosscallRenderKeepsOnlyCreatePromiseSurface
+  testCrosscallRenderWritesU128DepositPointer
   testNearPromisePlanSurface
   testNearPromiseRenderChainsCallback
   testStructLiteralRenderKeepsOnlyMatchingStructLitSurface

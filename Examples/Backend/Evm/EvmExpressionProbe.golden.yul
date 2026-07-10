@@ -33,7 +33,7 @@ object "EvmExpressionProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmExpressionProbe_arithmetic_u64() -> result {
+    function f_EvmExpressionProbe_arithmetic_u64() -> __pf_result {
       let delta := __pf_checked_sub(9, 4)
       if iszero(eq(delta, 5)) {
         revert(0, 0)
@@ -58,9 +58,9 @@ object "EvmExpressionProbe" {
       if iszero(eq(powered, 32)) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__pf_checked_add(powered, quotient), remainder)
+      __pf_result := __pf_checked_add(__pf_checked_add(powered, quotient), remainder)
     }
-    function f_EvmExpressionProbe_bitwise_u64() -> result {
+    function f_EvmExpressionProbe_bitwise_u64() -> __pf_result {
       let ored := or(20, 8)
       if iszero(eq(ored, 28)) {
         revert(0, 0)
@@ -81,9 +81,9 @@ object "EvmExpressionProbe" {
       if iszero(eq(right, 11)) {
         revert(0, 0)
       }
-      result := right
+      __pf_result := right
     }
-    function f_EvmExpressionProbe_predicate_matrix() -> result {
+    function f_EvmExpressionProbe_predicate_matrix() -> __pf_result {
       let a := 7
       let b := 9
       let a_is_seven := eq(a, 7)
@@ -118,9 +118,9 @@ object "EvmExpressionProbe" {
       if iszero(bool_ne) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__pf_checked_add(__pf_checked_add(a_is_seven, a_not_b), __pf_checked_add(a_before_b, b_after_a)), __pf_checked_add(__pf_checked_add(any_ordered, not_equal), __pf_checked_add(bool_eq, bool_ne)))
+      __pf_result := __pf_checked_add(__pf_checked_add(__pf_checked_add(a_is_seven, a_not_b), __pf_checked_add(a_before_b, b_after_a)), __pf_checked_add(__pf_checked_add(any_ordered, not_equal), __pf_checked_add(bool_eq, bool_ne)))
     }
-    function f_EvmExpressionProbe_casts_and_u32(delta, flag) -> result {
+    function f_EvmExpressionProbe_casts_and_u32(delta, flag) -> __pf_result {
       let delta64 := delta
       let flag32 := flag
       let flag64 := flag
@@ -153,7 +153,7 @@ object "EvmExpressionProbe" {
       if iszero(u64_bool) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__pf_checked_add(__pf_checked_add(delta64, flag32), __pf_checked_add(flag64, narrowed)), __pf_checked_add(word_remainder, word_bits))
+      __pf_result := __pf_checked_add(__pf_checked_add(__pf_checked_add(delta64, flag32), __pf_checked_add(flag64, narrowed)), __pf_checked_add(word_remainder, word_bits))
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -168,7 +168,7 @@ object "EvmExpressionProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

@@ -1607,15 +1607,26 @@ pub fn assert_expectations(
                         outcome,
                     )?;
                 }
-                if let Some(expected) = &expect.error {
-                    assert_error(
-                        &case.manifest.scenario.name,
-                        target_id,
-                        &step.call,
-                        expected,
-                        outcome,
-                    )?;
-                }
+            }
+            match (
+                step.expect.as_ref().and_then(|expect| expect.error.as_ref()),
+                outcome.error.as_ref(),
+            ) {
+                (Some(expected), _) => assert_error(
+                    &case.manifest.scenario.name,
+                    target_id,
+                    &step.call,
+                    expected,
+                    outcome,
+                )?,
+                (None, Some(actual)) => bail!(
+                    "scenario `{}` call `{}` on `{target_id}` returned unexpected assertion_id={} user_code={:?}",
+                    case.manifest.scenario.name,
+                    step.call,
+                    actual.assertion_id,
+                    actual.user_code
+                ),
+                (None, None) => {}
             }
             index += 1;
         }
@@ -2145,6 +2156,7 @@ mod tests {
         Step {
             call: call.to_string(),
             repeat: None,
+            targets: Vec::new(),
             input_hex: None,
             args: Vec::new(),
             expect: expected_u64.map(|value| Expectation {
@@ -2559,5 +2571,44 @@ name = "crosscall.invoke unsupported"
 
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].return_hex, None);
+    }
+
+    #[test]
+    fn expectations_reject_undeclared_assertion_errors() {
+        let case = scenario(vec![step("increment", None)]);
+        let mut actual = outcome(1, "increment", None);
+        actual.error = Some(ErrorOutcome {
+            assertion_id: 7,
+            user_code: Some("Counter::Unexpected".to_string()),
+        });
+
+        let err = assert_expectations(&case, "wasm-near", &[actual]).unwrap_err();
+
+        assert!(err.to_string().contains("unexpected assertion_id=7"));
+    }
+
+    #[test]
+    fn expectations_accept_declared_assertion_errors() {
+        let mut expected_step = step("increment", None);
+        expected_step.expect = Some(Expectation {
+            return_value: None,
+            return_: None,
+            allocations: None,
+            reuses: None,
+            deallocations: None,
+            budget: None,
+            error: Some(ErrorExpectation {
+                assertion_id: 7,
+                user_code: Some("Counter::Expected".to_string()),
+            }),
+        });
+        let case = scenario(vec![expected_step]);
+        let mut actual = outcome(1, "increment", None);
+        actual.error = Some(ErrorOutcome {
+            assertion_id: 7,
+            user_code: Some("Counter::Expected".to_string()),
+        });
+
+        assert_expectations(&case, "wasm-near", &[actual]).unwrap();
     }
 }

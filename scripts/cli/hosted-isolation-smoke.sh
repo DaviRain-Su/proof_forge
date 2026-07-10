@@ -34,6 +34,25 @@ echo "$err" | grep -Fq "PF-P3-03" \
   || fail "missing PF-P3-03 marker: $err"
 echo "hosted-isolation: gate1 refuse under PROOF_FORGE_HOSTED_ISOLATION=1 ok"
 
+# Gate 1b: TokenSpec uses the same trusted-local frontend and must not bypass
+# the hosted-isolation refusal.
+set +e
+token_err="$(
+  PROOF_FORGE_HOSTED_ISOLATION=1 \
+    lake env proof-forge build --target solana-sbpf-asm --token --root . \
+      -o "$OUT/hosted-token-refused.json" \
+      Examples/Product/FungibleToken.lean 2>&1
+)"
+token_st=$?
+set -e
+[[ "$token_st" -ne 0 ]] || fail "hosted mode must refuse TokenSpec build; got exit 0"
+echo "$token_err" | grep -Fq "hosted isolation is not ready" \
+  || fail "TokenSpec bypassed hosted-isolation diagnostic: $token_err"
+echo "hosted-isolation: gate1b TokenSpec refuse ok"
+PROOF_FORGE_HOSTED_ISOLATION=1 \
+  lake env lean --run Tests/HostedTokenIsolation.lean >/dev/null \
+  || fail "TokenLoader shared frontend boundary regression"
+
 # Gate 2: trusted local path still works when the flag is unset.
 unset PROOF_FORGE_HOSTED_ISOLATION || true
 set +e
@@ -66,6 +85,9 @@ data = json.load(open(art))
 tools = []
 bundle = data.get("artifactBundle") or {}
 if isinstance(bundle, dict):
+    source = bundle.get("source") or {}
+    if source.get("leanElaborated") is not True:
+        raise SystemExit(f"contract source must record leanElaborated=true: {source!r}")
     tools = bundle.get("toolchain") or []
 if not tools:
     tools = data.get("toolchain") or []
@@ -74,8 +96,12 @@ found = False
 if isinstance(tools, list):
     for t in tools:
         if isinstance(t, dict) and t.get("tool") == "lean":
-            ver = t.get("version") or t.get("version?")
-            if ver and pin in str(ver):
+            expected = pin.rsplit(":", 1)[-1]
+            if expected.startswith("v"):
+                expected = expected[1:]
+            if (t.get("declaredVersion") == pin
+                    and t.get("observedVersion") == expected
+                    and t.get("version") == t.get("observedVersion")):
                 found = True
                 break
 elif isinstance(tools, dict):
@@ -84,7 +110,7 @@ elif isinstance(tools, dict):
         found = True
 if not found:
     raise SystemExit(f"lean pin {pin!r} not found in artifact toolchain: {tools!r}")
-print(f"hosted-isolation: gate4 lean pin recorded ({pin})")
+print(f"hosted-isolation: gate4 declared/observed Lean recorded ({pin})")
 PY
 
 echo "hosted-isolation: ok (PF-P3-03 fail-closed gate + lean pin provenance)"

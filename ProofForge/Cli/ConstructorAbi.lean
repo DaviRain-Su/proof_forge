@@ -206,6 +206,17 @@ def encodeConstructorValues (params : Array ConstructorParamSpec) (values : Arra
 def constructorSchemaHasDynamic (params : Array ConstructorParamSpec) : Bool :=
   params.any (fun param => constructorParamIsDynamic param.abiType)
 
+def validateCanonicalAddressWords
+    (params : Array ConstructorParamSpec) (argsHex : String) : Except String Unit := do
+  for pair in params.zipIdx do
+    let param := pair.1
+    let idx := pair.2
+    if param.abiType == "address" then
+      let word := ((argsHex.drop (idx * 64)).take 64).toString
+      let high96 := (word.take 24).toString
+      if high96 != repeatString 24 "0" then
+        .error s!"constructor ABI address parameter `{param.name}` has non-zero high 96 bits"
+
 def validateConstructorSchemaAndArgs (params : Array ConstructorParamSpec) (constructorArgsHex : String) : Except String Unit := do
   let argsHex ← normalizeConstructorArgsHex constructorArgsHex
   if params.isEmpty then
@@ -216,15 +227,12 @@ def validateConstructorSchemaAndArgs (params : Array ConstructorParamSpec) (cons
     let actualBytes := argsHex.length / 2
     if constructorSchemaHasDynamic params then
       let minBytes := params.size * 32
-      if actualBytes >= minBytes then
-        .ok ()
-      else
+      if actualBytes < minBytes then
         .error s!"constructor ABI schema expects at least {minBytes} bytes ({params.size} ABI head word(s)), but constructor args have {actualBytes} byte(s)"
     else
       let expectedBytes := params.size * 32
-      if actualBytes == expectedBytes then
-        .ok ()
-      else
+      if actualBytes != expectedBytes then
         .error s!"constructor ABI schema expects {expectedBytes} bytes ({params.size} static-word parameter(s)), but constructor args have {actualBytes} byte(s)"
+    validateCanonicalAddressWords params argsHex
 
 end ProofForge.Cli.ConstructorAbi

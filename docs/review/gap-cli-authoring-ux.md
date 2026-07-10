@@ -1,7 +1,7 @@
 # Gap Analysis: CLI / Authoring UX
 
-**Dimension:** `cli-authoring-ux`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
+**Dimension:** `cli-authoring-ux`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
 **Date:** 2026-07-10
 
 ## Executive summary
@@ -66,7 +66,7 @@ The CLI is usable for internal/CI workflows, and the target-first surface (`buil
 - **Severity:** Medium
 - **Evidence:**
   - `ProofForge/Cli/Scaffold.lean:156-168` searches `LEAN_SRC_PATH` or parent directories for `templates/portable-counter/Counter.lean`.
-  - Running `lake env proof-forge init my-counter` from `/tmp` fails with:  
+  - Running `lake env proof-forge init my-counter` from `/tmp` fails with:
     `proof-forge init could not locate templates/portable-counter; run from a ProofForge checkout or set LEAN_SRC_PATH`.
   - Only one template is supported: `defaultTemplateId := "portable-counter"` (`Scaffold.lean:14`).
   - The scaffolded `README.md` references `just build-evm` but the user must manually run `lake update`.

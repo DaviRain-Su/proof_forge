@@ -15,21 +15,30 @@ import Examples.Product.AccessControl
 import Examples.Product.ArrayExample
 import Examples.Product.AuthRemoteCall
 import Examples.Product.Counter
+import Examples.Product.EscrowVault
 import Examples.Product.HostEnvProbe
 import Examples.Product.ExternalTokenTransfer
 import Examples.Product.ExternalVault
 import Examples.Product.FeeToken
 import Examples.Product.FungibleToken
+import Examples.Product.GuestBook
+import Examples.Product.HeightLockVault
 import Examples.Product.Ownable
 import Examples.Product.OwnableHash
 import Examples.Product.OwnablePausable
 import Examples.Product.Pausable
+import Examples.Product.ProRataVault
 import Examples.Product.ReentrancyGuard
 import Examples.Product.RemoteCall
 import Examples.Product.RoleGatedToken
 import Examples.Product.SoulboundToken
+import Examples.Product.SoulboundTokenBody
 import Examples.Product.StakingVault
+import Examples.Product.StatusMessage
+import Examples.Product.StorageDeposit
+import Examples.Product.TimelockVault
 import Examples.Product.ValueVault
+import Examples.Product.VestingVault
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Solana.Manifest
@@ -57,17 +66,11 @@ def require (cond : Bool) (msg : String) : IO Unit :=
 def contains (haystack needle : String) : Bool :=
   haystack.contains needle
 
-/-- Primary four-host materialize for a portable IR module. -/
-def assertFourHost (label : String) (m : Module) : IO Unit := do
+/-- EVM + Wasm-host materialization shared by the full and partial matrices. -/
+def assertEvmWasmHosts (label : String) (m : Module) : IO Unit := do
   match ProofForge.Backend.Evm.Plan.buildModulePlan m with
   | .error e => throw (IO.userError s!"{label} EVM plan: {e.message}")
   | .ok _ => pure ()
-  match ProofForge.Backend.Solana.SbpfAsm.renderModule m with
-  | .error e => throw (IO.userError s!"{label} Solana: {e.message}")
-  | .ok src =>
-      require (src.length > 0) s!"{label} Solana empty asm"
-      require (contains src "account.validation" || contains src "entrypoint")
-        s!"{label} Solana should emit entrypoint/account materialization"
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m with
   | .error e => throw (IO.userError s!"{label} NEAR: {e.message}")
   | .ok wat => require (wat.length > 0) s!"{label} NEAR empty wat"
@@ -77,6 +80,16 @@ def assertFourHost (label : String) (m : Module) : IO Unit := do
       require (wat.length > 0) s!"{label} Soroban empty wat"
       require (!contains wat "promise_create")
         s!"{label} Soroban must not import NEAR promise_create"
+
+/-- Primary four-host materialize for a portable IR module. -/
+def assertFourHost (label : String) (m : Module) : IO Unit := do
+  assertEvmWasmHosts label m
+  match ProofForge.Backend.Solana.SbpfAsm.renderModule m with
+  | .error e => throw (IO.userError s!"{label} Solana: {e.message}")
+  | .ok src =>
+      require (src.length > 0) s!"{label} Solana empty asm"
+      require (contains src "account.validation" || contains src "entrypoint")
+        s!"{label} Solana should emit entrypoint/account materialization"
 
 /-- Storage binding reports for primary three (auto-portable). -/
 def assertAutoPortablePrimary (label : String) (m : Module) : IO Unit := do
@@ -134,10 +147,22 @@ def testPolicies : IO Unit := do
     "Ownable Solana authority auto-fill"
 
 def testVaultsAndTokens : IO Unit := do
-  assertFourHost "ValueVault" Examples.Product.ValueVault.module
-  assertFourHost "StakingVault" Examples.Product.StakingVault.module
-  assertFourHost "RoleGatedToken" Examples.Product.RoleGatedToken.module
-  assertFourHost "ArrayExample" Examples.Product.ArrayExample.module
+  for (label, module) in #[
+    ("ValueVault", Examples.Product.ValueVault.module),
+    ("StakingVault", Examples.Product.StakingVault.module),
+    ("RoleGatedToken", Examples.Product.RoleGatedToken.module),
+    ("ArrayExample", Examples.Product.ArrayExample.module),
+    ("EscrowVault", Examples.Product.EscrowVault.module),
+    ("GuestBook", Examples.Product.GuestBook.module),
+    ("HeightLockVault", Examples.Product.HeightLockVault.module),
+    ("ProRataVault", Examples.Product.ProRataVault.module),
+    ("SoulboundTokenBody", Examples.Product.SoulboundTokenBody.module),
+    ("StatusMessage", Examples.Product.StatusMessage.module),
+    ("TimelockVault", Examples.Product.TimelockVault.module),
+    ("VestingVault", Examples.Product.VestingVault.module)
+  ] do
+    assertFourHost label module
+  assertEvmWasmHosts "StorageDeposit" Examples.Product.StorageDeposit.module
   -- nativeValue → writable signer@0
   let stakeAccounts := buildModuleAccounts Examples.Product.StakingVault.module {}
   match stakeAccounts[0]? with
@@ -231,7 +256,7 @@ def main : IO UInt32 := do
   testVaultsAndTokens
   testRemote
   testTokenIntent
-  IO.println "product-matrix: ok (Counter·policies·vaults·remote·token × hosts)"
+  IO.println "product-matrix: ok (Counter·policies·vaults·remote·token × catalog-declared hosts)"
   return 0
 
 end ProofForge.Tests.Product.Matrix

@@ -6,11 +6,12 @@ contains the EVM baseline plus Solana (sBPF assembly), NEAR (EmitWat), Sui
 Cloudflare Workers (TypeScript spike) backends behind one portable IR and
 capability registry, following the 2026-07 branch consolidation.
 
-**Current phase:** Gate P0 and the [2026-07-10 multi-chain gap audit](multi-chain-gap-audit-2026-07-10.md)
-remediation (PF-P0…P3) are closed. Active execution is
-[post-review deepen-triad plan](superpowers/plans/2026-07-10-post-review-execution.md):
-NEAR/EVM/Solana product depth, platform debt (CLI M4, versioning, upgrades),
-and honest FV fragment growth — **not** secondary-chain promotion.
+**Current phase:** Gate P0 is closed, while the
+[2026-07-10 multi-chain remediation](agent-goal-prompt.md) remains active for
+PF-P3-02 secondary-target maturity. The complementary
+[post-review deepen-triad plan](superpowers/plans/2026-07-10-post-review-execution.md)
+covers NEAR/EVM/Solana product depth, platform debt, and honest FV fragment
+growth without treating unfinished secondary-target work as complete.
 
 ## Documentation Map
 
@@ -63,8 +64,8 @@ Editable hand-drawn-style diagrams for presentations and onboarding — open on
 - [Product / SDK gap plan (2026-07)](product-sdk-gap-plan-2026-07.md): gaps and waves α–ε.
 
 - [Host runtime abstraction](host-runtime.md): portable HostEffect → EVM opcode / Solana syscall / NEAR host import.
-- [Multi-chain remediation agent goal](agent-goal-prompt.md): historical PF-P0…P3 Complete ledger (do not reopen closed rows).
-- [Post-review execution plan (2026-07-10)](superpowers/plans/2026-07-10-post-review-execution.md): **active** queue — deepen primary triad, platform debt, FV fragment.
+- [Multi-chain remediation agent goal](agent-goal-prompt.md): **active** PF ledger; PF-P3-02 remains open while completed rows retain their verified evidence.
+- [Post-review execution plan (2026-07-10)](superpowers/plans/2026-07-10-post-review-execution.md): complementary active queue — deepen primary triad, platform debt, FV fragment.
 - [Shared scenario: Counter](shared-scenario.md): cross-target acceptance test.
 - [Doc↔code sync audit (2026-07)](doc-code-sync-audit-2026-07.md): drift register and maintenance checklist.
 - [Tutorial: one module, three targets](tutorials/portable-contract-three-targets.md): portable `contract_source` walkthrough (CS-5.3).

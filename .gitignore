@@ -1,4 +1,5 @@
 .lake/
+node_modules/
 build/
 /target/
 runtime/offline-host/target/
@@ -14,9 +15,28 @@ benchmarks/**/target/
 !Examples/Evm/Contracts/**/*.golden.yul
 !Examples/Backend/Evm/*.golden.yul
 !Examples/Backend/Evm/Contracts/**/*.golden.yul
-scripts/__pycache__/
+scripts/**/__pycache__/
 .DS_Store
 .nvimlog
+
+# Local credentials and signing material. Keep checked-in templates visible.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+!.env.*.sample
+!.env.*.template
+*.pem
+*.key
+*.p12
+
+# Common Solana CLI keypair outputs; do not ignore general JSON artifacts.
+/id.json
+/keypair.json
+**/*-keypair.json
+**/.config/solana/id.json
 
 # NEAR sandbox peer smoke build
 scripts/near/sandbox-peer-smoke/target/

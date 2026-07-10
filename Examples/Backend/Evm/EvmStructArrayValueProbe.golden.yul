@@ -10,12 +10,18 @@ object "EvmStructArrayValueProbe" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmStructArrayValueProbe_dynamic_struct_array_pick(calldataload(4))
       mstore(0, _r)
       return(0, 32)
     }
     case 0xbfa2eef8 {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmStructArrayValueProbe_mutable_struct_array_update(calldataload(4))
@@ -51,12 +57,24 @@ object "EvmStructArrayValueProbe" {
       if lt(calldatasize(), 68) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmStructArrayValueProbe_nested_struct_array_dynamic_pick(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
     case 0xd29b2aa1 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmStructArrayValueProbe_nested_struct_array_update(calldataload(4), calldataload(36))
@@ -76,21 +94,21 @@ object "EvmStructArrayValueProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmStructArrayValueProbe_local_struct_array_sum() -> result {
+    function f_EvmStructArrayValueProbe_local_struct_array_sum() -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 10
       let __proof_forge_array_struct_people_0_score := 80
       let __proof_forge_array_struct_people_1_age := 20
       let __proof_forge_array_struct_people_1_score := 90
-      result := __pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_score)
+      __pf_result := __pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_score)
     }
-    function f_EvmStructArrayValueProbe_dynamic_struct_array_pick(idx) -> result {
+    function f_EvmStructArrayValueProbe_dynamic_struct_array_pick(idx) -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 10
       let __proof_forge_array_struct_people_0_score := 80
       let __proof_forge_array_struct_people_1_age := 20
       let __proof_forge_array_struct_people_1_score := 90
-      result := __pf_checked_add(__proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_age), __proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_score))
+      __pf_result := __pf_checked_add(__proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_age), __proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_score))
     }
-    function f_EvmStructArrayValueProbe_mutable_struct_array_update(idx) -> result {
+    function f_EvmStructArrayValueProbe_mutable_struct_array_update(idx) -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 10
       let __proof_forge_array_struct_people_0_score := 80
       let __proof_forge_array_struct_people_1_age := 20
@@ -123,18 +141,18 @@ object "EvmStructArrayValueProbe" {
           revert(0, 0)
         }
       }
-      result := __pf_checked_add(__proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_age), __proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_score))
+      __pf_result := __pf_checked_add(__proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_1_age), __proof_forge_local_array_get_2(idx, __proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_score))
     }
-    function f_EvmStructArrayValueProbe_static_struct_array_update() -> result {
+    function f_EvmStructArrayValueProbe_static_struct_array_update() -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 10
       let __proof_forge_array_struct_people_0_score := 80
       let __proof_forge_array_struct_people_1_age := 20
       let __proof_forge_array_struct_people_1_score := 90
       __proof_forge_array_struct_people_1_age := 33
-      __proof_forge_array_struct_people_0_score := __pf_checked_add(__proof_forge_array_struct_people_0_score, 5)
-      result := __pf_checked_add(__proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_age)
+      __proof_forge_array_struct_people_0_score := add(__proof_forge_array_struct_people_0_score, 5)
+      __pf_result := __pf_checked_add(__proof_forge_array_struct_people_0_score, __proof_forge_array_struct_people_1_age)
     }
-    function f_EvmStructArrayValueProbe_mixed_struct_array_fields() -> result {
+    function f_EvmStructArrayValueProbe_mixed_struct_array_fields() -> __pf_result {
       let __proof_forge_array_struct_rows_0_enabled := 0
       let __proof_forge_array_struct_rows_0_small := 7
       let __proof_forge_array_struct_rows_0_root := 6277101735386680764516354157049543343084444891548699590660
@@ -150,9 +168,9 @@ object "EvmStructArrayValueProbe" {
       if iszero(eq(__proof_forge_array_struct_rows_0_root, 56493915618480126877924928478078382379757859259304797798412)) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__proof_forge_array_struct_rows_1_small, __proof_forge_array_struct_rows_0_enabled)
+      __pf_result := __pf_checked_add(__proof_forge_array_struct_rows_1_small, __proof_forge_array_struct_rows_0_enabled)
     }
-    function f_EvmStructArrayValueProbe_whole_struct_array_assign() -> result {
+    function f_EvmStructArrayValueProbe_whole_struct_array_assign() -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 1
       let __proof_forge_array_struct_people_0_score := 2
       let __proof_forge_array_struct_people_1_age := 3
@@ -171,9 +189,9 @@ object "EvmStructArrayValueProbe" {
         __proof_forge_array_struct_people_1_age := __proof_forge_assign_array_struct_people_1_age
         __proof_forge_array_struct_people_1_score := __proof_forge_assign_array_struct_people_1_score
       }
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_0_score), __pf_checked_add(__proof_forge_array_struct_people_1_age, __proof_forge_array_struct_people_1_score))
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_0_score), __pf_checked_add(__proof_forge_array_struct_people_1_age, __proof_forge_array_struct_people_1_score))
     }
-    function f_EvmStructArrayValueProbe_self_struct_array_assign() -> result {
+    function f_EvmStructArrayValueProbe_self_struct_array_assign() -> __pf_result {
       let __proof_forge_array_struct_people_0_age := 5
       let __proof_forge_array_struct_people_0_score := 7
       let __proof_forge_array_struct_people_1_age := 11
@@ -188,9 +206,9 @@ object "EvmStructArrayValueProbe" {
         __proof_forge_array_struct_people_1_age := __proof_forge_assign_array_struct_people_1_age
         __proof_forge_array_struct_people_1_score := __proof_forge_assign_array_struct_people_1_score
       }
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_0_score), __pf_checked_add(__proof_forge_array_struct_people_1_age, __proof_forge_array_struct_people_1_score))
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_people_0_age, __proof_forge_array_struct_people_0_score), __pf_checked_add(__proof_forge_array_struct_people_1_age, __proof_forge_array_struct_people_1_score))
     }
-    function f_EvmStructArrayValueProbe_nested_struct_array_sum() -> result {
+    function f_EvmStructArrayValueProbe_nested_struct_array_sum() -> __pf_result {
       let __proof_forge_array_struct_grid_0_0_age := 10
       let __proof_forge_array_struct_grid_0_0_score := 80
       let __proof_forge_array_struct_grid_0_1_age := 20
@@ -199,9 +217,9 @@ object "EvmStructArrayValueProbe" {
       let __proof_forge_array_struct_grid_1_0_score := 100
       let __proof_forge_array_struct_grid_1_1_age := 40
       let __proof_forge_array_struct_grid_1_1_score := 110
-      result := __pf_checked_add(__proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_0_1_score)
+      __pf_result := __pf_checked_add(__proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_0_1_score)
     }
-    function f_EvmStructArrayValueProbe_nested_struct_array_dynamic_pick(row, col) -> result {
+    function f_EvmStructArrayValueProbe_nested_struct_array_dynamic_pick(row, col) -> __pf_result {
       let __proof_forge_array_struct_grid_0_0_age := 10
       let __proof_forge_array_struct_grid_0_0_score := 80
       let __proof_forge_array_struct_grid_0_1_age := 20
@@ -210,9 +228,9 @@ object "EvmStructArrayValueProbe" {
       let __proof_forge_array_struct_grid_1_0_score := 100
       let __proof_forge_array_struct_grid_1_1_age := 40
       let __proof_forge_array_struct_grid_1_1_score := 110
-      result := __pf_checked_add(__proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_1_age), __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_score, __proof_forge_array_struct_grid_0_1_score, __proof_forge_array_struct_grid_1_0_score, __proof_forge_array_struct_grid_1_1_score))
+      __pf_result := __pf_checked_add(__proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_1_age), __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_score, __proof_forge_array_struct_grid_0_1_score, __proof_forge_array_struct_grid_1_0_score, __proof_forge_array_struct_grid_1_1_score))
     }
-    function f_EvmStructArrayValueProbe_nested_struct_array_update(row, col) -> result {
+    function f_EvmStructArrayValueProbe_nested_struct_array_update(row, col) -> __pf_result {
       let __proof_forge_array_struct_grid_0_0_age := 10
       let __proof_forge_array_struct_grid_0_0_score := 80
       let __proof_forge_array_struct_grid_0_1_age := 20
@@ -301,9 +319,9 @@ object "EvmStructArrayValueProbe" {
           }
         }
       }
-      result := __pf_checked_add(__proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_1_age), __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_score, __proof_forge_array_struct_grid_0_1_score, __proof_forge_array_struct_grid_1_0_score, __proof_forge_array_struct_grid_1_1_score))
+      __pf_result := __pf_checked_add(__proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_1_age), __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_struct_grid_0_0_score, __proof_forge_array_struct_grid_0_1_score, __proof_forge_array_struct_grid_1_0_score, __proof_forge_array_struct_grid_1_1_score))
     }
-    function f_EvmStructArrayValueProbe_nested_struct_array_whole_assign() -> result {
+    function f_EvmStructArrayValueProbe_nested_struct_array_whole_assign() -> __pf_result {
       let __proof_forge_array_struct_grid_0_0_age := 1
       let __proof_forge_array_struct_grid_0_0_score := 2
       let __proof_forge_array_struct_grid_0_1_age := 3
@@ -338,9 +356,9 @@ object "EvmStructArrayValueProbe" {
         __proof_forge_array_struct_grid_1_1_age := __proof_forge_assign_array_struct_grid_1_1_age
         __proof_forge_array_struct_grid_1_1_score := __proof_forge_assign_array_struct_grid_1_1_score
       }
-      result := __pf_checked_add(__pf_checked_add(__pf_checked_add(__proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_0_score), __pf_checked_add(__proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_0_1_score)), __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_0_score), __pf_checked_add(__proof_forge_array_struct_grid_1_1_age, __proof_forge_array_struct_grid_1_1_score)))
+      __pf_result := __pf_checked_add(__pf_checked_add(__pf_checked_add(__proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_0_score), __pf_checked_add(__proof_forge_array_struct_grid_0_1_age, __proof_forge_array_struct_grid_0_1_score)), __pf_checked_add(__pf_checked_add(__proof_forge_array_struct_grid_1_0_age, __proof_forge_array_struct_grid_1_0_score), __pf_checked_add(__proof_forge_array_struct_grid_1_1_age, __proof_forge_array_struct_grid_1_1_score)))
     }
-    function f_EvmStructArrayValueProbe_nested_struct_array_self_assign() -> result {
+    function f_EvmStructArrayValueProbe_nested_struct_array_self_assign() -> __pf_result {
       let __proof_forge_array_struct_grid_0_0_age := 1
       let __proof_forge_array_struct_grid_0_0_score := 2
       let __proof_forge_array_struct_grid_0_1_age := 3
@@ -367,7 +385,7 @@ object "EvmStructArrayValueProbe" {
         __proof_forge_array_struct_grid_1_1_age := __proof_forge_assign_array_struct_grid_1_1_age
         __proof_forge_array_struct_grid_1_1_score := __proof_forge_assign_array_struct_grid_1_1_score
       }
-      result := __pf_checked_add(__proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age)
+      __pf_result := __pf_checked_add(__proof_forge_array_struct_grid_0_0_age, __proof_forge_array_struct_grid_0_1_age)
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -382,7 +400,7 @@ object "EvmStructArrayValueProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

@@ -102,7 +102,7 @@ contract ProofForgeIRLoopSmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertEq(callU256(probe, abi.encodeWithSignature("count_to_three()")), 3);
-        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) >> 192, 3);
+        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) & type(uint64).max, 3);
     }
 
     function testIRBranchLocalEarlyReturn() public {
@@ -110,10 +110,10 @@ contract ProofForgeIRLoopSmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertEq(callU256(probe, abi.encodeWithSignature("choose_with_early_return(bool)", true)), 11);
-        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) >> 192, 0);
+        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) & type(uint64).max, 0);
 
         assertEq(callU256(probe, abi.encodeWithSignature("choose_with_early_return(bool)", false)), 99);
-        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) >> 192, 99);
+        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) & type(uint64).max, 99);
 
     }
 
@@ -122,7 +122,7 @@ contract ProofForgeIRLoopSmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertEq(callU256(probe, abi.encodeWithSignature("loop_early_return()")), 0);
-        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) >> 192, 100);
+        assertEq(uint256(vm.load(probe, bytes32(uint256(0)))) & type(uint64).max, 100);
     }
 
     function testIRBoundedLoopRejectsUnknownSelector() public {

@@ -14,7 +14,9 @@ Unification means **closing HostEnv / identity / remote / error holes on the tri
 - Gate G0 / P0 closed (three primary chains).
 - Product waves α–ε frozen as v1 (`docs/product-sdk-gap-plan-2026-07.md`).
 - Portable SDK unification Waves 1–4 **done** (`docs/superpowers/plans/2026-07-09-portable-sdk-unification.md`).
-- Track 0 IR bugs fixed; FV Counter/ValueVault C-proof on triad + CosmWasm/Soroban host axes.
+- Track 0 IR bugs fixed; Solana/WASM Counter/ValueVault proof surfaces and
+  CosmWasm/Soroban host axes landed. EVM currently has canonical fixed-trace evidence plus
+  an obligation-explicit universal theorem, not a closed triad-wide C-proof.
 - Honesty pipeline lands in `resolveSpec` via `PortableHonesty.requirePortableHonesty` (`ProofForge/Target/Adapter.lean`, `PortableHonesty.lean`).
 
 **Related audits / SOT:**

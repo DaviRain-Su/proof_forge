@@ -40,12 +40,18 @@ object "EvmArrayValueProbe" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmArrayValueProbe_dynamic_pick(calldataload(4))
       mstore(0, _r)
       return(0, 32)
     }
     case 0xf45e18ed {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmArrayValueProbe_dynamic_update(calldataload(4))
@@ -76,12 +82,21 @@ object "EvmArrayValueProbe" {
       if lt(calldatasize(), 68) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmArrayValueProbe_nested_dynamic_pick(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
     case 0x731f5daf {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmArrayValueProbe_nested_dynamic_row_pick(calldataload(4))
@@ -92,12 +107,21 @@ object "EvmArrayValueProbe" {
       if lt(calldatasize(), 68) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmArrayValueProbe_nested_dynamic_update(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
     case 0x69437a57 {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmArrayValueProbe_nested_dynamic_row_update(calldataload(4))
@@ -107,43 +131,43 @@ object "EvmArrayValueProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmArrayValueProbe_local_sum() -> result {
+    function f_EvmArrayValueProbe_local_sum() -> __pf_result {
       let __proof_forge_array_xs_0 := 7
       let __proof_forge_array_xs_1 := 11
       let __proof_forge_array_xs_2 := 13
       let head := __proof_forge_array_xs_0
-      result := __pf_checked_add(head, __proof_forge_array_xs_2)
+      __pf_result := __pf_checked_add(head, __proof_forge_array_xs_2)
     }
-    function f_EvmArrayValueProbe_direct_literal_index() -> result {
-      result := 6
+    function f_EvmArrayValueProbe_direct_literal_index() -> __pf_result {
+      __pf_result := 6
     }
-    function f_EvmArrayValueProbe_bool_guard() -> result {
+    function f_EvmArrayValueProbe_bool_guard() -> __pf_result {
       let __proof_forge_array_flags_0 := 0
       let __proof_forge_array_flags_1 := 1
       if iszero(__proof_forge_array_flags_1) {
         revert(0, 0)
       }
-      result := __proof_forge_array_flags_0
+      __pf_result := __proof_forge_array_flags_0
     }
-    function f_EvmArrayValueProbe_u32_pick() -> result {
+    function f_EvmArrayValueProbe_u32_pick() -> __pf_result {
       let __proof_forge_array_smalls_0 := 3
       let __proof_forge_array_smalls_1 := 5
-      result := __proof_forge_array_smalls_1
+      __pf_result := __proof_forge_array_smalls_1
     }
-    function f_EvmArrayValueProbe_hash_pick() -> result {
+    function f_EvmArrayValueProbe_hash_pick() -> __pf_result {
       let __proof_forge_array_roots_0 := 6277101735386680764516354157049543343084444891548699590660
       let __proof_forge_array_roots_1 := 31385508676933403821220641317563962861421152075426748694536
-      result := __proof_forge_array_roots_0
+      __pf_result := __proof_forge_array_roots_0
     }
-    function f_EvmArrayValueProbe_mutable_update() -> result {
+    function f_EvmArrayValueProbe_mutable_update() -> __pf_result {
       let __proof_forge_array_xs_0 := 7
       let __proof_forge_array_xs_1 := 11
       let __proof_forge_array_xs_2 := 13
       __proof_forge_array_xs_1 := 19
-      __proof_forge_array_xs_2 := __pf_checked_add(__proof_forge_array_xs_2, 5)
-      result := __pf_checked_add(__proof_forge_array_xs_1, __proof_forge_array_xs_2)
+      __proof_forge_array_xs_2 := add(__proof_forge_array_xs_2, 5)
+      __pf_result := __pf_checked_add(__proof_forge_array_xs_1, __proof_forge_array_xs_2)
     }
-    function f_EvmArrayValueProbe_mutable_mixed() -> result {
+    function f_EvmArrayValueProbe_mutable_mixed() -> __pf_result {
       let __proof_forge_array_flags_0 := 0
       let __proof_forge_array_flags_1 := 0
       __proof_forge_array_flags_0 := 1
@@ -159,15 +183,15 @@ object "EvmArrayValueProbe" {
       if iszero(eq(__proof_forge_array_roots_1, 56493915618480126877924928478078382379757859259304797798412)) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__proof_forge_array_flags_0, __proof_forge_array_smalls_1)
+      __pf_result := __pf_checked_add(__proof_forge_array_flags_0, __proof_forge_array_smalls_1)
     }
-    function f_EvmArrayValueProbe_dynamic_pick(idx) -> result {
+    function f_EvmArrayValueProbe_dynamic_pick(idx) -> __pf_result {
       let __proof_forge_array_xs_0 := 7
       let __proof_forge_array_xs_1 := 11
       let __proof_forge_array_xs_2 := 13
-      result := __pf_checked_add(__proof_forge_local_array_get_3(idx, __proof_forge_array_xs_0, __proof_forge_array_xs_1, __proof_forge_array_xs_2), __proof_forge_local_array_get_3(idx, 4, 6, 8))
+      __pf_result := __pf_checked_add(__proof_forge_local_array_get_3(idx, __proof_forge_array_xs_0, __proof_forge_array_xs_1, __proof_forge_array_xs_2), __proof_forge_local_array_get_3(idx, 4, 6, 8))
     }
-    function f_EvmArrayValueProbe_dynamic_update(idx) -> result {
+    function f_EvmArrayValueProbe_dynamic_update(idx) -> __pf_result {
       let __proof_forge_array_xs_0 := 7
       let __proof_forge_array_xs_1 := 11
       let __proof_forge_array_xs_2 := 13
@@ -205,9 +229,9 @@ object "EvmArrayValueProbe" {
           revert(0, 0)
         }
       }
-      result := __proof_forge_local_array_get_3(idx, __proof_forge_array_xs_0, __proof_forge_array_xs_1, __proof_forge_array_xs_2)
+      __pf_result := __proof_forge_local_array_get_3(idx, __proof_forge_array_xs_0, __proof_forge_array_xs_1, __proof_forge_array_xs_2)
     }
-    function f_EvmArrayValueProbe_whole_array_assign() -> result {
+    function f_EvmArrayValueProbe_whole_array_assign() -> __pf_result {
       let __proof_forge_array_xs_0 := 1
       let __proof_forge_array_xs_1 := 2
       let __proof_forge_array_xs_2 := 3
@@ -230,25 +254,25 @@ object "EvmArrayValueProbe" {
         __proof_forge_array_xs_1 := __proof_forge_assign_array_xs_1
         __proof_forge_array_xs_2 := __proof_forge_assign_array_xs_2
       }
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_array_xs_0, __pf_checked_mul(__proof_forge_array_xs_1, 10)), __proof_forge_array_xs_2)
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_array_xs_0, __pf_checked_mul(__proof_forge_array_xs_1, 10)), __proof_forge_array_xs_2)
     }
-    function f_EvmArrayValueProbe_nested_local_sum() -> result {
+    function f_EvmArrayValueProbe_nested_local_sum() -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
       let __proof_forge_array_matrix_1_1 := 7
-      result := __pf_checked_add(__proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0)
+      __pf_result := __pf_checked_add(__proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0)
     }
-    function f_EvmArrayValueProbe_nested_mutable_update() -> result {
+    function f_EvmArrayValueProbe_nested_mutable_update() -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
       let __proof_forge_array_matrix_1_1 := 7
       __proof_forge_array_matrix_1_0 := 17
-      __proof_forge_array_matrix_0_1 := __pf_checked_add(__proof_forge_array_matrix_0_1, 4)
-      result := __pf_checked_add(__proof_forge_array_matrix_1_0, __proof_forge_array_matrix_0_1)
+      __proof_forge_array_matrix_0_1 := add(__proof_forge_array_matrix_0_1, 4)
+      __pf_result := __pf_checked_add(__proof_forge_array_matrix_1_0, __proof_forge_array_matrix_0_1)
     }
-    function f_EvmArrayValueProbe_nested_whole_array_assign() -> result {
+    function f_EvmArrayValueProbe_nested_whole_array_assign() -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 1
       let __proof_forge_array_matrix_0_1 := 2
       let __proof_forge_array_matrix_1_0 := 3
@@ -277,23 +301,23 @@ object "EvmArrayValueProbe" {
         __proof_forge_array_matrix_1_0 := __proof_forge_assign_array_matrix_1_0
         __proof_forge_array_matrix_1_1 := __proof_forge_assign_array_matrix_1_1
       }
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_array_matrix_0_0, __pf_checked_mul(__proof_forge_array_matrix_0_1, 10)), __pf_checked_add(__pf_checked_mul(__proof_forge_array_matrix_1_0, 100), __pf_checked_mul(__proof_forge_array_matrix_1_1, 1000)))
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_array_matrix_0_0, __pf_checked_mul(__proof_forge_array_matrix_0_1, 10)), __pf_checked_add(__pf_checked_mul(__proof_forge_array_matrix_1_0, 100), __pf_checked_mul(__proof_forge_array_matrix_1_1, 1000)))
     }
-    function f_EvmArrayValueProbe_nested_dynamic_pick(row, col) -> result {
+    function f_EvmArrayValueProbe_nested_dynamic_pick(row, col) -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
       let __proof_forge_array_matrix_1_1 := 7
-      result := __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
+      __pf_result := __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
     }
-    function f_EvmArrayValueProbe_nested_dynamic_row_pick(row) -> result {
+    function f_EvmArrayValueProbe_nested_dynamic_row_pick(row) -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
       let __proof_forge_array_matrix_1_1 := 7
-      result := __proof_forge_local_array_get_nested_2_2(row, 1, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
+      __pf_result := __proof_forge_local_array_get_nested_2_2(row, 1, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
     }
-    function f_EvmArrayValueProbe_nested_dynamic_update(row, col) -> result {
+    function f_EvmArrayValueProbe_nested_dynamic_update(row, col) -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
@@ -378,9 +402,9 @@ object "EvmArrayValueProbe" {
           }
         }
       }
-      result := __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
+      __pf_result := __proof_forge_local_array_get_nested_2_2(row, col, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
     }
-    function f_EvmArrayValueProbe_nested_dynamic_row_update(row) -> result {
+    function f_EvmArrayValueProbe_nested_dynamic_row_update(row) -> __pf_result {
       let __proof_forge_array_matrix_0_0 := 2
       let __proof_forge_array_matrix_0_1 := 3
       let __proof_forge_array_matrix_1_0 := 5
@@ -417,7 +441,7 @@ object "EvmArrayValueProbe" {
           }
         }
       }
-      result := __proof_forge_local_array_get_nested_2_2(row, 1, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
+      __pf_result := __proof_forge_local_array_get_nested_2_2(row, 1, __proof_forge_array_matrix_0_0, __proof_forge_array_matrix_0_1, __proof_forge_array_matrix_1_0, __proof_forge_array_matrix_1_1)
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -432,7 +456,7 @@ object "EvmArrayValueProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

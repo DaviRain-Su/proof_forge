@@ -1196,8 +1196,7 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
       #[]
   let packPrefix :=
     if !ctx.packScalars then #[]
-    else if entrypointReadsPackedScalar ctx.scalars ep then packBeginInsns
-    else packBeginFreshInsns
+    else packBeginInsns
   let packSuffix := if ctx.packScalars then packFlushInsns else #[]
   .ok {
     name := ep.name

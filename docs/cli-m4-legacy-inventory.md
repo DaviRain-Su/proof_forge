@@ -1,7 +1,7 @@
 # CLI M4 legacy inventory (U6.2)
 
-Status: **Inventory refreshed 2026-07-10 (P1.1) — do not delete aliases yet**  
-Date: 2026-07-10 (P1 re-count)  
+Status: **Inventory refreshed 2026-07-10 (P1.1) — do not delete aliases yet**
+Date: 2026-07-10 (P1 re-count)
 Related: RFC 0009 / D-039, [platform-gaps](platform-gaps-2026-07.md) Gap 1,
 `just cli-target-first`, `ProofForge/Cli/EmitMode.lean`,
 `ProofForge/Cli/LegacyArgs.lean`, `ProofForge/Cli/TargetFirst.lean`.

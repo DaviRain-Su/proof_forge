@@ -411,7 +411,8 @@ def compileLearnTokenEvm (opts : CliOptions)
     | .ok obj => pure obj
     | .error err => throw <| IO.userError err.render
   let runtimeName := decl.id ++ "Runtime"
-  let yul := ProofForge.Contract.Token.EvmWrap.wrapRuntimeObject decl.id runtimeName runtimeObject decl.spec
+  let yul ← liftExceptString <|
+    ProofForge.Contract.Token.EvmWrap.wrapRuntimeObject decl.id runtimeName runtimeObject decl.spec
   let yulOutput := opts.yulOutput?.getD (defaultLearnTokenEvmYulOutput decl)
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput

@@ -139,11 +139,14 @@ just near-compare-height-lock-vault-live
 # Regenerate MATRIX.md from live reports
 just near-compare-matrix
 
+# Explicit measurement-only run (writes an unverified report)
+just near-compare-live-measure auth-remote-call
+
 # All live dual-deploys
 just near-compare-all-live
 ```
 
-**Full ranked matrix + Product scan:** [`MATRIX.md`](./MATRIX.md).
+**Observation-aware matrix + Product scan:** [`MATRIX.md`](./MATRIX.md).
 
 Reports under `build/testkit/compare/near/<contract>/`:
 
@@ -151,6 +154,36 @@ Reports under `build/testkit/compare/near/<contract>/`:
 |------|----------|
 | `report.json` | Offline size/fuel + optional sandbox summary |
 | `sandbox-report.json` | Dual-deploy: wasm / deploy gas / call gas / storage_usage |
+
+## Semantic status
+
+A successful dual deploy is not, by itself, proof of semantic equivalence. New
+sandbox reports expose three separate fields:
+
+- `observedSemanticMatch`: recorded call/status, return, and log observations match.
+- `observationCoverage`: dimensions the harness covered or is still missing.
+- `semanticMatch`: fail-closed; true only when observed behavior matches and
+  observation coverage is complete.
+
+Leaderboard eligibility is stricter than any one field: the report must use the
+exact `proof-forge.testkit.compare.near-sandbox.v1` schema, both semantic-match
+fields must be true, `observationCoverage.complete` must be true, `missing` must
+be empty, and `covered` must contain every required observation dimension.
+Malformed or internally contradictory reports fail closed.
+
+Normal `near-compare-*-live` recipes are semantic gates and return non-zero
+while `semanticMatch` is false. Use
+`just near-compare-live-measure <contract>` only to collect measurement-only
+reports; the command passes `--allow-semantic-mismatch`, and those reports are
+not eligible for ranking. Argument and caller observations are not yet
+collected, so the current live scenarios are expected to remain red as semantic
+gates.
+
+The historical 2026-07-10 reports predate this schema. Their size, gas, and
+storage values remain useful raw measurements, but they are not semantically
+verified and are excluded from the generated performance leaderboard. Re-run
+individual measurement-only scenarios to populate observation-aware reports;
+keep the normal live recipes as the fail-closed acceptance gates.
 
 ## What the numbers mean
 
@@ -161,7 +194,11 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | **storageUsageBytes** | Account storage after deploy+scenario (code + state) — **tracks size** |
 | **callGasBurnt** | Function-call receipts only — often **storage-dominated**, may not track size |
 
-## Snapshot (local Sandbox, 2026-07-10)
+## Historical raw measurements (local Sandbox, 2026-07-10)
+
+These values are not a semantic ranking. They came from successful dual-deploy
+scenarios whose argument, caller, return, log, and storage coverage was not
+reported explicitly.
 
 | Contract | Metric | ProofForge | near-sdk | sdk/pf |
 |----------|--------|------------|----------|--------|
@@ -246,36 +283,19 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | ExternalVault | call gas | 4.26e12 | 4.82e12 | **~1.13×** |
 | ExternalVault | storage | 1513 B | 176389 B | **~116.6×** |
 
-### Compact comparison (wasm× ranked, 21 live reports)
+The generated [`MATRIX.md`](./MATRIX.md) shows observation status for every
+report and computes performance statistics only from reports that meet the
+strict semantic eligibility rule.
 
-| Rank | Contract | wasm× | call× | PF wasm |
-|-----:|----------|------:|------:|--------:|
-| 1 | Ownable | **~256×** | ~1.13× | 627 B |
-| 2 | StorageDeposit | **~196×** | ~1.18× | 895 B |
-| 3 | RemoteCall | **~186×** | ~1.13× | 899 B |
-| 4 | AccessControl | **~177×** | ~1.26× | 1055 B |
-| 5 | AuthRemoteCall | **~159×** | ~1.11× | 1093 B |
-| 6 | ExternalVault | **~138×** | ~1.13× | 1272 B |
-| 7–10 | Counter / Reentrancy / Array / Pausable | **~131–136×** | ~1.05–1.07× | 374–415 B |
-| 11–14 | Status / GuestBook / OwnableHash / ExtFT | **~111–126×** | ~1.06–1.25× | 656–1647 B |
-| 15–18 | OwnablePausable / Staking / Fee / RGT | **~88–98×** | ~1.06–1.20× | 773–2373 B |
-| 19–20 | HostEnv / ValueVault | **~76–84×** | ~1.11–1.16× | 893–2053 B |
-| 21 | FungibleToken | **~48×** | ~1.10× | 3860 B |
-| — | ProRataVault | **~82×** | ~1.13× | 2412 B |
-| — | SoulboundToken | **~110×** | ~1.12× | 1734 B |
-| — | VestingVault | **~95×** | ~1.14× | 1556 B |
-| — | EscrowVault | **~95×** | ~1.13× | 1583 B |
-| — | TimelockVault | **~108×** | ~1.13× | 1363 B |
-| — | HeightLockVault | **~108×** | ~1.13× | 1366 B |
+Harness notes and remaining coverage gaps:
 
-**Stats (live, 28 contracts):** median wasm× **~111×**, median call× **~1.13×**, range wasm× **48–256×**.
-
-**Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
-
-Fairness notes:
-
-- Same scenario steps on both sides; PF uses Borsh/raw, near-sdk uses JSON.
-- Events kept on both sides (names aligned; account encoding may differ: hash hex vs AccountId).
+- Scenario step labels are aligned, but PF uses Borsh/raw while near-sdk uses
+  JSON; normalized argument-value coverage is still required.
+- Reports compare recorded logs exactly. Account encoding can differ (hash hex
+  vs AccountId), so event equivalence must be established rather than assumed.
+- Wasm/NEAR scalar state currently uses stable per-field keys. Automatic
+  `__pf_s` packing is disabled until artifacts carry a versioned layout and
+  migration contract.
 - FT body is `Stdlib.NearFungibleToken` via `Examples/Backend/WasmNear/FungibleToken.lean`
   (Product `FungibleToken.lean` is TokenSpec intent).
 - Live host fix: `attached_deposit` matches near-sys `(balance_ptr)` u128 write (needed for StakingVault).

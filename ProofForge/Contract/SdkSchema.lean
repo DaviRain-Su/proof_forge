@@ -134,6 +134,7 @@ def structJson (decl : StructDecl) : String :=
   Json.object #[
     ("name", Json.string decl.name),
     ("fields", Json.array (decl.fields.map structFieldJson)),
+    ("semantics", Json.string decl.semantics.id),
     ("deriveStorage", if decl.deriveStorage then "true" else "false"),
     ("public", if decl.isPublic then "true" else "false")
   ]
@@ -142,6 +143,7 @@ def entrypointJson (entrypoint : Entrypoint) : String :=
   Json.object #[
     ("name", Json.string entrypoint.name),
     ("selector", Json.stringOption entrypoint.selector?),
+    ("mutability", Json.string entrypoint.mutability.id),
     ("params", Json.array (entrypoint.params.map paramJson)),
     ("returns", valueTypeJson entrypoint.returns)
   ]

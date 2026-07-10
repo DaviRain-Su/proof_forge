@@ -14,6 +14,7 @@
   "honesty": [
     "Protocol client to external vault peer (not full ERC-4626 body).",
     "PF method name is convertToShares; mock peer uses convert_to_shares for sdk and deposit for both.",
-    "PF deposit promise may use raw LE pairs; mock peer accepts LE input."
+    "PF and sdk deposit promises use the canonical JSON array [assets,receiver].",
+    "The report remains semanticMatch=false while callback/result, normalized argument, caller, and storage observation coverage is incomplete."
   ]
 }

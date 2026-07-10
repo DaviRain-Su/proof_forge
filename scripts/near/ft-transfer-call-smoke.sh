@@ -99,7 +99,7 @@ assert_contains "$out" "call 1:ft_approve: return=<none>" "approve call"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after mint"
 assert_contains "$out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"
-# deposit is near-sys amount_ptr → offline-host prints low-64 of u128 LE (zero deposit).
+# deposit is near-sys amount_ptr → offline-host reads the full u128 LE value.
 # promise_then empty args: EmitWat uses zero-length buffer (args= empty string, not "[]").
 assert_contains "$out" "promise_create id=0 account=demo.receiver.testnet method=ft_on_transfer args=[\"$SENDER_HASH\",70] deposit=0 gas=50000000000000" "promise_create trace"
 assert_contains "$out" "promise_then id=1 parent=0 account=proof-forge.testnet method=ft_resolve_transfer args= deposit=0 gas=50000000000000" "promise_then trace"

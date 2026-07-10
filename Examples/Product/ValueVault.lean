@@ -120,7 +120,7 @@ contract_source ValueVault do
       fieldAs released released_next
     ];
 
-  query snapshot returns(.u64) do
+  entry snapshot returns(.u64) do
     let checkpoint : .u64 := checkpointId;
     let balance_now : .u64 := balance;
     let released_now : .u64 := released;

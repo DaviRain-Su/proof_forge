@@ -4,10 +4,11 @@ Target id: **`wasm-cloudflare-workers`**
 
 Family: **Wasm host**
 
-Stage: **Spike** — target profile in the registry; Counter IR lowers to
+Stage: **Off-chain Research sourcegen** — target profile in the registry; Counter IR lowers to
 TypeScript via `ProofForge.Compiler.TS.Emit` (`scripts/ts/counter-ir-smoke.sh`,
-optional GitHub `cloudflare-smoke` job). A future Zig/Wasm host-bridge route
-remains **Planned** research, not the current product path.
+optional GitHub `cloudflare-smoke` job). The machine-readable primary artifact
+is `typescript-source`; no current path emits a Wasm binary. A future Zig/Wasm
+host-bridge route remains **Planned** research, not the current product path.
 
 Related: [Wasm family](wasm-family.md), [Capability registry](../capability-registry.md), [Shared scenario](../shared-scenario.md), [RFC 0002](../rfcs/0002-target-implementation-design.md).
 
@@ -22,6 +23,12 @@ oracles, keepers, indexers, simulators, and hybrid dApp backends.
 Because Workers is not a blockchain, many chain-specific capabilities are
 reinterpreted or unsupported. The portable core (pure logic, state transitions,
 types, proofs) stays identical; only the capability adapter changes.
+
+The **implemented registry fragment is deliberately narrower** than the future
+host-bridge design: the current TypeScript emitter is promoted only for the
+Counter fixture's `storage.scalar` behavior. Maps, caller identity, events,
+crosscalls, environment reads, hashing, aggregate values, control-flow claims,
+and assertions remain unadvertised until executable tests prove them.
 
 ## Pipeline (landed spike)
 
@@ -65,41 +72,35 @@ The host bridge exposes Workers platform APIs to Lean
 def wasmCloudflareWorkers : TargetProfile := {
   id := "wasm-cloudflare-workers",
   family := .wasmHost,
-  artifactKind := .wasm,
-  capabilities := #[
-    .storageScalar,
-    .storageMap,
-    .callerSender,
-    .eventsEmit,
-    .crosscallInvoke,
-    .envBlock,
-    .cryptoHash,
-    .controlConditional,
-    .controlBoundedLoop,
-    .dataFixedArray,
-    .dataStruct,
-    .assertions
-  ],
-  requiredTools := #["tsc", "wrangler"]
+  artifactKind := .typescriptSource,
+  capabilities := #[.storageScalar],
+  requiredTools := #["wrangler"],
+  support := {
+    maturity := .research,
+    inputModes := #[.fixture],
+    commands := #[.emit],
+    outputStages := #[.sourcegen],
+    validationLevel := .none
+  }
 }
 ```
 
-## Capability Mapping
+## Implemented Capability Mapping
 
 | Capability id | Cloudflare Workers mapping | Notes |
 |---|---|---|
-| `storage.scalar` | Workers KV `get`/`put` or Durable Object state field | KV is eventually consistent; DO gives strong consistency per object |
-| `storage.map` | KV with key prefix, or DO in-memory `Map` | First implementation can use string-keyed KV |
-| `caller.sender` | Request header, JWT claim, or `env` binding | Configurable per deployment; no built-in signer concept |
-| `events.emit` | `console.log` with structured JSON | Also routable to Workers Logs / Tail Workers |
-| `crosscall.invoke` | `fetch()` to another Worker, service binding, or external HTTP endpoint | Returns HTTP response, not blockchain call result |
-| `env.block` | `Date.now()` | No block height; only timestamp |
-| `crypto.hash` | Web Crypto `crypto.subtle.digest` or Zig implementation | SHA-256 first; keccak256 via library if needed |
-| `control.conditional` | Lean/Zig lowering | Native support |
-| `control.bounded_loop` | Lean/Zig lowering | Native support |
-| `data.fixed_array` | Lean/Zig value type | Native support |
-| `data.struct` | Lean/Zig value type | Native support |
-| `assertions.check` | Runtime panic / error response | Returns HTTP 500 or structured error |
+| `storage.scalar` | Counter fixture state in the generated TypeScript Worker | Covered by the Counter emit and Worker promotion smokes |
+
+The following are design candidates, **not registry capabilities today**:
+
+- `storage.map`: KV key prefixes or Durable Object state.
+- `caller.sender`: request headers, JWT claims, or an explicit binding.
+- `events.emit`: structured Workers logs.
+- `crosscall.invoke`: `fetch()` or service bindings.
+- `env.block`: a deliberately non-consensus time/environment model.
+- `crypto.hash`: Web Crypto or a bundled implementation.
+- conditionals, bounded loops, fixed arrays, structs, and assertions after
+  fixture-specific executable coverage exists.
 
 Not supported by design:
 

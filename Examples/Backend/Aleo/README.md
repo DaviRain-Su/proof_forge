@@ -6,7 +6,15 @@
 | `Counter.golden.aleo` | Z2 Aleo Instructions golden (`leo build` of Counter.leo) |
 | `PureMath.golden.leo` | Pure-math Leo fixture |
 
-Regenerate `.aleo` golden:
+Regenerate the pure-math Leo fixture through the target-first CLI:
+
+```bash
+lake build
+./.lake/build/bin/proof-forge emit --target aleo-leo --fixture pure-math --format leo -o build/aleo/PureMath.leo
+cp build/aleo/PureMath.leo Examples/Backend/Aleo/PureMath.golden.leo
+```
+
+Regenerate the Counter Aleo Instructions golden through Leo:
 
 ```sh
 mkdir -p build/aleo/z2-counter-golden/src

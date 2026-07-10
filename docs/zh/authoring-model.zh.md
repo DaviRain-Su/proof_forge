@@ -51,6 +51,10 @@ backend AST 里。
 
 - portable scalar state；
 - 带 typed parameter 的 entrypoint 和 query；
+- 显式的调用语义：`entry` 为 `call`，`query` 为 `view`；`query`
+  会拒绝存储写入、event、promise、附带原生价值和非静态 crosscall。
+  有返回值的变更方法仍必须使用 `entry`，生成客户端返回交易 receipt
+  或 execution outcome，而不是转成 static/view call；
 - local binding、assignment、return、event emission 和 checked arithmetic syntax；
 - Solana allocator selection；
 - Solana account constraint，包括 writable 和 signer declaration；

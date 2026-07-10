@@ -2,6 +2,7 @@ import Init.Notation
 import Lean
 import Lean.Elab.Frontend
 import Lean.Util.Path
+import ProofForge.Cli.ContractLoader
 import ProofForge.Contract.Token
 
 namespace ProofForge.Cli.TokenLoader
@@ -49,28 +50,8 @@ unsafe def loadTokenFromEnv (env : Environment) (modName : Name) :
 unsafe def loadToken
     (input : System.FilePath) (root? : Option System.FilePath) (moduleName? : Option Name) :
     IO (Option String × ProofForge.Contract.Token.TokenSpec) := do
-  enableInitializersExecution
-  initSearchPath (← findSysroot "lean")
-  let source ← IO.FS.readFile input
-  let modName ← match moduleName? with
-    | some name => pure name
-    | none => moduleNameOfFileName input root?
-  let frontendOpts := Elab.async.set {} false
-  let env? ← Elab.runFrontend
-    source
-    frontendOpts
-    input.toString
-    modName
-    (trustLevel := 0)
-    (oleanFileName? := none)
-    (ileanFileName? := none)
-    (jsonOutput := false)
-    (errorOnKinds := #[])
-    (plugins := #[])
-    (printStats := false)
-    (setup? := none)
-  let some env := env?
-    | throw <| IO.userError s!"Lean frontend failed for `{input.toString}`"
+  let (env, modName) ←
+    ProofForge.Cli.ContractLoader.runTrustedLocalFrontend input root? moduleName?
   loadTokenFromEnv env modName
 
 end ProofForge.Cli.TokenLoader

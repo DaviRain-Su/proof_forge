@@ -146,7 +146,12 @@ def check_shared_file(path: Path) -> None:
             "import ProofForge.Contract.Source only (extension: Source.Solana)"
         )
 
-    if "TokenSpec" in text or "def spec : TokenSpec" in text or "def spec : ProofForge.Contract.Token.TokenSpec" in text:
+    token_spec_decl = re.search(
+        r"(?m)^\s*def\s+[A-Za-z_][A-Za-z0-9_']*\s*:\s*"
+        r"(?:ProofForge\.Contract\.Token\.)?TokenSpec\b",
+        text,
+    )
+    if token_spec_decl:
         if "import ProofForge.Contract.Token" not in text and "import ProofForge.Contract.Token." not in text:
             # Soulbound may re-export via alias; require Token import or open path
             if "ProofForge.Contract.Token" not in text:

@@ -65,7 +65,9 @@ def requireSharedIds (label body : String) : IO Unit := do
 
 /-- EVM TS wrapper: ERRORS + decodeProofForgeRevert share the same ids. -/
 def testEvmClient : IO Unit := do
-  let wrapper := ProofForge.Contract.Client.renderEvmAbiWrapper spec "ErrorRefProbe"
+  let wrapper ← match ProofForge.Contract.Client.renderEvmAbiWrapper spec "ErrorRefProbe" with
+    | .ok wrapper => pure wrapper
+    | .error err => throw <| IO.userError s!"EVM client render failed: {err}"
   requireSharedIds "EVM client" wrapper
   require (contains wrapper "decodeProofForgeRevert")
     "EVM client missing decodeProofForgeRevert"

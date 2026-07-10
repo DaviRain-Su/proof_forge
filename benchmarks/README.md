@@ -2,7 +2,7 @@
 
 ProofForge vs native comparison corpus and runners.
 
-**Spec:** [docs/benchmarks.md](../docs/benchmarks.md)  
+**Spec:** [docs/benchmarks.md](../docs/benchmarks.md)
 **Plan wave:** B1 in
 [docs/superpowers/plans/2026-07-10-post-review-execution.md](../docs/superpowers/plans/2026-07-10-post-review-execution.md)
 

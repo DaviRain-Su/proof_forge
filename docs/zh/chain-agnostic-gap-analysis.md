@@ -80,7 +80,7 @@ honesty reject);缺的是把还没抽象的概念灌进去,以及解决几个抽
 |---|---|---|
 | ④ 访问控制 / auth | PARTIAL | Ownable/AccessControl/roles 在长;需统一角色模型 + 链原生 auth + 多签 |
 | ⑤ **身份 / 地址** | ✅ **catalog 已落地** | `Target/Identity.lean` materialize-or-reject;Solana `self` 仍 reject 至 program-id lower |
-| ⑥ 升级 / 生命周期 | ✅ **intent 已落地** | `UpgradePolicy.materializeUpgrade`:EVM **uups only**(transparent 诚实拒绝)、Solana upgrade-authority、NEAR redeploy+migrate |
+| ⑥ 升级 / 生命周期 | ✅ **intent 已落地** | `UpgradePolicy.materializeUpgrade`：EVM v0 的 product authority/governance 均诚实拒绝（UUPS 仅 backend transport spike，尚未绑定 `keyRef`）；Solana upgrade-authority；NEAR redeploy+migrate |
 | ⑦ value / 原生币 | PARTIAL | `valueNative` / HostEnv.attachedValue;余额查询仍粗 |
 | ⑧ crypto | ✅ **首批 catalog** | `PortableMechanics`:keccak/sha256 triad;ecrecover EVM-only;ed25519 Sol/NEAR |
 | ⑨ 错误模型 | ✅ **首批 catalog** | `mech.error.code` / `message` triad materialize |
@@ -119,7 +119,7 @@ honesty reject);缺的是把还没抽象的概念灌进去,以及解决几个抽
    非仅 note）;`materializationNote` 列出 `inferredAccounts=[…]`。
 4. **✅ Token planForTarget** — FixedPoint;mint/burn 门控;`TokenSpec.authFeatures` 走
    `materializeAuth`（NEAR 拒 allowance）。
-5. **✅ 升级 resolveSpec** — UUPS only / transparent 拒 / Solana authority / NEAR redeploy。
+5. **✅ 升级 resolveSpec** — EVM product authority/governance 拒绝；UUPS 仅 backend transport spike；Solana authority / NEAR redeploy。
 6. **✅ 机械堆挂管线** — `requireMechanicsHonesty` 在 resolveSpec 调 `materializeMechanic`
    （crypto.hash / ecrecover / assertions→errorCode）;可迭代集合/NFT 仍缺。
 7. **✅ FV/诚实测试** — `Tests/ChainAgnosticRoute.lean` 驱动 resolveSpec/plan/ensurePortableCrosscallAccounts。

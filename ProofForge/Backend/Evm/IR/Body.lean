@@ -254,7 +254,7 @@ mutual
     | .storageLoad _ => true
     | .builtin _ args => args.all exprPlanSupportsPlannedBody
     | .helperCall _ args => args.all exprPlanSupportsPlannedBody
-    | .checkedArith _ lhs rhs _ => exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
+    | .checkedArith _ lhs rhs _ _ => exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
     | .hashPack a b c d =>
         exprPlanSupportsPlannedBody a &&
         exprPlanSupportsPlannedBody b &&
@@ -320,7 +320,7 @@ def plannedBodyAssignmentTargetSupported :
 
 def eventFieldPlanSupportsPlannedBody :
     ProofForge.Backend.Evm.Plan.EventFieldPlan → Bool
-  | .mk _ type _ =>
+  | .of _ type _ _ =>
       match type with
       | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
       | .unit | .bytes | .string | .array _ | .fixedArray _ _ | .structType _ => false
@@ -411,6 +411,8 @@ def effectPlanSupportsPlannedBodyStmt :
   | .eventEmitIndexedWords event indexedFieldWords dataFieldWords =>
       eventFieldWordPlansSupportPlannedBody event.indexedFields indexedFieldWords &&
         eventFieldWordPlansSupportPlannedBody event.dataFields dataFieldWords
+  | .checkErc1155BatchReceived a b c d e f g =>
+      #[a, b, c, d, e, f, g].all exprPlanSupportsPlannedBody
   | _ => false
 
 partial def aggregateReturnExprPlanSupportsPlannedBody
@@ -545,9 +547,14 @@ def lowerPlannedBodyEffectPlan
     (effect : ProofForge.Backend.Evm.Plan.EffectPlan) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) := do
   match effect with
-  | .storageScalarWriteTarget .. | .storageScalarAssignOpTarget .. =>
+  | .storageScalarWriteTarget _ _ =>
       ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-        module.overflowChecked
+        toYulError
+        (fun expr => lowerExpr module env expr)
+        (lowerPlanEffectExpr module env)
+        (.effect effect)
+  | .storageScalarAssignOpTarget .. =>
+      ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
         toYulError
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
@@ -571,15 +578,19 @@ def lowerPlannedBodyEffectPlan
       | _ =>
           match ProofForge.Backend.Evm.Lower.scalarStorageTargetPlan? module stateId with
           | some target =>
+              let target := {
+                target with
+                  writeSemantics :=
+                    ProofForge.Backend.Evm.Lower.scalarStorageWriteSemantics module value
+              }
               ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
                 (.effect (.storageScalarWriteTarget target value))
           | none =>
               ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
-                module.overflowChecked
+                (ProofForge.Backend.Evm.Lower.scalarStorageWriteSemantics module value).overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
@@ -594,7 +605,6 @@ def lowerPlannedBodyEffectPlan
           match ProofForge.Backend.Evm.Lower.scalarStorageTargetPlan? module stateId with
           | some target =>
               ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-                module.overflowChecked
                 toYulError
                 (fun expr => lowerExpr module env expr)
                 (lowerPlanEffectExpr module env)
@@ -781,6 +791,11 @@ def lowerPlannedBodyEffectPlan
         (.effect effect)
   | .eventEmit .. | .eventEmitIndexed .. | .eventEmitWords .. | .eventEmitIndexedWords .. =>
       lowerPlannedBodyEventEffectPlan module env effect
+  | .checkErc1155BatchReceived .. =>
+      ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
+        toYulError
+        (lowerExprPlanExpr module env)
+        effect
   | _ =>
       .error { message := "planned scalar control-flow body expected a supported effect" }
 

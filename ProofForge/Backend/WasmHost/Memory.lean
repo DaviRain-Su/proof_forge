@@ -27,7 +27,7 @@ Region map (base -> base+size, all bytes are exclusive scratch space):
 | `HASH_CONCAT_BUF`| 40000 | 64     | 40064  | `hash_two_to_one` 64-byte input |
 | `CTX_BUF`       | 41000  | 128    | 41128  | account-id -> sha256 -> u64 |
 | `EVENT_BUF`     | 42000  | 256    | 42256  | event JSON scratch |
-| `PACK_KEY_PTR`  | 42600  | 5      | 42605  | fixed `"__pf_s"` key for packed scalars |
+| `PACK_KEY_PTR`  | 42600  | 6      | 42606  | fixed `"__pf_s"` key for packed scalars |
 | `EVT_PUNCT`     | 42800  | 16     | 42816  | static JSON punctuation for event logs |
 | `STRING_BASE`   | 43000  | ~1000  | 44000  | event/field name string pool |
 | `INPUT_BUF`     | 44000  | ~2000  | 46000  | Borsh input args (1 KB headroom) |
@@ -66,7 +66,7 @@ def CTX_BUF : Nat := 41000          -- 128-byte scratch for account-id -> sha256
 def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
 /-- Storage key for packed multi-scalar state (`"__pf_s"`). -/
 def PACK_KEY_PTR : Nat := 42600
-def PACK_KEY_LEN : Nat := 5
+def PACK_KEY_LEN : Nat := 6
 /-- Packed scalar scratch reuses `STRUCT_BUF` (52000) as the in-memory blob. -/
 def PACK_BUF : Nat := 52000
 /-- Static punctuation pack used by optimized event JSON assembly (replaces

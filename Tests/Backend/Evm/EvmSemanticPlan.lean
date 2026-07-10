@@ -761,10 +761,12 @@ def testCounterSemanticPlanEntrypoints : IO Unit := do
       requireScalarStorageTarget target 0 0 8 "counter plan increment read target"
   | _ => throw <| IO.userError "counter plan increment first statement must read count"
   match ← requireAt inc.body 1 "counter plan increment missing second statement" with
-  | .effect (.storageScalarWriteTarget target (.checkedArith .add (.local name) (.literalWord value) _)) => do
+  | .effect (.storageScalarWriteTarget target
+      (.checkedArith .add (.local name) (.literalWord value) _ (some byteWidth))) => do
       requireScalarStorageTarget target 0 0 8 "counter plan increment storage write target"
       require (name == "n") "counter plan increment add lhs"
       require (value == 1) "counter plan increment add rhs"
+      require (byteWidth == 8) "counter plan increment arithmetic width"
   | _ => throw <| IO.userError "counter plan increment second statement must write checked add"
 
 def testCounterSemanticPlanArtifacts : IO Unit := do
@@ -774,11 +776,11 @@ def testCounterSemanticPlanArtifacts : IO Unit := do
   require (get.selector == "6d4ce63c") "counter plan get selector"
   require (get.returns.returnType == .u64) "counter plan get returns u64"
   require (get.returns.wordTypes == #[.u64]) "counter plan get return words"
-  require (get.returns.localNames == #["result"]) "counter plan get return local names"
+  require (get.returns.localNames == #["__pf_result"]) "counter plan get return local names"
   let getReturnTypedNames := ProofForge.Backend.Evm.ToYul.returnTypedNames get.returns
   require (getReturnTypedNames.size == 1) "counter plan get typed return count"
   match getReturnTypedNames[0]? with
-  | some returnName => require (returnName.name == "result") "counter plan get typed return name"
+  | some returnName => require (returnName.name == "__pf_result") "counter plan get typed return name"
   | none => throw <| IO.userError "counter plan get missing typed return"
   require (get.body.size == 1) "counter plan get body size"
   match ← requireAt get.body 0 "counter plan get missing body" with
@@ -907,7 +909,7 @@ def testEventSemanticPlan : IO Unit := do
   match topicStmts[topicStmts.size - 1]? with
   | some (Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args))) => do
       match vars[0]? with
-      | some var => require (var.name == "_topic0") "event plan-to-yul topic var name"
+      | some var => require (var.name == "__pf_event_topic0") "event plan-to-yul topic var name"
       | none => throw <| IO.userError "event plan-to-yul missing topic var"
       require (args.size == 2) "event plan-to-yul keccak arg count"
   | _ => throw <| IO.userError "event plan-to-yul topic must end with keccak topic0"
@@ -926,7 +928,7 @@ def testEventSemanticPlan : IO Unit := do
   match indexedTopicStmts[0]! with
   | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.lit lit)) => do
       match vars[0]? with
-      | some var => require (var.name == "_indexed_topic0") "event plan-to-yul indexed scalar topic var"
+      | some var => require (var.name == "__pf_event_indexed_topic0") "event plan-to-yul indexed scalar topic var"
       | none => throw <| IO.userError "event plan-to-yul indexed scalar topic missing var"
       require (lit.value == "7") "event plan-to-yul indexed scalar topic value"
   | _ => throw <| IO.userError "event plan-to-yul indexed scalar topic must be var decl"
@@ -941,7 +943,7 @@ def testEventSemanticPlan : IO Unit := do
   match aggregateTopicStmts[2]! with
   | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args)) => do
       match vars[0]? with
-      | some var => require (var.name == "_indexed_topic1") "event plan-to-yul indexed aggregate topic var"
+      | some var => require (var.name == "__pf_event_indexed_topic1") "event plan-to-yul indexed aggregate topic var"
       | none => throw <| IO.userError "event plan-to-yul indexed aggregate topic missing var"
       require (args.size == 2) "event plan-to-yul indexed aggregate keccak arg count"
   | _ => throw <| IO.userError "event plan-to-yul indexed aggregate topic must hash stored words"
@@ -954,12 +956,22 @@ def testEventSemanticPlan : IO Unit := do
       require (args.size == 4) "event plan-to-yul indexed log arg count"
       match args[3]! with
       | Lean.Compiler.Yul.Expr.ident topicName =>
-          require (topicName == "_indexed_topic0") "event plan-to-yul indexed topic arg"
+          require (topicName == "__pf_event_indexed_topic0") "event plan-to-yul indexed topic arg"
       | _ => throw <| IO.userError "event plan-to-yul indexed log topic must be identifier"
   | _ => throw <| IO.userError "event plan-to-yul log must be expr statement"
 
 def testERC20StandardEventSignatureTypes : IO Unit := do
-  let module := ProofForge.IR.Examples.Counter.module
+  let module := {
+    ProofForge.IR.Examples.Counter.module with
+      eventAbiWords := #[
+        { eventName := "Transfer", fieldName := "from", abiWord := "address" },
+        { eventName := "Transfer", fieldName := "to", abiWord := "address" },
+        { eventName := "Transfer", fieldName := "value", abiWord := "uint256" },
+        { eventName := "Approval", fieldName := "owner", abiWord := "address" },
+        { eventName := "Approval", fieldName := "spender", abiWord := "address" },
+        { eventName := "Approval", fieldName := "value", abiWord := "uint256" }
+      ]
+  }
   let transferFrom ← requireValidateOk
     (ProofForge.Backend.Evm.Validate.eventSignatureFieldType module "Transfer" "from" .u64)
     "erc20 Transfer.from event ABI type"
@@ -1173,7 +1185,7 @@ def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
     (aggregateReturnPlan.wordTypes == #[.bool, .u32])
     "aggregate crosscall return plan word layout"
   require
-    (aggregateReturnPlan.localNames == #["__proof_forge_return_0", "__proof_forge_return_1"])
+    (aggregateReturnPlan.localNames == #["__pf_return_0", "__pf_return_1"])
     "aggregate crosscall return plan local names"
   let aggregateAssignmentPlan? ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.aggregateCrosscallReturnAssignmentPlan?
@@ -1197,7 +1209,7 @@ def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
     (aggregateAssignmentPlan.returns.wordTypes == #[.bool, .u32])
     "aggregate crosscall return assignment plan word layout"
   require
-    (aggregateAssignmentPlan.returns.localNames == #["__proof_forge_return_0", "__proof_forge_return_1"])
+    (aggregateAssignmentPlan.returns.localNames == #["__pf_return_0", "__pf_return_1"])
     "aggregate crosscall return assignment plan local names"
   require
     aggregateAssignmentPlan.args.isEmpty
@@ -1264,7 +1276,7 @@ def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
       "aggregate crosscall return assignment plan helper name"
   match aggregateAssignmentFromPlan with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["__proof_forge_return_0", "__proof_forge_return_1"])
+      require (names == #["__pf_return_0", "__pf_return_1"])
         "aggregate crosscall return assignment plan helper return names"
       require (name == aggregateAssignmentFromPlanName)
         "aggregate crosscall return assignment plan helper function name"
@@ -1338,7 +1350,7 @@ def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
     "planned aggregate crosscall return plan-to-yul statement count"
   match plannedAggregateReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["__proof_forge_return_0", "__proof_forge_return_1"])
+      require (names == #["__pf_return_0", "__pf_return_1"])
         "planned aggregate crosscall return plan-to-yul return names"
       require (name == "__proof_forge_crosscall_0_abi_bool_u32")
         "planned aggregate crosscall return plan-to-yul helper name"
@@ -2479,12 +2491,12 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   require (bytesParam.headWordIndex == 0) "dynamic ABI bytes param head word index"
   require bytesParam.isDynamic "dynamic ABI bytes param is dynamic"
   require
-    (bytesParam.localNames == #["data__length", "data__data_ptr"])
+    (bytesParam.localNames == #["__pf_param_data_length", "__pf_param_data_data_ptr"])
     "dynamic ABI bytes param local names"
   let bytesTypedParams := ProofForge.Backend.Evm.ToYul.entrypointParamTypedNames bytesEntrypoint.params
   require (bytesTypedParams.size == 2) "dynamic ABI bytes function param count"
   match bytesTypedParams[1]? with
-  | some param => require (param.name == "data__data_ptr") "dynamic ABI bytes function data ptr param"
+  | some param => require (param.name == "__pf_param_data_data_ptr") "dynamic ABI bytes function data ptr param"
   | none => throw <| IO.userError "dynamic ABI bytes function missing data ptr param"
   let bytesDecodeStmts :=
     ProofForge.Backend.Evm.ToYul.abiParamValidationAndDecodeStatements bytesEntrypoint.params
@@ -2492,7 +2504,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   match bytesDecodeStmts[bytesDecodeStmts.size - 1]! with
   | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.ident ptrName)) => do
       match vars[0]? with
-      | some var => require (var.name == "data__data_ptr") "dynamic ABI bytes data ptr local"
+      | some var => require (var.name == "__pf_param_data_data_ptr") "dynamic ABI bytes data ptr local"
       | none => throw <| IO.userError "dynamic ABI bytes decode missing data ptr var"
       require (ptrName == "__pf_dyn_ptr_data") "dynamic ABI bytes decode data ptr source"
   | _ => throw <| IO.userError "dynamic ABI bytes decode must end with data ptr var"
@@ -2517,7 +2529,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   let alteredBytesBody ← requireSome
     (functionBody? alteredDynamicObject.code.statements alteredBytesFunctionName)
     "dynamic ABI altered plan function body missing"
-  require (blockHasAssignmentIdent alteredBytesBody "result" "payload__data_ptr")
+  require (blockHasAssignmentIdent alteredBytesBody "__pf_result" "__pf_param_payload_data_ptr")
     "plan-driven entrypoint lowering must consume dynamic return ModulePlan body"
   let aggregateReturnPlan ← requireOk
     (buildSemanticPlan ProofForge.IR.Examples.EvmAbiAggregateProbe.module)
@@ -2552,9 +2564,9 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   let alteredMakePairBody ← requireSome
     (functionBody? alteredAggregateReturnObject.code.statements alteredMakePairFunctionName)
     "ABI aggregate altered plan function body missing"
-  require (blockHasAssignmentNat alteredMakePairBody "__proof_forge_return_0" 77)
+  require (blockHasAssignmentNat alteredMakePairBody "__pf_return_0" 77)
     "plan-driven entrypoint lowering must consume aggregate return word 77"
-  require (blockHasAssignmentNat alteredMakePairBody "__proof_forge_return_1" 88)
+  require (blockHasAssignmentNat alteredMakePairBody "__pf_return_1" 88)
     "plan-driven entrypoint lowering must consume aggregate return word 88"
   let storageStructPlan ← requireOk
     (buildSemanticPlan ProofForge.IR.Examples.EvmStorageStructProbe.module)
@@ -2586,9 +2598,9 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   let alteredWholeStructBody ← requireSome
     (functionBody? alteredStorageStructObject.code.statements alteredWholeStructFunctionName)
     "storage struct altered plan function body missing"
-  require (blockHasAssignmentSloadSlot alteredWholeStructBody "__proof_forge_return_0" 1)
+  require (blockHasAssignmentSloadSlot alteredWholeStructBody "__pf_return_0" 1)
     "plan-driven entrypoint lowering must consume storage struct return slot 1"
-  require (blockHasAssignmentSloadSlot alteredWholeStructBody "__proof_forge_return_1" 2)
+  require (blockHasAssignmentSloadSlot alteredWholeStructBody "__pf_return_1" 2)
     "plan-driven entrypoint lowering must consume storage struct return slot 2"
   require (!blockHasSstore alteredWholeStructBody)
     "plan-driven storage struct return body must not fall back to portable IR storage writes"
@@ -2631,7 +2643,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   require
     (blockHasAssignmentCallNatArgs
       alteredCallRemotePairBody
-      #["__proof_forge_return_0", "__proof_forge_return_1"]
+      #["__pf_return_0", "__pf_return_1"]
       "__proof_forge_crosscall_0_abi_bool_u32"
       #[111, 222])
     "plan-driven entrypoint lowering must consume aggregate crosscall return ModulePlan body"
@@ -2721,7 +2733,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   require
     (blockHasAssignmentCallNatPrefixIdentSuffix
       alteredPlannedPairArgBody
-      #["result"]
+      #["__pf_result"]
       "__proof_forge_crosscall_2_bool"
       #[111, 222]
       #["__proof_forge_struct_pair_flag", "__proof_forge_struct_pair_small"])
@@ -2813,7 +2825,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   require
     (blockHasAssignmentCallNatPrefixSloadSuffix
       alteredPlannedStoragePairArgBody
-      #["result"]
+      #["__pf_result"]
       "__proof_forge_crosscall_2_bool"
       #[333, 444]
       #[1, 2])
@@ -3062,7 +3074,7 @@ def testScalarExprPlanToYul : IO Unit := do
           require (shrArgs.size == 2) "counter scalar read plan-to-yul shr arg count"
           match shrArgs[0]! with
           | Lean.Compiler.Yul.Expr.lit lit =>
-              require (lit.value == "192") "counter scalar read plan-to-yul shift amount"
+              require (lit.value == "0") "counter scalar read plan-to-yul shift amount"
           | _ => throw <| IO.userError "counter scalar read plan-to-yul shift must be literal"
           match shrArgs[1]! with
           | Lean.Compiler.Yul.Expr.builtin sloadName sloadArgs => do
@@ -3093,7 +3105,7 @@ def testScalarExprPlanToYul : IO Unit := do
       (.add (.local "amount") (.literal (.u64 1))))
     "add Lower ExprPlan"
   match addPlan with
-  | .checkedArith .add (.local "amount") (.literalWord 1) => pure ()
+  | .checkedArith .add (.local "amount") (.literalWord 1) _ _ => pure ()
   | _ => throw <| IO.userError "add must lower to checked arithmetic ExprPlan"
   let directAddExpr ← requireOk
     (lowerExpr
@@ -3144,7 +3156,7 @@ def testScalarExprPlanToYul : IO Unit := do
       (.shiftLeft (.local "amount") (.literal (.u64 3))))
     "shiftLeft Lower ExprPlan"
   match shiftPlan with
-  | .checkedArith .shiftLeft (.local "amount") (.literalWord 3) => pure ()
+  | .checkedArith .shiftLeft (.local "amount") (.literalWord 3) _ _ => pure ()
   | _ => throw <| IO.userError "shiftLeft must lower to checked arithmetic ExprPlan"
   let directShiftExpr ← requireOk
     (lowerExpr
@@ -4184,7 +4196,7 @@ def testArrayLiteralDirectExprPlanToYul : IO Unit := do
           require (values.size == 2) "direct dynamic array-literal Lower ExprPlan values"
       | _ => throw <| IO.userError "direct dynamic array-literal Lower ExprPlan must use arrayLit base"
       match indexPlan with
-      | .checkedArith .add (.local name) (.literalWord 0) =>
+      | .checkedArith .add (.local name) (.literalWord 0) _ _ =>
           require (name == "idx") "direct dynamic array-literal Lower ExprPlan index"
       | _ => throw <| IO.userError "direct dynamic array-literal Lower ExprPlan index must be checked-add"
   | _ => throw <| IO.userError "direct dynamic array-literal Lower ExprPlan must be arrayGet arrayLit checked-add"
@@ -4224,7 +4236,7 @@ def requirePlannedBodyAssignmentNat
   require (plannedBody.size == 1) s!"`{entrypointName}` planned body statement count"
   match plannedBody[0]! with
   | Lean.Compiler.Yul.Statement.assignment names expr => do
-      require (names == #["result"]) s!"`{entrypointName}` planned body return target"
+      require (names == #["__pf_result"]) s!"`{entrypointName}` planned body return target"
       require (exprIsNatLiteral expr expected) s!"`{entrypointName}` planned body literal result"
   | _ => throw <| IO.userError s!"`{entrypointName}` planned body must assign result"
 
@@ -4261,7 +4273,7 @@ def testScalarFallbackGateAggregateLiteralPlanToYul : IO Unit := do
   require (arrayReturnStmts.size == 1) "array literal scalar return statement count"
   match arrayReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "array literal scalar return target"
+      require (names == #["__pf_result"]) "array literal scalar return target"
       require (name == "__proof_forge_local_array_get_2") "array literal scalar return helper"
       require (args.size == 3) "array literal scalar return helper arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "array literal scalar return planned index"
@@ -4291,7 +4303,7 @@ def testScalarFallbackGateAggregateLiteralPlanToYul : IO Unit := do
   require (structReturnStmts.size == 1) "struct literal scalar return statement count"
   match structReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "struct literal scalar return target"
+      require (names == #["__pf_result"]) "struct literal scalar return target"
       require (name == "__pf_checked_add") "struct literal scalar return planned field"
       require (args.size == 2) "struct literal scalar return checked add arg count"
   | _ => throw <| IO.userError "struct literal scalar return must use planned field assignment"
@@ -4318,7 +4330,7 @@ def testScalarFallbackGateLocalAggregatePlanToYul : IO Unit := do
   require (arrayReturnStmts.size == 1) "local array scalar return statement count"
   match arrayReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "local array scalar return target"
+      require (names == #["__pf_result"]) "local array scalar return target"
       require (name == "__proof_forge_local_array_get_3") "local array scalar return helper"
       require (args.size == 4) "local array scalar return helper arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "local array scalar return planned index"
@@ -4415,7 +4427,7 @@ def testScalarFallbackGateMemoryArrayPlanToYul : IO Unit := do
   require (getReturnStmts.size == 1) "memory array get return statement count"
   match getReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "memory array get return target"
+      require (names == #["__pf_result"]) "memory array get return target"
       require (name == (Helper.memoryArrayGet).name) "memory array get return helper"
       require (args.size == 2) "memory array get return helper arg count"
       requireIdentExpr args[0]! "buf" "memory array get return array source"
@@ -4520,7 +4532,7 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
   require (createReturnStmts.size == 1) "create scalar return statement count"
   match createReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "create scalar return target"
+      require (names == #["__pf_result"]) "create scalar return target"
       require (name == createHelperName) "create scalar return helper"
       require (args.size == 1) "create scalar return helper arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "create scalar return planned call value"
@@ -4810,7 +4822,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
     returns := {
       returnType := .fixedArray .u64 2
       wordTypes := #[.u64, .u64]
-      localNames := #["__proof_forge_return_0", "__proof_forge_return_1"]
+      localNames := #["__pf_return_0", "__pf_return_1"]
     }
     source := AbiValuePlan.local "xs" (.fixedArray .u64 2)
   }
@@ -4827,12 +4839,12 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (directAssignments.size == 2) "direct return value word plan assignment count"
   match directAssignments[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["__proof_forge_return_0"]) "direct return value word plan first target"
+      require (names == #["__pf_return_0"]) "direct return value word plan first target"
       require (valueName == "__proof_forge_array_xs_0") "direct return value word plan first source"
   | _ => throw <| IO.userError "direct return value word plan first statement must assign local ABI word"
   match directAssignments[1]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["__proof_forge_return_1"]) "direct return value word plan second target"
+      require (names == #["__pf_return_1"]) "direct return value word plan second target"
       require (valueName == "__proof_forge_array_xs_1") "direct return value word plan second source"
   | _ => throw <| IO.userError "direct return value word plan second statement must assign local ABI word"
   let structEnv : TypeEnv := #[
@@ -4852,7 +4864,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
       require (name == "p") "Lower local struct return source name"
       require (type == .structType "Point") "Lower local struct return source type"
   | _ => throw <| IO.userError "Lower local struct return must use local ABI value source plan"
-  require (structPlan.returns.localNames == #["__proof_forge_return_0", "__proof_forge_return_1"])
+  require (structPlan.returns.localNames == #["__pf_return_0", "__pf_return_1"])
     "Lower local struct return names"
   let structAssignments ← requireOk
     (lowerReturnValueWordPlan
@@ -4864,7 +4876,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (structAssignments.size == 2) "Lower local struct return assignment count"
   match structAssignments[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["__proof_forge_return_0"]) "Lower local struct return first target"
+      require (names == #["__pf_return_0"]) "Lower local struct return first target"
       require (valueName == "__proof_forge_struct_p_x") "Lower local struct return first source"
   | _ => throw <| IO.userError "Lower local struct return first statement must assign local ABI word"
   let arrayEnv : TypeEnv := #[
@@ -4884,7 +4896,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
       require (name == "xs") "Lower local fixed-array return source name"
       require (type == .fixedArray .u64 3) "Lower local fixed-array return source type"
   | _ => throw <| IO.userError "Lower local fixed-array return must use local ABI value source plan"
-  require (arrayPlan.returns.localNames == #["__proof_forge_return_0", "__proof_forge_return_1", "__proof_forge_return_2"])
+  require (arrayPlan.returns.localNames == #["__pf_return_0", "__pf_return_1", "__pf_return_2"])
     "Lower local fixed-array return names"
   let arrayAssignments ← requireOk
     (lowerReturnValueWordPlan
@@ -4896,7 +4908,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (arrayAssignments.size == 3) "Lower local fixed-array return assignment count"
   match arrayAssignments[2]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["__proof_forge_return_2"]) "Lower local fixed-array return third target"
+      require (names == #["__pf_return_2"]) "Lower local fixed-array return third target"
       require (valueName == "__proof_forge_array_xs_2") "Lower local fixed-array return third source"
   | _ => throw <| IO.userError "Lower local fixed-array return third statement must assign local ABI word"
   let literalStructPlan? ← requireValidateOk
@@ -4923,7 +4935,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (literalStructAssignments.size == 2) "Lower literal struct return assignment count"
   match literalStructAssignments[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.lit value) => do
-      require (names == #["__proof_forge_return_0"]) "Lower literal struct return first target"
+      require (names == #["__pf_return_0"]) "Lower literal struct return first target"
       require (value.value == "4") "Lower literal struct return first literal"
   | _ => throw <| IO.userError "Lower literal struct return first statement must assign literal ABI word"
   let plannedStorageStructPlan ← requireValidateOk
@@ -4950,7 +4962,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
     "Lower planned storage struct return assignment count"
   match plannedStorageStructAssignments[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "sload" args) => do
-      require (names == #["__proof_forge_return_0"]) "Lower planned storage struct return first target"
+      require (names == #["__pf_return_0"]) "Lower planned storage struct return first target"
       require (args.size == 1) "Lower planned storage struct return first sload arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.lit slot =>
@@ -5016,7 +5028,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (storageArrayAssignments.size == 3) "Lower storage fixed-array return assignment count"
   match storageArrayAssignments[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "sload" args) => do
-      require (names == #["__proof_forge_return_0"]) "Lower storage fixed-array return first target"
+      require (names == #["__pf_return_0"]) "Lower storage fixed-array return first target"
       require (args.size == 1) "Lower storage fixed-array return first sload arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.call name _ =>
@@ -5082,7 +5094,7 @@ def testReturnValueWordPlanToYul : IO Unit := do
   require (storageStructArrayAssignments.size == 4) "Lower storage struct-array return assignment count"
   match storageStructArrayAssignments[3]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin "sload" args) => do
-      require (names == #["__proof_forge_return_3"]) "Lower storage struct-array return last target"
+      require (names == #["__pf_return_3"]) "Lower storage struct-array return last target"
       require (args.size == 1) "Lower storage struct-array return last sload arg count"
       match args[0]! with
       | Lean.Compiler.Yul.Expr.call name _ =>
@@ -5643,7 +5655,7 @@ def testScalarReturnPlanToYul : IO Unit := do
   let dynamicReturnPlan : ReturnPlan := {
     returnType := .bytes
     wordTypes := #[.bytes]
-    localNames := #["result"]
+    localNames := #["__pf_result"]
   }
   let directDynamicStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.dynamicReturnStmtPlanStatements
@@ -5655,15 +5667,15 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (directDynamicStmts.size == 1) "dynamic return StmtPlan-to-Yul helper statement count"
   match directDynamicStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["result"]) "dynamic return StmtPlan-to-Yul helper target"
-      require (valueName == "data__data_ptr") "dynamic return StmtPlan-to-Yul helper data ptr"
+      require (names == #["__pf_result"]) "dynamic return StmtPlan-to-Yul helper target"
+      require (valueName == "__pf_param_data_data_ptr") "dynamic return StmtPlan-to-Yul helper data ptr"
   | _ => throw <| IO.userError "dynamic return StmtPlan-to-Yul helper must assign data pointer"
   let directStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarReturnStmtPlanStatements
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      #["result"]
+      #["__pf_result"]
       false
       (ProofForge.Backend.Evm.Plan.StmtPlan.return
         (.checkedArith .add (.local "n") (.literalWord 1))))
@@ -5671,7 +5683,7 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (directStmts.size == 1) "scalar return StmtPlan-to-Yul helper statement count"
   match directStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "scalar return StmtPlan-to-Yul helper target"
+      require (names == #["__pf_result"]) "scalar return StmtPlan-to-Yul helper target"
       require (name == "__pf_checked_add") "scalar return StmtPlan-to-Yul helper checked add"
       require (args.size == 2) "scalar return StmtPlan-to-Yul helper checked add arg count"
   | _ => throw <| IO.userError "scalar return StmtPlan-to-Yul helper must assign helper result"
@@ -5680,7 +5692,7 @@ def testScalarReturnPlanToYul : IO Unit := do
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      #["result"]
+      #["__pf_result"]
       true
       (ProofForge.Backend.Evm.Plan.StmtPlan.return
         (.effect (.storageScalarRead "count"))))
@@ -5688,7 +5700,7 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (directLeaveStmts.size == 2) "scalar return StmtPlan-to-Yul helper leave statement count"
   match directLeaveStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin name args) => do
-      require (names == #["result"]) "scalar return StmtPlan-to-Yul helper leave target"
+      require (names == #["__pf_result"]) "scalar return StmtPlan-to-Yul helper leave target"
       -- Packed read: and(shr(shift, sload(slot)), mask)
       require (name == "and") "scalar return StmtPlan-to-Yul helper leave packed read (and)"
       require (args.size == 2) "scalar return StmtPlan-to-Yul helper leave packed read arg count"
@@ -5708,7 +5720,7 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (returnStmts.size == 1) "scalar return plan-to-yul statement count"
   match returnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["result"]) "scalar return plan-to-yul target"
+      require (names == #["__pf_result"]) "scalar return plan-to-yul target"
       require (name == "__pf_checked_add") "scalar return plan-to-yul helper"
       require (args.size == 2) "scalar return plan-to-yul arg count"
   | _ => throw <| IO.userError "scalar return plan-to-yul must assign helper result"
@@ -5724,8 +5736,8 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (dynamicReturnStmts.size == 1) "dynamic return plan-to-yul statement count"
   match dynamicReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.ident valueName) => do
-      require (names == #["result"]) "dynamic return plan-to-yul target"
-      require (valueName == "data__data_ptr") "dynamic return plan-to-yul data ptr"
+      require (names == #["__pf_result"]) "dynamic return plan-to-yul target"
+      require (valueName == "__pf_param_data_data_ptr") "dynamic return plan-to-yul data ptr"
   | _ => throw <| IO.userError "dynamic return plan-to-yul must assign data pointer"
   let storageReturnStmts ← requireOk
     (lowerReturnStmt
@@ -5739,7 +5751,7 @@ def testScalarReturnPlanToYul : IO Unit := do
   require (storageReturnStmts.size == 1) "storage scalar return plan-to-yul statement count"
   match storageReturnStmts[0]! with
   | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.builtin name args) => do
-      require (names == #["result"]) "storage scalar return plan-to-yul target"
+      require (names == #["__pf_result"]) "storage scalar return plan-to-yul target"
       -- Packed read: and(shr(shift, sload(slot)), mask)
       require (name == "and") "storage scalar return plan-to-yul opcode (packed read = and)"
       require (args.size == 2) "storage scalar return plan-to-yul arg count (and)"
@@ -7138,7 +7150,7 @@ def testScalarEventPlanToYul : IO Unit := do
       toYulError
       directEvent
       #[Lean.Compiler.Yul.Statement.varDecl
-        #[{ name := "_indexed_topic0" }]
+        #[{ name := "__pf_event_indexed_topic0" }]
         (some (Lean.Compiler.Yul.Expr.num 5))]
       #[Lean.Compiler.Yul.Expr.num 9])
     "event EventPlan-to-Yul core helper"
@@ -7181,7 +7193,7 @@ def testScalarEventPlanToYul : IO Unit := do
   | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.lit literal)) => do
       require (literal.value == "7") "event indexed field plan-to-yul topic value"
       match vars[0]? with
-      | some var => require (vars.size == 1 && var.name == "_indexed_topic0") "event indexed field plan-to-yul topic var"
+      | some var => require (vars.size == 1 && var.name == "__pf_event_indexed_topic0") "event indexed field plan-to-yul topic var"
       | none => throw <| IO.userError "event indexed field plan-to-yul topic missing var"
   | _ => throw <| IO.userError "event indexed field plan-to-yul topic must be var decl"
   let directWordEffect ← requireValidateOk
@@ -7233,7 +7245,7 @@ def testScalarEventPlanToYul : IO Unit := do
         | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.lit literal)) => do
             match vars[0]? with
             | some var =>
-                if vars.size == 1 && var.name == "_indexed_topic0" && literal.value == "7" then
+                if vars.size == 1 && var.name == "__pf_event_indexed_topic0" && literal.value == "7" then
                   foundIndexedTopic := true
             | none => pure ()
         | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "mstore" args) => do
@@ -7266,7 +7278,7 @@ def testScalarEventPlanToYul : IO Unit := do
       let words ← requireAt dataFieldWords 0 "event data statement Lower missing words"
       require (words.size == 1) "event data statement Lower word count"
       match words[0]? with
-      | some (ExprPlan.checkedArith .add (ExprPlan.local "n") (ExprPlan.literalWord 1) _) => pure ()
+      | some (ExprPlan.checkedArith .add (ExprPlan.local "n") (ExprPlan.literalWord 1) _ _) => pure ()
       | _ => throw <| IO.userError "event data statement Lower word must be planned checked add"
   | _ => throw <| IO.userError "event data statement Lower must produce eventEmitWords"
   let plannedIndexedEffect ← requireValidateOk
@@ -7324,10 +7336,10 @@ def testScalarEventPlanToYul : IO Unit := do
       for stmt in block.statements do
         match stmt with
         | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin andName _)) => do
-            -- Packed read: varDecl _indexed_topic0 = and(shr(..., sload(...)), mask)
+            -- Packed read: varDecl __pf_event_indexed_topic0 = and(shr(..., sload(...)), mask)
             match vars[0]? with
             | some var =>
-                if vars.size == 1 && var.name == "_indexed_topic0" then
+                if vars.size == 1 && var.name == "__pf_event_indexed_topic0" then
                   require (andName == "and") "scalar indexed event topic must lower to packed read (and)"
                   foundIndexedSload := true
             | none => pure ()
@@ -7589,7 +7601,7 @@ def testStorageAggregateIndexedEventTopicPlanToYul : IO Unit := do
   match plannedTopicStmts[2]! with
   | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args)) => do
       match vars[0]? with
-      | some var => require (var.name == "_indexed_topic0") "storage aggregate indexed event topic var"
+      | some var => require (var.name == "__pf_event_indexed_topic0") "storage aggregate indexed event topic var"
       | none => throw <| IO.userError "storage aggregate indexed event topic missing var"
       require (args.size == 2) "storage aggregate indexed event topic keccak arg count"
   | _ => throw <| IO.userError "storage aggregate indexed event topic must hash planned words"
@@ -7609,7 +7621,7 @@ def testStorageAggregateIndexedEventTopicPlanToYul : IO Unit := do
         | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.builtin "keccak256" args)) => do
             match vars[0]? with
             | some var =>
-                if vars.size == 1 && var.name == "_indexed_topic0" && args.size == 2 then
+                if vars.size == 1 && var.name == "__pf_event_indexed_topic0" && args.size == 2 then
                   foundIndexedTopicHash := true
             | none => pure ()
         | _ => pure ()
@@ -7622,7 +7634,7 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   let env : TypeEnv := #[{ name := "n", type := .u64, isMutable := false }]
   let directWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
-      ProofForge.IR.Examples.Counter.module.overflowChecked
+      true
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
@@ -7631,27 +7643,20 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
         (.storageScalarWrite
           "count"
-          (.checkedArith .add (.local "n") (.literalWord 1)))))
+          (.checkedArith .add (.local "n") (.literalWord 1) true (some 8)))))
     "scalar storage write StmtPlan-to-Yul helper"
   require (directWriteStmts.size == 1) "scalar storage write StmtPlan-to-Yul helper statement count"
-  match directWriteStmts[0]! with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-      require (args.size == 2) "scalar storage write StmtPlan-to-Yul helper arg count"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
-          require (orName == "or") "scalar storage write StmtPlan-to-Yul helper packed write (or)"
-          require (orArgs.size == 2) "scalar storage write StmtPlan-to-Yul helper or arg count"
-          match orArgs[1]! with
-          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
-              require (shlName == "shl") "scalar storage write StmtPlan-to-Yul helper packed shift (shl)"
-              match shlArgs[1]! with
-              | Lean.Compiler.Yul.Expr.call name addArgs => do
-                  require (name == "__pf_checked_add") "scalar storage write StmtPlan-to-Yul helper checked add"
-                  require (addArgs.size == 2) "scalar storage write StmtPlan-to-Yul helper checked add arg count"
-              | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper packed value must be helper call"
-          | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper must have shl in packed write"
-      | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper value must be packed write (or/and/shl)"
-  | _ => throw <| IO.userError "scalar storage write StmtPlan-to-Yul helper must lower to sstore"
+  let directWriteYul :=
+    Lean.Compiler.Yul.Printer.printStatement 0 directWriteStmts[0]!
+  require
+    (directWriteYul.contains "let __pf_packed_value := __pf_checked_width(__pf_checked_add(")
+    "scalar storage write StmtPlan-to-Yul helper must evaluate checked arithmetic once"
+  require
+    (directWriteYul.contains "if gt(__pf_packed_value, 18446744073709551615)")
+    "scalar storage write StmtPlan-to-Yul helper must guard the destination width"
+  require
+    (directWriteYul.contains "shl(0, and(__pf_packed_value, 18446744073709551615))")
+    "scalar storage write StmtPlan-to-Yul helper must mask the guarded value"
   let directAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageEffectStmtPlanStatements
       true
@@ -7667,28 +7672,20 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
           (.effect (.storageScalarRead "count")))))
     "scalar storage assign_op StmtPlan-to-Yul helper"
   require (directAssignOpStmts.size == 1) "scalar storage assign_op StmtPlan-to-Yul helper statement count"
-  match directAssignOpStmts[0]! with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-      require (args.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper arg count"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
-          require (orName == "or") "scalar storage assign_op StmtPlan-to-Yul helper packed write (or)"
-          require (orArgs.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper or arg count"
-          match orArgs[1]! with
-          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
-              require (shlName == "shl") "scalar storage assign_op StmtPlan-to-Yul helper packed shift (shl)"
-              match shlArgs[1]! with
-              | Lean.Compiler.Yul.Expr.call name addArgs => do
-                  require (name == "__pf_checked_add") "scalar storage assign_op StmtPlan-to-Yul helper checked add"
-                  require (addArgs.size == 2) "scalar storage assign_op StmtPlan-to-Yul helper checked add arg count"
-                  match addArgs[0]! with
-                  | Lean.Compiler.Yul.Expr.builtin readName _ =>
-                      require (readName == "and") "scalar storage assign_op StmtPlan-to-Yul helper packed read (and)"
-                  | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper checked add lhs must be packed read"
-              | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper packed value must be helper call"
-          | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper must have shl in packed write"
-      | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper value must be packed write (or/and/shl)"
-  | _ => throw <| IO.userError "scalar storage assign_op StmtPlan-to-Yul helper must lower to sstore"
+  let directAssignOpYul :=
+    Lean.Compiler.Yul.Printer.printStatement 0 directAssignOpStmts[0]!
+  require
+    (directAssignOpYul.contains
+      "let __pf_packed_value := __pf_checked_width(__pf_checked_add(")
+    "scalar storage assign_op StmtPlan-to-Yul helper must evaluate the checked value once"
+  require
+    (directAssignOpYul.contains
+      "if gt(__pf_packed_value, 18446744073709551615)")
+    "scalar storage assign_op StmtPlan-to-Yul helper must guard the packed field width"
+  require
+    (directAssignOpYul.contains
+      "shl(0, and(__pf_packed_value, 18446744073709551615))")
+    "scalar storage assign_op StmtPlan-to-Yul helper must mask the guarded value"
   let loweredScalarWriteEffect ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.buildEffectPlan
       ProofForge.IR.Examples.Counter.module
@@ -7696,10 +7693,14 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       (.storageScalarWrite "count" (.add (.local "n") (.literal (.u64 1)))))
     "Lower scalar storage write target effect plan"
   match loweredScalarWriteEffect with
-  | .storageScalarWriteTarget target (.checkedArith .add (.local name) (.literalWord value)) => do
+  | .storageScalarWriteTarget target
+      (.checkedArith .add (.local name) (.literalWord value) _ (some byteWidth)) => do
       requireScalarStorageTarget target 0 0 8 "Lower scalar storage write target"
+      require (target.writeSemantics == .checked)
+        "Lower scalar storage write target must carry checked destination-width semantics"
       require (name == "n") "Lower scalar storage write target value lhs"
       require (value == 1) "Lower scalar storage write target value rhs"
+      require (byteWidth == 8) "Lower scalar storage write arithmetic width"
   | _ => throw <| IO.userError "Lower scalar storage write must produce storageScalarWriteTarget"
   let loweredScalarReadEffect ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.buildEffectPlan
@@ -7720,6 +7721,8 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   match loweredScalarAssignOpEffect with
   | .storageScalarAssignOpTarget target op (.effect (.storageScalarReadTarget valueTarget)) => do
       requireScalarStorageTarget target 0 0 8 "Lower scalar storage assign_op target"
+      require (target.writeSemantics == .wrapping)
+        "Lower scalar storage assign_op target must carry module wrapping semantics"
       require (op == .add) "Lower scalar storage assign_op target op"
       requireScalarStorageTarget valueTarget 0 0 8 "Lower scalar storage assign_op value target"
   | _ => throw <| IO.userError "Lower scalar storage assign_op must produce storageScalarAssignOpTarget"
@@ -7773,34 +7776,35 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
   | _ => throw <| IO.userError "scalar storage read effect must lower through packed target plan"
   let directPlannedWriteStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
         (.storageScalarWriteTarget
           { slot := .scalarSlot 0, byteOffset := 0, byteWidth := 8 }
-          (.checkedArith .add (.local "n") (.literalWord 1)))))
+          (.checkedArith .add (.local "n") (.literalWord 1) true (some 8)))))
     "planned scalar storage write target StmtPlan-to-Yul helper"
   require (directPlannedWriteStmts.size == 1) "planned scalar storage write target helper statement count"
-  match directPlannedWriteStmts[0]! with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-      require (args.size == 2) "planned scalar storage write target helper arg count"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
-          require (orName == "or") "planned scalar storage write target helper packed write"
-          require (orArgs.size == 2) "planned scalar storage write target helper or arg count"
-      | _ => throw <| IO.userError "planned scalar storage write target helper value must be packed write"
-  | _ => throw <| IO.userError "planned scalar storage write target helper must lower to sstore"
+  let directPlannedWriteYul :=
+    Lean.Compiler.Yul.Printer.printStatement 0 directPlannedWriteStmts[0]!
+  require
+    (directPlannedWriteYul.contains "let __pf_packed_value := __pf_checked_width(__pf_checked_add(")
+    "planned scalar storage write target helper must evaluate checked arithmetic once"
+  require
+    (directPlannedWriteYul.contains "if gt(__pf_packed_value, 18446744073709551615)")
+    "planned scalar storage write target helper must guard the destination width"
+  require
+    (directPlannedWriteYul.contains "sstore(0, or(")
+    "planned scalar storage write target helper must lower to packed sstore"
   let directPlannedAssignOpStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-      ProofForge.IR.Examples.Counter.module.overflowChecked
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
       (ProofForge.Backend.Evm.Plan.StmtPlan.effect
         (.storageScalarAssignOpTarget
-          { slot := .scalarSlot 0, byteOffset := 0, byteWidth := 8 }
+          { slot := .scalarSlot 0, byteOffset := 0, byteWidth := 8,
+            writeSemantics := .wrapping }
           .add
           (.effect (.storageScalarRead "count")))))
     "planned scalar storage assign_op target StmtPlan-to-Yul helper"
@@ -7820,47 +7824,63 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
       env
       (.storageScalarWrite "count" (.add (.local "n") (.literal (.u64 1)))))
     "scalar storage write value plan-to-yul"
-  match writeStmt with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
-      require (ssName == "sstore") "scalar storage write plan-to-yul must lower to sstore"
-      require (args.size == 2) "scalar storage write plan-to-yul arg count"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.builtin orName orArgs => do
-          require (orName == "or") "scalar storage write plan-to-yul must be packed or"
-          -- Packed write: or(and(sload(slot), not(mask)), shl(shift, value))
-          require (orArgs.size == 2) "scalar storage write plan-to-yul packed or arg count"
-          match orArgs[1]! with
-          | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
-              require (shlName == "shl") "scalar storage write plan-to-yul must have shl in packed write"
-              match shlArgs[1]! with
-              | Lean.Compiler.Yul.Expr.call name addArgs => do
-                  require (name == "__pf_checked_add") "scalar storage write plan-to-yul helper"
-                  require (addArgs.size == 2) "scalar storage write plan-to-yul helper arg count"
-              | _ => throw <| IO.userError "scalar storage write plan-to-yul packed value must be helper call"
-          | _ => throw <| IO.userError "scalar storage write plan-to-yul must have shl in packed write"
-      | _ => throw <| IO.userError "scalar storage write plan-to-yul value must be packed write (or/and/shl)"
-  | _ => throw <| IO.userError "scalar storage write plan-to-yul must lower to sstore"
+  let writeYul := Lean.Compiler.Yul.Printer.printStatement 0 writeStmt
+  require
+    (writeYul.contains "let __pf_packed_value := __pf_checked_width(__pf_checked_add(")
+    "scalar storage write plan-to-yul must evaluate checked arithmetic once"
+  require
+    (writeYul.contains "if gt(__pf_packed_value, 18446744073709551615)")
+    "scalar storage write plan-to-yul must guard the destination width"
+  require
+    (writeYul.contains "shl(0, and(__pf_packed_value, 18446744073709551615))")
+    "scalar storage write plan-to-yul must mask the guarded value"
   let eip1967Write ← requireOk
     (lowerEffectStmt
       eip1967PackingProbe
       #[{ name := "impl", type := .address, isMutable := false }]
       (.storageScalarWrite "$eip1967.implementation" (.local "impl")))
     "EIP-1967 fixed slot scalar write plan-to-yul"
-  match eip1967Write with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin ssName args) => do
-      require (ssName == "sstore") "EIP-1967 fixed slot write must lower to sstore"
-      require (args.size == 2) "EIP-1967 fixed slot write arg count"
-      match args[0]! with
-      | Lean.Compiler.Yul.Expr.lit literal => do
-          match literal.kind with
-          | Lean.Compiler.Yul.LiteralKind.hexNumber => pure ()
-          | _ => throw <| IO.userError "EIP-1967 fixed slot write slot literal kind"
-          require (literal.value == "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc") "EIP-1967 fixed slot write slot"
-      | _ => throw <| IO.userError "EIP-1967 fixed slot write must use fixed slot literal"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.ident "impl" => pure ()
-      | _ => throw <| IO.userError "EIP-1967 fixed slot write must not pack address value"
-  | _ => throw <| IO.userError "EIP-1967 fixed slot write must lower to sstore"
+  let eip1967WriteYul := Lean.Compiler.Yul.Printer.printStatement 0 eip1967Write
+  require
+    (eip1967WriteYul.contains "let __pf_implementation_candidate := impl")
+    "EIP-1967 fixed slot write must evaluate the implementation once"
+  require
+    (eip1967WriteYul.contains
+      "if gt(__pf_implementation_candidate, 1461501637330902918203684832716283019655932542975)")
+    "EIP-1967 fixed slot write must reject non-canonical address words"
+  require
+    (eip1967WriteYul.contains
+      "if iszero(extcodesize(__pf_implementation_candidate))")
+    "EIP-1967 fixed slot write must reject targets without runtime code"
+  require
+    (eip1967WriteYul.contains
+      "if eq(__pf_implementation_candidate, address())")
+    "EIP-1967 fixed slot write must reject the proxy itself"
+  require
+    (eip1967WriteYul.contains
+      "sstore(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc, __pf_implementation_candidate)")
+    "EIP-1967 fixed slot write must store the guarded full-width implementation"
+  requireValidateErrorContains
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      eip1967PackingProbe
+      (toValidateTypeEnv #[{ name := "delta", type := .u64, isMutable := false }])
+      (.storageScalarAssignOp "$eip1967.implementation" .add (.local "delta")))
+    "compound assignment is not allowed for the EIP-1967 implementation state"
+    "Lower must reject EIP-1967 implementation compound assignment"
+  requireErrorContains
+    (ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
+      toYulError
+      (fun expr => lowerExpr eip1967PackingProbe #[] expr)
+      (lowerPlanEffectExpr eip1967PackingProbe #[])
+      (ProofForge.Backend.Evm.Plan.StmtPlan.effect
+        (.storageScalarAssignOpTarget
+          { slot := .fixedSlot
+              "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+            byteOffset := 0, byteWidth := 32, writeSemantics := .checked }
+          .add
+          (.literalWord 1))))
+    "compound assignment is not allowed for the EIP-1967 implementation state"
+    "ToYul must defensively reject EIP-1967 implementation compound assignment"
   let assignOpStmt ← requireOk
     (lowerEffectStmt
       ProofForge.IR.Examples.Counter.module
@@ -7880,19 +7900,33 @@ def testScalarStorageEffectPlanToYul : IO Unit := do
           | Lean.Compiler.Yul.Expr.builtin shlName shlArgs => do
               require (shlName == "shl") "scalar storage assign_op must have shl in packed write"
               match shlArgs[1]! with
-              | Lean.Compiler.Yul.Expr.call name addArgs => do
-                  require (name == "__pf_checked_add") "scalar storage assign_op plan-to-yul helper"
-                  require (addArgs.size == 2) "scalar storage assign_op plan-to-yul helper arg count"
-                  -- The first arg to checked_add is the packed read (and/shr/sload)
-                  match addArgs[0]! with
-                  | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
-                  | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
-              | Lean.Compiler.Yul.Expr.builtin "add" addArgs => do
-                  require (addArgs.size == 2) "scalar storage assign_op plan-to-yul wrapping add arg count"
-                  match addArgs[0]! with
-                  | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
-                  | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
-              | _ => throw <| IO.userError "scalar storage assign_op packed value must be arith call/builtin"
+              | Lean.Compiler.Yul.Expr.builtin "and" maskArgs => do
+                  require (maskArgs.size == 2) "scalar storage assign_op value mask arg count"
+                  match maskArgs[0]! with
+                  | Lean.Compiler.Yul.Expr.call name addArgs => do
+                      require (name == "__pf_checked_add") "scalar storage assign_op plan-to-yul helper"
+                      require (addArgs.size == 2) "scalar storage assign_op plan-to-yul helper arg count"
+                      -- The first arg to checked_add is the packed read (and/shr/sload)
+                      match addArgs[0]! with
+                      | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
+                      | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
+                  | Lean.Compiler.Yul.Expr.builtin "add" addArgs => do
+                      require (addArgs.size == 2) "scalar storage assign_op plan-to-yul wrapping add arg count"
+                      match addArgs[0]! with
+                      | Lean.Compiler.Yul.Expr.builtin andName _ => require (andName == "and") "scalar storage assign_op rhs must be packed read (and)"
+                      | _ => throw <| IO.userError "scalar storage assign_op rhs must be packed read (and)"
+                  | Lean.Compiler.Yul.Expr.builtin "and" wrappedArgs => do
+                      require (wrappedArgs.size == 2)
+                        "scalar storage assign_op narrow wrapping mask arg count"
+                      match wrappedArgs[0]! with
+                      | Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
+                          require (addArgs.size == 2)
+                            "scalar storage assign_op narrow wrapping add arg count"
+                      | _ =>
+                          throw <| IO.userError
+                            "scalar storage assign_op narrow wrapping mask must contain add"
+                  | _ => throw <| IO.userError "scalar storage assign_op masked value must be arith call/builtin"
+              | _ => throw <| IO.userError "scalar storage assign_op packed value must be masked"
           | _ => throw <| IO.userError "scalar storage assign_op must have shl in packed write"
       | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul value must be packed write (or/and/shl)"
   | _ => throw <| IO.userError "scalar storage assign_op plan-to-yul must lower to sstore"
@@ -8525,7 +8559,8 @@ def testDynamicArrayPlanToYul : IO Unit := do
       (.storageDynamicArrayPush "values" (.add (.local "value") (.literal (.u64 3)))))
     "Lower dynamic-array push effect plan"
   match loweredPushEffect with
-  | .storageDynamicArrayPushTarget target (.checkedArith .add (.local valueName) (.literalWord amount)) => do
+  | .storageDynamicArrayPushTarget target
+      (.checkedArith .add (.local valueName) (.literalWord amount) _ _) => do
       require (target.rootSlot == 0) "Lower dynamic-array push target root slot"
       require (valueName == "value") "Lower dynamic-array push value local"
       require (amount == 3) "Lower dynamic-array push checked-add literal"
@@ -9114,7 +9149,7 @@ def testWholeStructStorageWritePlanToYul : IO Unit := do
         let some yField := fields.find? fun field => field.fst == "y"
           | throw <| IO.userError "Lower whole struct storage write must include y field"
         match xField.snd with
-        | .checkedArith .add (.local lhs) (.literalWord rhs) => do
+        | .checkedArith .add (.local lhs) (.literalWord rhs) _ _ => do
             require (lhs == "value") "Lower whole struct storage write x field lhs"
             require (rhs == 7) "Lower whole struct storage write x field rhs"
         | _ => throw <| IO.userError "Lower whole struct storage write x field must be ExprPlan checked add"
@@ -9140,7 +9175,7 @@ def testWholeStructStorageWritePlanToYul : IO Unit := do
   require (yPlan.slot == 2) "Lower whole struct storage write y slot"
   require (yPlan.fieldName == "y") "Lower whole struct storage write y field name"
   match xPlan.value with
-  | .checkedArith .add (.local lhs) (.literalWord rhs) => do
+  | .checkedArith .add (.local lhs) (.literalWord rhs) _ _ => do
       require (lhs == "value") "Lower whole struct storage write x field plan lhs"
       require (rhs == 7) "Lower whole struct storage write x field plan rhs"
   | _ => throw <| IO.userError "Lower whole struct storage write x field plan must be checked add"
@@ -9245,7 +9280,7 @@ def testStoragePathReadPlanToYul : IO Unit := do
       match keys[0]? with
       | some keyPlan =>
           match keyPlan with
-          | .checkedArith .add (.local lhs) (.literalWord rhs) => do
+          | .checkedArith .add (.local lhs) (.literalWord rhs) _ _ => do
               require (lhs == "outer") "Lower map storage path read key lhs"
               require (rhs == 1) "Lower map storage path read key rhs"
           | _ => throw <| IO.userError "Lower map storage path read key must be ExprPlan checked add"
@@ -9272,7 +9307,8 @@ def testStoragePathReadPlanToYul : IO Unit := do
       #[.mapKey (.add (.local "outer") (.literal (.u64 1)))])
     "typed map storage path read plan"
   match typedMapReadPath[0]? with
-  | some (ProofForge.Backend.Evm.Plan.StoragePathPlanSegment.mapKey (.checkedArith .add (.local name) (.literalWord value))) => do
+  | some (ProofForge.Backend.Evm.Plan.StoragePathPlanSegment.mapKey
+      (.checkedArith .add (.local name) (.literalWord value) _ _)) => do
       require (name == "outer") "typed map storage path read plan key lhs"
       require (value == 1) "typed map storage path read plan key rhs"
   | _ => throw <| IO.userError "typed map storage path read plan key must be checked add"
@@ -9489,7 +9525,8 @@ def testStoragePathWritePlanToYul : IO Unit := do
       #[.mapKey (.add (.local "outer") (.literal (.u64 1)))])
     "typed map storage path plan"
   match typedMapPath[0]? with
-  | some (ProofForge.Backend.Evm.Plan.StoragePathPlanSegment.mapKey (.checkedArith .add (.local name) (.literalWord value))) => do
+  | some (ProofForge.Backend.Evm.Plan.StoragePathPlanSegment.mapKey
+      (.checkedArith .add (.local name) (.literalWord value) _ _)) => do
       require (name == "outer") "typed map storage path plan key lhs"
       require (value == 1) "typed map storage path plan key rhs"
   | _ => throw <| IO.userError "typed map storage path plan key must be checked add"
@@ -9600,7 +9637,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
       require (length == 3) "Lower storage path write target array length"
       require (indexName == "value") "Lower storage path write target index"
       match valuePlan with
-      | .checkedArith .add (.local lhs) (.literalWord rhs) => do
+      | .checkedArith .add (.local lhs) (.literalWord rhs) _ _ => do
           require (lhs == "value") "Lower storage path write target value lhs"
           require (rhs == 4) "Lower storage path write target value rhs"
       | _ => throw <| IO.userError "Lower storage path write target value must be checked add"
@@ -9731,7 +9768,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
               match args[0]!, args[1]! with
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.call addName addArgs =>
                   foundCheckedValue := foundCheckedValue ||
-                    (slotName == "_slot" && addName == "__pf_checked_add" && addArgs.size == 2)
+                    (slotName == "__pf_storage_slot" && addName == "__pf_checked_add" && addArgs.size == 2)
               | _, _ => pure ()
         | _ => pure ()
       require foundCheckedValue "nested storage path write value must lower through checked add plan"
@@ -9759,7 +9796,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
         | Lean.Compiler.Yul.Statement.varDecl names (some slot) => do
             let slotTempName ← requireAt names 0 "storage path assign_op expr-target slot temp name"
             foundPlannedSlot := foundPlannedSlot ||
-              (names.size == 1 && slotTempName.name == "_slot" &&
+              (names.size == 1 && slotTempName.name == "__pf_storage_slot" &&
                 match slot with
                 | Lean.Compiler.Yul.Expr.call slotName slotArgs =>
                     slotName == (Helper.arraySlot).name && slotArgs.size == 3
@@ -9837,7 +9874,7 @@ def testStoragePathWritePlanToYul : IO Unit := do
         | Lean.Compiler.Yul.Statement.varDecl names (some slot) => do
             let slotTempName ← requireAt names 0 "fallback array storage path assign_op slot temp name"
             foundSlotDecl := foundSlotDecl ||
-              (names.size == 1 && slotTempName.name == "_slot" &&
+              (names.size == 1 && slotTempName.name == "__pf_storage_slot" &&
                 match slot with
                 | Lean.Compiler.Yul.Expr.call slotName slotArgs =>
                     slotName == (Helper.arraySlot).name && slotArgs.size == 3
@@ -9847,9 +9884,9 @@ def testStoragePathWritePlanToYul : IO Unit := do
               match args[0]!, args[1]! with
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.call addName addArgs =>
                   foundCheckedAssign := foundCheckedAssign ||
-                    (slotName == "_slot" && addName == "__pf_checked_add" && addArgs.size == 2)
+                    (slotName == "__pf_storage_slot" && addName == "__pf_checked_add" && addArgs.size == 2)
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
-                  foundCheckedAssign := foundCheckedAssign || (slotName == "_slot" && addArgs.size == 2)
+                  foundCheckedAssign := foundCheckedAssign || (slotName == "__pf_storage_slot" && addArgs.size == 2)
               | _, _ => pure ()
         | _ => pure ()
       require foundSlotDecl "fallback array storage path assign_op must declare ToYul slot temp"
@@ -9899,14 +9936,14 @@ def testStoragePathWritePlanToYul : IO Unit := do
             if ssName == "sstore" && args.size == 2 then
               match args[0]!, args[1]! with
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.call addName addArgs =>
-                  if slotName == "_slot" && addName == "__pf_checked_add" && addArgs.size == 2 then
+                  if slotName == "__pf_storage_slot" && addName == "__pf_checked_add" && addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
                           (readName == "and" && readArgs.size == 2)
                     | _ => pure ()
               | Lean.Compiler.Yul.Expr.ident slotName, Lean.Compiler.Yul.Expr.builtin "add" addArgs =>
-                  if slotName == "_slot" && addArgs.size == 2 then
+                  if slotName == "__pf_storage_slot" && addArgs.size == 2 then
                     match addArgs[1]! with
                     | Lean.Compiler.Yul.Expr.builtin readName readArgs =>
                         foundStorageReadValue := foundStorageReadValue ||
@@ -10044,18 +10081,21 @@ def testLegacyWriteEffectFacadePlanToYul : IO Unit := do
       scalarEnv
       (.storageScalarWrite
         "count"
-        (.checkedArith .add (.local "n") (.literalWord 1)))
+        (.checkedArith .add (.local "n") (.literalWord 1) true (some 8)))
   let scalarWriteStmts ←
     requireOk scalarWriteResult "legacy scalar write planned-body target facade"
   require (scalarWriteStmts.size == 1) "legacy scalar write planned-body target facade statement count"
-  match scalarWriteStmts[0]! with
-  | Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.builtin "sstore" args) => do
-      require (args.size == 2) "legacy scalar write planned-body target facade arg count"
-      match args[1]! with
-      | Lean.Compiler.Yul.Expr.builtin "or" packedArgs =>
-          require (packedArgs.size == 2) "legacy scalar write planned-body target facade packed arg count"
-      | _ => throw <| IO.userError "legacy scalar write planned-body target facade value must be packed"
-  | _ => throw <| IO.userError "legacy scalar write planned-body target facade must lower to sstore"
+  let scalarWriteYul :=
+    Lean.Compiler.Yul.Printer.printStatement 0 scalarWriteStmts[0]!
+  require
+    (scalarWriteYul.contains "let __pf_packed_value := __pf_checked_width(__pf_checked_add(")
+    "legacy scalar write planned-body target facade must evaluate checked arithmetic once"
+  require
+    (scalarWriteYul.contains "if gt(__pf_packed_value, 18446744073709551615)")
+    "legacy scalar write planned-body target facade must guard the destination width"
+  require
+    (scalarWriteYul.contains "sstore(0, or(")
+    "legacy scalar write planned-body target facade must lower to packed sstore"
   let scalarAssignResult :=
     lowerPlannedBodyEffectPlan
       ProofForge.IR.Examples.Counter.module
@@ -10159,6 +10199,163 @@ def testLegacyWriteEffectFacadePlanToYul : IO Unit := do
       requireCallExpr args[1]! "__pf_checked_add" 2 "legacy struct-array field write planned-body target facade value"
   | _ => throw <| IO.userError "legacy struct-array field write planned-body target facade must lower to sstore"
 
+def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
+  let nestedEvent (name : String) : Expr :=
+    .effect (.eventEmit name #[("value", .literal (.u64 1))])
+  let effect : Effect :=
+    .checkErc1155BatchReceived
+      (.literal (.address 1))
+      (.literal (.address 2))
+      (.literal (.address 3))
+      (.literal (.u64 4))
+      (.literal (.u64 5))
+      (nestedEvent "BatchId1Event")
+      (nestedEvent "BatchAmount1Event")
+  let collector ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.collectEventPlansFromEffect
+      ProofForge.IR.Examples.Counter.module
+      #[]
+      {}
+      effect)
+    "ERC-1155 batch raw event traversal"
+  require
+    (collector.plans.any (fun plan => plan.name == "BatchId1Event"))
+    "ERC-1155 batch event traversal must inspect id1"
+  require
+    (collector.plans.any (fun plan => plan.name == "BatchAmount1Event"))
+    "ERC-1155 batch event traversal must inspect amount1"
+  let env : TypeEnv := #[
+    { name := "items", type := .fixedArray .u64 7, isMutable := false }
+  ]
+  let planned ← requireValidateOk
+    (ProofForge.Backend.Evm.Lower.buildEffectPlan
+      ProofForge.IR.Examples.Counter.module
+      (toValidateTypeEnv env)
+      (.checkErc1155BatchReceived
+        (.literal (.address 1))
+        (.literal (.address 2))
+        (.literal (.address 3))
+        (.literal (.u64 4))
+        (.literal (.u64 5))
+        (.hash (.effect (.contextRead .gasPrice)))
+        (.arrayGet (.local "items") (.effect (.contextRead .gasLeft)))))
+    "ERC-1155 batch semantic effect plan"
+  match planned with
+  | .checkErc1155BatchReceived _ _ _ _ _
+      (.hash (.effect (.contextRead .gasPrice)))
+      (.localArrayGet "items" #[.effect (.contextRead .gasLeft)] #[7]) => pure ()
+  | _ =>
+      throw <| IO.userError
+        s!"ERC-1155 batch effect must preserve planned id1 and amount1 expressions: {repr planned}"
+  let requirements :=
+    ProofForge.Backend.Evm.Lower.localArrayHelperRequirementsFromEffectPlan planned
+  require (requirements.fst == #[7])
+    "ERC-1155 batch amount1 must contribute its dynamic local-array helper requirement once"
+  require requirements.snd.isEmpty
+    "ERC-1155 batch single-dimension amount1 must not require a nested array helper"
+  let helpers :=
+    ProofForge.Backend.Evm.Lower.plannedHelpersFromEffectPlan .mapSetReturn planned
+  require (HelperSet.contains helpers .hashWord)
+    "ERC-1155 batch id1 must contribute its hash helper requirement"
+  let contextOps :=
+    ProofForge.Backend.Evm.Lower.contextOpsFromEffectPlan planned
+  require (contextOpsContainField contextOps .gasPrice)
+    "ERC-1155 batch id1 must contribute its gasPrice context requirement"
+  require (contextOpsContainField contextOps .gasLeft)
+    "ERC-1155 batch amount1 must contribute its gasLeft context requirement"
+  require (contextOps.size == 2)
+    "ERC-1155 batch context requirements must be traversed and de-duplicated"
+  require
+    (ProofForge.Backend.Evm.IR.effectPlanSupportsPlannedBodyStmt planned)
+    "ERC-1155 batch receiver check must remain on the planned-body lowering path"
+  let statements ← requireOk
+    (ProofForge.Backend.Evm.IR.lowerPlannedBodyEffectPlan
+      ProofForge.IR.Examples.Counter.module env planned)
+    "ERC-1155 batch planned-body EffectPlan-to-Yul"
+  let rendered := String.intercalate "\n"
+    (statements.toList.map (Lean.Compiler.Yul.Printer.printStatement 0))
+  require (rendered.contains Helper.hashWord.name)
+    "ERC-1155 batch EffectPlan-to-Yul must lower the id1 hash helper"
+  require
+    (rendered.contains (ProofForge.Backend.Evm.ToYul.localArrayGetFunctionName 7))
+    "ERC-1155 batch EffectPlan-to-Yul must lower the amount1 local-array helper"
+  require (rendered.contains "gasprice()")
+    "ERC-1155 batch EffectPlan-to-Yul must lower the id1 context expression"
+  require (rendered.contains "gas()")
+    "ERC-1155 batch EffectPlan-to-Yul must lower the amount1 context expression"
+
+def requireReceiverArgumentBindings
+    (label : String)
+    (statements : Array Lean.Compiler.Yul.Statement)
+    (bindingNames effectNames : Array String) : IO Unit := do
+  let body ← match statements with
+    | #[.block body] => pure body
+    | _ => throw <| IO.userError s!"{label}: receiver check must use one lexical block"
+  require (body.statements.size == effectNames.size + 1)
+    s!"{label}: every argument must bind before the receiver branch"
+  for idx in [:effectNames.size] do
+    match body.statements[idx]?, bindingNames[idx]?, effectNames[idx]? with
+    | some (.varDecl vars (some (.builtin effectName args))), some bindingName,
+        some expectedEffectName =>
+        let bindingMatches := match vars[0]? with
+          | some var => var.name == bindingName
+          | none => false
+        require (vars.size == 1 && bindingMatches)
+          s!"{label}: argument {idx} binding name/order"
+        require (effectName == expectedEffectName && args.isEmpty)
+          s!"{label}: argument {idx} source expression must be evaluated once"
+    | _, _, _ =>
+        throw <| IO.userError s!"{label}: argument {idx} must be an eager Yul binding"
+  match body.statements[effectNames.size]? with
+  | some (.ifStmt _ _) => pure ()
+  | _ => throw <| IO.userError s!"{label}: receiver branch must follow all argument bindings"
+  let rendered := String.intercalate "\n"
+    (statements.toList.map (Lean.Compiler.Yul.Printer.printStatement 0))
+  for effectName in effectNames do
+    require ((rendered.splitOn effectName).length == 2)
+      s!"{label}: source expression `{effectName}` must occur exactly once"
+
+def testReceiverArgumentsEvaluateOnceInIrOrder : IO Unit := do
+  let effectExprs (names : Array String) : Array Lean.Compiler.Yul.Expr :=
+    names.map fun name => Lean.Compiler.Yul.builtin name #[]
+  let erc721Effects := #["__test_721_operator_eval", "__test_721_sender_eval",
+    "__test_721_destination_eval", "__test_721_identifier_eval"]
+  let erc721Args := effectExprs erc721Effects
+  requireReceiverArgumentBindings
+    "ERC-721 receiver"
+    (ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
+      erc721Args[0]! erc721Args[1]! erc721Args[2]! erc721Args[3]!)
+    #["__pf_erc721_operator", "__pf_erc721_from", "__pf_erc721_to",
+      "__pf_erc721_token_id"]
+    erc721Effects
+  let erc1155Effects := #["__test_1155_operator_eval", "__test_1155_sender_eval",
+    "__test_1155_destination_eval", "__test_1155_identifier_eval",
+    "__test_1155_quantity_eval"]
+  let erc1155Args := effectExprs erc1155Effects
+  requireReceiverArgumentBindings
+    "ERC-1155 receiver"
+    (ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
+      erc1155Args[0]! erc1155Args[1]! erc1155Args[2]! erc1155Args[3]!
+      erc1155Args[4]!)
+    #["__pf_erc1155_operator", "__pf_erc1155_from", "__pf_erc1155_to",
+      "__pf_erc1155_id", "__pf_erc1155_amount"]
+    erc1155Effects
+  let batchEffects := #["__test_batch_operator_eval", "__test_batch_sender_eval",
+    "__test_batch_destination_eval", "__test_batch_first_id_eval",
+    "__test_batch_first_amount_eval", "__test_batch_second_id_eval",
+    "__test_batch_second_amount_eval"]
+  let batchArgs := effectExprs batchEffects
+  requireReceiverArgumentBindings
+    "ERC-1155 batch receiver"
+    (ProofForge.Backend.Evm.ToYul.checkErc1155BatchReceivedStatements
+      batchArgs[0]! batchArgs[1]! batchArgs[2]! batchArgs[3]! batchArgs[4]!
+      batchArgs[5]! batchArgs[6]!)
+    #["__pf_erc1155_batch_operator", "__pf_erc1155_batch_from",
+      "__pf_erc1155_batch_to", "__pf_erc1155_batch_id0",
+      "__pf_erc1155_batch_amount0", "__pf_erc1155_batch_id1",
+      "__pf_erc1155_batch_amount1"]
+    batchEffects
+
 def testContextPlanToYul : IO Unit := do
   let env : TypeEnv := #[
     { name := "block_number", type := .u64, isMutable := false }
@@ -10170,7 +10367,8 @@ def testContextPlanToYul : IO Unit := do
       (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
     "context blockhash Lower EffectPlan"
   match plan with
-  | .contextRead (.blockHash (.checkedArith .add (.local name) (.literalWord value))) => do
+  | .contextRead (.blockHash
+      (.checkedArith .add (.local name) (.literalWord value) _ _)) => do
       require (name == "block_number") "context blockhash planned local name"
       require (value == 1) "context blockhash planned offset"
   | _ => throw <| IO.userError "context blockhash must lower to planned checked-add argument"
@@ -10286,6 +10484,8 @@ def main : IO UInt32 := do
   testStoragePathReadPlanToYul
   testStoragePathWritePlanToYul
   testLegacyWriteEffectFacadePlanToYul
+  testErc1155BatchTraversalAndPlanLowering
+  testReceiverArgumentsEvaluateOnceInIrOrder
   testContextPlanToYul
   testStrictRenderRejectsUnsupportedCapabilities
   IO.println "evm-semantic-plan: ok"

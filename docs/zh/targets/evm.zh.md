@@ -120,8 +120,11 @@ proof-forge emit --target evm --fixture <fixture-id> --format bytecode [--solc s
 Deploy（广播或只生成计划）：
 
 ```sh
+# 仅限本地 Anvil：使用公开测试账户密钥，绝不能使用有资金的真实密钥。
+ANVIL_TEST_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
   --evm-chain-profile anvil-local --start-anvil \
+  --private-key "$ANVIL_TEST_PRIVATE_KEY" \
   -o build/evm/Counter.proof-forge-deploy-run.json
 
 proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
@@ -131,7 +134,8 @@ proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-
 
 本地 Anvil 部署会使用 `cast send --create`，记录 `cast send` receipt 和
 `eth_getTransactionByHash` creation transaction，并写出
-`*.proof-forge-deploy-run.json`。Public testnet profile 默认使用
+`*.proof-forge-deploy-run.json`。所有广播路径（包括 `--start-anvil`）都必须显式
+提供 `--private-key`；ProofForge 不会提供任何签名材料。Public testnet profile 默认使用
 `--plan-only`，写出 `*.proof-forge-deploy-plan.json`，其中包含 profile RPC
 metadata 和文档化的 `cast` broadcast command template，而不会签名真实交易。
 
@@ -342,7 +346,7 @@ EVM deploy manifest 会记录：
 `scripts/evm/anvil-deploy-smoke.sh` 会消费生成的 Counter deploy manifest 和
 `.init.bin`，默认用 typed `initial=123` constructor argument 和静态
 `initial:uint256` constructor schema 重新生成 Counter 部署制品，并运行
-`proof-forge deploy --target evm --start-anvil`，通过 `cast send --create`
+`proof-forge deploy --target evm --start-anvil --private-key <本地测试密钥>`，通过 `cast send --create`
 广播 initcode、校验 receipt 和 deployed runtime code、通过 JSON-RPC 跑 Counter
 lifecycle，并写出
 `build/anvil-deploy-smoke/Counter.proof-forge-deploy-run.json`。

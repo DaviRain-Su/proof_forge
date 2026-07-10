@@ -1,8 +1,9 @@
 {
   "README.md": {
-    "sha256": "5d084e5d3646f494fadbc2fd371309b9ec75119755c11a1ae7ebdf37d3881477",
+    "sha256": "f560347adff51b6e6fd877fd8b51a06e282e781256f452b20538a673af1cbc35",
     "zh": "docs/zh/README-root.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual-zh",
+    "note": "manually synced through the 2026-07-11 post-review verification and Foundry count update"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -10,12 +11,13 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "bd9a879e8a81d063cd6865b713caff345c1e96a766b53c7f5550850cfd00c273",
+    "sha256": "8d839ba1717905ec11b7b8bd86b6a5b8a5856d7749cea116d364142055fa46d6",
     "zh": "docs/zh/INDEX.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual-zh",
+    "note": "synced for active PF remediation and post-review plan links"
   },
   "docs/onboarding.md": {
-    "sha256": "84fe6b63515b634c383822479e1e8c89ed25aa1365b4d5deabf4850697b7fb39",
+    "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
     "zh": "docs/zh/onboarding.zh.md",
     "model": "gemini-3-flash-preview"
   },
@@ -25,16 +27,16 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "d13125ee7414a338eca0b7d799711585ff0ab43224853487795d30f065d83c14",
+    "sha256": "82d261631459458c6c99aa6587d2dea6d56265319dfd1b41d9fd7843f98482aa",
     "zh": "docs/zh/decisions.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/capability-registry.md": {
-    "sha256": "f20cd943f74234d9f5852c9ffefcb2fa46a71c2fd5033841ae35c8fa2a7a1c73",
+    "sha256": "c09147d448ca67bce2651cbcca633231f3b78383c386d53f4d4fe248a68ebe14",
     "zh": "docs/zh/capability-registry.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for PF-P0-05 (README/capability registry honesty)"
+    "note": "synced after Psy value.native capability audit"
   },
   "docs/portable-ir.md": {
     "sha256": "d28f500c252fcfbeb905950ec2f67ee3c43a331e4c4c7dafdaccbfde762015c2",
@@ -59,7 +61,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "8743a8d905057f71e6bc5e63826cd9af9c23544f6b3f0ddec5941bdd14c27c2e",
+    "sha256": "7ca8434c0d81d35a9c156ff92a6a51b096ee0f372abd2acb67bb778992bc3dbf",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
@@ -76,10 +78,10 @@
     "note": "manually synced through the 2026-07-10 audit integration"
   },
   "docs/validation-gates.md": {
-    "sha256": "86bde14c8df73cb99f36bfafe44a74ae6d1ebfca28af1303950d9687237a0a02",
+    "sha256": "0ada7ceab327eb3c00dee6e16884a7a95f2add971ac25d4a18139f91ff433b96",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced after Product/Backend reorg path renames"
+    "note": "manually synced after Product/Backend reorg and Counter module CLI correction"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -93,7 +95,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/rfcs/0002-target-implementation-design.md": {
-    "sha256": "8249e3b950d6c11ced56917fa88cd05f1fd75d7492ad01ff37e115e3b831d7d1",
+    "sha256": "d02b0fc5573f47795c4ad9f03e85e2a3e875b0cc4cf54d5d898be8dc3a606879",
     "zh": "docs/zh/rfcs/0002-target-implementation-design.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
@@ -109,19 +111,19 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/rfcs/0014-unified-semantic-lowering-contract.md": {
-    "sha256": "82d1879ad130211d3e29bdaed3593034704e2ed99d3cbb644637f1b251c0fb14",
+    "sha256": "9d0ee2684a65b5c49dea4d83cd431f9f48d8a222330183ccf0bfc87480f49d72",
     "zh": "docs/zh/rfcs/0014-unified-semantic-lowering-contract.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/README.md": {
-    "sha256": "5a2922d2653cce4697c87451585193c44ac7fa4e659571e0a78f976417a42d72",
+    "sha256": "cb54d68d50081b033087b032cf9facabe62830741ca2a581ea6970f89212975f",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/evm.md": {
-    "sha256": "9adf704803a8e81df5ed3cad3ef9e13fa4590b2a20e2abaebbb904b4d27d1be2",
+    "sha256": "5235c1b6ab6e73fd6afcc874d8b9d408cb04f75612268f24d879eda63e69ec58",
     "zh": "docs/zh/targets/evm.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
@@ -154,12 +156,12 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/gate-status.md": {
-    "sha256": "ccc2a4d22fdeee468e68323f6bfc6ce2744e4695afac40cc5104aaf002d0e055",
+    "sha256": "474529032de93d7d0be3cf2bddd5e1802f08a3ef9a06c4c0ad82d8cb68e23cf4",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "4dc4946dd7f8d2dcb3efb6a25618c1292182c7a8ecea319720a0432bb5b06205"
+    "en_sha256": "474529032de93d7d0be3cf2bddd5e1802f08a3ef9a06c4c0ad82d8cb68e23cf4"
   },
-  "docs/sdk-ecosystem-gaps-2026-07.md": "b0c7b3f3c81606ecb03d8e29c40856dce56434a06e2bb8c4bd19c4888bf9d078",
+  "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
   "docs/tutorials/portable-shared-path.md": {
     "sha256": "01bc8f804f62c56a171796721b7adbba2fd36955bdedbc48187f7020236ace08",
     "zh": "docs/zh/tutorials/portable-shared-path.zh.md",

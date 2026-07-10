@@ -33,13 +33,16 @@ def main() -> int:
     parser.add_argument("--init-code", required=True)
     parser.add_argument("--runtime-bytecode", required=True)
     parser.add_argument("--rpc-url", required=True)
+    parser.add_argument("--chain-profile-json", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     root = Path(args.root)
     manifest = json.loads(Path(args.deploy_manifest).read_text(encoding="utf-8"))
     init_hex = Path(args.init_code).read_text(encoding="utf-8").strip()
-    profile = manifest.get("chainProfile") or {}
+    profile = json.loads(args.chain_profile_json)
+    if not isinstance(profile, dict):
+        raise SystemExit("--chain-profile-json must decode to an object")
 
     plan = {
         "schemaVersion": 1,

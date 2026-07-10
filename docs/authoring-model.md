@@ -65,7 +65,7 @@ backend ASTs.
 
 | Author writes | What happens |
 |---------------|--------------|
-| `entry increment do …` / `query get returns(.u64) do …` | Name-only entrypoints; portable IR has `selector? := none` |
+| `entry increment do …` / `query get returns(.u64) do …` | Name-only entrypoints; portable IR has `selector? := none`; `entry` is `call`, `query` is explicitly `view` |
 | `entrySelector "…"` / `methodWithSelector` / Learn `selector "…"` | **Optional EVM materialization** — pins a 4-byte method id for ABI dispatch fixtures |
 
 Rules:
@@ -84,6 +84,11 @@ Rules:
 4. Solana instruction tags and NEAR method names are **not** EVM selectors;
    targets derive their own dispatch from entrypoint **names** unless a fixture
    pins protocol bytes.
+5. `query` is a semantic promise, not shorthand for "has a return value". It
+   rejects storage writes, events, promises, attached native value, and
+   non-static crosscalls. A mutating method may still declare a return type,
+   but it remains an `entry`/`call`; generated clients return its transaction
+   receipt or execution outcome rather than issuing a static/view call.
 
 ## Chain-only constructors stay off the author path (T4.3)
 

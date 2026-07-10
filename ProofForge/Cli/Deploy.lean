@@ -1,6 +1,7 @@
 import Init.Notation
 import Init.System.IO
 import ProofForge.Target.Registry
+import ProofForge.Cli.EvmArtifacts
 import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.HexUtil
 
@@ -9,9 +10,6 @@ open ProofForge.Cli.JsonUtil
 open ProofForge.Cli.HexUtil
 
 namespace ProofForge.Cli.Deploy
-
-def defaultAnvilDeployer : String :=
-  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
 
 def defaultAnvilChainId : Nat := 31337
 
@@ -29,7 +27,7 @@ def deployUsage : String :=
     "  -o, --output PATH       deploy-run or deploy-plan output path",
     "  --evm-chain-profile ID  override chain profile (default: manifest profile)",
     "  --rpc-url URL           JSON-RPC endpoint (default: profile rpcUrls[0])",
-    "  --private-key KEY       signing key for cast send (required unless PROOF_FORGE_DEPLOY_PRIVATE_KEY is set)",
+    "  --private-key KEY       signing key for transaction broadcast (required; no default)",
     "  --deployer ADDRESS      expected deployer address metadata",
     "  --cast PATH             cast executable (default: cast)",
     "  --anvil PATH            anvil executable (default: anvil)",
@@ -65,17 +63,6 @@ structure DeployOptions where
   root : String := "."
   deriving Inhabited
 
-def resolvePrivateKey (opts : DeployOptions) : IO String := do
-  if let some key := opts.privateKey? then
-    if key.isEmpty then
-      throw <| IO.userError "--private-key value is empty"
-    return key
-  if let some key ← IO.getEnv "PROOF_FORGE_DEPLOY_PRIVATE_KEY" then
-    if key.isEmpty then
-      throw <| IO.userError "PROOF_FORGE_DEPLOY_PRIVATE_KEY is set but empty"
-    return key
-  throw <| IO.userError "deploy requires --private-key KEY or the PROOF_FORGE_DEPLOY_PRIVATE_KEY environment variable"
-
 def joinPath (a b : String) : String :=
   if a.endsWith "/" then s!"{a}{b}" else s!"{a}/{b}"
 
@@ -101,6 +88,39 @@ def resolveEvmChainProfile (profileId : String) : IO ProofForge.Target.EvmChainP
   | none =>
       let known := String.intercalate ", " ProofForge.Target.knownEvmChainProfileIds.toList
       throw <| IO.userError s!"unknown EVM chain profile `{profileId}`; known profiles: {known}"
+
+def normalizeEvmAddress (value label : String) : Except String String := do
+  let hex ← normalizeExactHexBytes value label 20
+  return "0x" ++ hex
+
+def resolveDeployerAddress
+    (declared? : Option String) (transactionFrom : String) : Except String String := do
+  let actual ← normalizeEvmAddress transactionFrom "creation transaction sender"
+  match declared? with
+  | none => return actual
+  | some declared =>
+      let expected ← normalizeEvmAddress declared "--deployer"
+      if expected == actual then
+        return actual
+      else
+        throw s!"--deployer {expected} does not match creation transaction sender {actual}"
+
+def verifySigningDeployer
+    (castPath privateKey : String) (declared? : Option String) : IO Unit := do
+  let some declared := declared? | return
+  let expected ← match normalizeEvmAddress declared "--deployer" with
+  | .ok address => pure address
+  | .error err => throw <| IO.userError err
+  let signingOutput ← runProcess castPath #["wallet", "address", "--private-key", privateKey]
+  let actual ← match normalizeEvmAddress signingOutput "signing key address" with
+  | .ok address => pure address
+  | .error err => throw <| IO.userError err
+  if expected != actual then
+    throw <| IO.userError
+      s!"--deployer {expected} does not match signing key address {actual}; refusing to broadcast"
+
+def deployNetworkKind (profile : ProofForge.Target.EvmChainProfile) : String :=
+  if profile.id == "anvil-local" then "anvil" else "chain-profile"
 
 def defaultDeployRunOutput (manifestPath : String) : String :=
   if manifestPath.endsWith ".proof-forge-deploy.json" then
@@ -193,16 +213,36 @@ def pickAnvilPort : IO Nat := do
   | some port => pure port
   | none => throw <| IO.userError s!"failed to allocate Anvil port: {trimAsciiString stdout}"
 
-def startAnvil (anvilPath : String) (port chainId : Nat) (runDir : String) : IO Unit := do
+def startAnvil (anvilPath castPath : String) (port chainId : Nat) (runDir : String) : IO Unit := do
   IO.FS.createDirAll runDir
-  let logPath := joinPath runDir "anvil.log"
-  let cmd := s!"nohup {anvilPath} --host 127.0.0.1 --port {port} --chain-id {chainId} --accounts 1 --quiet > {logPath} 2>&1 &"
-  let _ ← runProcess "bash" #["-c", cmd]
+  let child ← IO.Process.spawn {
+    cmd := anvilPath
+    args := #[
+      "--host", "127.0.0.1",
+      "--port", toString port,
+      "--chain-id", toString chainId,
+      "--accounts", "1",
+      "--quiet"
+    ]
+    stdin := .null
+    stdout := .null
+    stderr := .null
+    setsid := true
+  }
   let rpcUrl := s!"http://127.0.0.1:{port}"
   for _ in [0:80] do
-    if ← rpcReachable? "cast" rpcUrl then
+    if ← rpcReachable? castPath rpcUrl then
       return
+    match ← child.tryWait with
+    | some exitCode =>
+        throw <| IO.userError
+          s!"Anvil `{anvilPath}` exited with code {exitCode} before RPC became reachable at {rpcUrl}"
+    | none => pure ()
     IO.sleep 250
+  try
+    child.kill
+  catch _ =>
+    pure ()
   throw <| IO.userError s!"Anvil did not become reachable at {rpcUrl}"
 
 def expectChainId (castPath rpcUrl : String) (expected : Nat) : IO Unit := do
@@ -247,6 +287,7 @@ def writeDeployPlan
     "--init-code", initCodePath,
     "--runtime-bytecode", runtimePath,
     "--rpc-url", rpcUrl,
+    "--chain-profile-json", ProofForge.Cli.evmChainProfileJson profile,
     "--output", output
   ]
   let validator := joinPath scriptRoot "scripts/evm/validate-deploy-plan.py"
@@ -260,7 +301,8 @@ def writeDeployPlan
 
 def writeDeployRun
     (root manifestPath initCodePath runtimePath rpcUrl : String)
-    (chainId : Nat)
+    (profile : ProofForge.Target.EvmChainProfile)
+    (anvilStarted : Bool)
     (deployer deployReceipt creationTx initializeReceipt output
      initialGet afterInitializeGet afterIncrementGet afterSecondIncrementGet : String) : IO Unit := do
   let scriptRoot ← do
@@ -278,8 +320,10 @@ def writeDeployRun
     writer,
     "--root", root,
     "--rpc-url", rpcUrl,
-    "--chain-id", toString chainId,
-    "--network-kind", "anvil",
+    "--chain-profile-json", ProofForge.Cli.evmChainProfileJson profile,
+    "--chain-id", toString profile.chainId,
+    "--network-kind", deployNetworkKind profile,
+    "--anvil-started-status", if anvilStarted then "passed" else "skipped",
     "--deployer", deployer,
     "--deploy-manifest", manifestPath,
     "--runtime-bytecode", runtimePath,
@@ -319,20 +363,30 @@ def validateDeployRun
 def shouldPlanOnly (profile : ProofForge.Target.EvmChainProfile) (opts : DeployOptions) : Bool :=
   opts.planOnly || (profile.id != "anvil-local" && !opts.broadcast)
 
-def resolveBroadcastRpcUrl
-    (opts : DeployOptions) (profile : ProofForge.Target.EvmChainProfile) (profileRpcUrl : String) : IO String := do
+structure BroadcastRpcResolution where
+  rpcUrl : String
+  anvilStarted : Bool
+
+def resolveBroadcastRpc
+    (opts : DeployOptions) (profile : ProofForge.Target.EvmChainProfile)
+    (profileRpcUrl : String) : IO BroadcastRpcResolution := do
   if profile.id != "anvil-local" then
-    return profileRpcUrl
+    return { rpcUrl := profileRpcUrl, anvilStarted := false }
   if ← rpcReachable? opts.castPath profileRpcUrl then
-    return profileRpcUrl
+    return { rpcUrl := profileRpcUrl, anvilStarted := false }
   if !opts.startAnvil then
     throw <| IO.userError s!"RPC {profileRpcUrl} is unreachable; pass --start-anvil or --rpc-url for a running node"
   let port ← match opts.anvilPort? with
   | some port => pure port
   | none => pickAnvilPort
   let runDir := joinPath opts.root "build/anvil-deploy"
-  let _ ← startAnvil opts.anvilPath port profile.chainId runDir
-  return s!"http://127.0.0.1:{port}"
+  let _ ← startAnvil opts.anvilPath opts.castPath port profile.chainId runDir
+  return { rpcUrl := s!"http://127.0.0.1:{port}", anvilStarted := true }
+
+def resolveBroadcastRpcUrl
+    (opts : DeployOptions) (profile : ProofForge.Target.EvmChainProfile)
+    (profileRpcUrl : String) : IO String := do
+  return (← resolveBroadcastRpc opts profile profileRpcUrl).rpcUrl
 
 def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmChainProfile)
     (info : ManifestInfo) (output : String) : IO UInt32 := do
@@ -359,9 +413,19 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
     IO.println "deploy: live broadcast skipped (use --broadcast with --rpc-url and --private-key to broadcast on public RPC)"
     return 0
 
-  let privateKey ← resolvePrivateKey opts
-  let deployer := opts.deployerAddress?.getD defaultAnvilDeployer
-  let rpcUrl ← resolveBroadcastRpcUrl opts profile profileRpcUrl
+  let privateKey ← match opts.privateKey? with
+  | some key =>
+      let key := trimAsciiString key
+      if key.isEmpty then
+        throw <| IO.userError
+          "transaction broadcast requires an explicit --private-key KEY; use --plan-only to skip signing"
+      pure key
+  | none =>
+      throw <| IO.userError
+        "transaction broadcast requires an explicit --private-key KEY; use --plan-only to skip signing"
+  verifySigningDeployer opts.castPath privateKey opts.deployerAddress?
+  let rpcResolution ← resolveBroadcastRpc opts profile profileRpcUrl
+  let rpcUrl := rpcResolution.rpcUrl
   let _ ← expectChainId opts.castPath rpcUrl profile.chainId
 
   if opts.gasPrice?.isSome && opts.maxFeePerGas?.isSome then
@@ -398,6 +462,10 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
   let contractAddress ← extractJsonField deployReceipt "contractAddress"
   let creationStdout ← runProcess opts.castPath #["rpc", "--rpc-url", rpcUrl, "eth_getTransactionByHash", txHash]
   IO.FS.writeFile creationTx creationStdout
+  let transactionFrom ← extractJsonField creationTx "from"
+  let deployer ← match resolveDeployerAddress opts.deployerAddress? transactionFrom with
+  | Except.ok address => pure address
+  | Except.error err => throw <| IO.userError err
 
   let initialGet ← runProcess opts.castPath #["call", "--rpc-url", rpcUrl, contractAddress, "get()(uint256)"]
   let initializeStdout ← runProcess opts.castPath (#[
@@ -430,7 +498,8 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
     initCodePath
     runtimePath
     rpcUrl
-    profile.chainId
+    profile
+    rpcResolution.anvilStarted
     deployer
     deployReceipt
     creationTx
@@ -441,8 +510,7 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
     (trimAsciiString afterIncrementGet)
     (trimAsciiString afterSecondIncrementGet)
 
-  if profile.id == "anvil-local" then
-    validateDeployRun opts.root output profile.id (toString profile.chainId) info.fixture
+  validateDeployRun opts.root output profile.id (toString profile.chainId) info.fixture
 
   IO.println s!"deploy: contract deployed to {contractAddress} on chain {profile.chainId}"
   IO.println s!"deploy: wrote deploy-run artifact {output}"

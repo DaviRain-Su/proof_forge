@@ -16,8 +16,13 @@ apt-get install -y --no-install-recommends \
   git \
   pkg-config \
   libssl-dev \
+  nodejs \
+  npm \
   python3 \
   wabt
+
+echo "=== install Node dependencies ==="
+npm ci --ignore-scripts --no-audit --no-fund
 
 echo "=== install just ==="
 curl --proto '=https' --tlsv1.2 -sSfL https://just.systems/install.sh | bash -s -- --to /usr/local/bin --tag 1.48.0
@@ -56,3 +61,6 @@ rustc --version
 cargo --version
 just --version
 wat2wasm --version
+node --version
+npm --version
+./node_modules/.bin/tsc --version

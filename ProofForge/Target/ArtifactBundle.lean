@@ -49,6 +49,9 @@ structure SourceIdentity where
   moduleName : String
   path? : Option String := none
   kind : String := "contract-source"
+  /-- True only when this artifact invocation elaborated a Lean source module.
+  Embedded portable IR fixtures must leave this false. -/
+  leanElaborated : Bool := false
   deriving Repr, Inhabited, BEq
 
 /-- Toolchain provenance for one tool invocation or requirement. -/
@@ -56,7 +59,12 @@ structure ToolProvenance where
   tool : String
   stage : String
   available : Bool
+  /-- Version reported by the executable that actually ran. -/
   version? : Option String := none
+  /-- Toolchain declaration requested by project configuration. -/
+  declaredVersion? : Option String := none
+  /-- Version observed from the running process/compiler. -/
+  observedVersion? : Option String := none
   deriving Repr, Inhabited, BEq
 
 /-- PF-P3-03: Lean frontend provenance for contract_source elaboration.
@@ -64,12 +72,25 @@ structure ToolProvenance where
 Records the pin from `lean-toolchain` (e.g. `leanprover/lean4:v4.31.0`) so
 artifact metadata explains the trusted-local elaboration environment. This is
 not a hosted isolation boundary. -/
-def leanElaborationTool (version? : Option String) : ToolProvenance := {
+def leanElaborationTool (declaredPin? : Option String)
+    (observedVersion? : Option String := some Lean.versionString) : ToolProvenance := {
   tool := "lean"
   stage := "source-elaboration"
-  available := version?.isSome
-  version? := version?
+  available := declaredPin?.isSome && observedVersion?.isSome
+  version? := observedVersion?
+  declaredVersion? := declaredPin?
+  observedVersion? := observedVersion?
 }
+
+def leanVersionFromPin? (pin : String) : Option String :=
+  match (pin.splitOn ":").reverse with
+  | [] => none
+  | version :: _ =>
+      let normalized := if version.startsWith "v" then (version.drop 1).toString else version
+      if normalized.isEmpty then none else some normalized
+
+def leanPinMatchesObserved (pin observed : String) : Bool :=
+  leanVersionFromPin? pin == some observed
 
 /-- Read the first non-empty `lean-toolchain` pin under `searchRoots`. -/
 def readLeanToolchainPin (searchRoots : Array System.FilePath := #[System.FilePath.mk "."]) :
@@ -81,6 +102,31 @@ def readLeanToolchainPin (searchRoots : Array System.FilePath := #[System.FilePa
       if raw.length > 0 then
         return some raw
   return none
+
+/-- Resolve the Lean pin from the CLI's parsed `--root` and fail closed when
+source-elaboration provenance cannot be established. -/
+def requireLeanToolchainPin (root? : Option System.FilePath) : IO String := do
+  let root := root?.getD (System.FilePath.mk ".")
+  match ← readLeanToolchainPin #[root] with
+  | some pin => pure pin
+  | none =>
+      throw <| IO.userError
+        s!"proof-forge: missing non-empty lean-toolchain under parsed --root `{root}`; refusing artifact without Lean source-elaboration provenance"
+
+/-- Shared source-provenance helper for all artifact backends. Pure portable IR
+does not read or record a Lean pin; elaborated Lean source fails closed when the
+parsed root does not contain one. -/
+def sourceElaborationToolchain (source : SourceIdentity)
+    (root? : Option System.FilePath) : IO (Array ToolProvenance) := do
+  if source.leanElaborated then
+    let pin ← requireLeanToolchainPin root?
+    let observed := Lean.versionString
+    if !leanPinMatchesObserved pin observed then
+      throw <| IO.userError
+        s!"proof-forge: declared Lean pin `{pin}` does not match running Lean `{observed}`; refusing dishonest source-elaboration provenance"
+    pure #[leanElaborationTool (some pin) (some observed)]
+  else
+    pure #[]
 
 /-- Named validation entry. -/
 structure ValidationEntry where
@@ -146,7 +192,45 @@ expected final-deployable or primary"
           s!"artifact bundle for `{bundle.targetId}` advertises primaryOutput `{primaryKind}` \
 but no typed output of that kind is present"
       }
+  let sourceElaborationTools := bundle.toolchain.filter fun tool =>
+    tool.stage == "source-elaboration"
+  if bundle.source.leanElaborated then
+    let some leanTool := sourceElaborationTools.find? fun tool => tool.tool == "lean"
+      | .error {
+          message :=
+            "artifact source records leanElaborated=true but no Lean source-elaboration tool is present"
+        }
+    if !leanTool.available || leanTool.declaredVersion?.isNone ||
+        leanTool.observedVersion?.isNone || leanTool.version? != leanTool.observedVersion? then
+      .error {
+        message :=
+          "artifact bundle is missing Lean source-elaboration provenance; " ++
+          "resolve the parsed --root lean-toolchain pin before serialization"
+      }
+    let declared := leanTool.declaredVersion?.getD ""
+    let observed := leanTool.observedVersion?.getD ""
+    if observed != Lean.versionString then
+      .error {
+        message :=
+          s!"artifact records observed Lean `{observed}` but the running Lean is `{Lean.versionString}`"
+      }
+    if !leanPinMatchesObserved declared observed then
+      .error {
+        message :=
+          s!"artifact declared Lean pin `{declared}` does not match running Lean `{observed}`"
+      }
+  else if !sourceElaborationTools.isEmpty then
+    .error {
+      message :=
+        "artifact source records leanElaborated=false but toolchain contains source-elaboration provenance"
+    }
   for tool in bundle.toolchain do
+    if tool.stage == "source-elaboration" && !tool.available then
+      .error {
+        message :=
+          "artifact bundle is missing Lean source-elaboration provenance; " ++
+          "resolve the parsed --root lean-toolchain pin before serialization"
+      }
     if !tool.available then
       -- Missing tools must not appear as validation `passed`.
       for v in bundle.validations do
@@ -265,7 +349,9 @@ def typedOutputJson (o : TypedOutput) : String :=
 
 def toolJson (t : ToolProvenance) : String :=
   s!"\{\"tool\": {jsonString t.tool}, \"stage\": {jsonString t.stage}, \
-\"available\": {jsonBool t.available}, \"version\": {jsonStringOption t.version?}}"
+\"available\": {jsonBool t.available}, \"version\": {jsonStringOption t.version?}, \
+\"declaredVersion\": {jsonStringOption t.declaredVersion?}, \
+\"observedVersion\": {jsonStringOption t.observedVersion?}}"
 
 def validationJson (v : ValidationEntry) : String :=
   s!"\{\"name\": {jsonString v.name}, \"state\": {jsonString v.state.id}, \
@@ -273,7 +359,7 @@ def validationJson (v : ValidationEntry) : String :=
 
 def sourceJson (s : SourceIdentity) : String :=
   s!"\{\"moduleName\": {jsonString s.moduleName}, \"path\": {jsonStringOption s.path?}, \
-\"kind\": {jsonString s.kind}}"
+\"kind\": {jsonString s.kind}, \"leanElaborated\": {jsonBool s.leanElaborated}}"
 
 def ArtifactBundle.toJson (bundle : ArtifactBundle) : String :=
   let outs := String.intercalate ", " (bundle.outputs.toList.map typedOutputJson)

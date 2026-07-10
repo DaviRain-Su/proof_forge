@@ -1,8 +1,8 @@
 # Deep-dive: CLI target-first surface and honest target roster
 
-**Topic:** `cli-target-first-and-target-roster`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Date:** 2026-07-10  
+**Topic:** `cli-target-first-and-target-roster`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Date:** 2026-07-10
 **Branch:** `main` (dirty files unrelated to this topic)
 
 ---

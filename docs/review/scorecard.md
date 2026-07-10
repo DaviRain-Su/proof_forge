@@ -1,7 +1,13 @@
 # ProofForge Integrated Product-Readiness Scorecard
 
-**Date:** 2026-07-10  
-**Source:** Synthesis of the 13 review reports in `docs/review/` (gap analyses, deep-dives, and `verdict-round2.md`).  
+> **Historical baseline:** This scorecard is the pre-remediation 2026-07-10
+> snapshot. Several concrete findings below have since been fixed, so its line
+> references and blocker states are not current. See the
+> [post-review hardening addendum](../superpowers/plans/2026-07-10-post-review-execution.md#post-review-hardening-addendum-2026-07-10)
+> for the live remediation ledger and verification evidence.
+
+**Date:** 2026-07-10
+**Source:** Synthesis of the 13 review reports in `docs/review/` (gap analyses, deep-dives, and `verdict-round2.md`).
 **Verdict:** **Not ready for a real public beta.** The compiler core and primary target triad are solid, but release, security, CLI/UX, SDK, and honest-target-roster blockers must be resolved before external users can install and trust the product.
 
 ---

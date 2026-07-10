@@ -218,35 +218,43 @@ def unwrap_rpc_result(value: Any, name: str) -> dict:
 def validate_chain_profile(manifest: dict, run: dict, expected_profile: str | None, expected_chain_id: int) -> None:
     profile_value = manifest.get("chainProfile")
     deployment = expect_object(manifest.get("deployment"), "deploy manifest deployment")
-    expect(run.get("chainProfile") == profile_value, "chainProfile must match deploy manifest")
 
     if profile_value is None:
-        expect(expected_profile is None, "deploy manifest chainProfile is missing")
         expect(deployment.get("profileId") is None, "deploy manifest deployment.profileId must be null without chain profile")
         expect(deployment.get("chainId") is None, "deploy manifest deployment.chainId must be null without chain profile")
         expect(deployment.get("networkName") is None, "deploy manifest deployment.networkName must be null without chain profile")
         expect(expect_array(deployment.get("rpcUrls"), "deploy manifest deployment.rpcUrls") == [], "deploy manifest deployment.rpcUrls must be empty without chain profile")
-        return
+    else:
+        manifest_profile = expect_object(profile_value, "deploy manifest chainProfile")
+        manifest_profile_id = expect_string(manifest_profile.get("id"), "deploy manifest chainProfile.id")
+        expect(manifest_profile.get("targetId") == "evm", "deploy manifest chainProfile.targetId must be evm")
+        expect_string(manifest_profile.get("networkName"), "deploy manifest chainProfile.networkName")
+        manifest_chain_id = manifest_profile.get("chainId")
+        expect(isinstance(manifest_chain_id, int), "deploy manifest chainProfile.chainId must be an integer")
+        expect_string(manifest_profile.get("nativeCurrencySymbol"), "deploy manifest chainProfile.nativeCurrencySymbol")
+        for field_name in ("rpcUrls", "websocketUrls", "sequencerUrls", "notes"):
+            values = expect_array(manifest_profile.get(field_name), f"deploy manifest chainProfile.{field_name}")
+            for idx, value in enumerate(values):
+                expect_string(value, f"deploy manifest chainProfile.{field_name}[{idx}]")
+        expect(deployment.get("profileId") == manifest_profile_id, "deploy manifest deployment.profileId mismatch")
+        expect(deployment.get("chainId") == manifest_chain_id, "deploy manifest deployment.chainId mismatch")
+        expect(deployment.get("networkName") == manifest_profile.get("networkName"), "deploy manifest deployment.networkName mismatch")
+        expect(deployment.get("rpcUrls") == manifest_profile.get("rpcUrls"), "deploy manifest deployment.rpcUrls mismatch")
 
-    profile = expect_object(profile_value, "deploy manifest chainProfile")
-    profile_id = expect_string(profile.get("id"), "deploy manifest chainProfile.id")
+    profile = expect_object(run.get("chainProfile"), "deploy run chainProfile")
+    profile_id = expect_string(profile.get("id"), "deploy run chainProfile.id")
     if expected_profile is not None:
-        expect(profile_id == expected_profile, "deploy manifest chainProfile.id mismatch")
-    expect(profile.get("targetId") == "evm", "deploy manifest chainProfile.targetId must be evm")
-    expect_string(profile.get("networkName"), "deploy manifest chainProfile.networkName")
+        expect(profile_id == expected_profile, "deploy run chainProfile.id mismatch")
+    expect(profile.get("targetId") == "evm", "deploy run chainProfile.targetId must be evm")
+    expect_string(profile.get("networkName"), "deploy run chainProfile.networkName")
     chain_id = profile.get("chainId")
-    expect(isinstance(chain_id, int), "deploy manifest chainProfile.chainId must be an integer")
-    expect(chain_id == expected_chain_id, "deploy manifest chainProfile.chainId must match deploy-run chain id")
-    expect_string(profile.get("nativeCurrencySymbol"), "deploy manifest chainProfile.nativeCurrencySymbol")
+    expect(isinstance(chain_id, int), "deploy run chainProfile.chainId must be an integer")
+    expect(chain_id == expected_chain_id, "deploy run chainProfile.chainId must match deploy-run chain id")
+    expect_string(profile.get("nativeCurrencySymbol"), "deploy run chainProfile.nativeCurrencySymbol")
     for field_name in ("rpcUrls", "websocketUrls", "sequencerUrls", "notes"):
-        values = expect_array(profile.get(field_name), f"deploy manifest chainProfile.{field_name}")
+        values = expect_array(profile.get(field_name), f"deploy run chainProfile.{field_name}")
         for idx, value in enumerate(values):
-            expect_string(value, f"deploy manifest chainProfile.{field_name}[{idx}]")
-
-    expect(deployment.get("profileId") == profile_id, "deploy manifest deployment.profileId mismatch")
-    expect(deployment.get("chainId") == chain_id, "deploy manifest deployment.chainId mismatch")
-    expect(deployment.get("networkName") == profile.get("networkName"), "deploy manifest deployment.networkName mismatch")
-    expect(deployment.get("rpcUrls") == profile.get("rpcUrls"), "deploy manifest deployment.rpcUrls mismatch")
+            expect_string(value, f"deploy run chainProfile.{field_name}[{idx}]")
 
 
 def main() -> int:
@@ -337,7 +345,11 @@ def main() -> int:
     validate_deployment_init_code(init_hex, runtime_hex, constructor_args_hex, "initCode")
 
     network = expect_object(run.get("network"), "network")
-    expect(network.get("kind") == "anvil", "network.kind must be anvil")
+    network_kind = expect_string(network.get("kind"), "network.kind")
+    profile_value = run.get("chainProfile")
+    profile_id = profile_value.get("id") if isinstance(profile_value, dict) else None
+    expected_network_kind = "anvil" if profile_id == "anvil-local" else "chain-profile"
+    expect(network_kind == expected_network_kind, "network.kind does not match chain profile")
     expect(network.get("chainId") == args.expect_chain_id, "network.chainId mismatch")
     expect_string(network.get("rpcUrl"), "network.rpcUrl")
 
@@ -385,8 +397,11 @@ def main() -> int:
     expect(calls.get("afterSecondIncrementGet") == "2", "calls.afterSecondIncrementGet mismatch")
 
     validation = expect_object(run.get("validation"), "validation")
+    anvil_started = validation.get("anvilStarted")
+    expect(anvil_started in {"passed", "skipped"}, "validation.anvilStarted must be passed or skipped")
+    if network_kind != "anvil":
+        expect(anvil_started == "skipped", "public chain profile cannot report Anvil startup")
     for key in (
-        "anvilStarted",
         "chainId",
         "castCreate",
         "creationTransaction",

@@ -2,15 +2,19 @@
 
 Lean 优先的多链智能合约平台。
 
-ProofForge 的目标是实现一套经过验证的 Lean 合约代码库，能够跨多个区块链目标家族进行编译、测试和部署。合约基于链中立的 Contract Intent API 编写；编译器将它们降级为可移植 IR，根据每个目标路由能力，并发射链原生制品。不支持的目标能力将在编译时被拒绝，而不是静默地改变语义。
+ProofForge 的目标是：一份经过验证的 Lean 合约代码库，可以在多个区块链目标家族
+中编译、测试和部署。合约面向链中立的 Contract Intent API 编写；编译器将其降级
+为可移植 IR，按目标做 capability 路由，并产出链原生制品。目标不支持的能力会在
+编译期被拒绝，而不是静默改变语义。
 
-从这里开始：
+入口文档：
 
 - [docs/INDEX.md](../INDEX.md) — 完整文档地图。
-- [RFC 0001](../rfcs/0001-multichain-platform.md) — 多链架构与路线图；[RFC 0002](../rfcs/0002-target-implementation-design.md) — 目标实现设计。
-- [Design decisions](../decisions.md) — 已确定的决策 (D-001…D-045)。
-- [Formal verification roadmap](../formal-verification.md) — 现有的证明锚点与阶段性定理目标。
-- [Demo recording](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — 终端演示：编写 → 编译 → 部署 → 测试。
+- [RFC 0001](../rfcs/0001-multichain-platform.md) — 多链架构与路线图；
+  [RFC 0002](../rfcs/0002-target-implementation-design.md) — 目标实现设计。
+- [Design decisions](../decisions.md) — 已定决策（D-001…D-045）。
+- [形式化验证路线图](../formal-verification.md) — 现有证明锚点与分阶段定理目标。
+- [演示录屏](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — 终端演示：编写 → 编译 → 部署 → 测试。
 
 中文文档：
 
@@ -18,115 +22,130 @@ ProofForge 的目标是实现一套经过验证的 Lean 合约代码库，能够
 - [架构评审（2026-07）：统一 SDK 输入与分支收敛](architecture-review-2026-07.md)
 - [多链愿景可行性分析](feasibility-analysis.md)
 
-## Backend Status
+## 后端状态
 
-机器可读的支持矩阵（成熟度、输入模式、命令、输出阶段、验证级别）由 `proof-forge --list-targets --json` 生成至 [`docs/generated/backend-status.md`](../generated/backend-status.md) (`just target-support` / `just backend-status-gen`)。下方的叙述表是人工概览；生成的表格仍作为 PF-P1-02 合约。
+机器可读的支持矩阵（maturity、input modes、commands、output stages、validation
+level）由 `proof-forge --list-targets --json` 生成到
+[`docs/generated/backend-status.md`](../generated/backend-status.md)
+（`just target-support` / `just backend-status-gen`）。下表仍是管线与本地验证
+的人读总览；生成表是 PF-P1-02 合同。
 
-### Beta-ready `contract_source` 目标
+所有后端都在 `main` 上（"链"是目录和 target id，不是分支）。生命周期阶段见
+[docs/targets/README.md](../targets/README.md)。
+主三链 P0 后端门禁规约 (D-045) 已关闭，但 SDK 深度尚未完成：当前差距清单仍有
+**3 个开放 P0 SDK blocker**（EVM 1 个、NEAR 2 个；Solana 0 个）。通过 portable
+Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具有
+统一 SDK schema/layout 输出。三链 portable 场景
+（Counter、ValueVault）可通过 `just portable-counter-multi-target` 和
+`just portable-value-vault` 在 EVM、Solana 和 NEAR 上编译并执行；Sui
+有意限定为 Counter MVP，并使用本地 `sui move build/test` 验证。
 
-这三个目标编译真实的 `ProofForge.Contract.Source` 合约，生成规范的 SDK 布局，并被要求通过 `just product`：
-
-| 目标 id | 流水线 | 阶段 | 本地验证 |
+| Target id | 管线 | 阶段 | 本地验证 |
 |---|---|---|---|
-| `evm` | Lean / 可移植 IR → Yul → `solc` → 字节码 | Beta-ready | 黄金 Yul、诊断、Foundry 运行时冒烟测试、Anvil 部署、动态构造函数 Anvil、构造函数主体、部署 gas-limit/price/priority 标志、stdlib 覆盖 |
-| `solana-sbpf-asm` | 可移植 IR → sBPF 汇编 → `sbpf` → ELF | Beta-ready | Mollusk 测试、Surfpool/Rust 实时冒烟测试、Pinocchio 等价门、索引事件、CPI 门、Token-2022 扩展、map 存储 |
-| `wasm-near` | 可移植 IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Beta-ready | 诊断、IR 覆盖清单、形式化追踪义务、目标优先冒烟测试、离线宿主冒烟测试、NEP-141 FT stdlib、聚合 ABI 参数 |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental（广泛 CI 门禁；不是完整 Solidity SDK） | golden Yul、诊断、Foundry 运行时冒烟（35 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
+| `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
+| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just soroban-promotion`（源身份 · fail-closed · HostBridge · wat2wasm · offline-host 生命周期 · 文档）；auth 仍为 always-auth spike；Stellar CLI/TTL 为后续 |
+| `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just cosmwasm-promotion`（产品 Counter · offline-host 0→1 · 无 NEAR 偷换）；`execute_msg` 仍为 stub；fixture `cosmwasm-check` 见 `just cosmwasm-counter-smoke` |
+| `move-aptos` | portable IR → Aptos Move 源码包 | Counter sourcegen Spike | fixture Counter 包 + capability 检查；`just aptos-promotion` 是严格晋级门，要求 `aptos move compile/test`，不作为默认最终制品证据 |
+| `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
+| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
+| `aleo-leo` | portable IR → Leo 源码包 | Research sourcegen | 已验证 pure、Unit-final 和状态无关 `(T, Final)` 子集；保序 Poseidon pair hash、record 语义和 plan 派生 metadata；Leo 4.0.2 下依赖状态的非 Unit 返回会 fail closed |
+| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | 链下 Research sourcegen | 仅 fixture Counter TS；产品源 fail closed；晋级要求 Wrangler dry-run 成功并执行 Worker 生命周期；非 Wasm 二进制 |
 
-### Counter-MVP / research spike (非 beta-ready)
+**仅 CLI 的验证目标：** `quint` 可通过 `proof-forge emit --target quint` 用于形式化/模型检查
+fixture，但**不在** `Target.knownIds` / `--list-targets` 中（验证通道，不是产品 host）。
 
-以下目标在 `main` 上实现，但有意限制在 Counter 固件、宿主适配器 spike 或研究原型。它们**不**作为公开测试版 `contract_source` 编译器进行宣传：
+**Spike 诚实性 (U7)：**CosmWasm / Aptos / Soroban / Cloudflare 不是主要产品
+host。CosmWasm portable crosscall 是 WasmMsg 形状的 `execute_msg` stub；
+Soroban interpreter 的 `require_auth_for_args` 在 Lean 中始终授权。Gate G1a/G1b
+（CosmWasm/Aptos M3-M4）在显式排期前保持**未开始**；参见
+[gate-status](../gate-status.md) 和
+[unified-support-roadmap](../superpowers/plans/2026-07-09-unified-support-roadmap.md) U7。
 
-| 目标 id | 状态 | 降级原因 |
-|---|---|---|
-| `wasm-stellar-soroban` | Counter MVP (PF-P3-02) | Auth 仍为 spike-always；Stellar CLI/TTL 仍为后续工作。 |
-| `wasm-cosmwasm` | Counter MVP (PF-P3-02) | `execute_msg` 是一个 WasmMsg 形状的存根；完整的跨调用尚未连接。 |
-| `move-aptos` | Counter spike (PF-P3-02) | 产品源 fail-closed；需要 `aptos` CLI 进行验证。 |
-| `move-sui` | Counter MVP | 仅限 Counter 包布局；Counter 之外的规划正在进行中。 |
-| `psy-dpn` | Research spike (受限子集) | 仅限 Dargo 支持的执行；非通用编译器。 |
-| `aleo-leo` | Counter MVP / research (Road 1+) | 通用 Leo 源代码生成 + ALU 操作；更广泛的形状覆盖正在进行中。 |
-| `wasm-cloudflare-workers` | Counter TS spike (PF-P3-02) | TypeScript Worker 输出；非 Wasm 二进制目标。 |
-
-**仅限 CLI 的验证目标：** `quint` 被 `proof-forge emit --target quint` 接受用于形式化/模型检测固件，但**不**在 `Target.knownIds` / `--list-targets` 中（验证通道，而非产品宿主）。
-
-多链 Token SDK (`TokenSpec`, [RFC 0006](../rfcs/0006-multichain-token-sdk.md)) 将一个代币意图路由到 EVM 上的 ERC-20 字节码，或 Solana 上的 SPL Token / Token-2022 部署计划。
+多链 Token SDK（`TokenSpec`，[RFC 0006](../rfcs/0006-multichain-token-sdk.md)）
+把同一份 token 意图在 EVM 上路由为 ERC-20 bytecode，在 Solana 上路由为
+SPL Token / Token-2022 部署计划。
 
 ## 快速开始
 
-从 [casey/just](https://github.com/casey/just) 安装 `just`；根 `justfile` 是面向开发者的命令目录和 CI 入口。
+从 [casey/just](https://github.com/casey/just) 安装 `just`；根目录 `justfile`
+是面向开发者的命令目录和 CI 入口。
 
 ```sh
-just --list        # all recipes
+just --list        # 所有 recipe
 just build         # lake build
-just product       # product-first: Examples/Product multi-target matrix (required CI)
-just check         # product + backend static gates (Lean + Solana-light + NEAR + Psy + testkit + …)
-just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
-just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
-just sui-counter-smoke                 # local Sui Move Counter build/test
-just ci            # the full CI sequence locally
+just product       # 产品主门禁：Examples/Product 多目标矩阵（CI required）
+just check         # product + 后端静态门禁（Lean + Solana-light + NEAR + Psy + testkit + …）
+just evm-all       # 完整 EVM 门禁：示例编译、Foundry 冒烟、Anvil 部署
+just portable-counter-four-target-sdk  # EVM、Solana、NEAR、Sui 的 Counter SDK layout
+just sui-counter-smoke                 # 本地 Sui Move Counter build/test
 ```
 
-直接使用 Lake 构建：
+**产品路径：** 业务逻辑写在 `Examples/Product/`，只改 `--target` 物化各链；链探针在 `Examples/Backend/`。
+
+直接用 Lake 构建：
 
 ```sh
 lake build
 ```
 
-将 EVM Counter 示例编译为运行时字节码：
+把可移植 Counter 编译为 EVM 运行时 bytecode：
 
 ```sh
-lake env proof-forge build --target evm --root . \
-  -o build/evm/Counter.bin Examples/Product/Counter.lean
+lake env proof-forge build --target evm --root . --module Counter \
+  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
 ```
 
-从内置的可移植 IR fixtures 为其他目标发射制品：
+从内置的 portable IR fixture 产出其他目标的制品：
 
 ```sh
 lake env proof-forge emit --target wasm-near --fixture counter --format wat -o build/wasm-near
 lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf -o build/solana/counter.so
-lake env proof-forge emit --target move-sui --fixture counter --format sui -o build/sui
 lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
-lake env proof-forge emit --target aleo-leo --fixture counter --format leo -o build/aleo
+lake env proof-forge emit --target aleo-leo --fixture pure-math --format leo -o build/aleo/PureMath.leo
 lake env proof-forge emit --target wasm-cloudflare-workers --fixture counter --format ts -o build/ts/Counter.ts
 ```
 
-完整的、针对每个目标的可运行验证命令及其工具先决条件（Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`, `wrangler`, …）列表位于 [docs/validation-gates.md](../validation-gates.md)。
-云/代理环境说明位于 [AGENTS.md](../../AGENTS.md)。
+各目标完整的可运行验证命令及工具前置条件（Foundry、`solc`、`sbpf`、
+`wat2wasm`、`dargo`、`leo`、`wrangler` 等）见
+[docs/validation-gates.md](../validation-gates.md)。云端/agent 环境说明见
+[AGENTS.md](../../AGENTS.md)。
 
 ## 架构
 
 ```mermaid
 flowchart TB
-  subgraph authoring ["Authoring (user-facing, chain-neutral)"]
+  subgraph authoring ["作者层（用户面，链中立）"]
     SDK["Lean SDK<br/>contract_source / Contract Intent API"]
     TOK["Token SDK<br/>TokenSpec"]
-    LEARN[".learn parser<br/>(frozen compatibility)"]
+    LEARN[".learn 解析器<br/>（冻结的兼容层）"]
   end
 
-  subgraph core ["Compiler-owned core"]
+  subgraph core ["编译器私有核心"]
     SPEC["ContractSpec"]
-    IR["Portable IR<br/>+ AllocatorConfig + ownership rules"]
-    SEM["IR semantics + formal anchors<br/>(FV roadmap)"]
+    IR["可移植 IR<br/>+ AllocatorConfig + 所有权规则"]
+    SEM["IR 语义 + 形式化锚点<br/>（FV 路线图）"]
   end
 
-  subgraph routing ["Target routing (--target)"]
-    REG["Target registry<br/>profiles + allocator bindings"]
-    CAP["Capability check<br/>reject unsupported intents"]
-    EXT["Target Extension SDKs<br/>Solana accounts/PDA/CPI, ..."]
+  subgraph routing ["目标路由（--target）"]
+    REG["Target registry<br/>profile + allocator 绑定"]
+    CAP["Capability 检查<br/>拒绝不支持的 intent"]
+    EXT["Target Extension SDK<br/>Solana 账户/PDA/CPI 等"]
   end
 
-  subgraph backends ["Backends"]
+  subgraph backends ["后端"]
     EVM["EVM<br/>Plan → Yul → solc"]
     SOL["Solana<br/>sBPF asm → ELF"]
     NEAR["NEAR<br/>EmitWat → WAT → wasm"]
-    SUI["Sui<br/>Move package (Counter MVP)"]
     PSY["Psy/DPN<br/>.psy → Dargo"]
     ALEO["Aleo<br/>Leo package"]
     CFW["CF Workers<br/>TypeScript"]
   end
 
-  subgraph artifacts ["Artifacts + validation"]
-    ART["bytecode/ELF/wasm/circuit + ABI/IDL<br/>artifact + deploy manifests + TS clients"]
-    GATES["Gates: Lean tests · testkit (planned, RFC 0007)<br/>Foundry · Mollusk/Surfpool · offline host · dargo/leo"]
+  subgraph artifacts ["制品与验证"]
+    ART["bytecode/ELF/wasm/circuit + ABI/IDL<br/>artifact + deploy manifest + TS client"]
+    GATES["门禁：Lean 测试 · testkit（规划中，RFC 0007）<br/>Foundry · Mollusk/Surfpool · 离线宿主 · dargo/leo"]
   end
 
   SDK --> SPEC
@@ -137,52 +156,64 @@ flowchart TB
   IR --> CAP
   REG --> CAP
   EXT --> CAP
-  CAP --> EVM & SOL & NEAR & SUI & PSY & ALEO & CFW
-  EVM & SOL & NEAR & SUI & PSY & ALEO & CFW --> ART
+  CAP --> EVM & SOL & NEAR & PSY & ALEO & CFW
+  EVM & SOL & NEAR & PSY & ALEO & CFW --> ART
   ART --> GATES
 ```
 
-- **Contract Intent API** — 默认的 SDK 界面：状态、入口、事件、调用者/金额访问、检查算术、断言和证明，无需导入目标链模块。
-- **Target Extension SDKs** — 当合约需要时提供显式的链原生语义（Solana 账户/PDA/CPI、分配器选择等）。扩展通过能力 id 和目标元数据进行降级，绝不通过向可移植 IR (D-027) 添加仅限链的构造函数来实现。
-- **目标适配器** — 每个目标家族的 ABI、打包、测试运行器和部署逻辑；`--target` 选择适配器，不支持的意图将在制品生成 (D-028) 之前被拒绝。
+- **Contract Intent API** — 默认 SDK 表面：state、entrypoint、event、
+  caller/value 访问、checked 算术、断言和证明，不需要 import 目标链模块。
+- **Target Extension SDK** — 合约确实需要链原生语义时显式引入（Solana
+  账户/PDA/CPI、allocator 选择等）。扩展通过 capability id 和 target
+  metadata 降级，绝不给可移植 IR 增加仅单链使用的 constructor（D-027）。
+- **Target adapter** — 每个链家族的 ABI、打包、测试运行器和部署逻辑；
+  `--target` 选择 adapter，不支持的 intent 在产出制品前被拒绝（D-028）。
 
-参见 [docs/authoring-model.md](../authoring-model.md) 了解编写层（旧版 `.learn` 解析器是一个冻结的兼容性界面，而不是第二种产品语言），以及 [docs/portable-ir.md](../portable-ir.md) 了解 IR 规范。可编辑的 [Excalidraw 架构图](../diagrams/README.md)（在 [excalidraw.com](https://excalidraw.com) 上打开）是对上方 Mermaid 图表的补充。
+作者层边界见 [docs/authoring-model.md](../authoring-model.md)（遗留 `.learn`
+解析器是冻结的兼容层，不是第二门产品语言）；IR 规范见
+[docs/portable-ir.md](../portable-ir.md)。
 
 ## 开发文档
 
-- [开发标准](../development-standards.md)
-- [验证门禁](../validation-gates.md)
-- [实现待办事项](../implementation-backlog.md) — 工作流 24（合并后跟进）和工作流 25（形式化验证）是当前的优先级。
-- [能力注册表](../capability-registry.md)
-- [共享场景：Counter](../shared-scenario.md) — 跨目标验收测试；当前阶段的目标是在 `evm`、`solana-sbpf-asm` 和 `wasm-near` 上通过测试。
-- 目标说明：[docs/targets/](../targets/README.md)
+- [Development standards](../development-standards.md)
+- [Validation gates](../validation-gates.md)
+- [Implementation backlog](../implementation-backlog.md) — 当前优先级是
+  Workstream 24（合并收敛跟进）和 Workstream 25（形式化验证）。
+- [Capability registry](../capability-registry.md)
+- [Shared scenario: Counter](../shared-scenario.md) — 跨目标验收测试；
+  当前阶段目标是在 `evm` + `solana-sbpf-asm` + `wasm-near` 上跑通。
+- Target 说明：[docs/targets/](../targets/README.md)
 
-## 编写模块命名
+## 作者侧模块命名
 
-- **可移植编写模块：** `ProofForge.Contract.Source`（新的链中立合约和模板的默认选择）。
-- **目标选择：** `proof-forge --target <id>` 在构建/发射时选择 EVM、Solana、NEAR、Sui 或其他后端；可移植合约源码不应仅为了选择输出链而导入目标链模块。
-- **EVM 原生模块：** 带有命名空间 `Lean.Evm` 的 `ProofForge.Evm` 仍保留用于旧版 EVM 示例和显式的仅限 EVM 的适配器工作。
+- **可移植作者模块：** `ProofForge.Contract.Source`（新的链无关合约和模板默认使用）。
+- **目标选择：** `proof-forge --target <id>` 在构建/发射阶段选择 EVM、Solana、NEAR
+  或其他后端；可移植合约源码不应该为了选择输出链而导入目标链模块。
+- **EVM-native 模块：** `ProofForge.Evm` 及命名空间 `Lean.Evm` 仍保留给旧版
+  EVM 示例和明确只面向 EVM 的 adapter 工作。
 
-`Lean.Evm` 命名空间源自 Lean 分叉迁移。重命名为统一的 `ProofForge.*` 命名空间已在待办事项（工作流 24）中跟踪，因为 `Lean.Evm` 遮蔽了 Lean 编译器自身的 `Lean` 命名空间。
+`Lean.Evm` 命名空间来自 Lean fork 迁移。统一重命名到 `ProofForge.*`
+命名空间已列入 backlog（Workstream 24），因为 `Lean.Evm` 会遮蔽 Lean
+编译器自身的 `Lean` 命名空间。
 
 ## 路线图
 
 ```text
-Phase 0: EVM baseline                      (done)
-Phase 1: target registry + portable IR     (done)
-Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
-                                            Sui Counter MVP;
-                                            Aleo, CF Workers research)
-Phase 3:  three-chain P0 SDK cleanup        (done — 0 open P0 blockers;
-                                            Counter + ValueVault portable
-                                            on evm + solana-sbpf-asm + wasm-near)
-Current:  P1 feature expansion — full NEAR Promise async execution,
-          Solana map storage, EVM dynamic constructor args runtime,
-          Sui beyond-Counter planning, Pinocchio reference breadth,
-          formal verification (Workstream 25)
-Later:    Move family expansion, cloud platform (after two+ targets reach
-          Experimental with shared-scenario parity; D-010)
+Phase 0: EVM 基线                          （完成）
+Phase 1: target registry + portable IR     （完成）
+Phase 2+: 并行后端 spike                   （Solana、NEAR、Psy 已在 main；
+                                            Sui 为 Counter MVP；
+                                            Aleo、CF Workers 为 research）
+Phase 3:  三链 P0 后端门禁                  （完成——Counter + ValueVault
+                                            在 evm + solana-sbpf-asm +
+                                            wasm-near 上可移植）
+当前:     3 个开放 P0 SDK blocker——EVM typed runtime custom-error args；
+          NEAR 参数化 TokenSpec runtime + NEP-145 refund guard；
+          随后推进 P1 深度和形式化验证（Workstream 25）
+之后:     Move 家族（Aptos 优先）、云平台（两个以上目标达到
+          Experimental 且 shared-scenario 对齐后；D-010）
 ```
 
-规范的目标 id 以及完整的决策日志：[docs/decisions.md](../decisions.md)。
-文件名 `docs/targets/solana-sbf.md` 是 Solana 目标笔记的历史别名；规范路径为 `solana-sbpf-asm` (D-026)。
+规范 target id 与完整决策日志：[docs/decisions.md](../decisions.md)。
+`docs/targets/solana-sbf.md` 是 Solana 目标说明的历史别名；规范路线是
+`solana-sbpf-asm`（D-026）。

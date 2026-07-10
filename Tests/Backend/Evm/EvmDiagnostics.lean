@@ -1,5 +1,6 @@
 import ProofForge.Backend.Evm.IR
 import ProofForge.IR.Contract
+import ProofForge.IR.Examples.EvmErrorsProbe
 
 namespace ProofForge.Tests.EvmDiagnostics
 
@@ -556,6 +557,78 @@ def compoundAssignmentTypeModule : Module :=
     .assignOp (.local "flag") .add (.literal (.bool false))
   ]
 
+def customErrorModule (name : String) (ref : ErrorRef) : Module :=
+  selectedModule name <| selectedEntrypoint "bad" #[.revertWithError ref]
+
+def customErrorArgsWithoutSelectorModule : Module :=
+  customErrorModule "BadCustomErrorMissingSelector" {
+    assertionId := 1
+    userCode? := some "BadError"
+    solidityArgTypes := #["uint64"]
+    solidityArgWords := #[1]
+  }
+
+def customErrorBadSelectorModule : Module :=
+  customErrorModule "BadCustomErrorSelector" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "not-hex!"
+  }
+
+def customErrorArityModule : Module :=
+  customErrorModule "BadCustomErrorArity" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint64", "uint64"]
+    solidityArgWords := #[1]
+  }
+
+def customErrorDynamicTypeModule : Module :=
+  customErrorModule "BadCustomErrorDynamicType" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["string"]
+    solidityArgWords := #[1]
+  }
+
+def customErrorOverflowModule : Module :=
+  customErrorModule "BadCustomErrorOverflow" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint64"]
+    solidityArgWords := #[18446744073709551616]
+  }
+
+def customErrorBoolRangeModule : Module :=
+  customErrorModule "BadCustomErrorBool" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["bool"]
+    solidityArgWords := #[2]
+  }
+
+def customErrorAddressRangeModule : Module :=
+  customErrorModule "BadCustomErrorAddress" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["address"]
+    solidityArgWords := #[(2 : Nat) ^ 160]
+  }
+
+def customErrorUint256RangeModule : Module :=
+  customErrorModule "BadCustomErrorUint256" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint256"]
+    solidityArgWords := #[(2 : Nat) ^ 256]
+  }
+
 def renderError? (module : Module) : Option String :=
   match ProofForge.Backend.Evm.IR.renderModule module with
   | .ok _ => none
@@ -851,6 +924,46 @@ def cases : Array (String × Module × String) := #[
     "compound assignment type mismatch",
     compoundAssignmentTypeModule,
     "compound assignment addition expects matching numeric operands, got `Bool` and `Bool`"
+  ),
+  (
+    "custom error args require selector",
+    customErrorArgsWithoutSelectorModule,
+    "revertWithError has Solidity custom-error args without a selector"
+  ),
+  (
+    "custom error selector format",
+    customErrorBadSelectorModule,
+    "revertWithError Solidity custom-error selector must be exactly 8 hex digits"
+  ),
+  (
+    "custom error arg arity",
+    customErrorArityModule,
+    "revertWithError Solidity custom-error arg type/value count mismatch: 2 type(s), 1 value(s)"
+  ),
+  (
+    "custom error dynamic arg rejected",
+    customErrorDynamicTypeModule,
+    "revertWithError Solidity custom-error arg 0 has unsupported static ABI type `string`"
+  ),
+  (
+    "custom error arg range",
+    customErrorOverflowModule,
+    "revertWithError Solidity custom-error arg 0 value `18446744073709551616` exceeds `uint64` range"
+  ),
+  (
+    "custom error bool range",
+    customErrorBoolRangeModule,
+    "revertWithError Solidity custom-error arg 0 value `2` exceeds `bool` range"
+  ),
+  (
+    "custom error address range",
+    customErrorAddressRangeModule,
+    s!"revertWithError Solidity custom-error arg 0 value `{(2 : Nat) ^ 160}` exceeds `address` range"
+  ),
+  (
+    "custom error uint256 range",
+    customErrorUint256RangeModule,
+    s!"revertWithError Solidity custom-error arg 0 value `{(2 : Nat) ^ 256}` exceeds `uint256` range"
   )
 ]
 
@@ -870,14 +983,32 @@ def checkCase (name : String) (module : Module) (expected : String) : IO Bool :=
       IO.eprintln "  expected an error, but EVM IR generation succeeded"
       pure false
 
+def checkCustomErrorStaticYul : IO Bool := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  | .error err =>
+      IO.eprintln s!"evm-diagnostics: FAILED: valid custom-error args: {err.render}"
+      pure false
+  | .ok yul =>
+      let ok :=
+        yul.contains "mstore(4, 9007199254740993)" &&
+          yul.contains "mstore(36, 3)" &&
+          yul.contains "revert(0, 68)"
+      if ok then
+        IO.println "evm-diagnostics: ok: valid custom-error static args"
+      else
+        IO.eprintln "evm-diagnostics: FAILED: valid custom-error ABI word layout"
+      pure ok
+
 def main : IO UInt32 := do
   let mut failures : Nat := 0
+  if !(← checkCustomErrorStaticYul) then
+    failures := failures + 1
   for (name, module, expected) in cases do
     let ok ← checkCase name module expected
     if !ok then
       failures := failures + 1
   if failures == 0 then
-    IO.println s!"evm-diagnostics: {cases.size} cases passed"
+    IO.println s!"evm-diagnostics: {cases.size} negative cases + static-word layout passed"
     pure 0
   else
     IO.eprintln s!"evm-diagnostics: {failures} case(s) failed"

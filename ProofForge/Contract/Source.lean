@@ -210,6 +210,7 @@ scoped syntax "state " ident " : " term : contractItem
 scoped syntax "mapping " ident " from " term " to " term : contractItem
 scoped syntax "binding " ident " : " term : contractItem
 scoped syntax "event " ident : contractItem
+scoped syntax "event " ident " abi " term : contractItem
 scoped syntax "allocator " "bump" : contractItem
 scoped syntax "account " ident " readonly" : contractItem
 scoped syntax "account " ident " readonly " "signer" : contractItem
@@ -501,96 +502,111 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt))
 check entry body syntax or import ProofForge.Contract.Source.Solana for Solana extensions"
   return acc
 
-def mkEntry0 (name : TSyntax `ident) (retTy : TSyntax `term)
+def surfaceEntryFn (isView : Bool) : MacroM (TSyntax `term) :=
+  if isView then
+    `(ProofForge.Contract.Surface.view)
+  else
+    `(ProofForge.Contract.Surface.entry)
+
+def mkEntry0 (name : TSyntax `ident) (retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
-  `(ProofForge.Contract.Surface.entry
+  let entryFn ← surfaceEntryFn isView
+  `($entryFn
       (ProofForge.Contract.Surface.method $nameLit #[] $retTy)
       $body)
 
-def mkEntry1 (name p1 : TSyntax `ident) (t1 retTy : TSyntax `term)
+def mkEntry1 (name p1 : TSyntax `ident) (t1 retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
-    (← `(ProofForge.Contract.Surface.entry
+    (← `($entryFn
         (ProofForge.Contract.Surface.method $nameLit #[$p1] $retTy)
         $body))
 
 def mkEntry2 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
-    (p2 : TSyntax `ident) (t2 retTy : TSyntax `term)
+    (p2 : TSyntax `ident) (t2 retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← mkParamLet p2 t2
-      (← `(ProofForge.Contract.Surface.entry
+      (← `($entryFn
           (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2] $retTy)
           $body)))
 
 def mkEntry3 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
     (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 retTy : TSyntax `term)
+    (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← mkParamLet p2 t2
       (← mkParamLet p3 t3
-        (← `(ProofForge.Contract.Surface.entry
+        (← `($entryFn
             (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3] $retTy)
             $body))))
 
 def mkEntry4 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
     (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 : TSyntax `term)
-    (p4 : TSyntax `ident) (t4 retTy : TSyntax `term)
+    (p4 : TSyntax `ident) (t4 retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← mkParamLet p2 t2
       (← mkParamLet p3 t3
         (← mkParamLet p4 t4
-          (← `(ProofForge.Contract.Surface.entry
+          (← `($entryFn
               (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4] $retTy)
               $body)))))
 
 def mkEntry5 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
     (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 : TSyntax `term)
     (p4 : TSyntax `ident) (t4 : TSyntax `term) (p5 : TSyntax `ident) (t5 retTy : TSyntax `term)
+    (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← mkParamLet p2 t2
       (← mkParamLet p3 t3
         (← mkParamLet p4 t4
           (← mkParamLet p5 t5
-            (← `(ProofForge.Contract.Surface.entry
+            (← `($entryFn
                 (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4, $p5] $retTy)
                 $body))))))
 
 def mkEntry6 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
     (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 : TSyntax `term)
     (p4 : TSyntax `ident) (t4 : TSyntax `term) (p5 : TSyntax `ident) (t5 : TSyntax `term)
-    (p6 : TSyntax `ident) (t6 retTy : TSyntax `term)
+    (p6 : TSyntax `ident) (t6 retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
     (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
   let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← mkParamLet p2 t2
       (← mkParamLet p3 t3
         (← mkParamLet p4 t4
           (← mkParamLet p5 t5
             (← mkParamLet p6 t6
-              (← `(ProofForge.Contract.Surface.entry
+              (← `($entryFn
                   (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4, $p5, $p6] $retTy)
                   $body)))))))
 
@@ -707,6 +723,10 @@ def lowerItem (item : TSyntax `contractItem)
       return { action? := some action, binder := mkMapLet name keyType valueType }
   | `(contractItem| binding $name:ident : $type:term) =>
       return { binder := mkBindingLet name type }
+  | `(contractItem| event $name:ident abi $fields:term) =>
+      let nameLit := identNameLit name
+      let action ← `(ProofForge.Contract.Surface.declareEventAbi $nameLit $fields)
+      return { action? := some action, binder := mkEventLet name }
   | `(contractItem| event $name:ident) =>
       return { binder := mkEventLet name }
   | `(contractItem| use $action:term) =>
@@ -716,47 +736,47 @@ def lowerItem (item : TSyntax `contractItem)
   | `(contractItem| open $mod:ident;) =>
       return { action? := some (← mixinTerm mod) }
   | `(contractItem| entry $name:ident do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry0 name (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry0 name (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry0 name retTy stmts entryExt) }
+      return { action? := some (← mkEntry0 name retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry1 name p1 t1 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry1 name p1 t1 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry1 name p1 t1 retTy stmts entryExt) }
+      return { action? := some (← mkEntry1 name p1 t1 retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry2 name p1 t1 p2 t2 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry2 name p1 t1 p2 t2 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry2 name p1 t1 p2 t2 retTy stmts entryExt) }
+      return { action? := some (← mkEntry2 name p1 t1 p2 t2 retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 retTy stmts entryExt) }
+      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 retTy stmts entryExt) }
+      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 retTy stmts entryExt) }
+      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 retTy false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 (← `(.unit)) stmts entryExt) }
+      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy stmts entryExt) }
+      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy false stmts entryExt) }
   | `(contractItem| query $name:ident returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry0 name retTy stmts entryExt) }
+      return { action? := some (← mkEntry0 name retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry1 name p1 t1 retTy stmts entryExt) }
+      return { action? := some (← mkEntry1 name p1 t1 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry2 name p1 t1 p2 t2 retTy stmts entryExt) }
+      return { action? := some (← mkEntry2 name p1 t1 p2 t2 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 retTy stmts entryExt) }
+      return { action? := some (← mkEntry3 name p1 t1 p2 t2 p3 t3 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 retTy stmts entryExt) }
+      return { action? := some (← mkEntry4 name p1 t1 p2 t2 p3 t3 p4 t4 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 retTy stmts entryExt) }
+      return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term) returns($retTy:term) do $stmts:entryStmt*) =>
-      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy stmts entryExt) }
+      return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy true stmts entryExt) }
   | _ =>
       Macro.throwErrorAt item
         s!"unsupported contract source item (dsl {sourceDslVersion}); \

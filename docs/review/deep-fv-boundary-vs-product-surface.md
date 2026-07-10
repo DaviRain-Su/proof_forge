@@ -1,8 +1,8 @@
 # Deep-Dive: Formal-Verification Boundary vs. Advertised Product Surface
 
-**Dimension:** `fv-boundary-vs-product-surface`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Date:** 2026-07-10  
+**Dimension:** `fv-boundary-vs-product-surface`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Date:** 2026-07-10
 **Branch:** `main`
 
 ## Executive summary

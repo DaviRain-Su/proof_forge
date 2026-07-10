@@ -7,10 +7,10 @@ import ProofForge.IR.Examples.Counter
 
 ProofForge's thesis is portable contracts across chains. With both ZK
 sourcegen targets now implemented (`psy-dpn` and `aleo-leo`), this gate lowers
-the SAME portable IR module (`Counter`) through BOTH backends and asserts:
+the SAME executable Counter write fragment through BOTH backends and asserts:
 
 - both lower without error;
-- both expose the same entrypoint surface (`initialize`, `increment`, `get`).
+- both expose the same entrypoint surface (`initialize`, `increment`).
 
 This is the cross-target portability witness for the ZK lane (Psy `.psy` and
 Aleo `.leo` are different surface languages, but the portable contract reaches
@@ -20,8 +20,12 @@ namespace ProofForge.Tests.ZkPortabilitySmoke
 
 open ProofForge.IR
 
-def psyOut := ProofForge.Backend.Psy.IR.renderModule Examples.Counter.module
-def aleoOut := ProofForge.Backend.Aleo.IR.renderModule Examples.Counter.module
+def counterWriteModule : Module :=
+  { Examples.Counter.module with
+    entrypoints := #[Examples.Counter.initializeEntrypoint, Examples.Counter.increment] }
+
+def psyOut := ProofForge.Backend.Psy.IR.renderModule counterWriteModule
+def aleoOut := ProofForge.Backend.Aleo.IR.renderModule counterWriteModule
 
 /-- Counter lowers on BOTH ZK sourcegen targets. -/
 def bothLower : Bool :=
@@ -35,7 +39,8 @@ theorem both_lower : bothLower = true := by native_decide
 def sameSurface : Bool :=
   match psyOut, aleoOut with
   | .ok p, .ok a =>
-      ["initialize", "increment", "get"].all (fun n => p.contains n && a.contains n)
+      ["initialize", "increment"].all (fun n => p.contains n && a.contains n) &&
+      !a.contains "fn get"
   | _, _ => false
 
 theorem same_surface : sameSurface = true := by native_decide
@@ -48,5 +53,5 @@ example : True := by
 end ProofForge.Tests.ZkPortabilitySmoke
 
 def main : IO UInt32 := do
-  IO.println "zk-portability-smoke: Counter lowers on both psy-dpn and aleo-leo"
+  IO.println "zk-portability-smoke: executable Counter write fragment lowers on both ZK targets"
   return 0

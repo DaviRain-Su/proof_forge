@@ -28,7 +28,9 @@ def tokenOwners : MapRef :=
 contract_mixin ERC721Mixin do
   use ProofForge.Contract.Surface.mapState tokenOwners
 
-  event Transfer
+  event Transfer abi #[
+    ("from", "address"), ("to", "address"), ("tokenId", "uint256")
+  ]
 
   query ownerOf (tokenId : .u64) returns(.u64) do
     let tokenOwner : .u64 := mapRead tokenOwners tokenId;

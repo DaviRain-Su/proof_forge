@@ -1,8 +1,8 @@
 # Gap Analysis: Testing, CI & Toolchain
 
-**Dimension:** `testing-ci-toolchain`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Date:** 2026-07-10  
+**Dimension:** `testing-ci-toolchain`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Date:** 2026-07-10
 **Maturity score:** 5.5 / 10
 
 ## Maturity summary

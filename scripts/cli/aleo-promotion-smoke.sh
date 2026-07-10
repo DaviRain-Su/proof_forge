@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PF-P3-02: six-gate promotion smoke for aleo-leo (Counter fixture fragment).
+# Aleo promotion-readiness audit. This intentionally remains non-zero while
+# full portable Counter cannot preserve its getter ABI on Leo 4.0.2.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -10,9 +11,13 @@ ok() { echo "aleo-promotion: ok — $*"; }
 
 command -v leo >/dev/null || fail "leo CLI not on PATH"
 
-# Gates 1,3,4,5 via existing counter smoke (emit, golden, leo build/test, metadata)
-bash scripts/aleo/counter-smoke.sh || fail "gates1/3/4/5: aleo counter-smoke failed"
-ok "gates1/3/4/5 aleo counter-smoke"
+# Honest negative witness for full Counter.
+bash scripts/aleo/counter-smoke.sh || fail "counter fail-closed witness failed"
+ok "full Counter getter fails closed"
+
+# Executable positive witness uses the supported pure fragment.
+bash scripts/aleo/pure-math-smoke.sh || fail "PureMath sourcegen/build/test failed"
+ok "PureMath sourcegen/build/test"
 
 # Gate 2: product source fail-closed
 set +e
@@ -37,4 +42,4 @@ print("ok")
 PY
 ok "gate6 surface"
 
-echo "aleo-promotion: ok (six gates for Counter fixture fragment)"
+fail "promotion incomplete: Leo 4.0.2 cannot preserve Counter get() -> U64 across final"

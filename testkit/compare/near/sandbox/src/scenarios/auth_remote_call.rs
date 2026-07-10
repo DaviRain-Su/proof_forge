@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::host::{
     call_json, call_raw, deploy_with_metrics, ensure_file, ensure_ok, refresh_storage,
-    view_json_u64,
+    view_json_u64, view_state_u64,
 };
 use crate::report::{SideKind, SideReport};
 
@@ -82,13 +82,26 @@ pub(crate) async fn run_auth_remote_call_matrix(
     ensure_ok(&s, "PF debit_and_forward")?;
     pf_steps.push(s);
 
-    // Peer should have received amount 10 (async; near-workspaces resolves promises).
+    let s = view_state_u64(&pf_contract, b"balance", "balance").await?;
+    ensure_ok(&s, "PF balance state after debit")?;
+    if s.return_u64 != Some(90) {
+        bail!(
+            "PF local balance after debit: expected 90, got {:?}",
+            s.return_u64
+        );
+    }
+    pf_steps.push(s);
+
+    // near-workspaces resolves the returned promise before the transaction completes.
     let s = view_json_u64(&callee, "total", json!({})).await?;
     ensure_ok(&s, "callee total after PF")?;
-    // Best-effort: if promise settled, total==10; otherwise still ok if call succeeded.
-    if s.return_u64 == Some(10) {
-        pf_steps.push(s);
+    if s.return_u64 != Some(10) {
+        bail!(
+            "PF callee total after promise: expected 10, got {:?}",
+            s.return_u64
+        );
     }
+    pf_steps.push(s);
 
     let pf_storage = refresh_storage(&pf_contract).await?;
     let pf = SideReport {
@@ -115,30 +128,34 @@ pub(crate) async fn run_auth_remote_call_matrix(
     let mut sdk_steps = Vec::new();
     let mut sdk_call_gas = 0u64;
 
-    let s = call_json(
-        &sdk_contract,
-        "initialize",
-        json!({ "callee": callee2_id }),
-    )
-    .await?;
+    let s = call_json(&sdk_contract, "initialize", json!({ "callee": callee2_id })).await?;
     sdk_call_gas = sdk_call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
     ensure_ok(&s, "sdk initialize")?;
     sdk_steps.push(s);
 
-    let s = call_json(
-        &sdk_contract,
-        "debit_and_forward",
-        json!({ "amount": 10 }),
-    )
-    .await?;
+    let s = call_json(&sdk_contract, "debit_and_forward", json!({ "amount": 10 })).await?;
     sdk_call_gas = sdk_call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
     ensure_ok(&s, "sdk debit_and_forward")?;
     sdk_steps.push(s);
 
-    let s = view_json_u64(&sdk_contract, "balance", json!({})).await?;
-    ensure_ok(&s, "sdk balance")?;
+    let mut s = view_json_u64(&sdk_contract, "balance", json!({})).await?;
+    s.kind = "state".into();
+    ensure_ok(&s, "sdk balance after debit")?;
     if s.return_u64 != Some(90) {
-        bail!("sdk balance after debit: expected 90, got {:?}", s.return_u64);
+        bail!(
+            "sdk local balance after debit: expected 90, got {:?}",
+            s.return_u64
+        );
+    }
+    sdk_steps.push(s);
+
+    let s = view_json_u64(&callee2, "total", json!({})).await?;
+    ensure_ok(&s, "callee2 total after sdk")?;
+    if s.return_u64 != Some(10) {
+        bail!(
+            "sdk callee total after promise: expected 10, got {:?}",
+            s.return_u64
+        );
     }
     sdk_steps.push(s);
 

@@ -278,9 +278,9 @@ ProofForge's default build still avoids powdr/mathlib imports.
   `ae13dbc506158f9d0c7e05634636b17e2bccf850`, with mathlib pinned transitively
   at `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The opt-in adapter now exposes
   real powdr-backed `State`, `Step`, `stepF`, and `runBytecode` wrappers. The
-  Counter storage relation now maps the IR `count` binding to the high 64 bits
+  Counter storage relation now maps the IR `count` binding to the low 64 bits
   of the powdr account storage word at ProofForge's EVM layout slot 0, allowing
-  low 192-bit padding, and successful
+  high 192-bit padding, and successful
   `runBytecode` executions now lift to powdr's relational `Steps` closure.
   The pinned powdr tree exposes bytecode semantics, not a Yul-level relation,
   so the Yul→bytecode `solc` step remains an explicit trust boundary. The
@@ -303,11 +303,15 @@ ProofForge's default build still avoids powdr/mathlib imports.
   - `EvmRefinement/CounterRefinement.lean` — opt-in Counter relation layer that
     proves `count` is EVM scalar slot 0 and relates IR `count` to powdr
     `AccountMap`/`Storage` over the generated EVM packed U64 slot shape:
-    `count` occupies the high 64 bits, the low 192 bits are padding/other-packed
+    `count` occupies the low 64 bits, the high 192 bits are padding/other-packed
     field space, and `count < 2^64`. This corrects both the earlier
     raw-`UInt256.ofNat count` relation and the too-strong canonical whole-word
     equality relation, neither of which matches the compiled runtime's `get` and
-    write behavior. It also prepares runtime-code parameterized Counter call
+    write behavior. **Legacy storage-layout checkpoint:** the prepared-frame,
+    safe-trace, and hand-expanded opcode names in the historical detail below live
+    under `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target
+    the pre-migration high-64-bit layout and do not establish refinement for the
+    current low-order runtime. It also prepares runtime-code parameterized Counter call
     frames and proves that preparation preserves the
     storage relation. It now embeds the current CLI-generated Counter runtime
     bytecode witness, proves its size and selector offsets, exposes
@@ -325,8 +329,8 @@ ProofForge's default build still avoids powdr/mathlib imports.
     `counterCompiledPowdr_executable_trace_ok`. Prepared calls now normalize a
     fresh top-level EVM frame while preserving storage, so stale halted frames or
     zero-gas defaults are not accidental counterexamples. Packed-storage smokes
-    show `get` reads packed `7` as `7`, `get` also reads a padded high-bit `7`
-    as `7`, `initialize; get` returns `0` from a padded slot, and
+    use low-bit count `7` with nonzero high padding; `initialize; get` returns
+    `0` from that padded slot, and
     `increment; get` reaches `8`. The
     module now exposes a
     powdr-backed Counter trace-step surface and proves successful trace steps
@@ -348,37 +352,38 @@ ProofForge's default build still avoids powdr/mathlib imports.
     `counterTraceSafeAfterInitialize`, with native checks for the normal
     initialize-get-increment-get trace and for the unsafe max-u64 increment case.
     The obligation surface now also has a safe variant:
-    `CounterStepSafe`, `CounterPowdrSafeEntrypointObligations`, and
+    `LegacyHighPacked.CounterStepSafe`,
+    `LegacyHighPacked.CounterPowdrSafeEntrypointObligations`, and
     `counterPowdr_safe_step_simulates_from_obligations` make the bounded
     `increment` precondition explicit at the per-entrypoint EVM proof boundary.
     `counterPowdr_safe_trace_simulates_from_obligations` and
-    `counterPowdr_safe_trace_simulates_after_initialize_from_obligations` lift
+    `LegacyHighPacked.counterPowdr_safe_trace_simulates_after_initialize_from_obligations` lift
     that predicate through the universal trace induction, with a compiled-runtime
     specialization exposed for `counterCompiledPowdrConfig`.
-    `CounterTraceSafeAtState` and
-    `counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations`
+    `LegacyHighPacked.CounterTraceSafeAtState` and
+    `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations`
     expose the boundary as a state/input predicate for the later supported-fragment
-    gate. `CounterPowdrEvmPostconditions` plus
-    `counterPowdrSafeEntrypointObligationsOfPostconditions` historically reduced a
+    gate. `LegacyHighPacked.CounterPowdrEvmPostconditions` plus
+    `LegacyHighPacked.counterPowdrSafeEntrypointObligationsOfPostconditions` historically reduced a
     deeper powdr route to EVM-only storage postconditions for the compiled runtime;
     that route is deferred until generic automation exists.
-    `CounterPowdrPreparedEvmPostconditions` and
-    `counterPowdrEvmPostconditionsOfPrepared` split those postconditions into
+    `LegacyHighPacked.CounterPowdrPreparedEvmPostconditions` and
+    `LegacyHighPacked.counterPowdrEvmPostconditionsOfPrepared` split those postconditions into
     prepared-frame bytecode facts plus the `prepareCounterCall` bridge.
-    `counterInitializeStorageWord` models the compiled initialize body as
+    `LegacyHighPacked.counterInitializeStorageWord` models the historical initialize body as
     high-64-bit count clear plus low-192-bit padding preservation, and
-    `counterPreparedInitializePostconditionOfStorageModel` turns that model into
-    the prepared-frame initialize postcondition. `CounterPowdrPreparedStorageModels`
+    `LegacyHighPacked.counterPreparedInitializePostconditionOfStorageModel` turns that model into
+    the prepared-frame initialize postcondition. `LegacyHighPacked.CounterPowdrPreparedStorageModels`
     now names the remaining prepared-frame storage-model obligations, and the
-    compiled `counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
+    compiled `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
     theorems connect those obligations directly to the safe universal trace
-    theorems. `counterInitializeStorageValue_of_sstore_stackMemFlow_ok` proves
+    theorems. `LegacyHighPacked.counterInitializeStorageValue_of_sstore_stackMemFlow_ok` proves
     the final powdr `SSTORE` helper step writes the initialize model value into
     Counter slot 0 once the dispatcher/body proof establishes the required stack
-    shape. `counterStack_of_initialize_sload_and_or_ok` composes the preceding
+    shape. `LegacyHighPacked.counterStack_of_initialize_sload_and_or_ok` composes the preceding
     powdr `SLOAD`, `AND`, and `OR` helper steps into the value shape consumed by
-    that SSTORE proof. `counterInitializeBodyWriteWord_eq_storageWord` and
-    `counterInitializeBodyWriteWord_rel_zero` prove the concrete initialize
+    that SSTORE proof. `LegacyHighPacked.counterInitializeBodyWriteWord_eq_storageWord` and
+    `LegacyHighPacked.counterInitializeBodyWriteWord_rel_zero` prove the historical initialize
     mask/set-value expression equals the storage model; the specialized
     `counterStack_of_initialize_sload_and_or_storageWord_ok` helper now returns
     that model value after the SLOAD/AND/OR sequence.
@@ -501,7 +506,7 @@ ProofForge's default build still avoids powdr/mathlib imports.
     proof only has to carry the prepared empty `callStack` to the
     body-return-jump frame.
     The safe universal trace layer is green once
-    `CounterCompiledPowdrPreparedStorageModels` is supplied; the scaling
+    `LegacyHighPacked.CounterCompiledPowdrPreparedStorageModels` is supplied; the scaling
     boundary is now the target-specific discharge of those prepared storage
     models, not the shared trace induction.
   - `docs/phase-6b-integration-blockers.md` (new) — full blocker record.
@@ -511,10 +516,11 @@ ProofForge's default build still avoids powdr/mathlib imports.
   into a thin reusable proof. `PowdrExec` may continue only as a genuinely
   contract-agnostic automation substrate; a patch that adds more
   Counter-specific selector/body/return facts is out of scope for this track.
-- **Deliverable (revised):** the EVM lane delivers a clean powdr-target seam,
-  an opt-in dependency path and wrapper, a Counter storage relation, and the
-  universal Counter trace theorem route backed by `native_decide` over powdr
-  `stepF`. The explicit TCB boundary is powdr's conformance-tested executable
+- **Deliverable (corrected 2026-07-10):** the EVM lane delivers a clean powdr-target
+  seam, an opt-in dependency path and wrapper, a canonical low-order Counter storage
+  relation, and a fixed Counter IR/bytecode trace backed by `native_decide` over powdr
+  `stepF`. `evmCompiledPowdr_fragment_refines_all` remains conditional on
+  `CounterCompiledPowdrEntrypointObligations`. The explicit TCB boundary is powdr's executable
   semantics plus Lean's native evaluator, with ProofForge's Yul→bytecode `solc`
   hop also called out. Active proof effort should move to the shared
   theorem-machine shape (`TargetSemantics`, `SupportedFragment`, relation `R`,
@@ -526,8 +532,9 @@ ProofForge's default build still avoids powdr/mathlib imports.
 
 - Preserve the Counter relation, prepared-call boundary, safe-input predicate,
   and universal trace-lift theorem route already in `EvmRefinement`.
-- Treat the powdr `stepF` obligations discharged by `native_decide` as the EVM
-  delivery boundary for this milestone. This is machine-checked, but its TCB is
+- Treat the fixed powdr `stepF` trace discharged by `native_decide` as the EVM
+  delivery boundary for this milestone. This is machine-checked, but it is not a
+  closed universal theorem; its TCB is
   explicit: powdr's conformance-tested executable semantics, Lean's native
   evaluator, and ProofForge's Yul→bytecode `solc` hop.
 - Do not extend `CounterRefinement.lean` with new hand-written selector/body/

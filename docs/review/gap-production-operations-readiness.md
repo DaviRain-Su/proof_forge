@@ -1,8 +1,8 @@
 # Gap Analysis: Production Operations Readiness
 
-**Dimension:** `production-operations-readiness`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Date:** 2026-07-10  
+**Dimension:** `production-operations-readiness`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Date:** 2026-07-10
 **Branch:** `main`
 
 ## Executive Summary
@@ -118,19 +118,19 @@ ProofForge has strong *development-time* rigor (product-first CI, versioning pol
 
 ## Top 5 gaps
 
-1. **Release engineering / distribution / packaging** — blocker  
+1. **Release engineering / distribution / packaging** — blocker
    No CHANGELOG, release workflow, binaries, or installable package; product cannot be shipped.
 
-2. **Observability, telemetry, and structured logging** — blocker  
+2. **Observability, telemetry, and structured logging** — blocker
    No verbose/quiet/debug flags, no metrics, no structured logs, only `IO.userError` strings.
 
-3. **Deployment orchestration limited to EVM and lacks robustness** — high  
+3. **Deployment orchestration limited to EVM and lacks robustness** — high
    EVM-only deploy; Anvil lifecycle is ad-hoc; no rollback/retry/idempotency for chain operations.
 
-4. **Secrets and key-management hygiene** — high  
+4. **Secrets and key-management hygiene** — high
    Hardcoded Anvil test key in source; no secret scanning; `.gitignore` does not protect key files.
 
-5. **Cloud/hosted compilation boundary is not a real sandbox** — high  
+5. **Cloud/hosted compilation boundary is not a real sandbox** — high
    Hosted isolation only refuses; resource limits are external wrappers; no container/network sandbox.
 
 ## Overall maturity score

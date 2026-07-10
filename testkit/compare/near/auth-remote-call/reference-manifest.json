@@ -15,12 +15,14 @@
     "live": [
       "deploy callee with receive",
       "rebuild PF with --peer peer.callee=<id>",
-      "initialize + debit_and_forward(10)"
+      "initialize + debit_and_forward(10)",
+      "observe PF and sdk local balance=90 and callee total=10"
     ]
   },
   "honesty": [
     "PF embeds peer at build time; sdk stores callee AccountId in initialize.",
-    "Promise body is raw LE u64 amount (not JSON) for PF/sdk interop with this callee.",
+    "Promise body is the canonical wasm-near JSON array [amount] on both PF and sdk paths.",
+    "The report remains semanticMatch=false while callback/result, normalized argument, and caller observation coverage is incomplete.",
     "caller is read on PF path for Solana authority synthesis; NEAR uses predecessor only."
   ]
 }

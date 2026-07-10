@@ -1,7 +1,7 @@
 # Documentation / Onboarding Gap Analysis
 
-**Dimension:** `documentation-onboarding`  
-**Scope:** The quality, accuracy, discoverability, and completeness of ProofForge’s user and contributor documentation, project scaffolding, first-run experience, and translated materials.  
+**Dimension:** `documentation-onboarding`
+**Scope:** The quality, accuracy, discoverability, and completeness of ProofForge’s user and contributor documentation, project scaffolding, first-run experience, and translated materials.
 **Date:** 2026-07-10
 
 ---

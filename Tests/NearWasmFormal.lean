@@ -61,7 +61,6 @@ theorem release_then_sum_ownership_ok :
 #check ProofForge.Backend.WasmHost.Refinement.near_emitwat_host_buffer_memory_layout_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_emitwat_memory_surface_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_emitwat_offline_host_execution_surface_ok
-#check ProofForge.Backend.WasmHost.WasmInterpreter.counter_interpreter_smoke_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_executable_trace_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_initialize_step_simulation_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_get_after_initialize_step_simulation_ok
@@ -73,8 +72,6 @@ theorem release_then_sum_ownership_ok :
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_get_after_increment_step_simulation_sound_checked
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_trace_simulation_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_wasm_trace_simulation_sound_checked
-#check ProofForge.Backend.WasmHost.WasmInterpreter.counter_R_after_initialize_ok
-#check ProofForge.Backend.WasmHost.WasmInterpreter.counter_R_after_increment_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_emitwat_offline_host_return_payload_hex_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_emitwat_offline_host_storage_snapshots_ok
 #check ProofForge.Backend.WasmHost.Refinement.counter_emitwat_offline_host_storage_hex_snapshots_ok

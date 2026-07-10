@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.ArrayHeap
+import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
@@ -14,6 +15,7 @@ namespace ProofForge.Backend.WasmHost.Aggregate
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.ArrayHeap
+open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Plan
 open ProofForge.Backend.WasmHost.Struct
 open ProofForge.Backend.WasmHost.Types
@@ -227,16 +229,21 @@ def moduleArrayLits (mod : ProofForge.IR.Module) : Array (ValueType × Nat) :=
 
 def arrLitFunc (elemType : ValueType) (len : Nat) : Func :=
   let w := scalarWidth elemType
+  let writes := (Array.range len).foldl (fun acc i =>
+    let dst := #[.i32Const (w * i), .localGet "p", .plain "i32.add"]
+    let write :=
+      if elemType == .hash then
+        dst ++ #[.localGet s!"e{i}", .i32Const 32, .call memcpyName]
+      else
+        dst ++ #[.localGet s!"e{i}", .store (storeOpFor elemType) 0]
+    acc ++ write) #[]
   { name := arrayLitName elemType len,
     params := (Array.range len).map (fun i => { name := s!"e{i}", type := wasmTypeOf elemType }),
     results := #[.i32],
     locals := #[{ name := "p", type := .i32 }],
     body := { insns :=
       #[.i64Const (len * w), .call arrAllocName, .localSet "p"] ++
-      ((Array.range len).map fun i => #[
-        .i32Const (w * i), .localGet "p", .plain "i32.add",
-        .localGet s!"e{i}", .store (storeOpFor elemType) 0
-      ]).flatten ++ #[.localGet "p"] } }
+      writes ++ #[.localGet "p"] } }
 
 def arrLitHelperFuncs (mod : ProofForge.IR.Module) : Array Func :=
   moduleArrayLits mod |>.map (fun (e, n) => arrLitFunc e n)

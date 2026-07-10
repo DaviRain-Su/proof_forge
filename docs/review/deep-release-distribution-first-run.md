@@ -1,8 +1,8 @@
 # Release / Distribution / First-Run Readiness Deep-Dive
 
-**Dimension:** `release-distribution-first-run`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Branch:** `main` (dirty: `docs/zh/INDEX.zh.md`, `scripts/i18n/manifest.json`, `scripts/near/target-first-smoke.sh`, untracked `docs/review/`)  
+**Dimension:** `release-distribution-first-run`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Branch:** `main` (dirty: `docs/zh/INDEX.zh.md`, `scripts/i18n/manifest.json`, `scripts/near/target-first-smoke.sh`, untracked `docs/review/`)
 **Date:** 2026-07-10
 
 ---

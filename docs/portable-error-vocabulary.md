@@ -1,6 +1,6 @@
 # Portable error vocabulary (P1.6 / WS33 light)
 
-Status: **Active**  
+Status: **Active**
 Related: D-041, `just portable-error-catalog`, `just client-schema-parity`,
 `ProofForge.Contract.SdkSchema`, EVM custom-error surface (E1.1).
 

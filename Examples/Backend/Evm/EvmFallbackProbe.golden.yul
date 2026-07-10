@@ -18,10 +18,10 @@ object "EvmFallbackProbe" {
       __pf_fallback()
     }
     function f_EvmFallbackProbe_increment() {
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_add(and(shr(192, sload(0)), 18446744073709551615), 1))))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(and(add(and(shr(0, sload(0)), 18446744073709551615), 1), 18446744073709551615), 18446744073709551615))))
     }
-    function f_EvmFallbackProbe_getValue() -> result {
-      result := and(shr(192, sload(0)), 18446744073709551615)
+    function f_EvmFallbackProbe_getValue() -> __pf_result {
+      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
     }
     function __pf_fallback() {
       mstore(0, 147028384)
@@ -31,7 +31,7 @@ object "EvmFallbackProbe" {
       revert(0, 132)
     }
     function __pf_receive() {
-      sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, __pf_checked_add(and(shr(128, sload(0)), 18446744073709551615), 1))))
+      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(and(add(and(shr(64, sload(0)), 18446744073709551615), 1), 18446744073709551615), 18446744073709551615))))
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -46,7 +46,7 @@ object "EvmFallbackProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

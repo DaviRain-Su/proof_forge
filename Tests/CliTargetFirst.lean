@@ -38,6 +38,9 @@ def requireErrorContains (args : List String) (needles : Array String) : IO Unit
         require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
 
 def main : IO UInt32 := do
+  requireErrorContains
+    ["check", "--target", "evm"]
+    #["native dispatch", "does not use the legacy mapper"]
   require
     ((ProofForge.Cli.defaultBytecodeYulOutput (System.FilePath.mk "build/evm/Counter.bin")).toString == "build/evm/Counter.yul")
     "EVM bytecode build should default Yul output next to the bytecode output"
@@ -62,6 +65,13 @@ def main : IO UInt32 := do
   requireLegacy
     ["build", "--target", "evm", "--fixture", "counter", "--format", "bytecode", "-o", "build/sdk/evm"]
     ["--emit-counter-ir-bytecode", "-o", "build/sdk/evm/Counter.bin", "--yul-output", "build/sdk/evm/Counter.yul", "--solc", "solc", "--cast", "cast"]
+  requireLegacy
+    ["emit", "--target", "evm", "--fixture", "value-vault", "--format", "bytecode",
+      "--yul-output", "build/ir/ValueVault.yul", "--artifact-output", "build/ir/ValueVault.json",
+      "-o", "build/ir/ValueVault.bin"]
+    ["--emit-value-vault-ir-bytecode", "-o", "build/ir/ValueVault.bin",
+      "--yul-output", "build/ir/ValueVault.yul", "--artifact-output", "build/ir/ValueVault.json",
+      "--solc", "solc", "--cast", "cast"]
   requireLegacy
     ["emit", "--target", "evm", "--fixture", "evm-event", "--format", "bytecode", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "-o", "build/ir/EventProbe.bin"]
     ["--emit-evm-event-ir-bytecode", "-o", "build/ir/EventProbe.bin", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "--solc", "solc", "--cast", "cast"]

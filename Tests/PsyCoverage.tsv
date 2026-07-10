@@ -138,5 +138,6 @@ Effect	eventEmit	lowered	lowerEffectStmt emits __emit([fields]) with an event-na
 Effect	eventEmitIndexed	unsupported	Psy IR v0 rejects indexed events with an explicit diagnostic instead of lowering and silently dropping indexed-topic semantics.
 Effect	checkErc721Received	unsupported	Psy IR v0 rejects checkErc721Received (EVM-only IERC721Receiver callback; PF-P2-02) with an explicit diagnostic.
 Effect	checkErc1155Received	unsupported	Psy IR v0 rejects checkErc1155Received (EVM-only IERC1155Receiver callback; PF-P2-02) with an explicit diagnostic.
+Effect	checkErc1155BatchReceived	unsupported	Psy IR v0 rejects checkErc1155BatchReceived (EVM-only IERC1155Receiver batch callback; E1.2) with an explicit diagnostic.
 ValueType	array	unsupported	Psy IR v0 rejects dynamic arrays with explicit diagnostics in validateAbiValueType, validateValueType, and valueTypeName; ValueType.array is recognized but not lowered.
 StateKind	dynamicArray	unsupported	Psy IR v0 rejects storage.dynamicArray in validateState with an explicit diagnostic; StateKind.dynamicArray is recognized but not lowered.

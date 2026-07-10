@@ -12,7 +12,7 @@ namespace ProofForge.Contract.Stdlib.UUPSUpgradeable
 open ProofForge.Contract.Source
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "owner" .u64
+  ProofForge.Contract.Surface.slot "owner" .hash
 
 def eip1967Implementation : ScalarRef :=
   ProofForge.Contract.Surface.eip1967Implementation
@@ -21,10 +21,12 @@ contract_mixin UUPSUpgradeableMixin do
   use ProofForge.Contract.Surface.scalar «owner»
   use ProofForge.Contract.Surface.scalar eip1967Implementation
 
-  event Upgraded
+  event Upgraded abi #[
+    ("implementation", "address")
+  ]
 
   entry upgradeTo (newImpl : .address) do
-    guard_owner «owner»;
+    do ProofForge.Contract.Surface.requireOwnerHash «owner»;
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref newImpl) "zero implementation";
     eip1967Implementation := newImpl;
     emit Upgraded indexed #[

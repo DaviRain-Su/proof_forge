@@ -150,7 +150,8 @@ def withScalarWriteType (type : ValueType) : ModuleSurface := {
 
 def withReturnType (type : ValueType) : ModuleSurface :=
   match type with
-  | .u32 | .u64 | .bool | .hash => { returnTypes := #[type] }
+  | .u32 | .u64 | .bool | .hash | .fixedArray _ _ | .structType _ =>
+      { returnTypes := #[type] }
   | _ => empty
 
 def withNativeValue : ModuleSurface := {
@@ -311,6 +312,7 @@ def withMemcpy : ModuleSurface := {
 def withArrayLitShape (elemType : ValueType) (len : Nat) : ModuleSurface := {
   arrayLitShapes := #[(elemType, len)]
   usesArrAlloc := true
+  usesMemcpy := elemType == .hash
 }
 
 def withArrayEqShape (elemType : ValueType) (len : Nat) : ModuleSurface := {

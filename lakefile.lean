@@ -43,6 +43,8 @@ lean_lib ProofForge where
 
 lean_lib EvmRefinement where
   roots := #[
+    `EvmRefinement.CounterRuntime,
+    `EvmRefinement.HexWitness,
     `EvmRefinement.PowdrAdapter,
     `EvmRefinement.PowdrExec,
     `EvmRefinement.PowdrExecSmoke,

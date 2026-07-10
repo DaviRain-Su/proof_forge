@@ -21,6 +21,9 @@ inductive Capability where
   | dataFixedArray
   | dataDynamicArray
   | dataStruct
+  /-- Consumable, owner-bound record value. Targets without native linear
+  ownership semantics must reject rather than lower it as a copyable struct. -/
+  | dataLinearRecord
   | cryptoHash
   /-- EVM `ecrecover` (secp256k1). Not portable to Solana/NEAR without native
   signature hosts — preflight rejects non-EVM. -/
@@ -56,6 +59,7 @@ def Capability.id : Capability → String
   | .dataDynamicArray => "data.dynamic_array"
   | .dataDynamicBytes => "data.dynamic_bytes"
   | .dataStruct => "data.struct"
+  | .dataLinearRecord => "data.linear_record"
   | .cryptoHash => "crypto.hash"
   | .cryptoEcrecover => "crypto.ecrecover"
   | .assertions => "assertions.check"

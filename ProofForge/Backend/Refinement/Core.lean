@@ -1,6 +1,7 @@
 import ProofForge.IR.Contract
 import ProofForge.IR.Semantics
 import ProofForge.IR.StepSemantics
+import ProofForge.Target.HostBridge
 
 namespace ProofForge.Backend.Refinement
 
@@ -158,11 +159,12 @@ def FormalFragment.id : FormalFragment → String
   | .counter => "counter"
 
 def noArgFunctionReturning (entrypoint : Entrypoint) (name : String)
-    (returns : ValueType) : Bool :=
+    (returns : ValueType) (mutability : EntrypointMutability) : Bool :=
   entrypoint.name == name &&
     entrypoint.kind == .function &&
     entrypoint.params.size == 0 &&
-    entrypoint.returns == returns
+    entrypoint.returns == returns &&
+    decide (entrypoint.mutability = mutability)
 
 def isCounterStateDecl (decl : StateDecl) : Bool :=
   decl.id == "count" &&
@@ -305,17 +307,17 @@ theorem isCounterGetBody_eq (body : List Statement)
       | _ => simp [isCounterGetBody] at h
 
 def isCounterInitializeEntrypoint (entrypoint : Entrypoint) : Bool :=
-  noArgFunctionReturning entrypoint "initialize" .unit &&
+  noArgFunctionReturning entrypoint "initialize" .unit .call &&
     entrypoint.selector? == some "8129fc1c" &&
     isCounterInitializeBody entrypoint.body.toList
 
 def isCounterIncrementEntrypoint (entrypoint : Entrypoint) : Bool :=
-  noArgFunctionReturning entrypoint "increment" .unit &&
+  noArgFunctionReturning entrypoint "increment" .unit .call &&
     entrypoint.selector? == some "d09de08a" &&
     isCounterIncrementBody entrypoint.body.toList
 
 def isCounterGetEntrypoint (entrypoint : Entrypoint) : Bool :=
-  noArgFunctionReturning entrypoint "get" .u64 &&
+  noArgFunctionReturning entrypoint "get" .u64 .view &&
     entrypoint.selector? == some "6d4ce63c" &&
     isCounterGetBody entrypoint.body.toList
 
@@ -376,14 +378,41 @@ def isCounterShapeLowerable (module : Module) : Bool :=
   module.structs.size == 0 &&
     module.proxyPattern?.isNone &&
     module.nearCrosscallStrings.size == 0 &&
+    module.eventAbiWords.size == 0 &&
     !module.overflowChecked &&
     decide (module.allocator = defaultAllocator) &&
     counterEntrypointsMetadataPinned module.entrypoints.toList &&
     isCounterModuleShape module.state.toList module.entrypoints.toList
 
+/-- Wasm-host allocator compatibility must be checked against the concrete
+host bridge. In particular, the CosmWasm region allocator is rejected by the
+NEAR and Soroban lowerers before module planning. -/
+def wasmBridgeAcceptsAllocator
+    (bridge : ProofForge.Target.HostBridge) (allocator : AllocatorConfig) : Bool :=
+  !allocator.isCosmWasmRegion || bridge == .cosmWasm
+
+/-- Counter-shape lowerability specialized to one Wasm host bridge. -/
+def isCounterShapeLowerableForWasmBridge
+    (bridge : ProofForge.Target.HostBridge) (module : Module) : Bool :=
+  isCounterShapeLowerable module && wasmBridgeAcceptsAllocator bridge module.allocator
+
 /-- Narrow proved Counter fragment: canonical name plus lowerable shape. -/
 def isCounterModule (module : Module) : Bool :=
   module.name == "Counter" && isCounterShapeLowerable module
+
+/-- Proved Counter fragment specialized to the same Wasm host preconditions as
+its lowerable superset. -/
+def isCounterModuleForWasmBridge
+    (bridge : ProofForge.Target.HostBridge) (module : Module) : Bool :=
+  isCounterModule module && wasmBridgeAcceptsAllocator bridge module.allocator
+
+theorem isCounterModuleForWasmBridge_implies_shape_lowerable
+    (bridge : ProofForge.Target.HostBridge) (module : Module)
+    (h : isCounterModuleForWasmBridge bridge module = true) :
+    isCounterShapeLowerableForWasmBridge bridge module = true := by
+  simp only [isCounterModuleForWasmBridge, isCounterShapeLowerableForWasmBridge,
+    isCounterModule, Bool.and_eq_true] at h ⊢
+  exact ⟨h.1.2, h.2⟩
 
 /-- Every proved Counter module is lowerable under the shape predicate. -/
 theorem isCounterModule_implies_shape_lowerable
@@ -442,10 +471,10 @@ theorem isCounterInitializeEntrypoint_fields
       ep.params.size = 0 := by
   simp only [isCounterInitializeEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
   refine ⟨?name, ?sel, ?ret, ?params⟩
-  · exact beq_iff_eq.mp h.1.1.1.1.1
+  · exact beq_iff_eq.mp h.1.1.1.1.1.1
   · exact beq_iff_eq.mp h.1.2
-  · exact valueType_eq_of_beq_unit h.1.1.2
-  · exact beq_iff_eq.mp h.1.1.1.2
+  · exact valueType_eq_of_beq_unit h.1.1.1.2
+  · exact beq_iff_eq.mp h.1.1.1.1.2
 
 /-- PF-P3-01: increment entrypoint fields forced by the predicate. -/
 theorem isCounterIncrementEntrypoint_fields
@@ -456,10 +485,10 @@ theorem isCounterIncrementEntrypoint_fields
       ep.params.size = 0 := by
   simp only [isCounterIncrementEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
   refine ⟨?name, ?sel, ?ret, ?params⟩
-  · exact beq_iff_eq.mp h.1.1.1.1.1
+  · exact beq_iff_eq.mp h.1.1.1.1.1.1
   · exact beq_iff_eq.mp h.1.2
-  · exact valueType_eq_of_beq_unit h.1.1.2
-  · exact beq_iff_eq.mp h.1.1.1.2
+  · exact valueType_eq_of_beq_unit h.1.1.1.2
+  · exact beq_iff_eq.mp h.1.1.1.1.2
 
 /-- PF-P3-01: get entrypoint fields forced by the predicate. -/
 theorem isCounterGetEntrypoint_fields
@@ -470,10 +499,33 @@ theorem isCounterGetEntrypoint_fields
       ep.params.size = 0 := by
   simp only [isCounterGetEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
   refine ⟨?name, ?sel, ?ret, ?params⟩
-  · exact beq_iff_eq.mp h.1.1.1.1.1
+  · exact beq_iff_eq.mp h.1.1.1.1.1.1
   · exact beq_iff_eq.mp h.1.2
-  · exact valueType_eq_of_beq_u64 h.1.1.2
-  · exact beq_iff_eq.mp h.1.1.1.2
+  · exact valueType_eq_of_beq_u64 h.1.1.1.2
+  · exact beq_iff_eq.mp h.1.1.1.1.2
+
+/-- Counter mutability is part of the structural fragment: state-changing
+entrypoints are calls and the getter is a view. -/
+theorem isCounterInitializeEntrypoint_mutability
+    (ep : Entrypoint) (h : isCounterInitializeEntrypoint ep = true) :
+    ep.mutability = .call := by
+  simp only [isCounterInitializeEntrypoint, noArgFunctionReturning,
+    Bool.and_eq_true] at h
+  exact decide_eq_true_eq.mp h.1.1.2
+
+theorem isCounterIncrementEntrypoint_mutability
+    (ep : Entrypoint) (h : isCounterIncrementEntrypoint ep = true) :
+    ep.mutability = .call := by
+  simp only [isCounterIncrementEntrypoint, noArgFunctionReturning,
+    Bool.and_eq_true] at h
+  exact decide_eq_true_eq.mp h.1.1.2
+
+theorem isCounterGetEntrypoint_mutability
+    (ep : Entrypoint) (h : isCounterGetEntrypoint ep = true) :
+    ep.mutability = .view := by
+  simp only [isCounterGetEntrypoint, noArgFunctionReturning,
+    Bool.and_eq_true] at h
+  exact decide_eq_true_eq.mp h.1.1.2
 
 /-- `EntrypointKind` derives `BEq` without automatic `LawfulBEq`. -/
 theorem entrypointKind_eq_of_beq_function {k : EntrypointKind}
@@ -486,22 +538,22 @@ theorem isCounterInitializeEntrypoint_kind_params
     (ep : Entrypoint) (h : isCounterInitializeEntrypoint ep = true) :
     ep.kind = .function ∧ ep.params = #[] := by
   simp only [isCounterInitializeEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
-  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.2,
-    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.2)⟩
+  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.1.2,
+    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.1.2)⟩
 
 theorem isCounterIncrementEntrypoint_kind_params
     (ep : Entrypoint) (h : isCounterIncrementEntrypoint ep = true) :
     ep.kind = .function ∧ ep.params = #[] := by
   simp only [isCounterIncrementEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
-  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.2,
-    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.2)⟩
+  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.1.2,
+    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.1.2)⟩
 
 theorem isCounterGetEntrypoint_kind_params
     (ep : Entrypoint) (h : isCounterGetEntrypoint ep = true) :
     ep.kind = .function ∧ ep.params = #[] := by
   simp only [isCounterGetEntrypoint, noArgFunctionReturning, Bool.and_eq_true] at h
-  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.2,
-    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.2)⟩
+  refine ⟨entrypointKind_eq_of_beq_function h.1.1.1.1.1.2,
+    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp h.1.1.1.1.2)⟩
 
 /-- Body arrays are unique under the Counter body predicates (via `toList`). -/
 theorem isCounterInitializeEntrypoint_body_array
@@ -600,12 +652,14 @@ theorem isCounterShapeLowerable_flags
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
       m.nearCrosscallStrings = #[] ∧
+      m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = defaultAllocator ∧
       counterEntrypointsMetadataPinned m.entrypoints.toList = true := by
   simp only [isCounterShapeLowerable, Bool.and_eq_true, decide_eq_true_eq] at h
-  -- (((((structs ∧ proxy) ∧ near) ∧ !overflow) ∧ allocator) ∧ meta) ∧ shape
-  obtain ⟨⟨⟨⟨⟨⟨hstructsB, hproxyB⟩, hnearB⟩, hoverflowB⟩, halloc⟩, hmeta⟩, _hshape⟩ := h
+  -- ((((((structs ∧ proxy) ∧ near) ∧ event ABI) ∧ !overflow) ∧ allocator) ∧ meta) ∧ shape
+  obtain ⟨⟨⟨⟨⟨⟨⟨hstructsB, hproxyB⟩, hnearB⟩, heventAbiB⟩, hoverflowB⟩,
+      halloc⟩, hmeta⟩, _hshape⟩ := h
   have hstructs : m.structs = #[] :=
     Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp hstructsB)
   have hproxy : m.proxyPattern? = none := by
@@ -617,12 +671,14 @@ theorem isCounterShapeLowerable_flags
       simp [Option.isNone] at hp
   have hnear : m.nearCrosscallStrings = #[] :=
     Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp hnearB)
+  have heventAbi : m.eventAbiWords = #[] :=
+    Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp heventAbiB)
   have hoverflow : m.overflowChecked = false := by
     cases hov : m.overflowChecked with
     | false => rfl
     | true =>
       simp [hov] at hoverflowB
-  exact ⟨hstructs, hproxy, hnear, hoverflow, halloc, hmeta⟩
+  exact ⟨hstructs, hproxy, hnear, heventAbi, hoverflow, halloc, hmeta⟩
 
 /-- PF-P3-01: shape-lowerable modules carry the Counter entrypoint triple. -/
 theorem isCounterShapeLowerable_entrypoints
@@ -658,6 +714,7 @@ theorem isCounterShapeLowerable_state_array
 def counterInitializeEntrypoint : Entrypoint := {
   name := "initialize"
   kind := .function
+  mutability := .call
   selector? := some "8129fc1c"
   params := #[]
   paramAbiWords := #[]
@@ -668,6 +725,7 @@ def counterInitializeEntrypoint : Entrypoint := {
 def counterIncrementEntrypoint : Entrypoint := {
   name := "increment"
   kind := .function
+  mutability := .call
   selector? := some "d09de08a"
   params := #[]
   paramAbiWords := #[]
@@ -682,6 +740,7 @@ def counterIncrementEntrypoint : Entrypoint := {
 def counterGetEntrypoint : Entrypoint := {
   name := "get"
   kind := .function
+  mutability := .view
   selector? := some "6d4ce63c"
   params := #[]
   paramAbiWords := #[]
@@ -696,11 +755,12 @@ theorem isCounterInitializeEntrypoint_eq
     ep = counterInitializeEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterInitializeEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterInitializeEntrypoint_kind_params ep h
+  have hm := isCounterInitializeEntrypoint_mutability ep h
   have hb := isCounterInitializeEntrypoint_body_array ep h
   cases ep
-  case mk name kind selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hp hb hpinned
-    subst hn; subst hs; subst hr; subst hk; subst hp; subst hb; subst hpinned
+  case mk name kind mutability selector? params paramAbiWords returns body =>
+    simp only at hn hs hr hk hm hp hb hpinned
+    subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
     rfl
 
 theorem isCounterIncrementEntrypoint_eq
@@ -709,11 +769,12 @@ theorem isCounterIncrementEntrypoint_eq
     ep = counterIncrementEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterIncrementEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterIncrementEntrypoint_kind_params ep h
+  have hm := isCounterIncrementEntrypoint_mutability ep h
   have hb := isCounterIncrementEntrypoint_body_array ep h
   cases ep
-  case mk name kind selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hp hb hpinned
-    subst hn; subst hs; subst hr; subst hk; subst hp; subst hb; subst hpinned
+  case mk name kind mutability selector? params paramAbiWords returns body =>
+    simp only at hn hs hr hk hm hp hb hpinned
+    subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
     rfl
 
 theorem isCounterGetEntrypoint_eq
@@ -722,11 +783,12 @@ theorem isCounterGetEntrypoint_eq
     ep = counterGetEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterGetEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterGetEntrypoint_kind_params ep h
+  have hm := isCounterGetEntrypoint_mutability ep h
   have hb := isCounterGetEntrypoint_body_array ep h
   cases ep
-  case mk name kind selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hp hb hpinned
-    subst hn; subst hs; subst hr; subst hk; subst hp; subst hb; subst hpinned
+  case mk name kind mutability selector? params paramAbiWords returns body =>
+    simp only at hn hs hr hk hm hp hb hpinned
+    subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
     rfl
 
 /-- Empty `paramAbiWords` on every entrypoint of a shape-lowerable module. -/
@@ -735,7 +797,7 @@ theorem isCounterShapeLowerable_paramAbiWords_empty
     (ep : Entrypoint) (hep : ep ∈ m.entrypoints.toList) :
     ep.paramAbiWords = #[] := by
   have hmeta : counterEntrypointsMetadataPinned m.entrypoints.toList = true :=
-    (isCounterShapeLowerable_flags m h).2.2.2.2.2
+    (isCounterShapeLowerable_flags m h).2.2.2.2.2.2
   -- all (size == 0) = true and membership ⇒ size = 0
   have hall :
       (m.entrypoints.toList.all (fun e => e.paramAbiWords.size == 0)) = true := by
@@ -769,6 +831,7 @@ def counterShapeModule (name : String) : Module := {
   state := #[{ id := "count", kind := .scalar, type := .u64 }]
   entrypoints := #[counterInitializeEntrypoint, counterIncrementEntrypoint,
     counterGetEntrypoint]
+  eventAbiWords := #[]
   allocator := defaultAllocator
   proxyPattern? := none
   nearCrosscallStrings := #[]
@@ -787,12 +850,13 @@ theorem isCounterShapeLowerable_matches_counterShapeModule
       m.entrypoints = (counterShapeModule m.name).entrypoints ∧
       m.proxyPattern? = (counterShapeModule m.name).proxyPattern? ∧
       m.nearCrosscallStrings = (counterShapeModule m.name).nearCrosscallStrings ∧
+      m.eventAbiWords = (counterShapeModule m.name).eventAbiWords ∧
       m.overflowChecked = (counterShapeModule m.name).overflowChecked ∧
       m.allocator = (counterShapeModule m.name).allocator := by
-  obtain ⟨hstructs, hproxy, hnear, hoverflow, halloc, _⟩ :=
+  obtain ⟨hstructs, hproxy, hnear, heventAbi, hoverflow, halloc, _⟩ :=
     isCounterShapeLowerable_flags m h
   refine ⟨rfl, hstructs, isCounterShapeLowerable_state_array m h,
-    isCounterShapeLowerable_entrypoints_array m h, hproxy, hnear, hoverflow, ?_⟩
+    isCounterShapeLowerable_entrypoints_array m h, hproxy, hnear, heventAbi, hoverflow, ?_⟩
   simpa [counterShapeModule] using halloc
 
 /-- PF-P3-01: every shape-lowerable module is definitionally `counterShapeModule`
@@ -800,18 +864,19 @@ with the module's own name (full structure equality). -/
 theorem isCounterShapeLowerable_eq_counterShapeModule
     (m : Module) (h : isCounterShapeLowerable m = true) :
     m = counterShapeModule m.name := by
-  obtain ⟨_, hstructs, hstate, hentr, hproxy, hnear, hoverflow, halloc⟩ :=
+  obtain ⟨_, hstructs, hstate, hentr, hproxy, hnear, heventAbi, hoverflow, halloc⟩ :=
     isCounterShapeLowerable_matches_counterShapeModule m h
   cases m
-  case mk name structs state entrypoints allocator proxyPattern? nearCrosscallStrings overflowChecked =>
-    simp only [counterShapeModule] at hstructs hstate hentr hproxy hnear hoverflow halloc ⊢
-    subst hstructs; subst hstate; subst hentr; subst hproxy; subst hnear; subst hoverflow; subst halloc
+  case mk name structs state entrypoints eventAbiWords allocator proxyPattern? nearCrosscallStrings overflowChecked =>
+    simp only [counterShapeModule] at hstructs hstate hentr hproxy hnear heventAbi hoverflow halloc ⊢
+    subst hstructs; subst hstate; subst hentr; subst hproxy; subst hnear; subst heventAbi
+    subst hoverflow; subst halloc
     rfl
 
 /-- PF-P3-01 progressive structural skeleton: every shape-lowerable module has
 fixed host/scalar flags, pinned allocator + empty paramAbiWords, unique `count`
 state, and a triple of Counter entrypoints with forced
-names/selectors/returns/params/bodies.
+names/mutability/selectors/returns/params/bodies.
 
 The remaining half of `∀ m, lowerable m → lowerModule m = .ok` is lowerer
 totality (or name-independence of `isOk`) over this fully pinned IR skeleton. -/
@@ -820,6 +885,7 @@ theorem isCounterShapeLowerable_skeleton
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
       m.nearCrosscallStrings = #[] ∧
+      m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = defaultAllocator ∧
       (∃ sd, m.state.toList = [sd] ∧
@@ -827,39 +893,45 @@ theorem isCounterShapeLowerable_skeleton
       (∃ e0 e1 e2,
         m.entrypoints.toList = [e0, e1, e2] ∧
           e0.paramAbiWords = #[] ∧ e1.paramAbiWords = #[] ∧ e2.paramAbiWords = #[] ∧
-          e0.name = "initialize" ∧ e0.selector? = some "8129fc1c" ∧
+          e0.name = "initialize" ∧ e0.mutability = .call ∧
+            e0.selector? = some "8129fc1c" ∧
             e0.returns = .unit ∧ e0.params = #[] ∧ e0.kind = .function ∧
             e0.body = #[.effect (.storageScalarWrite "count" (.literal (.u64 0)))] ∧
-          e1.name = "increment" ∧ e1.selector? = some "d09de08a" ∧
+          e1.name = "increment" ∧ e1.mutability = .call ∧
+            e1.selector? = some "d09de08a" ∧
             e1.returns = .unit ∧ e1.params = #[] ∧ e1.kind = .function ∧
             e1.body = #[
               .letBind "n" .u64 (.effect (.storageScalarRead "count")),
               .effect (.storageScalarWrite "count"
                 (.add (.local "n") (.literal (.u64 1)) true))] ∧
-          e2.name = "get" ∧ e2.selector? = some "6d4ce63c" ∧
+          e2.name = "get" ∧ e2.mutability = .view ∧
+            e2.selector? = some "6d4ce63c" ∧
             e2.returns = .u64 ∧ e2.params = #[] ∧ e2.kind = .function ∧
             e2.body = #[.return (.effect (.storageScalarRead "count"))]) := by
-  obtain ⟨hstructs, hproxy, hnear, hoverflow, halloc, _hmeta⟩ :=
+  obtain ⟨hstructs, hproxy, hnear, heventAbi, hoverflow, halloc, _hmeta⟩ :=
     isCounterShapeLowerable_flags m h
   obtain ⟨sd, hstate, _, hsd⟩ := isCounterShapeLowerable_state m h
   obtain ⟨e0, e1, e2, heps, h0, h1, h2⟩ := isCounterShapeLowerable_entrypoints m h
   obtain ⟨n0, s0, r0, _⟩ := isCounterInitializeEntrypoint_fields e0 h0
+  have m0 := isCounterInitializeEntrypoint_mutability e0 h0
   obtain ⟨k0, p0⟩ := isCounterInitializeEntrypoint_kind_params e0 h0
   obtain ⟨n1, s1, r1, _⟩ := isCounterIncrementEntrypoint_fields e1 h1
+  have m1 := isCounterIncrementEntrypoint_mutability e1 h1
   obtain ⟨k1, p1⟩ := isCounterIncrementEntrypoint_kind_params e1 h1
   obtain ⟨n2, s2, r2, _⟩ := isCounterGetEntrypoint_fields e2 h2
+  have m2 := isCounterGetEntrypoint_mutability e2 h2
   obtain ⟨k2, p2⟩ := isCounterGetEntrypoint_kind_params e2 h2
   have heps_mem0 : e0 ∈ m.entrypoints.toList := by simp [heps]
   have heps_mem1 : e1 ∈ m.entrypoints.toList := by simp [heps]
   have heps_mem2 : e2 ∈ m.entrypoints.toList := by simp [heps]
-  refine ⟨hstructs, hproxy, hnear, hoverflow, halloc, ⟨sd, hstate, hsd⟩,
+  refine ⟨hstructs, hproxy, hnear, heventAbi, hoverflow, halloc, ⟨sd, hstate, hsd⟩,
     ⟨e0, e1, e2, heps,
       isCounterShapeLowerable_paramAbiWords_empty m h e0 heps_mem0,
       isCounterShapeLowerable_paramAbiWords_empty m h e1 heps_mem1,
       isCounterShapeLowerable_paramAbiWords_empty m h e2 heps_mem2,
-      n0, s0, r0, p0, k0, isCounterInitializeEntrypoint_body_array e0 h0,
-      n1, s1, r1, p1, k1, isCounterIncrementEntrypoint_body_array e1 h1,
-      n2, s2, r2, p2, k2, isCounterGetEntrypoint_body_array e2 h2⟩⟩
+      n0, m0, s0, r0, p0, k0, isCounterInitializeEntrypoint_body_array e0 h0,
+      n1, m1, s1, r1, p1, k1, isCounterIncrementEntrypoint_body_array e1 h1,
+      n2, m2, s2, r2, p2, k2, isCounterGetEntrypoint_body_array e2 h2⟩⟩
 
 def FormalFragment.acceptsModule : FormalFragment → Module → Bool
   | .counter, module => isCounterModule module

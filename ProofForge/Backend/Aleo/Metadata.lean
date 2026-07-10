@@ -18,6 +18,7 @@ import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
 import ProofForge.Target.Registry
+import ProofForge.Backend.Aleo.IR.Validate
 
 namespace ProofForge.Backend.Aleo.Metadata
 
@@ -33,21 +34,45 @@ structure AbiParamDescriptor where
 structure AbiEntrypointDescriptor where
   name : String
   params : Array AbiParamDescriptor
+  portableReturnType : String
   returnType : String
   deriving Repr, Inhabited, BEq
 
-def abiParamDescriptor (param : String × ValueType) : AbiParamDescriptor :=
-  { name := param.fst, type := param.snd.name }
+partial def leoTypeName : ValueType → String
+  | .unit => "()"
+  | .bool => "bool"
+  | .u8 => "u8"
+  | .u32 => "u32"
+  | .u64 => "u64"
+  | .u128 => "u128"
+  | .address => "address"
+  | .hash => "field"
+  | .fixedArray element length => s!"[{leoTypeName element}; {length}]"
+  | .structType name => name
+  | .bytes => "unsupported(bytes)"
+  | .string => "unsupported(string)"
+  | .array element => s!"unsupported(array<{leoTypeName element}>)"
 
-def abiEntrypointDescriptor (entrypoint : Entrypoint) : AbiEntrypointDescriptor :=
-  {
+def abiParamDescriptor (param : String × ValueType) : AbiParamDescriptor :=
+  { name := param.fst, type := leoTypeName param.snd }
+
+def abiEntrypointDescriptor (entrypoint : Entrypoint) :
+    Except ProofForge.Backend.Aleo.IR.LowerError AbiEntrypointDescriptor := do
+  let plan ← ProofForge.Backend.Aleo.IR.planFunction entrypoint
+  let returnType := match plan with
+    | ProofForge.Backend.Aleo.IR.FunctionPlan.pure => leoTypeName entrypoint.returns
+    | .finalOnly => "Final"
+    | .valueAndFinal => s!"({leoTypeName entrypoint.returns}, Final)"
+  .ok {
     name := entrypoint.name
     params := entrypoint.params.map abiParamDescriptor
-    returnType := entrypoint.returns.name
+    portableReturnType := entrypoint.returns.name
+    returnType
   }
 
-def abiEntrypointDescriptors (module : Module) : Array AbiEntrypointDescriptor :=
-  module.entrypoints.map abiEntrypointDescriptor
+def abiEntrypointDescriptors (module : Module) :
+    Except ProofForge.Backend.Aleo.IR.LowerError (Array AbiEntrypointDescriptor) :=
+  module.entrypoints.mapM abiEntrypointDescriptor
 
 /-! ## On-chain state metadata -/
 
@@ -66,8 +91,8 @@ structure StateDescriptor where
 /-- The Leo mapping key/value spelling for a portable state declaration. -/
 def stateDescriptor (state : StateDecl) : StateDescriptor :=
   match state.kind with
-  | .scalar => { id := state.id, keyType := ValueType.u64.name, valueType := state.type.name }
-  | .map keyType _ => { id := state.id, keyType := keyType.name, valueType := state.type.name }
+  | .scalar => { id := state.id, keyType := "u64", valueType := leoTypeName state.type }
+  | .map keyType _ => { id := state.id, keyType := leoTypeName keyType, valueType := leoTypeName state.type }
   | .array _ | .dynamicArray =>
       { id := state.id, keyType := "unsupported", valueType := state.type.name }
 
@@ -97,12 +122,14 @@ structure ArtifactMetadata where
   capabilities : Array String
   deriving Repr, Inhabited
 
-/-- Build artifact metadata directly from a portable IR module (plan-free). -/
-def buildArtifactMetadata (module : Module) : ArtifactMetadata :=
-  {
+/-- Build metadata from the same validated function plan used by codegen. -/
+def buildArtifactMetadata (module : Module) :
+    Except ProofForge.Backend.Aleo.IR.LowerError ArtifactMetadata := do
+  ProofForge.Backend.Aleo.IR.validateModule module
+  .ok {
     targetId := Target.aleoLeo.id
     moduleName := module.name
-    entrypoints := abiEntrypointDescriptors module
+    entrypoints := ← abiEntrypointDescriptors module
     state := stateDescriptors module
     capabilities := moduleCapabilities module
   }

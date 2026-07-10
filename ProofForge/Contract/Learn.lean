@@ -556,7 +556,10 @@ private def lowerMethodAction (refs : SolanaRefs) (stateNames bindingNames : Arr
   let env : LowerEnv := { stateNames, locals := bindingNames ++ paramNames }
   let (bodyAction, _) ← method.body.foldlM (lowerStmtAction refs stateNames) (pure (), env)
   .ok (ProofForge.Contract.Builder.entryFull method.name method.selector? method.returns params
-    (ProofForge.Contract.Builder.defaultParamEvmAbiWords params) bodyAction)
+    (ProofForge.Contract.Builder.defaultParamEvmAbiWords params) bodyAction
+    (match method.kind with
+    | .entry => .call
+    | .query => .view))
 
 def lowerContract (decl : ContractDecl) : Except String ContractSpec := do
   let stateNames := decl.state.map (fun item => item.name)

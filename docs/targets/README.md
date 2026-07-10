@@ -30,16 +30,17 @@ Related: [Documentation index](../INDEX.md),
   one shared scenario test.
 
 **Experimental** does not mean "broken" — the three Gate P0 chains (`evm`,
-`solana-sbpf-asm`, `wasm-near`) have production-grade local/CI gates while
-capability coverage remains narrower than a full chain SDK.
+`solana-sbpf-asm`, `wasm-near`) have scoped local/CI artifact and execution
+gates while capability coverage remains narrower than a full chain SDK.
 
 ## Portfolio Scheduling Boundary
 
 The sections below are an inventory of target notes, not a scheduling
 authority. The primary-chain completion covenant (D-045) is closed: ProofForge
-has signed off `solana-sbpf-asm`, `evm`, and `wasm-near` to production-grade
-local/CI gates. The current backlog still puts CLI M3/M4 target-first migration
-before Tier-1 M3/M4 advancement.
+has signed off the scoped P0 local/CI gates for `solana-sbpf-asm`, `evm`, and
+`wasm-near`. All three remain `Experimental`; this sign-off is not a universal
+correctness or production-operations claim. The current backlog still puts CLI
+M3/M4 target-first migration before Tier-1 M3/M4 advancement.
 
 Use this page to answer "what exists in the repository?" Use
 [target-roadmap.md](../target-roadmap.md) and

@@ -9,7 +9,7 @@ of ProofForge-generated `.psy` sources.
 | `ArithmeticProbe.golden.dpn.json` | `arithmetic` | arithmetic_mix |
 | `AssertProbe.golden.dpn.json` | `assert` | checked_sum + assertions |
 
-Normalization: `scripts/psy/normalize-dpn-json.py`  
+Normalization: `scripts/psy/normalize-dpn-json.py`
 Gate: `just psy-dpn-goldens`
 
 **Toolchain pin (capture environment):** dargo path recorded in

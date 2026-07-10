@@ -26,6 +26,9 @@ object "VerifiedVault" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       f_VerifiedVault_withdraw(calldataload(4))
       return(0, 0)
     }
@@ -43,6 +46,9 @@ object "VerifiedVault" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_VerifiedVault_balanceOf(calldataload(4))
       mstore(0, _r)
       return(0, 32)
@@ -56,28 +62,28 @@ object "VerifiedVault" {
       revert(0, 0)
     }
     function f_VerifiedVault_acquire() {
-      if iszero(eq(and(shr(192, sload(0)), 18446744073709551615), 0)) {
+      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 1)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(1, 18446744073709551615))))
     }
     function f_VerifiedVault_release() {
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
-    function f_VerifiedVault_locked() -> result {
-      result := and(shr(192, sload(0)), 18446744073709551615)
+    function f_VerifiedVault_locked() -> __pf_result {
+      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
     }
     function f_VerifiedVault_init() {
-      if iszero(eq(and(shr(64, sload(0)), 18446744073709551615), 0)) {
+      if iszero(eq(and(shr(128, sload(0)), 18446744073709551615), 0)) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, caller())))
-      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, 1)))
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, 0)))
-      sstore(1, or(and(sload(1), not(shl(192, 18446744073709551615))), shl(192, 0)))
+      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(caller(), 18446744073709551615))))
+      sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, and(1, 18446744073709551615))))
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, and(0, 18446744073709551615))))
+      sstore(1, or(and(sload(1), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
     function f_VerifiedVault_deposit() {
-      if iszero(iszero(eq(and(shr(64, sload(0)), 18446744073709551615), 0))) {
+      if iszero(iszero(eq(and(shr(128, sload(0)), 18446744073709551615), 0))) {
         revert(0, 0)
       }
       let depositor := caller()
@@ -85,51 +91,75 @@ object "VerifiedVault" {
       if iszero(iszero(eq(amount, 0))) {
         revert(0, 0)
       }
-      let curReserves := and(shr(0, sload(0)), 18446744073709551615)
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, __pf_checked_add(curReserves, amount))))
-      let curShares := and(shr(192, sload(1)), 18446744073709551615)
-      sstore(1, or(and(sload(1), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_add(curShares, amount))))
+      let curReserves := and(shr(192, sload(0)), 18446744073709551615)
+      {
+        let __pf_packed_value := __pf_checked_width(__pf_checked_add(__pf_checked_width(curReserves, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, and(__pf_packed_value, 18446744073709551615))))
+      }
+      let curShares := and(shr(0, sload(1)), 18446744073709551615)
+      {
+        let __pf_packed_value := __pf_checked_width(__pf_checked_add(__pf_checked_width(curShares, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(1, or(and(sload(1), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
       let bal := sload(__proof_forge_map_slot(2, depositor))
       __proof_forge_map_write(2, depositor, __pf_checked_add(bal, amount))
     }
     function f_VerifiedVault_withdraw(amount) {
-      if iszero(iszero(eq(and(shr(64, sload(0)), 18446744073709551615), 0))) {
+      if iszero(iszero(eq(and(shr(128, sload(0)), 18446744073709551615), 0))) {
         revert(0, 0)
       }
-      if iszero(eq(and(shr(192, sload(0)), 18446744073709551615), 0)) {
+      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 1)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(1, 18446744073709551615))))
       let withdrawer := caller()
       let bal := sload(__proof_forge_map_slot(2, withdrawer))
       if iszero(iszero(lt(bal, amount))) {
         revert(0, 0)
       }
-      let curReserves := and(shr(0, sload(0)), 18446744073709551615)
+      let curReserves := and(shr(192, sload(0)), 18446744073709551615)
       if iszero(iszero(lt(curReserves, amount))) {
         revert(0, 0)
       }
-      let curShares := and(shr(192, sload(1)), 18446744073709551615)
+      let curShares := and(shr(0, sload(1)), 18446744073709551615)
       if iszero(iszero(lt(curShares, amount))) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, __pf_checked_sub(curReserves, amount))))
-      sstore(1, or(and(sload(1), not(shl(192, 18446744073709551615))), shl(192, __pf_checked_sub(curShares, amount))))
+      {
+        let __pf_packed_value := __pf_checked_width(__pf_checked_sub(__pf_checked_width(curReserves, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, and(__pf_packed_value, 18446744073709551615))))
+      }
+      {
+        let __pf_packed_value := __pf_checked_width(__pf_checked_sub(__pf_checked_width(curShares, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(1, or(and(sload(1), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
       __proof_forge_map_write(2, withdrawer, __pf_checked_sub(bal, amount))
       let _sent := __proof_forge_native_transfer(withdrawer, amount)
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
-    function f_VerifiedVault_reserves() -> result {
-      result := and(shr(0, sload(0)), 18446744073709551615)
+    function f_VerifiedVault_reserves() -> __pf_result {
+      __pf_result := and(shr(192, sload(0)), 18446744073709551615)
     }
-    function f_VerifiedVault_totalShares() -> result {
-      result := and(shr(192, sload(1)), 18446744073709551615)
+    function f_VerifiedVault_totalShares() -> __pf_result {
+      __pf_result := and(shr(0, sload(1)), 18446744073709551615)
     }
-    function f_VerifiedVault_balanceOf(depositor) -> result {
-      result := sload(__proof_forge_map_slot(2, depositor))
+    function f_VerifiedVault_balanceOf(depositor) -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(2, depositor))
     }
-    function f_VerifiedVault_getOwner() -> result {
-      result := and(shr(128, sload(0)), 18446744073709551615)
+    function f_VerifiedVault_getOwner() -> __pf_result {
+      __pf_result := and(shr(64, sload(0)), 18446744073709551615)
     }
     function __proof_forge_map_slot(slot, key) -> result {
       mstore(0, key)
@@ -149,6 +179,12 @@ object "VerifiedVault" {
       sstore(_slot, value)
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
+    function __pf_checked_width(value, maxValue) -> result {
+      if gt(value, maxValue) {
+        revert(0, 0)
+      }
+      result := value
+    }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
         revert(0, 0)
@@ -162,7 +198,7 @@ object "VerifiedVault" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

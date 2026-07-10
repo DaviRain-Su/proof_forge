@@ -37,13 +37,15 @@ def compileCounterIrLeo (opts : CliOptions) : IO UInt32 := do
       IO.println s!"wrote {output}"
       return 0
   | .error err =>
-      throw <| IO.userError err.render
+      throw <| IO.userError <|
+        "aleo-leo fixture `counter` is unsupported on Leo 4.0.2 because its " ++
+        "mapping-backed `get() -> U64` result cannot cross `final`; " ++ err.render
 
 def compilePureMathIrLeo (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/aleo/PureMath.leo")
   match ProofForge.Backend.Aleo.IR.renderModule ProofForge.IR.Examples.PureMath.module with
   | .ok source =>
-      writeTextFile output source
+      writeTextFile output (source ++ "\n")
       IO.println s!"wrote {output}"
       return 0
   | .error err =>

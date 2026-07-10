@@ -24,6 +24,10 @@ pub(crate) async fn run_storage_deposit_side(
         ctx.view_raw_u64_args("storage_balance_of", &alice_hash, "PF bal0", Some(0)).await?;
         ctx.call_raw_deposit("storage_deposit", &alice_hash, 7, "PF deposit").await?;
         ctx.view_raw_u64_args("storage_balance_of", &alice_hash, "PF bal1", Some(7)).await?;
+        let mut withdraw_args = alice_hash.to_vec();
+        withdraw_args.extend_from_slice(&3u64.to_le_bytes());
+        ctx.call_raw("storage_withdraw", &withdraw_args, "PF withdraw").await?;
+        ctx.view_raw_u64_args("storage_balance_of", &alice_hash, "PF bal2", Some(4)).await?;
     } else {
         ctx.call_json("init", json!({}), "sdk init").await?;
         ctx.view_json_u64("storage_balance_bounds", json!({}), "sdk bounds", Some(1)).await?;
@@ -43,9 +47,22 @@ pub(crate) async fn run_storage_deposit_side(
         .await?;
         ctx.view_json_u64(
             "storage_balance_of",
-            json!({ "account_id": alice }),
+            json!({ "account_id": alice.clone() }),
             "sdk bal1",
             Some(7),
+        )
+        .await?;
+        ctx.call_json(
+            "storage_withdraw",
+            json!({ "account_id": alice.clone(), "amount": 3 }),
+            "sdk withdraw",
+        )
+        .await?;
+        ctx.view_json_u64(
+            "storage_balance_of",
+            json!({ "account_id": alice }),
+            "sdk bal2",
+            Some(4),
         )
         .await?;
     }

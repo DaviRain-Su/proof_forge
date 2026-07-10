@@ -75,6 +75,7 @@ def entrypointJson (entrypoint : Entrypoint) : String :=
   jsonObject #[
     ("name", jsonString entrypoint.name),
     ("selector", jsonStringOption entrypoint.selector?),
+    ("mutability", jsonString entrypoint.mutability.id),
     ("returns", valueTypeJson entrypoint.returns),
     ("params", jsonArray (entrypoint.params.map paramJson))
   ]
@@ -115,19 +116,20 @@ structure ErrorCatalogEntry where
   soliditySelector? : Option String := none
   /-- Optional Solidity ABI type names for custom-error args (E1.1). -/
   solidityArgTypes : Array String := #[]
-  /-- Optional compile-time ABI words mirrored from ErrorRef (E1.1). -/
-  solidityArgWords : Array Nat := #[]
   message : String
   entrypoints : Array String
   deriving Repr
 
 def ErrorCatalogEntry.matches (entry : ErrorCatalogEntry) (ref : ErrorRef) (message : String) : Bool :=
-  entry.assertionId == ref.assertionId &&
-    entry.userCode? == ref.userCode? &&
-    entry.soliditySelector? == ref.soliditySelector? &&
-    entry.solidityArgTypes == ref.solidityArgTypes &&
-    entry.solidityArgWords == ref.solidityArgWords &&
-    entry.message == message
+  match entry.soliditySelector?, ref.soliditySelector? with
+  | some entrySelector, some refSelector =>
+      entrySelector.toLower == refSelector.toLower &&
+        entry.solidityArgTypes == ref.solidityArgTypes
+  | none, none =>
+      entry.assertionId == ref.assertionId &&
+        entry.userCode? == ref.userCode? &&
+        entry.message == message
+  | _, _ => false
 
 def addErrorRef (entrypointName message : String) (ref : ErrorRef)
     (entries : Array ErrorCatalogEntry) : Array ErrorCatalogEntry :=
@@ -137,7 +139,6 @@ def addErrorRef (entrypointName message : String) (ref : ErrorRef)
         userCode? := ref.userCode?
         soliditySelector? := ref.soliditySelector?
         solidityArgTypes := ref.solidityArgTypes
-        solidityArgWords := ref.solidityArgWords
         message
         entrypoints := #[entrypointName]
       }]
@@ -174,7 +175,6 @@ def errorCatalogEntryJson (entry : ErrorCatalogEntry) : String :=
     ("userCode", jsonStringOption entry.userCode?),
     ("soliditySelector", jsonStringOption entry.soliditySelector?),
     ("solidityArgTypes", jsonStringArray entry.solidityArgTypes),
-    ("solidityArgWords", jsonArray (entry.solidityArgWords.map fun w => toString w)),
     ("message", jsonString entry.message),
     ("entrypoints", jsonStringArray entry.entrypoints)
   ]

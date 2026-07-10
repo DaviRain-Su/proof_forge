@@ -36,8 +36,13 @@ contract_mixin ERC1155Mixin do
   use ProofForge.Contract.Surface.mapState balances
   use ProofForge.Contract.Surface.mapState operatorApprovals
 
-  event TransferSingle
-  event ApprovalForAll
+  event TransferSingle abi #[
+    ("operator", "address"), ("from", "address"), ("to", "address"),
+    ("id", "uint256"), ("value", "uint256")
+  ]
+  event ApprovalForAll abi #[
+    ("account", "address"), ("operator", "address"), ("approved", "bool")
+  ]
 
   query balanceOf (holder : .address, id : .u64) returns(.u64) do
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref holder) "zero account";

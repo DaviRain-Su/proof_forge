@@ -5,11 +5,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${PF_YUL_COMPILER_COUNTER_OUT:-$ROOT/build/evm-yul-compiler}"
 PROOF_FORGE_BIN="${PROOF_FORGE_BIN:-$ROOT/.lake/build/bin/proof-forge}"
 
-# Full runtime+metadata bytecode expected by EvmRefinement.counterCompiledRuntimeCode
-# (the powdr Counter refinement witness). The metadata suffix depends on the
-# solc version/source path, so the gate compares stripped runtime code only.
-EXPECTED_FULL_HEX="5f3560e01c80638129fc1c14603c578063d09de08a14603257636d4ce63c146025575f80fd5b602b6087565b5f5260205ff35b6038605d565b5f80f35b60426046565b5f80f35b5f60c01b60018060401b0360c01b195f5416175f55565b60716001808060401b035f5460c01c166097565b60c01b60018060401b0360c01b195f5416175f55565b60018060401b035f5460c01c1690565b815f1903811160a4570190565b5f80fda164736f6c6343000822000a"
-EXPECTED_SHA256="4dba513cc8be1afa39ebf83ce9d042c7db0491bb046ceccd3f126dc9754ed8eb"
+# `EvmRefinement.CounterRuntime.hex` is also decoded by the formal powdr runtime.
+# Strip metadata below because local solc versions may emit a different version
+# tag while preserving the executable runtime bytes.
+EXPECTED_FULL_HEX="$(
+  cd "$ROOT"
+  lake build EvmRefinement.CounterRuntime >/dev/null
+  lake env lean --run scripts/evm/print-counter-runtime-witness.lean
+)"
+EXPECTED_SHA256="$(python3 - "$EXPECTED_FULL_HEX" <<'PY'
+import hashlib
+import sys
+print(hashlib.sha256(bytes.fromhex(sys.argv[1])).hexdigest())
+PY
+)"
 
 mkdir -p "$OUT_DIR"
 
@@ -76,11 +85,4 @@ if [[ "$cli_runtime_hex" != "$compiled_hex" ]]; then
   exit 1
 fi
 
-compiled_sha256="$(python3 - "$EXPECTED_FULL_HEX" <<'PY'
-import hashlib
-import sys
-print(hashlib.sha256(bytes.fromhex(sys.argv[1].strip())).hexdigest())
-PY
-)"
-
-echo "evm-yul-compiler-counter-smoke: Counter Yul→bytecode via solc reproduces powdr witness runtime (full sha256: $compiled_sha256)"
+echo "evm-yul-compiler-counter-smoke: Counter Yul→bytecode via solc reproduces powdr witness runtime (canonical full sha256: $EXPECTED_SHA256)"

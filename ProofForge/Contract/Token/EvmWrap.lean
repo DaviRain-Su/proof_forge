@@ -28,10 +28,15 @@ private def decimalsLiteral (spec : TokenSpec) : String :=
     Storage layout matches `ProofForge.Contract.Stdlib.ERC20` after IR lowering:
     slot 0 packs totalSupply and decimals as u64 scalar fields, slot 1 roots
     balances, and slot 2 roots allowances. -/
-def wrapRuntimeObject (objectName runtimeName : String) (runtimeObject : Object) (spec : TokenSpec) : String :=
+def wrapRuntimeObject (objectName runtimeName : String) (runtimeObject : Object)
+    (spec : TokenSpec) : Except String String := do
+  let _ ← ProofForge.Contract.FixedPoint.validateDecimals spec.decimals
+  validateEvmTokenFeatures spec
   let runtimeYul := Printer.renderCode 2 runtimeObject.code
+  let u64Mask := "18446744073709551615"
   let packedScalarSlot :=
-    "or(shl(192, " ++ initialSupplyLiteral spec ++ "), shl(128, " ++ decimalsLiteral spec ++ "))"
+    "or(and(" ++ initialSupplyLiteral spec ++ ", " ++ u64Mask ++ "), shl(64, and(" ++
+      decimalsLiteral spec ++ ", " ++ u64Mask ++ ")))"
   let datacopyLine :=
     "  datacopy(0x00, dataoffset(\"" ++ runtimeName ++ "\"), datasize(\"" ++ runtimeName ++ "\"))"
   let returnLine := "  return(0x00, datasize(\"" ++ runtimeName ++ "\"))"
@@ -49,11 +54,12 @@ def wrapRuntimeObject (objectName runtimeName : String) (runtimeObject : Object)
       returnLine,
       "}"
     ]
-  "object \"" ++ objectName ++ "\" {\n" ++
-    creation ++
-    line 1 ("object \"" ++ runtimeName ++ "\" {") ++
-    runtimeYul ++
-    line 1 "}" ++
-    "}\n"
+  .ok <|
+    "object \"" ++ objectName ++ "\" {\n" ++
+      creation ++
+      line 1 ("object \"" ++ runtimeName ++ "\" {") ++
+      runtimeYul ++
+      line 1 "}" ++
+      "}\n"
 
 end ProofForge.Contract.Token.EvmWrap

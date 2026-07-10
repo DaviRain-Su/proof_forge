@@ -98,7 +98,7 @@ Add a new subcommand to the existing `proof-forge` CLI:
 lake env proof-forge metadata \
   --target psy \
   --root . \
-  --module contract \
+  --module Counter \
   Examples/Backend/Psy/Contracts/Counter.lean
 ```
 

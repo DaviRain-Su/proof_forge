@@ -1,8 +1,8 @@
 # Deep-Dive: Security & Supply-Chain Readiness
 
-**Dimension:** `security-supply-chain`  
-**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)  
-**Date:** 2026-07-10  
+**Dimension:** `security-supply-chain`
+**Project:** ProofForge (`/Users/davirian/orca/projects/proof_forge`)
+**Date:** 2026-07-10
 **Branch:** `main` (dirty: `docs/zh/INDEX.zh.md`, `scripts/i18n/manifest.json`, `scripts/near/target-first-smoke.sh`; untracked `docs/review/`)
 
 ## Executive Summary

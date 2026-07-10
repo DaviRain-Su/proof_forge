@@ -5,7 +5,7 @@ use std::process::Command;
 use anyhow::{bail, ensure, Context, Result};
 use proof_forge_testkit_core::{
     assert_artifact_expectations, parse_offline_host_outcomes, ArtifactOutput, ChainHarness,
-    HarnessRun, ScenarioCase,
+    CallOutcome, HarnessRun, ScenarioCase,
 };
 
 pub struct NearHarness;
@@ -100,18 +100,66 @@ impl ChainHarness for NearHarness {
             .output()
             .context("failed to run runtime/offline-host")?;
 
-        if !output.status.success() {
-            bail!(
-                "runtime/offline-host failed for scenario `{}`\nstdout:\n{}\nstderr:\n{}",
-                case.manifest.scenario.name,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let outcomes = parse_offline_host_run(
+            output.status.code(),
+            &stdout,
+            &stderr,
+            &case.manifest.scenario.name,
+        )?;
 
-        parse_offline_host_outcomes(&String::from_utf8_lossy(&output.stdout))
-            .map(HarnessRun::passed)
+        Ok(HarnessRun::passed(outcomes))
     }
+}
+
+fn parse_offline_host_run(
+    exit_code: Option<i32>,
+    stdout: &str,
+    stderr: &str,
+    scenario: &str,
+) -> Result<Vec<CallOutcome>> {
+    let outcomes = parse_offline_host_outcomes(stdout)
+        .with_context(|| format!("failed to parse runtime/offline-host output for `{scenario}`"))?;
+    if exit_code == Some(0) {
+        return Ok(outcomes);
+    }
+
+    let structured_failures = outcomes
+        .iter()
+        .filter(|outcome| outcome.error.is_some())
+        .count();
+    if exit_code == Some(1)
+        && structured_failures > 0
+        && rolled_back_contract_failure_count(stderr) == Some(structured_failures)
+    {
+        return Ok(outcomes);
+    }
+
+    bail!(
+        "runtime/offline-host failed for scenario `{scenario}`\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )
+}
+
+fn rolled_back_contract_failure_count(stderr: &str) -> Option<usize> {
+    const PREFIX: &str = "Error: ";
+    const SUFFIX: &str = " contract call(s) panicked; failed calls were rolled back";
+
+    let mut count = None;
+    for line in stderr.lines().map(str::trim) {
+        let parsed = line
+            .strip_prefix(PREFIX)
+            .and_then(|message| message.strip_suffix(SUFFIX))
+            .and_then(|value| value.parse().ok());
+        if let Some(parsed) = parsed {
+            if count.replace(parsed).is_some() {
+                return None;
+            }
+        } else if line.starts_with("Error: ") || line.starts_with("error: ") {
+            return None;
+        }
+    }
+    count
 }
 
 fn build_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<NearFixtureArtifact> {
@@ -382,4 +430,110 @@ fn scenario_source(case: &ScenarioCase, repo_root: &Path) -> Result<Option<PathB
 fn path_str(path: &Path) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("non-UTF-8 path `{}`", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXPECTED_ASSERTIONS: &str = concat!(
+        "call 1:initialize: return_hex=\n",
+        "call 2:guarded_increment: error=assertion_id=1 user_code=Counter::Overflow\n",
+        "call 3:exact_increment: error=assertion_id=2 user_code=Counter::ExactMatch\n",
+    );
+
+    #[test]
+    fn accepts_nonzero_exit_for_structured_rolled_back_assertions() {
+        let outcomes = parse_offline_host_run(
+            Some(1),
+            EXPECTED_ASSERTIONS,
+            "Error: 2 contract call(s) panicked; failed calls were rolled back\n",
+            "error-ref-user-code",
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 3);
+        assert_eq!(outcomes.iter().filter(|outcome| outcome.error.is_some()).count(), 2);
+    }
+
+    #[test]
+    fn accepts_rolled_back_assertions_with_anyhow_backtrace() {
+        let outcomes = parse_offline_host_run(
+            Some(1),
+            EXPECTED_ASSERTIONS,
+            concat!(
+                "Error: 2 contract call(s) panicked; failed calls were rolled back\n",
+                "\nStack backtrace:\n   0: anyhow::error::<impl anyhow::Error>::msg\n",
+            ),
+            "error-ref-user-code",
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 3);
+    }
+
+    #[test]
+    fn rejects_nonzero_exit_for_infrastructure_failure() {
+        let err = parse_offline_host_run(
+            Some(1),
+            EXPECTED_ASSERTIONS,
+            "Error: failed to instantiate receipt\n",
+            "error-ref-user-code",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("runtime/offline-host failed"));
+    }
+
+    #[test]
+    fn rejects_contract_failure_summary_count_mismatch() {
+        let err = parse_offline_host_run(
+            Some(1),
+            EXPECTED_ASSERTIONS,
+            "Error: 1 contract call(s) panicked; failed calls were rolled back\n",
+            "error-ref-user-code",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("runtime/offline-host failed"));
+    }
+
+    #[test]
+    fn rejects_unstructured_contract_panics() {
+        let err = parse_offline_host_run(
+            Some(1),
+            "call 1:guarded_increment: error=panic=boom\n",
+            "Error: 1 contract call(s) panicked; failed calls were rolled back\n",
+            "error-ref-user-code",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("runtime/offline-host failed"));
+    }
+
+    #[test]
+    fn rejects_non_contract_exit_codes() {
+        let err = parse_offline_host_run(
+            Some(101),
+            EXPECTED_ASSERTIONS,
+            "Error: 2 contract call(s) panicked; failed calls were rolled back\n",
+            "error-ref-user-code",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("runtime/offline-host failed"));
+    }
+
+    #[test]
+    fn rejects_signal_termination() {
+        let err = parse_offline_host_run(
+            None,
+            EXPECTED_ASSERTIONS,
+            "Error: 2 contract call(s) panicked; failed calls were rolled back\n",
+            "error-ref-user-code",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("runtime/offline-host failed"));
+    }
 }

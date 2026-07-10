@@ -24,14 +24,14 @@
 - `Supported` 要求具备稳定的 CLI、制品元数据、CI、文档以及至少一个共享场景测试。
 
 **Experimental** 并不意味着“损坏”——三条 Gate P0 链（`evm`、`solana-sbpf-asm`、
-`wasm-near`）已经有生产级本地/CI 门禁，但 capability 覆盖仍窄于完整链 SDK。
+`wasm-near`）已经有范围化本地/CI 制品与执行门禁，但 capability 覆盖仍窄于完整链 SDK。
 
 ## 目标组合排期边界
 
 下面这些分组是 target note 的库存清单，不是排期授权。主三链完成规约 (D-045)
-已经关闭：ProofForge 已经把 `solana-sbpf-asm`、`evm` 和 `wasm-near`
-签署到生产级本地/CI 门禁。当前 backlog 仍然要求先完成 CLI M3/M4 target-first
-迁移，再推进 Tier-1 M3/M4。
+已经关闭：ProofForge 已签署 `solana-sbpf-asm`、`evm` 和 `wasm-near` 的范围化
+P0 本地/CI 门禁。三者仍是 `Experimental`；该签署不是通用正确性或生产运维声明。
+当前 backlog 仍然要求先完成 CLI M3/M4 target-first 迁移，再推进 Tier-1 M3/M4。
 
 用本页回答“仓库里已经有哪些目标说明？”；用
 [target-roadmap.md](../target-roadmap.md) 和

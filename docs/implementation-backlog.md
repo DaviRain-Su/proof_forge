@@ -3091,9 +3091,10 @@ Tasks:
 
 - Done: Gate G0 (Tier-0 behavior/budget slice) is closed. Evidence lives in
   [gate-status.md](gate-status.md).
-- Done: Gate P0 (primary-chain sign-off) is closed. Gate G0 plus the
-  production-grade hardening from D-045 are signed off for Solana P0-1, EVM
-  P0-2, and NEAR/Wasm P0-3.
+- Done: Gate P0 (primary-chain sign-off) is closed. Gate G0 plus the scoped
+  artifact/execution/metadata/budget hardening from D-045 are signed off for
+  Solana P0-1, EVM P0-2, and NEAR/Wasm P0-3. This is not a universal
+  correctness or production-operations sign-off.
 - Tier 1a `wasm-cosmwasm`: M1 CosmWasm host imports + region-allocator ABI
   in EmitWat (the `cosmWasmRegion` binding from RFC 0008); M2 Counter
   artifact passes `cosmwasm-check`; M3 testkit `harness-cosmwasm` scenario
@@ -3120,8 +3121,9 @@ Tasks:
 Acceptance criteria:
 
 - **Primary-chain completion covenant (D-045):** ✅ closed. `solana-sbpf-asm`,
-  `evm`, and `wasm-near` reached production-grade DoD; Tier-1 advancement is
-  now gated by explicit scheduling rather than implicit research-note carryover.
+  `evm`, and `wasm-near` reached the scoped P0 backend-gate DoD while retaining
+  `experimental` maturity; Tier-1 advancement is now gated by explicit
+  scheduling rather than implicit research-note carryover.
 - No Tier-1 code lands before an explicit scheduling decision is reviewed; no
   Tier-2 target starts before its listed enabler; at most one sourcegen spike is
   active at any time.
@@ -3322,13 +3324,13 @@ so authors never drop to Builder for common EVM patterns. Cross-ref
 | CS-3.2 | Native ETH transfer helper (plain transfer to EOA/contract) | P0 | No manual `crosscallInvokeValueTyped(u64 0)` in examples |
 | CS-3.3 | Entry modifiers / guards (`onlyOwner`, `whenNotPaused`, role guards) | P0 | Desugar to portable IR checks; diagnostics on misuse |
 | CS-3.4 | Constructor dynamic ABI (string, bytes, dynamic arrays) | P0 | CLI + artifact metadata; deploy-object init reads initcode tail into storage; Foundry + Anvil smokes with `DynamicConstructorProbe` |
-| CS-3.5 | Custom errors (Solidity-style selectors) | P1 | ✅ 4-byte selector + static ABI args (`errors-ir-smoke` `test_revertCustomError_selector` + `test_revertCustomErrorArgs_selector_and_words`); dynamic args remain open |
+| CS-3.5 | Custom errors (Solidity-style selectors) | P0 | Partial: 4-byte selector + validated compile-time scalar ABI subset (`uint8/32/64/128/256`, `bool`, `address`, `bytes32`) with Foundry payload and generated-client runtime smokes; typed runtime expression args and a target-plan representation remain P0, while broader static/dynamic shapes and standard ABI entries remain P1 |
 | CS-3.6 | ERC-165 `supportsInterface` module | P0 | ✅ Foundry interface probe + stdlib mixin |
 | CS-3.7 | AccessControl roles (grant/revoke/hasRole) | P0 | ✅ stdlib mixin + `guard_role` |
 | CS-3.8 | ERC-721 core (ownerOf, transfer, safeTransferFrom, mint, burn) | P0 | ✅ stdlib mixin + **PF-P2-02** `onERC721Received` (Foundry accept/reject) |
-| CS-3.9 | CREATE2 factory template module | P1 | Deterministic deploy example + metadata |
-| CS-3.10 | Proxy/upgrade patterns (UUPS or transparent) aligned with Workstream 32 `upgradePolicy` | P1 | Honest lowering or explicit reject per policy |
-| CS-3.11 | ERC-1155 single-transfer core | P1 | ✅ `Stdlib/ERC1155.lean` + `onERC1155Received` + size-2 `safeBatchTransferFrom2` with `onERC1155BatchReceived` (E1.2 Foundry accept/reject); arbitrary-length dynamic batch ABI remains open |
+| CS-3.9 | CREATE2 factory template module | P1 | ✅ Limited fixed-template path: deterministic deploy returns ABI `address`, emits `Deployed(address,bytes32)`, and has metadata + Foundry lifecycle coverage; multi-template/salt registries remain deferred |
+| CS-3.10 | Proxy/upgrade patterns (UUPS or transparent) aligned with Workstream 32 `upgradePolicy` | P1 | Partial backend UUPS transport spike: constructor atomically binds a full-width admin and a code-bearing implementation, the proxy shell exposes no runtime entrypoint, and upgrade rejects EOAs/proxy self. Attacker-first, zero-address, EOA, self, and storage-preservation regressions are executable. Product `authority`/`governance` policies still fail closed until declared `keyRef` is bound to that constructor authority; `proxiableUUID`, arbitrary initializer calldata, and transparent remain unsupported |
+| CS-3.11 | ERC-1155 single-transfer core | P1 | ✅ `Stdlib/ERC1155.lean` + `onERC1155Received` + size-2 `safeBatchTransferFrom2` with exact `onERC1155BatchReceived` argument and rollback checks (E1.2 Foundry); arbitrary-length dynamic batch ABI and standard `TransferBatch` remain open |
 
 ### Phase CS-4 — Project development experience
 
@@ -3480,17 +3482,19 @@ workstream. The forward order follows the tier gates of
 
 ## SDK Ecosystem Completeness (post-P0 hardening)
 
-Gate P0 closure proved production-grade compiler correctness for the three
-primary chains. The next hardening phase is **SDK ecosystem completeness**:
-ensure a developer can write and deploy **any** contract on each chain, not
-just Counter and ValueVault. The full gap analysis lives in
+Gate P0 closure established local/CI compiler, artifact, execution, metadata,
+testkit, and resource-budget evidence for documented primary-chain fragments.
+It did not prove universal compiler correctness or production readiness. The
+next hardening phase is **SDK ecosystem completeness**: broaden the common
+contract patterns developers can write and deploy beyond Counter and
+ValueVault. The full gap analysis lives in
 [sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md).
 
 **Principle:** Tier-1 targets (CosmWasm, Aptos) stay frozen until each primary
 chain's P0 SDK blockers are closed. "P0 SDK blocker" = a feature whose absence
 means a real developer cannot write a common contract pattern.
 
-### EVM SDK blockers (0 open P0, 5 closed P0; limited P1 remain)
+### EVM SDK blockers (1 open P0, 5 closed P0; limited P1 remain)
 
 Tracked in detail as **Workstream 34 Phase CS-2/CS-3** and
 [`docs/sdk-ecosystem-gaps-2026-07.md`](sdk-ecosystem-gaps-2026-07.md);
@@ -3502,9 +3506,11 @@ fixtures.
 - ✅ P0: ERC-165 supportsInterface (stdlib mixin)
 - ✅ P0: AccessControl roles (stdlib mixin + guard_role)
 - ✅ P0: Constructor dynamic-type args (CLI ABI encoding + constructor_body + Anvil verified)
-- ✅ P1 (partial): custom-error 4-byte selector surface; ERC-1155 receiver + size-2 batch MVP
-- P1 still open: arbitrary-length ERC-1155 batch / `onERC1155BatchReceived`, custom-error
-  ABI args, storage packing, general multicall body, factory template, AMM, Pausable auth
+- P0 still open: typed runtime custom-error arguments through the EVM target plan. The
+  compile-time scalar subset has selector/schema/range validation plus Foundry and generated-client runtime smokes.
+- ✅ P1 (partial): custom-error 4-byte/static-scalar surface; ERC-1155 receiver + size-2 batch MVP
+- P1 still open: arbitrary-length ERC-1155 batch ABI, broader static/dynamic custom-error
+  shapes and standard ABI entries, general multicall body, AMM, and Pausable auth
 
 ### Solana SDK blockers (5 tracked P0, 4 closed, 7 P1)
 
@@ -3568,19 +3574,23 @@ fixtures.
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
-### NEAR SDK blockers (0 open P0, 6 closed, 9 P1)
+### NEAR SDK blockers (2 open P0, 4 closed, 9 P1)
 
-- ✅ P0: Promise API (host imports in HostBridge + EmitWat crosscall stub; full async is P1)
-- ✅ P0: NEP-141 fungible token (NearFungibleToken.lean stdlib mixin)
+- ✅ P0: Promise materialization (host imports in HostBridge + real EmitWat
+  Promise encoding; full async execution and richer callbacks remain P1)
+- P0 open: TokenSpec must produce one parameterized NEP-141 runtime artifact;
+  the current stdlib/plan/offline paths are not yet that single artifact.
 - ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
-- ✅ P0: Callback handling (promise_result host import + offline stub)
+- P0 open: NEP-145 withdrawal still needs the 1-yocto guard and predecessor
+  refund Promise; JSON balance objects and full accounting remain P1.
+- ✅ P1 partial: Callback handling (promise_result host import + offline stub)
 - ✅ P1: block_timestamp (`block_timestamp` host import + `.contextRead .timestamp` lowering + Surface/Source helpers)
 - ✅ P1: epoch_height (`epoch_height` host import + `.contextRead .epochHeight` lowering + Surface/Source helpers)
 - ✅ P1: random_seed (`random_seed(register_id)` host import + `.contextRead .randomSeed` lowering + Surface/Source helpers returning `Hash`)
 - ✅ P1: near-api-js client options (`NearViewOptions` for views, gas/attached-deposit `NearCallOptions` for function calls)
 - ✅ P1: NEP-145 storage-management starter (`storage_deposit`/`storage_balance_*` U64 projection + Hash map target-first/offline-host smoke)
-- P1: Full Promise async execution, full NEP-145 JSON balance objects/withdraw/refund/storage byte accounting,
+- P1: Full Promise async execution, full NEP-145 JSON balance objects/storage byte accounting,
   NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove,
   gas accounting, real NEAR broadcast smoke

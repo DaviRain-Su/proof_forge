@@ -1,4 +1,4 @@
-//! Mock vault: deposit(assets,receiver LE) records assets; 1:1 shares.
+//! Mock vault: deposit([assets,receiver]) records assets; 1:1 shares.
 
 use near_sdk::{env, near};
 
@@ -37,21 +37,31 @@ impl VaultPeer {
 }
 
 fn parse_one_u64() -> u64 {
-    let b = env::input().unwrap_or_default();
-    if b.len() >= 8 {
-        u64::from_le_bytes(b[0..8].try_into().unwrap_or([0; 8]))
-    } else {
-        0
-    }
+    env::input()
+        .as_deref()
+        .and_then(parse_one_u64_bytes)
+        .unwrap_or_else(|| env::panic_str("expected JSON args [value]"))
 }
 
 fn parse_two_u64() -> (u64, u64) {
-    let b = env::input().unwrap_or_default();
-    if b.len() >= 16 {
-        let a = u64::from_le_bytes(b[0..8].try_into().unwrap_or([0; 8]));
-        let r = u64::from_le_bytes(b[8..16].try_into().unwrap_or([0; 8]));
-        (a, r)
-    } else {
-        (0, 0)
+    env::input()
+        .as_deref()
+        .and_then(parse_two_u64_bytes)
+        .unwrap_or_else(|| env::panic_str("expected JSON args [assets,receiver]"))
+}
+
+fn parse_one_u64_bytes(bytes: &[u8]) -> Option<u64> {
+    let args: Vec<u64> = near_sdk::serde_json::from_slice(bytes).ok()?;
+    match args.as_slice() {
+        [value] => Some(*value),
+        _ => None,
+    }
+}
+
+fn parse_two_u64_bytes(bytes: &[u8]) -> Option<(u64, u64)> {
+    let args: Vec<u64> = near_sdk::serde_json::from_slice(bytes).ok()?;
+    match args.as_slice() {
+        [first, second] => Some((*first, *second)),
+        _ => None,
     }
 }

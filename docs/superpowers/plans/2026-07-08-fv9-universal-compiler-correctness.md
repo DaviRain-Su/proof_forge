@@ -11,8 +11,9 @@
 
 There are two distinct meanings of "universal", and only the first is currently proven:
 
-1. **Universal over inputs, fixed contract** — `∀ calls, safe → Counter refines`. ✅ Done
-   (Counter, ValueVault). Already a real `∀` over the infinite input space.
+1. **Universal over inputs, fixed contract** — `∀ calls, safe → Counter refines`.
+   Closed on the documented model/Solana/Wasm paths. The canonical EVM powdr path has
+   fixed-trace evidence but still requires `CounterCompiledPowdrEntrypointObligations`.
 2. **Universal over contracts** — `∀ m ∈ fragment, m refines`. ❌ **Not proven.** This is the
    compiler-correctness theorem. Counter/ValueVault are two *witnesses*, not this theorem.
 
@@ -401,8 +402,10 @@ module the counter-model actually admits.
 - ✅ `counterModel_fragment_refines_all : ∀ m ∈ SupportedFragment, ∀ calls, TraceSimulates …`
   **closed and green** as a *content-honest* theorem: `moduleIrStep m` runs `m`'s own
   bodies; bridge is `moduleIrStep_eq_irStep_of_isCounterModule` (body extraction, not
-  `rfl`). Replicated to Solana (`solanaSbpf_fragment_refines_all`), Wasm
-  (`wasmCore_fragment_refines_all`), and EVM (`evmCompiledPowdr_fragment_refines_all`).
+  `rfl`). Replicated as closed target theorems to Solana
+  (`solanaSbpf_fragment_refines_all`) and Wasm (`wasmCore_fragment_refines_all`). EVM exposes
+  the same theorem shape as `evmCompiledPowdr_fragment_refines_all`, but it remains
+  conditional on `CounterCompiledPowdrEntrypointObligations`; do not count it as closed.
 - ✅ Body-extraction lemmas + decide-friendly Counter body predicates (binder + `==` /
   `decide`) — no mutual `DecidableEq` required.
 - ✅ A constructor-coverage table (`ConstructorCoverage.lean`); the fragment predicate
@@ -452,4 +455,3 @@ reduce (open `n` is never definitionally `0`). Rewrite: match binders, compare w
 - **Scaffold retired:** FV-9.5 closed the content-honest `∀ m` path; do not reintroduce a
   discarded-`m` `moduleIrStep` without updating this plan.
 ```
-

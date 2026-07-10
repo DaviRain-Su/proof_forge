@@ -1,4 +1,4 @@
-//! near-sdk AuthRemoteCall: debit local balance then promise_create(callee, receive, amount LE).
+//! near-sdk AuthRemoteCall: debit local balance then promise_create(callee, receive, [amount]).
 //! Mirrors `Examples/Product/AuthRemoteCall.lean`.
 
 #![allow(clippy::needless_pass_by_value)]
@@ -26,7 +26,7 @@ impl AuthRemoteCall {
         self.balance
     }
 
-    /// Debit `amount` then forward to peer `receive` with raw LE u64 body (PF parity).
+    /// Debit `amount` then forward using the same JSON-array ABI as EmitWat.
     pub fn debit_and_forward(&mut self, amount: u64) -> Promise {
         if self.balance < amount {
             env::panic_str("insufficient balance");
@@ -34,9 +34,11 @@ impl AuthRemoteCall {
         self.balance = self.balance.saturating_sub(amount);
         // Keep caller projection used (same as PF reading `caller`).
         let _ = env::predecessor_account_id();
+        let args = near_sdk::serde_json::to_vec(&[amount])
+            .unwrap_or_else(|_| env::panic_str("encode receive args"));
         Promise::new(self.callee.clone()).function_call(
             "receive".to_string(),
-            amount.to_le_bytes().to_vec(),
+            args,
             NearToken::from_yoctonear(0),
             Gas::from_tgas(30),
         )

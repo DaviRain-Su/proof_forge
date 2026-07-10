@@ -68,11 +68,22 @@ def testMissingValue : IO Unit := do
     require (e.contains "missing") s!"expected 'missing' in error, got: {e}"
     IO.println "cli-constructor: missing-value error ok"
 
+def testNoncanonicalRawAddress : IO Unit := do
+  let params := #[{ name := "implementation", abiType := "address" : ConstructorParamSpec }]
+  let word := "0000000000000000000000010000000000000000000000000000000000001001"
+  match validateConstructorSchemaAndArgs params word with
+  | .ok () => throw <| IO.userError "expected noncanonical raw address to fail"
+  | .error e =>
+    require (e.contains "non-zero high 96 bits")
+      s!"expected high-96-bit address diagnostic, got: {e}"
+    IO.println "cli-constructor: noncanonical raw address error ok"
+
 def main : IO UInt32 := do
   testStringOnly
   testUint256ArrayOnly
   testMixedStaticDynamic
   testMissingValue
+  testNoncanonicalRawAddress
   IO.println "CliConstructor: all tests passed"
   pure 0
 

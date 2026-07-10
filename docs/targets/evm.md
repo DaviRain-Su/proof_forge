@@ -134,8 +134,11 @@ broadcasting a transaction.
 Deploy (broadcast or plan-only):
 
 ```sh
+# Local Anvil only: use a public test account key, never a funded key.
+ANVIL_TEST_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
   --evm-chain-profile anvil-local --start-anvil \
+  --private-key "$ANVIL_TEST_PRIVATE_KEY" \
   -o build/evm/Counter.proof-forge-deploy-run.json
 
 proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-deploy.json \
@@ -145,7 +148,9 @@ proof-forge deploy --target evm --deploy-manifest build/evm/Counter.proof-forge-
 
 Local Anvil deployments use `cast send --create`, record `cast send` receipts
 and `eth_getTransactionByHash` creation transactions, and write
-`*.proof-forge-deploy-run.json`. Public testnet profiles default to
+`*.proof-forge-deploy-run.json`. Every broadcast path, including
+`--start-anvil`, requires an explicit `--private-key`; ProofForge never supplies
+signing material. Public testnet profiles default to
 `--plan-only`, which writes `*.proof-forge-deploy-plan.json` with the profile
 RPC metadata and a documented `cast` broadcast command template instead of
 signing live transactions.
@@ -759,7 +764,8 @@ directly.
 manifest and `.init.bin`, regenerates Counter with a deterministic non-empty
 typed `initial=123` constructor argument plus a static `initial:uint256`
 constructor schema by default, and runs `proof-forge deploy --target evm
---start-anvil` to broadcast initcode through `cast send --create`, validate the
+--start-anvil --private-key <local-test-key>` to broadcast initcode through
+`cast send --create`, validate the
 receipt and deployed runtime code, run the Counter lifecycle through JSON-RPC
 calls, and write
 `build/anvil-deploy-smoke/Counter.proof-forge-deploy-run.json`.

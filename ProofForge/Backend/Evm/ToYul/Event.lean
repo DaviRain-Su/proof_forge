@@ -28,7 +28,7 @@ def packedUtf8Words (value : String) : Array Nat × Nat := Id.run do
   pure (words, bytes.size)
 
 def eventIndexedTopicName (index : Nat) : String :=
-  s!"_indexed_topic{index}"
+  s!"__pf_event_indexed_topic{index}"
 
 def eventIndexedFieldCount (event : EventPlan) : Nat :=
   event.indexedFields.size
@@ -52,7 +52,7 @@ def eventSignatureTopicStatements (event : EventPlan) : Array Lean.Compiler.Yul.
         Lean.Compiler.Yul.Expr.num words[idx]
       ])
   pure <| statements.push <|
-    .varDecl #[{ name := "_topic0" }]
+    .varDecl #[{ name := "__pf_event_topic0" }]
       (some (Lean.Compiler.Yul.builtin "keccak256" #[
         Lean.Compiler.Yul.Expr.num 0,
         Lean.Compiler.Yul.Expr.num length
@@ -105,7 +105,7 @@ def eventLogStatement
   let mut logArgs : Array Lean.Compiler.Yul.Expr := #[
     Lean.Compiler.Yul.Expr.num 0,
     Lean.Compiler.Yul.Expr.num (dataWordCount * 32),
-    Lean.Compiler.Yul.Expr.id "_topic0"
+    Lean.Compiler.Yul.Expr.id "__pf_event_topic0"
   ]
   for _h : idx in [0:indexedFieldCount] do
     logArgs := logArgs.push (Lean.Compiler.Yul.Expr.id (eventIndexedTopicName idx))

@@ -9,6 +9,10 @@ storage). The names are target-neutral so future deploy constructors on other
 chains can reuse the same intent. -/
 inductive ConstructorInitKind where
   | scalarU64
+  /-- Store a non-zero ABI `address` word without narrowing. -/
+  | addressWord
+  /-- Store `keccak256` of a non-zero, zero-padded ABI `address` word. -/
+  | addressKeccak
   | stringLength
   | stringKeccak
   | bytesLength
@@ -26,6 +30,8 @@ structure ConstructorInitBinding where
 
 def ConstructorInitKind.label : ConstructorInitKind → String
   | .scalarU64 => "scalar"
+  | .addressWord => "address_word"
+  | .addressKeccak => "address_keccak"
   | .stringLength => "length"
   | .stringKeccak => "keccak"
   | .bytesLength => "length"

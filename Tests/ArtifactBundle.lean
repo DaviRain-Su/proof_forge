@@ -23,9 +23,14 @@ def requireErrUnit (result : Except BundleError Unit) (needle : String) : IO Uni
 /-- PF-P1-03: schema honesty for intermediate-only, final, missing-tool, failed-toolchain. -/
 def main : IO UInt32 := do
   let source : SourceIdentity := {
+    moduleName := "Counter"
+    kind := "portable-ir"
+  }
+  let elaboratedSource : SourceIdentity := {
     moduleName := "Examples.Product.Counter"
     path? := some "Examples/Product/Counter.lean"
     kind := "contract-source"
+    leanElaborated := true
   }
 
   -- Intermediate-only (Solana --format s / NEAR WAT before wat2wasm).
@@ -76,6 +81,78 @@ def main : IO UInt32 := do
     })
     "unavailable"
 
+  -- Missing Lean source-elaboration provenance is never an honest artifact.
+  requireErrUnit
+    (validateHonesty {
+      targetId := "evm"
+      source := elaboratedSource
+      outputs := #[{ kind := "yul", role := .intermediate }]
+      primaryOutput? := some "yul"
+      toolchain := #[]
+    })
+    "leanElaborated=true"
+
+  -- Pure portable IR must not claim a Lean source-elaboration stage.
+  requireErrUnit
+    (validateHonesty {
+      targetId := "evm"
+      source := source
+      outputs := #[{ kind := "yul", role := .intermediate }]
+      primaryOutput? := some "yul"
+      toolchain := #[leanElaborationTool (some "leanprover/lean4:v4.31.0")]
+    })
+    "leanElaborated=false"
+
+  requireErrUnit
+    (validateHonesty {
+      targetId := "evm"
+      source := elaboratedSource
+      outputs := #[{ kind := "yul", role := .intermediate }]
+      primaryOutput? := some "yul"
+      toolchain := #[leanElaborationTool
+        (some "leanprover/lean4:v9.9.9") (some "9.9.9")]
+    })
+    "running Lean"
+
+  -- Parsed --root is authoritative; do not fall back to the process cwd pin.
+  try
+    discard <| requireLeanToolchainPin
+      (some (System.FilePath.mk "build/definitely-missing-proof-forge-root"))
+    throw <| IO.userError "missing parsed-root Lean pin unexpectedly succeeded"
+  catch err =>
+    require ((toString err).contains "missing non-empty lean-toolchain under parsed --root")
+      s!"unexpected missing-pin diagnostic: {err}"
+
+  let alternateRoot := System.FilePath.mk "build/artifact-bundle-noncwd-root"
+  IO.FS.createDirAll alternateRoot
+  IO.FS.writeFile (alternateRoot / "lean-toolchain") "leanprover/lean4:v9.9.9-test\n"
+  let alternatePin ← requireLeanToolchainPin (some alternateRoot)
+  require (alternatePin == "leanprover/lean4:v9.9.9-test")
+    s!"parsed non-cwd root pin was not authoritative: {alternatePin}"
+  try
+    let _ ← sourceElaborationToolchain elaboratedSource (some alternateRoot)
+    throw <| IO.userError "mismatched declared Lean pin unexpectedly succeeded"
+  catch err =>
+    require ((toString err).contains "does not match running Lean")
+      s!"unexpected Lean mismatch diagnostic: {err}"
+
+  let matchingRoot := System.FilePath.mk "build/artifact-bundle-matching-root"
+  IO.FS.createDirAll matchingRoot
+  let currentPin ← requireLeanToolchainPin none
+  IO.FS.writeFile (matchingRoot / "lean-toolchain") (currentPin ++ "\n")
+  let elaborationTools ← sourceElaborationToolchain elaboratedSource (some matchingRoot)
+  require (elaborationTools.size == 1)
+    "matching source-elaboration helper must return one Lean tool"
+  let leanTool := elaborationTools[0]!
+  require (leanTool.declaredVersion? == some currentPin)
+    "Lean provenance must preserve the declared toolchain pin"
+  require (leanTool.observedVersion? == some Lean.versionString)
+    "Lean provenance must record the running Lean version"
+  let fixtureTools ← sourceElaborationToolchain source
+    (some (System.FilePath.mk "build/definitely-missing-proof-forge-root"))
+  require fixtureTools.isEmpty
+    "portable IR fixture must neither require nor record a Lean pin"
+
   -- Failed toolchain after tool ran.
   let failed ← requireOk
     (failedToolchain "wasm-near" source
@@ -99,6 +176,8 @@ def main : IO UInt32 := do
   -- JSON carries schema kind and notRun (not rewritten to passed).
   let json := inter.toJson
   require (json.contains "proof-forge-artifact-bundle") "json schema kind"
+  require (json.contains "\"leanElaborated\": false")
+    "portable artifact source identity must explicitly record that Lean elaboration did not run"
   require (json.contains "notRun") "json preserves notRun"
   require (!json.contains "\"state\": \"passed\"" || true) "sanity"
 

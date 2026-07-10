@@ -11,7 +11,6 @@ import ProofForge.Backend.Aleo.IR
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.PureMath
-import ProofForge.IR.Examples.StructProbe
 
 open ProofForge.IR
 open ProofForge.Backend.Aleo.IR
@@ -24,6 +23,12 @@ def seed : Entrypoint :=
 def mapMod : Module :=
   { name := "Ledger", state := #[ledgerState], entrypoints := #[seed] }
 
+-- Full Counter is intentionally rejected: Leo 4.0.2 cannot return a mapping
+-- read from `get() -> U64`. The write-only fragment is executable evidence.
+def counterWriteMod : Module :=
+  { Examples.Counter.module with
+    entrypoints := #[Examples.Counter.initializeEntrypoint, Examples.Counter.increment] }
+
 -- context read
 def ctxState : StateDecl :=
   { id := "lastHeight", kind := .scalar, type := .u32 }
@@ -32,6 +37,30 @@ def recordH : Entrypoint :=
     body := #[ .effect (.storageScalarWrite "lastHeight" (.effect (.contextRead .checkpointId))) ] }
 def ctxMod : Module :=
   { name := "Ctx", state := #[ctxState], entrypoints := #[recordH] }
+
+-- Address storage is valid when used write-only (no fallback identity needed).
+def addressState : StateDecl :=
+  { id := "recipient", kind := .scalar, type := .address }
+def writeAddress : Entrypoint :=
+  { name := "write_address", params := #[("receiver", .address)],
+    body := #[.effect (.storageScalarWrite "recipient" (.local "receiver"))] }
+def addressWriteMod : Module :=
+  { name := "AddressWrite", state := #[addressState], entrypoints := #[writeAddress] }
+
+-- Ordinary value-struct storage default without address remains executable.
+def snapshotValue : StructDecl :=
+  { name := "Snapshot", fields := #[
+      { id := "amount", type := .u64 },
+      { id := "enabled", type := .bool }
+    ] }
+def snapshotState : StateDecl :=
+  { id := "snapshot", kind := .scalar, type := .structType "Snapshot" }
+def updateSnapshot : Entrypoint :=
+  { name := "update_snapshot", params := #[("amount", .u64)],
+    body := #[.effect (.storageStructFieldWrite "snapshot" "amount" (.local "amount"))] }
+def snapshotMod : Module :=
+  { name := "SnapshotStore", structs := #[snapshotValue], state := #[snapshotState],
+    entrypoints := #[updateSnapshot] }
 
 -- record mint
 def tokenRec : StructDecl :=
@@ -76,26 +105,68 @@ def callMint : Entrypoint :=
 def ccMod : Module :=
   { name := "Caller", state := #[], entrypoints := #[callMint] }
 
+-- Negative storage-default fixtures. These belong to the real Leo gate so a
+-- regression that renders `none` as an address fails before package creation.
+def readAddress : Entrypoint :=
+  { name := "read_address", body := #[
+      .letBind "stored" .address (.effect (.storageScalarRead "recipient"))
+    ] }
+def addressReadMod : Module :=
+  { name := "AddressRead", state := #[addressState], entrypoints := #[readAddress] }
+
+def contactValue : StructDecl :=
+  { name := "Contact", fields := #[{ id := "account", type := .address }] }
+def envelopeValue : StructDecl :=
+  { name := "Envelope", fields := #[{ id := "contact", type := .structType "Contact" }] }
+def readEnvelope : Entrypoint :=
+  { name := "read_envelope", body := #[
+      .letBind "stored" (.structType "Envelope") (.effect (.storageScalarRead "envelope"))
+    ] }
+def nestedAddressReadMod : Module :=
+  { name := "NestedAddressRead", structs := #[contactValue, envelopeValue],
+    state := #[{ id := "envelope", kind := .scalar, type := .structType "Envelope" }],
+    entrypoints := #[readEnvelope] }
+
 def fixtures : Array (String × Module) := #[
-  ("counter", Examples.Counter.module),
+  ("address-write", addressWriteMod),
+  ("counter-write", counterWriteMod),
   ("puremath", Examples.PureMath.module),
-  ("structprobe", Examples.StructProbe.module),
   ("mapledger", mapMod),
   ("context", ctxMod),
   ("recordmint", recMod),
   ("recordtransfer", xferMod),
+  ("value-struct-default", snapshotMod),
   ("hash", hashMod),
   ("mixedreturn", mixedMod),
   ("crosscall", ccMod)
 ]
 
+def rejectedFixtures : Array (String × Module × String) := #[
+  ("address-default", addressReadMod, "Mapping::get_or_use"),
+  ("nested-address-default", nestedAddressReadMod, "Envelope.contact.account")
+]
+
 def main : IO UInt32 := do
   let dir := "build/aleo/verify"
   IO.FS.createDirAll dir
+  let mut failed := false
   for (name, m) in fixtures do
     match renderModule m with
     | .ok src => do
       IO.FS.writeFile s!"{dir}/{name}.leo" src
       IO.println s!"rendered {name}"
-    | .error e => IO.println s!"RENDER FAIL {name}: {e.render}"
-  return 0
+    | .error e =>
+      failed := true
+      IO.println s!"RENDER FAIL {name}: {e.render}"
+  for (name, m, marker) in rejectedFixtures do
+    match renderModule m with
+    | .error e =>
+      if e.message.contains "storage default" && e.message.contains marker then
+        IO.println s!"rejected {name}: OK"
+      else
+        failed := true
+        IO.println s!"REJECT DIAGNOSTIC FAIL {name}: {e.render}"
+    | .ok _ =>
+      failed := true
+      IO.println s!"REJECT FAIL {name}: unexpectedly rendered"
+  return if failed then 1 else 0

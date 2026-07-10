@@ -830,7 +830,11 @@ private partial def parseMethod (kind : MethodKind) : ParserM MethodDecl := do
   let params ← parseParams
   let returns ←
     match kind with
-    | .entry => pure .unit
+    | .entry =>
+        if ← consumeSymbol ":" then
+          parseType
+        else
+          pure .unit
     | .query =>
         expectSymbol ":"
         parseType

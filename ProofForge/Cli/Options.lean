@@ -131,7 +131,15 @@ def finalizeConstructorOptions (opts : CliOptions) : Except String CliOptions :=
 
 def finalizeConstructorOptionsForSpec
     (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) : Except String CliOptions := do
-  let merged := { (mergeSpecConstructorParams opts spec) with evmConstructorArgsHex := "" }
+  let mergedBase := mergeSpecConstructorParams opts spec
+  -- Named values may have been encoded against CLI-only params before the
+  -- contract schema was loaded, so re-encode them after the merge. Raw ABI hex
+  -- has no named values and must survive the schema merge for canonical checks.
+  let merged :=
+    if opts.evmConstructorValues.isEmpty then
+      mergedBase
+    else
+      { mergedBase with evmConstructorArgsHex := "" }
   if !merged.evmConstructorValues.isEmpty && constructorValuesDeferSpecMerge merged.evmConstructorParams merged.evmConstructorValues then
     validateConstructorValuesAgainstParams merged.evmConstructorParams merged.evmConstructorValues
   finalizeConstructorOptions merged

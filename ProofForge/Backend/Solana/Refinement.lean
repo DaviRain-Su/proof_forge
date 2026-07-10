@@ -576,14 +576,21 @@ revert-aware trace layer promises. -/
 
 /-- A minimal entrypoint that unconditionally reverts. -/
 def revertEntrypoint : Entrypoint :=
-  Entrypoint.mk "revertAlways" .function none #[] #[] .unit
-    #[ .revert "always rolls back" ]
+  {
+    name := "revertAlways"
+    mutability := .call
+    body := #[.revert "always rolls back"]
+  }
 
 /-- A minimal entrypoint that returns a constant, used to observe post-revert
 state (it touches no storage, so it succeeds against any state). -/
 def readConstEntrypoint : Entrypoint :=
-  Entrypoint.mk "readConst" .function none #[] #[] .u64
-    #[ .return (.literal (.u64 7)) ]
+  {
+    name := "readConst"
+    mutability := .view
+    «returns» := .u64
+    body := #[.return (.literal (.u64 7))]
+  }
 
 /-- `revertAlways → readConst`: the revert is observed, and the subsequent read
 still succeeds (state was not corrupted/advanced by the revert). -/

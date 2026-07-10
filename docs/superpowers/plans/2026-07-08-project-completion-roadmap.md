@@ -24,14 +24,17 @@
   claim, coarser grain, fully proven + green. Matching Solana's per-instruction granularity is an
   optional strengthening, **not** required for the second-contract claim.
 
-**Verdict: the core is DONE.** Everything hard — three-chain universal refinement, WASM double
-genericity, the Track 0 correctness bugs, and the Track 1 FV foundation (1.2–1.7) — is landed,
-closed, green, no `sorry`. What remains (Phase 4/5 below) is **breadth** (new chains) +
-**product surface** (deploy / client tooling), which was always roadmap, not unfinished core.
+**Corrected verdict (2026-07-10): the shared refinement foundation is landed, but the
+three-chain universal claim is not closed.** Solana/WASM retain their documented proof
+surfaces. The canonical EVM low-order powdr lane proves a fixed Counter trace; its universal
+theorem still requires `CounterCompiledPowdrEntrypointObligations`. The former 13k-line
+prepared-frame proof is `LegacyHighPacked` historical evidence, not proof of the current
+runtime. Breadth and product work can proceed, but this EVM obligation remains core FV work.
 
-> **One honest qualifier on "universal" (→ FV-9).** The three-chain refinement is universal *over
-> inputs* for the proven contracts (Counter, ValueVault) + generic *per-instruction*. It is **not
-> yet universal over contracts** — there is no `∀ m ∈ fragment, IR ⊑ target(compile m)` theorem;
+> **Corrected qualifier on "universal" (→ FV-9).** Solana/WASM expose the documented
+> input-level theorem surfaces, while the current EVM powdr theorem remains conditional on
+> `CounterCompiledPowdrEntrypointObligations`. There is also no closed
+> `∀ m ∈ fragment, IR ⊑ target(compile m)` theorem across the triad;
 > the two contracts are witnesses, not the compiler-correctness theorem. Closing that (the
 > CompCert-style keystone) is scoped in
 > **[FV-9 — Universal compiler correctness](2026-07-08-fv9-universal-compiler-correctness.md)**.
@@ -40,12 +43,13 @@ closed, green, no `sorry`. What remains (Phase 4/5 below) is **breadth** (new ch
 > then inducts over program structure reusing the L1 layers. This is the deepest remaining FV work;
 > prioritize it above Phase 4/5 breadth if the goal is a *provably general* compiler, not more targets.
 
-## ✅ DONE — the big achievement: three-chain universal FV
+## Current FV boundary — shared machinery landed, EVM universal obligations open
 
-Machine-checked, universally-quantified (`∀ safe input`) IR↔target refinement, green, no `sorry`:
+Machine-checked evidence exists on all three lanes, but at different strengths:
 
-- **EVM** — against `powdr-labs/evm-semantics` (import; heavy ~13k lines, but strongest trust —
-  powdr is conformance-tested vs `ethereum/tests`).
+- **EVM** — the current solc 0.8.30 runtime has a fixed Counter IR/bytecode trace. The
+  all-input theorem is obligation-explicit; the heavy prepared/opcode proof targets the
+  legacy high-packed layout and does not close the canonical low-order runtime.
 - **Solana** — against a self-built sBPF interpreter (light ~6k lines; Counter universal C-proof +
   ValueVault genericity 283 thms + full-opcode audit; two-hop trust via Mollusk/Surfpool).
 - **WASM/NEAR** — Counter universal C-proof CLOSED + green; ValueVault Wasm abstract-core
@@ -347,7 +351,7 @@ divergences). **All three verified STILL OPEN (2026-07-08):**
 3. **Phase 3 (FV foundation)** — `1.7` FV-8 is the product differentiator; `1.4/1.5/1.6` harden the TCB.
 4. **Phase 4 / 5** — parallelizable once 1–3 land; ZK + client + platform gaps are docs-first, low risk.
 
-Discipline that held for EVM/Solana/WASM and must continue: generic exec layers carry **0 contract
-names**; every universal theorem is **closed** (obligations constructed, not hypothesized) and
-**green**; **no `sorry`**; self-built targets **keep the external differential gate** (Mollusk /
+Discipline for EVM/Solana/WASM: generic exec layers carry **0 contract names**; any theorem
+described as closed must construct its obligations (the current EVM powdr universal theorem
+does not yet do so) and remain **green**; **no `sorry`**; self-built targets **keep the external differential gate** (Mollusk /
 Surfpool / wasmtime) for the "interpreter ≈ real VM" hop.

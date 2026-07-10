@@ -158,8 +158,15 @@ surface. Remaining EVM work is E3.
 
 > ### COURSE CORRECTION (2026-07-08) — HARD STOP on EVM bytecode hand-derivation
 >
-> **What went wrong.** The universal EVM Counter refinement was already green at ~1,100
-> lines via `native_decide` on powdr's `stepF`. The follow-on path — hand-deriving powdr's
+> **Status correction (2026-07-10).** References below to an already-closed
+> "universal EVM Counter refinement" were too strong. The current low-order lane has a
+> fixed Counter trace checked with `native_decide`; `evmCompiledPowdr_fragment_refines_all`
+> still requires `CounterCompiledPowdrEntrypointObligations`. The deep proof discussed here
+> is retained under `LegacyHighPacked` and does not discharge those current-runtime obligations.
+>
+> **What went wrong.** A fixed EVM Counter trace was already green at ~1,100
+> lines via `native_decide` on powdr's `stepF`, but it was misreported as universal.
+> The follow-on path — hand-deriving powdr's
 > `runBytecode` opcode-by-opcode, step-by-step ("first step → first four steps") for
 > `initialize` and then the dispatcher/selector path — has continued to grow past
 > **13k lines**. It still expands Counter-specific facts faster than reusable machinery, and
@@ -168,9 +175,9 @@ surface. Remaining EVM work is E3.
 > multi-thousand-line grind unless a real automation layer exists first.
 >
 > **Decision.** Stop treating deep powdr bytecode reduction as the EVM delivery blocker.
-> The accepted EVM boundary is the already-green universal Counter refinement route that
-> discharges the concrete powdr `stepF` obligations with `native_decide`, then lifts through
-> the shared trace-induction machinery. The explicit TCB statement is: ProofForge trusts
+> The accepted EVM boundary is the fixed Counter trace that discharges concrete powdr
+> `stepF` execution with `native_decide`. The universal trace-lift shape remains conditional
+> on `CounterCompiledPowdrEntrypointObligations`. The explicit TCB statement is: ProofForge trusts
 > powdr's conformance-tested `stepF` plus Lean's `native_decide` evaluator for the EVM
 > bytecode execution witness; powdr's relational `Step` and the successful-run bridge remain
 > the imported target semantics boundary.
@@ -201,9 +208,10 @@ surface. Remaining EVM work is E3.
 > requires new bytecode segment hand-derivation, stop and record it as future automation
 > work, not E3 completion work.
 >
-> **Revised acceptance:** `lake build EvmRefinement` stays green; the EVM status is recorded
-> as "Counter universal refinement via powdr `stepF` + `native_decide`, with Yul→bytecode
-> and powdr/`native_decide` called out as TCB boundaries"; no new manual
+> **Revised acceptance (corrected 2026-07-10):** `lake build EvmRefinement` stays green; the
+> EVM status is recorded as "canonical Counter fixed-trace evidence via powdr `stepF` +
+> `native_decide`, with the universal theorem still obligation-explicit and Yul→bytecode
+> plus powdr/`native_decide` called out as TCB boundaries"; no new manual
 > `CounterRefinement.lean` dispatcher/body/return proof expansion is added; active proof
 > work moves to Solana/WASM or to a genuinely contract-agnostic automation layer.
 
@@ -220,11 +228,19 @@ surface. Remaining EVM work is E3.
   `traceSimulation_lift` path for Solana and WASM. Only touch `PowdrExec` again if the next
   patch is contract-agnostic automation, not another Counter segment proof.
 - **Historical progress (evidence, not a continuation recipe):**
+  **Legacy storage-layout checkpoint:** the prepared-frame, safe-trace, and
+  hand-expanded opcode theorem names in the historical paragraphs below live under
+  `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target the
+  pre-migration runtime where `count` occupied the high 64 bits. They do not establish
+  refinement for the current low-order runtime.
   `EvmRefinement/CounterRefinement.lean` now starts the E3 relation layer:
   it proves the ProofForge EVM layout maps Counter `count` to scalar slot 0, defines the
   IR `count` ↔ powdr `AccountMap`/`Storage` relation over the generated EVM
-  packed U64 slot shape: `count` occupies the high 64 bits and the low 192 bits
-  are padding/other-packed-field space, with `count < 2^64`. This corrected the
+  packed U64 slot shape used at that checkpoint: `count` occupied the high 64
+  bits and the low 192 bits were padding/other-packed-field space, with
+  `count < 2^64`. The current canonical model has since migrated to
+  Solidity-compatible low-64-bit packing with high 192-bit padding. This
+  corrected the
   earlier raw-`UInt256.ofNat count` relation, and later corrected the too-strong
   canonical whole-word equality relation, neither of which matches the compiled
   runtime's `get`/write behavior. It also defines selector calldata plus
@@ -244,8 +260,8 @@ surface. Remaining EVM work is E3.
   `counterCompiledPowdr_executable_trace_ok`. Prepared calls now normalize a fresh
   top-level EVM frame (gas/header/fork/caller/pc/stack/halt) while preserving storage, so
   the relation is not accidentally blocked by stale halted frames or zero-gas defaults.
-  Packed-storage smokes show `get` reads packed `7` as `7`, `get` also reads a
-  padded high-bit `7` as `7`, `initialize; get` returns `0` from a padded slot,
+  Current packed-storage smokes use low-bit count `7` with nonzero high padding;
+  `initialize; get` returns `0` from that padded slot,
   and `increment; get` reaches `8`. It now exposes
   `counterPowdrTraceStep` / `counterPowdrTargetSemantics`, which run prepared Counter
   calls through powdr `runBytecode`, project EVM results to Counter observables, and prove
@@ -268,16 +284,17 @@ surface. Remaining EVM work is E3.
   `counterTraceSafeAfterInitialize`, with native checks for the normal
   initialize-get-increment-get trace and for the unsafe max-u64 increment case.
   The per-entrypoint obligation surface now has a safe variant:
-  `CounterStepSafe`, `CounterPowdrSafeEntrypointObligations`, and
+  `LegacyHighPacked.CounterStepSafe`,
+  `LegacyHighPacked.CounterPowdrSafeEntrypointObligations`, and
   `counterPowdr_safe_step_simulates_from_obligations` thread the bounded
   `increment` precondition into the EVM step proof instead of leaving overflow
   as an implicit side condition. `counterPowdr_safe_trace_simulates_from_obligations`
   and `counterPowdr_safe_trace_simulates_after_initialize_from_obligations` then
   lift that safe side condition through the universal trace induction, with a
   compiled-runtime specialization exposed by
-  `counterCompiledPowdr_safe_trace_simulates_after_initialize_from_obligations`.
-  `CounterTraceSafeAtState` and
-  `counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations` expose
+  `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_after_initialize_from_obligations`.
+  `LegacyHighPacked.CounterTraceSafeAtState` and
+  `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations` expose
   the same boundary as a state/input predicate, which is the shape needed for a
   later SupportedFragment gate. `CounterPowdrEvmPostconditions` and
   `counterPowdrSafeEntrypointObligationsOfPostconditions` historically isolated a
@@ -289,12 +306,12 @@ surface. Remaining EVM work is E3.
   already produced by `prepareCounterCall`, and
   `counterPowdrEvmPostconditionsOfPrepared` bridges those facts back to the
   arbitrary pre-state wrapper used by `counterPowdrTraceStep`. For initialize,
-  `counterInitializeStorageWord` models the compiled body as "clear the high
-  64-bit count field, preserve low 192-bit padding", and
-  `counterPreparedInitializePostconditionOfStorageModel` turns that storage
+  the legacy `counterInitializeStorageWord` modeled the then-current compiled
+  body as "clear the high 64-bit count field, preserve low 192-bit padding", and
+  `LegacyHighPacked.counterPreparedInitializePostconditionOfStorageModel` turns that storage
   model into the prepared-frame initialize postcondition.
-  `CounterPowdrPreparedStorageModels` now names that exact prepared-frame
-  storage-model surface and `counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
+  `LegacyHighPacked.CounterPowdrPreparedStorageModels` names that historical prepared-frame
+  storage-model surface and `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
   connect it directly to the compiled-runtime safe universal trace theorems.
   The SSTORE-side storage projection lemma
   `counterStorageValue_accountMap_set_storage_same` is also available for the
@@ -306,10 +323,12 @@ surface. Remaining EVM work is E3.
   `AND`, and `OR` helper steps and proves the value presented to SSTORE is
   `lor (land oldWord mask) setValue`, matching the initialize-body shape.
   `counterInitializeSetValue_eq_zero`, `counterInitializeLowMask_eq`,
-  `counterInitializeBodyWriteWord_eq_storageWord`, and
-  `counterInitializeBodyWriteWord_rel_zero` now prove the concrete initialize
-  body expression clears the high 64-bit count field while preserving the low
-  192-bit padding, exactly matching `counterInitializeStorageWord`.
+  `LegacyHighPacked.counterInitializeBodyWriteWord_eq_storageWord`, and
+  `LegacyHighPacked.counterInitializeBodyWriteWord_rel_zero` prove the historical initialize
+  body expression cleared the then-current high 64-bit count field while
+  preserving low 192-bit padding. This is retained as legacy checkpoint
+  evidence; the canonical runtime now clears the low 64-bit field and preserves
+  high 192-bit padding.
   `counterStack_of_initialize_sload_and_or_storageWord_ok` specializes the
   SLOAD/AND/OR helper sequence to those concrete constants and returns the
   storage model value on top of the stack.
@@ -466,15 +485,16 @@ surface. Remaining EVM work is E3.
   available from the 36-step bridge, so the remaining prefix proof only has to
   carry the prepared empty `callStack` to the body-return-jump frame.
   The shared safe trace layer is green once
-  `CounterCompiledPowdrPreparedStorageModels` is supplied. Do not continue the
+  `LegacyHighPacked.CounterCompiledPowdrPreparedStorageModels` is supplied. Do not continue the
   target-specific prepared-storage-model discharge by hand; the scaling boundary
   has been reached. The pinned
   powdr tree has no Yul-level semantics module, so ProofForge's Yul→bytecode `solc` hop
   remains an explicit trust boundary.
 - **Acceptance:** the opt-in EVM target remains green; the EVM row in
   `docs/formal-verification.md` states the selected boundary clearly:
-  universal Counter trace refinement is banked through powdr `stepF` obligations discharged
-  by `native_decide`, while deep manual bytecode reduction is deferred until a genuinely
+  the canonical fixed Counter trace is banked through powdr `stepF` and `native_decide`,
+  while the universal theorem remains obligation-explicit and deep manual bytecode reduction
+  is deferred until a genuinely
   contract-agnostic automation layer exists. No new Counter-specific dispatcher/body/return
   chain is added.
 - **Depends on:** E1, E2, P1 (landed), generic trace induction (landed).

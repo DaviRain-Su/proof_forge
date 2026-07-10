@@ -114,7 +114,7 @@ Files most affected: `ProofForge/IR/Contract.lean` (`ContextField`), `ProofForge
 | Revert messages | Bare reverts only. | String revert reasons (`revert("msg")`). |
 | `try/catch` | Not supported. | Try/catch around external calls with error capture. |
 | Libraries | Not supported. | Internal library linking or delegate-library patterns. |
-| Proxy patterns / EIP-1967 / UUPS | `create`/`create2` deploy fixed init code; no proxy scaffolding. | Proxy factory support, ERC-1967 storage slots, UUPS/transparent proxy upgrade paths. |
+| Proxy patterns / EIP-1967 / UUPS | Partial backend UUPS spike: ERC-1967 delegatecall fallback, mandatory atomic implementation/admin constructor binding, no public init selectors, owner-guarded upgrade. Product authority policies fail closed. | Bind product `keyRef`, support atomic initializer calldata and transparent/beacon patterns. |
 | Contract metadata / `name`/`version` | Not emitted. | ERC-173/ERC-1967 ownership, upgrade events, implementation slot. |
 
 Files most affected: `ProofForge/Backend/Evm/IR.lean` (dispatcher), `ProofForge/Backend/Evm/Metadata.lean`, CLI deploy manifest logic, new proxy/example modules under `Examples/Backend/Evm/`.
@@ -137,8 +137,8 @@ Files most affected: `ProofForge/Backend/Evm/Plan.lean` (`AbiParamPlan`/`ReturnP
 
 | Feature | Current | Needed |
 |---|---|---|
-| Storage packing | Each word scalar / struct field / array element gets one full 32-byte slot. | Solidity-style packing of multiple small types (`uint8`, `bool`, `address`) into one slot. |
-| Slot packing for small types | `U32`/`Bool` still occupy whole slots. | Bit-level / byte-level packed storage layouts. |
+| Storage packing | Consecutive small scalar state declarations share slots using Solidity low-order byte offsets; runtime and constructor writes mask field width. Struct fields and array elements still use their existing full-word layouts. | Extend packing beyond top-level consecutive scalar state only when a product case requires it. |
+| Slot packing overflow | Checked direct writes and compound assignments reject values wider than a packed field; wrapping writes truncate and preserve neighboring fields. | Keep Foundry neighbor-isolation and rollback regressions in the EVM gate. |
 | Yul optimizer | `solc --strict-assembly` is invoked; optimizer settings are script-level (`optimizer = true`, `optimizer_runs = 200`, `via_ir = true`). | First-class optimizer tuning in CLI/metadata; size-vs-runs profiles; contract-size gate. |
 | Source maps | Not generated. | Yul→bytecode source maps and metadata hash for explorer verification. |
 | Metadata hash (IPFS / swarm / CBOR) | Not appended to bytecode. | `solc` metadata hash injection for verification. |
@@ -549,4 +549,3 @@ After Phase 0, the suggested order is **Phase 1 → Phase 2 → Phase 5 → Phas
 | CI / smokes | `justfile`, `scripts/evm/*-ir-smoke.sh`, `scripts/evm/diagnostic-smoke.sh`, `scripts/evm/build-examples.sh`, `scripts/evm/foundry-smoke.sh`, `scripts/evm/anvil-deploy-smoke.sh` |
 | Examples / golden fixtures | `Examples/Backend/Evm/*.golden.yul`, `ProofForge/IR/Examples/*.lean` |
 | Docs / registry | `docs/targets/evm.md`, `docs/capability-registry.md`, `docs/target-roadmap.md`, `docs/implementation-backlog.md`, `docs/gate-status.md` |
-

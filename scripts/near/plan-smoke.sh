@@ -38,6 +38,10 @@ mkdir -p build/wasm-near
 
 echo "=== V-GATE-NEAR-06: NearModulePlan golden + render smoke ==="
 
+# This module is imported only by the test runner, so the default executable
+# build does not necessarily refresh its olean after an IR structure change.
+lake build ProofForge.Backend.WasmHost.NearModulePlan
+
 total=${#FIXTURES[@]}
 step=0
 fail=0

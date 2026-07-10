@@ -59,7 +59,8 @@ mutual
     | storageLoad (slot : StorageSlotPlan)
     | builtin (name : String) (args : Array ExprPlan)
     | helperCall (helper : Helper) (args : Array ExprPlan)
-    | checkedArith (op : AssignOp) (lhs rhs : ExprPlan) (overflowChecked : Bool := true)
+    | checkedArith (op : AssignOp) (lhs rhs : ExprPlan)
+        (overflowChecked : Bool := true) (resultByteWidth? : Option Nat := none)
     | hashPack (a b c d : ExprPlan)
     | context (field : ContextExprPlan)
     | crosscall (mode : CrosscallMode) (target methodId : ExprPlan)
@@ -199,34 +200,81 @@ mutual
     deriving Repr
 
   inductive EventFieldPlan where
-    | mk (name : String) (type : ValueType) (indexed : Bool)
+    | of (name : String) (type : ValueType) (indexed : Bool) (abiType? : Option String)
     deriving Repr
 
   inductive EventPlan where
-    | mk (name : String) (signature : String) (fields : Array EventFieldPlan)
+    | of (name : String) (signature : String) (fields : Array EventFieldPlan)
     deriving Repr
 end
 
-instance : Inhabited EventFieldPlan := ⟨.mk "" .unit false⟩
-instance : Inhabited EventPlan := ⟨.mk "" "" #[]⟩
+def EventFieldPlan.mk (name : String) (type : ValueType) (indexed : Bool) : EventFieldPlan :=
+  .of name type indexed none
+
+def EventFieldPlan.withAbiType (field : EventFieldPlan) (abiType : String) : EventFieldPlan :=
+  match field with
+  | .of name type indexed _ => .of name type indexed (some abiType)
+
+instance : Inhabited EventFieldPlan := ⟨EventFieldPlan.mk "" .unit false⟩
 
 def EventFieldPlan.name : EventFieldPlan → String
-  | .mk name _ _ => name
+  | .of name _ _ _ => name
 
 def EventFieldPlan.type : EventFieldPlan → ValueType
-  | .mk _ type _ => type
+  | .of _ type _ _ => type
 
 def EventFieldPlan.indexed : EventFieldPlan → Bool
-  | .mk _ _ indexed => indexed
+  | .of _ _ indexed _ => indexed
+
+def EventFieldPlan.abiType? : EventFieldPlan → Option String
+  | .of _ _ _ abiType? => abiType?
+
+private def splitTopLevelEventTypes (chars : List Char) : Array String := Id.run do
+  let mut types : Array String := #[]
+  let mut current : List Char := []
+  let mut depth := 0
+  for char in chars do
+    if char == ',' && depth == 0 then
+      types := types.push (String.ofList current.reverse)
+      current := []
+    else
+      current := char :: current
+      if char == '(' then
+        depth := depth + 1
+      else if char == ')' then
+        depth := depth - 1
+  if !current.isEmpty then
+    types := types.push (String.ofList current.reverse)
+  pure types
+
+def eventSignatureAbiTypes (signature : String) : Array String :=
+  match signature.splitOn "(" with
+  | _ :: tail =>
+      let argsWithClose := String.intercalate "(" tail
+      if argsWithClose.endsWith ")" then
+        splitTopLevelEventTypes (argsWithClose.dropEnd 1 |>.toString.toList)
+      else
+        #[]
+  | [] => #[]
+
+def EventPlan.mk (name signature : String) (fields : Array EventFieldPlan) : EventPlan :=
+  let abiTypes := eventSignatureAbiTypes signature
+  let fields := fields.mapIdx fun index field =>
+    match abiTypes[index]? with
+    | some abiType => field.withAbiType abiType
+    | none => field
+  .of name signature fields
+
+instance : Inhabited EventPlan := ⟨EventPlan.mk "" "" #[]⟩
 
 def EventPlan.name : EventPlan → String
-  | .mk name _ _ => name
+  | .of name _ _ => name
 
 def EventPlan.signature : EventPlan → String
-  | .mk _ signature _ => signature
+  | .of _ signature _ => signature
 
 def EventPlan.fields : EventPlan → Array EventFieldPlan
-  | .mk _ _ fields => fields
+  | .of _ _ fields => fields
 
 def EventPlan.indexedFields (event : EventPlan) : Array EventFieldPlan :=
   event.fields.foldl
@@ -466,6 +514,10 @@ inductive StmtPlan where
 structure AbiParamPlan where
   name : String
   type : ValueType
+  /-- Host ABI scalar override carried from `Entrypoint.paramAbiWords`.
+  This must survive planning because fixed bytes and addresses have canonical
+  calldata encodings that differ from their portable IR carrier type. -/
+  abiWord? : Option String := none
   wordTypes : Array ValueType
   headWordIndex : Nat
   localNames : Array String
@@ -474,6 +526,7 @@ structure AbiParamPlan where
 instance : Inhabited AbiParamPlan := ⟨{
   name := "",
   type := .unit,
+  abiWord? := none,
   wordTypes := #[],
   headWordIndex := 0,
   localNames := #[]
@@ -484,10 +537,10 @@ def abiTypeIsDynamic : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .unit | .fixedArray _ _ | .structType _ => false
 
 def dynamicParamLengthName (name : String) : String :=
-  s!"{name}__length"
+  s!"__pf_param_{name}_length"
 
 def dynamicParamDataPtrName (name : String) : String :=
-  s!"{name}__data_ptr"
+  s!"__pf_param_{name}_data_ptr"
 
 def AbiParamPlan.isDynamic (param : AbiParamPlan) : Bool :=
   abiTypeIsDynamic param.type
@@ -518,12 +571,12 @@ structure ReturnValueWordPlan where
 instance : Inhabited ReturnPlan := ⟨{ returnType := .unit, wordTypes := #[], localNames := #[] }⟩
 
 def abiReturnName (index : Nat) : String :=
-  s!"__proof_forge_return_{index}"
+  s!"__pf_return_{index}"
 
 def returnLocalNames (returnType : ValueType) (wordTypes : Array ValueType) : Array String :=
   match returnType with
   | .unit => #[]
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string | .array _ => #["result"]
+  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string | .array _ => #["__pf_result"]
   | .fixedArray _ _ | .structType _ =>
       Id.run do
         let mut names : Array String := #[]
@@ -727,8 +780,8 @@ mutual
           contextOpsFromExpr d ++ contextOpsFromExpr e
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
-          contextOpsFromExpr d ++ contextOpsFromExpr e ++ contextOpsFromExpr f ++ contextOpsFromExpr g
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          acc ++ contextOpsFromExpr expr
 
   partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=
     match statement with

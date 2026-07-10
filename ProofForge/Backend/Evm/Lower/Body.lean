@@ -1,3 +1,4 @@
+import ProofForge.Backend.Evm.AbiType
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.Lower.Requirements
 import ProofForge.Backend.Evm.Validate
@@ -81,20 +82,38 @@ def abiParamPlan
     (context : String)
     (name : String)
     (type : ValueType)
-    (headWordIndex : Nat) : Except LowerError AbiParamPlan := do
+    (headWordIndex : Nat)
+    (abiWord? : Option String := none) : Except LowerError AbiParamPlan := do
   let wordTypes ← abiValueWordTypes module s!"{context} parameter `{name}`" type
   let localNames ←
     if abiTypeIsDynamic type then
       .ok #[dynamicParamLengthName name, dynamicParamDataPtrName name]
     else
       abiValueParamNames module s!"{context} parameter `{name}`" name type
-  .ok { name, type, wordTypes, headWordIndex, localNames }
+  .ok { name, type, abiWord?, wordTypes, headWordIndex, localNames }
 
 def entrypointParamPlans (module : Module) (entrypoint : Entrypoint) :
     Except LowerError (Array AbiParamPlan) := do
+  if entrypoint.paramAbiWords.size > entrypoint.params.size then
+    .error {
+      message :=
+        s!"entrypoint `{entrypoint.name}` has {entrypoint.paramAbiWords.size} ABI override entries for {entrypoint.params.size} parameter(s)"
+    }
   let (_, params) ← entrypoint.params.foldlM (init := (0, #[])) fun acc param => do
     let (headWordIndex, params) := acc
-    let paramPlan ← abiParamPlan module s!"entrypoint `{entrypoint.name}`" param.fst param.snd headWordIndex
+    let paramIndex := params.size
+    validateUserIdentifier s!"entrypoint `{entrypoint.name}` parameter" param.fst
+    let abiWord? :=
+      if h : paramIndex < entrypoint.paramAbiWords.size then
+        entrypoint.paramAbiWords[paramIndex]
+      else
+        none
+    match ProofForge.Backend.Evm.AbiType.validateAbiWordOverride
+        s!"entrypoint `{entrypoint.name}` parameter `{param.fst}`" param.snd abiWord? with
+    | .ok _ => pure ()
+    | .error message => .error { message }
+    let paramPlan ← abiParamPlan module s!"entrypoint `{entrypoint.name}`" param.fst param.snd
+      headWordIndex abiWord?
     .ok (headWordIndex + paramPlan.headWordCount, params.push paramPlan)
   .ok params
 
@@ -652,8 +671,22 @@ def eventPlanForFields
     fieldPlans := fieldPlans.push (EventFieldPlan.mk field.fst fieldType false)
   .ok (EventPlan.mk name signature fieldPlans)
 
-def assignExprPlan (op : AssignOp) (lhs rhs : ExprPlan) (overflowChecked : Bool := true) : ExprPlan :=
-  .checkedArith op lhs rhs overflowChecked
+def assignExprPlan
+    (op : AssignOp)
+    (lhs rhs : ExprPlan)
+    (overflowChecked : Bool := true)
+    (resultByteWidth? : Option Nat := none) : ExprPlan :=
+  .checkedArith op lhs rhs overflowChecked resultByteWidth?
+
+def inferredArithmeticByteWidth?
+    (module : Module)
+    (env : TypeEnv)
+    (expr : Expr) : Option Nat :=
+  match inferExprType module env expr with
+  | .ok type =>
+      let byteWidth := type.byteWidth
+      if byteWidth == 0 then none else some byteWidth
+  | .error _ => none
 
 def fixedArrayScalarLeafType? : ValueType → Bool
   | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
@@ -1009,11 +1042,23 @@ mutual
             | some plan => .ok plan
             | none => .ok (.structField (← buildExprPlan module env base) fieldName)
     | .add lhs rhs oc => do
-        .ok (assignExprPlan .add (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
+        .ok (assignExprPlan .add
+          (← buildExprPlan module env lhs)
+          (← buildExprPlan module env rhs)
+          oc
+          (inferredArithmeticByteWidth? module env (.add lhs rhs oc)))
     | .sub lhs rhs oc => do
-        .ok (assignExprPlan .sub (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
+        .ok (assignExprPlan .sub
+          (← buildExprPlan module env lhs)
+          (← buildExprPlan module env rhs)
+          oc
+          (inferredArithmeticByteWidth? module env (.sub lhs rhs oc)))
     | .mul lhs rhs oc => do
-        .ok (assignExprPlan .mul (← buildExprPlan module env lhs) (← buildExprPlan module env rhs) oc)
+        .ok (assignExprPlan .mul
+          (← buildExprPlan module env lhs)
+          (← buildExprPlan module env rhs)
+          oc
+          (inferredArithmeticByteWidth? module env (.mul lhs rhs oc)))
     | .div lhs rhs => do
         .ok (assignExprPlan .div (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
     | .mod lhs rhs => do
@@ -1269,13 +1314,23 @@ mutual
     | .storageScalarWrite stateId value => do
         let valuePlan ← buildExprPlan module env value
         match scalarStorageTargetPlan? module stateId with
-        | some target => .ok (.storageScalarWriteTarget target valuePlan)
+        | some target => do
+            let target := {
+              target with
+                writeSemantics := scalarStorageWriteSemantics module valuePlan
+            }
+            .ok (.storageScalarWriteTarget target valuePlan)
         | none => .ok (.storageScalarWrite stateId valuePlan)
     | .storageScalarAssignOp stateId op value => do
-        let valuePlan ← buildExprPlan module env value
-        match scalarStorageTargetPlan? module stateId with
-        | some target => .ok (.storageScalarAssignOpTarget target op valuePlan)
-        | none => .ok (.storageScalarAssignOp stateId op valuePlan)
+        if stateId == "$eip1967.implementation" then
+          .error {
+            message := "compound assignment is not allowed for the EIP-1967 implementation state"
+          }
+        else
+          let valuePlan ← buildExprPlan module env value
+          match scalarStorageTargetPlan? module stateId with
+          | some target => .ok (.storageScalarAssignOpTarget target op valuePlan)
+          | none => .ok (.storageScalarAssignOp stateId op valuePlan)
     | .storageMapContains stateId key => do
         let keyPlan ← buildExprPlan module env key
         match mapReadTargetPlan? module stateId with

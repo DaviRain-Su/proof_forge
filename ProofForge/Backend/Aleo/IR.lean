@@ -62,18 +62,48 @@ Verified against ProvableHQ/leo operators/crypto (`Poseidon2::hash_to_field(2i64
 def poseidonHashToField (x : Expression) : Expression :=
   .call ⟨#["Poseidon2", "hash_to_field"], #[], #[x]⟩
 
-/-- Fold two values into one field digest: hash each, add (field), hash again.
-Leo hashes a single primitive, so a portable 2-input hash folds pairwise.
-(Deterministic; not equal to EVM keccak — hashing is capability-portable, not
-value-portable, per RFC 0015.) -/
-def poseidonHashTwo (l r : Expression) : Expression :=
-  poseidonHashToField (.binary ⟨.add, poseidonHashToField l, poseidonHashToField r⟩)
+/-- Domain-separated, ordered encoding of two values into one field digest.
 
-/-- The zero/empty default expression for a `ValueType`, used as the
-`get_or_use` fallback. Numeric types default to typed `0`, `Bool` to `false`,
-`Address` to `none`, and structs to a field-wise default literal
-`Name { f: <default>, … }` (so struct-field storage writes can read-modify-write). -/
-partial def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerError Expression :=
+The previous `H(H(l) + H(r))` encoding was commutative. Multiplying the left
+lane by a fixed non-zero field coefficient preserves operand position; adding a
+pair-domain tag keeps this construction distinct from single-value hashing. -/
+def poseidonHashTwo (l r : Expression) : Expression :=
+  let leftLane := .binary ⟨.mul, poseidonHashToField l, .literal (.field "1315423911field")⟩
+  let orderedPair := .binary ⟨.add, leftLane, poseidonHashToField r⟩
+  poseidonHashToField (.binary ⟨.add, orderedPair, .literal (.field "2field")⟩)
+
+/-- Find the first address that would need an invented storage fallback.
+The field path makes nested value-struct failures actionable. -/
+partial def storageDefaultAddressPath? (ctx : BuildContext) (type : ValueType)
+    (path : Array String := #[]) (visiting : Array String := #[]) : Option (Array String) :=
+  match type with
+  | .address => some path
+  | .fixedArray element _ | .array element =>
+      storageDefaultAddressPath? ctx element (path.push "[]") visiting
+  | .structType name =>
+      if visiting.contains name then none
+      else
+        match findStruct? ctx.module name with
+        | none => none
+        | some decl =>
+            if decl.semantics != .value then none
+            else
+              let structPath := if path.isEmpty then path.push name else path
+              decl.fields.findSome? fun field =>
+                storageDefaultAddressPath? ctx field.type (structPath.push field.id)
+                  (visiting.push name)
+  | _ => none
+
+def storageDefaultAddressError (path : Array String) : LowerError :=
+  let location :=
+    if path.isEmpty then ""
+    else s!" at `{String.intercalate "." path.toList}`"
+  { message :=
+      s!"Leo 4.0.2 has no honest `address` storage default for `Mapping::get_or_use`{location}; `none` is not an address and ProofForge refuses to forge a zero address" }
+
+/-- Construct a storage fallback after address safety has been checked. -/
+partial def defaultExprCore (ctx : BuildContext) (type : ValueType)
+    (visiting : Array String := #[]) : Except LowerError Expression :=
   match type with
   | .u8 => .ok (.literal (.integer .u8 0))
   | .u32 => .ok (.literal (.integer .u32 0))
@@ -81,14 +111,25 @@ partial def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerEr
   | .u128 => .ok (.literal (.integer .u128 0))
   | .hash => .ok (.literal (.field "0field"))  -- RFC 0015: Hash ≡ field
   | .bool => .ok (.literal (.boolean false))
-  | .address => .ok (.literal (.none))
+  | .address => .error (storageDefaultAddressError #[])
   | .structType name => do
       let some decl := findStruct? ctx.module name
         | .error { message := s!"Leo IR v0 default: unknown struct `{name}`" }
+      if visiting.contains name then
+        .error { message := s!"Leo IR v0 has no finite storage default for recursive value struct `{name}`" }
       let fs ← decl.fields.mapM fun field => do
-        .ok (field.id, ← defaultExpr ctx field.type)
+        .ok (field.id, ← defaultExprCore ctx field.type (visiting.push name))
       .ok (.composite name fs)
   | other => .error { message := s!"Leo IR v0 has no default literal for `{other.name}` storage" }
+
+/-- The zero/empty default expression used by `Mapping::get_or_use`. Numeric
+types use typed zero and Bool uses false. Leo 4.0.2 has no honest address
+fallback, including addresses nested in ordinary value structs, so those
+shapes fail closed instead of emitting the non-address literal `none`. -/
+def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerError Expression := do
+  match storageDefaultAddressPath? ctx type with
+  | some path => .error (storageDefaultAddressError path)
+  | none => defaultExprCore ctx type
 
 /-! ### Expression / statement lowering -/
 
@@ -100,9 +141,15 @@ mutual
         .error { message := "Leo IR v0 does not lower `hash4` literals (EVM 4×u64 digest); hash a field/u64 value with `.hash` instead" }
     | .literal l => .ok (.literal (leoLiteral l))
     | .local name => .ok (.identifier name)
-    | .add lhs rhs _ => do .ok (.binary ⟨.add, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
-    | .sub lhs rhs _ => do .ok (.binary ⟨.sub, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
-    | .mul lhs rhs _ => do .ok (.binary ⟨.mul, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .add lhs rhs overflowChecked => do
+        let op := if overflowChecked then BinaryOperation.add else .addWrapped
+        .ok (.binary ⟨op, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .sub lhs rhs overflowChecked => do
+        let op := if overflowChecked then BinaryOperation.sub else .subWrapped
+        .ok (.binary ⟨op, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
+    | .mul lhs rhs overflowChecked => do
+        let op := if overflowChecked then BinaryOperation.mul else .mulWrapped
+        .ok (.binary ⟨op, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
     | .div lhs rhs => do .ok (.binary ⟨.div, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
     | .mod lhs rhs => do .ok (.binary ⟨.mod, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
     | .pow lhs rhs => do .ok (.binary ⟨.pow, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
@@ -197,8 +244,9 @@ mutual
     | .storageStructFieldWrite _ _ _ =>
         .error { message := "storage.struct.field.write is a statement effect, not an expression" }
     | .storagePathRead stateId path => do
-        let t ← resolveStoragePathType ctx.module stateId path
-        let d ← defaultExpr ctx t
+        discard <| resolveStoragePathType ctx.module stateId path
+        let rootType ← requireScalarState ctx stateId
+        let d ← defaultExpr ctx rootType
         let base := mappingGetOrUse stateId scalarSlotKey d
         let result ← path.foldlM (init := base) fun acc seg => do
           match seg with
@@ -232,7 +280,7 @@ mutual
         let t ← requireScalarState ctx stateId
         let d ← defaultExpr ctx t
         let lhs := mappingGetOrUse stateId scalarSlotKey d
-        let rhs : Expression := .binary ⟨assignOpToBinary op, lhs, ← buildExpr ctx value⟩
+        let rhs : Expression := .binary ⟨assignOpToBinaryForMode ctx.module.overflowChecked op, lhs, ← buildExpr ctx value⟩
         .ok #[.expression (mappingSet stateId scalarSlotKey rhs)]
     | .storageMapContains _ _ | .storageMapGet _ _ =>
         .error { message := "storage.map.contains/get must be used as expressions" }
@@ -296,7 +344,7 @@ mutual
     | .assignOp target op value => do
         let v ← buildExpr ctx value
         let lhs ← buildAssignPlace ctx target
-        .ok #[.assign lhs (.binary ⟨assignOpToBinary op, lhs, v⟩)]
+        .ok #[.assign lhs (.binary ⟨assignOpToBinaryForMode ctx.module.overflowChecked op, lhs, v⟩)]
     | .effect effect => buildEffectStmt ctx effect
     | .assert condition _ _ => do
         .ok #[.assert (← buildExpr ctx condition) none]
@@ -389,21 +437,11 @@ def mixedReturnType (valueType : LeoType) : LeoType :=
 /-- Lower the mixed `(value, Final)` body: pure (non-storage) statements run
 off-chain in order; storage-effect statements run inside `final {}` in order;
 the pure return value is paired with the async finalize block. -/
-def buildMixedBody (ctx : BuildContext) (body : Array IR.Statement) : Except LowerError (Array Statement) := do
-  let mut offChain := #[]
-  let mut finalStmts := #[]
-  let mut returnValue? : Option Expression := none
-  for stmt in body do
-    match stmt with
-    | .return v => returnValue? := some (← buildExpr ctx v)
-    | other =>
-        let ss ← buildStmt ctx other
-        if hasStorageEffectStmt other then
-          finalStmts := finalStmts ++ ss
-        else
-          offChain := offChain ++ ss
-  let some returnValue := returnValue?
-    | .error { message := "mixed (value, Final) return requires a return statement" }
+def buildMixedBody (ctx : BuildContext) (ep : Entrypoint) : Except LowerError (Array Statement) := do
+  let plan ← planMixedBody ep
+  let offChain ← buildBody ctx plan.offChain
+  let finalStmts ← buildBody ctx plan.finalBody
+  let returnValue ← buildExpr ctx plan.returnValue
   let asyncBlock : Block := { statements := finalStmts }
   let ret := .returnSt (some (.tuple #[returnValue, .async asyncBlock]))
   .ok (offChain.push ret)
@@ -415,43 +453,28 @@ Cases (Leo 4.0.2 — `view fn` is newer than 4.0.2, so mapping reads must run in
 
 - **write + pure return value** → `fn … -> (T, Final) { …; return (value, final { … }); }`
   (mixed: off-chain compute + on-chain finalize);
-- **any storage effect otherwise** (write with stateful return, or read-only) →
+- **Unit-returning storage effects** →
   `fn … -> Final { return final { … }; }` (reads/writes run in `final`);
+- **state-derived non-Unit return** → rejected, because Leo 4.0.2 cannot
+  surface a value computed inside `final` without changing the portable ABI;
 - **pure** (no state effects) → `fn … -> T`. -/
 def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Function := do
   let inputs ← ep.params.mapM fun (n, t) => makeInput n t
-  if hasStateWrite ep.body then
-    if mixedReturnEligible ep then
-      let ret ← valueType ep.returns
-      let bodyStmts ← buildMixedBody ctx ep.body
-      .ok {
-        annotations := #[]
-        variant := .entryPoint
-        identifier := ep.name
-        constParameters := #[]
-        input := inputs
-        output := #[]
-        outputType := mixedReturnType ret
-        block := { statements := bodyStmts }
-      }
-    else
-      let bodyStmts ← buildFinalizeBody ctx ep.body
-      let asyncBlock : Block := { statements := bodyStmts }
-      .ok {
-        annotations := #[]
-        variant := .entryPoint
-        identifier := ep.name
-        constParameters := #[]
-        input := inputs
-        output := #[]
-        outputType := finalizeReturnType
-        block := { statements := #[.returnSt (some (.async asyncBlock))] }
-      }
-  else if hasStateRead ep.body then
-    -- Read-only stateful: Leo 4.0.2 requires mapping reads in a `final` context
-    -- (`view fn` is newer than 4.0.2). Read inside `final`, return `Final`
-    -- (the value is not surfaced to the caller in 4.0.2 — the documented getter
-    -- limitation until `view fn`).
+  match ← planFunction ep with
+  | .valueAndFinal =>
+    let ret ← valueType ep.returns
+    let bodyStmts ← buildMixedBody ctx ep
+    .ok {
+      annotations := #[]
+      variant := .entryPoint
+      identifier := ep.name
+      constParameters := #[]
+      input := inputs
+      output := #[]
+      outputType := mixedReturnType ret
+      block := { statements := bodyStmts }
+    }
+  | .finalOnly =>
     let bodyStmts ← buildFinalizeBody ctx ep.body
     let asyncBlock : Block := { statements := bodyStmts }
     .ok {
@@ -464,7 +487,7 @@ def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Fun
       outputType := finalizeReturnType
       block := { statements := #[.returnSt (some (.async asyncBlock))] }
     }
-  else
+  | .pure =>
     let ret ← valueType ep.returns
     let bodyStmts ← buildBody ctx ep.body
     .ok {
@@ -504,22 +527,9 @@ def buildComposite (decl : StructDecl) : Except LowerError (Identifier × Compos
 def constructor : Constructor :=
   { annotations := #[{ name := "noupgrade" }], block := { statements := #[] } }
 
-/- Collect program ids referenced by `crosscallNamed` (RFC 0015 D4), so the
-emitted program gets `import` declarations for the static qualified calls. -/
-mutual
-  partial def crosscallProgramIdsExpr : IR.Expr → Array String
-    | .crosscallNamed programId _ args _ => #[programId] ++ args.flatMap crosscallProgramIdsExpr
-    | _ => #[]
-  partial def crosscallProgramIdsStmt : IR.Statement → Array String
-    | .letBind _ _ v | .letMutBind _ _ v => crosscallProgramIdsExpr v
-    | .assign _ v | .assignOp _ _ v | .return v => crosscallProgramIdsExpr v
-    | .ifElse _ t e => t.flatMap crosscallProgramIdsStmt ++ e.flatMap crosscallProgramIdsStmt
-    | .boundedFor _ _ _ b => b.flatMap crosscallProgramIdsStmt
-    | _ => #[]
-end
-
 def crosscallImports (module : Module) : Array Import :=
-  let ids := module.entrypoints.flatMap (fun ep => ep.body.flatMap crosscallProgramIdsStmt)
+  let ids := module.entrypoints.flatMap fun ep =>
+    (analyzeBody ep.body).namedCrosscalls.map (·.programId)
   let dedup := ids.foldl (fun acc p => if acc.contains p then acc else acc.push p) #[]
   dedup.map fun pid => { programId := pid }
 

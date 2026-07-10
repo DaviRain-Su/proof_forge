@@ -30,6 +30,7 @@ inductive ArtifactKind where
   | movePackage
   | psyCircuitJson
   | leoSource
+  | typescriptSource
   deriving BEq, DecidableEq, Repr
 
 def ArtifactKind.id : ArtifactKind → String
@@ -40,6 +41,7 @@ def ArtifactKind.id : ArtifactKind → String
   | .movePackage => "move-package"
   | .psyCircuitJson => "psy-circuit-json"
   | .leoSource => "leo-source"
+  | .typescriptSource => "typescript-source"
 
 structure TargetProfile where
   id : String
@@ -181,31 +183,18 @@ def wasmCosmWasm : TargetProfile := {
 def wasmCloudflareWorkers : TargetProfile := {
   id := "wasm-cloudflare-workers"
   family := .wasmHost
-  artifactKind := .wasm
-  capabilities := #[
-    .storageScalar,
-    .storageMap,
-    .callerSender,
-    .eventsEmit,
-    .crosscallInvoke,
-    .envBlock,
-    .cryptoHash,
-    .controlConditional,
-    .controlBoundedLoop,
-    .dataFixedArray,
-    .dataStruct,
-    .assertions
-  ]
+  artifactKind := .typescriptSource
+  capabilities := #[.storageScalar]
   requiredTools := #["wrangler"]
   support := {
-    maturity := .counterMvp
+    maturity := .research
     inputModes := #[.fixture]
     commands := #[.emit]
     outputStages := #[.sourcegen]
-    validationLevel := .capability
+    validationLevel := .none
     supportedFragment :=
-      "Counter MVP (PF-P3-02 six-gate): fixture counter → TypeScript Worker; " ++
-      "wrangler toolchain; product contract_source fail-closed; not Wasm binary"
+      "Off-chain research sourcegen: fixture Counter storage.scalar subset → TypeScript Worker; " ++
+      "product contract_source fails closed; strict Wrangler validation is an optional promotion gate"
     toolStages := #[{ tool := "wrangler", stage := "sourcegen" }]
   }
 }
@@ -344,14 +333,14 @@ def moveAptos : TargetProfile := {
   ]
   requiredTools := #["aptos"]
   support := {
-    maturity := .counterMvp
+    maturity := .spike
     inputModes := #[.fixture]
     commands := #[.build, .emit, .check]
-    outputStages := #[.sourcegen, .finalDeployable]
-    validationLevel := .package
+    outputStages := #[.sourcegen]
+    validationLevel := .capability
     supportedFragment :=
-      "Counter MVP (PF-P3-02 six-gate): fixture counter → Move package; " ++
-      "aptos move compile/test; product contract_source fail-closed"
+      "Counter sourcegen spike: fixture counter → Move source package; " ++
+      "product contract_source fails closed; final package requires mandatory aptos compile/test"
     toolStages := #[{ tool := "aptos", stage := "sourcegen" }]
   }
 }
@@ -431,6 +420,7 @@ def aleoLeo : TargetProfile := {
     .controlConditional,
     .controlBoundedLoop,
     .dataStruct,
+    .dataLinearRecord,
     .cryptoHash,
     .assertions,
     .accountExplicit,
@@ -441,13 +431,14 @@ def aleoLeo : TargetProfile := {
   ]
   requiredTools := #["leo"]
   support := {
-    maturity := .counterMvp
+    maturity := .research
     inputModes := #[.fixture]
     commands := #[.emit, .check]
-    outputStages := #[.sourcegen, .finalDeployable]
-    validationLevel := .package
+    outputStages := #[.sourcegen]
+    validationLevel := .capability
     supportedFragment :=
-      "Counter MVP (PF-P3-02 six-gate): fixture counter → Leo package; leo build/test; product source fail-closed"
+      "Research Leo sourcegen for validated pure, Unit-final, and state-independent (T, Final) functions; " ++
+      "state-derived non-Unit returns and product contract_source fail closed"
     toolStages := #[{ tool := "leo", stage := "sourcegen" }]
   }
 }

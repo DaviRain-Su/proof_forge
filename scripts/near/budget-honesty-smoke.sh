@@ -21,6 +21,7 @@ command -v lake >/dev/null 2>&1 || fail "lake not on PATH"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+lake build proof-forge >/dev/null
 
 echo "=== N1.6: offline Counter fuel fields ==="
 lake env proof-forge build --target wasm-near --root . -o "$OUT_DIR" \

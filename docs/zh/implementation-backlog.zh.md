@@ -1,5 +1,5 @@
 > **注意：** 公共验证命令的更改必须同时更新
-> 同一更改中的 [validation-gates.md](validation-gates.zh.md)。
+> 同一更改中的 [validation-gates.md](validation-gates.md)。
 
 # 实现待办事项
 
@@ -9,13 +9,13 @@
 
 相关文档：
 
-- [设计决策](decisions.zh.md)
-- [可移植合约 IR](portable-ir.zh.md)
-- [能力注册表](capability-registry.zh.md)
-- [共享场景：Counter](shared-scenario.zh.md)
-- [RFC 0002](rfcs/0002-target-implementation-design.zh.md)
-- [目标说明](targets-README.zh.md)
-- [验证门禁](validation-gates.zh.md)
+- [设计决策](decisions.md)
+- [可移植合约 IR](portable-ir.md)
+- [能力注册表](capability-registry.md)
+- [共享场景：Counter](shared-scenario.md)
+- [RFC 0002](rfcs/0002-target-implementation-design.md)
+- [目标说明](targets/README.md)
+- [验证门禁](validation-gates.md)
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
 
 ## 主三链完成规约（D-045）
@@ -27,7 +27,7 @@
 3. `wasm-near` —— 基于 Wasm 家族后端的 NEAR。
 
 这不是普通的研究路线图偏好，而是产品前置条件，作为 Gate P0 记录在
-[gate-status.md](gate-status.zh.md) 中。“完成”意味着三条链分别具备 target-first
+[gate-status.md](gate-status.md) 中。“完成”意味着三条链分别具备 target-first
 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖
 以及同步维护的文档。新链实现工作现在不再被 D-045 阻塞。CLI M3 target-first
 迁移已经为 executable callers 落地；Tier-1 M3/M4 的推进仍需要显式排期，
@@ -45,7 +45,7 @@
 | R4：capability 粒度太粗 | 当前阶段不 churn capability id；storage 已经拆成 scalar/map/array/PDA，Solana account 语义也已与 storage pattern 分离建模 | 把跨目标运行时差异交给预算和诊断义务：每个 target 必须显式拒绝不支持形状，并为支持形状锁定资源预算 |
 | R5：docs-first target notes 形成隐藏沉没成本 | 排期层面已关闭：D-045 和 target roadmap 在 Gate P0 关闭前把产品硬化限制在 `solana-sbpf-asm`、`evm`、`wasm-near` | 保留 research notes 作为库存；显式排期 Tier-1 M3/M4，而不是让旧 research notes 自动变成实现范围 |
 | R6：Lean/工具链入门摩擦 | 部分关闭：`docs/onboarding.md` 已存在并列出核心工具链和各目标工具；但 editor workspace config、templates 和 scaffolding 仍是开放 DX 工作 | 补 VS Code/Cursor workspace recommendations 和最小项目模板 |
-| R7：文档状态落后于已落地 spike（CF Workers TS、CosmWasm/Aptos golden fixtures、move-sui Counter MVP） | 已在当前 `main` 关闭：[doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md) 与 `just doc-sync-audit` | 当 registry、门禁或 Backend Status 表变化时，重新运行 advisory audit |
+| R7：文档状态落后于已落地 spike（CF Workers TS、CosmWasm/Aptos golden fixtures、move-sui Counter MVP） | 已在当前 `main` 关闭：[doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md) 与 `just doc-sync-audit` | 当 registry、门禁或 Backend Status 表变化时，重新运行 advisory audit |
 
 因此，这次评审之后的直接工程顺序是：
 
@@ -108,7 +108,7 @@
   `solana-sbpf-asm`, `solana-sbpf-linker` (已取代), `solana-zig-fork`,
   `move-sui`, `move-aptos`, `psy-dpn`。
 - 定义目标家族、制品种类、所需工具和能力集
-  （参见 [capability-registry.md](capability-registry.zh.md)）。
+  （参见 [capability-registry.md](capability-registry.md)）。
 - 为 CLI 和脚本添加目标查找函数。
 - 已完成：为部署元数据添加 EVM 兼容链的 profile 层，
   从 `evm` 编译器目标下的 `robinhood-chain-testnet` 开始。
@@ -127,10 +127,10 @@
 
 任务：
 
-- 根据 [portable-ir.md](portable-ir.zh.md) 实现 IR 节点类型。
-- 根据 [shared-scenario.md](shared-scenario.zh.md) 表达 Counter。
+- 根据 [portable-ir.md](portable-ir.md) 实现 IR 节点类型。
+- 根据 [shared-scenario.md](shared-scenario.md) 表达 Counter。
 - 将 Counter IR 降级到 EVM（直接或通过 EmitYul 适配器）。
-- 将能力检查器连接到 [capability-registry.md](capability-registry.zh.md)。
+- 将能力检查器连接到 [capability-registry.md](capability-registry.md)。
 
 验收标准：
 
@@ -242,7 +242,7 @@
 
 ## 工作流 2：制品元数据
 
-有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.zh.md)。
+有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.md)。
 
 目标：每次构建都应产生机器可读的结果，以便后续提供给 CI 和云平台。
 
@@ -272,7 +272,7 @@
 
 ## 工作流 3：EVM 基线加固
 
-有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.zh.md)。
+有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.md)。
 
 目标：在引入目标模型时保持 EVM 稳定。
 
@@ -420,7 +420,7 @@
 
 任务：
 
-- 添加 `Lean.CosmWasm` SDK 骨架（参见 [wasm-family.md](targets/wasm-family.zh.md)）。
+- 添加 `Lean.CosmWasm` SDK 骨架（参见 [wasm-family.md](targets/wasm-family.md)）。
 - 添加 `zigc-cosmwasm` 包装器。
 - 添加 `cosmwasm_contract_root.zig`。
 - 导出 `interface_version_8`、`allocate`、`deallocate`、`instantiate`、`execute` 和 `query`。
@@ -453,7 +453,7 @@
 - [x] `proof-forge-artifact.json` 记录 `target: "solana-sbpf-asm"`。
 - [x] `sbpf` 通过 `cargo install` 安装到 PATH。
 
-参考：[solana-sbpf-asm 设计文档](../targets/solana-sbpf-asm.md)，[RFC 0005](../rfcs/0005-solana-sbpf-assembly-backend.md)。
+参考：[solana-sbpf-asm 设计文档](targets/solana-sbpf-asm.md)，[RFC 0005](rfcs/0005-solana-sbpf-assembly-backend.md)。
 
 ## 工作流 7：Solana sBPF 汇编 Counter 源代码生成（阶段 1）
 
@@ -481,7 +481,7 @@
 
 超出范围（阶段 2+）：map、结构体类型、事件、有界循环、Borsh 序列化、完整的 SPL Token 数据布局、完整的实时 CPI 矩阵覆盖以及 Rust/Pinocchio 等效性。CPI 和 PDA 保持 Solana 特定 (D-027)：SDK 通过目标能力调用和 sBPF 辅助操作路由它们，而不是将它们添加到可移植 IR 中。
 
-参考：[solana-sbpf-asm design doc](../targets/solana-sbpf-asm.md) § 分阶段实施计划。
+参考：[solana-sbpf-asm design doc](targets/solana-sbpf-asm.md) § 分阶段实施计划。
 
 ### 阶段 1 进展（增量子项）
 
@@ -788,7 +788,7 @@
 
 ## 工作流 9：CI 扩展
 
-参阅 [validation-gates.md](validation-gates.zh.md) 了解当前和计划中的验证命令。
+参阅 [validation-gates.md](validation-gates.md) 了解当前和计划中的验证命令。
 
 目标：保持 CI 的实用性，且无需在第一天就要求安装所有外部链工具。
 
@@ -1133,7 +1133,7 @@
 - 重新生成由合并后清单标记的过时 `docs/zh` 翻译（手动合并的决策/能力表已同步；在自动合并下发生更改的叙述性文档应通过 `translate-docs.py` 重新运行）。
 - 决定 Solana bump-allocator 选择是统一在合并后的 `TargetProfile.deploymentAllocator?` 抽象下，还是保持目标本地；在 `decisions.md` 中记录结果。
 - 统一 CI 工作流：合并后的 `.github/workflows/ci.yml` 现在承载 EVM、Solana-light、NEAR 和 Psy 门控；一旦它们的工具链（`leo`、`tsc`/`wrangler`）固定，就将 Aleo 和 TS/Cloudflare 冒烟测试添加为可选作业。
-- 命名清理：决定公开 SDK 名称，安排 `Lean.Evm` → `ProofForge.*` 命名空间重命名，并执行 Learn 冻结（[authoring-model](authoring-model.zh.md)）。
+- 命名清理：决定公开 SDK 名称，安排 `Lean.Evm` → `ProofForge.*` 命名空间重命名，并执行 Learn 冻结（[authoring-model](authoring-model.md)）。
 - 在 RFC 0004 中宣布 `ContractSpec` → EVM Plan → Yul 为 EVM 产品流水线；将 LCNF → `EmitYul` 标记为 Lean-native Experimental 路径。
   ✅ 已完成（D-046 / CS-6.3）：LCNF `EmitYul` 已移除；RFC 0004 为 Accepted；
   `contract_source` 为产品入口。
@@ -1146,7 +1146,7 @@
 
 ## 工作流 25：形式化验证路线图
 
-目标：根据 [formal-verification.md](../formal-verification.md)，将平台的核心承诺转换为机器检查的定理。
+目标：根据 [formal-verification.md](formal-verification.md)，将平台的核心承诺转换为机器检查的定理。
 
 任务（完整说明请参见路线图）：
 
@@ -1178,7 +1178,7 @@
 
 ## 工作流 26：统一 Rust 测试框架 (testkit)
 
-目标：根据 [RFC 0007](../rfcs/0007-unified-rust-test-framework.md)，用统一的声明式场景格式和 Rust 进程内执行器取代各链分散的 shell/Node 测试桩。
+目标：根据 [RFC 0007](rfcs/0007-unified-rust-test-framework.md)，用统一的声明式场景格式和 Rust 进程内执行器取代各链分散的 shell/Node 测试桩。
 
 任务（每个实现分支一个里程碑）：- M1：创建 `testkit/` Cargo 工作区（`core` + 场景 TOML 模型、发现、报告）；将 `runtime/offline-host` 移植到 `harness-near`（wasmtime + NEAR 宿主 shim，保留分配器计数器）；Counter 场景在 `wasm-near` 上通过；添加 `just testkit` 和一个 CI 步骤。
 - M2：在 revm 上的 `harness-evm` —— 加载发射的运行时字节码，通过 `.evm-methods` 选择器进行调度，解码返回字（return words）；Counter 在 `evm` 上通过；首次跨目标等效性断言（evm ↔ wasm-near 可观察追踪）。
@@ -1194,7 +1194,7 @@
 
 ## 工作流 27：分配器抽象统一
 
-目标：根据 [RFC 0008](../rfcs/0008-allocator-abstraction.md)，每个目标绑定一个链中立分配器模型；解决工作流 24 的分配器统一决策。
+目标：根据 [RFC 0008](rfcs/0008-allocator-abstraction.md)，每个目标绑定一个链中立分配器模型；解决工作流 24 的分配器统一决策。
 
 任务：
 
@@ -1211,12 +1211,12 @@
 
 ## 工作流 28：目标组合排序
 
-目标：执行 [target-roadmap.md](../target-roadmap.md) (D-034) 中的分层组合。是门控，而非日期；每个实现分支一个里程碑。
+目标：执行 [target-roadmap.md](target-roadmap.md) (D-034) 中的分层组合。是门控，而非日期；每个实现分支一个里程碑。
 
 **Completion-first rule（D-044，2026-07-03）：** 先按实现优先级完成三个 Tier-0 target
 —— `solana-sbpf-asm`、`evm`、`wasm-near` —— 达到完整 DoD（行为一致性以及
 D-040 所要求的资源预算），然后才允许推进任何新链。逐项状态记录在
-[gate-status.md](gate-status.zh.md)。
+[gate-status.md](gate-status.md)。
 
 ### Tier-0 完成（当前最高优先级，阻塞下面所有内容）
 
@@ -1244,9 +1244,10 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 任务：
 
 - 已完成：Gate G0（Tier-0 behavior/budget slice）已关闭。证据记录在
-  [gate-status.md](gate-status.zh.md)。
-- 已完成：Gate P0（主三链签署）已关闭。Gate G0 加上 D-045 中的生产级硬化，
-  已对 Solana P0-1、EVM P0-2 和 NEAR/Wasm P0-3 签署。
+  [gate-status.md](gate-status.md)。
+- 已完成：Gate P0（主三链签署）已关闭。Gate G0 加上 D-045 中范围化的
+  制品/执行/元数据/预算硬化，已对 Solana P0-1、EVM P0-2 和 NEAR/Wasm
+  P0-3 签署；这不是通用正确性或生产运维签署。
 - Tier 1a `wasm-cosmwasm`: M1 CosmWasm 宿主导入 + EmitWat 中的 region-allocator ABI (来自 RFC 0008 的 `cosmWasmRegion` 绑定); M2 Counter 制品通过 `cosmwasm-check`; M3 testkit `harness-cosmwasm` 场景通过，且与 `wasm-near` 具有跨目标等价性; M4 注册表阶段 → Experimental。
 - Tier 1b `move-aptos` (与 1a 并行): M1 IR → 针对 Counter 子集的 Move 模块打印器; M2 `aptos move test` 门控 + 黄金固定装置; M3 testkit CLI 封装的执行器; M4 能力行已验证; `move-sui` 仅在 M4 之后。
 - Tier 2 (每个都在其启用条件之后，见路线图): `wasm-stellar-soroban` 在 CosmWasm M4 之后; `wasm-icp-canister` 在任何代码之前额外需要一份 async/inter-canister 设计笔记; `starknet-cairo` 是 Aptos M4 之后第一个源代码生成路径选择; `ton-tvm`, `algorand-avm`, `cardano-plutus-aiken`, `tezos-michelson-ligo` 遵循“一次仅一个活跃的 sourcegen-spike”规则。
@@ -1255,15 +1256,15 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 验收标准:
 
 - **主三链完成规约 (D-045)：** ✅ 已关闭。`solana-sbpf-asm`、`evm`、
-  `wasm-near` 已达到生产级 DoD；Tier-1 推进现在必须经过显式排期，而不是从
-  旧 research notes 隐式继承实现范围。
+  `wasm-near` 已完成范围化 P0 后端门禁 DoD，但成熟度仍为 `experimental`；
+  Tier-1 推进现在必须经过显式排期，而不是从旧 research notes 隐式继承实现范围。
 - 没有显式排期决策之前不落地 Tier-1 代码；在其列出的启用条件之前没有
   Tier-2 目标启动；任何时候最多只有一个 sourcegen spike 处于活跃状态。
 - 策略家族目标永远不会出现在合约家族的能力行中; 当 Tier 3 开启时，它们在能力注册表中获得一个单独的 `policy.*` 章节。
 
 ## 工作流 29–33: 平台硬化 (规划优先)
 
-这些来自 [2026-07 差距分析](../platform-gaps-2026-07.md)。每一个都以 RFC 而非代码开始; 排序钩子列在差距文档中。
+这些来自 [2026-07 差距分析](platform-gaps-2026-07.md)。每一个都以 RFC 而非代码开始; 排序钩子列在差距文档中。
 
 - **工作流 29 — CLI 产品界面。** RFC 0009 已接受，M1/M3 已落地：`proof-forge build|emit|check --target <id> --fixture <id>` 已通过兼容层存在，`check` 是真实验证动词，列表命令已接入，legacy flags 已具备 alias/deprecation metadata；`just cli-target-first` 现在会确保 executable callers 继续使用 target-first surface，并由 `Tests/CliTargetFirst.lean` 锁定代表性映射等价性。剩余工作是 M4：只在兼容窗口结束后删除 legacy flag zoo。
 - **工作流 30 — 版本控制和兼容性策略。** 涵盖 IR 版本规则 (与 coverage-manifest 门控挂钩)、制品/部署 schema 稳定性、仅追加的能力 id 以及 SDK 弃用策略的 RFC。
@@ -1311,9 +1312,9 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 
 相关文档：
 
-- [Authoring model](authoring-model.zh.md)
-- [SDK ecosystem gaps (2026-07)](../sdk-ecosystem-gaps-2026-07.md)
-- [Shared scenario](shared-scenario.zh.md)
+- [Authoring model](authoring-model.md)
+- [SDK ecosystem gaps (2026-07)](sdk-ecosystem-gaps-2026-07.md)
+- [Shared scenario](shared-scenario.md)
 - PR #11 统一 EVM 入口（legacy `Lean.Evm` / LCNF 已移除）
 
 ### 设计契约
@@ -1410,7 +1411,7 @@ NEAR/Wasm 制品。现有 `portable-counter-multi-target` smoke 可以通过设�
 
 重点：把已能 lower 的 IR 能力通过 typed `contract_source` 形式暴露出来，
 让作者不必为常见 EVM 模式退回 Builder。交叉引用
-[sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md) EVM P0/P1。
+[sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md) EVM P0/P1。
 
 | ID | 任务 | 优先级 | 验收标准 |
 |---|---|---|---|
@@ -1418,13 +1419,13 @@ NEAR/Wasm 制品。现有 `portable-counter-multi-target` smoke 可以通过设�
 | CS-3.2 | Native ETH transfer helper（向 EOA/contract 的普通 transfer） | P0 | 示例里不再手写 `crosscallInvokeValueTyped(u64 0)` |
 | CS-3.3 | Entry modifier / guard（`onlyOwner`、`whenNotPaused`、role guard） | P0 | 降级到 portable IR 检查；误用时给出 diagnostic |
 | CS-3.4 | 构造函数动态 ABI（string、bytes、动态数组） | P0 | CLI + 制品 metadata；Anvil smoke 使用非空 constructor args |
-| CS-3.5 | Custom errors（Solidity 风格 selector） | P1 | ✅ 4-byte selector + 静态 ABI 参数（`errors-ir-smoke` `test_revertCustomError_selector` + `test_revertCustomErrorArgs_selector_and_words`）；动态参数仍开放 |
+| CS-3.5 | Custom errors（Solidity 风格 selector） | P0 | 部分完成：4-byte selector + 经过验证的编译期 scalar ABI 子集（`uint8/32/64/128/256`、`bool`、`address`、`bytes32`），并有 Foundry payload 与生成客户端运行时 smoke；通过 EVM target plan 传递 typed runtime expression 参数仍为 P0，更广的静态/动态形状及标准 ABI `error` 条目仍为 P1 |
 | CS-3.6 | ERC-165 `supportsInterface` 模块 | P0 | ✅ Foundry interface probe + stdlib mixin |
 | CS-3.7 | AccessControl roles（grant/revoke/hasRole） | P0 | ✅ stdlib mixin + `guard_role` |
 | CS-3.8 | ERC-721 核心（ownerOf、transfer、safeTransferFrom、mint、burn） | P0 | ✅ stdlib mixin + **PF-P2-02** `onERC721Received`（Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}`） |
-| CS-3.9 | CREATE2 factory 模板模块 | P1 | 确定性部署示例 + metadata |
-| CS-3.10 | Proxy/upgrade 模式（UUPS 或 transparent），对齐工作流 32 `upgradePolicy` | P1 | 诚实 lowering，或按 policy 显式 reject |
-| CS-3.11 | ERC-1155 单项转账核心 | P1 | ✅ `Stdlib/ERC1155.lean` 覆盖 balance、operator approval、mint、burn、单项 `safeTransferFrom` + `onERC1155Received` + size-2 `safeBatchTransferFrom2`（PF-P2-02 Foundry）；任意长度 batch / `onERC1155BatchReceived` 仍开放 |
+| CS-3.9 | CREATE2 factory 模板模块 | P1 | ✅ 有限 fixed-template 路径：确定性 deploy 返回 ABI `address`、发出 `Deployed(address,bytes32)`，并有 metadata + Foundry lifecycle 覆盖；multi-template/salt registry 仍延后 |
+| CS-3.10 | Proxy/upgrade 模式（UUPS 或 transparent），对齐工作流 32 `upgradePolicy` | P1 | 部分 backend UUPS transport spike：构造器原子绑定完整宽度 admin 与有 runtime code 的 implementation，proxy shell 不暴露 runtime entrypoint，upgrade 拒绝 EOA 与 proxy self；attacker-first、零地址、EOA、self 和 storage-preservation 回归可执行。产品 `authority`/`governance` policy 仍 fail closed，直到声明的 `keyRef` 与该构造器 authority 绑定；`proxiableUUID`、任意 initializer calldata 与 transparent 仍不支持 |
+| CS-3.11 | ERC-1155 单项转账核心 | P1 | ✅ `Stdlib/ERC1155.lean` + `onERC1155Received` + size-2 `safeBatchTransferFrom2`，Foundry 精确检查 `onERC1155BatchReceived` 参数与 reject rollback；任意长度 dynamic batch ABI 和标准 `TransferBatch` 仍开放 |
 
 ### 阶段 CS-4 — 项目开发体验
 
@@ -1465,10 +1466,10 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 `just testkit-budget-gate` 通过统一 testkit 运行 Counter 与 ValueVault；CI
 仍执行完整 `just testkit`，因此 budget 回归会阻断默认 pipeline。
 
-当前 CS-5.3 教程切片：[tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.zh.md)
+当前 CS-5.3 教程切片：[tutorials/portable-contract-three-targets.md](../tutorials/portable-contract-three-targets.md)
 逐步讲解 `Examples/Product/Counter.lean` 与 ValueVault 的 build 命令、
 `just portable-counter-multi-target`、testkit parity 与 budget gate。中文镜像位于
-[docs/zh/tutorials/portable-contract-three-targets.zh.md](tutorials/portable-contract-three-targets.zh.md)，
+[docs/zh/tutorials/portable-contract-three-targets.zh.md](zh/tutorials/portable-contract-three-targets.zh.md)，
 并由 translate manifest 跟踪。
 
 ### 阶段 CS-6 — 文档与 legacy 清理
@@ -1493,11 +1494,11 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 和 `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` 路线只作为 legacy compatibility
 或历史研究背景保留。
 
-当前 CS-6.3 切片：[decisions.md](decisions.zh.md) D-046 记录移除
-`ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods`；[RFC 0004](rfcs/0004-evm-semantic-plan.zh.md)
+当前 CS-6.3 切片：[decisions.md](decisions.md) D-046 记录移除
+`ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods`；[RFC 0004](rfcs/0004-evm-semantic-plan.md)
 为 **Accepted**，并将 `contract_source` → portable IR → EVM semantic plan →
-Yul → solc 作为唯一 EVM 产品流水线。[INDEX.md](INDEX.zh.md)、
-[validation-gates.md](validation-gates.zh.md) 和 [targets/evm.md](targets/evm.zh.md)
+Yul → solc 作为唯一 EVM 产品流水线。[INDEX.md](INDEX.md)、
+[validation-gates.md](validation-gates.md) 和 [targets/evm.md](targets/evm.md)
 不再把 LCNF 描述为 live compiler 路线。
 
 当前 CS-6.4 切片：`Examples/Backend/Evm/README.md` 与
@@ -1519,7 +1520,7 @@ translate manifest 条目使 English README 变更时 `just docs-check` 保持�
   `contract_source` 模块；Builder-only EVM 示例只存在于编译器 test/fixture 路径。
 - 新开发者可写 portable contract 模块并运行
   `proof-forge build --target evm|solana-sbpf-asm|wasm-near`，无需编辑链特定源码。
-- [sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md) 中的 EVM P0 SDK blocker
+- [sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md) 中的 EVM P0 SDK blocker
   要么通过 `contract_source` 实现，要么显式 reject 并给出 diagnostic。
 - CI 覆盖 stdlib + 至少一个 multi-target 共享场景构建。
 
@@ -1530,7 +1531,7 @@ translate manifest 条目使 English README 变更时 `just docs-check` 保持�
 workstream 顺序仅保留为历史实现上下文，不能覆盖该审查中的源码身份、命令支持、
 制品诚实性或验证契约修复。
 
-工作流 1, 1.5, 2–3, 6–7 (注册表、可移植 IR、EVM 制品元数据、Solana asm) 已基本完成; 剩余的每目标细节存在于每个工作流中。后续顺序遵循 [target-roadmap.md](../target-roadmap.md) (D-034) 的层级门控:
+工作流 1, 1.5, 2–3, 6–7 (注册表、可移植 IR、EVM 制品元数据、Solana asm) 已基本完成; 剩余的每目标细节存在于每个工作流中。后续顺序遵循 [target-roadmap.md](target-roadmap.md) (D-034) 的层级门控:
 
 0. 架构收敛后续工作 (工作流 24) 以及来自形式化验证路线图 (工作流 25) 的 FV-1/FV-2。与此同时，完成差距分析中的平台硬化后续：RFC 0009 兼容窗口之后的 CLI M4 legacy-alias removal、testkit runtime error vocabulary，以及版本控制 / 部署生命周期策略 (30/32，docs-agent 并行轨道)。
 0b. **Contract Source 产品化（工作流 34）：** 统一 EVM 入口（CS-0 ✅）之后，先落地 portable authoring 边界（CS-1）、EVM stdlib 的 `contract_source` 化（CS-2），再推进 EVM SDK P0 surface（CS-3），然后才是 broader 项目 DX（CS-4）。这是 PR #11 之后的主产品轨道，并覆盖下方 SDK 生态完整性里的 EVM 条目。
@@ -1544,16 +1545,16 @@ workstream 顺序仅保留为历史实现上下文，不能覆盖该审查中的
 
 ## SDK 生态完整性（P0 后硬化）
 
-Gate P0 关闭证明了三条主链的编译器正确性已经达到 production-grade：编译器、制品发射、部署清单、testkit 一致性和资源预算都已经具备门禁。但
-“production-grade compiler” 不等于“开发者可以写任意合约并部署”。下一阶段硬化目标是
-**SDK 生态完整性**：确保每条主链都能覆盖真实开发者的常见合约模式，而不仅是
-Counter 和 ValueVault。完整差距分析见
-[sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md)。
+Gate P0 关闭建立了三条主链在已记录 fragment 上的本地/CI 编译、制品、执行、
+元数据、testkit 和资源预算证据。它没有证明通用编译器正确性或生产就绪。下一阶段硬化目标是
+**SDK 生态完整性**：把开发者可以编写和部署的常见合约模式从 Counter 和
+ValueVault 向外扩展。完整差距分析见
+[sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md)。
 
 **原则：** Tier-1 targets（CosmWasm、Aptos）保持冻结，直到每条主链的 P0 SDK
 blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就意味着真实开发者无法编写常见合约模式。
 
-### EVM SDK blockers（0 个 P0 开放，5 个 P0 已关闭；P1 仍有限开放）
+### EVM SDK blockers（1 个 P0 开放，5 个 P0 已关闭；P1 仍有限开放）
 
 详细跟踪见 **工作流 34 阶段 CS-2/CS-3** 与
 [`docs/sdk-ecosystem-gaps-2026-07.md`](../sdk-ecosystem-gaps-2026-07.md)；
@@ -1564,9 +1565,11 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
 - ✅ P0：ERC-165 supportsInterface —— `Stdlib/ERC165.lean` mixin + golden Yul
 - ✅ P0：AccessControl roles —— `Stdlib/AccessControl.lean` mixin（grantRole/revokeRole/hasRole + guard_role）+ golden Yul
 - ✅ P0：构造函数动态类型参数 —— CLI ABI 编码 + Foundry/Anvil 正向 smoke（CS-3.4）
-- ✅ P1（部分）：custom-error 4-byte selector surface（`errors-ir-smoke` `test_revertCustomError_selector`）；ERC-1155 receiver + size-2 batch MVP
-- P1 仍开放：任意长度 ERC-1155 batch / `onERC1155BatchReceived`、custom-error 参数 ABI、
-  storage packing、通用 multicall body、factory deployment template、AMM、Pausable auth
+- P0 仍开放：通过 EVM target plan 传递 typed runtime custom-error 参数。编译期 scalar
+  子集已具备 selector/schema/range 校验，并有 Foundry 与生成客户端运行时 smoke。
+- ✅ P1（部分）：custom-error 4-byte/static-scalar surface；ERC-1155 receiver + size-2 batch MVP
+- P1 仍开放：任意长度 ERC-1155 batch ABI、更广的静态/动态 custom-error 形状与标准 ABI
+  条目、通用 multicall body、AMM、Pausable auth
 
 ### Solana SDK blockers（5 个已跟踪 P0，4 个已关闭，7 个 P1）
 
@@ -1618,19 +1621,23 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables
 
-### NEAR SDK blockers（6 个 P0，10 个 P1）
+### NEAR SDK blockers（2 个 P0 开放，4 个已关闭，9 个 P1）
 
-- P0：Promise API（promise_create、promise_then、promise_and、batch actions、
-  promise_results、callback patterns）
-- P0：NEP-141 fungible token（ft_transfer、ft_balance_of、storage deposit）
-- P0：signer_account_id host import
-- P0：attached_deposit / native value host import
-- P0：Aggregate ABI（entrypoint 参数中的 structs、dynamic arrays）
+- ✅ P0：Promise materialization（HostBridge host imports + EmitWat 的真实 Promise 编码；
+  完整异步执行和更丰富 callback 仍是 P1）
+- P0 开放：TokenSpec 必须生成一个参数化 NEP-141 runtime artifact；当前 stdlib、
+  plan 与 offline 路径尚未合并成该单一制品。
+- ✅ P0：signer_account_id host import + Surface.signer
+- ✅ P0：attached_deposit / native value host import
+- ✅ P0：Aggregate ABI（loadParams Borsh struct/array decode）
+- P0 开放：NEP-145 withdraw 仍需 1-yocto guard 和 predecessor refund Promise；
+  JSON balance objects 与完整 accounting 仍是 P1。
+- ✅ P1 partial：callback handling（promise_result host import + offline stub）
 - ✅ P1：block_timestamp（`block_timestamp` host import + `.contextRead .timestamp` 降级 + Surface/Source 辅助）
 - ✅ P1：epoch_height（`epoch_height` host import + `.contextRead .epochHeight` 降级 + Surface/Source 辅助）
 - ✅ P1：random_seed（`random_seed(register_id)` host import + `.contextRead .randomSeed` 降级 + Surface/Source 辅助，返回 `Hash`）
 - ✅ P1：near-api-js client options（view 调用使用 `NearViewOptions`，function call 使用 gas/attached-deposit `NearCallOptions`）
 - ✅ P1：NEP-145 storage-management starter（`storage_deposit`/`storage_balance_*` 的 U64 投影 + Hash map target-first/offline-host smoke）
-- P1：完整 NEP-145 JSON balance objects/withdraw/refund/storage byte accounting、
+- P1：完整 Promise async execution、NEP-145 JSON balance objects/storage byte accounting、
   NEP-148 metadata、NEP-171 NFT、keccak256/crypto、storage_remove、
   gas accounting APIs、real NEAR broadcast smoke

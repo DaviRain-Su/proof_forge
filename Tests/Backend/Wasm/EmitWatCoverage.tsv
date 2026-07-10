@@ -121,6 +121,7 @@ Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in 
 Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEAR JSON event log because NEAR logs do not provide native EVM-style topics; Tests/Backend/Wasm/EmitWatChainSemantics.lean checks the rendered event fields.
 Effect	checkErc721Received	unsupported	EmitWat / WasmHost reject checkErc721Received (EVM-only IERC721Receiver callback; PF-P2-02) with an explicit diagnostic.
 Effect	checkErc1155Received	unsupported	EmitWat / WasmHost reject checkErc1155Received (EVM-only IERC1155Receiver callback; PF-P2-02) with an explicit diagnostic.
+Effect	checkErc1155BatchReceived	unsupported	EmitWat / WasmHost reject checkErc1155BatchReceived (EVM-only IERC1155Receiver batch callback; E1.2) with an explicit diagnostic.
 StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
 StoragePathSegment	index	lowered	EmitWat lowers index as a storage array path segment and before field for struct-valued storage arrays.
 StoragePathSegment	mapKey	lowered	EmitWat lowers single mapKey path segments through map helpers.

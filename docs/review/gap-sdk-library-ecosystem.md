@@ -1,6 +1,6 @@
 # SDK / Library Ecosystem Gap Analysis
 
-**Dimension:** `sdk-library-ecosystem`  
+**Dimension:** `sdk-library-ecosystem`
 **Scope:** What ProofForge ships *around* the compiler so that external developers can build, distribute, and integrate contracts the way they expect from a production-grade platform: published SDK packages, generated client libraries, templates, language bindings, package-manager metadata, and a stable programmatic surface.
 
 **Date:** 2026-07-10

@@ -8,12 +8,10 @@ This is the Lean-side gate for the `aleo-leo` registry target. It checks:
 
 1. `aleo-leo` is a registered target profile (in `Target.Registry.all` /
    `knownIds`), so `proof-forge --list-targets` exposes it.
-2. The portable IR `Counter` fixture lowers to a Leo program without error
-   (`ProofForge.Backend.Aleo.IR.renderModule`).
-3. The lowered output contains the expected Leo structure markers for the
-   Road 1 Counter spike: `program counter.aleo`, a `mapping count`, an
-   `@noupgrade constructor`, `fn initialize`, `fn increment`, `fn get`, and
-   `Final` blocks.
+2. The full portable Counter fails closed because Leo 4.0.2 cannot return a
+   mapping-derived getter value.
+3. Its executable write-only fragment emits mapping-backed `initialize` and
+   `increment` functions with `Final` blocks.
 
 The heavier end-to-end gate (`leo build` + `leo test` + artifact metadata)
 lives in `scripts/aleo/counter-smoke.sh` and the GitHub CI `aleo-smoke` job;
@@ -32,18 +30,21 @@ theorem aleo_leo_in_registry : Target.all.any (fun p => p.id == "aleo-leo") = tr
 theorem aleo_leo_in_known_ids : Target.knownIds.contains "aleo-leo" = true := by
   native_decide
 
-/-- The Counter fixture lowers to a Leo program without error. -/
-def counterLowersOk : Bool :=
+/-- Full Counter does not silently rewrite `get() -> U64` to `Final`. -/
+def counterGetterFailsClosed : Bool :=
   match renderModule module with
-  | .ok _ => true
-  | .error _ => false
+  | .error e => e.message.contains "get" && e.message.contains "non-Unit return"
+  | .ok _ => false
 
-theorem counter_lowers_ok : counterLowersOk = true := by
+theorem counter_getter_fails_closed : counterGetterFailsClosed = true := by
   native_decide
 
-/-- The lowered Leo source contains the Road 1 Counter spike structure markers. -/
-def counterLeoHasMarkers : Bool :=
-  match renderModule module with
+def counterWriteModule : ProofForge.IR.Module :=
+  { module with entrypoints := #[initializeEntrypoint, increment] }
+
+/-- The executable state-writing fragment contains honest Leo markers. -/
+def counterWriteLeoHasMarkers : Bool :=
+  match renderModule counterWriteModule with
   | .ok s =>
       s.contains "program counter.aleo" &&
       s.contains "mapping count" &&
@@ -51,22 +52,23 @@ def counterLeoHasMarkers : Bool :=
       s.contains "constructor" &&
       s.contains "fn initialize" &&
       s.contains "fn increment" &&
-      s.contains "fn get" &&
+      !s.contains "fn get" &&
+      s.contains "(n + 1u64)" &&
       s.contains "Final"
   | .error _ => false
 
-theorem counter_leo_has_markers : counterLeoHasMarkers = true := by
+theorem counter_write_leo_has_markers : counterWriteLeoHasMarkers = true := by
   native_decide
 
 example : True := by
   have _ := @aleo_leo_in_registry
   have _ := @aleo_leo_in_known_ids
-  have _ := @counter_lowers_ok
-  have _ := @counter_leo_has_markers
+  have _ := @counter_getter_fails_closed
+  have _ := @counter_write_leo_has_markers
   exact True.intro
 
 end ProofForge.Tests.AleoLeoCodegenSmoke
 
 def main : IO UInt32 := do
-  IO.println "aleo-leo-codegen-smoke: aleo-leo registry entry + Counter Leo codegen + structure markers checked"
+  IO.println "aleo-leo-codegen-smoke: full Counter getter rejected; executable write fragment checked"
   return 0

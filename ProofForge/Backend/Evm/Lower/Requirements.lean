@@ -90,8 +90,8 @@ mutual
         storageSlotPlanUsesCheckedArithmetic slot
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.any exprPlanUsesCheckedArithmetic
-    | .checkedArith op lhs rhs _ =>
-        needsCheckedArithmetic op ||
+    | .checkedArith op lhs rhs overflowChecked _ =>
+        (overflowChecked && needsCheckedArithmetic op) ||
           exprPlanUsesCheckedArithmetic lhs ||
           exprPlanUsesCheckedArithmetic rhs
     | .arrayGet lhs rhs
@@ -229,9 +229,7 @@ mutual
           exprPlanUsesCheckedArithmetic e
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        exprPlanUsesCheckedArithmetic a || exprPlanUsesCheckedArithmetic b ||
-          exprPlanUsesCheckedArithmetic c || exprPlanUsesCheckedArithmetic d ||
-          exprPlanUsesCheckedArithmetic e || exprPlanUsesCheckedArithmetic f || exprPlanUsesCheckedArithmetic g
+        #[a, b, c, d, e, f, g].any exprPlanUsesCheckedArithmetic
 
   partial def stmtPlanUsesCheckedArithmetic : StmtPlan → Bool
     | .letBind _ _ value
@@ -259,8 +257,114 @@ mutual
         body.any stmtPlanUsesCheckedArithmetic
 end
 
+/-- Detect an explicitly wrapping arithmetic node in a value plan.
+
+This complements `exprPlanUsesCheckedArithmetic`: a direct scalar write with no
+arithmetic inherits `Module.overflowChecked`, while an explicit wrapping
+add/sub/mul keeps wrapping semantics through casts and other expression nodes. -/
+partial def exprPlanUsesWrappingArithmetic : ExprPlan → Bool
+  | .literalWord _ | .local _ | .calldataWord _ | .nativeValue
+  | .storageLoad _ | .effect _ =>
+      false
+  | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
+      args.any exprPlanUsesWrappingArithmetic
+  | .checkedArith op lhs rhs overflowChecked _ =>
+      (!overflowChecked && needsCheckedArithmetic op) ||
+        exprPlanUsesWrappingArithmetic lhs ||
+        exprPlanUsesWrappingArithmetic rhs
+  | .arrayGet lhs rhs
+  | .hashTwoToOne lhs rhs =>
+      exprPlanUsesWrappingArithmetic lhs || exprPlanUsesWrappingArithmetic rhs
+  | .ecrecover a b c d
+  | .hashPack a b c d
+  | .hashValue a b c d =>
+      exprPlanUsesWrappingArithmetic a ||
+        exprPlanUsesWrappingArithmetic b ||
+        exprPlanUsesWrappingArithmetic c ||
+        exprPlanUsesWrappingArithmetic d
+  | .eip712PermitDigest a b c d e f =>
+      exprPlanUsesWrappingArithmetic a ||
+        exprPlanUsesWrappingArithmetic b ||
+        exprPlanUsesWrappingArithmetic c ||
+        exprPlanUsesWrappingArithmetic d ||
+        exprPlanUsesWrappingArithmetic e ||
+        exprPlanUsesWrappingArithmetic f
+  | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
+      exprPlanUsesWrappingArithmetic target
+  | .context field =>
+      match field with
+      | .blockHash blockNumber => exprPlanUsesWrappingArithmetic blockNumber
+      | _ => false
+  | .crosscall _ target methodId callValue? args _ =>
+      exprPlanUsesWrappingArithmetic target ||
+        exprPlanUsesWrappingArithmetic methodId ||
+        (match callValue? with
+        | some callValue => exprPlanUsesWrappingArithmetic callValue
+        | none => false) ||
+        args.any fun arg =>
+          match arg with
+          | .expr value => exprPlanUsesWrappingArithmetic value
+          | .local .. | .storage .. => false
+  | .create _ callValue salt? _ =>
+      exprPlanUsesWrappingArithmetic callValue ||
+        (match salt? with
+        | some salt => exprPlanUsesWrappingArithmetic salt
+        | none => false)
+  | .cast source _
+  | .structField source _
+  | .memoryArrayLength source
+  | .hash source =>
+      exprPlanUsesWrappingArithmetic source
+  | .localArrayGet _ path _ =>
+      path.any exprPlanUsesWrappingArithmetic
+  | .memoryArrayNew _ length =>
+      exprPlanUsesWrappingArithmetic length
+  | .memoryArrayGet array index =>
+      exprPlanUsesWrappingArithmetic array ||
+        exprPlanUsesWrappingArithmetic index
+  | .structLit _ fields =>
+      fields.any (fun field => exprPlanUsesWrappingArithmetic field.snd)
+
+def scalarStorageWriteSemantics
+    (module : Module) (value : ExprPlan) : ScalarStorageWriteSemantics :=
+  if exprPlanUsesCheckedArithmetic value then
+    .checked
+  else if exprPlanUsesWrappingArithmetic value then
+    .wrapping
+  else
+    ScalarStorageWriteSemantics.fromOverflowChecked module.overflowChecked
+
 def entrypointsUseCheckedArithmetic (entrypoints : Array EntrypointPlan) : Bool :=
   entrypoints.any fun entrypoint => entrypoint.body.any stmtPlanUsesCheckedArithmetic
+
+partial def narrowStorageEffectUsesCheckedWidthHelper : EffectPlan → Bool
+  | .storageScalarWriteTarget target value =>
+      target.byteWidth < 32 && exprPlanUsesCheckedArithmetic value
+  | .storageScalarAssignOpTarget target op value =>
+      target.byteWidth < 32 &&
+        ((target.writeSemantics == .checked && needsCheckedArithmetic op) ||
+          exprPlanUsesCheckedArithmetic value)
+  | .storageScalarWrite _ value =>
+      exprPlanUsesCheckedArithmetic value
+  | .storageScalarAssignOp _ op value =>
+      needsCheckedArithmetic op || exprPlanUsesCheckedArithmetic value
+  | _ => false
+
+partial def stmtPlanUsesCheckedWidthHelper : StmtPlan → Bool
+  | .effect effect =>
+      narrowStorageEffectUsesCheckedWidthHelper effect
+  | .ifElse _ thenBody elseBody =>
+      thenBody.any stmtPlanUsesCheckedWidthHelper ||
+        elseBody.any stmtPlanUsesCheckedWidthHelper
+  | .boundedFor _ _ _ body =>
+      body.any stmtPlanUsesCheckedWidthHelper
+  | .letBind .. | .letMutBind .. | .assign .. | .assignOp ..
+  | .assert .. | .assertEq .. | .release .. | .revert ..
+  | .revertWithError .. | .return .. =>
+      false
+
+def entrypointsUseCheckedWidthHelper (entrypoints : Array EntrypointPlan) : Bool :=
+  entrypoints.any fun entrypoint => entrypoint.body.any stmtPlanUsesCheckedWidthHelper
 
 def pushNatIfMissing (acc : Array Nat) (value : Nat) : Array Nat :=
   if acc.contains value then acc else acc.push value
@@ -373,7 +477,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := emptyLocalArrayHelperRequirements) fun acc arg =>
           mergeLocalArrayHelperRequirements acc (localArrayHelperRequirementsFromExprPlan arg)
-    | .checkedArith _ lhs rhs _
+    | .checkedArith _ lhs rhs _ _
     | .hashTwoToOne lhs rhs =>
         mergeLocalArrayHelperRequirements
           (localArrayHelperRequirementsFromExprPlan lhs)
@@ -556,15 +660,10 @@ mutual
           (localArrayHelperRequirementsFromExprPlan e)
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        mergeLocalArrayHelperRequirements
-          (mergeLocalArrayHelperRequirements
-            (mergeLocalArrayHelperRequirements
-              (localArrayHelperRequirementsFromExprPlan a)
-              (localArrayHelperRequirementsFromExprPlan b))
-            (mergeLocalArrayHelperRequirements
-              (localArrayHelperRequirementsFromExprPlan c)
-              (localArrayHelperRequirementsFromExprPlan d)))
-          (mergeLocalArrayHelperRequirements (mergeLocalArrayHelperRequirements (localArrayHelperRequirementsFromExprPlan e) (mergeLocalArrayHelperRequirements (localArrayHelperRequirementsFromExprPlan f) (localArrayHelperRequirementsFromExprPlan g))) (mergeLocalArrayHelperRequirements (localArrayHelperRequirementsFromExprPlan f) (localArrayHelperRequirementsFromExprPlan g)))
+        #[a, b, c, d, e, f, g].foldl
+          (init := emptyLocalArrayHelperRequirements) fun acc expr =>
+            mergeLocalArrayHelperRequirements acc
+              (localArrayHelperRequirementsFromExprPlan expr)
 
   partial def localArrayHelperRequirementsFromStmtPlan :
       StmtPlan → LocalArrayHelperRequirements
@@ -753,7 +852,7 @@ mutual
         let nested := args.foldl (init := #[]) fun acc arg =>
           mergeHelperSets acc (plannedHelpersFromExprPlan arg)
         HelperSet.insert nested helper
-    | .checkedArith _ lhs rhs _
+    | .checkedArith _ lhs rhs _ _
     | .arrayGet lhs rhs =>
         mergeHelperSets
           (plannedHelpersFromExprPlan lhs)
@@ -936,11 +1035,8 @@ mutual
           (plannedHelpersFromExprPlan e)
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        mergeHelperSets
-          (mergeHelperSets
-            (mergeHelperSets (plannedHelpersFromExprPlan a) (plannedHelpersFromExprPlan b))
-            (mergeHelperSets (plannedHelpersFromExprPlan c) (plannedHelpersFromExprPlan d)))
-          (mergeHelperSets (mergeHelperSets (plannedHelpersFromExprPlan e) (mergeHelperSets (plannedHelpersFromExprPlan f) (plannedHelpersFromExprPlan g))) (mergeHelperSets (plannedHelpersFromExprPlan f) (plannedHelpersFromExprPlan g)))
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          mergeHelperSets acc (plannedHelpersFromExprPlan expr)
 
   partial def plannedHelpersFromStmtPlan : StmtPlan → HelperSet
     | .letBind _ _ value
@@ -1070,7 +1166,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := #[]) fun acc arg =>
           mergeContextPlans acc (contextOpsFromExprPlan arg)
-    | .checkedArith _ lhs rhs _
+    | .checkedArith _ lhs rhs _ _
     | .hashTwoToOne lhs rhs =>
         mergeContextPlans
           (contextOpsFromExprPlan lhs)
@@ -1219,9 +1315,8 @@ mutual
           contextOpsFromExprPlan e
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        contextOpsFromExprPlan a ++ contextOpsFromExprPlan b ++
-          contextOpsFromExprPlan c ++ contextOpsFromExprPlan d ++
-          contextOpsFromExprPlan e ++ contextOpsFromExprPlan f ++ contextOpsFromExprPlan g
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          mergeContextPlans acc (contextOpsFromExprPlan expr)
 
   partial def contextOpsFromStmtPlan : StmtPlan → Array ContextPlan
     | .letBind _ _ value

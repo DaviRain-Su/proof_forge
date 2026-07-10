@@ -77,7 +77,19 @@ while IFS= read -r -d '' lean_file; do
   metadata="$OUT_DIR/$name.proof-forge-artifact.json"
   if (
     cd "$ROOT"
-    "${proof_forge[@]}" build --target evm --root . --yul-output "$yul_out" --artifact-output "$metadata" -o "$out" "$lean_file"
+    build_args=(
+      build --target evm --root .
+      --yul-output "$yul_out"
+      --artifact-output "$metadata"
+      -o "$out"
+    )
+    if [[ "$name" == "UUPSProxy" ]]; then
+      build_args+=(
+        --evm-constructor-arg "implementation=0x0000000000000000000000000000000000001001"
+        --evm-constructor-arg "admin=0x1234567890123456789012345678901234567890"
+      )
+    fi
+    "${proof_forge[@]}" "${build_args[@]}" "$lean_file"
     if [[ ! -f "$golden" ]]; then
       echo "build-examples: missing golden Yul: $golden" >&2
       exit 1

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PF-P3-02: six-gate promotion smoke for wasm-cloudflare-workers (Counter TS spike→MVP fragment).
+# PF-P3-02: strict promotion-readiness audit for the off-chain Research
+# Counter TypeScript sourcegen fragment. Passing does not change target maturity.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -8,6 +9,7 @@ export PATH="${HOME}/.foundry/bin:${HOME}/.elan/bin:${HOME}/.cargo/bin:/opt/home
 OUT="${PROOF_FORGE_CF_PROMOTION_OUT:-build/cloudflare-promotion}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
+WRANGLER_DIST="$(cd "$OUT" && pwd)/wrangler-dist"
 
 fail() { echo "cloudflare-promotion: $*" >&2; exit 1; }
 ok() { echo "cloudflare-promotion: ok — $*"; }
@@ -44,28 +46,52 @@ ok "gate3 worker package layout"
 
 # Gate 4: toolchain (wrangler dry-run when available)
 if command -v wrangler >/dev/null 2>&1; then
-  # Dry-run does not require real KV ids for syntax check in many versions; tolerate fail with clear skip
+  # A present tool that rejects the package is a failed validation, never green.
   set +e
-  wrangler deploy --dry-run --outdir "$OUT/wrangler-dist" --config "$OUT/worker/wrangler.toml" 2>&1 \
+  wrangler deploy --dry-run --outdir "$WRANGLER_DIST" --config "$OUT/worker/wrangler.toml" 2>&1 \
     | tee "$OUT/wrangler-dry-run.log"
   wr_st=${PIPESTATUS[0]}
   set -e
-  if [[ "$wr_st" -eq 0 ]]; then
-    ok "gate4 wrangler deploy --dry-run"
-  else
-    # Still require wrangler binary present + log
-    [[ -s "$OUT/wrangler-dry-run.log" ]] || fail "gate4: wrangler produced no log"
-    ok "gate4 wrangler present (dry-run non-zero without KV ids — expected for local)"
-  fi
+  [[ "$wr_st" -eq 0 ]] || fail "gate4: wrangler deploy --dry-run failed (exit $wr_st)"
+  ok "gate4 wrangler deploy --dry-run"
 else
   fail "gate4: wrangler not on PATH"
 fi
 
-# Gate 5: semantic structure — fetch router dispatches three entrypoints
-grep -Fq '/initialize' "$TS" || fail "gate5: fetch router missing /initialize"
-grep -Fq '/increment' "$TS" || fail "gate5: fetch router missing /increment"
-grep -Fq '/get' "$TS" || fail "gate5: fetch router missing /get"
-ok "gate5 fetch router semantic surface"
+# Gate 5: execute the generated Worker with a real Request/Response router and
+# an in-memory KV implementation. This validates lifecycle behavior, not text.
+cat > "$OUT/runtime-check.mjs" <<'JS'
+import { pathToFileURL } from "node:url";
+
+const modulePath = process.argv[2];
+const worker = (await import(pathToFileURL(modulePath).href)).default;
+const values = new Map();
+const env = {
+  COUNTER_KV: {
+    async get(key) { return values.has(key) ? values.get(key) : null; },
+    async put(key, value) { values.set(key, String(value)); },
+  },
+};
+
+async function call(path, method) {
+  return worker.fetch(new Request(`https://proof-forge.invalid${path}`, { method }), env, {});
+}
+
+let response = await call("/initialize", "POST");
+if (response.status !== 200 || (await response.text()) !== "") throw new Error("initialize failed");
+response = await call("/increment", "POST");
+if (response.status !== 200 || (await response.text()) !== "") throw new Error("increment failed");
+response = await call("/get", "GET");
+if (response.status !== 200 || (await response.text()) !== "1") throw new Error("get did not return 1");
+response = await call("/missing", "GET");
+if (response.status !== 404) throw new Error("router did not return 404");
+JS
+runtime_js="$(find "$WRANGLER_DIST" -type f -name '*.js' -print -quit)"
+[[ -n "$runtime_js" && -s "$runtime_js" ]] \
+  || fail "gate5: wrangler dry-run did not produce a runnable JavaScript bundle"
+node "$OUT/runtime-check.mjs" "$runtime_js" \
+  || fail "gate5: generated Worker runtime lifecycle failed"
+ok "gate5 generated Worker runtime lifecycle"
 
 # Gate 6: docs/registry
 python3 - <<'PY' || fail "gate6"
@@ -79,4 +105,4 @@ print("ok")
 PY
 ok "gate6 surface"
 
-echo "cloudflare-promotion: ok (six gates for Counter TS fragment)"
+echo "cloudflare-promotion: ok (Counter TS Research readiness gates; maturity unchanged)"

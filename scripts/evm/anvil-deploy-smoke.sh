@@ -7,6 +7,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${EVM_OUT_DIR:-$ROOT/build/evm}"
 RUN_DIR="${EVM_ANVIL_RUN_DIR:-$ROOT/build/anvil-deploy-smoke}"
 CHAIN_ID="${EVM_ANVIL_CHAIN_ID:-31337}"
+# Publicly known first Anvil account key. Test-only and always explicit at the
+# product CLI boundary.
+ANVIL_TEST_PRIVATE_KEY="${EVM_ANVIL_TEST_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+ANVIL_TEST_DEPLOYER="${EVM_ANVIL_TEST_DEPLOYER:-0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266}"
 if [[ -n "${EVM_ANVIL_CHAIN_PROFILE+x}" ]]; then
   CHAIN_PROFILE="$EVM_ANVIL_CHAIN_PROFILE"
 elif [[ "$CHAIN_ID" == "31337" ]]; then
@@ -148,6 +152,8 @@ deploy_args=(
   --deploy-manifest "$DEPLOY_MANIFEST"
   --output "$DEPLOY_RUN"
   --start-anvil
+  --private-key "$ANVIL_TEST_PRIVATE_KEY"
+  --deployer "$ANVIL_TEST_DEPLOYER"
 )
 if [[ -n "$CHAIN_PROFILE" ]]; then
   deploy_args+=(--evm-chain-profile "$CHAIN_PROFILE")

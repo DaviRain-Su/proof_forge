@@ -23,10 +23,12 @@ Tier 3  Parked research: docs stay current, no registry/code work
 **Primary-chain completion covenant (D-045):** product implementation capacity
 was reserved for the three priority chains, in order:
 `solana-sbpf-asm` → `evm` (Ethereum) → `wasm-near` (NEAR/Wasm). These targets
-have reached production-grade completeness as of Gate P0. The sign-off ledger
-is Gate P0 in [gate-status.md](gate-status.md). After this closure, additional
-chain work is no longer blocked by D-045, but the implementation backlog still
-puts CLI M3/M4 target-first migration before Tier-1 M3/M4 advancement.
+completed the scoped P0 backend-gate DoD. The sign-off ledger is Gate P0 in
+[gate-status.md](gate-status.md); all three still have `experimental` registry
+maturity. P0 does not assert universal compiler correctness, a complete public
+SDK, or production operations readiness. After this closure, additional chain
+work is no longer blocked by D-045, but the implementation backlog still puts
+CLI M3/M4 target-first migration before Tier-1 M3/M4 advancement.
 
 **Tier-0 parity gate (Gate G0, the first required slice of D-045):** the shared
 scenarios (Counter and ValueVault) pass in testkit (RFC 0007) on `evm`,
@@ -46,9 +48,9 @@ maintenance-only unless a later gate or explicit backlog slice promotes them.
 
 | Target | State |
 |---|---|
-| `solana-sbpf-asm` | **Primary priority 1.** Production-grade P0-1 signed off; direct assembly, loader-compatible ELF packaging, Pinocchio live CI equivalence, and Surfpool dual-deploy gates are green |
-| `evm` | **Primary priority 2.** Production-grade P0-2 signed off; semantic-plan migration landed, with EVM smokes, Foundry, Anvil, and FV-4 trace anchors green |
-| `wasm-near` | **Primary priority 3.** Production-grade P0-3 signed off; EmitWat canonical, target-first local execution, artifact/deploy metadata, diagnostics, budget baselines, and CI gates are green |
+| `solana-sbpf-asm` | **Primary priority 1.** Scoped P0-1 gates signed off; direct assembly, loader-compatible ELF packaging, Pinocchio live CI equivalence, and Surfpool dual-deploy gates are green |
+| `evm` | **Primary priority 2.** Scoped P0-2 gates signed off; semantic-plan migration landed, with EVM smokes, Foundry, Anvil, and FV-4 trace anchors green |
+| `wasm-near` | **Primary priority 3.** Scoped P0-3 gates signed off; EmitWat canonical, target-first local execution, artifact/deploy metadata, diagnostics, budget baselines, and CI gates are green |
 | `psy-dpn` | Maintenance-only Experimental subset until a new product lane explicitly schedules it |
 | `aleo-leo` | Maintenance-only Research spike per D-032 until a new ZK-app lane is scheduled |
 | `wasm-cloudflare-workers` | Maintenance-only off-chain host demo (D-033); no product expansion currently scheduled |

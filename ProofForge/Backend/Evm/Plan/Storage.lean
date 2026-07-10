@@ -221,10 +221,28 @@ inductive StorageSlotPlan where
   | dynamicArraySlot (rootSlot : Nat) (index : ValuePlan)
   deriving Repr
 
+/-- Destination-width behavior for scalar storage writes.
+
+This is part of the semantic plan so the ToYul pass never has to infer write
+behavior from the shape of the value expression. -/
+inductive ScalarStorageWriteSemantics where
+  | checked
+  | wrapping
+  deriving BEq, Repr
+
+def ScalarStorageWriteSemantics.fromOverflowChecked : Bool → ScalarStorageWriteSemantics
+  | true => .checked
+  | false => .wrapping
+
+def ScalarStorageWriteSemantics.overflowChecked : ScalarStorageWriteSemantics → Bool
+  | .checked => true
+  | .wrapping => false
+
 structure ScalarStorageTargetPlan where
   slot : StorageSlotPlan
   byteOffset : Nat
   byteWidth : Nat
+  writeSemantics : ScalarStorageWriteSemantics := .checked
   deriving Repr
 
 inductive StoragePathWriteTargetPlan where
@@ -346,11 +364,14 @@ def scalarSlotPlan (module : Module) (stateId : String) : Except PlanError Stora
 
 def scalarStorageTargetPlan (module : Module) (stateId : String) : Except PlanError ScalarStorageTargetPlan := do
   let slot ← scalarSlotPlan module stateId
+  let writeSemantics :=
+    ScalarStorageWriteSemantics.fromOverflowChecked module.overflowChecked
   if stateId == "$eip1967.implementation" then
     .ok {
       slot
       byteOffset := 0
       byteWidth := 32
+      writeSemantics
     }
   else
     match storageLayout module |>.find? stateId with
@@ -363,6 +384,7 @@ def scalarStorageTargetPlan (module : Module) (stateId : String) : Except PlanEr
               slot
               byteOffset := plan.byteOffset
               byteWidth := plan.byteWidth
+              writeSemantics
             }
         | .map _ _, _ | .array _, _ | .dynamicArray, _ =>
             .error { message := s!"EVM storage state '{stateId}' is not a scalar target" }

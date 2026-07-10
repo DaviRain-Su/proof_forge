@@ -1,4 +1,5 @@
 import ProofForge.Backend.Evm.IR
+import ProofForge.Backend.Evm.AbiType
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Cli.ConstructorAbi
 import ProofForge.Cli.HexUtil
@@ -24,79 +25,20 @@ def entrypointAbiScalarTypeName
     (context : String)
     (type : ProofForge.IR.ValueType)
     (evmAbiWord? : Option String := none) : Except String String :=
-  match evmAbiWord? with
-  | some word => .ok word
-  | none =>
-      match type with
-      | .u8 => .ok "uint8"
-      | .u32 => .ok "uint32"
-      | .u64 => .ok "uint256"
-      | .u128 => .ok "uint128"
-      | .bool => .ok "bool"
-      | .hash => .ok "bytes32"
-      | .address => .ok "address"
-      | .bytes => .ok "bytes"
-      | .string => .ok "string"
-      | .unit | .fixedArray _ _ | .structType _ | .array _ =>
-          .error s!"{context} has unsupported EVM ABI word type `{type.name}`; entrypoint ABI words support U32, U64, Bool, Hash, Address, Bytes, or String"
+  ProofForge.Backend.Evm.AbiType.scalarTypeName context type evmAbiWord?
 
 partial def entrypointAbiType
     (module : ProofForge.IR.Module)
     (context : String)
     (type : ProofForge.IR.ValueType)
     (evmAbiWord? : Option String := none) : Except String String := do
-  match type with
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
-      entrypointAbiScalarTypeName context type evmAbiWord?
-  | .unit =>
-      .error s!"{context} uses Unit; EVM entrypoint parameters and non-Unit returns must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
-  | .array elementType => do
-      let elementAbiType ← entrypointAbiType module s!"{context} dynamic-array element" elementType
-      .ok s!"{elementAbiType}[]"
-  | .fixedArray elementType length => do
-      if length == 0 then
-        .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"
-      let elementAbiType ← entrypointAbiType module s!"{context} fixed-array element" elementType
-      .ok s!"{elementAbiType}[{length}]"
-  | .structType typeName => do
-      let some decl := module.structs.find? fun decl => decl.name == typeName
-        | .error s!"{context} uses unknown struct `{typeName}`"
-      if decl.fields.isEmpty then
-        .error s!"{context} uses empty struct `{typeName}`; EVM entrypoint ABI structs must have at least one field"
-      let mut parts := #[]
-      for field in decl.fields do
-        parts := parts.push (← entrypointAbiScalarTypeName s!"{context} struct `{typeName}` field `{field.id}`" field.type)
-      .ok ("(" ++ String.intercalate "," parts.toList ++ ")")
+  ProofForge.Backend.Evm.AbiType.typeName module context type evmAbiWord?
 
 partial def entrypointAbiWordTypes
     (module : ProofForge.IR.Module)
     (context : String)
     (type : ProofForge.IR.ValueType) : Except String (Array String) := do
-  match type with
-  | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string =>
-      .ok #[← entrypointAbiScalarTypeName context type]
-  | .unit =>
-      .error s!"{context} uses Unit; EVM entrypoint ABI values must use U32, U64, Bool, Hash, Address, Bytes, String, fixed arrays, or flat structs"
-  | .array elementType => do
-      let elementAbiType ← entrypointAbiType module s!"{context} dynamic-array element" elementType
-      .ok #[s!"{elementAbiType}[]"]
-  | .fixedArray elementType length => do
-      if length == 0 then
-        .error s!"{context} uses Array<{elementType.name},0>; EVM entrypoint ABI fixed arrays must have non-zero length"
-      let elementWords ← entrypointAbiWordTypes module s!"{context} fixed-array element" elementType
-      let mut words : Array String := #[]
-      for _h : _idx in [0:length] do
-        words := words ++ elementWords
-      .ok words
-  | .structType typeName => do
-      let some decl := module.structs.find? fun decl => decl.name == typeName
-        | .error s!"{context} uses unknown struct `{typeName}`"
-      if decl.fields.isEmpty then
-        .error s!"{context} uses empty struct `{typeName}`; EVM entrypoint ABI structs must have at least one field"
-      let mut words : Array String := #[]
-      for field in decl.fields do
-        words := words.push (← entrypointAbiScalarTypeName s!"{context} struct `{typeName}` field `{field.id}`" field.type)
-      .ok words
+  ProofForge.Backend.Evm.AbiType.wordTypes module context type
 
 def entrypointAbiValueJson
     (name? : Option String)
@@ -203,6 +145,7 @@ def entrypointJson (module : ProofForge.IR.Module) (entrypoint : ProofForge.IR.E
     ("name", jsonString entrypoint.name),
     ("selector", selectorValue),
     ("signature", jsonString signature),
+    ("mutability", jsonString entrypoint.mutability.id),
     ("params", jsonArray params),
     ("returns", valueTypeJson entrypoint.returns),
     ("returnValue", returnValue),
@@ -248,6 +191,7 @@ def eventAbiWordTypeName : ProofForge.IR.ValueType → Except String String
   | .u128 => .ok "uint128"
   | .bool => .ok "bool"
   | .hash => .ok "bytes32"
+  | .address => .ok "address"
   | type => .error s!"event ABI word type must be scalar, got `{type.name}`"
 
 def eventAbiField
@@ -263,8 +207,14 @@ def eventAbiField
   let wordTypes ← lowerExceptString <|
     ProofForge.Backend.Evm.IR.abiValueWordTypes module s!"event `{eventName}` field `{field.fst}`" irType
   let mut wordTypeNames : Array String := #[]
-  for wordType in wordTypes do
-    wordTypeNames := wordTypeNames.push (← eventAbiWordTypeName wordType)
+  if wordTypes.size == 1 &&
+      match irType with
+      | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address => true
+      | _ => false then
+    wordTypeNames := #[abiType]
+  else
+    for wordType in wordTypes do
+      wordTypeNames := wordTypeNames.push (← eventAbiWordTypeName wordType)
   .ok {
     name := field.fst,
     irType := irType,

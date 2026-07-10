@@ -28,7 +28,7 @@ Authors declare policy on the contract intent; `--target` materializes or
 | Policy | EVM | Solana | NEAR | Notes |
 |--------|-----|--------|------|-------|
 | `immutable` | ok (default product) | ok | ok | Prefer for Shared Product |
-| `authority(keyRef)` | UUPS-only paths; transparent rejects | upgrade authority | account redeploy keys | keyRef is a **logical** name, not a secret |
+| `authority(keyRef)` | reject v0; backend UUPS transport does not bind keyRef | upgrade authority | account redeploy keys | keyRef is a **logical** name, not a secret |
 | `governance(ref)` | reject v0 | reject v0 | reject v0 | Future |
 
 Diagnostics must name policy + target when rejected (no silent immutable).

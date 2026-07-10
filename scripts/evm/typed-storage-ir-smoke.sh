@@ -139,7 +139,7 @@ contract ProofForgeIRTypedStorageSmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertTrue(callBool(probe, abi.encodeWithSignature("bool_scalar_lifecycle()")));
-        assertEq(readStorage(probe, 0) >> 248, 1);
+        assertEq(readStorage(probe, 0) & type(uint8).max, 1);
     }
 
     function testIRTypedStorageArraysUseContiguousWordSlots() public {
@@ -157,7 +157,7 @@ contract ProofForgeIRTypedStorageSmokeTest {
         assertEq(readStorage(probe, 5), 0);
         assertEq(vm.load(probe, slot(6)), rootA);
         assertEq(vm.load(probe, slot(7)), rootB);
-        assertEq(readStorage(probe, 8) >> 192, 999);
+        assertEq(readStorage(probe, 8) & type(uint64).max, 999);
 
         assertTrue(callBool(probe, abi.encodeWithSignature("read_flag(uint256)", 0)));
         assertFalse(callBool(probe, abi.encodeWithSignature("read_flag(uint256)", 1)));

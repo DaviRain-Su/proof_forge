@@ -1,4 +1,5 @@
 import ProofForge.Backend.Evm.Refinement
+import ProofForge.Backend.Evm.YulHostRefinement
 import ProofForge.Backend.Solana.Refinement
 import ProofForge.Backend.WasmHost.Refinement
 import ProofForge.Backend.Refinement.CounterUniversal
@@ -23,6 +24,24 @@ open ProofForge.IR.StepSemantics
 theorem evm_counter_target_semantics_trace_ok :
     ProofForge.Backend.Evm.Refinement.evmYulTargetSemantics.executableTraceOk
       ProofForge.Backend.Evm.Refinement.counterTraceObligation = true := by
+  native_decide
+
+theorem evmYul_irStateRel_is_counterYulSimulationRel
+    (irState : ProofForge.IR.Semantics.State)
+    (machine : ProofForge.Backend.Evm.Refinement.EvmYulMachineState) :
+    ProofForge.Backend.Evm.Refinement.evmYulTargetSemantics.irStateRel irState machine ↔
+      ProofForge.Backend.Evm.YulHostRefinement.counterYulSimulationRel
+        irState machine = true := by
+  rfl
+
+def evmYulCounterInitialStateExists : Bool :=
+  match ProofForge.Backend.Evm.Refinement.evmYulTargetSemantics.initialMachineState
+      ProofForge.IR.Examples.Counter.module with
+  | some _ => true
+  | none => false
+
+theorem evm_yul_counter_initial_state_exists :
+    evmYulCounterInitialStateExists = true := by
   native_decide
 
 theorem solana_counter_target_semantics_trace_ok :

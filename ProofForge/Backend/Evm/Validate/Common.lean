@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Diagnostic
+import ProofForge.Backend.Evm.AbiType
 import ProofForge.Backend.Evm.Names
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.SharedValidate
@@ -73,6 +74,57 @@ def twoPow64 : Nat := 18446744073709551616
 def maxU64 : Nat := twoPow64 - 1
 def maxU32 : Nat := 4294967295
 
+/-- Bit width for the compile-time Solidity ABI word subset supported by E1.1.
+    Dynamic, signed, tuple, array, and short fixed-bytes types are rejected. -/
+def solidityStaticArgBitWidth? : String -> Option Nat
+  | "uint8" => some 8
+  | "uint32" => some 32
+  | "uint64" => some 64
+  | "uint128" => some 128
+  | "uint256" => some 256
+  | "bool" => some 1
+  | "address" => some 160
+  | "bytes32" => some 256
+  | _ => none
+
+/-- Fail-closed validation for the transitional EVM custom-error static-word
+    annotation on portable `ErrorRef`. Runtime expressions and dynamic ABI
+    values require a future target-plan representation. -/
+def validateSolidityErrorRef (context : String) (ref : ErrorRef) : Except LowerError Unit := do
+  match ref.soliditySelector? with
+  | none =>
+      if !ref.solidityArgTypes.isEmpty || !ref.solidityArgWords.isEmpty then
+        .error {
+          message := s!"{context} has Solidity custom-error args without a selector"
+        }
+      else
+        .ok ()
+  | some selector =>
+      if selector.length != 8 || !(selector.all isHexChar) then
+        .error {
+          message := s!"{context} Solidity custom-error selector must be exactly 8 hex digits"
+        }
+      if ref.solidityArgTypes.size != ref.solidityArgWords.size then
+        .error {
+          message :=
+            s!"{context} Solidity custom-error arg type/value count mismatch: " ++
+              s!"{ref.solidityArgTypes.size} type(s), {ref.solidityArgWords.size} value(s)"
+        }
+      for ((abiType, word), index) in
+          (ref.solidityArgTypes.zip ref.solidityArgWords).zipIdx do
+        let some width := solidityStaticArgBitWidth? abiType
+          | .error {
+              message :=
+                s!"{context} Solidity custom-error arg {index} has unsupported static ABI type " ++
+                  s!"`{abiType}`"
+            }
+        if word >= 2 ^ width then
+          .error {
+            message :=
+              s!"{context} Solidity custom-error arg {index} value `{word}` exceeds `{abiType}` range"
+          }
+      .ok ()
+
 -- ASCII "PROOF_FORGE_MAP_PRESENCE" packed as one EVM word.
 def mapPresenceDomain : Nat := 1969478005224772198022937154314036040895674356107534287685
 
@@ -92,6 +144,13 @@ def packedHashLiteral (a b c d : Nat) : Except LowerError Nat := do
 def validateEventName (name : String) : Except LowerError Unit := do
   if name.toUTF8.size == 0 then
     .error { message := "event name must be non-empty for IR EVM v0" }
+
+/-- Event fields are output-only, so widening the portable U64 value domain to
+the standard Solidity uint256 event word is lossless. Keep this separate from
+entrypoint calldata override compatibility, where U64 <- uint256 is unsafe. -/
+def eventAbiWordOverrideCompatible (type : ValueType) (abiWord : String) : Bool :=
+  ProofForge.Backend.Evm.AbiType.abiWordOverrideCompatible type abiWord ||
+    (type == .u64 && abiWord == "uint256")
 
 def packedUtf8Words (value : String) : Array Nat × Nat := Id.run do
   let bytes := value.toUTF8
@@ -128,17 +187,24 @@ mutual
     .ok ("(" ++ String.intercalate "," parts.toList ++ ")")
 
   partial def eventSignatureFieldType (module : Module) (eventName fieldName : String) (type : ValueType) : Except LowerError String :=
-    let erc20FieldType? : Option String :=
-      if eventName == "Transfer" then
-        if fieldName == "from" || fieldName == "to" then some "address"
-        else if fieldName == "value" then some "uint256" else none
-      else if eventName == "Approval" then
-        if fieldName == "owner" || fieldName == "spender" then some "address"
-        else if fieldName == "value" then some "uint256" else none
-      else none
-    match erc20FieldType? with
-    | some abiType => .ok abiType
-    | none =>
+    let overrides := module.eventAbiWords.filter fun override =>
+      override.eventName == eventName && override.fieldName == fieldName
+    if overrides.size > 1 then
+      .error {
+        message := s!"event `{eventName}` field `{fieldName}` has duplicate ABI overrides"
+      }
+    else
+      match overrides[0]? with
+      | some override =>
+          if eventAbiWordOverrideCompatible type override.abiWord then
+            .ok override.abiWord
+          else
+            .error {
+              message :=
+                s!"event `{eventName}` field `{fieldName}` has incompatible EVM ABI override " ++
+                  s!"`{override.abiWord}` for IR carrier `{type.name}`"
+            }
+      | none =>
         match type with
         | .u32 => .ok "uint32"
         | .u64 => .ok "uint64"
@@ -202,7 +268,7 @@ def validateIndexedEventFieldCount (eventName : String) (count : Nat) : Except L
     .ok ()
 
 def eventIndexedTopicName (index : Nat) : String :=
-  s!"_indexed_topic{index}"
+  s!"__pf_event_indexed_topic{index}"
 
 def eventLogBuiltinName (indexedFieldCount : Nat) : Except LowerError String :=
   if indexedFieldCount <= 3 then
@@ -497,7 +563,22 @@ abbrev TypeEnv := Array LocalBinding
 def findLocal? (env : TypeEnv) (name : String) : Option LocalBinding :=
   env.find? fun binding => binding.name == name
 
-def addLocal (env : TypeEnv) (name : String) (type : ValueType) (isMutable : Bool) : Except LowerError TypeEnv :=
+def validateUserIdentifier (context name : String) : Except LowerError Unit :=
+  if name.startsWith "__pf_" then
+    .error {
+      message :=
+        s!"{context} `{name}` starts with `__pf_`, which is reserved for generated EVM temporaries"
+    }
+  else if name.startsWith "__proof_forge_" then
+    .error {
+      message :=
+        s!"{context} `{name}` starts with `__proof_forge_`, which is reserved for generated EVM temporaries"
+    }
+  else
+    .ok ()
+
+def addLocal (env : TypeEnv) (name : String) (type : ValueType) (isMutable : Bool) : Except LowerError TypeEnv := do
+  validateUserIdentifier "local" name
   if (findLocal? env name).isSome then
     .error { message := s!"duplicate local `{name}`" }
   else

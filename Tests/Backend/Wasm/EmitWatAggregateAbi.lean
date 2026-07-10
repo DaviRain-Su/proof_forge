@@ -4,8 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 # N1.2 EmitWat aggregate Borsh ABI smoke
 
-Positive: flat struct param + struct return + fixedArray return lower to WAT
-with `value_return` and expected payload sizes.
+Positive: flat struct param + struct/fixedArray return lower to WAT with
+`value_return` and expected payload sizes. The shell gate validates the emitted
+WAT and executes exact Borsh return bytes in the offline host.
 
 Negative: dynamic `bytes` params still fail closed with a stable diagnostic.
 -/
@@ -58,6 +59,20 @@ def fixedArrayReturnModule : Module := {
   }]
 }
 
+def hashArrayReturnModule : Module := {
+  name := "HashArrReturnProbe"
+  state := #[]
+  entrypoints := #[{
+    name := "roots"
+    params := #[]
+    returns := .fixedArray .hash 2
+    body := #[.return (.arrayLit .hash #[
+      .literal (.hash4 1 2 3 4),
+      .literal (.hash4 5 6 7 8)
+    ])]
+  }]
+}
+
 def bytesParamModule : Module := {
   name := "BytesParamProbe"
   state := #[]
@@ -72,6 +87,10 @@ def bytesParamModule : Module := {
 def requireContains (wat needle label : String) : IO Unit := do
   if !wat.contains needle then
     throw <| IO.userError s!"{label}: missing `{needle}`"
+
+def writeAggregateWat (name wat : String) : IO Unit := do
+  IO.FS.createDirAll "build/emitwat-aggregate-abi"
+  IO.FS.writeFile s!"build/emitwat-aggregate-abi/{name}.wat" wat
 
 def main : IO UInt32 := do
   -- Positive: struct param
@@ -91,7 +110,9 @@ def main : IO UInt32 := do
     return 1
   | .ok wat =>
     requireContains wat "value_return" "struct return host"
+    requireContains wat "(import \"env\" \"value_return\"" "struct return import"
     requireContains wat "i64.const 16" "struct return size"
+    writeAggregateWat "struct-return" wat
     IO.println s!"struct-return: ok ({wat.length} bytes)"
 
   -- Positive: fixedArray return (2 × u64 = 16)
@@ -101,8 +122,22 @@ def main : IO UInt32 := do
     return 1
   | .ok wat =>
     requireContains wat "value_return" "array return host"
+    requireContains wat "(import \"env\" \"value_return\"" "array return import"
     requireContains wat "i64.const 16" "array return size"
+    writeAggregateWat "fixed-array-return" wat
     IO.println s!"fixedArray-return: ok ({wat.length} bytes)"
+
+  -- Positive: fixedArray<Hash> copies each 32-byte value, never its i32 pointer.
+  match renderModule hashArrayReturnModule with
+  | .error e =>
+    IO.eprintln s!"hash fixedArray return failed: {e.message}"
+    return 1
+  | .ok wat =>
+    requireContains wat "(import \"env\" \"value_return\"" "hash array return import"
+    requireContains wat "call $__pf_memcpy" "hash array element copy"
+    requireContains wat "i64.const 64" "hash array return size"
+    writeAggregateWat "hash-array-return" wat
+    IO.println s!"hash-fixedArray-return: ok ({wat.length} bytes)"
 
   -- Negative: dynamic bytes param fail-closed
   match renderModule bytesParamModule with

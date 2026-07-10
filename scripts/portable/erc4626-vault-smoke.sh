@@ -52,7 +52,7 @@ def main : IO Unit := do
     m with
     entrypoints := m.entrypoints.map fun ep =>
       match ep.name with
-      | "init" => { ep with selector? := some "8129fc1c" }
+      | "init" => { ep with selector? := some "4b180da9" }
       | "deposit" => { ep with selector? := some "6e553f65" }
       | "mint" => { ep with selector? := some "94bf804d" }
       | "withdraw" => { ep with selector? := some "b460af94" }
@@ -94,14 +94,16 @@ def main : IO Unit := do
       require (yul.contains "div(" || yul.contains "div ")
         "yul should emit div for pro-rata convert"
   match ProofForge.Backend.Solana.SbpfAsm.renderModule m with
-  | .error e => throw (IO.userError s!"Solana: {e.message}")
-  | .ok src =>
-      IO.FS.writeFile "build/portable/erc4626-vault/solana/ERC4626.s" src
-      require (src.length > 0) "solana asm non-empty"
+  | .ok _ => throw (IO.userError "Solana should reject EVM-primary IERC20 selector remotes")
+  | .error e =>
+      require (e.message.contains "peer" || e.message.contains "remote" ||
+          e.message.contains "PortableHonesty")
+        s!"Solana diagnostic: {e.message}"
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m with
   | .ok _ => throw (IO.userError "NEAR should honest-reject selector remotes without string pool")
   | .error e =>
-      require (e.message.contains "nearCrosscallStrings" || e.message.contains "crosscall")
+      require (e.message.contains "nearCrosscallStrings" || e.message.contains "crosscall" ||
+          e.message.contains "Address")
         s!"NEAR diagnostic: {e.message}"
   IO.println "erc4626-vault emit: ok"
 EOF
@@ -109,9 +111,7 @@ EOF
 echo "=== product-erc4626-vault: multi-target emit ==="
 lake env lean --run "$DRIVER" || fail "emit driver failed"
 require_file "$OUT/evm/ERC4626.yul"
-require_file "$OUT/solana/ERC4626.s"
-require_contains "$OUT/solana/ERC4626.s" "entrypoint" "Solana entrypoint"
 # transferFrom selector decimal
 require_contains "$OUT/evm/ERC4626.yul" "599290589" "EVM IERC20 transferFrom selector in deposit"
 
-echo "product-erc4626-vault: ok (EVM pull·Solana·NEAR honest reject)"
+echo "product-erc4626-vault: ok (EVM body; Solana/NEAR non-native body honest reject)"

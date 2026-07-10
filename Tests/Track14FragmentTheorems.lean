@@ -79,6 +79,18 @@ open ProofForge.Backend.Refinement
 #check evmCounterShapeNameFamily
 #check evm_shape_name_VaultCounter_lowerable_total
 
+def nearAllocatorMismatchWitness : ProofForge.IR.Module :=
+  { ProofForge.IR.Examples.Counter.module with
+    allocator := ProofForge.IR.AllocatorConfig.cosmWasmRegion }
+
+theorem near_allocator_mismatch_is_not_lowerable :
+    wasmNearTargetSemantics.lowerableAccepts nearAllocatorMismatchWitness = false := by
+  native_decide
+
+theorem near_allocator_mismatch_is_rejected_by_lowerer :
+    (ProofForge.Backend.WasmHost.EmitWat.lowerModule nearAllocatorMismatchWitness).isOk = false := by
+  native_decide
+
 -- PF-P3-01 progressive structural skeleton (constrained IR unique under lowerable).
 #check isCounterShapeLowerable_skeleton
 #check isCounterShapeLowerable_flags
@@ -108,5 +120,5 @@ open ProofForge.Backend.Refinement
 end ProofForge.Tests.Track14FragmentTheorems
 
 def main : IO UInt32 := do
-  IO.println "track14-fragment-theorems-smoke: triad proven⊂lowerable + renamed/canonical + finite name-family + structural skeleton"
+  IO.println "track14-fragment-theorems-smoke: triad proven⊂lowerable + allocator guard + finite name-family + structural skeleton"
   return 0

@@ -34,23 +34,23 @@ object "DynamicConstructorProbe" {
     default {
       revert(0, 0)
     }
-    function f_DynamicConstructorProbe_getNameLen() -> result {
-      result := and(shr(192, sload(0)), 18446744073709551615)
+    function f_DynamicConstructorProbe_getNameLen() -> __pf_result {
+      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
     }
-    function f_DynamicConstructorProbe_getNameHash() -> result {
-      result := sload(1)
+    function f_DynamicConstructorProbe_getNameHash() -> __pf_result {
+      __pf_result := sload(1)
     }
-    function f_DynamicConstructorProbe_getPayloadLen() -> result {
-      result := and(shr(192, sload(2)), 18446744073709551615)
+    function f_DynamicConstructorProbe_getPayloadLen() -> __pf_result {
+      __pf_result := and(shr(0, sload(2)), 18446744073709551615)
     }
-    function f_DynamicConstructorProbe_getPayloadHash() -> result {
-      result := sload(3)
+    function f_DynamicConstructorProbe_getPayloadHash() -> __pf_result {
+      __pf_result := sload(3)
     }
-    function f_DynamicConstructorProbe_getAmountCount() -> result {
-      result := and(shr(192, sload(4)), 18446744073709551615)
+    function f_DynamicConstructorProbe_getAmountCount() -> __pf_result {
+      __pf_result := and(shr(0, sload(4)), 18446744073709551615)
     }
-    function f_DynamicConstructorProbe_getAmountSum() -> result {
-      result := and(shr(128, sload(4)), 18446744073709551615)
+    function f_DynamicConstructorProbe_getAmountSum() -> __pf_result {
+      __pf_result := and(shr(64, sload(4)), 18446744073709551615)
     }
   }
 }

@@ -23,26 +23,27 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 > **Solana** 列反映规范的 `solana-sbpf-asm` 路线（D-026）：直接生成
 > sBPF assembly。Solana 使用 `crosscall.cpi`（不是 `crosscall.invoke`）和
 > `storage.pda`，这些按 D-027 保持为 Solana 特定能力。
-> **CF Workers** 列是链下 `wasm-cloudflare-workers` host（D-033）；它会在没有
-> 共识或链上状态的情况下重新解释这些能力。
+> **CF Workers** 列是链下 `wasm-cloudflare-workers` host（D-033）。当前
+> registry 只声明已有可执行 Counter 覆盖的 `storage.scalar`
+> sourcegen 子集；更广的 host mapping 仍是设计工作。
 
 | 能力 id | 可移植含义 | EVM | NEAR | CosmWasm | Solana | Aptos | Sui | Psy DPN | CF Workers |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `storage.scalar` | 单个持久化标量 | Y | Y | Y | Y | Y | Y | Y | Y |
-| `storage.map` | 键值对或映射存储 | Y | Y | Y | P | P | N | P | Y |
+| `storage.map` | 键值对或映射存储 | Y | Y | Y | P | P | N | P | N |
 | `storage.array` | 固定大小的索引存储数组 | P | P | N | Y | N | N | P | N |
-| `caller.sender` | 交易签名者/调用者 | Y | Y | Y | Y | Y | N | P | Y |
+| `caller.sender` | 交易签名者/调用者 | Y | Y | Y | Y | Y | N | P | N |
 | `value.native` | 调用附带的原生代币 | Y | Y | Y | Y | Y | N | N | N |
-| `events.emit` | 结构化日志/事件输出 | Y | Y | Y | Y | Y | N | Y | Y |
-| `crosscall.invoke` | 调用另一个合约/程序 | Y | Y | Y | Y | Y | N | P | Y |
-| `env.block` | 区块高度/时间/链 id 读取 | Y | Y | P | P | P | N | P | P |
-| `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P | Y |
-| `control.bounded_loop` | 目标可展开或静态处理的有界循环 | P | P | N | P | N | N | P | Y |
-| `data.fixed_array` | 固定大小数组值类型、字面量和索引表达式 | P | P | N | Y | N | N | P | Y |
+| `events.emit` | 结构化日志/事件输出 | Y | Y | Y | Y | Y | N | Y | N |
+| `crosscall.invoke` | 调用另一个合约/程序 | Y | Y | Y | Y | Y | N | P | N |
+| `env.block` | 区块高度/时间/链 id 读取 | Y | Y | P | P | P | N | P | N |
+| `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P | N |
+| `control.bounded_loop` | 目标可展开或静态处理的有界循环 | P | P | N | P | N | N | P | N |
+| `data.fixed_array` | 固定大小数组值类型、字面量和索引表达式 | P | P | N | Y | N | N | P | N |
 | `data.dynamic_bytes` | 动态长度 bytes/string 值类型和 head-tail ABI 编码 | Y | N | N | N | N | N | N | N |
-| `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P | Y |
-| `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | N | Y | Y |
-| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | Y | Y | Y |
+| `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P | N |
+| `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | N | Y | N |
+| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | Y | Y | N |
 | `account.explicit` | 具名账户/对象/资源绑定 | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | 程序派生地址状态 | N | N | N | Y | N | N | N | N |
 | `runtime.allocator` | 目标运行时堆分配器约定 | N | N | N | Y | N | N | N | N |
@@ -248,14 +249,16 @@ Aleo 与 source-generation 和 ZK 目标有重叠，但它的 contract model 有
 proof/finalization split。private execution 生成 transitions 和 proofs；public
 finalization 在链上更新 mappings 或 storage。Records、program ids、imports、
 Aleo Instructions、Aleo VM bytecode、ABI、prover/verifier artifacts、fees 和
-devnet validation 在添加 target profile 前需要显式表达。
+devnet validation 仍需显式表达后，才能声明这些 Aleo 原生能力已支持。
 
-#### 规范能力（Road 1 spike）
+#### 当前 profile 与 Aleo 原生研究词汇
 
-以下能力已被第一个 `aleo-leo` spike 接受，并在设计规格中文档化。在 spike 成功前，
-它们**不会**被加入 `ProofForge.Target.Capability`。
+已注册的 `aleo-leo` profile 当前使用共享 portable capabilities，包括
+`data.linear_record` 和 `crosscall.named`；metadata 只有在与 codegen 相同的
+function plan 验证通过后才生成。下表 Aleo 原生 id 仍是设计词汇，不是
+`ProofForge.Target.Capability` 枚举成员，也不是 Counter fail-closed smoke 的声明。
 
-| 能力 id | 可移植含义 | 为什么需要单独表达 |
+| 设计 id | 可移植含义 | 为什么需要单独表达 |
 |---|---|---|
 | `lang.leo` | target 发射 Leo source packages | Leo 是第一版稳定 sourcegen boundary |
 | `vm.aleo_avm` | target 运行在 Aleo VM 上 | 避免与 Algorand AVM 混淆 |

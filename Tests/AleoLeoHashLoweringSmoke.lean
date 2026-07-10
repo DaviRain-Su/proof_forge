@@ -9,8 +9,7 @@ operators/crypto). Hashing is capability-portable, not value-portable
 (keccak ≠ Poseidon), per the RFC.
 
 - `.hash preimage` → `Poseidon2::hash_to_field(preimage)` (single input).
-- `.hashTwoToOne l r` → fold: hash each, add (field), hash again (Leo hashes a
-  single primitive, so a 2-input hash folds pairwise).
+- `.hashTwoToOne l r` → ordered, pair-domain-separated field encoding.
 - `hash4` literals are rejected (EVM 4×u64 digest shape; Aleo hashes values). -/
 
 namespace ProofForge.Tests.AleoLeoHashLoweringSmoke
@@ -25,8 +24,7 @@ def hashU64 : Entrypoint :=
     returns := .hash
     body := #[ .return (.hash (.local "x")) ] }
 
-/-- `fn hash_pair(a: u64, b: u64) -> field { return
---   Poseidon2::hash_to_field((Poseidon2::hash_to_field(a) + Poseidon2::hash_to_field(b))); }` -/
+/-- `fn hash_pair(a: u64, b: u64) -> field` uses an ordered field encoding. -/
 def hashPair : Entrypoint :=
   { name := "hash_pair"
     params := #[("a", .u64), ("b", .u64)]
@@ -51,7 +49,9 @@ def hashLeoHasMarkers : Bool :=
       s.contains "fn hash_u64(x: u64) -> field" &&
       s.contains "return Poseidon2::hash_to_field(x);" &&
       s.contains "fn hash_pair(a: u64, b: u64) -> field" &&
-      s.contains "Poseidon2::hash_to_field((Poseidon2::hash_to_field(a) + Poseidon2::hash_to_field(b)))"
+      s.contains "Poseidon2::hash_to_field(a) * 1315423911field" &&
+      s.contains "Poseidon2::hash_to_field(b)" &&
+      s.contains "2field"
   | .error _ => false
 
 theorem hash_leo_has_markers : hashLeoHasMarkers = true := by native_decide

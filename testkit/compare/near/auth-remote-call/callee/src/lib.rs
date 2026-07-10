@@ -1,4 +1,4 @@
-//! Peer for AuthRemoteCall: `receive` reads LE u64 amount from input body.
+//! Peer for AuthRemoteCall: `receive` reads the canonical JSON-array body.
 
 use near_sdk::{env, near};
 
@@ -16,17 +16,12 @@ impl Callee {
         Self::default()
     }
 
-    /// Accepts raw LE u64 amount (ProofForge promise args) or empty body (amount=0).
+    /// Accepts the portable wasm-near crosscall ABI: a one-element JSON array.
     pub fn receive(&mut self) -> u64 {
         let amount = env::input()
-            .and_then(|b| {
-                if b.len() >= 8 {
-                    Some(u64::from_le_bytes(b[..8].try_into().ok()?))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0);
+            .as_deref()
+            .and_then(parse_amount)
+            .unwrap_or_else(|| env::panic_str("expected JSON args [amount]"));
         self.total = self.total.saturating_add(amount);
         self.hits = self.hits.saturating_add(1);
         amount
@@ -38,5 +33,13 @@ impl Callee {
 
     pub fn hits(&self) -> u64 {
         self.hits
+    }
+}
+
+fn parse_amount(bytes: &[u8]) -> Option<u64> {
+    let args: Vec<u64> = near_sdk::serde_json::from_slice(bytes).ok()?;
+    match args.as_slice() {
+        [amount] => Some(*amount),
+        _ => None,
     }
 }

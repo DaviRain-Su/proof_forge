@@ -5,6 +5,8 @@
 //! Usage (from repo root):
 //!   cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter
 //!   cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter --live
+//!   # Measurement only; normal --live fails closed on incomplete semantics:
+//!   cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter --live --allow-semantic-mismatch
 //!
 //! Env:
 //!   PROOF_FORGE_NEAR_SDK_BUILD=1  — cargo-build the colocated near-sdk wasm
@@ -136,6 +138,8 @@ struct Args {
     build_sdk: bool,
     /// Dual-deploy both wasms on NEAR Sandbox (near-workspaces) and compare.
     live: bool,
+    /// Generate measurement reports even while semantic coverage is incomplete.
+    allow_semantic_mismatch: bool,
 }
 
 impl Args {
@@ -154,6 +158,7 @@ impl Args {
         let mut live = env::var("PROOF_FORGE_NEAR_COMPARE_LIVE")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
+        let mut allow_semantic_mismatch = false;
 
         let mut iter = args.into_iter().peekable();
         while let Some(arg) = iter.next() {
@@ -171,12 +176,17 @@ impl Args {
                 }
                 "--build-sdk" => build_sdk = true,
                 "--live" | "--sandbox" => live = true,
+                "--allow-semantic-mismatch" => allow_semantic_mismatch = true,
                 other if other.starts_with('-') => bail!("unknown flag `{other}`"),
                 other => command.push(other.to_string()),
             }
         }
 
         // Live dual-deploy always needs the near-sdk reference wasm.
+        ensure!(
+            !allow_semantic_mismatch || live,
+            "--allow-semantic-mismatch requires --live"
+        );
         if live {
             build_sdk = true;
         }
@@ -186,6 +196,7 @@ impl Args {
             repeat,
             build_sdk,
             live,
+            allow_semantic_mismatch,
         })
     }
 }
@@ -193,7 +204,7 @@ impl Args {
 fn print_usage() {
     eprintln!(
         "usage: proof-forge-testkit-compare near <contract> \
-         [--build-sdk] [--live] [--repeat N]\n\
+         [--build-sdk] [--live] [--repeat N] [--allow-semantic-mismatch]\n\
          contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
                     storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
@@ -204,6 +215,7 @@ fn print_usage() {
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
          Live report:        build/testkit/compare/near/<contract>/sandbox-report.json\n\
+         `--allow-semantic-mismatch` is measurement-only; normal live runs fail closed.\n\
          Env: PROOF_FORGE_NEAR_SDK_BUILD=1, PROOF_FORGE_NEAR_COMPARE_LIVE=1,\n\
               PROOF_FORGE_NEAR_BENCH_REPEAT"
     );
@@ -355,12 +367,22 @@ fn run_near_counter(repo_root: &Path, args: &Args) -> Result<()> {
             &wasm_path,
             &sdk_wasm_path,
             &sandbox_report,
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -631,12 +653,22 @@ fn run_near_value_vault(repo_root: &Path, args: &Args) -> Result<()> {
             &wasm_path,
             &sdk_wasm_path,
             &sandbox_report,
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -1123,12 +1155,22 @@ fn run_near_compare_generic(
             &wasm_path,
             &sdk_wasm_path,
             &sandbox_report,
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -1806,9 +1848,9 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
 }
 
 fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
-    // Fixed 32-byte account hash (matches scripts/near/target-first-smoke.sh).
+    // sha256("alice.testnet"), matching the offline predecessor/caller hash.
     let account_hash =
-        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        "9a7068ee6434852cdaff3acb2f7d0f002fdad589c8e388b299e8a48a831ca3e4";
     let inputs = format!(",,{account_hash},{account_hash},{account_hash}");
     run_near_compare_generic(
         repo_root,
@@ -1827,9 +1869,9 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
             "storage_withdraw",
         ],
         |repo, wat| {
-            // account hash × deposit/balance/withdraw sequence (see scripts/near/storage-deposit-offline-smoke.sh)
+            // sha256("alice.testnet") × caller-bound deposit/withdraw sequence.
             let account =
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+                "9a7068ee6434852cdaff3acb2f7d0f002fdad589c8e388b299e8a48a831ca3e4";
             let withdraw_amt = "0300000000000000"; // 3u64 LE
             let lifecycle_inputs = format!(
                 ",,{account},{account},{account},{account}{withdraw_amt},{account}"
@@ -2353,12 +2395,22 @@ fn run_near_external_protocol_client(
             &sdk_wasm_path,
             &sandbox_report,
             Some(&peer_wasm_path),
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -3249,12 +3301,22 @@ fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             &sdk_wasm_path,
             &sandbox_report,
             Some(&callee_wasm_path),
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -3504,12 +3566,22 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             &sdk_wasm_path,
             &sandbox_report,
             Some(&callee_wasm_path),
+            args.allow_semantic_mismatch,
         ) {
             Ok(SandboxRun::Passed { report }) => {
                 println!("sandbox dual-deploy: passed (real NEAR gas)");
                 sandbox_section = json!({
                     "requested": true,
                     "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::MeasurementOnly { report }) => {
+                eprintln!("sandbox dual-deploy: measurement-only (semantic gate bypassed)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "measurement_only",
                     "reportPath": rel(repo_root, &sandbox_report),
                     "detail": report,
                 });
@@ -3599,6 +3671,7 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
 
 enum SandboxRun {
     Passed { report: JsonValue },
+    MeasurementOnly { report: JsonValue },
     Skipped { reason: String },
 }
 
@@ -3608,8 +3681,17 @@ fn run_near_sandbox_dual(
     pf_wasm: &Path,
     sdk_wasm: &Path,
     report_path: &Path,
+    allow_semantic_mismatch: bool,
 ) -> Result<SandboxRun> {
-    run_near_sandbox_dual_ext(repo_root, contract, pf_wasm, sdk_wasm, report_path, None)
+    run_near_sandbox_dual_ext(
+        repo_root,
+        contract,
+        pf_wasm,
+        sdk_wasm,
+        report_path,
+        None,
+        allow_semantic_mismatch,
+    )
 }
 
 fn run_near_sandbox_dual_ext(
@@ -3619,6 +3701,7 @@ fn run_near_sandbox_dual_ext(
     sdk_wasm: &Path,
     report_path: &Path,
     callee_wasm: Option<&Path>,
+    allow_semantic_mismatch: bool,
 ) -> Result<SandboxRun> {
     let sandbox_manifest = repo_root.join("testkit/compare/near/sandbox/Cargo.toml");
     ensure!(
@@ -3654,6 +3737,9 @@ fn run_near_sandbox_dual_ext(
     if let Some(c) = callee_wasm {
         cmd.arg("--callee-wasm").arg(c);
     }
+    if allow_semantic_mismatch {
+        cmd.arg("--allow-semantic-mismatch");
+    }
     let output = cmd
         .output()
         .context("failed to spawn pf-near-sandbox-dual")?;
@@ -3686,7 +3772,16 @@ fn run_near_sandbox_dual_ext(
     } else {
         json!({ "status": "passed_no_report_file" })
     };
-    Ok(SandboxRun::Passed { report })
+    if allow_semantic_mismatch
+        && report
+            .pointer("/comparison/semanticMatch")
+            .and_then(JsonValue::as_bool)
+            != Some(true)
+    {
+        Ok(SandboxRun::MeasurementOnly { report })
+    } else {
+        Ok(SandboxRun::Passed { report })
+    }
 }
 
 fn build_proof_forge_near(
@@ -4022,4 +4117,30 @@ fn round3(v: f64) -> f64 {
 
 fn round6(v: f64) -> f64 {
     (v * 1_000_000.0).round() / 1_000_000.0
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn semantic_mismatch_override_is_explicit_and_live_only() {
+        let args = Args::parse([
+            "near".into(),
+            "counter".into(),
+            "--live".into(),
+            "--allow-semantic-mismatch".into(),
+        ])
+        .unwrap();
+        assert!(args.live);
+        assert!(args.allow_semantic_mismatch);
+
+        let error = Args::parse([
+            "near".into(),
+            "counter".into(),
+            "--allow-semantic-mismatch".into(),
+        ])
+        .unwrap_err();
+        assert!(error.to_string().contains("requires --live"));
+    }
 }

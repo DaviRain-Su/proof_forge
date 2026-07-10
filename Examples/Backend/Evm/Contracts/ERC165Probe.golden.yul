@@ -5,12 +5,18 @@ object "ERC165Probe" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if and(calldataload(4), 26959946667150639794667015087019630673637144422540572481103610249215) {
+        revert(0, 0)
+      }
       let _r := f_ERC165Probe_supportsInterface(calldataload(4))
       mstore(0, _r)
       return(0, 32)
     }
     case 0x214cdb80 {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if and(calldataload(4), 26959946667150639794667015087019630673637144422540572481103610249215) {
         revert(0, 0)
       }
       f_ERC165Probe_registerInterface(calldataload(4))
@@ -23,9 +29,9 @@ object "ERC165Probe" {
     default {
       revert(0, 0)
     }
-    function f_ERC165Probe_supportsInterface(interfaceId) -> result {
+    function f_ERC165Probe_supportsInterface(interfaceId) -> __pf_result {
       let registered := sload(__proof_forge_map_slot(0, interfaceId))
-      result := or(eq(interfaceId, shl(224, 33540519)), iszero(eq(registered, 0)))
+      __pf_result := or(eq(interfaceId, shl(224, 33540519)), iszero(eq(registered, 0)))
     }
     function f_ERC165Probe_registerInterface(interfaceId) {
       __proof_forge_map_write(0, interfaceId, 1)

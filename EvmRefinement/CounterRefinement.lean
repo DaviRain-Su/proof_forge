@@ -1,4 +1,6 @@
 import EvmRefinement.PowdrExec
+import EvmRefinement.HexWitness
+import EvmRefinement.CounterRuntime
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Backend.Evm.Refinement
 import ProofForge.Backend.Refinement.CounterUniversal
@@ -13,7 +15,11 @@ using the real powdr `AccountMap`/`Storage` model under the opt-in
 `EvmRefinement` target.
 -/
 
-namespace ProofForge.Backend.Evm.CounterRefinement
+/-! The original hand-expanded witness is retained under an explicit legacy
+namespace. It proves the pre-Solidity-layout runtime that packed `count` into
+the high 64 bits; canonical definitions for the current low-order layout follow
+after this namespace. -/
+namespace ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked
 
 open ProofForge.IR
 open ProofForge.IR.Semantics
@@ -13352,5 +13358,306 @@ theorem evmCompiledPowdr_fragment_refines_all
     funext fun s => funext fun c => moduleIrStep_eq_irStep_of_isCounterModule hm c s
   rw [hfun]
   exact counterPowdr_trace_simulates_from_obligations counterCompiledPowdrConfig obligations calls hrel
+
+end ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked
+
+namespace ProofForge.Backend.Evm.CounterRefinement
+
+open ProofForge.IR
+open ProofForge.IR.Semantics
+open ProofForge.Backend.Refinement
+open ProofForge.Backend.Refinement.CounterUniversal
+open ProofForge.Backend.Refinement.ConstructorCoverage
+
+abbrev IRState := ProofForge.IR.Semantics.State
+abbrev EvmState := ProofForge.Backend.Evm.PowdrAdapter.State
+abbrev CounterCall := ProofForge.Backend.Refinement.CounterUniversal.CounterCall
+abbrev counterIRStep := ProofForge.Backend.Refinement.CounterUniversal.irStep
+
+def counterCountSlotNat : Nat := 0
+
+theorem counter_count_slot_from_layout :
+    ProofForge.Backend.Evm.Plan.stateSlot?
+      ProofForge.IR.Examples.Counter.module "count" = some counterCountSlotNat := by
+  native_decide
+
+def counterCountSlot : EvmSemantics.UInt256 :=
+  EvmSemantics.UInt256.ofNat counterCountSlotNat
+
+def counterU64Modulus : Nat := 2 ^ 64
+
+def counterHighPaddingModulus : Nat := 2 ^ 192
+
+/-! `byteOffset = 0` follows Solidity storage layout: the first packed field
+occupies the least-significant bytes of its slot. -/
+def counterPackedCountNat (count : Nat) : Nat := count
+
+def counterPackedCountValue (count : Nat) : EvmSemantics.UInt256 :=
+  EvmSemantics.UInt256.ofNat (counterPackedCountNat count)
+
+/-- `padding` is the neighboring high-order 192-bit payload. -/
+def counterPaddedCountValue (count padding : Nat) : EvmSemantics.UInt256 :=
+  EvmSemantics.UInt256.ofNat
+    (counterPackedCountNat count + padding * counterU64Modulus)
+
+def counterHighPaddingNat (word : EvmSemantics.UInt256) : Nat :=
+  word.toNat / counterU64Modulus
+
+/-- Initializing `count` clears only its low 64 bits. -/
+def counterInitializeStorageWord (word : EvmSemantics.UInt256) :
+    EvmSemantics.UInt256 :=
+  counterPaddedCountValue 0 (counterHighPaddingNat word)
+
+def CounterStorageWordRel (word : EvmSemantics.UInt256) (count : Nat) : Prop :=
+  ∃ padding,
+    padding < counterHighPaddingModulus ∧
+    word = counterPaddedCountValue count padding
+
+theorem counterStorageWordRel_packed (count : Nat) :
+    CounterStorageWordRel (counterPackedCountValue count) count := by
+  refine ⟨0, ?_, ?_⟩
+  · native_decide
+  · simp [counterPackedCountValue, counterPaddedCountValue,
+      counterPackedCountNat]
+
+theorem counterStorageWordRel_padded {count padding : Nat}
+    (hpadding : padding < counterHighPaddingModulus) :
+    CounterStorageWordRel (counterPaddedCountValue count padding) count :=
+  ⟨padding, hpadding, rfl⟩
+
+theorem counterHighPaddingNat_lt (word : EvmSemantics.UInt256) :
+    counterHighPaddingNat word < counterHighPaddingModulus := by
+  unfold counterHighPaddingNat counterU64Modulus counterHighPaddingModulus
+  rw [Nat.div_lt_iff_lt_mul (by native_decide)]
+  exact word.val.isLt
+
+theorem counterInitializeStorageWord_rel_zero (word : EvmSemantics.UInt256) :
+    CounterStorageWordRel (counterInitializeStorageWord word) 0 := by
+  unfold counterInitializeStorageWord
+  exact counterStorageWordRel_padded (counterHighPaddingNat_lt word)
+
+abbrev counterContractAddress := LegacyHighPacked.counterContractAddress
+abbrev counterAccount := LegacyHighPacked.counterAccount
+abbrev counterStorageValue := LegacyHighPacked.counterStorageValue
+
+def setCounterStorage (address : EvmSemantics.AccountAddress)
+    (slot : EvmSemantics.UInt256) (state : EvmState) (value : Nat) : EvmState :=
+  let account := state.accountMap address
+  let storage := account.storage.set slot (counterPackedCountValue value)
+  { state with
+    accountMap := state.accountMap.set address { account with storage := storage } }
+
+def setCounterStorageWord (address : EvmSemantics.AccountAddress)
+    (slot : EvmSemantics.UInt256) (state : EvmState)
+    (word : EvmSemantics.UInt256) : EvmState :=
+  let account := state.accountMap address
+  let storage := account.storage.set slot word
+  { state with
+    accountMap := state.accountMap.set address { account with storage := storage } }
+
+def irCounterCount? (state : IRState) : Option Nat :=
+  match state.read "count" with
+  | some (.u64 count) => some count
+  | _ => none
+
+def CounterStorageRelAt (address : EvmSemantics.AccountAddress)
+    (slot : EvmSemantics.UInt256) (irState : IRState) (evmState : EvmState) : Prop :=
+  ∃ count,
+    irCounterCount? irState = some count ∧
+    count < counterU64Modulus ∧
+    CounterStorageWordRel (counterStorageValue address slot evmState) count
+
+def CounterStorageRel : IRState → EvmState → Prop :=
+  CounterStorageRelAt counterContractAddress counterCountSlot
+
+abbrev counterCallSelector := LegacyHighPacked.counterCallSelector
+abbrev counterCallCalldata := LegacyHighPacked.counterCallCalldata
+
+/-! Current CLI-emitted Counter runtime, pinned to solc 0.8.30 (the CI
+toolchain). Its storage reads use `SHR 0`; writes mask the value before `SHL 0`
+and preserve the upper 192 bits. -/
+def counterCompiledRuntimeHex : String :=
+  EvmRefinement.CounterRuntime.hex
+
+def counterCompiledRuntimeCode : ByteArray :=
+  (EvmRefinement.HexWitness.decodeHex? counterCompiledRuntimeHex).getD
+    (ByteArray.mk #[])
+
+theorem counterCompiledRuntimeHex_decodes :
+    EvmRefinement.HexWitness.decodeHex? counterCompiledRuntimeHex =
+      some counterCompiledRuntimeCode := by
+  native_decide
+
+theorem counterCompiledRuntimeCode_size :
+    counterCompiledRuntimeCode.size = 262 := by
+  native_decide
+
+theorem counterCompiledRuntimeCode_reads_count_from_low_64_bits :
+    LegacyHighPacked.byteArrayHasSliceAt counterCompiledRuntimeCode
+      (ByteArray.mk #[
+        0x60, 0x01, 0x80, 0x60, 0x40, 0x1b, 0x03, 0x5f, 0x54, 0x5f, 0x1c,
+        0x16, 0x90, 0x56]) 206 = true := by
+  native_decide
+
+theorem counterCompiledRuntimeCode_checks_u64_narrowing :
+    LegacyHighPacked.byteArrayHasSliceAt counterCompiledRuntimeCode
+      (ByteArray.mk #[
+        0x5b, 0x90, 0x81, 0x11, 0x60, 0xe5, 0x57, 0x90, 0x56, 0x5b, 0x5f,
+        0x80, 0xfd]) 220 = true := by
+  native_decide
+
+theorem counterCompiledRuntimeCode_checks_increment_addition :
+    LegacyHighPacked.byteArrayHasSliceAt counterCompiledRuntimeCode
+      (ByteArray.mk #[
+        0x5b, 0x81, 0x5f, 0x19, 0x03, 0x81, 0x11, 0x60, 0xf6, 0x57, 0x01,
+        0x90, 0x56, 0x5b, 0x5f, 0x80, 0xfd]) 233 = true := by
+  native_decide
+
+abbrev PowdrCounterConfig := LegacyHighPacked.PowdrCounterConfig
+
+def counterCompiledRuntimeFuel : Nat := 5000
+
+def counterCompiledPowdrConfig : PowdrCounterConfig := {
+  runtimeCode := counterCompiledRuntimeCode
+  fuel := counterCompiledRuntimeFuel
+}
+
+def counterBaseEvmState : EvmState :=
+  let base := LegacyHighPacked.counterBaseEvmState
+  { base with
+    executionEnv := { base.executionEnv with code := counterCompiledRuntimeCode } }
+
+abbrev counterPowdrPreparedTraceStep := LegacyHighPacked.counterPowdrPreparedTraceStep
+abbrev counterPowdrTraceStep := LegacyHighPacked.counterPowdrTraceStep
+abbrev counterPowdrRunTrace := LegacyHighPacked.counterPowdrRunTrace
+abbrev counterPowdrStepReturns := LegacyHighPacked.counterPowdrStepReturns
+abbrev counterPowdrTraceReturns := LegacyHighPacked.counterPowdrTraceReturns
+
+theorem counterCompiledPowdr_initialize_executable_smoke :
+    counterPowdrStepReturns counterCompiledPowdrConfig counterBaseEvmState
+      .initialize .none = true := by
+  native_decide
+
+theorem counterCompiledPowdr_get_zero_executable_smoke :
+    counterPowdrStepReturns counterCompiledPowdrConfig counterBaseEvmState
+      .get (.u64 0) = true := by
+  native_decide
+
+theorem counterCompiledPowdr_get_packed_seven_executable_smoke :
+    counterPowdrStepReturns counterCompiledPowdrConfig
+      (setCounterStorage counterContractAddress counterCountSlot counterBaseEvmState 7)
+      .get (.u64 7) = true := by
+  native_decide
+
+theorem counterCompiledPowdr_get_padded_seven_executable_smoke :
+    counterPowdrStepReturns counterCompiledPowdrConfig
+      (setCounterStorageWord counterContractAddress counterCountSlot counterBaseEvmState
+        (counterPaddedCountValue 7 123))
+      .get (.u64 7) = true := by
+  native_decide
+
+def counterCompiledPowdrIncrementPreservesHighPadding : Bool :=
+  match counterPowdrRunTrace counterCompiledPowdrConfig [.increment, .get]
+      (setCounterStorageWord counterContractAddress counterCountSlot counterBaseEvmState
+        (counterPaddedCountValue 7 123)) with
+  | .ok (finalState, observables) =>
+      observables == #[.none, .u64 8] &&
+      counterStorageValue counterContractAddress counterCountSlot finalState ==
+        counterPaddedCountValue 8 123
+  | .error _ => false
+
+theorem counterCompiledPowdr_increment_preserves_high_padding :
+    counterCompiledPowdrIncrementPreservesHighPadding = true := by
+  native_decide
+
+def counterCompiledPowdrInitializePreservesHighPadding : Bool :=
+  match counterPowdrRunTrace counterCompiledPowdrConfig [.initialize, .get]
+      (setCounterStorageWord counterContractAddress counterCountSlot counterBaseEvmState
+        (counterPaddedCountValue 7 123)) with
+  | .ok (finalState, observables) =>
+      observables == #[.none, .u64 0] &&
+      counterStorageValue counterContractAddress counterCountSlot finalState ==
+        counterPaddedCountValue 0 123
+  | .error _ => false
+
+theorem counterCompiledPowdr_initialize_preserves_high_padding :
+    counterCompiledPowdrInitializePreservesHighPadding = true := by
+  native_decide
+
+theorem counterCompiledPowdr_initialize_increment_get_executable_smoke :
+    counterPowdrTraceReturns counterCompiledPowdrConfig
+      [.initialize, .increment, .get] counterBaseEvmState
+      #[.none, .none, .u64 1] = true := by
+  native_decide
+
+def counterCompiledPowdrExecutableTraceOk (obligation : TraceObligation) : Bool :=
+  LegacyHighPacked.counterPowdrExecutableTraceOk
+    counterCompiledPowdrConfig counterBaseEvmState obligation
+
+def counterCompiledPowdrTargetSemantics : TargetSemantics :=
+  { LegacyHighPacked.counterPowdrTargetSemantics counterCompiledPowdrConfig with
+    executableTraceOk := counterCompiledPowdrExecutableTraceOk
+    irStateRel := CounterStorageRel
+    initialMachineState := fun _ => none
+    initialRelHolds := by
+      intros _ _ h
+      simp at h }
+
+def counterCompiledPowdrTraceObligation : TraceObligation :=
+  LegacyHighPacked.counterCompiledPowdrTraceObligation
+
+theorem counterCompiledPowdr_executable_trace_ok :
+    counterCompiledPowdrTargetSemantics.executableTraceOk
+      counterCompiledPowdrTraceObligation = true := by
+  native_decide
+
+theorem counterCompiledPowdr_ir_and_target_trace_match :
+    ProofForge.Backend.Evm.Refinement.irTraceOk
+        counterCompiledPowdrTraceObligation = true ∧
+      counterCompiledPowdrExecutableTraceOk
+        counterCompiledPowdrTraceObligation = true := by
+  native_decide
+
+structure CounterCompiledPowdrEntrypointObligations where
+  step_simulates :
+    ∀ (call : CounterCall) {irState : IRState} {evmState : EvmState},
+      CounterStorageRel irState evmState →
+      ∃ nextIr nextEvm observable,
+        counterIRStep irState call = .ok (nextIr, observable) ∧
+        counterPowdrTraceStep counterCompiledPowdrConfig evmState call =
+          .ok (nextEvm, observable) ∧
+        CounterStorageRel nextIr nextEvm
+
+/-! The universal cap remains assumption-explicit: concrete powdr execution is
+pinned above, while full per-entrypoint preservation is supplied as an
+obligation until the compiler-independent automation layer exists. -/
+theorem evmCompiledPowdr_fragment_refines_all
+    (m : Module) (hm : isCounterModule m = true)
+    (_hcovered : moduleInCoveredFragment m = true)
+    (obligations : CounterCompiledPowdrEntrypointObligations)
+    (calls : List CounterCall) {irState : IRState} {evmState : EvmState}
+    (hrel : CounterStorageRel irState evmState) :
+    ∃ finalIr finalEvm observables,
+      ProofForge.IR.StepSemantics.runTraceListGen (moduleIrStep m) calls irState =
+        .ok (finalIr, observables) ∧
+      ProofForge.IR.StepSemantics.runTraceListGen
+          (counterPowdrTraceStep counterCompiledPowdrConfig) calls evmState =
+        .ok (finalEvm, observables) ∧
+      CounterStorageRel finalIr finalEvm ∧
+      ProofForge.IR.StepSemantics.IRTraceMatches
+        (moduleIrStep m) irState calls observables ∧
+      ProofForge.IR.StepSemantics.IRTraceMatches
+        (counterPowdrTraceStep counterCompiledPowdrConfig)
+        evmState calls observables := by
+  have hfun : moduleIrStep m = irStep :=
+    funext fun state => funext fun call =>
+      moduleIrStep_eq_irStep_of_isCounterModule hm call state
+  rw [hfun]
+  exact ProofForge.Backend.Refinement.traceSimulation_lift
+    counterIRStep (counterPowdrTraceStep counterCompiledPowdrConfig)
+    CounterStorageRel
+    (fun call {_irState} {_targetState} related =>
+      obligations.step_simulates call related)
+    calls hrel
 
 end ProofForge.Backend.Evm.CounterRefinement

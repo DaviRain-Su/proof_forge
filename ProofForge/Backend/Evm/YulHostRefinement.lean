@@ -38,30 +38,14 @@ open ProofForge.Backend.Refinement
     executableStepSimulationOk TraceCall ObservableReturn)
 open ProofForge.Backend.Refinement.CounterUniversal
 open ProofForge.Backend.Evm.Refinement
+open ProofForge.Backend.Evm.Plan
 
-/-- High-64 packing of `U64` into a 256-bit storage word. -/
-def counterU64StorageShift : Nat := 2 ^ 192
-
-def countFromStorageWord (word : Nat) : Nat :=
-  word / counterU64StorageShift
-
-/-- Extract a packed unsigned integer from a 256-bit EVM storage word.
-`byteOffset` and `byteWidth` follow the layout produced by
-`ProofForge.Backend.Evm.Plan.storageLayout` and the packing used by
-`scalarStoragePackedReadExpr`. -/
-def packedU64FromWord (word : Nat) (byteOffset byteWidth : Nat) : Nat :=
-  let shiftBits := (32 - (byteOffset + byteWidth)) * 8
-  (word / 2 ^ shiftBits) % 2 ^ (byteWidth * 8)
-
-/-- IR `count` ↔ Yul storage slot 0 high-64 bits. -/
-def counterYulSimulationRel
-    (irState : ProofForge.IR.Semantics.State)
-    (machine : EvmYulMachineState) : Bool :=
-  let word := ProofForge.Backend.Evm.YulSemantics.lookupWord 0 machine.storage
-  match irState.read "count" with
-  | some (.u64 c) => countFromStorageWord word == c
-  | none => word == 0
-  | _ => false
+/-- Compatibility aliases for the canonical relation carried by
+`evmYulTargetSemantics`. -/
+abbrev packedU64FromWord := ProofForge.Backend.Evm.Refinement.packedU64FromWord
+abbrev packedStateValue? := ProofForge.Backend.Evm.Refinement.packedStateValue?
+abbrev counterYulSimulationRel :=
+  ProofForge.Backend.Evm.Refinement.counterYulSimulationRel
 
 def counterYulInitial (object : Lean.Compiler.Yul.Object) : EvmYulMachineState :=
   { object, storage := [] }
@@ -196,19 +180,17 @@ def valueVaultYulInitial (object : Lean.Compiler.Yul.Object) : EvmYulMachineStat
 def valueVaultYulSimulationRel
     (irState : ProofForge.IR.Semantics.State)
     (machine : EvmYulMachineState) : Bool :=
-  let word0 := ProofForge.Backend.Evm.YulSemantics.lookupWord 0 machine.storage
-  let word1 := ProofForge.Backend.Evm.YulSemantics.lookupWord 1 machine.storage
-  let fieldOk name slotWord byteOffset byteWidth : Bool :=
-    match irState.read name with
-    | some (.u64 c) => packedU64FromWord slotWord byteOffset byteWidth == c
-    | none => packedU64FromWord slotWord byteOffset byteWidth == 0
-    | _ => false
-  fieldOk "balance" word0 0 8 &&
-  fieldOk "released" word0 8 8 &&
-  fieldOk "fees" word0 16 8 &&
-  fieldOk "last_value" word0 24 8 &&
-  fieldOk "last_checkpoint" word1 0 8 &&
-  fieldOk "operations" word1 8 8
+  let fieldOk name : Bool :=
+    match irState.read name, packedStateValue? valueVaultEvmModule machine.storage name with
+    | some (.u64 c), some packed => packed == c
+    | none, some packed => packed == 0
+    | _, _ => false
+  fieldOk "balance" &&
+  fieldOk "released" &&
+  fieldOk "fees" &&
+  fieldOk "last_value" &&
+  fieldOk "last_checkpoint" &&
+  fieldOk "operations"
 
 def valueVaultYulTraceOk : Bool :=
   match ProofForge.Backend.Evm.IR.lowerModule valueVaultEvmModule with

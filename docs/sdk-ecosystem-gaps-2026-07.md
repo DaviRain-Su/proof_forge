@@ -3,11 +3,11 @@
 Status: **Living gap inventory; EVM receiver/selector MVP closed under PF-P2-02
 (2026-07). Last inventory pass: 2026-07-10.**
 
-Gate P0 is closed — the three primary chains have production-grade
-compilers, artifact emission, deploy manifests, testkit parity, and
-resource budgets. But "production-grade compiler" ≠ "any contract can
-be written and deployed." This page records the SDK / ecosystem feature
-gaps that block the goal of full developer coverage on each chain.
+Gate P0 is closed: the three primary chains have scoped compiler, artifact,
+deploy-manifest, testkit, and resource-budget gates for documented fragments.
+They remain `experimental`; P0 is not a proof of universal compiler correctness
+or production readiness. This page records the SDK / ecosystem feature gaps
+that block the goal of broad developer coverage on each chain.
 
 Each section is ordered by priority (P0 = blocks "any contract", P1 =
 blocks common patterns, P2 = polish / broader coverage).
@@ -46,11 +46,11 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| UUPS proxy | Covered (E1.4) | `Stdlib/UUPSProxy` + `UUPSUpgradeable` (ERC-1967 + delegatecall); product EVM build runs `resolveSpec` upgrade honesty before codegen. **Allowed:** `authority` + `proxy_pattern uups` (Foundry `testUUPSProxyUpgradeLifecycle`). **Fail-closed:** authority without proxy, transparent proxy, governance (`just evm-upgrade-policy-honesty`, `Tests/UpgradePolicy.lean`). Transparent proxy still not lowered | — |
+| UUPS proxy | Partial (backend transport spike, E1.4) | `Stdlib/UUPSProxy` + `UUPSUpgradeable` exercise ERC-1967 delegatecall transport. Proxy deployment atomically binds full-width `implementation` and `admin`, rejects zero addresses and implementations without runtime code, and exposes no runtime entrypoint. `upgradeTo` evaluates its candidate once and rejects EOAs and proxy self; `just evm-uups-atomic-init` covers attacker-first calls, constructor/runtime EOA rejection, self rejection, full-width admin authorization, upgrade, and storage preservation. Product EVM builds still reject every `authority` policy, including `proxy_pattern uups`, because `keyRef` remains metadata rather than the constructor-bound runtime authority (`just evm-upgrade-policy-honesty`, `Tests/UpgradePolicy.lean`). The spike does not call `proxiableUUID`, so code-bearing but incompatible implementations can still brick the proxy; implementations must also be valid at zero state because arbitrary initializer delegatecall remains unsupported. Transparent proxy and governance remain unsupported | P1: bind declared `keyRef` to constructor authority, validate UUPS compatibility, and add atomic initializer calldata |
 | Transparent proxy | Missing | Same rejection | P1 |
 | Beacon proxy | Missing | Same rejection | P2 |
 | Diamonds (EIP-2535) | Missing | No facet/loupe storage pattern | P2 |
-| CREATE2 factory | Covered (limited, E1.5) | `Stdlib/Create2Factory` + IR `create2` + Foundry `testCreate2FactoryProbeLifecycle` / `crosscall-ir-smoke` create2. **Explicit defer:** multi-template factories, salt registries, CREATE3 | P2 |
+| CREATE2 factory | Covered (limited, E1.5) | `Stdlib/Create2Factory` + IR `create2`; `deploy(bytes32)` returns ABI `address`, emits `Deployed(address,bytes32)`, and Foundry verifies the deterministic address, event, and deployed runtime. **Explicit defer:** multi-template factories, salt registries, CREATE3 | P2 |
 
 ### DeFi primitives
 
@@ -66,12 +66,12 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Custom errors (0.8.4+) | Covered (static args) | IR `revertWithError` + Solidity custom-error selector surface; **E1.1** static ABI words via `ErrorRef.solidityArgWords` / `solidityArgTypes` (e.g. `InsufficientBalance(uint64,uint64)` → selector+2 words); `scripts/evm/errors-ir-smoke.sh` `test_revertCustomError_selector` + `test_revertCustomErrorArgs_selector_and_words`; client/metadata expose selector + arg types/words. **Limitation:** dynamic custom-error args (`string`/`bytes`/arrays) and runtime-computed arg values remain open | P1 remain: dynamic args |
+| Custom errors (0.8.4+) | Partial (validated static scalar subset) | **E1.1 static slice:** `ErrorRef.solidityArgWords` + `solidityArgTypes` lower selector + ABI words for `uint8/32/64/128/256`, `bool`, `address`, and `bytes32`. EVM validation rejects malformed selectors, arity/type/range mismatches, and unsupported types. `scripts/evm/errors-ir-smoke.sh` checks a `uint64` value above JS safe-integer range; ContractSpec/client expose schema only, while `scripts/ts/evm-contract-client-smoke.sh` type-checks and executes payload decoding. **Limitation:** the fields are still a transitional EVM annotation on portable `ErrorRef`; typed runtime expression args remain P0. Signed integers, other uint widths, `bytes1..31`, arrays/tuples, dynamic args, and standard ABI `error` entries remain unsupported | P0 remain: typed runtime args through EVM Plan; P1: broader static/dynamic shapes and standard ABI entries |
 | Structured events | Covered | Named events, indexed topics, aggregate data — all lowered | — |
 | Constructor args | Covered | CLI ABI-encodes static words and dynamic types (`string`/`bytes`/`uint256[]`, CS-3.4) into the initcode tail; deploy manifest records the schema; `DynamicConstructorProbe` exercises `cstring`/`cbytes`/`u256array` with `evmConstructorInitBindings`; deploy-object initcode reads the tail via `codesize()-argsSize` and binds storage at deploy time; Foundry (`foundry-smoke.sh`) and Anvil (`dynamic-constructor-anvil-smoke.sh`) positive smokes | — |
-| Storage packing | Covered (D-051) | EVM consecutive small-scalar packing in `Plan/Storage.lean` (`byteOffset`/`byteWidth` on packable scalars; mask/shift sload/sstore). Evidence: `scripts/evm/packed-storage-ir-smoke.sh` (Foundry 6/6) + `storageLayout` in deploy/artifact metadata. Hash/map/array/struct remain full-slot. NEAR/WasmHost uses separate `__pf_pack_*` key packing | — |
-| Batch operations | Partial | ERC-1155 size-2 batch + `onERC1155BatchReceived` (E1.2 Foundry accept/reject). Multicall3 peer packing exists as ABI helper; general multicall product body and arbitrary-length ERC-1155 batch remain open | P1 |
-| Factory deployment | Partial | Foundry deploys init code; no reusable factory contract | P1 |
+| Storage packing | Covered (D-051) | EVM consecutive small-scalar packing in `Plan/Storage.lean` uses Solidity low-order offsets. Runtime/constructor writes mask field width; checked direct writes and compound assignments reject narrow overflow, while wrapping writes truncate without corrupting neighbors. Evidence: `Tests/Backend/Evm/EvmPackedStorage.lean`, `scripts/evm/packed-storage-ir-smoke.sh`, and `storageLayout` metadata. Hash/map/array/struct remain full-slot; NEAR/WasmHost uses separate `__pf_pack_*` key packing | — |
+| Batch operations | Partial | ERC-1155 size-2 batch + `onERC1155BatchReceived` (E1.2); Foundry verifies exact operator/from/id/amount/empty-data callback values and atomic balance rollback on rejection. The current event surface rejects dynamic-array fields, so standard `TransferBatch` and arbitrary-length batch ABI remain open. Multicall3 peer packing exists as an ABI helper; a general multicall product body remains open | P1 |
+| Factory deployment | Covered (limited, E1.5) | `Stdlib/Create2Factory` is the reusable fixed-template factory path; ABI/metadata use `address`, and Foundry covers deterministic lifecycle plus `Deployed(address,bytes32)`. Multi-template registries, salt bookkeeping, and CREATE3 remain explicitly deferred | P2 |
 
 ---
 
@@ -152,7 +152,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | `ValueVault.lean` | contract_source | OK | multi-entrypoint; multi-i64 params present in WAT |
 | `Ownable.lean` / policies | contract_source | OK | caller/auth portable path |
 | `ArrayExample.lean` | contract_source | OK | fixed array ops |
-| `RemoteCall.lean` | contract_source | OK | Promise encoding in WAT; peer runtime still N1.4 |
+| `RemoteCall.lean` | contract_source | OK | Promise encoding in WAT; standalone offline peer returns 49, testkit peer integration still N1.4 |
 | `StakingVault.lean` | contract_source | OK | `nativeValue` path |
 | `RoleGatedToken.lean` | contract_source | OK | maps + multi-param entries |
 | `EscrowVault.lean` (+ other NEAR-compare vaults) | contract_source | OK | product compile |
@@ -182,8 +182,8 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| NEP-141 (fungible token) | Partial (N1.3) | `just product-token-near`: TokenSpec plan + body WAT + offline mint/transfer lifecycle; `just wasm-near-ft-transfer-call-e2e` for transfer_call/resolve; bare TokenSpec `build` needs `--token` | P1 remain: NEP-148 JSON metadata objects, live sandbox dual-deploy optional |
-| NEP-145 (storage management) | Partial (N1.5) | Product `storage_deposit` + **`storage_withdraw`**; `just near-storage-deposit-offline` (7→4); near-compare storage-deposit green | P1 remain: JSON `StorageBalance` objects, full unregister/refund to predecessor |
+| NEP-141 (fungible token) | Partial (N1.3) | `just product-token-near`: Product TokenSpec plan + generic stdlib body WAT + Backend-wrapper offline mint/transfer conformance; these are not yet one parameterized Product runtime artifact. `just wasm-near-ft-transfer-call-e2e` covers transfer_call/resolve; bare TokenSpec `build` needs `--token` | P0 remain: TokenSpec → parameterized runtime artifact; P1: NEP-148 metadata, optional live sandbox dual deploy |
+| NEP-145 (storage management) | Partial (N1.5) | Product `storage_deposit` plus caller-bound `storage_withdraw` **ledger debit**; `just near-storage-deposit-offline` checks 7→4 and rejects cross-account debit; sandbox compare runs the same projected balance sequence | P0 remain: 1-yocto guard and predecessor refund Promise; P1: JSON `StorageBalance`, unregister |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
 | NEP-171 (NFT) | Missing | No NFT example | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
@@ -204,7 +204,8 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 |---|---|---|---|
 | attached_deposit (native value) | Covered | `attached_deposit` host import + `.nativeValue` EmitWat lowering (U64 truncation of U128); `StoragePathWrite` supports nested `mapKey+mapKey` paths | — |
 | balance_of / balance_change | Missing | No balance host APIs | P1 |
-| prepaid_gas / used_gas / GAS_PRICE | Partial (N1.6) | Offline: `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` only (`just near-budget-honesty`); sandbox: `nearGas` via `just near-sandbox-peer`. No in-contract prepaid_gas host API yet | P1 remain: in-contract gas APIs |
+| prepaid_gas / used_gas / GAS_PRICE | Missing | No in-contract host imports or portable IR operations | P1 |
+| Execution budget reporting (N1.6) | Partial | Offline host reports `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` only (`just near-budget-honesty`); sandbox reports real `nearGas` via `just near-sandbox-peer` | P1 remain: required sandbox budget regression bands |
 
 ### Crypto / misc
 
@@ -231,15 +232,15 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 ## Summary: P0 blockers per chain
 
-**EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin + `onERC721Received` PF-P2-02), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0. Remaining P1: arbitrary-length ERC-1155 dynamic batch ABI, custom-error *dynamic* args, full multicall body. (E1.1 static custom-error args + E1.2 size-2 `onERC1155BatchReceived` + E1.3 storage packing D-051 closed.)
+**EVM (1 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin + `onERC721Received` PF-P2-02), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open P0:** typed runtime custom-error args through the EVM target plan. Remaining P1: arbitrary-length ERC-1155 dynamic batch ABI, custom-error dynamic args / standard ABI entries, and full multicall body. E1.2 closes only the fixed size-2 receiver path; D-051 closes storage packing.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
-**NEAR (0 open P0, 6 closed):** Promise API host imports + crosscall stub (closed — P1 for full async), Callback handling (closed — P1 for full dispatch), NEP-141 FT (closed — stdlib mixin), signer_account_id (closed), attached_deposit (closed), Aggregate ABI (closed).
+**NEAR (2 open P0, 4 closed):** **Open:** TokenSpec must produce one parameterized runtime artifact; storage withdrawal still needs the 1-yocto guard and predecessor refund Promise. Promise materialization, signer_account_id, attached_deposit, and aggregate ABI have executable coverage; richer callbacks remain P1.
 
-Total: 0 open P0 blockers across three chains (0 EVM + 0 Solana + 0 NEAR).
-All three primary chains now have zero open P0 blockers. Remaining work is
-P1 feature expansion. PF-P2-02 closed EVM receiver callbacks (`onERC721Received`,
+Total: 3 open P0 blockers across three chains (1 EVM + 0 Solana + 2 NEAR).
+Remaining work includes these product-path P0 gaps plus P1 feature expansion.
+PF-P2-02 closed EVM receiver callbacks (`onERC721Received`,
 `onERC1155Received`), custom-error 4-byte selector surface, and ERC-1155 size-2
 batch MVP; PF-P2-03 closed EVM/Solana/NEAR real peer `call_with_args → 49`
 (`just testkit-remote-call`, `just near-sandbox-peer`).

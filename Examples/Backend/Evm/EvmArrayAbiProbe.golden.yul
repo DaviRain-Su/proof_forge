@@ -17,9 +17,9 @@ object "EvmArrayAbiProbe" {
         mstore(__pf_dyn_ptr_xs, calldataload(add(4, calldataload(4))))
         calldatacopy(add(__pf_dyn_ptr_xs, 32), add(add(4, calldataload(4)), 32), mul(calldataload(add(4, calldataload(4))), 32))
         mstore(64, add(__pf_dyn_ptr_xs, add(mul(calldataload(add(4, calldataload(4))), 32), 32)))
-        let xs__length := calldataload(add(4, calldataload(4)))
-        let xs__data_ptr := __pf_dyn_ptr_xs
-        let _r := f_EvmArrayAbiProbe_echo_array(xs__length, xs__data_ptr)
+        let __pf_param_xs_length := calldataload(add(4, calldataload(4)))
+        let __pf_param_xs_data_ptr := __pf_dyn_ptr_xs
+        let _r := f_EvmArrayAbiProbe_echo_array(__pf_param_xs_length, __pf_param_xs_data_ptr)
         let _ret_len := mload(_r)
         let _ret_word_count := _ret_len
         mstore(0, 32)
@@ -47,9 +47,9 @@ object "EvmArrayAbiProbe" {
         mstore(__pf_dyn_ptr_xs, calldataload(add(4, calldataload(4))))
         calldatacopy(add(__pf_dyn_ptr_xs, 32), add(add(4, calldataload(4)), 32), mul(calldataload(add(4, calldataload(4))), 32))
         mstore(64, add(__pf_dyn_ptr_xs, add(mul(calldataload(add(4, calldataload(4))), 32), 32)))
-        let xs__length := calldataload(add(4, calldataload(4)))
-        let xs__data_ptr := __pf_dyn_ptr_xs
-        let _r := f_EvmArrayAbiProbe_sum_array(xs__length, xs__data_ptr)
+        let __pf_param_xs_length := calldataload(add(4, calldataload(4)))
+        let __pf_param_xs_data_ptr := __pf_dyn_ptr_xs
+        let _r := f_EvmArrayAbiProbe_sum_array(__pf_param_xs_length, __pf_param_xs_data_ptr)
         mstore(0, _r)
         return(0, 32)
       }
@@ -57,16 +57,16 @@ object "EvmArrayAbiProbe" {
         revert(0, 0)
       }
     }
-    function f_EvmArrayAbiProbe_echo_array(xs__length, xs__data_ptr) -> result {
-      let xs := xs__data_ptr
-      result := xs__data_ptr
+    function f_EvmArrayAbiProbe_echo_array(__pf_param_xs_length, __pf_param_xs_data_ptr) -> __pf_result {
+      let xs := __pf_param_xs_data_ptr
+      __pf_result := __pf_param_xs_data_ptr
     }
-    function f_EvmArrayAbiProbe_sum_array(xs__length, xs__data_ptr) -> result {
-      let xs := xs__data_ptr
+    function f_EvmArrayAbiProbe_sum_array(__pf_param_xs_length, __pf_param_xs_data_ptr) -> __pf_result {
+      let xs := __pf_param_xs_data_ptr
       if iszero(eq(mload(xs), 3)) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_memory_array_get(xs, 0), __proof_forge_memory_array_get(xs, 1)), __proof_forge_memory_array_get(xs, 2))
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_memory_array_get(xs, 0), __proof_forge_memory_array_get(xs, 1)), __proof_forge_memory_array_get(xs, 2))
     }
     function __proof_forge_memory_array_get(array, index) -> value {
       if iszero(lt(index, mload(array))) {
@@ -87,7 +87,7 @@ object "EvmArrayAbiProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

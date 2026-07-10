@@ -36,6 +36,7 @@ def entryIncrement : Entrypoint := {
 def entryGetValue : Entrypoint := {
   name := "getValue"
   selector? := some "20965255"
+  mutability := .view
   params := #[]
   returns := .u64
   body := #[

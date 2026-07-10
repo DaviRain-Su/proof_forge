@@ -18,7 +18,7 @@ extra tools (see below).
 
 | Surface | Targets |
 |---------|---------|
-| Beta-ready `contract_source` compilers | `evm`, `solana-sbpf-asm`, `wasm-near` |
+| Primary triad `contract_source` compilers (maturity `experimental`) | `evm`, `solana-sbpf-asm`, `wasm-near` |
 | `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `wasm-stellar-soroban`, `move-aptos`, `move-sui`, `psy-dpn`, `aleo-leo` |
 | `proof-forge emit --target …` (fixture whitelist) | above plus `quint` (verification; CLI-only). `wasm-stellar-soroban` uses EmitWat + `HostBridge.soroban` (not a separate codegen core). |
 

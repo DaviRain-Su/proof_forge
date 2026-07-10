@@ -23,7 +23,7 @@ def scalarStorageWriteStatements
       .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[storageSlot, valueExpr])
     ]
   else
-    let shiftBits := (32 - (byteOffset + byteWidth)) * 8
+    let shiftBits := byteOffset * 8
     let mask := (2^(byteWidth * 8 : Nat)) - 1
     let shiftedMask := Lean.Compiler.Yul.builtin "shl" #[
       Lean.Compiler.Yul.Expr.num shiftBits,
@@ -39,7 +39,10 @@ def scalarStorageWriteStatements
           ],
           Lean.Compiler.Yul.builtin "shl" #[
             Lean.Compiler.Yul.Expr.num shiftBits,
-            valueExpr
+            Lean.Compiler.Yul.builtin "and" #[
+              valueExpr,
+              Lean.Compiler.Yul.Expr.num mask
+            ]
           ]
         ]
       ])
@@ -51,7 +54,7 @@ def scalarStoragePackedReadExpr
   if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
     Lean.Compiler.Yul.builtin "sload" #[storageSlot]
   else
-    let shiftBits := (32 - (byteOffset + byteWidth)) * 8
+    let shiftBits := byteOffset * 8
     let mask := (2^(byteWidth * 8 : Nat)) - 1
     Lean.Compiler.Yul.builtin "and" #[
       Lean.Compiler.Yul.builtin "shr" #[
@@ -60,6 +63,34 @@ def scalarStoragePackedReadExpr
       ],
       Lean.Compiler.Yul.Expr.num mask
     ]
+
+def scalarStorageWriteSemanticsStatements
+    (writeSemantics : ScalarStorageWriteSemantics)
+    (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
+    (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
+  if writeSemantics == .checked && byteWidth < 32 then
+    let mask := (2^(byteWidth * 8 : Nat)) - 1
+    let valueName := "__pf_packed_value"
+    let valueRef := Lean.Compiler.Yul.Expr.id valueName
+    #[.block {
+      statements := #[
+        .varDecl #[{ name := valueName }] (some valueExpr),
+        revertIfStatement (Lean.Compiler.Yul.builtin "gt" #[
+          valueRef,
+          Lean.Compiler.Yul.Expr.num mask
+        ])
+      ] ++ scalarStorageWriteStatements storageSlot valueRef byteOffset byteWidth
+    }]
+  else
+    scalarStorageWriteStatements storageSlot valueExpr byteOffset byteWidth
+
+def scalarStorageCheckedWriteStatements
+    (overflowChecked : Bool)
+    (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
+    (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
+  scalarStorageWriteSemanticsStatements
+    (ScalarStorageWriteSemantics.fromOverflowChecked overflowChecked)
+    storageSlot valueExpr byteOffset byteWidth
 
 def scalarStorageTargetReadExpr
     {ε : Type}
@@ -71,14 +102,71 @@ def scalarStorageTargetReadExpr
     target.byteOffset
     target.byteWidth
 
+def isEip1967ImplementationSlot : StorageSlotPlan → Bool
+  | .fixedSlot slotHex =>
+      slotHex == "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+  | .scalarSlot _ | .mapValueSlot _ _ | .mapPresenceSlot _ _
+  | .arraySlot _ _ _ | .structArrayFieldSlot _ _ _ _ _ | .dynamicArraySlot _ _ => false
+
+def guardedImplementationWriteStatements
+    (writeSemantics : ScalarStorageWriteSemantics)
+    (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
+    (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
+  let valueName := "__pf_implementation_candidate"
+  let valueRef := Lean.Compiler.Yul.Expr.id valueName
+  #[.block {
+    statements := #[
+      .varDecl #[{ name := valueName }] (some valueExpr),
+      revertIfStatement (Lean.Compiler.Yul.builtin "gt" #[
+        valueRef,
+        Lean.Compiler.Yul.Expr.num ((2^160 : Nat) - 1)
+      ]),
+      revertIfStatement (Lean.Compiler.Yul.builtin "iszero" #[
+        Lean.Compiler.Yul.builtin "extcodesize" #[valueRef]
+      ]),
+      revertIfStatement (Lean.Compiler.Yul.builtin "eq" #[
+        valueRef,
+        Lean.Compiler.Yul.builtin "address" #[]
+      ])
+    ] ++ scalarStorageWriteSemanticsStatements
+      writeSemantics storageSlot valueRef byteOffset byteWidth
+  }]
+
+def scalarStorageAssignOpSemanticsStatements
+    (writeSemantics : ScalarStorageWriteSemantics)
+    (op : AssignOp)
+    (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
+    (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
+  let overflowChecked := writeSemantics.overflowChecked
+  let packedRead := scalarStoragePackedReadExpr storageSlot byteOffset byteWidth
+  let computedValue :=
+    if byteWidth < 32 then
+      narrowArithExpr overflowChecked op byteWidth packedRead valueExpr
+    else
+      arithExpr overflowChecked op packedRead valueExpr
+  scalarStorageWriteSemanticsStatements
+    writeSemantics storageSlot computedValue byteOffset byteWidth
+
 def scalarStorageAssignOpStatements
     (overflowChecked : Bool)
     (op : AssignOp)
     (storageSlot valueExpr : Lean.Compiler.Yul.Expr)
     (byteOffset byteWidth : Nat) : Array Lean.Compiler.Yul.Statement :=
-  let packedRead := scalarStoragePackedReadExpr storageSlot byteOffset byteWidth
-  let computedValue := arithExpr overflowChecked op packedRead valueExpr
-  scalarStorageWriteStatements storageSlot computedValue byteOffset byteWidth
+  scalarStorageAssignOpSemanticsStatements
+    (ScalarStorageWriteSemantics.fromOverflowChecked overflowChecked)
+    op storageSlot valueExpr byteOffset byteWidth
+
+def scalarStorageValuePlanExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (byteWidth : Nat)
+    (value : ExprPlan) : Except ε Lean.Compiler.Yul.Expr :=
+  if byteWidth < 32 then
+    narrowStorageExprPlanExpr mkError lowerExpr lowerEffect value
+  else
+    exprPlanExpr mkError lowerExpr lowerEffect value
 
 def scalarStorageEffectPlanStatements
     {ε : Type}
@@ -91,13 +179,16 @@ def scalarStorageEffectPlanStatements
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .storageScalarWrite stateId value => do
       let storageSlot ← storageSlotFor stateId
-      let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
       let (byteOffset, byteWidth) ← packingFor stateId
-      .ok <| scalarStorageWriteStatements storageSlot valueExpr byteOffset byteWidth
+      let valueExpr ← scalarStorageValuePlanExpr
+        mkError lowerExpr lowerEffect byteWidth value
+      .ok <| scalarStorageCheckedWriteStatements
+        overflowChecked storageSlot valueExpr byteOffset byteWidth
   | .storageScalarAssignOp stateId op value => do
       let storageSlot ← storageSlotFor stateId
       let (byteOffset, byteWidth) ← packingFor stateId
-      let rhs ← exprPlanExpr mkError lowerExpr lowerEffect value
+      let rhs ← scalarStorageValuePlanExpr
+        mkError lowerExpr lowerEffect byteWidth value
       .ok <| scalarStorageAssignOpStatements overflowChecked op storageSlot rhs byteOffset byteWidth
   | _ =>
       .error (mkError "EVM EffectPlan-to-Yul scalar storage effect lowering expected storageScalarWrite/storageScalarAssignOp")
@@ -118,31 +209,41 @@ def scalarStorageEffectStmtPlanStatements
 
 def scalarStorageTargetEffectPlanStatements
     {ε : Type}
-    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .storageScalarWriteTarget target value => do
       let targetSlot ← storageSlotExpr mkError lowerExpr target.slot
-      let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
-      .ok <| scalarStorageWriteStatements targetSlot valueExpr target.byteOffset target.byteWidth
+      let valueExpr ← scalarStorageValuePlanExpr
+        mkError lowerExpr lowerEffect target.byteWidth value
+      if isEip1967ImplementationSlot target.slot then
+        .ok <| guardedImplementationWriteStatements
+          target.writeSemantics targetSlot valueExpr target.byteOffset target.byteWidth
+      else
+        .ok <| scalarStorageWriteSemanticsStatements
+          target.writeSemantics targetSlot valueExpr target.byteOffset target.byteWidth
   | .storageScalarAssignOpTarget target op value => do
-      let targetSlot ← storageSlotExpr mkError lowerExpr target.slot
-      let valueExpr ← exprPlanExpr mkError lowerExpr lowerEffect value
-      .ok <| scalarStorageAssignOpStatements overflowChecked op targetSlot valueExpr target.byteOffset target.byteWidth
+      if isEip1967ImplementationSlot target.slot then
+        .error (mkError
+          "compound assignment is not allowed for the EIP-1967 implementation state")
+      else
+        let targetSlot ← storageSlotExpr mkError lowerExpr target.slot
+        let valueExpr ← scalarStorageValuePlanExpr
+          mkError lowerExpr lowerEffect target.byteWidth value
+        .ok <| scalarStorageAssignOpSemanticsStatements
+          target.writeSemantics op targetSlot valueExpr target.byteOffset target.byteWidth
   | _ =>
       .error (mkError "EVM EffectPlan-to-Yul planned scalar storage lowering expected storageScalarWriteTarget/storageScalarAssignOpTarget")
 
 def scalarStorageTargetEffectStmtPlanStatements
     {ε : Type}
-    (overflowChecked : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .effect effect =>
-      scalarStorageTargetEffectPlanStatements overflowChecked mkError lowerExpr lowerEffect effect
+      scalarStorageTargetEffectPlanStatements mkError lowerExpr lowerEffect effect
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned scalar storage lowering expected effect")
 
@@ -654,14 +755,14 @@ def storagePathWriteTargetStatements
   | .mapValuePresence valueSlot presenceSlot =>
       #[
         .block { statements := #[
-          .varDecl #[{ name := "_slot" }] (some valueSlot),
-          .varDecl #[{ name := "_presence_slot" }] (some presenceSlot),
+          .varDecl #[{ name := "__pf_storage_slot" }] (some valueSlot),
+          .varDecl #[{ name := "__pf_storage_presence_slot" }] (some presenceSlot),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-            Lean.Compiler.Yul.Expr.id "_slot",
+            Lean.Compiler.Yul.Expr.id "__pf_storage_slot",
             value
           ]),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-            Lean.Compiler.Yul.Expr.id "_presence_slot",
+            Lean.Compiler.Yul.Expr.id "__pf_storage_presence_slot",
             Lean.Compiler.Yul.Expr.num 1
           ])
         ]}
@@ -729,11 +830,11 @@ def storagePathAssignOpTargetStatements
   | .singleSlot slot =>
       #[
         .block { statements := #[
-          .varDecl #[{ name := "_slot" }] (some slot),
+          .varDecl #[{ name := "__pf_storage_slot" }] (some slot),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-            Lean.Compiler.Yul.Expr.id "_slot",
+            Lean.Compiler.Yul.Expr.id "__pf_storage_slot",
             arithExpr overflowChecked op
-              (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"])
+              (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "__pf_storage_slot"])
               value
           ])
         ]}
@@ -741,16 +842,16 @@ def storagePathAssignOpTargetStatements
   | .mapValuePresence valueSlot presenceSlot =>
       #[
         .block { statements := #[
-          .varDecl #[{ name := "_slot" }] (some valueSlot),
-          .varDecl #[{ name := "_presence_slot" }] (some presenceSlot),
+          .varDecl #[{ name := "__pf_storage_slot" }] (some valueSlot),
+          .varDecl #[{ name := "__pf_storage_presence_slot" }] (some presenceSlot),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-            Lean.Compiler.Yul.Expr.id "_slot",
+            Lean.Compiler.Yul.Expr.id "__pf_storage_slot",
             arithExpr overflowChecked op
-              (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "_slot"])
+              (Lean.Compiler.Yul.builtin "sload" #[Lean.Compiler.Yul.Expr.id "__pf_storage_slot"])
               value
           ]),
           .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[
-            Lean.Compiler.Yul.Expr.id "_presence_slot",
+            Lean.Compiler.Yul.Expr.id "__pf_storage_presence_slot",
             Lean.Compiler.Yul.Expr.num 1
           ])
         ]}

@@ -4,9 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${PF_POWDR_COUNTER_OUT:-$ROOT/build/evm-powdr}"
 PROOF_FORGE_BIN="${PROOF_FORGE_BIN:-$ROOT/.lake/build/bin/proof-forge}"
+SOLC_BIN="${PF_POWDR_SOLC:-${SOLC:-solc}}"
 
-EXPECTED_HEX="5f3560e01c80638129fc1c14603c578063d09de08a14603257636d4ce63c146025575f80fd5b602b6087565b5f5260205ff35b6038605d565b5f80f35b60426046565b5f80f35b5f60c01b60018060401b0360c01b195f5416175f55565b60716001808060401b035f5460c01c166097565b60c01b60018060401b0360c01b195f5416175f55565b60018060401b035f5460c01c1690565b815f1903811160a4570190565b5f80fda164736f6c6343000822000a"
-EXPECTED_SHA256="4dba513cc8be1afa39ebf83ce9d042c7db0491bb046ceccd3f126dc9754ed8eb"
+EXPECTED_HEX="$(
+  cd "$ROOT"
+  lake build EvmRefinement.CounterRuntime >/dev/null
+  lake env lean --run scripts/evm/print-counter-runtime-witness.lean
+)"
+EXPECTED_SHA256="$(python3 - "$EXPECTED_HEX" <<'PY'
+import hashlib
+import sys
+print(hashlib.sha256(bytes.fromhex(sys.argv[1])).hexdigest())
+PY
+)"
 
 mkdir -p "$OUT_DIR"
 
@@ -16,7 +26,19 @@ if [[ ! -x "$PROOF_FORGE_BIN" ]]; then
   exit 1
 fi
 
+if ! solc_version="$("$SOLC_BIN" --version 2>/dev/null)"; then
+  echo "solc 0.8.30 not available: $SOLC_BIN" >&2
+  exit 1
+fi
+if ! grep -q 'Version: 0\.8\.30' <<<"$solc_version"; then
+  echo "powdr Counter witness requires solc 0.8.30, got:" >&2
+  echo "$solc_version" >&2
+  echo "set PF_POWDR_SOLC to a solc 0.8.30 binary" >&2
+  exit 1
+fi
+
 "$PROOF_FORGE_BIN" emit --target evm --fixture counter --format bytecode \
+  --solc "$SOLC_BIN" \
   --yul-output "$OUT_DIR/Counter.yul" \
   --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json" \
   -o "$OUT_DIR/Counter.bin" >/dev/null

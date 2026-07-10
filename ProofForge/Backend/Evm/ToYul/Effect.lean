@@ -214,37 +214,57 @@ def storagePathReadExprFromExprPlan
     (slot : StorageSlotExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
   .ok (Lean.Compiler.Yul.builtin "sload" #[← storageSlotExprPlan mkError lowerPlanExpr slot])
 
-partial def exprPlanExpr
+partial def exprPlanExprWithArithmeticWidths
     {ε : Type}
+    (useNarrowArithmetic : Bool)
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
-    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
-    ExprPlan → Except ε Lean.Compiler.Yul.Expr
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
+    (plan : ExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
+  let lowerPlan :=
+    exprPlanExprWithArithmeticWidths useNarrowArithmetic mkError lowerExpr lowerEffect
+  match plan with
   | .literalWord value => .ok (Lean.Compiler.Yul.Expr.num value)
   | .local name => .ok (Lean.Compiler.Yul.Expr.id name)
   | .calldataWord paramIndex => .ok (calldataWordExpr paramIndex)
   | .storageLoad slot => do
       .ok (Lean.Compiler.Yul.builtin "sload" #[← storageSlotExpr mkError lowerExpr slot])
   | .builtin name args => do
-      .ok (Lean.Compiler.Yul.builtin name (← args.mapM (exprPlanExpr mkError lowerExpr lowerEffect)))
+      .ok (Lean.Compiler.Yul.builtin name (← args.mapM lowerPlan))
   | .helperCall helper args => do
-      .ok (helperCall helper (← args.mapM (exprPlanExpr mkError lowerExpr lowerEffect)))
-  | .checkedArith op lhs rhs oc => do
-      .ok (arithExpr oc op
-        (← exprPlanExpr mkError lowerExpr lowerEffect lhs)
-        (← exprPlanExpr mkError lowerExpr lowerEffect rhs))
+      .ok (helperCall helper (← args.mapM lowerPlan))
+  | .checkedArith op lhs rhs overflowChecked resultByteWidth? => do
+      let lhs ← lowerPlan lhs
+      let rhs ← lowerPlan rhs
+      if useNarrowArithmetic then
+        match op with
+        | .add | .sub | .mul =>
+            match resultByteWidth? with
+            | some byteWidth =>
+                if byteWidth == 0 then
+                  .error (mkError "EVM narrow scalar storage arithmetic plan has zero result byte width")
+                else if byteWidth < 32 then
+                  .ok (narrowArithExpr overflowChecked op byteWidth lhs rhs)
+                else
+                  .ok (arithExpr overflowChecked op lhs rhs)
+            | none =>
+                .error (mkError "EVM narrow scalar storage arithmetic plan is missing result byte width metadata")
+        | .div | .mod | .bitAnd | .bitOr | .bitXor | .shiftLeft | .shiftRight =>
+            .ok (arithExpr overflowChecked op lhs rhs)
+      else
+        .ok (arithExpr overflowChecked op lhs rhs)
   | .hashPack a b c d => do
       .ok (hashPackExpr
-        (← exprPlanExpr mkError lowerExpr lowerEffect a)
-        (← exprPlanExpr mkError lowerExpr lowerEffect b)
-        (← exprPlanExpr mkError lowerExpr lowerEffect c)
-        (← exprPlanExpr mkError lowerExpr lowerEffect d))
+        (← lowerPlan a)
+        (← lowerPlan b)
+        (← lowerPlan c)
+        (← lowerPlan d))
   | .context field =>
-      contextExprPlan (exprPlanExpr mkError lowerExpr lowerEffect) field
+      contextExprPlan lowerPlan field
   | .crosscall mode target methodId callValue? args returnType =>
       crosscallExpandedExprPlanExpr
         mkError
-        (exprPlanExpr mkError lowerExpr lowerEffect)
+        lowerPlan
         mode
         target
         methodId
@@ -255,36 +275,36 @@ partial def exprPlanExpr
       createHelperCallExpr
         mkError
         mode
-        (← exprPlanExpr mkError lowerExpr lowerEffect callValue)
-        (← salt?.mapM (exprPlanExpr mkError lowerExpr lowerEffect))
+        (← lowerPlan callValue)
+        (← salt?.mapM lowerPlan)
         initCodeHex
   | .cast source _ =>
-      exprPlanExpr mkError lowerExpr lowerEffect source
+      lowerPlan source
   | .structField base fieldName =>
       localStructFieldExpr
         mkError
-        (exprPlanExpr mkError lowerExpr lowerEffect)
+        lowerPlan
         base
         fieldName
   | .arrayGet array index =>
       arrayGetExpr
         mkError
-        (exprPlanExpr mkError lowerExpr lowerEffect)
+        lowerPlan
         array
         index
   | .memoryArrayNew _ length => do
-      .ok (helperCall Helper.memoryArrayNew #[← exprPlanExpr mkError lowerExpr lowerEffect length])
+      .ok (helperCall Helper.memoryArrayNew #[← lowerPlan length])
   | .memoryArrayLength array => do
-      .ok (Lean.Compiler.Yul.builtin "mload" #[← exprPlanExpr mkError lowerExpr lowerEffect array])
+      .ok (Lean.Compiler.Yul.builtin "mload" #[← lowerPlan array])
   | .memoryArrayGet array index => do
       .ok (helperCall Helper.memoryArrayGet #[
-        ← exprPlanExpr mkError lowerExpr lowerEffect array,
-        ← exprPlanExpr mkError lowerExpr lowerEffect index
+        ← lowerPlan array,
+        ← lowerPlan index
       ])
   | .localArrayGet name path lengths =>
       localArrayGetExpr
         mkError
-        (exprPlanExpr mkError lowerExpr lowerEffect)
+        lowerPlan
         name
         path
         lengths
@@ -294,49 +314,65 @@ partial def exprPlanExpr
       .error (mkError "EVM ExprPlan-to-Yul scalar lowering does not support struct literal plans yet")
   | .hashValue a b c d => do
       .ok (hashPackExpr
-        (← exprPlanExpr mkError lowerExpr lowerEffect a)
-        (← exprPlanExpr mkError lowerExpr lowerEffect b)
-        (← exprPlanExpr mkError lowerExpr lowerEffect c)
-        (← exprPlanExpr mkError lowerExpr lowerEffect d))
+        (← lowerPlan a)
+        (← lowerPlan b)
+        (← lowerPlan c)
+        (← lowerPlan d))
   | .hash preimage => do
-      .ok (helperCall Helper.hashWord #[← exprPlanExpr mkError lowerExpr lowerEffect preimage])
+      .ok (helperCall Helper.hashWord #[← lowerPlan preimage])
   | .hashTwoToOne lhs rhs => do
       .ok (helperCall Helper.hashPair #[
-        ← exprPlanExpr mkError lowerExpr lowerEffect lhs,
-        ← exprPlanExpr mkError lowerExpr lowerEffect rhs
+        ← lowerPlan lhs,
+        ← lowerPlan rhs
       ])
   | .ecrecover digest v r s => do
       .ok (helperCall Helper.ecrecover #[
-        ← exprPlanExpr mkError lowerExpr lowerEffect digest,
-        ← exprPlanExpr mkError lowerExpr lowerEffect v,
-        ← exprPlanExpr mkError lowerExpr lowerEffect r,
-        ← exprPlanExpr mkError lowerExpr lowerEffect s
+        ← lowerPlan digest,
+        ← lowerPlan v,
+        ← lowerPlan r,
+        ← lowerPlan s
       ])
   | .eip712PermitDigest owner spender value nonce deadline domainSep => do
       .ok (helperCall Helper.eip712PermitDigest #[
-        ← exprPlanExpr mkError lowerExpr lowerEffect owner,
-        ← exprPlanExpr mkError lowerExpr lowerEffect spender,
-        ← exprPlanExpr mkError lowerExpr lowerEffect value,
-        ← exprPlanExpr mkError lowerExpr lowerEffect nonce,
-        ← exprPlanExpr mkError lowerExpr lowerEffect deadline,
-        ← exprPlanExpr mkError lowerExpr lowerEffect domainSep
+        ← lowerPlan owner,
+        ← lowerPlan spender,
+        ← lowerPlan value,
+        ← lowerPlan nonce,
+        ← lowerPlan deadline,
+        ← lowerPlan domainSep
       ])
   | .crosscallAbiPacked target selector stores argsSize outSize dynLenOffset? dynLen?
       dynTargetOffsets dynTargets => do
-      let targetYul ← exprPlanExpr mkError lowerExpr lowerEffect target
+      let targetYul ← lowerPlan target
       let spec : ProofForge.Backend.Evm.Plan.AbiPackedHelperSpec :=
         { selector := selector, stores := stores, argsSize := argsSize, outSize := outSize,
           dynLenOffset? := dynLenOffset?, dynTargetOffsets := dynTargetOffsets }
       let nYul ←
         match dynLen? with
         | none => pure none
-        | some len => .ok (some (← exprPlanExpr mkError lowerExpr lowerEffect len))
-      let tgtYul ← dynTargets.mapM (exprPlanExpr mkError lowerExpr lowerEffect)
+        | some len => .ok (some (← lowerPlan len))
+      let tgtYul ← dynTargets.mapM lowerPlan
       .ok (ProofForge.Backend.Evm.ToYul.AbiEncode.abiPackedHelperCallExpr targetYul spec nYul tgtYul)
   | .nativeValue =>
       .ok (Lean.Compiler.Yul.builtin "callvalue" #[])
   | .effect effect =>
       lowerEffect effect
+
+def exprPlanExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    ExprPlan → Except ε Lean.Compiler.Yul.Expr :=
+  exprPlanExprWithArithmeticWidths false mkError lowerExpr lowerEffect
+
+def narrowStorageExprPlanExpr
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    ExprPlan → Except ε Lean.Compiler.Yul.Expr :=
+  exprPlanExprWithArithmeticWidths true mkError lowerExpr lowerEffect
 
 /-! ## StmtPlan-to-Yul helpers -/
 
@@ -1008,5 +1044,25 @@ def boundedForStmtPlanStatements
         ]
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul boundedFor lowering expected boundedFor")
+
+/-- Lower the fixed-size ERC-1155 batch receiver check from its semantic
+`EffectPlan`. Keeping expression lowering behind this boundary prevents the
+legacy effect facade from rendering raw IR arguments directly. -/
+def erc1155BatchReceiverEffectPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExprPlan : ExprPlan → Except ε Lean.Compiler.Yul.Expr) :
+    EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
+      let args ←
+        #[operator, fromAddr, toAddr, id0, amount0, id1, amount1].mapM lowerExprPlan
+      match args with
+      | #[operatorYul, fromYul, toYul, id0Yul, amount0Yul, id1Yul, amount1Yul] =>
+          .ok (checkErc1155BatchReceivedStatements
+            operatorYul fromYul toYul id0Yul amount0Yul id1Yul amount1Yul)
+      | _ =>
+          .error (mkError "EVM ERC-1155 batch receiver plan must lower exactly seven arguments")
+  | _ =>
+      .error (mkError "EVM ERC-1155 batch receiver lowering expected checkErc1155BatchReceived")
 
 end ProofForge.Backend.Evm.ToYul

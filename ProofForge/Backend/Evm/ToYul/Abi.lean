@@ -240,18 +240,39 @@ def abiParamsMinSizeValidationStatements (params : Array AbiParamPlan) :
 
 def abiWordValidationStatement?
     (word : Lean.Compiler.Yul.Expr)
-    (type : ValueType) : Option Lean.Compiler.Yul.Statement :=
-  match type with
-  | .u32 =>
+    (type : ValueType)
+    (abiWord? : Option String := none) : Option Lean.Compiler.Yul.Statement :=
+  let upperBoundGuard (limit : Nat) :=
+    some <| Lean.Compiler.Yul.Statement.ifStmt
+      (Lean.Compiler.Yul.builtin "gt" #[word, Lean.Compiler.Yul.Expr.num limit])
+      { statements := #[revertStatement] }
+  match abiWord? with
+  | some "address" =>
+      upperBoundGuard 1461501637330902918203684832716283019655932542975
+  | some "bytes4" =>
       some <| Lean.Compiler.Yul.Statement.ifStmt
-        (Lean.Compiler.Yul.builtin "gt" #[word, Lean.Compiler.Yul.Expr.num 4294967295])
+        (Lean.Compiler.Yul.builtin "and" #[
+          word,
+          Lean.Compiler.Yul.Expr.num
+            26959946667150639794667015087019630673637144422540572481103610249215
+        ])
         { statements := #[revertStatement] }
-  | .bool =>
-      some <| Lean.Compiler.Yul.Statement.ifStmt
-        (Lean.Compiler.Yul.builtin "gt" #[word, Lean.Compiler.Yul.Expr.num 1])
-        { statements := #[revertStatement] }
-  | .u8 | .u64 | .u128 | .hash | .address | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
-      none
+  | some "bytes32" | some "uint256" => none
+  | some "uint8" => upperBoundGuard 255
+  | some "uint32" => upperBoundGuard 4294967295
+  | some "uint64" => upperBoundGuard 18446744073709551615
+  | some "uint128" => upperBoundGuard 340282366920938463463374607431768211455
+  | some "bool" => upperBoundGuard 1
+  | some _ | none =>
+      match type with
+      | .u8 => upperBoundGuard 255
+      | .u32 => upperBoundGuard 4294967295
+      | .u64 => upperBoundGuard 18446744073709551615
+      | .u128 => upperBoundGuard 340282366920938463463374607431768211455
+      | .bool => upperBoundGuard 1
+      | .address => upperBoundGuard 1461501637330902918203684832716283019655932542975
+      | .hash | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
+          none
 
 def abiParamHeadValidationStatements (params : Array AbiParamPlan) :
     Array Lean.Compiler.Yul.Statement :=
@@ -273,7 +294,8 @@ def abiParamHeadValidationStatements (params : Array AbiParamPlan) :
       else
         for h : j in [0:param.wordTypes.size] do
           let wordIndex := param.headWordIndex + j
-          match abiWordValidationStatement? (calldataWordExpr wordIndex) param.wordTypes[j] with
+          match abiWordValidationStatement? (calldataWordExpr wordIndex) param.wordTypes[j]
+              (if j == 0 then param.abiWord? else none) with
           | some statement => statements := statements.push statement
           | none => pure ()
     statements

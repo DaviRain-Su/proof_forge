@@ -222,14 +222,15 @@ def main : IO UInt32 := do
   | .error msg => throw (IO.userError s!"evm immutable: {msg}")
   | .ok m => require (m.shape == .immutableDeploy) "evm immutable shape"
   match materializeUpgrade "evm" (.authority "deployer") (some .uups) with
-  | .error msg => throw (IO.userError s!"evm uups: {msg}")
-  | .ok m =>
-      require (m.shape == .evmProxy) "evm proxy shape"
-      require (contains m.note "uups") "evm uups note"
+  | .ok _ => throw (IO.userError "evm UUPS authority must reject until keyRef is enforced")
+  | .error msg =>
+      require (contains msg "authority" || contains msg "UpgradePolicy")
+        "evm UUPS authority reject names unsupported policy"
   match materializeUpgrade "evm" (.authority "deployer") (some .transparent) with
   | .ok _ => throw (IO.userError "evm transparent must honest-reject (no Plan lower)")
   | .error msg =>
-      require (contains msg "transparent" || contains msg "uups" || contains msg "UpgradePolicy")
+      require (contains msg "transparent" || contains msg "uups" || contains msg "authority" ||
+          contains msg "UpgradePolicy")
         "evm transparent reject names pattern"
   match materializeUpgrade "evm" (.authority "deployer") none with
   | .ok _ => throw (IO.userError "evm authority without proxy must reject")
@@ -412,7 +413,7 @@ def main : IO UInt32 := do
           contains d.message "CrosscallMaterialize"
         ) s!"mix reject, got: {d.message}"
 
-  -- Upgrade: UUPS authority ok on EVM resolveSpec; transparent rejects.
+  -- Upgrade: EVM authority policies reject until keyRef is enforced by runtime.
   let uupsSpec : ContractSpec := {
     name := "UupsProbe"
     module := {
@@ -424,10 +425,10 @@ def main : IO UInt32 := do
     proxyPattern? := some .uups
   }
   match resolveSpec evm uupsSpec with
-  | .error d => throw (IO.userError s!"EVM UUPS resolve: {d.message}")
-  | .ok plan =>
-      require (plan.metadata.any (fun m => m.key == "upgrade.policy.kind"))
-        "upgrade metadata present"
+  | .ok _ => throw (IO.userError "EVM UUPS authority must reject on resolveSpec")
+  | .error d =>
+      require (contains d.message "authority" || contains d.message "UpgradePolicy")
+        s!"UUPS authority reject, got: {d.message}"
   let transparentSpec := { uupsSpec with proxyPattern? := some .transparent }
   match resolveSpec evm transparentSpec with
   | .ok _ => throw (IO.userError "EVM transparent must reject on resolveSpec")

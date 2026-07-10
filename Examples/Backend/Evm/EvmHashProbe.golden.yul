@@ -15,6 +15,18 @@ object "EvmHashProbe" {
       if lt(calldatasize(), 132) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmHashProbe_pack_hash(calldataload(4), calldataload(36), calldataload(68), calldataload(100))
       mstore(0, _r)
       return(0, 32)
@@ -43,27 +55,27 @@ object "EvmHashProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmHashProbe_hash_literal() -> result {
+    function f_EvmHashProbe_hash_literal() -> __pf_result {
       let data := 6277101735386680764516354157049543343084444891548699590660
-      result := __proof_forge_hash_word(data)
+      __pf_result := __proof_forge_hash_word(data)
     }
-    function f_EvmHashProbe_hash_pair() -> result {
+    function f_EvmHashProbe_hash_pair() -> __pf_result {
       let left := 6277101735386680764516354157049543343084444891548699590660
       let right := 31385508676933403821220641317563962861421152075426748694536
-      result := __proof_forge_hash_pair(left, right)
+      __pf_result := __proof_forge_hash_pair(left, right)
     }
-    function f_EvmHashProbe_pack_hash(a, b, c, d) -> result {
-      result := or(shl(192, a), or(shl(128, b), or(shl(64, c), d)))
+    function f_EvmHashProbe_pack_hash(a, b, c, d) -> __pf_result {
+      __pf_result := or(shl(192, a), or(shl(128, b), or(shl(64, c), d)))
     }
-    function f_EvmHashProbe_hash_param(input) -> result {
-      result := __proof_forge_hash_word(input)
+    function f_EvmHashProbe_hash_param(input) -> __pf_result {
+      __pf_result := __proof_forge_hash_word(input)
     }
-    function f_EvmHashProbe_store_hash(input) -> result {
+    function f_EvmHashProbe_store_hash(input) -> __pf_result {
       sstore(0, input)
-      result := sload(0)
+      __pf_result := sload(0)
     }
-    function f_EvmHashProbe_read_root() -> result {
-      result := sload(0)
+    function f_EvmHashProbe_read_root() -> __pf_result {
+      __pf_result := sload(0)
     }
     function __proof_forge_hash_word(value) -> result {
       mstore(0, value)

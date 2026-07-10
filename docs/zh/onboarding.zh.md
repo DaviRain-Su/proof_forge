@@ -5,12 +5,15 @@
 
 ## 当前产品重点
 
-Gate P0 已经关闭，主三链完成规约（D-045）的三个优先 target 已经按以下顺序达到
-production-grade 的本地/CI 门禁：
+Gate P0 已经关闭，主三链完成规约（D-045）的三个优先 target 已经按以下顺序完成
+范围化 P0 本地/CI 门禁：
 
 1. `solana-sbpf-asm`
 2. `evm`
 3. `wasm-near`
+
+三者在生成的后端状态中仍是 `experimental`。P0 记录的是已记录 fragment 的制品、
+执行、元数据、诊断和预算证据，不声称通用编译器正确性或生产部署就绪。
 
 下一条硬化主线是 CLI M3/M4：从 legacy flags 迁移到
 `proof-forge build|emit|check --target ...`。Tier-1 target 已经具备排期资格，

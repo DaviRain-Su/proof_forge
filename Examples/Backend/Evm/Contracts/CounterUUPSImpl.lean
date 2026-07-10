@@ -2,7 +2,11 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Counter implementation intended for deployment behind `UUPSProxy`.
+Backend-only Counter implementation intended for deployment behind `UUPSProxy`.
+It exercises the owner-guarded runtime mechanism without declaring the portable
+authority policy that the EVM target cannot yet enforce from `keyRef`. Its
+zero-state initialization is completed by the proxy constructor, so the
+implementation runtime deliberately exposes no public initializer.
 -/
 import ProofForge.Contract.Source
 import ProofForge.Contract.Stdlib.UUPSUpgradeable
@@ -13,14 +17,9 @@ open ProofForge.Contract.Source
 open ProofForge.Contract.Stdlib.UUPSUpgradeable
 
 contract_source CounterUUPSImpl do
-  upgrade_policy_authority admin;
   import ProofForge.Contract.Stdlib.UUPSUpgradeable;
 
   state count : .u64
-
-  entry init do
-    «owner» := caller;
-    count := u64 0;
 
   entry increment do
     let n : .u64 := count;

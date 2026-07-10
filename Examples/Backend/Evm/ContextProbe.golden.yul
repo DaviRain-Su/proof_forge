@@ -5,6 +5,12 @@ object "ContextProbe" {
       if lt(calldatasize(), 68) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_ContextProbe_sum_context(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
@@ -34,24 +40,24 @@ object "ContextProbe" {
     default {
       revert(0, 0)
     }
-    function f_ContextProbe_sum_context(a, b) -> result {
-      result := __pf_checked_add(__pf_checked_add(a, b), __pf_checked_add(caller(), __pf_checked_add(address(), number())))
+    function f_ContextProbe_sum_context(a, b) -> __pf_result {
+      __pf_result := __pf_checked_add(__pf_checked_add(a, b), __pf_checked_add(caller(), __pf_checked_add(address(), number())))
     }
-    function f_ContextProbe_native_value() -> result {
-      result := callvalue()
+    function f_ContextProbe_native_value() -> __pf_result {
+      __pf_result := callvalue()
     }
-    function f_ContextProbe_context_extras() -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5 {
-      __proof_forge_return_0 := timestamp()
-      __proof_forge_return_1 := chainid()
-      __proof_forge_return_2 := gasprice()
-      __proof_forge_return_3 := gas()
-      __proof_forge_return_4 := basefee()
-      __proof_forge_return_5 := prevrandao()
+    function f_ContextProbe_context_extras() -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5 {
+      __pf_return_0 := timestamp()
+      __pf_return_1 := chainid()
+      __pf_return_2 := gasprice()
+      __pf_return_3 := gas()
+      __pf_return_4 := basefee()
+      __pf_return_5 := prevrandao()
     }
-    function f_ContextProbe_context_hashes() -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2 {
-      __proof_forge_return_0 := origin()
-      __proof_forge_return_1 := coinbase()
-      __proof_forge_return_2 := blockhash(1)
+    function f_ContextProbe_context_hashes() -> __pf_return_0, __pf_return_1, __pf_return_2 {
+      __pf_return_0 := origin()
+      __pf_return_1 := coinbase()
+      __pf_return_2 := blockhash(1)
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -66,7 +72,7 @@ object "ContextProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

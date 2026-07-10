@@ -29,6 +29,75 @@ def findStorageState (layout : StorageLayout) (stateId : String) : Option Storag
 
 def u64Mask : String := "18446744073709551615"
 
+def addressMask : String :=
+  "1461501637330902918203684832716283019655932542975"
+
+def eip1967ImplementationStateId : String := "$eip1967.implementation"
+
+def eip1967ImplementationSlot : String :=
+  "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+
+def atomicUupsConstructorParams : Array EvmConstructorParam := #[
+  { name := "implementation", abiType := "address" },
+  { name := "admin", abiType := "address" }
+]
+
+def atomicUupsConstructorBindings : Array EvmConstructorInitBinding := #[
+  {
+    stateId := eip1967ImplementationStateId
+    paramName := "implementation"
+    kind := .addressWord
+  },
+  {
+    stateId := "owner"
+    paramName := "admin"
+    kind := .addressKeccak
+  }
+]
+
+/-- A UUPS dispatcher is deployable only through the single audited atomic
+constructor shape. This gate is shared by source rendering and artifact paths
+so custom UUPS modules cannot silently fall back to ordinary slot-zero initcode. -/
+def validateAtomicUupsConstructor
+    (module : Module)
+    (params : Array EvmConstructorParam)
+    (bindings : Array EvmConstructorInitBinding)
+    (constructorArgsHex : String) : Except InitError Unit := do
+  if module.proxyPattern? != some "uups" then
+    return
+  if !(params == atomicUupsConstructorParams) then
+    .error {
+      message :=
+        "UUPS proxy requires exact atomic constructor params `implementation:address, admin:address`"
+    }
+  if !(bindings == atomicUupsConstructorBindings) then
+    .error {
+      message :=
+        "UUPS proxy requires exact atomic constructor bindings for ERC-1967 implementation and hashed owner"
+    }
+  let some ownerState := module.state.find? (fun state => state.id == "owner")
+    | .error { message := "UUPS proxy requires exact atomic constructor bindings and a scalar Hash `owner` state" }
+  if ownerState.kind != .scalar || ownerState.type != .hash then
+    .error { message := "UUPS proxy requires exact atomic constructor bindings and a scalar Hash `owner` state" }
+  let some implementationState :=
+      module.state.find? (fun state => state.id == eip1967ImplementationStateId)
+    | .error { message := "UUPS proxy requires exact atomic constructor bindings and the ERC-1967 implementation state" }
+  if implementationState.kind != .scalar then
+    .error { message := "UUPS proxy requires exact atomic constructor bindings and the ERC-1967 implementation state" }
+  if !module.entrypoints.isEmpty then
+    .error {
+      message :=
+        "UUPS proxy runtime must expose no entrypoints; initialize all transport state through atomic constructor bindings"
+    }
+  let args := stripHexPrefix (trimAscii constructorArgsHex)
+  if args.isEmpty then
+    .error {
+      message :=
+        "UUPS proxy deployment requires constructor arguments for atomic implementation and admin initialization"
+    }
+  if args.length != 128 then
+    .error { message := "UUPS proxy deployment requires exactly two 32-byte constructor arguments" }
+
 def headWordOffsetExpr (paramIdx : Nat) : String :=
   s!"add(__pf_args_off, {32 * paramIdx})"
 
@@ -43,7 +112,7 @@ def paramDataPtrExpr (param : EvmConstructorParam) (paramIdx : Nat) : String :=
     head
 
 def storePackedU64 (state : StorageStatePlan) (valueExpr : String) : String :=
-  let shift := (32 - (state.byteOffset + state.byteWidth)) * 8
+  let shift := state.byteOffset * 8
   let mask := (1 <<< (8 * state.byteWidth)) - 1
   if state.byteWidth >= 32 || (state.byteOffset == 0 && state.byteWidth == 32) then
     s!"sstore({state.slot}, {valueExpr})"
@@ -52,6 +121,13 @@ def storePackedU64 (state : StorageStatePlan) (valueExpr : String) : String :=
 
 def storeFullWord (state : StorageStatePlan) (valueExpr : String) : String :=
   s!"sstore({state.slot}, {valueExpr})"
+
+def storeFullWordForState
+    (stateId : String) (state : StorageStatePlan) (valueExpr : String) : String :=
+  if stateId == eip1967ImplementationStateId then
+    s!"sstore({eip1967ImplementationSlot}, {valueExpr})"
+  else
+    storeFullWord state valueExpr
 
 def genBindingInit
     (params : Array EvmConstructorParam)
@@ -68,6 +144,36 @@ def genBindingInit
       .error { message := s!"constructor_bind scalar requires static param `{binding.paramName}`" }
     else
       .ok (storePackedU64 state s!"and({codeLoadExpr dataPtr}, {u64Mask})")
+  | .addressWord =>
+    if param.abiType != "address" then
+      .error { message := s!"constructor_bind address_word requires address param `{binding.paramName}`" }
+    else if binding.stateId != eip1967ImplementationStateId &&
+        state.type != ValueType.address && state.type != ValueType.hash then
+      .error { message := s!"constructor_bind address_word target `{binding.stateId}` must be .address or .hash" }
+    else
+      let value := codeLoadExpr dataPtr
+      let implementationCodeGuard :=
+        if binding.stateId == eip1967ImplementationStateId then
+          "\n      if iszero(extcodesize(__pf_address)) { revert(0, 0) }"
+        else
+          ""
+      .ok ("{\n      let __pf_address := " ++ value ++
+        "\n      if iszero(__pf_address) { revert(0, 0) }" ++
+        "\n      if gt(__pf_address, " ++ addressMask ++ ") { revert(0, 0) }" ++
+        implementationCodeGuard ++ "\n      " ++
+        storeFullWordForState binding.stateId state "__pf_address" ++ "\n    }")
+  | .addressKeccak =>
+    if param.abiType != "address" then
+      .error { message := s!"constructor_bind address_keccak requires address param `{binding.paramName}`" }
+    else if state.type != ValueType.hash then
+      .error { message := s!"constructor_bind address_keccak target `{binding.stateId}` must be .hash" }
+    else
+      let value := codeLoadExpr dataPtr
+      .ok ("{\n      let __pf_address := " ++ value ++
+        "\n      if iszero(__pf_address) { revert(0, 0) }" ++
+        "\n      if gt(__pf_address, " ++ addressMask ++ ") { revert(0, 0) }" ++
+        "\n      mstore(0, __pf_address)\n      " ++
+        storeFullWord state "keccak256(0, 32)" ++ "\n    }")
   | .stringLength | .bytesLength =>
     if param.abiType != "string" && param.abiType != "bytes" then
       .error { message := s!"constructor_bind length requires string/bytes param `{binding.paramName}`" }

@@ -151,10 +151,10 @@ contract ProofForgeIRStorageStructSmokeTest {
         deployRuntime(hex"$probe_hex", probe);
 
         assertEq(callU256(probe, abi.encodeWithSignature("struct_lifecycle()")), 18);
-        assertEq(readStorage(probe, 0) >> 192, 111);
+        assertEq(readStorage(probe, 0) & type(uint64).max, 111);
         assertEq(readStorage(probe, 1), 7);
         assertEq(readStorage(probe, 2), 11);
-        assertEq(readStorage(probe, 3) >> 192, 222);
+        assertEq(readStorage(probe, 3) & type(uint64).max, 222);
     }
 
     function testIRStorageStructScalarFieldPaths() public {

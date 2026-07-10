@@ -1,32 +1,65 @@
 object "EvmCrosscallProbe" {
   code {
     switch shr(224, calldataload(0))
-    case 0x0de1d044 {
+    case 0x452d8d77 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x7ec7d7f8 {
+    case 0x11332f7e {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote1(calldataload(4), calldataload(36), calldataload(68))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xff5ce87f {
+    case 0x6ba69cad {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote2(calldataload(4), calldataload(36), calldataload(68), calldataload(100))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x6a7b13b8 {
+    case 0x829736d9 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -36,8 +69,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x0f35944c {
+    case 0xde613df7 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 4294967295) {
@@ -47,16 +86,28 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x6a5317aa {
+    case 0x80d00d8c {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_hash(calldataload(4), calldataload(36), calldataload(68))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x47c6c9b7 {
+    case 0x465a3244 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_pair(calldataload(4), calldataload(36))
@@ -64,8 +115,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0x717d6851 {
+    case 0x11944892 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_array(calldataload(4), calldataload(36))
@@ -73,8 +130,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0xd49690a6 {
+    case 0x6be95a25 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_matrix(calldataload(4), calldataload(36))
@@ -84,8 +147,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0xcabe3922 {
+    case 0x55444f06 {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -98,24 +167,60 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xf96abfe0 {
+    case 0x48c317af {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_array_arg(calldataload(4), calldataload(36), calldataload(68), calldataload(100))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x38e0bc4c {
+    case 0xc8169678 {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(132), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(164), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_matrix_arg(calldataload(4), calldataload(36), calldataload(68), calldataload(100), calldataload(132), calldataload(164))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x031396d6 {
+    case 0x41e1d0ee {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_pair_array(calldataload(4), calldataload(36))
@@ -125,8 +230,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0x7a45fdce {
+    case 0x03da4ae2 {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -145,8 +256,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x3652f87d {
+    case 0x5b6d7258 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3, _r4, _r5, _r6, _r7 := f_EvmCrosscallProbe_call_remote_pair_matrix(calldataload(4), calldataload(36))
@@ -160,8 +277,14 @@ object "EvmCrosscallProbe" {
       mstore(224, _r7)
       return(0, 256)
     }
-    case 0x48fc8f80 {
+    case 0xcc687a87 {
       if lt(calldatasize(), 324) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -192,16 +315,28 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x365f4a44 {
+    case 0xb9808ee5 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_value(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x885cf3f5 {
+    case 0x61a9a998 {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -214,8 +349,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x01ff40fb {
+    case 0xddb16e35 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_value_pair(calldataload(4), calldataload(36))
@@ -223,8 +364,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0x2bedc30a {
+    case 0x188c0b4c {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_value_array(calldataload(4), calldataload(36))
@@ -232,8 +379,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0x4b634dd4 {
+    case 0x8680eef8 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_value_matrix(calldataload(4), calldataload(36))
@@ -243,8 +396,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0x63ec1609 {
+    case 0x122d46f1 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_value_pair_array(calldataload(4), calldataload(36))
@@ -254,8 +413,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0x27c33745 {
+    case 0x94f5dac2 {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -274,8 +439,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xfa3cf7ed {
+    case 0x6335f903 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3, _r4, _r5, _r6, _r7 := f_EvmCrosscallProbe_call_remote_value_pair_matrix(calldataload(4), calldataload(36))
@@ -289,8 +460,14 @@ object "EvmCrosscallProbe" {
       mstore(224, _r7)
       return(0, 256)
     }
-    case 0x4f1e8d96 {
+    case 0x41cff9e0 {
       if lt(calldatasize(), 324) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -321,24 +498,54 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x1a211ecd {
+    case 0x6839edc5 {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(132), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(164), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_value_matrix_arg(calldataload(4), calldataload(36), calldataload(68), calldataload(100), calldataload(132), calldataload(164))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xd13203a8 {
+    case 0x5a64728a {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_static(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xae266f0a {
+    case 0xf5582845 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -348,8 +555,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xec8c40f9 {
+    case 0x8da932c4 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 4294967295) {
@@ -359,16 +572,28 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x4e0edd3c {
+    case 0x56a04291 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_static_hash(calldataload(4), calldataload(36), calldataload(68))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xd1b1bf68 {
+    case 0x468aac8f {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -381,8 +606,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x2236e75b {
+    case 0x4207757f {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_static_pair(calldataload(4), calldataload(36))
@@ -390,8 +621,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0xb1d5165b {
+    case 0x6fbda09c {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_static_array(calldataload(4), calldataload(36))
@@ -399,8 +636,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0x202850f3 {
+    case 0x69be52ca {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_static_matrix(calldataload(4), calldataload(36))
@@ -410,8 +653,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0xe0315e4e {
+    case 0xdf333465 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_static_pair_array(calldataload(4), calldataload(36))
@@ -421,8 +670,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0x1b46265d {
+    case 0x38eef6db {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -441,8 +696,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x9893a8f6 {
+    case 0xafa00ffe {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3, _r4, _r5, _r6, _r7 := f_EvmCrosscallProbe_call_remote_static_pair_matrix(calldataload(4), calldataload(36))
@@ -456,8 +717,14 @@ object "EvmCrosscallProbe" {
       mstore(224, _r7)
       return(0, 256)
     }
-    case 0xdb5109a1 {
+    case 0x0ff6a624 {
       if lt(calldatasize(), 324) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -488,24 +755,54 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x123a499f {
+    case 0x7522a3d0 {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(132), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(164), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_static_matrix_arg(calldataload(4), calldataload(36), calldataload(68), calldataload(100), calldataload(132), calldataload(164))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x427320b1 {
+    case 0xa778a42a {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_delegate(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x62e5114d {
+    case 0x0876d5a7 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -515,8 +812,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xe3abe276 {
+    case 0xf2359287 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 4294967295) {
@@ -526,16 +829,28 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x6a2c2006 {
+    case 0x366ec140 {
       if lt(calldatasize(), 100) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_delegate_hash(calldataload(4), calldataload(36), calldataload(68))
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x8283d1d1 {
+    case 0xc2b329ae {
       if lt(calldatasize(), 132) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -548,8 +863,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x41e8bd85 {
+    case 0xae195170 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_delegate_pair(calldataload(4), calldataload(36))
@@ -557,8 +878,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0x52579065 {
+    case 0xbb45913f {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1 := f_EvmCrosscallProbe_call_remote_delegate_array(calldataload(4), calldataload(36))
@@ -566,8 +893,14 @@ object "EvmCrosscallProbe" {
       mstore(32, _r1)
       return(0, 64)
     }
-    case 0xb8c58c92 {
+    case 0xe8e21f22 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_delegate_matrix(calldataload(4), calldataload(36))
@@ -577,8 +910,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0xa26d8a3c {
+    case 0x5205a28d {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3 := f_EvmCrosscallProbe_call_remote_delegate_pair_array(calldataload(4), calldataload(36))
@@ -588,8 +927,14 @@ object "EvmCrosscallProbe" {
       mstore(96, _r3)
       return(0, 128)
     }
-    case 0x73049a39 {
+    case 0x388b963b {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -608,8 +953,14 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0x26db7add {
+    case 0x934bcc50 {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       let _r0, _r1, _r2, _r3, _r4, _r5, _r6, _r7 := f_EvmCrosscallProbe_call_remote_delegate_pair_matrix(calldataload(4), calldataload(36))
@@ -623,8 +974,14 @@ object "EvmCrosscallProbe" {
       mstore(224, _r7)
       return(0, 256)
     }
-    case 0x667806e6 {
+    case 0x42a94e5e {
       if lt(calldatasize(), 324) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       if gt(calldataload(68), 1) {
@@ -655,8 +1012,26 @@ object "EvmCrosscallProbe" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xccc679f8 {
+    case 0x15637bcf {
       if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(100), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(132), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(164), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_call_remote_delegate_matrix_arg(calldataload(4), calldataload(36), calldataload(68), calldataload(100), calldataload(132), calldataload(164))
@@ -667,12 +1042,18 @@ object "EvmCrosscallProbe" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmCrosscallProbe_deploy_create(calldataload(4))
       mstore(0, _r)
       return(0, 32)
     }
     case 0x70b22efb {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmCrosscallProbe_deploy_create2(calldataload(4), calldataload(36))
@@ -682,193 +1063,193 @@ object "EvmCrosscallProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmCrosscallProbe_call_remote(target, method) -> result {
-      result := __proof_forge_crosscall_0(target, method)
+    function f_EvmCrosscallProbe_call_remote(target, method) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_0(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote1(target, method, x) -> result {
-      result := __proof_forge_crosscall_1(target, method, x)
+    function f_EvmCrosscallProbe_call_remote1(target, method, x) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_1(target, method, x)
     }
-    function f_EvmCrosscallProbe_call_remote2(target, method, x, y) -> result {
-      result := __proof_forge_crosscall_2(target, method, x, y)
+    function f_EvmCrosscallProbe_call_remote2(target, method, x, y) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_2(target, method, x, y)
     }
-    function f_EvmCrosscallProbe_call_remote_bool(target, method, flag) -> result {
-      result := __proof_forge_crosscall_1_bool(target, method, flag)
+    function f_EvmCrosscallProbe_call_remote_bool(target, method, flag) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_1_bool(target, method, flag)
     }
-    function f_EvmCrosscallProbe_call_remote_u32(target, method, x) -> result {
-      result := __proof_forge_crosscall_1_u32(target, method, x)
+    function f_EvmCrosscallProbe_call_remote_u32(target, method, x) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_1_u32(target, method, x)
     }
-    function f_EvmCrosscallProbe_call_remote_hash(target, method, value) -> result {
-      result := __proof_forge_crosscall_1_hash(target, method, value)
+    function f_EvmCrosscallProbe_call_remote_hash(target, method, value) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_1_hash(target, method, value)
     }
-    function f_EvmCrosscallProbe_call_remote_pair(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_0_abi_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_pair(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_0_abi_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_0_abi_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_array(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_0_abi_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_0_abi_u64_u64_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_0_abi_u64_u64_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_pair_arg(target, method, flag, small) -> result {
+    function f_EvmCrosscallProbe_call_remote_pair_arg(target, method, flag, small) -> __pf_result {
       let __proof_forge_struct_pair_flag := flag
       let __proof_forge_struct_pair_small := small
-      result := __proof_forge_crosscall_2_bool(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
+      __pf_result := __proof_forge_crosscall_2_bool(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
     }
-    function f_EvmCrosscallProbe_call_remote_array_arg(target, method, x, y) -> result {
+    function f_EvmCrosscallProbe_call_remote_array_arg(target, method, x, y) -> __pf_result {
       let __proof_forge_array_values_0 := x
       let __proof_forge_array_values_1 := y
-      result := __proof_forge_crosscall_2(target, method, __proof_forge_array_values_0, __proof_forge_array_values_1)
+      __pf_result := __proof_forge_crosscall_2(target, method, __proof_forge_array_values_0, __proof_forge_array_values_1)
     }
-    function f_EvmCrosscallProbe_call_remote_matrix_arg(target, method, a, b, c, d) -> result {
-      result := __proof_forge_crosscall_4(target, method, a, b, c, d)
+    function f_EvmCrosscallProbe_call_remote_matrix_arg(target, method, a, b, c, d) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_4(target, method, a, b, c, d)
     }
-    function f_EvmCrosscallProbe_call_remote_pair_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_0_abi_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_pair_array(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_0_abi_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_pair_array_arg(target, method, flag0, small0, flag1, small1) -> result {
+    function f_EvmCrosscallProbe_call_remote_pair_array_arg(target, method, flag0, small0, flag1, small1) -> __pf_result {
       let __proof_forge_array_struct_pairs_0_flag := flag0
       let __proof_forge_array_struct_pairs_0_small := small0
       let __proof_forge_array_struct_pairs_1_flag := flag1
       let __proof_forge_array_struct_pairs_1_small := small1
-      result := __proof_forge_crosscall_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
+      __pf_result := __proof_forge_crosscall_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
     }
-    function f_EvmCrosscallProbe_call_remote_pair_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 := __proof_forge_crosscall_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_pair_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 := __proof_forge_crosscall_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> result {
-      result := __proof_forge_crosscall_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
+    function f_EvmCrosscallProbe_call_remote_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
     }
-    function f_EvmCrosscallProbe_call_remote_value(target, method) -> result {
-      result := __proof_forge_crosscall_value_0(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value(target, method) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_value_0(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair_arg(target, method, flag, small) -> result {
+    function f_EvmCrosscallProbe_call_remote_value_pair_arg(target, method, flag, small) -> __pf_result {
       let __proof_forge_struct_pair_flag := flag
       let __proof_forge_struct_pair_small := small
-      result := __proof_forge_crosscall_value_2(target, method, callvalue(), __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
+      __pf_result := __proof_forge_crosscall_value_2(target, method, callvalue(), __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_value_0_abi_bool_u32(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value_pair(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_value_0_abi_bool_u32(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_value_0_abi_u64_u64(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value_array(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_value_0_abi_u64_u64(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_value_0_abi_u64_u64_u64_u64(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_value_0_abi_u64_u64_u64_u64(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_value_0_abi_bool_u32_bool_u32(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value_pair_array(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_value_0_abi_bool_u32_bool_u32(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair_array_arg(target, method, flag0, small0, flag1, small1) -> result {
+    function f_EvmCrosscallProbe_call_remote_value_pair_array_arg(target, method, flag0, small0, flag1, small1) -> __pf_result {
       let __proof_forge_array_struct_pairs_0_flag := flag0
       let __proof_forge_array_struct_pairs_0_small := small0
       let __proof_forge_array_struct_pairs_1_flag := flag1
       let __proof_forge_array_struct_pairs_1_small := small1
-      result := __proof_forge_crosscall_value_4(target, method, callvalue(), __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
+      __pf_result := __proof_forge_crosscall_value_4(target, method, callvalue(), __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 := __proof_forge_crosscall_value_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method, callvalue())
+    function f_EvmCrosscallProbe_call_remote_value_pair_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 := __proof_forge_crosscall_value_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method, callvalue())
     }
-    function f_EvmCrosscallProbe_call_remote_value_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> result {
-      result := __proof_forge_crosscall_value_8(target, method, callvalue(), flag00, small00, flag01, small01, flag10, small10, flag11, small11)
+    function f_EvmCrosscallProbe_call_remote_value_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_value_8(target, method, callvalue(), flag00, small00, flag01, small01, flag10, small10, flag11, small11)
     }
-    function f_EvmCrosscallProbe_call_remote_value_matrix_arg(target, method, a, b, c, d) -> result {
-      result := __proof_forge_crosscall_value_4(target, method, callvalue(), a, b, c, d)
+    function f_EvmCrosscallProbe_call_remote_value_matrix_arg(target, method, a, b, c, d) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_value_4(target, method, callvalue(), a, b, c, d)
     }
-    function f_EvmCrosscallProbe_call_remote_static(target, method) -> result {
-      result := __proof_forge_crosscall_static_0(target, method)
+    function f_EvmCrosscallProbe_call_remote_static(target, method) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_0(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_bool(target, method, flag) -> result {
-      result := __proof_forge_crosscall_static_1_bool(target, method, flag)
+    function f_EvmCrosscallProbe_call_remote_static_bool(target, method, flag) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_1_bool(target, method, flag)
     }
-    function f_EvmCrosscallProbe_call_remote_static_u32(target, method, x) -> result {
-      result := __proof_forge_crosscall_static_1_u32(target, method, x)
+    function f_EvmCrosscallProbe_call_remote_static_u32(target, method, x) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_1_u32(target, method, x)
     }
-    function f_EvmCrosscallProbe_call_remote_static_hash(target, method, value) -> result {
-      result := __proof_forge_crosscall_static_1_hash(target, method, value)
+    function f_EvmCrosscallProbe_call_remote_static_hash(target, method, value) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_1_hash(target, method, value)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair_arg(target, method, flag, small) -> result {
+    function f_EvmCrosscallProbe_call_remote_static_pair_arg(target, method, flag, small) -> __pf_result {
       let __proof_forge_struct_pair_flag := flag
       let __proof_forge_struct_pair_small := small
-      result := __proof_forge_crosscall_static_2_u32(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
+      __pf_result := __proof_forge_crosscall_static_2_u32(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_static_0_abi_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_static_pair(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_static_0_abi_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_static_0_abi_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_static_array(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_static_0_abi_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_static_0_abi_u64_u64_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_static_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_static_0_abi_u64_u64_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_static_0_abi_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_static_pair_array(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_static_0_abi_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair_array_arg(target, method, flag0, small0, flag1, small1) -> result {
+    function f_EvmCrosscallProbe_call_remote_static_pair_array_arg(target, method, flag0, small0, flag1, small1) -> __pf_result {
       let __proof_forge_array_struct_pairs_0_flag := flag0
       let __proof_forge_array_struct_pairs_0_small := small0
       let __proof_forge_array_struct_pairs_1_flag := flag1
       let __proof_forge_array_struct_pairs_1_small := small1
-      result := __proof_forge_crosscall_static_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
+      __pf_result := __proof_forge_crosscall_static_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 := __proof_forge_crosscall_static_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_static_pair_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 := __proof_forge_crosscall_static_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_static_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> result {
-      result := __proof_forge_crosscall_static_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
+    function f_EvmCrosscallProbe_call_remote_static_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
     }
-    function f_EvmCrosscallProbe_call_remote_static_matrix_arg(target, method, a, b, c, d) -> result {
-      result := __proof_forge_crosscall_static_4(target, method, a, b, c, d)
+    function f_EvmCrosscallProbe_call_remote_static_matrix_arg(target, method, a, b, c, d) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_static_4(target, method, a, b, c, d)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate(target, method) -> result {
-      result := __proof_forge_crosscall_delegate_0(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate(target, method) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_0(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_bool(target, method, flag) -> result {
-      result := __proof_forge_crosscall_delegate_1_bool(target, method, flag)
+    function f_EvmCrosscallProbe_call_remote_delegate_bool(target, method, flag) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_1_bool(target, method, flag)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_u32(target, method, x) -> result {
-      result := __proof_forge_crosscall_delegate_1_u32(target, method, x)
+    function f_EvmCrosscallProbe_call_remote_delegate_u32(target, method, x) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_1_u32(target, method, x)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_hash(target, method, value) -> result {
-      result := __proof_forge_crosscall_delegate_1_hash(target, method, value)
+    function f_EvmCrosscallProbe_call_remote_delegate_hash(target, method, value) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_1_hash(target, method, value)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair_arg(target, method, flag, small) -> result {
+    function f_EvmCrosscallProbe_call_remote_delegate_pair_arg(target, method, flag, small) -> __pf_result {
       let __proof_forge_struct_pair_flag := flag
       let __proof_forge_struct_pair_small := small
-      result := __proof_forge_crosscall_delegate_2_u32(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
+      __pf_result := __proof_forge_crosscall_delegate_2_u32(target, method, __proof_forge_struct_pair_flag, __proof_forge_struct_pair_small)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_delegate_0_abi_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate_pair(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_delegate_0_abi_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1 {
-      __proof_forge_return_0, __proof_forge_return_1 := __proof_forge_crosscall_delegate_0_abi_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate_array(target, method) -> __pf_return_0, __pf_return_1 {
+      __pf_return_0, __pf_return_1 := __proof_forge_crosscall_delegate_0_abi_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_delegate_0_abi_u64_u64_u64_u64(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_delegate_0_abi_u64_u64_u64_u64(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair_array(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3 := __proof_forge_crosscall_delegate_0_abi_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate_pair_array(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3 := __proof_forge_crosscall_delegate_0_abi_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair_array_arg(target, method, flag0, small0, flag1, small1) -> result {
+    function f_EvmCrosscallProbe_call_remote_delegate_pair_array_arg(target, method, flag0, small0, flag1, small1) -> __pf_result {
       let __proof_forge_array_struct_pairs_0_flag := flag0
       let __proof_forge_array_struct_pairs_0_small := small0
       let __proof_forge_array_struct_pairs_1_flag := flag1
       let __proof_forge_array_struct_pairs_1_small := small1
-      result := __proof_forge_crosscall_delegate_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
+      __pf_result := __proof_forge_crosscall_delegate_4(target, method, __proof_forge_array_struct_pairs_0_flag, __proof_forge_array_struct_pairs_0_small, __proof_forge_array_struct_pairs_1_flag, __proof_forge_array_struct_pairs_1_small)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair_matrix(target, method) -> __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 {
-      __proof_forge_return_0, __proof_forge_return_1, __proof_forge_return_2, __proof_forge_return_3, __proof_forge_return_4, __proof_forge_return_5, __proof_forge_return_6, __proof_forge_return_7 := __proof_forge_crosscall_delegate_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
+    function f_EvmCrosscallProbe_call_remote_delegate_pair_matrix(target, method) -> __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 {
+      __pf_return_0, __pf_return_1, __pf_return_2, __pf_return_3, __pf_return_4, __pf_return_5, __pf_return_6, __pf_return_7 := __proof_forge_crosscall_delegate_0_abi_bool_u32_bool_u32_bool_u32_bool_u32(target, method)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> result {
-      result := __proof_forge_crosscall_delegate_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
+    function f_EvmCrosscallProbe_call_remote_delegate_pair_matrix_arg(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_8(target, method, flag00, small00, flag01, small01, flag10, small10, flag11, small11)
     }
-    function f_EvmCrosscallProbe_call_remote_delegate_matrix_arg(target, method, a, b, c, d) -> result {
-      result := __proof_forge_crosscall_delegate_4(target, method, a, b, c, d)
+    function f_EvmCrosscallProbe_call_remote_delegate_matrix_arg(target, method, a, b, c, d) -> __pf_result {
+      __pf_result := __proof_forge_crosscall_delegate_4(target, method, a, b, c, d)
     }
-    function f_EvmCrosscallProbe_deploy_create(value) -> result {
-      result := __proof_forge_create_69602a60005260206000f3600052600a6016f3(value)
+    function f_EvmCrosscallProbe_deploy_create(value) -> __pf_result {
+      __pf_result := __proof_forge_create_69602a60005260206000f3600052600a6016f3(value)
     }
-    function f_EvmCrosscallProbe_deploy_create2(value, salt) -> result {
-      result := __proof_forge_create2_69602a60005260206000f3600052600a6016f3(value, salt)
+    function f_EvmCrosscallProbe_deploy_create2(value, salt) -> __pf_result {
+      __pf_result := __proof_forge_create2_69602a60005260206000f3600052600a6016f3(value, salt)
     }
     function __proof_forge_crosscall_0(target, selector) -> result {
       mstore(0, shl(224, selector))

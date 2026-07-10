@@ -17,20 +17,20 @@ object "Pausable" {
     default {
       revert(0, 0)
     }
-    function f_Pausable_paused() -> result {
-      result := and(shr(192, sload(0)), 18446744073709551615)
+    function f_Pausable_paused() -> __pf_result {
+      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
     }
     function f_Pausable_pause() {
-      if iszero(eq(and(shr(192, sload(0)), 18446744073709551615), 0)) {
+      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 1)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(1, 18446744073709551615))))
     }
     function f_Pausable_unpause() {
-      if iszero(iszero(eq(and(shr(192, sload(0)), 18446744073709551615), 0))) {
+      if iszero(iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0))) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 0)))
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
   }
 }

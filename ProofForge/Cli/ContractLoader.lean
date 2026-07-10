@@ -12,13 +12,13 @@ open Lean
 /-- PF-P3-03: opt-in flag for a future hosted/cloud compiler path.
 
 When set to a truthy value (`1`, `true`, `yes`, case-insensitive),
-`loadSpec` refuses to elaborate. Local `enableInitializersExecution` +
+the shared frontend executor refuses to elaborate. Local `enableInitializersExecution` +
 frontend evaluation is a **trusted local** path only — it is not an isolation
 boundary for hostile source. -/
 def hostedIsolationEnvVar : String := "PROOF_FORGE_HOSTED_ISOLATION"
 
 def hostedIsolationRefusedMessage : String :=
-  "proof-forge: hosted isolation is not ready; ContractLoader local elaboration " ++
+  "proof-forge: hosted isolation is not ready; local Lean frontend elaboration " ++
   "(initializers enabled) is a trusted local path only, not a cloud worker " ++
   "boundary (PF-P3-03). Unset PROOF_FORGE_HOSTED_ISOLATION for trusted local builds."
 
@@ -32,6 +32,41 @@ def hostedIsolationRequested : IO Bool := do
   match ← IO.getEnv hostedIsolationEnvVar with
   | none => pure false
   | some v => pure (isHostedIsolationRequested v)
+
+/-- Enforce that initializer-enabled Lean elaboration only runs on the trusted
+local path. All source loaders must call the shared frontend executor below. -/
+def requireTrustedLocalFrontend : IO Unit := do
+  if ← hostedIsolationRequested then
+    throw <| IO.userError hostedIsolationRefusedMessage
+
+/-- The sole initializer-enabled frontend boundary used by CLI source loaders. -/
+unsafe def runTrustedLocalFrontend
+    (input : System.FilePath) (root? : Option System.FilePath) (moduleName? : Option Name) :
+    IO (Environment × Name) := do
+  requireTrustedLocalFrontend
+  enableInitializersExecution
+  initSearchPath (← findSysroot "lean")
+  let source ← IO.FS.readFile input
+  let modName ← match moduleName? with
+    | some name => pure name
+    | none => moduleNameOfFileName input root?
+  let frontendOpts := Elab.async.set {} false
+  let env? ← Elab.runFrontend
+    source
+    frontendOpts
+    input.toString
+    modName
+    (trustLevel := 0)
+    (oleanFileName? := none)
+    (ileanFileName? := none)
+    (jsonOutput := false)
+    (errorOnKinds := #[])
+    (plugins := #[])
+    (printStats := false)
+    (setup? := none)
+  let some env := env?
+    | throw <| IO.userError s!"Lean frontend failed for `{input.toString}`"
+  pure (env, modName)
 
 private def specConstName (modName : Name) : Name :=
   modName ++ `spec
@@ -90,31 +125,7 @@ unsafe def loadSpecFromEnv (env : Environment) (modName : Name) : IO ProofForge.
 unsafe def loadSpec
     (input : System.FilePath) (root? : Option System.FilePath) (moduleName? : Option Name) :
     IO ProofForge.Contract.ContractSpec := do
-  -- PF-P3-03 honesty: do not expose trusted local elaboration as hosted isolation.
-  if ← hostedIsolationRequested then
-    throw <| IO.userError hostedIsolationRefusedMessage
-  enableInitializersExecution
-  initSearchPath (← findSysroot "lean")
-  let source ← IO.FS.readFile input
-  let modName ← match moduleName? with
-    | some name => pure name
-    | none => moduleNameOfFileName input root?
-  let frontendOpts := Elab.async.set {} false
-  let env? ← Elab.runFrontend
-    source
-    frontendOpts
-    input.toString
-    modName
-    (trustLevel := 0)
-    (oleanFileName? := none)
-    (ileanFileName? := none)
-    (jsonOutput := false)
-    (errorOnKinds := #[])
-    (plugins := #[])
-    (printStats := false)
-    (setup? := none)
-  let some env := env?
-    | throw <| IO.userError s!"Lean frontend failed for `{input.toString}`"
+  let (env, modName) ← runTrustedLocalFrontend input root? moduleName?
   loadSpecFromEnv env modName
 
 end ProofForge.Cli.ContractLoader

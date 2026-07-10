@@ -869,9 +869,11 @@ A full feasibility assessment has been completed and is recorded in
   powdr-backed `State`, `Step`, `stepF`, `runBytecode`, and the `runBytecode_steps`
   bridge to powdr's relational `Steps`. The pinned powdr tree exposes bytecode semantics,
   not a Yul-level relation, so the Yul→bytecode `solc` step remains an explicit trust
-  boundary. Remaining Phase 6c work is the Counter per-entrypoint powdr `Step` proof,
-  currently reduced to prepared-frame EVM-only storage postconditions against the
-  compiled runtime. See [tier-c-proof-feasibility.md §2](../tier-c-proof-feasibility.md).
+  boundary. The canonical low-order lane now pins a solc 0.8.30 fixed Counter trace.
+  Its universal theorem remains explicit about the open
+  `CounterCompiledPowdrEntrypointObligations`; the former prepared-frame opcode proof
+  is retained under `LegacyHighPacked` as historical evidence. See
+  [tier-c-proof-feasibility.md §2](../tier-c-proof-feasibility.md).
 - **Phase 6c — Prove IR → bytecode refinement for Counter.** Define the simulation relation
   `R : IR.State ↔ EVM.State` for the Counter module (single U64 scalar → one storage slot);
   prove `R`-simulation for `initialize`/`increment`/`get`; lift to a trace theorem by
@@ -915,9 +917,9 @@ A full feasibility assessment has been completed and is recorded in
   `EvmRefinement/PowdrAdapter.lean`, `EvmRefinement/CounterRefinement.lean`,
   and the opt-in powdr smoke gates wire `powdr-labs/evm-semantics` as the
   EVM refinement target while keeping the default build mathlib-free.
-  **Next (Phase 6c):** discharge the Counter per-entrypoint powdr `Step`
-  obligations, starting from prepared-frame storage postconditions over the
-  compiled runtime.
+  **Next (Phase 6c):** discharge the current low-order runtime's
+  `CounterCompiledPowdrEntrypointObligations` through reusable automation; do not
+  extend the legacy prepared-frame proof by hand.
 
 **Risks:** overstating what is "proven" — Path 5a is differential testing
 (Tier C-diff), not a proof; Path 5b's current `Evm.Refinement`/`ValueVaultInvariant`

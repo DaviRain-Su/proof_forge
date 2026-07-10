@@ -83,6 +83,22 @@ pub(crate) async fn run_external_vault_matrix(
     ensure_ok(&s, "PF deposit_assets")?;
     pf_steps.push(s);
 
+    let s = view_json_u64(&peer, "hits", json!({})).await?;
+    ensure_ok(&s, "PF vault peer hits")?;
+    if s.return_u64 != Some(1) {
+        bail!("PF vault peer hits expected 1, got {:?}", s.return_u64);
+    }
+    pf_steps.push(s);
+    let s = view_json_u64(&peer, "total_assets", json!({})).await?;
+    ensure_ok(&s, "PF vault peer total_assets")?;
+    if s.return_u64 != Some(100) {
+        bail!(
+            "PF vault peer total_assets expected 100, got {:?}",
+            s.return_u64
+        );
+    }
+    pf_steps.push(s);
+
     let pf_storage = refresh_storage(&pf_contract).await?;
     let pf = SideReport {
         label: SideKind::ProofForge.label().into(),
@@ -107,12 +123,7 @@ pub(crate) async fn run_external_vault_matrix(
     let mut sdk_steps = Vec::new();
     let mut sdk_call_gas = 0u64;
 
-    let s = call_json(
-        &sdk_contract,
-        "initialize",
-        json!({ "vault": peer2_id }),
-    )
-    .await?;
+    let s = call_json(&sdk_contract, "initialize", json!({ "vault": peer2_id })).await?;
     sdk_call_gas = sdk_call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
     ensure_ok(&s, "sdk initialize")?;
     sdk_steps.push(s);
@@ -127,10 +138,19 @@ pub(crate) async fn run_external_vault_matrix(
     ensure_ok(&s, "sdk deposit_assets")?;
     sdk_steps.push(s);
 
-    let s = view_json_u64(&sdk_contract, "last_shares", json!({})).await?;
-    ensure_ok(&s, "sdk last_shares")?;
+    let s = view_json_u64(&peer2, "hits", json!({})).await?;
+    ensure_ok(&s, "sdk vault peer hits")?;
+    if s.return_u64 != Some(1) {
+        bail!("sdk vault peer hits expected 1, got {:?}", s.return_u64);
+    }
+    sdk_steps.push(s);
+    let s = view_json_u64(&peer2, "total_assets", json!({})).await?;
+    ensure_ok(&s, "sdk vault peer total_assets")?;
     if s.return_u64 != Some(100) {
-        bail!("sdk last_shares expected 100, got {:?}", s.return_u64);
+        bail!(
+            "sdk vault peer total_assets expected 100, got {:?}",
+            s.return_u64
+        );
     }
     sdk_steps.push(s);
 

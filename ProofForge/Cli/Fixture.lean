@@ -235,7 +235,7 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
 produce a clear diagnostic when a target profile lacks a required capability. -/
 def capabilitiesFor (id : String) : Array ProofForge.Target.Capability :=
   match id with
-  | "counter" => #[.storageScalar, .callerSender, .envBlock, .controlConditional, .controlBoundedLoop]
+  | "counter" => #[.storageScalar]
   | "value-vault" => #[.storageScalar, .storageMap, .callerSender, .envBlock, .controlConditional]
   | "error-ref" => #[.storageScalar, .assertions]
   | "context" => #[.callerSender, .envBlock, .valueNative]

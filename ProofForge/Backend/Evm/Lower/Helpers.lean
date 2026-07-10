@@ -248,14 +248,9 @@ mutual
         .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
     | .checkErc1155BatchReceived a b c d e f g => do
-        let s1 ← crosscallHelperSpecsFromExpr module env a
-        let s2 ← crosscallHelperSpecsFromExpr module env b
-        let s3 ← crosscallHelperSpecsFromExpr module env c
-        let s4 ← crosscallHelperSpecsFromExpr module env d
-        let s5 ← crosscallHelperSpecsFromExpr module env e
-        let s6 ← crosscallHelperSpecsFromExpr module env f
-        let s7 ← crosscallHelperSpecsFromExpr module env g
-        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) (mergeCrosscallHelperSpecs s5 (mergeCrosscallHelperSpecs s6 s7))))
+        #[a, b, c, d, e, f, g].foldlM (init := #[]) fun acc expr => do
+          .ok (mergeCrosscallHelperSpecs acc
+            (← crosscallHelperSpecsFromExpr module env expr))
 
   partial def crosscallHelperSpecsFromStoragePathSegment
       (module : Module)
@@ -396,7 +391,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldlM (init := #[]) fun acc arg => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExprPlan module arg))
-    | .checkedArith _ lhs rhs _
+    | .checkedArith _ lhs rhs _ _
     | .arrayGet lhs rhs
     | .hashTwoToOne lhs rhs => do
         .ok (mergeCrosscallHelperSpecs
@@ -586,14 +581,9 @@ mutual
         .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
     | .checkErc1155BatchReceived a b c d e f g => do
-        let s1 ← crosscallHelperSpecsFromExprPlan module a
-        let s2 ← crosscallHelperSpecsFromExprPlan module b
-        let s3 ← crosscallHelperSpecsFromExprPlan module c
-        let s4 ← crosscallHelperSpecsFromExprPlan module d
-        let s5 ← crosscallHelperSpecsFromExprPlan module e
-        let s6 ← crosscallHelperSpecsFromExprPlan module f
-        let s7 ← crosscallHelperSpecsFromExprPlan module g
-        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) (mergeCrosscallHelperSpecs s5 (mergeCrosscallHelperSpecs s6 s7))))
+        #[a, b, c, d, e, f, g].foldlM (init := #[]) fun acc expr => do
+          .ok (mergeCrosscallHelperSpecs acc
+            (← crosscallHelperSpecsFromExprPlan module expr))
 
   partial def crosscallHelperSpecsFromStmtPlan
       (module : Module) : StmtPlan → Except LowerError (Array CrosscallHelperSpec)
@@ -759,9 +749,8 @@ mutual
           (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (mergeCreateHelperSpecs (createHelperSpecsFromExpr d) (createHelperSpecsFromExpr e)))
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        mergeCreateHelperSpecs
-          (mergeCreateHelperSpecs (createHelperSpecsFromExpr a) (createHelperSpecsFromExpr b))
-          (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (mergeCreateHelperSpecs (createHelperSpecsFromExpr d) (mergeCreateHelperSpecs (mergeCreateHelperSpecs (createHelperSpecsFromExpr e) (mergeCreateHelperSpecs (createHelperSpecsFromExpr f) (createHelperSpecsFromExpr g))) (mergeCreateHelperSpecs (createHelperSpecsFromExpr f) (createHelperSpecsFromExpr g)))))
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExpr expr)
 
   partial def createHelperSpecsFromStoragePathSegment : StoragePathSegment → Array CreateHelperSpec
     | .field _ => #[]
@@ -932,9 +921,8 @@ mutual
           (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr d) (abiPackedHelperSpecsFromExpr e)))
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        mergeAbiPackedHelperSpecs
-          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
-          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr d) (mergeAbiPackedHelperSpecs (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr e) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr f) (abiPackedHelperSpecsFromExpr g))) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr f) (abiPackedHelperSpecsFromExpr g)))))
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr expr)
 
   partial def abiPackedHelperSpecsFromStatement : Statement → Array AbiPackedHelperSpec
     | .letBind _ _ value | .letMutBind _ _ value | .return value =>
@@ -1028,7 +1016,7 @@ mutual
     | .builtin _ args | .helperCall _ args | .arrayLit _ args =>
         args.foldl (init := #[]) fun acc arg =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan arg)
-    | .checkedArith _ lhs rhs _
+    | .checkedArith _ lhs rhs _ _
     | .arrayGet lhs rhs
     | .hashTwoToOne lhs rhs =>
         mergeCreateHelperSpecs
@@ -1194,9 +1182,8 @@ mutual
           (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan c) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan d) (createHelperSpecsFromExprPlan e)))
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        mergeCreateHelperSpecs
-          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan a) (createHelperSpecsFromExprPlan b))
-          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan c) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan d) (mergeCreateHelperSpecs (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan e) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan f) (createHelperSpecsFromExprPlan g))) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan f) (createHelperSpecsFromExprPlan g)))))
+        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+          mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan expr)
 
   partial def createHelperSpecsFromStmtPlan : StmtPlan → Array CreateHelperSpec
     | .letBind _ _ value

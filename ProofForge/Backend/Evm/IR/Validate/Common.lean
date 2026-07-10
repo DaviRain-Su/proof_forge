@@ -180,8 +180,9 @@ def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul
       match parseSoliditySelectorHex hex with
       | some sel => solidityCustomErrorRevertStmts sel ref.solidityArgWords
       | none =>
-          -- Invalid selector falls back to envelope so build stays fail-open for typos
-          -- at IR construction time (callers should validate selectors).
+          -- The public lowering paths reject this in validateSolidityErrorRef.
+          -- Keep the legacy defensive branch reverting with the PF envelope if
+          -- an internal caller invokes this helper without validation.
           let code := ref.userCode?.getD ""
           let codeLen := code.length
           let paddedLen := ((codeLen + 31) / 32) * 32
@@ -752,7 +753,8 @@ def ensureCastType (source target : ValueType) : Except LowerError Unit :=
   match source, target with
   | .u8, .u8 | .u8, .u32 | .u8, .u64 | .u8, .u128 | .u8, .bool => .ok ()
   | .u32, .u8 | .u32, .u32 | .u32, .u64 | .u32, .u128 | .u32, .bool => .ok ()
-  | .u64, .u8 | .u64, .u32 | .u64, .u64 | .u64, .u128 | .u64, .bool => .ok ()
+  | .u64, .u8 | .u64, .u32 | .u64, .u64 | .u64, .u128 | .u64, .bool
+  | .u64, .address => .ok ()
   | .u128, .u8 | .u128, .u32 | .u128, .u64 | .u128, .u128 => .ok ()
   | .bool, .u8 | .bool, .u32 | .bool, .u64 | .bool, .u128 | .bool, .bool => .ok ()
   | .address, .address | .address, .u64 | .hash, .address | .address, .hash | .hash, .hash => .ok ()

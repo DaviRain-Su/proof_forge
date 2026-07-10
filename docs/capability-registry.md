@@ -35,25 +35,26 @@ remain uniform.
 > direct sBPF assembly codegen. Solana uses `crosscall.cpi` (not
 > `crosscall.invoke`) and `storage.pda` — these are Solana-specific per D-027.
 > The **CF Workers** column is the off-chain `wasm-cloudflare-workers` host
-> (D-033); it reinterprets capabilities without consensus or on-chain state.
+> (D-033). The current registry advertises only the executable Counter
+> `storage.scalar` sourcegen subset; broader host mappings remain design work.
 
 | Capability id | Portable meaning | EVM | NEAR | CosmWasm | Solana | Aptos | Sui | Psy DPN | CF Workers |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `storage.scalar` | Single persistent scalar | Y | Y | Y | Y | Y | Y | Y | Y |
-| `storage.map` | Key-value or mapping storage | Y | Y | Y | P | P | N | P | Y |
+| `storage.map` | Key-value or mapping storage | Y | Y | Y | P | P | N | P | N |
 | `storage.array` | Fixed-size indexed storage array | P | P | N | Y | N | N | P | N |
-| `caller.sender` | Transaction signer/caller | Y | Y | Y | Y | Y | N | P | Y |
+| `caller.sender` | Transaction signer/caller | Y | Y | Y | Y | Y | N | P | N |
 | `value.native` | Native token attached to call | Y | Y | Y | Y | Y | N | N | N |
-| `events.emit` | Structured log/event output | Y | Y | Y | Y | Y | N | Y | Y |
-| `crosscall.invoke` | Call another contract/program | Y | Y | Y | Y | Y | N | P | Y |
-| `env.block` | Block height/time/chain id reads | Y | Y | P | P | P | N | P | P |
-| `control.conditional` | Statement-level conditional branches with target-supported boolean predicates | P | P | N | Y | N | N | P | Y |
-| `control.bounded_loop` | Static bounded loops that can be flattened or unrolled by the target | P | P | N | P | N | N | P | Y |
-| `data.fixed_array` | Fixed-size array value type, literals, and index expressions | P | P | N | Y | N | N | P | Y |
+| `events.emit` | Structured log/event output | Y | Y | Y | Y | Y | N | Y | N |
+| `crosscall.invoke` | Call another contract/program | Y | Y | Y | Y | Y | N | P | N |
+| `env.block` | Block height/time/chain id reads | Y | Y | P | P | P | N | P | N |
+| `control.conditional` | Statement-level conditional branches with target-supported boolean predicates | P | P | N | Y | N | N | P | N |
+| `control.bounded_loop` | Static bounded loops that can be flattened or unrolled by the target | P | P | N | P | N | N | P | N |
+| `data.fixed_array` | Fixed-size array value type, literals, and index expressions | P | P | N | Y | N | N | P | N |
 | `data.dynamic_bytes` | Dynamic-length bytes/string value type with head-tail ABI encoding | Y | N | N | N | N | N | N | N |
-| `data.struct` | Struct value type, literals, and field access | P | P | N | Y | N | N | P | Y |
-| `crypto.hash` | Host or library hashing | Y | Y | Y | Y | Y | N | Y | Y |
-| `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | Y | Y | Y |
+| `data.struct` | Struct value type, literals, and field access | P | P | N | Y | N | N | P | N |
+| `crypto.hash` | Host or library hashing | Y | Y | Y | Y | Y | N | Y | N |
+| `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | Y | Y | N |
 | `account.explicit` | Named account/object/resource binding | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | Program-derived address state | N | N | N | Y | N | N | N | N |
 | `runtime.allocator` | Target runtime heap allocator contract | N | N | N | Y | N | N | N | N |
@@ -273,17 +274,18 @@ Aleo overlaps with source-generation and ZK targets, but its contract model has
 an explicit proof/finalization split. Private execution creates transitions and
 proofs; public finalization updates mappings or storage on-chain. Records,
 program ids, imports, Aleo Instructions, Aleo VM bytecode, ABI, prover/verifier
-artifacts, fees, and devnet validation need explicit representation before a
-target profile is added.
+artifacts, fees, and devnet validation still need explicit representation
+before those native surfaces can be claimed.
 
-#### Canonical capabilities (Road 1 spike)
+#### Current profile and Aleo-native research vocabulary
 
-These capabilities are accepted for the first `aleo-leo` spike and are listed in
-Aleo artifact metadata produced by `scripts/aleo/counter-smoke.sh`. They are
-**not** added to `ProofForge.Target.Capability` until the target profile and
-proof/finalization split are reviewed.
+The registered `aleo-leo` profile currently uses shared portable capabilities,
+including `data.linear_record` and `crosscall.named`; metadata is emitted only
+after the same function plan as codegen validates. The Aleo-native ids below
+remain design vocabulary, not entries in `ProofForge.Target.Capability` and not
+claims made by the Counter fail-closed smoke.
 
-| Capability id | Portable meaning | Why it is separate |
+| Design id | Portable meaning | Why it is separate |
 |---|---|---|
 | `lang.leo` | Target emits Leo source packages | Leo is the first stable sourcegen boundary |
 | `vm.aleo_avm` | Target runs on the Aleo VM | Avoids ambiguity with Algorand AVM |

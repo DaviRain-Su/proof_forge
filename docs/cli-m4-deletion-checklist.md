@@ -1,8 +1,8 @@
 # CLI M4 deletion checklist (U6.3 prep)
 
-Status: **Compat window open — deletion deferred (P1.2)**  
-Date: 2026-07-09  
-Parent: [cli-m4-legacy-inventory.md](cli-m4-legacy-inventory.md), RFC 0009, D-039  
+Status: **Compat window open — deletion deferred (P1.2)**
+Date: 2026-07-09
+Parent: [cli-m4-legacy-inventory.md](cli-m4-legacy-inventory.md), RFC 0009, D-039
 Gate that must stay green: `just cli-target-first`
 
 ## Snapshot

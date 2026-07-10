@@ -171,46 +171,53 @@ Yul→bytecode `solc` step as an explicit trust boundary.
   fuel-bounded execution to powdr `Steps`.
 - `EvmRefinement/CounterRefinement.lean` — opt-in Counter relation layer that
   maps IR `count` to the powdr account storage word at ProofForge's EVM scalar
-  slot 0 using the generated packed U64 shape: high 64 bits carry `count`, low
-  192 bits are padding/other-packed-field space, and `count < 2^64`,
+  slot 0 using the generated Solidity-compatible packed U64 shape: low 64 bits
+  carry `count`, high 192 bits are padding/other-packed-field space, and
+  `count < 2^64`,
   embeds the current CLI-generated Counter runtime bytecode witness, proves its
   selector offsets, exposes the compiled-runtime powdr config, and specializes
   the initialize-prefixed trace theorem to that concrete runtime target. It also
   defines a high-gas top-level `counterBaseEvmState` and native executable
   smokes for the compiled runtime; those are C-diff witnesses, not the pending
-  relational per-entrypoint proof. Prepared calls now normalize a fresh
+  relational per-entrypoint proof. **Legacy storage-layout checkpoint:** the
+  prepared-frame, safe-trace, and hand-expanded opcode names in the historical
+  detail below live under `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`.
+  They target the pre-migration high-64-bit layout and do not establish refinement
+  for the current low-order runtime. Prepared calls now normalize a fresh
   top-level EVM frame while preserving storage, so stale halted frames or
   zero-gas defaults are not accidental counterexamples. The concrete compiled
   powdr target now wires `executableTraceOk` for Counter `TraceObligation`s and
   proves the initialize-get-increment-get trace. The relation layer also exposes
-  `CounterStepSafe`, `CounterPowdrSafeEntrypointObligations`, and
-  `counterPowdr_safe_step_simulates_from_obligations`, so the bounded
+  `LegacyHighPacked.CounterStepSafe`,
+  `LegacyHighPacked.CounterPowdrSafeEntrypointObligations`, and
+  `LegacyHighPacked.counterPowdr_safe_step_simulates_from_obligations`, so the bounded
   `increment` precondition is now part of the per-entrypoint EVM proof surface.
   The safe trace theorem also lifts this predicate through the universal
   Counter trace induction and exposes a compiled-runtime specialization.
-  `CounterTraceSafeAtState` exposes the same boundary as a state/input predicate.
-  `CounterPowdrEvmPostconditions` and
-  `counterPowdrSafeEntrypointObligationsOfPostconditions` isolate the remaining
-  proof to EVM-only storage postconditions for the compiled runtime. Padded-slot
-  native smokes confirm `get` reads the high 64-bit count and `initialize; get`
-  returns `0` even when the low 192 bits are nonzero.
-  `CounterPowdrPreparedEvmPostconditions` and
-  `counterPowdrEvmPostconditionsOfPrepared` split the hard proof into
+  `LegacyHighPacked.CounterTraceSafeAtState` exposes the same historical boundary.
+  `LegacyHighPacked.CounterPowdrEvmPostconditions` and
+  `LegacyHighPacked.counterPowdrSafeEntrypointObligationsOfPostconditions` isolate the historical
+  proof to EVM-only storage postconditions for the legacy compiled runtime.
+  Current padded-slot native smokes separately confirm low-64-bit reads and high-padding
+  preservation; they do not discharge these legacy postconditions.
+  `LegacyHighPacked.CounterPowdrPreparedEvmPostconditions` and
+  `LegacyHighPacked.counterPowdrEvmPostconditionsOfPrepared` split the historical proof into
   prepared-frame bytecode facts plus the `prepareCounterCall` bridge. The
-  initialize slice now has `counterInitializeStorageWord` as the storage model
-  and `counterPreparedInitializePostconditionOfStorageModel` as the bridge from
-  that model to the prepared-frame postcondition. `CounterPowdrPreparedStorageModels`
+  initialize slice uses `LegacyHighPacked.counterInitializeStorageWord` as its high-packed storage model
+  and `LegacyHighPacked.counterPreparedInitializePostconditionOfStorageModel` as the bridge from
+  that model to the prepared-frame postcondition. `LegacyHighPacked.CounterPowdrPreparedStorageModels`
   names the exact remaining prepared-frame storage-model surface, and the
-  compiled `counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
+  compiled `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_*_prepared_storage_models`
   theorems connect that surface directly to the safe universal trace theorems.
   The SSTORE slice now has
-  `counterInitializeStorageValue_of_sstore_stackMemFlow_ok`, proving that a
+  `LegacyHighPacked.counterInitializeStorageValue_of_sstore_stackMemFlow_ok`, proving that a
   successful powdr `SSTORE` helper step with the initialize model value on the
-  stack writes that value into Counter slot 0. `counterStack_of_initialize_sload_and_or_ok`
+  stack writes that value into Counter slot 0. `LegacyHighPacked.counterStack_of_initialize_sload_and_or_ok`
   composes the powdr `SLOAD`, `AND`, and `OR` helper steps into the value
   shape that feeds that SSTORE. `counterInitializeSetValue_eq_zero`,
-  `counterInitializeLowMask_eq`, `counterInitializeBodyWriteWord_eq_storageWord`,
-  and `counterInitializeBodyWriteWord_rel_zero` prove that the concrete mask and
+  `counterInitializeLowMask_eq`,
+  `LegacyHighPacked.counterInitializeBodyWriteWord_eq_storageWord`, and
+  `LegacyHighPacked.counterInitializeBodyWriteWord_rel_zero` prove that the historical mask and
   set value produced by the initialize body exactly match
   `counterInitializeStorageWord`; `counterStack_of_initialize_sload_and_or_storageWord_ok`
   specializes the SLOAD/AND/OR helper sequence to that storage model value.
@@ -311,29 +318,30 @@ Yul→bytecode `solc` step as an explicit trust boundary.
   confirm the relation's packed U64 storage shape matches the compiled runtime.
 - `counterCompiledPowdr_executable_trace_ok` — green; the compiled-runtime
   powdr `TargetSemantics.executableTraceOk` accepts the Counter trace obligation.
-- `counterPowdr_safe_step_simulates_from_obligations` — green under
+- `LegacyHighPacked.counterPowdr_safe_step_simulates_from_obligations` — historical high-packed theorem, green under
   `lake build EvmRefinement`; safe per-entrypoint obligations imply the
   one-step IR/powdr Counter simulation.
-- `counterCompiledPowdr_safe_trace_simulates_after_initialize_from_obligations`
+- `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_after_initialize_from_obligations`
   — green under `lake build EvmRefinement`; safe per-entrypoint obligations
   plus `counterTraceSafeAfterInitialize` imply the initialize-prefixed universal
   IR/powdr Counter trace simulation for the concrete compiled runtime.
-- `counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations` —
-  green under `lake build EvmRefinement`; `CounterTraceSafeAtState` plus the
+- `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_from_state_safe_obligations` —
+  historical high-packed theorem, green under `lake build EvmRefinement`;
+  `LegacyHighPacked.CounterTraceSafeAtState` plus the
   storage relation imply the universal IR/powdr Counter trace simulation for
   the concrete compiled runtime.
-- `counterPowdrSafeEntrypointObligationsOfPostconditions` — green under
+- `LegacyHighPacked.counterPowdrSafeEntrypointObligationsOfPostconditions` — green under
   `lake build EvmRefinement`; EVM-only storage postconditions imply the safe
   per-entrypoint obligations.
-- `counterPowdrEvmPostconditionsOfPrepared` — green under
+- `LegacyHighPacked.counterPowdrEvmPostconditionsOfPrepared` — green under
   `lake build EvmRefinement`; prepared-frame postconditions imply the ordinary
   arbitrary-pre-state postconditions used by `counterPowdrTraceStep`.
-- `counterPreparedInitializePostconditionOfStorageModel` — green under
+- `LegacyHighPacked.counterPreparedInitializePostconditionOfStorageModel` — green under
   `lake build EvmRefinement`; a powdr proof that initialize writes
   `counterInitializeStorageWord` implies the prepared-frame initialize
   postcondition.
-- `counterCompiledPowdr_safe_trace_simulates_after_initialize_from_prepared_storage_models`
-  and `counterCompiledPowdr_safe_trace_simulates_from_state_safe_prepared_storage_models`
+- `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_after_initialize_from_prepared_storage_models`
+  and `LegacyHighPacked.counterCompiledPowdr_safe_trace_simulates_from_state_safe_prepared_storage_models`
   — green under `lake build EvmRefinement`; compiled prepared-frame storage
   models imply the existing safe universal IR/powdr trace theorems.
 - `counterInitializeStorageValue_of_sstore_stackMemFlow_ok` — green under
@@ -343,7 +351,7 @@ Yul→bytecode `solc` step as an explicit trust boundary.
 - `counterStack_of_initialize_sload_and_or_ok` — green under
   `lake build EvmRefinement`; the SLOAD/AND/OR helper sequence forms the
   storage value that is later consumed by the SSTORE proof.
-- `counterInitializeBodyWriteWord_eq_storageWord` and
+- `LegacyHighPacked.counterInitializeBodyWriteWord_eq_storageWord` and
   `counterStack_of_initialize_sload_and_or_storageWord_ok` — green under
   `lake build EvmRefinement`; the concrete initialize mask/set-value expression
   equals the storage model consumed by the SSTORE helper proof.
@@ -533,18 +541,18 @@ Yul→bytecode `solc` step as an explicit trust boundary.
 
 ## (h) Current proof boundary and scaling guardrail
 
-The Counter relation now carries `count < 2^64` plus the generated high-64-bit
-packed storage shape with low 192-bit padding allowed. The overflow boundary is
-represented in Lean by `counterTraceSafeFromCount` /
-`counterTraceSafeAfterInitialize`, `CounterStepSafe`, and
-`CounterTraceSafeAtState`; the safe trace induction layer is green, and the
-compiled-runtime theorems reduce the all-call-list IR/powdr trace simulation to
-`CounterCompiledPowdrPreparedStorageModels`.
+The canonical Counter relation now carries the generated low-64-bit packed
+storage shape with high 192-bit padding allowed. The current solc 0.8.30 runtime
+has native-decide fixed traces, including padding preservation. The all-call-list
+shape `evmCompiledPowdr_fragment_refines_all` remains conditional on
+`CounterCompiledPowdrEntrypointObligations`; those current-runtime obligations
+are open. The former safe/prepared structures described above are available only
+as `LegacyHighPacked` historical evidence.
 
-The scaling risk is now below that trace-induction layer. The deep
-`runBytecode`/`stepFE` discharge has been driven through the full initialize
-dispatcher/trampoline/body/return path, but `increment` and `get` should not copy
-that proof shape one entrypoint at a time. Before widening the deep discharge,
+The scaling risk is at the current per-entrypoint obligation boundary. The legacy
+deep `runBytecode`/`stepFE` discharge covered an initialize path, but `increment`
+and `get` should not copy that proof shape one entrypoint at a time. Before
+widening the deep discharge,
 extend the reusable segment machinery (`StepFEPath`,
 `runBytecode_of_stepFEPath`, opcode-family call-stack preservation, and segment
 lemmas for dispatcher, storage, arithmetic, and return paths) so later

@@ -143,10 +143,7 @@ pub(crate) async fn deploy_with_metrics(
         .dev_create_account()
         .await
         .context("dev_create_account")?;
-    let execution = account
-        .deploy(wasm)
-        .await
-        .context("account.deploy")?;
+    let execution = account.deploy(wasm).await.context("account.deploy")?;
     let deploy_gas = execution.details.total_gas_burnt.as_gas();
     let contract = execution
         .into_result()
@@ -163,6 +160,33 @@ pub(crate) async fn refresh_storage(contract: &Contract) -> Result<u64> {
     Ok(contract.view_account().await?.storage_usage)
 }
 
+pub(crate) async fn view_state_u64(
+    contract: &Contract,
+    key: &[u8],
+    observation_name: &str,
+) -> Result<StepReport> {
+    let mut state = contract
+        .view_state()
+        .prefix(key)
+        .await
+        .with_context(|| format!("view state key `{}`", String::from_utf8_lossy(key)))?;
+    let bytes = state.remove(key).with_context(|| {
+        format!(
+            "state key `{}` is missing from `{}`",
+            String::from_utf8_lossy(key),
+            contract.id()
+        )
+    })?;
+    Ok(StepReport {
+        call: observation_name.into(),
+        kind: "state".into(),
+        ok: true,
+        gas_burnt: None,
+        return_u64: Some(decode_le_u64(&bytes)?),
+        logs: vec![],
+        error: None,
+    })
+}
 
 pub(crate) async fn call_raw(contract: &Contract, method: &str, args: &[u8]) -> Result<StepReport> {
     let outcome = contract
@@ -199,7 +223,9 @@ pub(crate) async fn call_raw_deposit(
     let outcome = contract
         .call(method)
         .args(args.to_vec())
-        .deposit(near_workspaces::types::NearToken::from_yoctonear(deposit_yocto))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(
+            deposit_yocto,
+        ))
         .gas(NearGas::from_tgas(100))
         .transact()
         .await
@@ -216,7 +242,9 @@ pub(crate) async fn call_json_deposit(
     let outcome = contract
         .call(method)
         .args_json(args)
-        .deposit(near_workspaces::types::NearToken::from_yoctonear(deposit_yocto))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(
+            deposit_yocto,
+        ))
         .gas(NearGas::from_tgas(100))
         .transact()
         .await
@@ -280,10 +308,17 @@ pub(crate) fn decode_le_u64(bytes: &[u8]) -> Result<u64> {
     if let Ok(v) = serde_json::from_slice::<u64>(bytes) {
         return Ok(v);
     }
-    bail!("expected LE u64 (8 bytes), got {} bytes: {bytes:02x?}", bytes.len());
+    bail!(
+        "expected LE u64 (8 bytes), got {} bytes: {bytes:02x?}",
+        bytes.len()
+    );
 }
 
-pub(crate) fn step_from_outcome(call: &str, kind: &str, outcome: ExecutionFinalResult) -> StepReport {
+pub(crate) fn step_from_outcome(
+    call: &str,
+    kind: &str,
+    outcome: ExecutionFinalResult,
+) -> StepReport {
     let gas = outcome.total_gas_burnt.as_gas();
     let logs: Vec<String> = outcome.logs().iter().map(|s| (*s).to_string()).collect();
     if outcome.is_success() {
@@ -350,8 +385,6 @@ pub(crate) fn round3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
 
-
-
 /// Mutable per-side scenario runner — collapses deploy/step/call_gas boilerplate.
 pub(crate) struct SideCtx {
     pub contract: Contract,
@@ -390,7 +423,12 @@ impl SideCtx {
         Ok(())
     }
 
-    pub async fn call_json(&mut self, method: &str, args: serde_json::Value, label: &str) -> Result<()> {
+    pub async fn call_json(
+        &mut self,
+        method: &str,
+        args: serde_json::Value,
+        label: &str,
+    ) -> Result<()> {
         let s = call_json(&self.contract, method, args).await?;
         self.call_gas = self.call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
         ensure_ok(&s, label)?;
@@ -426,7 +464,12 @@ impl SideCtx {
         Ok(())
     }
 
-    pub async fn view_raw_u64(&mut self, method: &str, label: &str, expect: Option<u64>) -> Result<()> {
+    pub async fn view_raw_u64(
+        &mut self,
+        method: &str,
+        label: &str,
+        expect: Option<u64>,
+    ) -> Result<()> {
         let s = view_raw_u64(&self.contract, method).await?;
         ensure_ok(&s, label)?;
         if let Some(e) = expect {

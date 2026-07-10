@@ -22,7 +22,6 @@ Rules:
 - **aleo-leo/native**: hand-written golden Examples/Backend/Aleo/Counter.golden.leo (source size baseline)
 
 </details>
-
 ## `bm-counter`
 
 | Target | PF ok | Native ok | PF artifact | Native artifact | PF/native size | PF costs | Native costs |
@@ -92,4 +91,3 @@ Rules:
 - **wasm-near/native**: near-sdk host tests + release wasm; dual-deploy gas via just near-compare-value-vault-live
 
 </details>
-

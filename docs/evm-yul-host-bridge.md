@@ -36,9 +36,9 @@ EvmYulMachineState  (lowered Yul object + WordBindings storage)
 
 ### Storage relation (Counter)
 
-IR `count : U64` relates to Yul storage slot `0` high-64 bits
-(`word / 2^192`), matching the EVM packing used by
-`EvmRefinement.CounterRefinement`.
+IR `count : U64` relates to the low 64 bits of Yul storage slot `0`
+(`word % 2^64`). The relation reads slot, byte offset, and byte width from the
+canonical EVM storage plan, matching Solidity-compatible low-order packing.
 
 ### Storage relation (ValueVault)
 
@@ -47,12 +47,12 @@ All six `U64` scalar fields are packed by the standard EVM layout
 
 | Field | Slot | Byte offset | Extraction |
 |-------|------|-------------|------------|
-| `balance` | 0 | 0 | `word / 2^192` |
-| `released` | 0 | 8 | `(word / 2^128) % 2^64` |
-| `fees` | 0 | 16 | `(word / 2^64) % 2^64` |
-| `last_value` | 0 | 24 | `word % 2^64` |
-| `last_checkpoint` | 1 | 0 | `word / 2^192` |
-| `operations` | 1 | 8 | `(word / 2^128) % 2^64` |
+| `balance` | 0 | 0 | `word % 2^64` |
+| `released` | 0 | 8 | `(word / 2^64) % 2^64` |
+| `fees` | 0 | 16 | `(word / 2^128) % 2^64` |
+| `last_value` | 0 | 24 | `(word / 2^192) % 2^64` |
+| `last_checkpoint` | 1 | 0 | `word % 2^64` |
+| `operations` | 1 | 8 | `(word / 2^64) % 2^64` |
 
 The relation is checked at every step by `valueVaultYulTraceOk` and
 witnessed by `value_vault_yul_trace_simulation_sound_checked`.

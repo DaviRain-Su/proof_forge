@@ -37,6 +37,7 @@ def renderAbiEntrypoint (e : AbiEntrypointDescriptor) : String :=
   jsonObject [
     ("name", quoteString e.name),
     ("params", jsonArray (e.params.toList.map renderAbiParam)),
+    ("portableReturnType", quoteString e.portableReturnType),
     ("returnType", quoteString e.returnType)
   ]
 
@@ -102,6 +103,7 @@ private def renderAbiEntrypointPretty (e : AbiEntrypointDescriptor) : Doc :=
   jsonObjectDoc [
     ("name", Doc.text (quoteString e.name)),
     ("params", jsonArrayDoc (e.params.toList.map renderAbiParamPretty)),
+    ("portableReturnType", Doc.text (quoteString e.portableReturnType)),
     ("returnType", Doc.text (quoteString e.returnType))
   ]
 

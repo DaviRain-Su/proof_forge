@@ -73,8 +73,14 @@ contract-spec-json:
     lake env lean --run Tests/ContractSpecJson.lean
 
 # Check generated target wrapper sketches from ContractSpec.
-contract-client:
+contract-client: entrypoint-mutability
+    lake build ProofForge.Contract.Stdlib.NearFungibleToken
     lake env lean --run Tests/ContractClient.lean
+    bash scripts/ts/evm-contract-client-smoke.sh
+
+# Entrypoint call/view semantics across source DSL, validation, and canonical fixtures.
+entrypoint-mutability:
+    lake env lean --run Tests/EntrypointMutability.lean
 
 # Check unified SDK schema generation, target extensions, diagnostics, and refs.
 # U6.1 / RFC 0012: freeze IR + artifact version constants (portable-ir-v0, schemaVersion).
@@ -102,6 +108,7 @@ cli-deploy:
 # Check structured proof-forge check diagnostics.
 cli-check:
     lake env lean --run Tests/CliCheck.lean
+    scripts/cli/token-spec-routing-smoke.sh
 
 # Smoke the proof-forge --version CLI surface.
 cli-version:
@@ -176,8 +183,11 @@ evm-plan:
 
 # Check the EVM semantic plan (entrypoints, events, metadata) smoke.
 evm-semantic-plan:
-    lake build ProofForge.Backend.Evm.IR ProofForge.IR.Examples.Counter ProofForge.IR.Examples.EvmMapProbe ProofForge.IR.Examples.EvmStorageArrayProbe ProofForge.IR.Examples.EvmStorageStructProbe ProofForge.IR.Examples.EventProbe
+    lake build ProofForge.Backend.Evm.IR ProofForge.IR.Examples.Counter ProofForge.IR.Examples.EvmMapProbe ProofForge.IR.Examples.EvmStorageArrayProbe ProofForge.IR.Examples.EvmStorageStructProbe ProofForge.IR.Examples.EvmPackedStorageProbe ProofForge.IR.Examples.EventProbe ProofForge.Contract.Stdlib.UUPSUpgradeable ProofForge.Contract.Stdlib.ERC721 ProofForge.Contract.Stdlib.ERC1155 ProofForge.Contract.Stdlib.ERC4626
     lake env lean --run Tests/Backend/Evm/EvmSemanticPlan.lean
+    lake env lean --run Tests/Backend/Evm/EvmPackedStorage.lean
+    lake env lean --run Tests/Backend/Evm/EvmAbiSecurity.lean
+    PATH="$HOME/.foundry/bin:$PATH" lake env lean --run Tests/Backend/Evm/EvmStandardEvents.lean
 
 # Check the RFC 0014 Phase 1 shared validate subset (identifiers, return-path predicate, type-check helpers).
 shared-validate-smoke:
@@ -226,7 +236,8 @@ supported-fragment-smoke:
 
 # Track 1.4: exercise the proven⊂lowerable + lowerable⇒lowering-total + capability⇒lowerable theorems on the Counter fragment.
 track14-fragment-theorems-smoke:
-    lake build ProofForge.Backend.Evm.Refinement ProofForge.Backend.Solana.Refinement ProofForge.Backend.WasmHost.Refinement
+    lake build ProofForge.Backend.Evm.Refinement ProofForge.Backend.Solana.Refinement ProofForge.Backend.WasmHost.Refinement ProofForge.Backend.Refinement.CounterUniversal
+    lake env lean --run Tests/CounterLowerableAllocator.lean
     lake env lean --run Tests/Track14FragmentTheorems.lean
 
 # PF-P3-01: computational free-name lowering-total for Counter shape (dense name set).
@@ -241,7 +252,7 @@ lean-invariants-smoke:
 
 # Check existing executable trace runners are wired through the shared TargetSemantics interface.
 target-semantics-instances-smoke:
-    lake build ProofForge.Backend.Evm.Refinement ProofForge.Backend.Solana.Refinement ProofForge.Backend.WasmHost.Refinement
+    lake build ProofForge.Backend.Evm.Refinement ProofForge.Backend.Evm.YulHostRefinement ProofForge.Backend.Solana.Refinement ProofForge.Backend.WasmHost.Refinement
     lake env lean --run Tests/TargetSemanticsInstances.lean
 
 # Generic Wasm stack/state helper lemmas - active WASM C-proof surface.
@@ -256,7 +267,7 @@ wasm-near-host-smoke:
 
 # N1.2: EmitWat Borsh aggregate ABI (struct/fixedArray param+return; bytes fail-closed).
 emitwat-aggregate-abi:
-    lake env lean --run Tests/Backend/Wasm/EmitWatAggregateAbi.lean
+    scripts/near/emitwat-aggregate-abi-smoke.sh
 
 wasm-cosmwasm-host-smoke:
     lake build ProofForge.Backend.WasmHost.CosmWasmHost
@@ -267,18 +278,20 @@ wasm-soroban-host-smoke:
     lake build ProofForge.Backend.WasmHost.SorobanHost ProofForge.Backend.WasmHost.CounterSorobanRefinement
     lake env lean --run Tests/Backend/Wasm/WasmSorobanHost.lean
 
-# Phase 4 ZK lane: Aleo/Leo registry entry + Counter Leo codegen (Road 1 sourcegen).
+# Phase 4 ZK lane: Aleo/Leo honest Counter reject + supported-fragment sourcegen.
 # Also covers map-storage + finalize-context + record (Road 2) lowering and metadata.
 aleo-leo-codegen-smoke:
     lake build ProofForge.Backend.Aleo.IR ProofForge.Backend.Aleo.Metadata ProofForge.Backend.Aleo.MetadataJson
     lake env lean --run Tests/AleoLeoCodegenSmoke.lean
     lake env lean --run Tests/AleoLeoMapLoweringSmoke.lean
+    lake env lean --run Tests/AleoLeoStorageDefaultSmoke.lean
     lake env lean --run Tests/AleoLeoContextLoweringSmoke.lean
     lake env lean --run Tests/AleoLeoRecordLoweringSmoke.lean
     lake env lean --run Tests/AleoLeoRecordTransferSmoke.lean
     lake env lean --run Tests/AleoLeoCoverageSmoke.lean
     lake env lean --run Tests/AleoLeoMixedReturnSmoke.lean
     lake env lean --run Tests/AleoLeoHashLoweringSmoke.lean
+    lake env lean --run Tests/AleoLeoSemanticHonestySmoke.lean
     lake env lean --run Tests/AleoLeoCrosscallSmoke.lean
     lake env lean --run Tests/AleoLeoMetadataSmoke.lean
 
@@ -351,6 +364,7 @@ cli-target-first:
 # PF-P0-01: ValueVault source identity across every registered target (no silent Counter).
 source-identity:
     scripts/cli/source-identity-smoke.sh
+    scripts/cli/artifact-source-provenance-smoke.sh
 
 # PF-P0-02: --list-targets membership vs per-command support honesty.
 registry-command:
@@ -388,7 +402,7 @@ cloudflare-promotion:
 psy-promotion:
     scripts/cli/psy-promotion-smoke.sh
 
-# PF-P3-02: six-gate promotion smoke for aleo-leo (Counter fixture + leo).
+# Aleo promotion-readiness audit; expected non-zero until Counter getter is representable.
 aleo-promotion:
     scripts/cli/aleo-promotion-smoke.sh
 
@@ -408,7 +422,7 @@ hosted-isolation:
 rebuild-hash:
     scripts/cli/rebuild-hash-smoke.sh
 
-# PF-P3-03: wall-clock worker limit wrapper.
+# PF-P3-03: process-tree wall-clock worker limit wrapper.
 worker-limits:
     scripts/cli/worker-limits-smoke.sh
 
@@ -485,7 +499,7 @@ solana-lean:
     lake env lean --run Tests/LearnDiagnostics.lean
     lake env lean --run Tests/TargetRouting.lean
     lake env lean --run Tests/ValueVaultExample.lean
-    lake env lean --run Tests/SharedTokenIntent.lean
+    just shared-token-intent
     lake env lean --run Tests/TokenSpec.lean
     lake env lean --run Tests/TokenLearn.lean
     lake env lean --run Tests/TokenEvm.lean
@@ -554,6 +568,24 @@ wasm-near-plan:
 # Builds the plan, diffs against golden, and asserts plan-driven WAT == inline WAT.
 near-plan-smoke:
     scripts/near/plan-smoke.sh
+
+# Keep unversioned scalar storage on the stable per-key layout and conservatively
+# load packed blobs before any partial patch.
+wasm-near-scalar-safety:
+    lake build ProofForge.Backend.WasmHost.EmitWat
+    lake env lean --run Tests/Backend/Wasm/WasmNearScalarSafety.lean
+
+# Verify near-sys promise amount pointers are decoded as little-endian u128.
+near-promise-amount-pointer:
+    scripts/near/promise-amount-pointer-smoke.sh
+
+# Verify panicking offline-host calls roll back state and make the run fail.
+near-offline-host-transaction:
+    scripts/near/offline-host-transaction-smoke.sh
+
+# Verify each offline-host receipt receives an independent Wasmtime fuel budget.
+near-offline-host-fuel:
+    scripts/near/offline-host-fuel-smoke.sh
 
 # Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
 wasm-near-ft-transfer-call:
@@ -765,8 +797,16 @@ near-compare-height-lock-vault:
 near-compare-height-lock-vault-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near height-lock-vault --live
 
+# Measurement-only escape hatch. Writes a sandbox report even when semantic
+# observations are incomplete; such reports are excluded from MATRIX rankings.
+near-compare-live-measure contract:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near {{contract}} --live --allow-semantic-mismatch
+
 # Regenerate MATRIX.md from sandbox-report.json files.
-near-compare-matrix:
+near-compare-matrix-test:
+    python3 scripts/near/compare-matrix-snapshot-test.py
+
+near-compare-matrix: near-compare-matrix-test
     python3 scripts/near/compare-matrix-snapshot.py
 
 # Full matrix.
@@ -798,9 +838,13 @@ near-budget-honesty:
 near-deploy-honesty:
     scripts/near/deploy-honesty-smoke.sh
 
-# E1.4: EVM upgrade-policy honesty (UUPS ok; authority without proxy fails closed).
+# E1.4: EVM upgrade-policy honesty (backend UUPS spike; product authority fails closed).
 evm-upgrade-policy-honesty:
     scripts/evm/upgrade-policy-honesty-smoke.sh
+
+# E1.4: UUPS constructor initialization is atomic; public init races fail closed.
+evm-uups-atomic-init:
+    scripts/evm/uups-atomic-init-smoke.sh
 
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
@@ -1145,7 +1189,7 @@ portable-error-catalog:
 
 # T3.2: Solana transfer/remote/nativeValue account auto-fill without Source.Solana.
 portable-solana-accounts:
-    lake build Examples.Product.AuthRemoteCall Examples.Product.Ownable Examples.Product.RemoteCall Examples.Product.RoleGatedToken Examples.Product.StakingVault ProofForge.Backend.Solana.Manifest ProofForge.Backend.Solana.Materialize ProofForge.Backend.Solana.SbpfAsm
+    lake build Examples.Product.AuthRemoteCall Examples.Product.ExternalTokenTransfer Examples.Product.ExternalVault Examples.Product.Ownable Examples.Product.RemoteCall Examples.Product.RoleGatedToken Examples.Product.StakingVault ProofForge.Backend.Solana.Manifest ProofForge.Backend.Solana.Materialize ProofForge.Backend.Solana.SbpfAsm
     lake env lean --run Tests/Product/Accounts.lean
 
 # Backend compiler probes (Solana / EmitWat / Evm unit tests). Not product API.
@@ -1165,7 +1209,10 @@ product:
     just product-matrix
     just portable-counter-multi-target
     just portable-remote-call-multi-target
-    @echo "product: ok (catalog · matrix · counter · remote)"
+    just product-token-near
+    just near-remote-call-offline-peer
+    just near-storage-deposit-offline
+    @echo "product: ok (catalog · matrix · counter · remote · NEAR token conformance · NEAR peer · NEAR storage)"
 
 # Wave β: Product TokenSpec on wasm-near — NEP-141 plan + FT body WAT (one health path).
 product-token-near:
@@ -1197,7 +1244,7 @@ product-erc20-permit:
 
 # Product multi-target Lean matrix (all Product contracts × primary hosts).
 product-matrix:
-    lake build Examples.Product.AccessControl Examples.Product.ArrayExample Examples.Product.AuthRemoteCall Examples.Product.Counter Examples.Product.ExternalTokenTransfer Examples.Product.FeeToken Examples.Product.FungibleToken Examples.Product.HostEnvProbe Examples.Product.Ownable Examples.Product.OwnableHash Examples.Product.OwnablePausable Examples.Product.Pausable Examples.Product.ReentrancyGuard Examples.Product.RemoteCall Examples.Product.RoleGatedToken Examples.Product.SoulboundToken Examples.Product.StakingVault Examples.Product.ValueVault ProofForge.IR.Examples.Counter ProofForge.Backend.Evm.Plan ProofForge.Backend.Solana.SbpfAsm ProofForge.Backend.WasmHost.EmitWat ProofForge.Target.Materialize
+    lake build Examples.Product.AccessControl Examples.Product.ArrayExample Examples.Product.AuthRemoteCall Examples.Product.Counter Examples.Product.EscrowVault Examples.Product.ExternalTokenTransfer Examples.Product.ExternalVault Examples.Product.FeeToken Examples.Product.FungibleToken Examples.Product.GuestBook Examples.Product.HeightLockVault Examples.Product.HostEnvProbe Examples.Product.Ownable Examples.Product.OwnableHash Examples.Product.OwnablePausable Examples.Product.Pausable Examples.Product.ProRataVault Examples.Product.ReentrancyGuard Examples.Product.RemoteCall Examples.Product.RoleGatedToken Examples.Product.SoulboundToken Examples.Product.SoulboundTokenBody Examples.Product.StakingVault Examples.Product.StatusMessage Examples.Product.StorageDeposit Examples.Product.TimelockVault Examples.Product.ValueVault Examples.Product.VestingVault ProofForge.IR.Examples.Counter ProofForge.Backend.Evm.Plan ProofForge.Backend.Solana.SbpfAsm ProofForge.Backend.WasmHost.EmitWat ProofForge.Target.Materialize
     lake env lean --run Tests/Product/Matrix.lean
 
 # Extended product path (policies + token honesty + Solana accounts); kept for depth.
@@ -1342,7 +1389,7 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build build-test-deps product target-registry target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check: build build-test-deps product target-registry target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:

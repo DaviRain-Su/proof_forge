@@ -503,6 +503,9 @@ def validateIdentifiers (module : Module) : Except LowerError Unit := do
     for param in entrypoint.params do
       validateLeoIdentifier s!"parameter name in entrypoint `{entrypoint.name}`" param.fst
     validateBodyIdentifiers entrypoint.name entrypoint.body
+    for ref in (analyzeBody entrypoint.body).namedCrosscalls do
+      validateLeoProgramId s!"crosscall in entrypoint `{entrypoint.name}`" ref.programId
+      validateLeoIdentifier s!"crosscall method in entrypoint `{entrypoint.name}`" ref.method
 
 def validateStructs (module : Module) : Except LowerError Unit := do
   for decl in module.structs do
@@ -510,12 +513,24 @@ def validateStructs (module : Module) : Except LowerError Unit := do
       .error { message := s!"struct `{decl.name}` must declare at least one field" }
     for field in decl.fields do
       validateValueType module field.type
+    if decl.semantics == .value && decl.fields.any (fun field => field.id == "owner") then
+      .error {
+        message := s!"value struct `{decl.name}` cannot declare field `owner`: Leo 4.0.2 reserves `owner` for record ownership"
+      }
+    else if decl.semantics == .linearRecord then
+      let owners := decl.fields.filter fun field => field.id == "owner"
+      match owners.toList with
+      | [owner] =>
+          if owner.type != .address then
+            .error { message := s!"record `{decl.name}` must declare exactly one `owner: address` field" }
+      | _ => .error { message := s!"record `{decl.name}` must declare exactly one `owner: address` field" }
 
 def validateEntrypoints (module : Module) : Except LowerError Unit := do
   for entrypoint in module.entrypoints do
     for param in entrypoint.params do
       validateAbiValueType module param.snd s!"entrypoint `{entrypoint.name}` parameter `{param.fst}`" false
     validateAbiValueType module entrypoint.returns s!"entrypoint `{entrypoint.name}` return type" true
+    discard <| planFunction entrypoint
 
 def initialTypeEnv (entrypoint : Entrypoint) : Except LowerError TypeEnv :=
   entrypoint.params.foldlM (init := #[]) fun env param =>
@@ -539,8 +554,29 @@ def validateEntrypointBodies (module : Module) : Except LowerError Unit := do
 Unlike Psy, **empty state is allowed** (PureMath-style stateless functions).
 Scalar states rewrite to a single-slot Leo `mapping`; map states lower to a Leo
 `mapping`. Array / dynamic-array storage is rejected. -/
+partial def containsLinearRecord (module : Module) (type : ValueType)
+    (visiting : Array String := #[]) : Bool :=
+  match type with
+  | .fixedArray element _ | .array element => containsLinearRecord module element visiting
+  | .structType name =>
+      if visiting.contains name then false
+      else
+        match findStruct? module name with
+        | none => false
+        | some decl =>
+            decl.semantics == .linearRecord ||
+              decl.fields.any fun field => containsLinearRecord module field.type (visiting.push name)
+  | _ => false
+
 def validateState (module : Module) : Except LowerError Unit := do
   for state in module.state do
+    match state.kind with
+    | .map keyType _ =>
+        if containsLinearRecord module keyType then
+          .error { message := s!"state `{state.id}` map key transitively contains a linear record" }
+    | _ => pure ()
+    if containsLinearRecord module state.type then
+      .error { message := s!"state `{state.id}` value transitively contains a linear record" }
     match state.kind, state.type with
     | .scalar, .bool | .scalar, .u8 | .scalar, .u32 | .scalar, .u64
     | .scalar, .u128 | .scalar, .address | .scalar, .hash =>

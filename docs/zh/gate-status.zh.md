@@ -42,7 +42,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 ### Gate G0 关闭后的 carry-over 工作
 
 Gate G0 关闭的是共享行为/资源预算切片。它**不等于**关闭 Gate P0。剩余的主三链
-生产级硬化继续保持 active：
+P0 后端硬化继续保持 active：
 
 1. ~~EVM semantic-plan migration（Workstream 3：ExprPlan/StmtPlan/
    EntrypointPlan/EventPlan/CrosscallPlan/MetadataPlan）。~~ ✅ 已落地 — 见 P0-2。
@@ -73,9 +73,9 @@ spike smoke jobs。
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| P0-1 | Solana 直接 sBPF 后端达到生产级 | ✅ met | Gate G0 行为/预算一致性已关闭；Pinocchio reference-equivalence 已纳入 `just solana-light`；Agave/Solana CLI ELF 兼容阻塞已通过把 target-first `--solana-sbpf-arch v0` 透传到 legacy ELF builder 修复，现在 `emit --target solana-sbpf-asm --format elf` 会生成 loader-compatible v0 ELF（`e_flags = 0`，带有效 section table）；本地 `just solana-pinocchio-live-equivalence` 通过全部五个 Surfpool dual-deploy 场景（System transfer/create_account、SPL Token transfer/ops/authority），结果为 `5 passed, 0 skipped, 0 failed`；GitHub CI run `28675037861` 在 commit `3b2719a` 全部成功，其中强制 `solana-pinocchio-live` job 安装 Agave/Solana CLI、SBF platform-tools、`sbpf`、Surfpool、Node/npm，构建 ProofForge，并在不允许 skip 的情况下运行 aggregate live suite。 |
-| P0-2 | Ethereum/EVM 后端达到生产级 | ✅ met | EVM semantic-plan 迁移已落地（RFC 0004）：`Plan.lean` 现定义 `ExprPlan`、`StmtPlan`、`EntrypointPlan`、`EventPlan`、`CrosscallPlan`、`MetadataPlan`；`Validate.lean` 承载纯校验/类型推断；`Lower.lean` 构建已填充的 `ModulePlan`（entrypoints、events、crosscalls、creates、checked-arithmetic 标记）；`Metadata.lean` 从计划生成 artifact/deploy 元数据；`IR.lean` 是兼容门面，在 Yul 生成前构建完整 semantic plan。门禁：`just evm-plan`、`just evm-semantic-plan`、`just evm-all`（诊断 58 case、99 IR 覆盖条目、19 IR smoke + Foundry + Anvil deploy）、`just check` 全绿。FV-4 还包含可由 `decide` 检查的 EVM/Yul 可执行追踪义务，覆盖 Counter、ValueVault、EvmExpressionProbe、EvmMapProbe、EvmTypedStorageProbe、EvmStorageStructProbe 和 EvmAbiAggregateProbe，即标量 trace、map slots、typed storage arrays、storage structs 以及 aggregate ABI params/returns。FV-2 现在已有 IR aggregate/storage 和 map lifecycle executable trace slices，覆盖 arrays、structs、storage paths、aggregate ABI values，以及 state-threaded map insert/set expressions；P0 后形式化硬化已经通过 `*_ir_observable_trace_ok` 锚点把覆盖到的 EVM map/storage/aggregate IR traces 接入这些 obligations。 |
-| P0-3 | NEAR/Wasm 后端达到生产级 | ✅ met | EmitWat/NEAR 诊断、IR 覆盖、形式化锚点、offline host smoke 和预算基线均已通过。Commit `466b320` 为 `wasm-near` 添加 target-first `check`、`emit` 和 `build` 覆盖，写出 `proof-forge-artifact.json` 与 `proof-forge-deploy.json`，通过 `scripts/near/validate-emitwat-metadata.py` 验证 WAT/可选 Wasm hash、ABI entrypoints、capabilities、fixture/module ids 和本地 offline-host 部署模式，并通过 `runtime/offline-host` 执行生成的 Counter WAT。证据：本地 `just near-target-first` 与 `just check`；GitHub CI run `28677055773` 在 commit `466b320` 全部成功，包括 `Run Wasm-NEAR target-first smoke`、`Run EmitWat offline host smoke`、`Run unified testkit`、Foundry/Anvil 和强制 `solana-pinocchio-live` job。 |
+| P0-1 | Solana 直接 sBPF 的 P0 制品/执行门禁完成 | ✅ met | Gate G0 行为/预算一致性已关闭；Pinocchio reference-equivalence 已纳入 `just solana-light`；Agave/Solana CLI ELF 兼容阻塞已通过把 target-first `--solana-sbpf-arch v0` 透传到 legacy ELF builder 修复，现在 `emit --target solana-sbpf-asm --format elf` 会生成 loader-compatible v0 ELF（`e_flags = 0`，带有效 section table）；本地 `just solana-pinocchio-live-equivalence` 通过全部五个 Surfpool dual-deploy 场景（System transfer/create_account、SPL Token transfer/ops/authority），结果为 `5 passed, 0 skipped, 0 failed`；GitHub CI run `28675037861` 在 commit `3b2719a` 全部成功，其中强制 `solana-pinocchio-live` job 安装 Agave/Solana CLI、SBF platform-tools、`sbpf`、Surfpool、Node/npm，构建 ProofForge，并在不允许 skip 的情况下运行 aggregate live suite。 |
+| P0-2 | Ethereum/EVM 的 P0 lowering/制品/运行时门禁完成 | ✅ met | EVM semantic-plan 迁移已落地（RFC 0004）：`Plan.lean` 现定义 `ExprPlan`、`StmtPlan`、`EntrypointPlan`、`EventPlan`、`CrosscallPlan`、`MetadataPlan`；`Validate.lean` 承载纯校验/类型推断；`Lower.lean` 构建已填充的 `ModulePlan`（entrypoints、events、crosscalls、creates、checked-arithmetic 标记）；`Metadata.lean` 从计划生成 artifact/deploy 元数据；`IR.lean` 是兼容门面，在 Yul 生成前构建完整 semantic plan。门禁：`just evm-plan`、`just evm-semantic-plan`、`just evm-all`（诊断 58 case、99 IR 覆盖条目、19 IR smoke + Foundry + Anvil deploy）、`just check` 全绿。FV-4 还包含可由 `decide` 检查的 EVM/Yul 可执行追踪义务，覆盖 Counter、ValueVault、EvmExpressionProbe、EvmMapProbe、EvmTypedStorageProbe、EvmStorageStructProbe 和 EvmAbiAggregateProbe，即标量 trace、map slots、typed storage arrays、storage structs 以及 aggregate ABI params/returns。FV-2 现在已有 IR aggregate/storage 和 map lifecycle executable trace slices，覆盖 arrays、structs、storage paths、aggregate ABI values，以及 state-threaded map insert/set expressions；P0 后形式化硬化已经通过 `*_ir_observable_trace_ok` 锚点把覆盖到的 EVM map/storage/aggregate IR traces 接入这些 obligations。 |
+| P0-3 | NEAR/Wasm 的 P0 target-first/offline-host 门禁完成 | ✅ met | EmitWat/NEAR 诊断、IR 覆盖、形式化锚点、offline host smoke 和预算基线均已通过。Commit `466b320` 为 `wasm-near` 添加 target-first `check`、`emit` 和 `build` 覆盖，写出 `proof-forge-artifact.json` 与 `proof-forge-deploy.json`，通过 `scripts/near/validate-emitwat-metadata.py` 验证 WAT/可选 Wasm hash、ABI entrypoints、capabilities、fixture/module ids 和本地 offline-host 部署模式，并通过 `runtime/offline-host` 执行生成的 Counter WAT。证据：本地 `just near-target-first` 与 `just check`；GitHub CI run `28677055773` 在 commit `466b320` 全部成功，包括 `Run Wasm-NEAR target-first smoke`、`Run EmitWat offline host smoke`、`Run unified testkit`、Foundry/Anvil 和强制 `solana-pinocchio-live` job。 |
 | P0-4 | 额外链推进保持冻结 | ✅ met | D-044/D-045 冻结 Aptos/CosmWasm 超过 M1/M2 的推进，并在 P0 关闭前保持其他目标 docs-first。关闭后 Tier-1 可以排期，但 backlog 仍要求先完成 CLI M3/M4 清理。 |
 
 ### Sign-off
@@ -84,6 +84,9 @@ Gate P0 已在 2026-07-04 于 commit `466b320` 关闭；GitHub CI run
 `28677055773` 已全部成功。该 closing run 补齐了 NEAR/Wasm target-first
 本地执行/部署元数据证据，并重新验证了现有 Solana、EVM、冻结 spike 和共享
 testkit gates。
+
+Gate P0 是针对已记录场景与 fragment 的范围化工程签署。它不证明通用编译器
+正确性，不代表 registry 成熟度已晋升为 `Supported`，也不是生产部署/运维签署。
 
 ---
 

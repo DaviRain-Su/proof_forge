@@ -239,7 +239,7 @@ Checked-in normalized circuit JSON:
 | `Examples/Backend/Psy/dpn/ArithmeticProbe.golden.dpn.json` | arithmetic |
 | `Examples/Backend/Psy/dpn/AssertProbe.golden.dpn.json` | assert |
 
-Normalize: `scripts/psy/normalize-dpn-json.py`  
+Normalize: `scripts/psy/normalize-dpn-json.py`
 Gate: `just psy-dpn-goldens` (shape always; rebuild-diff when `build/psy/dargo-*/target/proof_forge_*.json` exists)
 
 ### Direct DPN emit (Z1.4)

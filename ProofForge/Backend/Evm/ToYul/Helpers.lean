@@ -13,6 +13,7 @@ def helperCall (helper : Helper) (args : Array Lean.Compiler.Yul.Expr) : Lean.Co
 def checkedAddName : String := "__pf_checked_add"
 def checkedSubName : String := "__pf_checked_sub"
 def checkedMulName : String := "__pf_checked_mul"
+def checkedWidthName : String := "__pf_checked_width"
 
 /-- Arithmetic lowering for an `AssignOp`. When `overflowChecked` is true,
 add/sub/mul lower to checked-revert helpers (Solidity 0.8 semantics); when
@@ -41,6 +42,27 @@ def arithExpr (overflowChecked : Bool) (op : AssignOp)
 def checkedArithExpr (op : AssignOp) (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
   arithExpr true op lhs rhs
 
+/-- Arithmetic for a typed narrow integer node inside a packed scalar write.
+
+Checked nodes validate both operands and the result at the node's own width.
+Wrapping nodes reduce the result modulo that width. -/
+def narrowArithExpr
+    (overflowChecked : Bool)
+    (op : AssignOp)
+    (byteWidth : Nat)
+    (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
+  match op with
+  | .add | .sub | .mul =>
+      let mask := Lean.Compiler.Yul.Expr.num ((2 ^ (byteWidth * 8)) - 1)
+      if overflowChecked then
+        let bound (value : Lean.Compiler.Yul.Expr) :=
+          Lean.Compiler.Yul.call checkedWidthName #[value, mask]
+        bound (arithExpr true op (bound lhs) (bound rhs))
+      else
+        Lean.Compiler.Yul.builtin "and" #[arithExpr false op lhs rhs, mask]
+  | .div | .mod | .bitAnd | .bitOr | .bitXor | .shiftLeft | .shiftRight =>
+      arithExpr overflowChecked op lhs rhs
+
 /-- The 2^256 - 1 max word value, used for overflow checks. -/
 def maxUint256 : Nat := 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
@@ -55,6 +77,21 @@ def revertIfStatement (cond : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Statem
         (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
     ]
   }
+
+/-- Runtime width assertion shared by typed narrow checked-arithmetic nodes. -/
+def checkedWidthHelperFunction : Lean.Compiler.Yul.Statement :=
+  let tn (n : String) := { name := n : Lean.Compiler.Yul.TypedName }
+  Lean.Compiler.Yul.Statement.funcDef checkedWidthName
+    #[tn "value", tn "maxValue"]
+    #[tn "result"]
+    { statements := #[
+        revertIfStatement (Lean.Compiler.Yul.builtin "gt" #[
+          Lean.Compiler.Yul.Expr.id "value",
+          Lean.Compiler.Yul.Expr.id "maxValue"
+        ]),
+        Lean.Compiler.Yul.Statement.assignment #["result"]
+          (Lean.Compiler.Yul.Expr.id "value")
+      ] }
 
 /-- Checked-arithmetic Yul helper definitions emitted once per module.
     Mirrors Solidity 0.8 semantics: add/mul revert on U256 overflow and sub
@@ -79,7 +116,10 @@ def checkedArithmeticHelperFunctions : Array Lean.Compiler.Yul.Statement :=
       ] },
     Lean.Compiler.Yul.Statement.funcDef checkedMulName #[tn "a", tn "b"] #[tn "r"]
       { statements := #[
-        Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.Expr.id "a"])
+        Lean.Compiler.Yul.Statement.ifStmt (Lean.Compiler.Yul.builtin "or" #[
+          Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.Expr.id "a"],
+          Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.Expr.id "b"]
+        ])
           { statements := #[
             Lean.Compiler.Yul.Statement.assignment #["r"] (Lean.Compiler.Yul.Expr.num 0),
             Lean.Compiler.Yul.Statement.leave

@@ -416,8 +416,7 @@ mutual
           exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d || exprUsesCheckedArithmetic e
 
     | .checkErc1155BatchReceived a b c d e f g =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d || exprUsesCheckedArithmetic e || exprUsesCheckedArithmetic f || exprUsesCheckedArithmetic g
+        #[a, b, c, d, e, f, g].any exprUsesCheckedArithmetic
 
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
@@ -485,6 +484,13 @@ def moduleUsesCheckedArithmetic (module : Module) : Bool :=
 def plannedCheckedArithmeticHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
   if plan.usesCheckedArithmetic then ProofForge.Backend.Evm.ToYul.checkedArithmeticHelperFunctions else #[]
+
+def plannedCheckedWidthHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    Array Lean.Compiler.Yul.Statement :=
+  if ProofForge.Backend.Evm.Lower.entrypointsUseCheckedWidthHelper plan.entrypoints then
+    #[ProofForge.Backend.Evm.ToYul.checkedWidthHelperFunction]
+  else
+    #[]
 
 def plannedCrosscallHelperFunctions
     (specs : Array ProofForge.Backend.Evm.Plan.CrosscallHelperSpec) :
@@ -560,6 +566,7 @@ def lowerModuleWithPlan
   let helpers := helpers ++ plannedStructArrayHelperFunctions plan
   let helpers := helpers ++ plannedHashHelperFunctions plan
   let helpers := helpers ++ plannedMemoryArrayHelperFunctions plan
+  let helpers := helpers ++ plannedCheckedWidthHelperFunctions plan
   let completePlan := entrypointBodyPlanIsComplete module plan.entrypoints
   let helpers :=
     if completePlan then

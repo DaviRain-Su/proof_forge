@@ -54,17 +54,19 @@ def printLiteral : Literal → String
 
 /-- PF-P1-06: never emit comment placeholders for unsupported ops — fail closed. -/
 def printBinaryOp : BinaryOperation → Except LowerError String
-  | .add => .ok "+" | .addWrapped => .ok "+" | .and => .ok "&&" | .bitwiseAnd => .ok "&"
-  | .div => .ok "/" | .divWrapped => .ok "/" | .eq => .ok "==" | .gte => .ok ">=" | .gt => .ok ">"
-  | .lte => .ok "<=" | .lt => .ok "<" | .mod => .ok "%" | .mul => .ok "*" | .mulWrapped => .ok "*"
+  | .add => .ok "+" | .and => .ok "&&" | .bitwiseAnd => .ok "&"
+  | .div => .ok "/" | .eq => .ok "==" | .gte => .ok ">=" | .gt => .ok ">"
+  | .lte => .ok "<=" | .lt => .ok "<" | .mod => .ok "%" | .mul => .ok "*"
   | .neq => .ok "!="
-  | .or => .ok "||" | .bitwiseOr => .ok "|" | .pow => .ok "**" | .powWrapped => .ok "**"
-  | .shl => .ok "<<" | .shlWrapped => .ok "<<" | .shr => .ok ">>" | .shrWrapped => .ok ">>"
-  | .sub => .ok "-" | .subWrapped => .ok "-" | .xor => .ok "^"
+  | .or => .ok "||" | .bitwiseOr => .ok "|" | .pow => .ok "**"
+  | .shl => .ok "<<" | .shr => .ok ">>"
+  | .sub => .ok "-" | .xor => .ok "^"
+  | .addWrapped | .subWrapped | .mulWrapped | .divWrapped | .powWrapped
+  | .shlWrapped | .shrWrapped | .remWrapped =>
+      unsupported "wrapped operator outside expression method lowering"
   | .nand => unsupported "binary operator nand"
   | .nor => unsupported "binary operator nor"
   | .rem => unsupported "binary operator rem"
-  | .remWrapped => unsupported "binary operator remWrapped"
 
 def printUnaryOp : UnaryOperation → Except LowerError String
   | .not => .ok "!"
@@ -79,8 +81,18 @@ mutual
     | .binary b => do
         let l ← printExpression b.left
         let r ← printExpression b.right
-        let op ← printBinaryOp b.op
-        .ok s!"({l} {op} {r})"
+        match b.op with
+        | .addWrapped => .ok s!"{l}.add_wrapped({r})"
+        | .subWrapped => .ok s!"{l}.sub_wrapped({r})"
+        | .mulWrapped => .ok s!"{l}.mul_wrapped({r})"
+        | .divWrapped => .ok s!"{l}.div_wrapped({r})"
+        | .powWrapped => .ok s!"{l}.pow_wrapped({r})"
+        | .shlWrapped => .ok s!"{l}.shl_wrapped({r})"
+        | .shrWrapped => .ok s!"{l}.shr_wrapped({r})"
+        | .remWrapped => .ok s!"{l}.rem_wrapped({r})"
+        | op => do
+            let token ← printBinaryOp op
+            .ok s!"({l} {token} {r})"
     | .unary u => do
         let r ← printExpression u.receiver
         let op ← printUnaryOp u.op

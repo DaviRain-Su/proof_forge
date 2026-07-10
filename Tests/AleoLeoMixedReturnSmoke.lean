@@ -1,4 +1,5 @@
 import ProofForge.Backend.Aleo.IR
+import ProofForge.Backend.Aleo.Metadata
 import ProofForge.IR.Contract
 
 /-! Aleo/Leo mixed `(value, Final)` return.
@@ -70,9 +71,23 @@ def mixedLeoHasMarkers : Bool :=
 
 theorem mixed_leo_has_markers : mixedLeoHasMarkers = true := by native_decide
 
+/-- Artifact metadata reports the emitted `(Token, Final)` ABI rather than the
+portable pre-lowering `Token` type alone. -/
+def mixedMetadataMatchesLoweredAbi : Bool :=
+  match ProofForge.Backend.Aleo.Metadata.buildArtifactMetadata mixedModule with
+  | .ok metadata => metadata.entrypoints.any fun entrypoint =>
+      entrypoint.name == "withdraw" &&
+      entrypoint.portableReturnType == "Token" &&
+      entrypoint.returnType == "(Token, Final)"
+  | .error _ => false
+
+theorem mixed_metadata_matches_lowered_abi : mixedMetadataMatchesLoweredAbi = true := by
+  native_decide
+
 example : True := by
   have _ := @mixed_lowers_ok
   have _ := @mixed_leo_has_markers
+  have _ := @mixed_metadata_matches_lowered_abi
   exact True.intro
 
 end ProofForge.Tests.AleoLeoMixedReturnSmoke

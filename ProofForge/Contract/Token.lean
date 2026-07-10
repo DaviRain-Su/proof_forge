@@ -342,7 +342,17 @@ def validateSolanaTokenFeatures (spec : TokenSpec) : Except String Unit := do
   else
     .ok ()
 
-def validateEvmTokenFeatures (spec : TokenSpec) : Except String Unit :=
+def evmTokenStorageMax : Nat :=
+  18446744073709551615
+
+def validateEvmTokenFeatures (spec : TokenSpec) : Except String Unit := do
+  match spec.initialSupply? with
+  | some supply =>
+      if supply > evmTokenStorageMax then
+        .error s!"target `evm` TokenSpec initialSupply `{supply}` exceeds the u64 storage maximum `{evmTokenStorageMax}`"
+      else
+        pure ()
+  | none => pure ()
   match spec.evmUnsupportedFeatures.toList with
   | [] => .ok ()
   | feature :: rest =>

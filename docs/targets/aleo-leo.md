@@ -1,33 +1,30 @@
 # Aleo Leo Target
 
-Status: **Registry target (Phase 4 ZK lane, Road 1 sourcegen) — `aleo-leo` is now
-in `ProofForge.Target.Registry.all` / `knownIds` and exposed by
-`proof-forge --list-targets`**
+Status: **Research sourcegen registry target** — `aleo-leo` is in
+`ProofForge.Target.Registry.all` / `knownIds` and exposed by
+`proof-forge --list-targets`, but it does not claim a final deployable package.
 
-Candidate target id: **`aleo-leo`** (registered as `ProofForge.Target.aleoLeo`,
+Target id: **`aleo-leo`** (registered as `ProofForge.Target.aleoLeo`,
 family `.zkCircuitSourcegen`, artifact kind `.leoSource`).
 
-This note records the first ProofForge classification for Aleo and the
-implemented Road 1 spike. It does not add a Lean target profile yet; the spike
-validates the Leo source-generation boundary before any code registry changes.
+This note records the ProofForge classification for Aleo and the implemented,
+restricted Leo source-generation boundary. Registry membership is not a claim
+that every portable contract, or even the full Counter fixture, is lowerable.
 
 Primary deliverables:
 
-- `ProofForge.Backend.Aleo.IR` lowers the portable IR to Leo via a generic
-  IR→AST→source pipeline (`IR/Common` + `IR/Validate` + `IR`), mirroring
-  `ProofForge.Backend.Psy.IR`; it is no longer a Counter-only spike.
-- `proof-forge emit --target aleo-leo --fixture counter --format leo` emits
-  `Counter.leo`.
-- `Examples/Backend/Aleo/Counter.golden.leo` is the tracked golden fixture.
-- `scripts/aleo/counter-smoke.sh` generates a Leo package, runs `leo build` and
-  `leo test`, writes `proof-forge-artifact.json`, and validates the metadata.
+- `ProofForge.Backend.Aleo.IR` lowers validated portable IR through a generic
+  IR→AST→source pipeline (`IR/Common` + `IR/Validate` + `IR`).
+- The full Counter fixture fails closed: Leo 4.0.2 cannot return the value of
+  its mapping-backed `get() -> U64` from `final` without changing the ABI.
+- `scripts/aleo/counter-smoke.sh` is the stable negative witness for that
+  rejection. A write-only Counter fragment remains a compile-tested fixture.
 - `ProofForge.Backend.Aleo.IR` additionally supports pure entrypoints with
   parameters/return values and control-flow statements (`assert`, `assertEq`,
   `if/else`, `boundedFor`, `assign`, `assignOp`, `revert`), plus **scalar and
   map storage** (scalar states rewrite to a single-slot Leo `mapping u64 => T`).
-- `ProofForge.Backend.Aleo.Metadata` (+ `MetadataJson`) emit plan-free artifact
-  metadata (entrypoint ABI, on-chain `mapping` state surface, capabilities) for
-  `proof-forge-artifact.json`, matching the Psy/EVM metadata layer.
+- `ProofForge.Backend.Aleo.Metadata` (+ `MetadataJson`) derives ABI and state
+  metadata from the same validated `FunctionPlan` used by code generation.
 - `Tests/AleoLeoMapLoweringSmoke.lean` and `Tests/AleoLeoMetadataSmoke.lean`
   witness the generic map-storage lowering and the metadata layer in `just check`.
 - `proof-forge emit --target aleo-leo --fixture pure-math --format leo` emits
@@ -52,34 +49,33 @@ Primary sources:
 
 ## Local Smoke
 
-The Road 1 spike is validated end-to-end by:
+The supported and rejected paths are validated by:
 
 ```bash
 ./scripts/aleo/counter-smoke.sh
+./scripts/aleo/pure-math-smoke.sh
+just aleo-leo-build-smoke
 ```
 
 Prerequisites:
 
 - Lean toolchain from `lean-toolchain` and a built `proof-forge` binary.
 - `python3` for package/manifest helpers.
-- `leo` CLI on `PATH` (tested with Leo 4.0.2); if `leo` is missing, the script
-  reports the generated `Counter.leo` and exits with code `127`.
+- `leo` CLI on `PATH` (tested with Leo 4.0.2) for positive build/test gates.
 
 What it proves:
 
-- Portable IR `ProofForge.IR.Examples.Counter` lowers to a Leo 4.0 program with
-  a public `mapping`, `@noupgrade constructor`, and `fn ... -> Final` entry
-  points whose `final` blocks read/write the mapping.
-- Generated Leo source matches the tracked golden fixture
-  `Examples/Backend/Aleo/Counter.golden.leo`.
-- `leo build` produces Aleo Instructions (`build/main.aleo`) and ABI JSON
-  (`build/abi.json`).
-- `leo test` passes.
-- `proof-forge-artifact.json` is produced and schema-validated.
+- Full Counter is rejected before source generation rather than exposing an
+  ABI-incompatible `get() -> Final`.
+- PureMath matches `Examples/Backend/Aleo/PureMath.golden.leo`, and `leo build`
+  plus `leo test` succeed.
+- The generated-feature build gate compiles write-only Counter, map, context,
+  record, hash, mixed-return, and cross-program-call source shapes.
 
 What it does not prove:
 
-- Private records, transitions, or proof generation.
+- General state-derived return values across Leo `final`.
+- Record spend workflows, proof generation, or private-state equivalence.
 - Direct Aleo Instructions generation.
 - Devnet deployment or execute transactions.
 - Cross-target equivalence with EVM/Psy Counter semantics.
@@ -134,15 +130,12 @@ Aleo needs its own family because:
 - local validation can use `leo build`, `leo test`, `leo execute`, and devnet
   deployment flows.
 
-## Candidate Target Family
+## Target Family Decision
 
-Do not add this to `ProofForge.Target.Registry` until the target model can
-express Aleo's proof/finalization split and record/mapping state split.
-
-Candidate family:
+The registered compiler family is:
 
 ```text
-zk-app-sourcegen
+zk-circuit-sourcegen
 ```
 
 Candidate backend pattern:
@@ -177,9 +170,9 @@ aleo-leo-package
   - test/devnet validation result
 ```
 
-## Candidate Capabilities
+## Future Aleo-Native Capabilities
 
-These are research candidates, not canonical capability ids yet.
+These remain research candidates rather than shared capability ids.
 
 | Candidate capability | Meaning |
 |---|---|
@@ -275,8 +268,8 @@ surface than Leo sourcegen.
 
 ## Non-Goals For The First Pass
 
-- Do not add `aleo-leo` to the code registry before candidate capabilities are
-  reviewed.
+- Do not widen the registered capability profile without a reviewed semantic
+  mapping and a fail-closed gate.
 - Do not classify Aleo as only a generic ZK circuit target.
 - Do not confuse Aleo VM with Algorand AVM.
 - Do not model records as EVM storage or as Zcash shielded notes.
@@ -302,51 +295,23 @@ Aleo can leave Research only when we have:
 - one reproducible local command or script that validates a tiny Leo program
   package, even if proving-heavy gates are optional in CI.
 
-**Status:** The Road 1 spike satisfies the reproducible local command and
-artifact manifest schema criteria. **Phase 4 (2026-07-08) landed the target
-profile criterion**: `aleo-leo` is now a registered `TargetProfile`
-(`ProofForge.Target.aleoLeo`, family `.zkCircuitSourcegen`, artifact kind
-`.leoSource`) and exposed by `proof-forge --list-targets`. The Lean-side
-codegen gate `just aleo-leo-codegen-smoke` (in `just check`) witnesses the
-Counter→Leo lowering + structure markers without needing the external `leo`
-CLI. The remaining criteria (full capability proposal review, private-record
-Road 2, devnet validation) stay open.
+**Status:** the profile and reproducible sourcegen gates exist, but devnet,
+proof generation, and full portable-state return semantics remain open.
 
-## Phase 4 Update (2026-07-08): Registry entry landed
+## Registry And Gate Status
 
-`aleo-leo` is now a registered target profile (`ProofForge.Target.aleoLeo`),
-exposed by `proof-forge --list-targets`. The profile uses family
-`.zkCircuitSourcegen` (same as `psy-dpn`) and artifact kind `.leoSource`. The
-canonical capability set for the Road 1 spike is:
-`storage.map`, `caller.sender`, `env.block`, `control.conditional`,
-`control.bounded_loop`, `data.struct`, `crypto.hash`, `assertions`,
-`account.explicit`, `checked.arithmetic`, `zk.circuit`, `zk.proof`.
-
-A Lean-side codegen gate (`just aleo-leo-codegen-smoke`, in `just check`)
-verifies the registry entry and that the portable IR `Counter` fixture lowers
-to a Leo program with the expected Road 1 structure markers. The external
-`leo build` / `leo test` end-to-end gate stays in the GitHub CI `aleo-smoke`
-job (`scripts/aleo/counter-smoke.sh` + `pure-math-smoke.sh`).
-
-Road 2 (private records, transitions, proof generation) and Road 3 (direct
-Aleo Instructions) remain future work. FV-import for Aleo would require a
-Lean 4 semantics of the Aleo VM, which is not yet available; Aleo stays a
-codegen target until such a semantics lands.
-
-## Phase 4 Update (2026-07-08)
-
-`aleo-leo` is now a **registry target** (`ProofForge.Target.aleoLeo`):
+`aleo-leo` is a registry target (`ProofForge.Target.aleoLeo`):
 - `TargetFamily.zkCircuitSourcegen`, `ArtifactKind.leoSource`.
 - Capabilities: `storage.map`, `caller.sender`, `env.block`,
-  `control.conditional`, `control.bounded_loop`, `data.struct`, `crypto.hash`,
-  `assertions`, `account.explicit`, `arith.checked`, `zk.circuit`, `zk.proof`.
+  `control.conditional`, `control.bounded_loop`, `data.struct`,
+  `data.linear_record`, `crypto.hash`, `crosscall.named`, `assertions`,
+  `account.explicit`, `arith.checked`, `zk.circuit`, `zk.proof`.
 - Exposed by `proof-forge --list-targets` / `ProofForge.Target.knownIds`.
 - Lean-side codegen gate `just aleo-leo-codegen-smoke` (in `just check`):
-  verifies the registry entry, Counter fixture lowering, and Leo structure
-  markers without needing the external `leo` CLI.
-- The external `leo build` / `leo test` end-to-end gate remains in the GitHub
-  CI `aleo-smoke` job (`scripts/aleo/counter-smoke.sh`,
-  `scripts/aleo/pure-math-smoke.sh`).
+  verifies full Counter rejection and supported-fragment lowering.
+- `just aleo-leo-build-smoke` uses Leo 4.0.2 to compile every generated
+  positive fixture. `scripts/aleo/pure-math-smoke.sh` runs the executable
+  golden/package test.
 
 Road 2 (private records, transitions, proof generation) and Road 3 (direct
 Aleo Instructions) remain future work. The FV-import lane (Road 2 of the ZK
@@ -362,38 +327,54 @@ hardcoded `initialize`/`get`/`increment`) is replaced by a **generic IR→Leo
 lowering** that mirrors `ProofForge.Backend.Psy.IR`:
 
 - `Backend/Aleo/IR/Common.lean` — LowerError, BuildContext, portable→Leo type
-  map, `hasEffect` (drives the async/finalize split), Leo identifier
-  validation, type-check helpers, scalar→mapping rewrite.
+  map, exhaustive expression facts, def-use checked `FunctionPlan`, Leo
+  identifier validation, type-check helpers, scalar→mapping rewrite.
 - `Backend/Aleo/IR/Validate.lean` — `validateCapabilities`/`Identifiers`/
   `Structs`/`State`/`Entrypoints`/`EntrypointBodies` with full type inference.
 - `Backend/Aleo/IR.lean` — generic `buildExpr`/`buildStmt`/`buildFunction`/
   `buildModule`/`renderModule` (validate→build→print).
-- `Backend/Aleo/Metadata.lean` + `MetadataJson.lean` — plan-free artifact
-  metadata (entrypoint ABI, on-chain `mapping` state surface, capabilities),
-  matching the Psy/EVM metadata layer.
+- `Backend/Aleo/Metadata.lean` + `MetadataJson.lean` — metadata derived from the
+  validated function plan (entrypoint ABI, state surface, capabilities).
 
 Coverage now lowered: all arithmetic/bitwise/comparison/boolean ops, `cast`,
 struct literals/field access, array literals/get, `assert`/`assertEq`/`revert`,
 `if/else`, `boundedFor`, `return`, **scalar + map storage**, and **finalize
 context reads** (`contextRead .userId/.userIdHash/.origin → self.caller`,
-`.checkpointId → block.height`). Entrypoints lower (verified against the
-INSTALLED `leo` 4.0.2 — `view fn` and the `..base` struct spread are newer
-than 4.0.2, so they are NOT used): **write + pure return value** →
-`fn … -> (T, Final)`; **any other storage effect** (write with stateful return,
-or read-only) → `fn … -> Final { return final { … }; }` (mapping reads must
-run in `final` in 4.0.2); **pure** → `fn … -> T`. Struct-field storage writes
+`.checkpointId → block.height`). Entrypoints lower (verified against Leo 4.0.2):
+**write + state-independent return value** → `fn … -> (T, Final)`;
+**Unit-returning storage effects** → `fn … -> Final`; **pure** → `fn … -> T`.
+State-derived non-Unit returns fail closed because mapping reads only exist in
+`final` and cannot produce a caller-visible value in Leo 4.0.2. Struct-field storage writes
 use a 4.0.2-compatible read-modify-write (temp local + full struct rebuild,
 NOT `..base`). The profile honestly declares `storage.scalar` (Aleo rewrites
 scalars to a single-slot Leo `mapping u64 => T`).
+For `.add`/`.sub`/`.mul`, the expression node's `overflowChecked` bit selects
+checked infix versus Leo `_wrapped` operations; `Module.overflowChecked` only
+selects compound `AssignOp`, whose IR node has no per-expression bit.
+Mixed `(T, Final)` lowering accepts only the order-preserving canonical form:
+an immutable pure prefix, one contiguous storage/final region, and one terminal
+state-independent return. Mutable locals, control flow, named crosscalls, or a
+pure statement after the final region starts fail closed rather than move across
+the boundary. Linear records are detected transitively through structs and
+fixed arrays and are forbidden in state keys/values.
+`Mapping::get_or_use` defaults are fail-closed for `address`, including an
+address nested transitively in an ordinary value struct: Leo 4.0.2 does not
+accept `none` as an address and ProofForge will not invent a zero identity.
+Write-only address storage remains supported. Ordinary value structs also
+cannot declare a field named `owner`; Leo reserves it for records, whose
+required `owner: address` field remains supported.
 `Tests/AleoLeoMapLoweringSmoke.lean`, `Tests/AleoLeoContextLoweringSmoke.lean`,
-and `Tests/AleoLeoMetadataSmoke.lean` extend the `just aleo-leo-codegen-smoke`
-gate. PureMath golden is byte-identical; Counter `get` is a `fn … -> Final`
-finalize read (4.0.2-correct).
+`Tests/AleoLeoStorageDefaultSmoke.lean`, and `Tests/AleoLeoMetadataSmoke.lean`
+extend the `just aleo-leo-codegen-smoke`
+gate. PureMath is the tracked positive golden; full Counter has no Leo golden
+because its getter is rejected.
 
 **Real compile gate:** every generated feature shape has been verified against
 `leo build` (4.0.2) — see the `aleo-leo-build-smoke` gate (renders all shapes
-via `RenderAleoFixtures.lean` and compiles each). Counter/PureMath/records/hash/
-map/context/mixed-return/struct all compile; crosscall compiles to Aleo
+via `RenderAleoFixtures.lean` and compiles each). Write-only Counter and address
+storage, address-free value-struct defaults, PureMath, records, hash, map,
+context, and mixed-return shapes compile. Direct and nested address-default
+fixtures must be rejected before source emission; crosscall compiles to Aleo
 instructions against a local `credits.aleo` stub (leo 4.0.2 has a downstream
 bytecode-serialization bug for external calls that fires after instruction
 generation — a toolchain defect, not a source defect — so the gate treats
@@ -425,19 +406,20 @@ remains deferred.)
 value is pure lowers as `fn f(…) -> (T, Final) { …; return (value, final { … }); }`
 (verified against `functions/transfer_inline`). Pure (non-storage) statements
 + the pure return run off-chain; storage read/write statements run in `final {}`
-in source order. Functions whose return value reads state keep the plain
-`fn -> Final` shape. `Tests/AleoLeoMixedReturnSmoke.lean` covers a
+in source order. Functions whose caller-visible return depends on state are
+rejected. `Tests/AleoLeoMixedReturnSmoke.lean` covers a
 `transfer_public_to_private`-style withdraw.
 
 **Coverage breadth:** `Tests/AleoLeoCoverageSmoke.lean` runs 9 pre-existing IR
-probes (arithmetic, bitwise, assertions, conditionals, bounded loops, structs,
-U32 arithmetic, U64/U32/Bool scalar storage) through `renderModule`; all lower.
+probes through `renderModule`. Four pure probes lower (arithmetic, bitwise,
+assertions, and U32 arithmetic); five stateful probes fail closed because their
+caller-visible results depend on Leo mapping state.
 
-**Struct-field storage writes LANDED:** `storageStructFieldWrite` now lowers via
-a read-modify-write using Leo's struct-update form `Name { f: v, ..read }` (new
-`Expression.compositeUpdate` + Printer case; `defaultExpr` builds a field-wise
-default struct literal so the `get_or_use` read has a fallback). This was the
-last gap for the common IR subset (e.g. `StructProbe` now lowers fully).
+**Struct-field storage writes LANDED:** `storageStructFieldWrite` lowers via a
+Leo 4.0.2-compatible read-modify-write that rebuilds every field explicitly;
+`defaultExpr` provides the `get_or_use` fallback for address-free value structs.
+Structs that transitively contain address fail closed because Leo has no honest
+address fallback.
 
 Road 2 slice 1 LANDED: record DECLARATION + CREATION. An opt-in
 `StructDecl.isRecord` flag (mirroring `deriveStorage`) lowers a struct as a
@@ -453,7 +435,8 @@ A detailed design spec covering Research exit + Road 1 spike is in
 
 The spec finalizes:
 
-- Target family: `zk-app-sourcegen`.
+- Original design term: `zk-app-sourcegen`; the registry family id is
+  `zk-circuit-sourcegen`.
 - Canonical capabilities for the first spike:
   `lang.leo`, `vm.aleo_avm`, `artifact.avm`, `artifact.aleo_abi`,
   `execution.finalize`, `state.mapping`, `input.public`, `output.public`,
@@ -465,9 +448,9 @@ The spec finalizes:
   `transaction.deploy`, `fee.credits`, `test.aleo_devnet`.
 - Artifact manifest schema for `aleo-leo-package`.
 - Toolchain decision: `leo build` + `leo test` primary; prove/execute optional.
-- Spike scope: Road 1 only, public mapping Counter from
-  `ProofForge.IR.Examples.Counter`.
+- Original design scope: public mapping Counter. The implementation now rejects
+  its getter and keeps only the write-only slice as positive compile evidence.
 
-The Road 1 spike is implemented; code registry changes
-(`ProofForge.Target.Capability` / `ProofForge.Target.Registry`) remain deferred
-until the proof/finalization split and private-record roadmap are reviewed.
+The Road 1 profile is implemented. Target-specific proof, transaction, fee,
+and devnet capabilities remain deferred until their semantics and validation
+surfaces are implemented.

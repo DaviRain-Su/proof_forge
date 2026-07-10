@@ -6,10 +6,12 @@ open ProofForge.IR
 
 /-- Packed storage probe: multiple small scalars sharing slots.
     Layout (Solidity-style packing):
-    - Slot 0: flag(bool, offset 0, 1B) + counter(u8, offset 1, 1B) + tag(u32, offset 4, 4B) + value(u64, offset 8, 8B)
-    - Slot 1: big(u128, offset 0, 16B)
-    - Slot 2: owner(address, offset 0, 20B) + active(bool, offset 20, 1B)
-    - Slot 3: total(u64, offset 0, 8B) + reserve(u32, offset 8, 4B) + spare(u8, offset 12, 1B) + done(bool, offset 13, 1B) -/
+    - Slot 0: flag(bool, offset 0, 1B) + counter(u8, offset 1, 1B) +
+      tag(u32, offset 2, 4B) + value(u64, offset 6, 8B) + big(u128, offset 14, 16B)
+    - Slot 1: owner(address, offset 0, 20B) + active(bool, offset 20, 1B) +
+      total(u64, offset 21, 8B)
+    - Slot 2: reserve(u32, offset 0, 4B) + spare(u8, offset 4, 1B) +
+      done(bool, offset 5, 1B) -/
 
 def stateFlag : StateDecl := {
   id := "flag"
@@ -196,6 +198,166 @@ def packedAssignOp : Entrypoint := {
   ]
 }
 
+/-- A wrapping expression assigned to packed storage must truncate to the field
+    width. An unmasked `u8` carry would otherwise spill into an adjacent field. -/
+def packedAssignOpWraps : Entrypoint := {
+  name := "packed_assign_op_wraps"
+  selector? := some "9641cb4f"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter" (.add (u8Lit 255) (u8Lit 1) false)),
+    .assertEq (.effect (.storageScalarRead "counter")) (u8Lit 0) "counter wraps to zero",
+    .assertEq (.effect (.storageScalarRead "flag")) (boolLit false) "counter carry does not set flag",
+    .assertEq (.effect (.storageScalarRead "tag")) (u32Lit 305419896) "counter carry does not alter tag",
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Every checked node must enforce the U8 width. The inner addition overflows
+    even though the outer subtraction brings the final word back into range. -/
+def packedNestedCheckedOverflowReverts : Entrypoint := {
+  name := "packed_nested_checked_overflow_reverts"
+  selector? := some "48bedaed"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter"
+      (.sub (.add (u8Lit 255) (u8Lit 1) true) (u8Lit 1) true)),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- A wrapping outer node must not erase an overflowing checked inner node. -/
+def packedMixedOverflowReverts : Entrypoint := {
+  name := "packed_mixed_overflow_reverts"
+  selector? := some "a691f1b1"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter"
+      (.sub (.add (u8Lit 255) (u8Lit 1) true) (u8Lit 256) false)),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Wrapping is applied at every U8 arithmetic node and remains isolated from
+    neighboring packed fields. -/
+def packedNestedWrappingPreservesNeighbors : Entrypoint := {
+  name := "packed_nested_wrapping_preserves_neighbors"
+  selector? := some "baa34f4a"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter"
+      (.sub (.add (u8Lit 255) (u8Lit 1) false) (u8Lit 1) false)),
+    .assertEq (.effect (.storageScalarRead "counter")) (u8Lit 255)
+      "nested wrapping counter is 255",
+    .assertEq (.effect (.storageScalarRead "flag")) (boolLit false)
+      "nested wrapping does not set flag",
+    .assertEq (.effect (.storageScalarRead "tag")) (u32Lit 305419896)
+      "nested wrapping does not alter tag",
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Checked multiplication by zero must produce zero for either operand order.
+    This specifically covers the non-zero left / zero right helper path. -/
+def packedCheckedMulZeroRhsSucceeds : Entrypoint := {
+  name := "packed_checked_mul_zero_rhs_succeeds"
+  selector? := some "ffb3ca34"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter"
+      (.mul (u8Lit 7) (u8Lit 0) true)),
+    .assertEq (.effect (.storageScalarRead "counter")) (u8Lit 0)
+      "checked multiplication by zero is zero",
+    .assertEq (.effect (.storageScalarRead "flag")) (boolLit false)
+      "checked multiplication by zero does not set flag",
+    .assertEq (.effect (.storageScalarRead "tag")) (u32Lit 305419896)
+      "checked multiplication by zero does not alter tag",
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Checked compound assignment must reject a value that fits in an EVM word
+    but not in the packed field. The whole call, including neighboring writes,
+    must roll back. -/
+def packedAssignOpOverflowReverts : Entrypoint := {
+  name := "packed_assign_op_overflow_reverts"
+  selector? := some "ab0efcd6"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "counter" (u8Lit 255)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarAssignOp "counter" .add (u8Lit 1)),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- A checked expression written directly to a packed field must reject a
+    value that fits in an EVM word but not in the destination field. -/
+def packedCheckedWriteOverflowReverts : Entrypoint := {
+  name := "packed_checked_write_overflow_reverts"
+  selector? := some "2b19bf56"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter" (.add (u8Lit 255) (u8Lit 1) true)),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Checked modules reject an out-of-range packed literal even when the value
+    expression contains no arithmetic node. -/
+def packedCheckedLiteralWriteOverflowReverts : Entrypoint := {
+  name := "packed_checked_literal_write_overflow_reverts"
+  selector? := some "d1614879"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .effect (.storageScalarWrite "counter" (u8Lit 256)),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- Checked modules also retain the destination-width guard after a value has
+    passed through a local binding. -/
+def packedCheckedLocalWriteOverflowReverts : Entrypoint := {
+  name := "packed_checked_local_write_overflow_reverts"
+  selector? := some "463dd423"
+  returns := .bool
+  body := #[
+    .effect (.storageScalarWrite "flag" (boolLit false)),
+    .effect (.storageScalarWrite "tag" (u32Lit 305419896)),
+    .letBind "candidate" .u8 (u8Lit 256),
+    .effect (.storageScalarWrite "counter" (.local "candidate")),
+    .return (.effect (.storageScalarRead "flag"))
+  ]
+}
+
+/-- ABI validation rejects non-canonical `u8` calldata before it reaches the
+    function-local packed write. -/
+def packedCheckedWriteParam : Entrypoint := {
+  name := "packed_checked_write_param"
+  selector? := some "c1244eee"
+  params := #[("candidate", .u8)]
+  returns := .u64
+  body := #[
+    .effect (.storageScalarWrite "counter" (.local "candidate")),
+    .return (.cast (.effect (.storageScalarRead "counter")) .u64)
+  ]
+}
+
 def module : Module := {
   name := "EvmPackedStorageProbe"
   state := #[
@@ -209,8 +371,19 @@ def module : Module := {
     packedSlot1Lifecycle,
     packedSlot2Lifecycle,
     packedSlot3Lifecycle,
-    packedAssignOp
+    packedAssignOp,
+    packedAssignOpWraps,
+    packedNestedCheckedOverflowReverts,
+    packedMixedOverflowReverts,
+    packedNestedWrappingPreservesNeighbors,
+    packedCheckedMulZeroRhsSucceeds,
+    packedAssignOpOverflowReverts,
+    packedCheckedWriteOverflowReverts,
+    packedCheckedLiteralWriteOverflowReverts,
+    packedCheckedLocalWriteOverflowReverts,
+    packedCheckedWriteParam
   ]
+  overflowChecked := true
 }
 
 end ProofForge.IR.Examples.EvmPackedStorageProbe

@@ -51,8 +51,12 @@ contract_mixin ERC20Mixin do
   use ProofForge.Contract.Surface.mapState balances
   use ProofForge.Contract.Surface.mapState allowances
 
-  event Transfer
-  event Approval
+  event Transfer abi #[
+    ("from", "address"), ("to", "address"), ("value", "uint256")
+  ]
+  event Approval abi #[
+    ("owner", "address"), ("spender", "address"), ("value", "uint256")
+  ]
 
   query totalSupply returns(.u64) do
     return totalSupply;

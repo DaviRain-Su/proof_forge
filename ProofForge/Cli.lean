@@ -116,7 +116,8 @@ export ProofForge.Cli.ConstructorAbi
    encodeUint256ArrayConstructorTail encodeDynamicConstructorTail encodeStaticConstructorValue
    constructorParamExists constructorValueCount findConstructorValue?
    validateConstructorValues validateConstructorValuesAgainstParams
-   encodeConstructorValues constructorSchemaHasDynamic validateConstructorSchemaAndArgs)
+   encodeConstructorValues constructorSchemaHasDynamic validateCanonicalAddressWords
+   validateConstructorSchemaAndArgs)
 export ProofForge.Cli.EmitMode (EmitMode)
 
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=

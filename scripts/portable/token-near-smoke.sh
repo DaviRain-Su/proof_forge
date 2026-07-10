@@ -36,6 +36,7 @@ command -v lake >/dev/null 2>&1 || fail "lake not on PATH"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+lake build proof-forge >/dev/null
 
 echo "=== product-token-near step 1: TokenSpec → wasm-near NEP-141 plan ==="
 lake env proof-forge build --target wasm-near --token --root . \
@@ -91,8 +92,9 @@ require_contains "$WAT_OUT" "promise_create" "NEP-141 body should support promis
 require_contains "$WAT_OUT" "ft_mint" "NEP-141 body must export mint for lifecycle smoke"
 require_contains "$WAT_OUT" "ft_balance_of" "NEP-141 body must export balance_of"
 
-echo "=== product-token-near step 3: offline-host mint/transfer lifecycle (N1.3) ==="
-# Prefer dedicated Backend FT body for deterministic offline lifecycle (stdlib module).
+echo "=== product-token-near step 3: backend FT offline conformance (N1.3 partial) ==="
+# This validates the shared stdlib body through its Backend wrapper. The Product
+# TokenSpec above currently emits a plan, not this executable runtime artifact.
 FT_OUT="$OUT_DIR/lifecycle"
 rm -rf "$FT_OUT"
 mkdir -p "$FT_OUT"
@@ -135,6 +137,6 @@ echo "$out"
 grep -Fq "return_u64=100" <<<"$out" || fail "expected mint balance 100"
 grep -Fq "return_u64=70" <<<"$out" || fail "expected sender balance 70 after transfer"
 grep -Fq "return_u64=30" <<<"$out" || fail "expected receiver balance 30 after transfer"
-echo "offline-host FT mint/transfer: ok"
+echo "backend FT offline mint/transfer conformance: ok"
 
-echo "product-token-near: ok (plan · NEP-141 body WAT · offline mint/transfer)"
+echo "product-token-near: ok (TokenSpec plan · stdlib body WAT · backend FT offline conformance)"

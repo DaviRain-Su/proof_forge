@@ -123,6 +123,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install Node dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Install Quint CLI
         run: npm install -g @informalsystems/quint
 
@@ -145,6 +148,7 @@ jobs:
           wat2wasm --version
           node --version
           npm --version
+          ./node_modules/.bin/tsc --version
           quint --version
           java -version
 
@@ -199,6 +203,12 @@ jobs:
 
       - name: Run Wasm-NEAR target-first smoke
         run: just near-target-first
+
+      - name: Run Wasm-NEAR aggregate and honesty gates
+        run: |
+          just emitwat-aggregate-abi
+          just near-budget-honesty
+          just near-deploy-honesty
 
       - name: Check contract_source target diagnostics
         run: just contract-source-diagnostics
@@ -376,13 +386,17 @@ jobs:
         if: steps.install-leo.outputs.available == 'true'
         run: just build
 
-      - name: Run Aleo Counter smoke
+      - name: Run Aleo Counter fail-closed smoke
         if: steps.install-leo.outputs.available == 'true'
         run: ./scripts/aleo/counter-smoke.sh
 
       - name: Run Aleo PureMath smoke
         if: steps.install-leo.outputs.available == 'true'
         run: ./scripts/aleo/pure-math-smoke.sh
+
+      - name: Run full Aleo Leo build smoke
+        if: steps.install-leo.outputs.available == 'true'
+        run: just aleo-leo-build-smoke
 
       - name: Skip Aleo smoke
         if: steps.install-leo.outputs.available != 'true'

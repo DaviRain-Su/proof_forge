@@ -57,6 +57,10 @@ def packageFile (label path : String)
       throw <| IO.userError s!"{label} Solana render failed: {err.render}"
 
 def requireValueVaultSolanaRender (spec : ProofForge.Contract.ContractSpec) : IO Unit := do
+  let some snapshot := spec.module.entrypoints.find? (fun entrypoint => entrypoint.name == "snapshot")
+    | throw <| IO.userError "Learn ValueVault missing snapshot entrypoint"
+  require (snapshot.mutability == .call && snapshot.returns == .u64)
+    "Learn ValueVault snapshot must remain a mutating U64-returning entrypoint"
   match ProofForge.Backend.Solana.Package.renderPackageForSpec "learn-value-vault" spec with
   | .ok pkg =>
       let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")

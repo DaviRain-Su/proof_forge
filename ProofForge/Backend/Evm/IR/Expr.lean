@@ -52,7 +52,7 @@ mutual
     if byteWidth >= 32 || byteOffset == 0 && byteWidth == 32 then
       .ok (Lean.Compiler.Yul.builtin "sload" #[storageSlot])
     else
-      let shiftBits := (32 - byteOffset - byteWidth) * 8
+      let shiftBits := byteOffset * 8
       let mask := (2^(byteWidth * 8 : Nat)) - 1
       .ok (Lean.Compiler.Yul.builtin "and" #[
         Lean.Compiler.Yul.builtin "shr" #[
@@ -1375,9 +1375,8 @@ partial def lowerScalarStorageEffectStmtPlan
             | .error err => .error { message := err.message }
           let statements ←
             match effectPlan with
-            | .storageScalarWriteTarget .. =>
+            | .storageScalarWriteTarget _ _ =>
                 ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-                  module.overflowChecked
                   toYulError
                   (fun expr => lowerExpr module env expr)
                   (lowerPlanEffectExpr module env)
@@ -1406,7 +1405,6 @@ partial def lowerScalarStorageEffectStmtPlan
         match effectPlan with
         | .storageScalarAssignOpTarget .. =>
             ProofForge.Backend.Evm.ToYul.scalarStorageTargetEffectStmtPlanStatements
-              module.overflowChecked
               toYulError
               (fun expr => lowerExpr module env expr)
               (lowerPlanEffectExpr module env)
@@ -1423,6 +1421,23 @@ partial def lowerScalarStorageEffectStmtPlan
           .error { message := "EVM StmtPlan-to-Yul scalar storage assign_op lowering produced no statements" }
   | _ =>
       .error { message := "EVM StmtPlan-to-Yul scalar storage effect lowering expected storageScalarWrite/storageScalarAssignOp" }
+
+def lowerErc1155BatchReceiverStmtPlan
+    (module : Module)
+    (env : TypeEnv)
+    (operator fromAddr toAddr id0 amount0 id1 amount1 : ProofForge.IR.Expr) :
+    Except LowerError Lean.Compiler.Yul.Statement := do
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1) with
+    | .ok plan => .ok plan
+    | .error err => .error { message := err.message }
+  let statements ←
+    ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
+      toYulError
+      (lowerExprPlanExpr module env)
+      effectPlan
+  .ok (.block { statements })
 
 def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Statement
   | .storageScalarRead _ =>
@@ -1490,16 +1505,7 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
           operatorYul fromYul toYul idYul amountYul
       .ok (.block { statements := stmts })
 
-  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
-      let operatorYul ← lowerExpr module env operator
-      let fromYul ← lowerExpr module env fromAddr
-      let toYul ← lowerExpr module env toAddr
-      let id0Yul ← lowerExpr module env id0
-      let amount0Yul ← lowerExpr module env amount0
-      let id1Yul ← lowerExpr module env id1
-      let amount1Yul ← lowerExpr module env amount1
-      let stmts :=
-        ProofForge.Backend.Evm.ToYul.checkErc1155BatchReceivedStatements
-          operatorYul fromYul toYul id0Yul amount0Yul id1Yul amount1Yul
-      .ok (.block { statements := stmts })
+  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 =>
+      lowerErc1155BatchReceiverStmtPlan
+        module env operator fromAddr toAddr id0 amount0 id1 amount1
 end ProofForge.Backend.Evm.IR

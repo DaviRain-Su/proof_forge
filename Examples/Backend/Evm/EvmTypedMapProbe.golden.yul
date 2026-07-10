@@ -126,8 +126,8 @@ object "EvmTypedMapProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmTypedMapProbe_typed_map_lifecycle() -> result {
-      sstore(3, or(and(sload(3), not(shl(192, 18446744073709551615))), shl(192, 777)))
+    function f_EvmTypedMapProbe_typed_map_lifecycle() -> __pf_result {
+      sstore(3, or(and(sload(3), not(shl(0, 18446744073709551615))), shl(0, and(777, 18446744073709551615))))
       let old0 := __proof_forge_map_set_return(0, 7, 11)
       if iszero(eq(old0, 0)) {
         revert(0, 0)
@@ -156,55 +156,55 @@ object "EvmTypedMapProbe" {
         revert(0, 0)
       }
       let sum := __pf_checked_add(sload(__proof_forge_map_slot(0, 7)), sload(__proof_forge_map_slot(0, 8)))
-      result := __pf_checked_add(sum, sload(__proof_forge_map_slot(1, 1)))
+      __pf_result := __pf_checked_add(sum, sload(__proof_forge_map_slot(1, 1)))
     }
-    function f_EvmTypedMapProbe_read_score(key) -> result {
-      result := sload(__proof_forge_map_slot(0, key))
+    function f_EvmTypedMapProbe_read_score(key) -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(0, key))
     }
     function f_EvmTypedMapProbe_write_score(key, value) {
       __proof_forge_map_write(0, key, value)
     }
-    function f_EvmTypedMapProbe_contains_score(key) -> result {
-      result := iszero(iszero(sload(__proof_forge_map_presence_slot(0, key))))
+    function f_EvmTypedMapProbe_contains_score(key) -> __pf_result {
+      __pf_result := iszero(iszero(sload(__proof_forge_map_presence_slot(0, key))))
     }
-    function f_EvmTypedMapProbe_read_flag(key) -> result {
-      result := sload(__proof_forge_map_slot(1, key))
+    function f_EvmTypedMapProbe_read_flag(key) -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(1, key))
     }
-    function f_EvmTypedMapProbe_set_flag(key, value) -> result {
-      result := __proof_forge_map_set_return(1, key, value)
+    function f_EvmTypedMapProbe_set_flag(key, value) -> __pf_result {
+      __pf_result := __proof_forge_map_set_return(1, key, value)
     }
-    function f_EvmTypedMapProbe_contains_flag(key) -> result {
-      result := iszero(iszero(sload(__proof_forge_map_presence_slot(1, key))))
+    function f_EvmTypedMapProbe_contains_flag(key) -> __pf_result {
+      __pf_result := iszero(iszero(sload(__proof_forge_map_presence_slot(1, key))))
     }
-    function f_EvmTypedMapProbe_read_root(key) -> result {
-      result := sload(__proof_forge_map_slot(2, key))
+    function f_EvmTypedMapProbe_read_root(key) -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(2, key))
     }
-    function f_EvmTypedMapProbe_set_root(key, value) -> result {
-      result := __proof_forge_map_set_return(2, key, value)
+    function f_EvmTypedMapProbe_set_root(key, value) -> __pf_result {
+      __pf_result := __proof_forge_map_set_return(2, key, value)
     }
-    function f_EvmTypedMapProbe_contains_root(key) -> result {
-      result := iszero(iszero(sload(__proof_forge_map_presence_slot(2, key))))
+    function f_EvmTypedMapProbe_contains_root(key) -> __pf_result {
+      __pf_result := iszero(iszero(sload(__proof_forge_map_presence_slot(2, key))))
     }
-    function f_EvmTypedMapProbe_path_assign_score() -> result {
+    function f_EvmTypedMapProbe_path_assign_score() -> __pf_result {
       __proof_forge_map_write(0, 9, 10)
       __proof_forge_map_assign_add(0, 9, 5)
       __proof_forge_map_assign_mul(0, 9, 2)
-      result := sload(__proof_forge_map_slot(0, 9))
+      __pf_result := sload(__proof_forge_map_slot(0, 9))
     }
-    function f_EvmTypedMapProbe_nested_path_score(outer, inner, value) -> result {
+    function f_EvmTypedMapProbe_nested_path_score(outer, inner, value) -> __pf_result {
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, outer), inner)
-        sstore(_slot, value)
-        sstore(_presence_slot, 1)
+        let __pf_storage_slot := __proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner)
+        let __pf_storage_presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, outer), inner)
+        sstore(__pf_storage_slot, value)
+        sstore(__pf_storage_presence_slot, 1)
       }
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, outer), inner)
-        sstore(_slot, __pf_checked_add(sload(_slot), 5))
-        sstore(_presence_slot, 1)
+        let __pf_storage_slot := __proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner)
+        let __pf_storage_presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, outer), inner)
+        sstore(__pf_storage_slot, add(sload(__pf_storage_slot), 5))
+        sstore(__pf_storage_presence_slot, 1)
       }
-      result := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner))
+      __pf_result := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, outer), inner))
     }
     function __proof_forge_map_slot(slot, key) -> result {
       mstore(0, key)
@@ -232,12 +232,12 @@ object "EvmTypedMapProbe" {
     }
     function __proof_forge_map_assign_add(slot, key, value) {
       let _slot := __proof_forge_map_slot(slot, key)
-      sstore(_slot, __pf_checked_add(sload(_slot), value))
+      sstore(_slot, add(sload(_slot), value))
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
     function __proof_forge_map_assign_mul(slot, key, value) {
       let _slot := __proof_forge_map_slot(slot, key)
-      sstore(_slot, __pf_checked_mul(sload(_slot), value))
+      sstore(_slot, mul(sload(_slot), value))
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
     function __pf_checked_add(a, b) -> r {
@@ -253,7 +253,7 @@ object "EvmTypedMapProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

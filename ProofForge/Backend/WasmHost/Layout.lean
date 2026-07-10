@@ -31,12 +31,13 @@ def isPackableScalarType : ValueType → Bool
   | .u32 | .u64 | .bool => true
   | _ => false
 
-/-- True when packing multi-scalar state into one storage key is worthwhile:
-every scalar is u32/u64/bool and there are **at least two** scalars. Single-field
-modules (Counter) keep the classic one-key-per-scalar layout. -/
-def moduleScalarsPackable (mod : ProofForge.IR.Module) : Bool :=
-  let scalars := mod.state.filter (fun s => s.kind == .scalar)
-  scalars.size >= 2 && scalars.all (fun s => isPackableScalarType s.type)
+/-- Automatic scalar packing is disabled until the portable artifact carries an
+explicit storage-layout version and migration policy. Enabling it based only on
+the current state shape silently moves existing per-field keys to `__pf_s` and
+also makes field reordering change offsets. Keep the implementation available
+for an eventual explicitly versioned opt-in, but preserve the stable legacy
+layout for all unversioned modules. -/
+def moduleScalarsPackable (_mod : ProofForge.IR.Module) : Bool := false
 
 def stateLayout (mod : ProofForge.IR.Module) : Array StateInfo :=
   let step (acc : Array StateInfo) (offset : Nat) (s : StateDecl) : Array StateInfo × Nat :=

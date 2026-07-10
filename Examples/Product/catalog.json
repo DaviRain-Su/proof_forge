@@ -7,33 +7,17 @@
       "file": "AccessControl.lean",
       "authoring": "contract_source",
       "kind": "policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "ArrayExample.lean",
       "authoring": "contract_source",
       "kind": "aggregate",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "portable-array-example-multi-target",
-        "testkit:array-example"
-      ],
+      "gates": ["product-matrix", "portable-array-example-multi-target", "testkit:array-example"],
       "runtimeTriad": true,
       "note": "PF-P2-01 map/array capability family; testkit array-example triad runtime"
     },
@@ -41,186 +25,100 @@
       "file": "AuthRemoteCall.lean",
       "authoring": "contract_source",
       "kind": "remote",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "portable-remote-call-multi-target"
-      ]
+      "gates": ["product-matrix", "portable-remote-call-multi-target"]
     },
     {
       "file": "Counter.lean",
       "authoring": "contract_source",
       "kind": "scalar-state",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "final-deployable",
-      "gates": [
-        "product-matrix",
-        "portable-counter-multi-target"
-      ],
+      "gates": ["product-matrix", "portable-counter-multi-target"],
       "runtimeTriad": true
     },
     {
       "file": "ERC4626Vault.lean",
       "authoring": "facade",
       "kind": "token-accounting",
-      "targets": [
-        "evm"
-      ],
+      "targets": ["evm"],
       "outputStage": "final-deployable",
-      "gates": [
-        "product-erc4626-vault"
-      ],
+      "gates": ["product-erc4626-vault"],
       "note": "stdlib ERC4626 body re-export; not full triad runtime yet"
     },
     {
       "file": "EscrowVault.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare dual-deploy escrow; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:escrow-vault"]
     },
     {
       "file": "ExternalTokenTransfer.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "product-protocol-ft"
-      ]
+      "gates": ["product-matrix", "product-protocol-ft"]
     },
     {
       "file": "ExternalVault.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "product-protocol-vault"
-      ]
+      "gates": ["product-matrix", "product-protocol-vault"]
     },
     {
       "file": "FeeToken.lean",
       "authoring": "TokenSpec",
       "kind": "token-accounting",
-      "targets": [
-        "solana-sbpf-asm"
-      ],
+      "targets": ["solana-sbpf-asm"],
       "outputStage": "plan",
-      "gates": [
-        "product-matrix",
-        "product-token-solana"
-      ],
+      "gates": ["product-matrix", "product-token-solana"],
       "note": "EVM honest reject (transfer fee)"
     },
     {
       "file": "FungibleToken.lean",
       "authoring": "TokenSpec",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near"],
       "outputStage": "plan",
-      "gates": [
-        "product-matrix",
-        "product-token-near",
-        "product-token-solana"
-      ]
+      "gates": ["product-matrix", "product-token-near", "product-token-solana"]
     },
     {
       "file": "GuestBook.lean",
       "authoring": "contract_source",
-      "kind": "scalar-state",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "kind": "aggregate",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare guestbook; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:guestbook"]
     },
     {
       "file": "HeightLockVault.lean",
       "authoring": "contract_source",
-      "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "kind": "context",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare height-lock vault; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:height-lock-vault"]
     },
     {
       "file": "HostEnvProbe.lean",
       "authoring": "contract_source",
       "kind": "context",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "Ownable.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "portable-stdlib-core",
-        "testkit:ownable"
-      ],
+      "gates": ["product-matrix", "portable-stdlib-core", "testkit:ownable"],
       "runtimeTriad": true,
       "note": "PF-P2-01 auth/policy family; testkit ownable triad runtime"
     },
@@ -228,93 +126,49 @@
       "file": "OwnableHash.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "OwnablePausable.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "Pausable.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "ProRataVault.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare pro-rata vault; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:pro-rata-vault"]
     },
     {
       "file": "ReentrancyGuard.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ]
+      "gates": ["product-matrix"]
     },
     {
       "file": "RemoteCall.lean",
       "authoring": "contract_source",
       "kind": "remote",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix",
-        "portable-remote-call-multi-target",
-        "testkit:remote-call"
-      ],
+      "gates": ["product-matrix", "portable-remote-call-multi-target", "testkit:remote-call"],
       "runtimeTriad": true,
       "note": "PF-P2-01 remote family (initialize shared; peer equivalence is PF-P2-03)"
     },
@@ -322,138 +176,79 @@
       "file": "RoleGatedToken.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
+      "gates": ["product-matrix"],
       "note": "testkit runtime scenario is EVM-focused today"
     },
     {
       "file": "SoulboundToken.lean",
       "authoring": "TokenSpec",
       "kind": "token-accounting",
-      "targets": [
-        "solana-sbpf-asm"
-      ],
+      "targets": ["solana-sbpf-asm"],
       "outputStage": "plan",
-      "gates": [
-        "product-matrix"
-      ],
+      "gates": ["product-matrix"],
       "note": "EVM honest reject (non-transferable)"
     },
     {
       "file": "SoulboundTokenBody.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "contract_source soulbound body (not TokenSpec); complements SoulboundToken.lean"
+      "gates": ["product-matrix", "testkit:soulbound-token"],
+      "note": "portable non-transferable token body; complements the TokenSpec plan"
     },
     {
       "file": "StakingVault.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
+      "gates": ["product-matrix"],
       "note": "testkit runtime scenario is EVM-focused today"
     },
     {
       "file": "StatusMessage.lean",
       "authoring": "contract_source",
-      "kind": "scalar-state",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "kind": "aggregate",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare status message; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:status-message"]
     },
     {
       "file": "StorageDeposit.lean",
       "authoring": "contract_source",
       "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "targets": ["evm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "NEAR storage deposit product; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:storage-deposit"],
+      "note": "portable NEP-145-lite accounting surface; Solana Hash ABI parameters are not yet supported"
     },
     {
       "file": "TimelockVault.lean",
       "authoring": "contract_source",
-      "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "kind": "context",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare timelock vault; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:timelock-vault"]
     },
     {
       "file": "ValueVault.lean",
       "authoring": "contract_source",
       "kind": "scalar-state",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near",
-        "wasm-stellar-soroban"
-      ],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "final-deployable",
-      "gates": [
-        "product-matrix",
-        "portable-value-vault"
-      ],
+      "gates": ["product-matrix", "portable-value-vault"],
       "runtimeTriad": true
     },
     {
       "file": "VestingVault.lean",
       "authoring": "contract_source",
-      "kind": "token-accounting",
-      "targets": [
-        "evm",
-        "solana-sbpf-asm",
-        "wasm-near"
-      ],
+      "kind": "context",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
-      "gates": [
-        "product-matrix"
-      ],
-      "note": "near-compare vesting vault; catalog for S0.2"
+      "gates": ["product-matrix", "testkit:vesting-vault"]
     }
   ]
 }

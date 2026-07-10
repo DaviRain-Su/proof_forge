@@ -137,7 +137,7 @@ current stages):
 
 | Target id | Family | Artifact | Status (2026-07 on `main`) |
 |---|---|---|---|
-| `evm` | EVM | Runtime bytecode | Experimental — production-grade gates (Gate P0) |
+| `evm` | EVM | Runtime bytecode | Experimental — scoped P0 artifact/runtime gates complete |
 | `wasm-near` | Wasm host | NEAR-compatible Wasm | Experimental — EmitWat on `main` (Gate P0) |
 | `wasm-cosmwasm` | Wasm host | CosmWasm Wasm | Spike — Counter golden WAT + optional CI |
 | `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | **Deprecated** (D-026; use `solana-sbpf-asm`) |

@@ -21,6 +21,7 @@ command -v python3 >/dev/null 2>&1 || fail "python3 not on PATH"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+lake build proof-forge >/dev/null
 
 echo "=== N1.7: build Counter wasm-near (deploy metadata) ==="
 lake env proof-forge build --target wasm-near --root . -o "$OUT_DIR" \

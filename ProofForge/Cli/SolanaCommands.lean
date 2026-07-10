@@ -47,13 +47,14 @@ namespace ProofForge.Cli
 
 /-- PF-P1-03: intermediate-only Solana assembly bundle (no ELF). -/
 def solanaAsmArtifactBundle
-    (sourceModule sourceKind : String) (sourcePath? : Option String)
-    (asmPath : FilePath) (asmSha : String) (asmBytes : Nat) :
+    (source : ProofForge.Target.ArtifactBundle.SourceIdentity)
+    (asmPath : FilePath) (asmSha : String) (asmBytes : Nat)
+    (sourceToolchain : Array ProofForge.Target.ArtifactBundle.ToolProvenance := #[]) :
     ProofForge.Target.ArtifactBundle.ArtifactBundle :=
   open ProofForge.Target.ArtifactBundle in
   {
     targetId := "solana-sbpf-asm"
-    source := { moduleName := sourceModule, path? := sourcePath?, kind := sourceKind }
+    source := source
     outputs := #[{
       kind := "sbpf-asm"
       role := .intermediate
@@ -63,7 +64,7 @@ def solanaAsmArtifactBundle
     }]
     primaryOutput? := some "sbpf-asm"
     finalOutput? := none
-    toolchain := #[{ tool := "sbpf", stage := "final-deployable", available := false }]
+    toolchain := sourceToolchain ++ #[{ tool := "sbpf", stage := "final-deployable", available := false }]
     validations := #[{
       name := "sbpfBuild"
       state := .notRun
@@ -73,14 +74,15 @@ def solanaAsmArtifactBundle
 
 /-- PF-P1-03: final Solana ELF with assembly intermediate. -/
 def solanaElfArtifactBundle
-    (sourceModule sourceKind : String) (sourcePath? : Option String)
+    (source : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (asmPath elfPath : FilePath)
-    (asmSha elfSha : String) (asmBytes elfBytes : Nat) :
+    (asmSha elfSha : String) (asmBytes elfBytes : Nat)
+    (sourceToolchain : Array ProofForge.Target.ArtifactBundle.ToolProvenance := #[]) :
     ProofForge.Target.ArtifactBundle.ArtifactBundle :=
   open ProofForge.Target.ArtifactBundle in
   {
     targetId := "solana-sbpf-asm"
-    source := { moduleName := sourceModule, path? := sourcePath?, kind := sourceKind }
+    source := source
     outputs := #[
       {
         kind := "sbpf-asm"
@@ -99,7 +101,7 @@ def solanaElfArtifactBundle
     ]
     primaryOutput? := some "solana-elf"
     finalOutput? := some "solana-elf"
-    toolchain := #[{ tool := "sbpf", stage := "final-deployable", available := true }]
+    toolchain := sourceToolchain ++ #[{ tool := "sbpf", stage := "final-deployable", available := true }]
     validations := #[{ name := "sbpfBuild", state := .passed }]
   }
 
@@ -149,7 +151,10 @@ def compileSolanaElf (opts : CliOptions) : IO UInt32 := do
       let elfArtifact ← artifactEntryJson output
       let asmDigest ← fileDigestAndBytes asmSrc
       let elfDigest ← fileDigestAndBytes output
-      let bundle := solanaElfArtifactBundle "Counter" "portable-ir" none asmSrc output
+      let bundle := solanaElfArtifactBundle {
+          moduleName := "Counter"
+          kind := "portable-ir"
+        } asmSrc output
         asmDigest.fst elfDigest.fst asmDigest.snd elfDigest.snd
       requireHonestBundle "Solana ELF Counter" bundle
       let metadata := jsonObject #[
@@ -188,7 +193,8 @@ def compileSolanaElf (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
-    (fallbackProjectName fixture : String) (spec : ProofForge.Contract.ContractSpec) :
+    (fallbackProjectName fixture : String) (spec : ProofForge.Contract.ContractSpec)
+    (sourcePath? : Option FilePath := none) (leanElaborated : Bool := false) :
     IO UInt32 := do
   let output := opts.output?.getD defaultOutput
   let projectName := match output.fileName with
@@ -235,8 +241,17 @@ def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
       let elfArtifact ← artifactEntryJson output
       let asmDigest ← fileDigestAndBytes asmSrc
       let elfDigest ← fileDigestAndBytes output
-      let bundle := solanaElfArtifactBundle spec.name "contract-sdk" none asmSrc output
-        asmDigest.fst elfDigest.fst asmDigest.snd elfDigest.snd
+      let sourceKind := if leanElaborated then "contract-sdk" else "portable-ir"
+      let sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity := {
+        moduleName := spec.name
+        path? := sourcePath?.map (·.toString)
+        kind := sourceKind
+        leanElaborated := leanElaborated
+      }
+      let sourceToolchain ←
+        ProofForge.Target.ArtifactBundle.sourceElaborationToolchain sourceIdentity opts.root?
+      let bundle := solanaElfArtifactBundle sourceIdentity asmSrc output
+        asmDigest.fst elfDigest.fst asmDigest.snd elfDigest.snd sourceToolchain
       requireHonestBundle "Solana ELF" bundle
       let metadata := jsonObject #[
         ("schemaVersion", "1"),
@@ -244,7 +259,7 @@ def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
         ("targetFamily", jsonString "solana"),
         ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
         ("fixture", jsonString fixture),
-        ("sourceKind", jsonString "contract-sdk"),
+        ("sourceKind", jsonString sourceKind),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
         ("sourceModule", jsonString spec.name),
         ("capabilities", jsonStringArray (dedupStrings (plan.capabilities.map fun capability => capability.id))),
@@ -297,7 +312,7 @@ unsafe def compileContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
   let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
   let base := leanBaseName input
   let defaultOut := siblingPath input s!"{base}.so"
-  compileSolanaSpecElf opts defaultOut base base spec
+  compileSolanaSpecElf opts defaultOut base base spec (some input) true
 
 def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
     (fixture : String) (spec : ProofForge.Contract.ContractSpec) : IO UInt32 := do
@@ -326,7 +341,10 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
       let idlArtifact ← artifactEntryJson idlOutput
       let clientArtifact ← artifactEntryJson clientOutput
       let asmDigest ← fileDigestAndBytes output
-      let bundle := solanaAsmArtifactBundle spec.name "contract-sdk" none output
+      let bundle := solanaAsmArtifactBundle {
+          moduleName := spec.name
+          kind := "portable-ir"
+        } output
         asmDigest.fst asmDigest.snd
       requireHonestBundle "Solana asm fixture" bundle
       let metadata := jsonObject #[
@@ -335,7 +353,7 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
         ("targetFamily", jsonString "solana"),
         ("artifactKind", jsonString "solana-sbpf-asm"),
         ("fixture", jsonString fixture),
-        ("sourceKind", jsonString "contract-sdk"),
+        ("sourceKind", jsonString "portable-ir"),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
         ("sourceModule", jsonString spec.name),
         ("capabilities", jsonStringArray (dedupStrings (plan.capabilities.map fun capability => capability.id))),

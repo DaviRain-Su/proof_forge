@@ -1,8 +1,8 @@
 # Round-2 Product-Readiness Gap Review — Verdict
 
-**Date:** 2026-07-10  
-**Branch:** `main` (dirty: `docs/zh/INDEX.zh.md`, `scripts/i18n/manifest.json`, `scripts/near/target-first-smoke.sh`, `docs/review/` untracked)  
-**Reviewer:** verifier / quality-review subagent  
+**Date:** 2026-07-10
+**Branch:** `main` (dirty: `docs/zh/INDEX.zh.md`, `scripts/i18n/manifest.json`, `scripts/near/target-first-smoke.sh`, `docs/review/` untracked)
+**Reviewer:** verifier / quality-review subagent
 **Verdict:** **NEEDS_DEEPER**
 
 ---

@@ -40,7 +40,12 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput
   writeTextFile output (bytecode ++ "\n")
-  writeEvmContractSdkArtifactMetadata opts (leanBaseName input) spec.name spec module yulOutput output
+  writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
+    moduleName := spec.name
+    path? := some input.toString
+    kind := "contract-sdk"
+    leanElaborated := true
+  } spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
@@ -49,6 +54,9 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
     | IO.eprintln usage
       return 1
   let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
+  let opts ← match finalizeConstructorOptionsForSpec opts spec with
+    | .ok opts => pure opts
+    | .error msg => throw <| IO.userError msg
   let output := opts.output?.getD (defaultYulOutput input)
   let (yul, _module) ← renderContractSpecEvmYul opts spec
   writeTextFile output yul
@@ -87,13 +95,17 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
       let sourceArtifactEntry ← artifactEntryJson input
       let asmDigest ← fileDigestAndBytes output
       -- PF-P1-03 / PF-P0-03: assembly intermediate only; ELF not claimed.
+      let sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity := {
+        moduleName := spec.name
+        path? := some input.toString
+        kind := "contract-source"
+        leanElaborated := true
+      }
+      let sourceToolchain ←
+        ProofForge.Target.ArtifactBundle.sourceElaborationToolchain sourceIdentity opts.root?
       let bundle : ProofForge.Target.ArtifactBundle.ArtifactBundle := {
         targetId := ProofForge.Backend.Solana.SbpfAsm.targetId
-        source := {
-          moduleName := spec.name
-          path? := some input.toString
-          kind := "contract-source"
-        }
+        source := sourceIdentity
         outputs := #[{
           kind := "sbpf-asm"
           role := .intermediate
@@ -103,7 +115,9 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
         }]
         primaryOutput? := some "sbpf-asm"
         finalOutput? := none
-        toolchain := #[{ tool := "sbpf", stage := "final-deployable", available := false }]
+        toolchain := sourceToolchain ++ #[{
+          tool := "sbpf", stage := "final-deployable", available := false
+        }]
         validations := #[
           { name := "contractSourceLowering", state := .passed },
           { name := "sbpfBuild", state := .notRun, detail? := some "--format s: ELF link not requested" }
@@ -214,6 +228,11 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     match ProofForge.Target.resolveSpec profile spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
-  compileEmitWatWithPlan opts' fixtureSlug spec.module plan
+  compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
+    moduleName := spec.name
+    path? := some input.toString
+    kind := "contract-sdk"
+    leanElaborated := true
+  }
 
 end ProofForge.Cli

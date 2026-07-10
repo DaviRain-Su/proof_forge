@@ -141,8 +141,11 @@ def compileValueVaultIrBytecode (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ValueVault.bin")
   writeTextFile output (bytecode ++ "\n")
   let spec := ProofForge.Contract.ContractSpec.fromIR module
-  writeEvmContractSdkArtifactMetadata opts "ValueVault" "ProofForge.Contract.Examples.ValueVault"
-    spec module yulOutput output
+  writeEvmContractSdkArtifactMetadata opts "ValueVault" {
+    moduleName := "ProofForge.Contract.Examples.ValueVault"
+    kind := "portable-ir"
+    leanElaborated := false
+  } spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
@@ -813,12 +816,18 @@ def renderEvmErrorsIrYul : IO String := do
 
 def compileEvmErrorsIrBytecode (opts : CliOptions) : IO UInt32 := do
   let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/EvmErrorsProbe.yul")
+  let module := ProofForge.IR.Examples.EvmErrorsProbe.module
   let yul ← renderEvmErrorsIrYul
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput
   let output := opts.output?.getD (FilePath.mk "build/ir/EvmErrorsProbe.bin")
   writeTextFile output (bytecode ++ "\n")
-  writeEvmIrArtifactMetadata opts "EvmErrorsProbe" "ProofForge.IR.Examples.EvmErrorsProbe" ProofForge.IR.Examples.EvmErrorsProbe.module yulOutput output
+  let spec := ProofForge.Contract.ContractSpec.fromIR module
+  writeEvmContractSdkArtifactMetadata opts "EvmErrorsProbe" {
+    moduleName := "ProofForge.IR.Examples.EvmErrorsProbe"
+    kind := "portable-ir"
+    leanElaborated := false
+  } spec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 

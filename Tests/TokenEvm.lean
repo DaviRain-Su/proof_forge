@@ -25,14 +25,19 @@ def renderLearnTokenYul (decl : TokenDecl) : IO String := do
     match ProofForge.Backend.Evm.IR.lowerModule module with
     | .ok obj => pure obj
     | .error err => throw <| IO.userError err.render
-  pure <| ProofForge.Contract.Token.EvmWrap.wrapRuntimeObject decl.id (decl.id ++ "Runtime") runtimeObject decl.spec
+  match ProofForge.Contract.Token.EvmWrap.wrapRuntimeObject
+      decl.id (decl.id ++ "Runtime") runtimeObject decl.spec with
+  | .ok yul => pure yul
+  | .error err => throw <| IO.userError err
 
 def main : IO UInt32 := do
   let proofToken ← parseFixture "Examples/Backend/Learn/ProofToken.learn"
   let yul ← renderLearnTokenYul proofToken
 
   require (yul.contains "object \"ProofToken\"") "ERC-20 Yul missing token object"
-  require (yul.contains "sstore(0, or(shl(192, 1000000), shl(128, 9)))")
+  require
+    (yul.contains
+      "sstore(0, or(and(1000000, 18446744073709551615), shl(64, and(9, 18446744073709551615))))")
     "ERC-20 Yul missing packed initial scalar storage"
   require (yul.contains "sstore(mapSlot(1, caller()), 1000000)")
     "ERC-20 Yul missing deployer initial balance"
@@ -48,9 +53,29 @@ def main : IO UInt32 := do
   require (yul.contains "log3(") "ERC-20 Yul missing indexed event emission"
 
   let feeToken ← parseFixture "Examples/Backend/Learn/FeeToken.learn"
-  let feeYul ← renderLearnTokenYul feeToken
-  require (feeYul.contains "case 0x40c10f19") "mintable fee token should include mint selector"
-  require (!feeYul.contains "case 0x42966c68") "non-burnable fee token should not include burn selector"
+  match validateEvmTokenFeatures feeToken.spec with
+  | .ok _ => throw <| IO.userError "EVM wrapper policy accepted transfer-fee TokenSpec"
+  | .error err =>
+      require (err.contains "transfer_fee")
+        s!"unexpected EVM transfer-fee rejection: {err}"
+
+  let oversizedSpec : TokenSpec := {
+    name := "Oversized EVM Supply"
+    symbol := "BIG"
+    decimals := 18
+    initialSupply? := some 18446744073709551616
+  }
+  let oversizedRuntimeObject ←
+    match ProofForge.Backend.Evm.IR.lowerModule
+        (ProofForge.Contract.Token.EvmSpec.moduleFor oversizedSpec) with
+    | .ok obj => pure obj
+    | .error err => throw <| IO.userError err.render
+  match ProofForge.Contract.Token.EvmWrap.wrapRuntimeObject
+      "Oversized" "OversizedRuntime" oversizedRuntimeObject oversizedSpec with
+  | .ok _ => throw <| IO.userError "EVM wrapper accepted initial supply above u64 storage"
+  | .error err =>
+      require (err.contains "initialSupply" && err.contains "u64")
+        s!"unexpected EVM wrapper oversized-supply diagnostic: {err}"
 
   -- TokenSpec + permit → ERC20Permit addon (ecrecover helpers)
   let permitSpec : TokenSpec := {

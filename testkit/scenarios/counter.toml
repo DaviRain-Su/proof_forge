@@ -471,7 +471,7 @@ equals = "passed"
 path = "artifacts"
 kind = "object"
 non_empty = true
-length = 6
+length = 7
 
 [[artifact.file]]
 path = "artifacts.yul"

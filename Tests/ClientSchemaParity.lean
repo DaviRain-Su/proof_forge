@@ -35,6 +35,11 @@ def require (cond : Bool) (msg : String) : IO Unit :=
 def contains (haystack needle : String) : Bool :=
   haystack.contains needle
 
+def renderEvm (spec : ContractSpec) (name : String) : IO String :=
+  match ProofForge.Contract.Client.renderEvmAbiWrapper spec name with
+  | .ok wrapper => pure wrapper
+  | .error err => throw <| IO.userError s!"EVM client render failed: {err}"
+
 def counterModule : Module := Examples.Product.Counter.module
 def counterSpec : ContractSpec := ContractSpec.fromIR counterModule
 def errorSpec : ContractSpec :=
@@ -59,7 +64,7 @@ def testSdkSchemaEntrypointNames : IO Unit := do
       s!"{targetId} schema target field"
 
 def testTsClientEntrypointNames : IO Unit := do
-  let evm := ProofForge.Contract.Client.renderEvmAbiWrapper counterSpec "Counter"
+  let evm ← renderEvm counterSpec "Counter"
   let near := ProofForge.Contract.Client.renderNearWrapper counterSpec
   let sol := ProofForge.Backend.Solana.Client.render counterModule
   for name in #["initialize", "increment", "get"] do
@@ -76,7 +81,7 @@ def testTsClientEntrypointNames : IO Unit := do
     "Solana client should expose InstructionName from IDL"
 
 def testErrorCatalogueParity : IO Unit := do
-  let evm := ProofForge.Contract.Client.renderEvmAbiWrapper errorSpec "ErrorRefProbe"
+  let evm ← renderEvm errorSpec "ErrorRefProbe"
   let near := ProofForge.Contract.Client.renderNearWrapper errorSpec
   let sol := ProofForge.Backend.Solana.Client.render errorSpec.module
   let idl := ProofForge.Backend.Solana.Idl.render errorSpec.module

@@ -19,20 +19,20 @@ object "ArrayExample" {
     default {
       revert(0, 0)
     }
-    function f_ArrayExample_sizeOf3() -> result {
-      result := 3
+    function f_ArrayExample_sizeOf3() -> __pf_result {
+      __pf_result := 3
     }
-    function f_ArrayExample_getElem() -> result {
+    function f_ArrayExample_getElem() -> __pf_result {
       let __proof_forge_array_xs_0 := 10
       let __proof_forge_array_xs_1 := 20
       let __proof_forge_array_xs_2 := 30
-      result := __proof_forge_array_xs_1
+      __pf_result := __proof_forge_array_xs_1
     }
-    function f_ArrayExample_sumOf3() -> result {
+    function f_ArrayExample_sumOf3() -> __pf_result {
       let __proof_forge_array_xs_0 := 10
       let __proof_forge_array_xs_1 := 20
       let __proof_forge_array_xs_2 := 30
-      result := __pf_checked_add(__pf_checked_add(__proof_forge_array_xs_0, __proof_forge_array_xs_1), __proof_forge_array_xs_2)
+      __pf_result := __pf_checked_add(__pf_checked_add(__proof_forge_array_xs_0, __proof_forge_array_xs_1), __proof_forge_array_xs_2)
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -47,7 +47,7 @@ object "ArrayExample" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

@@ -10,6 +10,10 @@ export PROOF_FORGE_DEPLOY_PRIVATE_KEY="${PROOF_FORGE_DEPLOY_PRIVATE_KEY:-0xac097
 OUT_DIR="${EVM_OUT_DIR:-$ROOT/build/evm}"
 RUN_DIR="${EVM_BROADCAST_RUN_DIR:-$ROOT/build/broadcast-smoke}"
 CHAIN_ID="${EVM_ANVIL_CHAIN_ID:-31337}"
+# Publicly known first Anvil account key. Test-only and passed explicitly so
+# the product deploy command never supplies signing material.
+ANVIL_TEST_PRIVATE_KEY="${EVM_ANVIL_TEST_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+ANVIL_TEST_DEPLOYER="${EVM_ANVIL_TEST_DEPLOYER:-0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266}"
 
 export PATH="$HOME/.foundry/bin:$PATH"
 
@@ -31,6 +35,8 @@ lake env proof-forge build \
   --target evm \
   --root . \
   --module Counter \
+  --evm-chain-profile anvil-local \
+  --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json" \
   -o "$OUT_DIR/Counter.bin" \
   Examples/Backend/Evm/Contracts/Counter.lean
 
@@ -41,6 +47,8 @@ lake env proof-forge deploy \
   --deploy-manifest "$DEPLOY_MANIFEST" \
   --evm-chain-profile anvil-local \
   --start-anvil \
+  --private-key "$ANVIL_TEST_PRIVATE_KEY" \
+  --deployer "$ANVIL_TEST_DEPLOYER" \
   --gas-limit 3000000 \
   --gas-price 1000000000 \
   --max-priority-fee-per-gas 100000000 \

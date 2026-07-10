@@ -23,10 +23,12 @@ Canonical sources (change only `--target` to build EVM · Solana · NEAR · …)
 - `Ownable.lean`, `OwnableHash.lean`, `Pausable.lean`, `OwnablePausable.lean`,
   `AccessControl.lean`, `ReentrancyGuard.lean`
 - `RoleGatedToken.lean`, `StakingVault.lean`, `ValueVault.lean`
-- `FungibleToken.lean`, `FeeToken.lean`, `SoulboundToken.lean`, `SoulboundTokenBody.lean`
-- `ERC4626Vault.lean`, `ExternalVault.lean`, `ExternalTokenTransfer.lean`
-- `EscrowVault.lean`, `GuestBook.lean`, `StatusMessage.lean`, `StorageDeposit.lean`
-- `HeightLockVault.lean`, `TimelockVault.lean`, `VestingVault.lean`, `ProRataVault.lean`
+- `FungibleToken.lean`, `FeeToken.lean`, `SoulboundToken.lean`,
+  `SoulboundTokenBody.lean`
+- `ERC4626Vault.lean`, `ExternalVault.lean`, `ExternalTokenTransfer.lean`,
+  `ProRataVault.lean`, `StorageDeposit.lean`
+- `StatusMessage.lean`, `GuestBook.lean`, `EscrowVault.lean`
+- `VestingVault.lean`, `TimelockVault.lean`, `HeightLockVault.lean`
 
 Rules: no Solana account/PDA/CPI DSL, no NEAR Promise, no hand-written EVM
 selectors, no author-chosen token standard. Enforced by `just portable-default`.

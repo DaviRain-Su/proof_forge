@@ -39,58 +39,58 @@ python3 "$ROOT/scripts/evm/validate-artifact-metadata.py" \
   --expect-fixture EvmCrosscallProbe \
   --expect-source-kind portable-ir \
   --expect-capability crosscall.invoke \
-  --expect-entrypoint call_remote:0de1d044 \
-  --expect-entrypoint call_remote1:7ec7d7f8 \
-  --expect-entrypoint call_remote2:ff5ce87f \
-  --expect-entrypoint call_remote_bool:6a7b13b8 \
-  --expect-entrypoint call_remote_u32:0f35944c \
-  --expect-entrypoint call_remote_hash:6a5317aa \
-  --expect-entrypoint call_remote_pair:47c6c9b7 \
-  --expect-entrypoint call_remote_array:717d6851 \
-  --expect-entrypoint call_remote_matrix:d49690a6 \
-  --expect-entrypoint call_remote_pair_arg:cabe3922 \
-  --expect-entrypoint call_remote_array_arg:f96abfe0 \
-  --expect-entrypoint call_remote_matrix_arg:38e0bc4c \
-  --expect-entrypoint call_remote_pair_array:031396d6 \
-  --expect-entrypoint call_remote_pair_array_arg:7a45fdce \
-  --expect-entrypoint call_remote_pair_matrix:3652f87d \
-  --expect-entrypoint call_remote_pair_matrix_arg:48fc8f80 \
-  --expect-entrypoint call_remote_value:365f4a44 \
-  --expect-entrypoint call_remote_value_pair_arg:885cf3f5 \
-  --expect-entrypoint call_remote_value_pair:01ff40fb \
-  --expect-entrypoint call_remote_value_array:2bedc30a \
-  --expect-entrypoint call_remote_value_matrix:4b634dd4 \
-  --expect-entrypoint call_remote_value_pair_array:63ec1609 \
-  --expect-entrypoint call_remote_value_pair_array_arg:27c33745 \
-  --expect-entrypoint call_remote_value_pair_matrix:fa3cf7ed \
-  --expect-entrypoint call_remote_value_pair_matrix_arg:4f1e8d96 \
-  --expect-entrypoint call_remote_value_matrix_arg:1a211ecd \
-  --expect-entrypoint call_remote_static:d13203a8 \
-  --expect-entrypoint call_remote_static_bool:ae266f0a \
-  --expect-entrypoint call_remote_static_u32:ec8c40f9 \
-  --expect-entrypoint call_remote_static_hash:4e0edd3c \
-  --expect-entrypoint call_remote_static_pair_arg:d1b1bf68 \
-  --expect-entrypoint call_remote_static_pair:2236e75b \
-  --expect-entrypoint call_remote_static_array:b1d5165b \
-  --expect-entrypoint call_remote_static_matrix:202850f3 \
-  --expect-entrypoint call_remote_static_pair_array:e0315e4e \
-  --expect-entrypoint call_remote_static_pair_array_arg:1b46265d \
-  --expect-entrypoint call_remote_static_pair_matrix:9893a8f6 \
-  --expect-entrypoint call_remote_static_pair_matrix_arg:db5109a1 \
-  --expect-entrypoint call_remote_static_matrix_arg:123a499f \
-  --expect-entrypoint call_remote_delegate:427320b1 \
-  --expect-entrypoint call_remote_delegate_bool:62e5114d \
-  --expect-entrypoint call_remote_delegate_u32:e3abe276 \
-  --expect-entrypoint call_remote_delegate_hash:6a2c2006 \
-  --expect-entrypoint call_remote_delegate_pair_arg:8283d1d1 \
-  --expect-entrypoint call_remote_delegate_pair:41e8bd85 \
-  --expect-entrypoint call_remote_delegate_array:52579065 \
-  --expect-entrypoint call_remote_delegate_matrix:b8c58c92 \
-  --expect-entrypoint call_remote_delegate_pair_array:a26d8a3c \
-  --expect-entrypoint call_remote_delegate_pair_array_arg:73049a39 \
-  --expect-entrypoint call_remote_delegate_pair_matrix:26db7add \
-  --expect-entrypoint call_remote_delegate_pair_matrix_arg:667806e6 \
-  --expect-entrypoint call_remote_delegate_matrix_arg:ccc679f8 \
+  --expect-entrypoint call_remote:452d8d77 \
+  --expect-entrypoint call_remote1:11332f7e \
+  --expect-entrypoint call_remote2:6ba69cad \
+  --expect-entrypoint call_remote_bool:829736d9 \
+  --expect-entrypoint call_remote_u32:de613df7 \
+  --expect-entrypoint call_remote_hash:80d00d8c \
+  --expect-entrypoint call_remote_pair:465a3244 \
+  --expect-entrypoint call_remote_array:11944892 \
+  --expect-entrypoint call_remote_matrix:6be95a25 \
+  --expect-entrypoint call_remote_pair_arg:55444f06 \
+  --expect-entrypoint call_remote_array_arg:48c317af \
+  --expect-entrypoint call_remote_matrix_arg:c8169678 \
+  --expect-entrypoint call_remote_pair_array:41e1d0ee \
+  --expect-entrypoint call_remote_pair_array_arg:03da4ae2 \
+  --expect-entrypoint call_remote_pair_matrix:5b6d7258 \
+  --expect-entrypoint call_remote_pair_matrix_arg:cc687a87 \
+  --expect-entrypoint call_remote_value:b9808ee5 \
+  --expect-entrypoint call_remote_value_pair_arg:61a9a998 \
+  --expect-entrypoint call_remote_value_pair:ddb16e35 \
+  --expect-entrypoint call_remote_value_array:188c0b4c \
+  --expect-entrypoint call_remote_value_matrix:8680eef8 \
+  --expect-entrypoint call_remote_value_pair_array:122d46f1 \
+  --expect-entrypoint call_remote_value_pair_array_arg:94f5dac2 \
+  --expect-entrypoint call_remote_value_pair_matrix:6335f903 \
+  --expect-entrypoint call_remote_value_pair_matrix_arg:41cff9e0 \
+  --expect-entrypoint call_remote_value_matrix_arg:6839edc5 \
+  --expect-entrypoint call_remote_static:5a64728a \
+  --expect-entrypoint call_remote_static_bool:f5582845 \
+  --expect-entrypoint call_remote_static_u32:8da932c4 \
+  --expect-entrypoint call_remote_static_hash:56a04291 \
+  --expect-entrypoint call_remote_static_pair_arg:468aac8f \
+  --expect-entrypoint call_remote_static_pair:4207757f \
+  --expect-entrypoint call_remote_static_array:6fbda09c \
+  --expect-entrypoint call_remote_static_matrix:69be52ca \
+  --expect-entrypoint call_remote_static_pair_array:df333465 \
+  --expect-entrypoint call_remote_static_pair_array_arg:38eef6db \
+  --expect-entrypoint call_remote_static_pair_matrix:afa00ffe \
+  --expect-entrypoint call_remote_static_pair_matrix_arg:0ff6a624 \
+  --expect-entrypoint call_remote_static_matrix_arg:7522a3d0 \
+  --expect-entrypoint call_remote_delegate:a778a42a \
+  --expect-entrypoint call_remote_delegate_bool:0876d5a7 \
+  --expect-entrypoint call_remote_delegate_u32:f2359287 \
+  --expect-entrypoint call_remote_delegate_hash:366ec140 \
+  --expect-entrypoint call_remote_delegate_pair_arg:c2b329ae \
+  --expect-entrypoint call_remote_delegate_pair:ae195170 \
+  --expect-entrypoint call_remote_delegate_array:bb45913f \
+  --expect-entrypoint call_remote_delegate_matrix:e8e21f22 \
+  --expect-entrypoint call_remote_delegate_pair_array:5205a28d \
+  --expect-entrypoint call_remote_delegate_pair_array_arg:388b963b \
+  --expect-entrypoint call_remote_delegate_pair_matrix:934bcc50 \
+  --expect-entrypoint call_remote_delegate_pair_matrix_arg:42a94e5e \
+  --expect-entrypoint call_remote_delegate_matrix_arg:15637bcf \
   --expect-entrypoint deploy_create:c9bc2909 \
   --expect-entrypoint deploy_create2:70b22efb \
   "$METADATA_FILE"
@@ -453,8 +453,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.answer.selector)
                 )
             ),
@@ -471,8 +471,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote1(uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote1(address,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.plusOne.selector),
                     99
                 )
@@ -490,8 +490,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote2(uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote2(address,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.sum.selector),
                     21,
                     34
@@ -510,8 +510,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callBool(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_bool(uint256,uint256,bool)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_bool(address,uint256,bool)",
+                    address(callee),
                     selector(CrosscallCallee.notFlag.selector),
                     false
                 )
@@ -529,8 +529,8 @@ contract ProofForgeIRCrosscallSmokeTest {
                 callU32(
                     probe,
                     abi.encodeWithSignature(
-                        "call_remote_u32(uint256,uint256,uint32)",
-                        uint256(uint160(address(callee))),
+                        "call_remote_u32(address,uint256,uint32)",
+                        address(callee),
                         selector(CrosscallCallee.plusSmall.selector),
                         uint32(35)
                     )
@@ -550,8 +550,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callHash(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_hash(uint256,uint256,bytes32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_hash(address,uint256,bytes32)",
+                    address(callee),
                     selector(CrosscallCallee.echoHash.selector),
                     value
                 )
@@ -602,8 +602,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         (bool flag, uint32 small) = callPair(
             probe,
             abi.encodeWithSignature(
-                "call_remote_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pair.selector)
             )
         );
@@ -619,8 +619,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2] memory values = callU64Array2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.values2.selector)
             )
         );
@@ -636,8 +636,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2][2] memory values = callU64Matrix2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.valuesMatrix.selector)
             )
         );
@@ -655,8 +655,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2] memory pairs = callPairArray(
             probe,
             abi.encodeWithSignature(
-                "call_remote_pair_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_pair_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairArray.selector)
             )
         );
@@ -674,8 +674,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2][2] memory pairs = callPairMatrix(
             probe,
             abi.encodeWithSignature(
-                "call_remote_pair_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_pair_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairMatrix.selector)
             )
         );
@@ -698,8 +698,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callBool(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_pair_arg(uint256,uint256,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_pair_arg(address,uint256,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairFlag.selector),
                     true,
                     uint32(42)
@@ -717,8 +717,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_array_arg(uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_array_arg(address,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.sumValues.selector),
                     uint64(15),
                     uint64(27)
@@ -737,8 +737,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_matrix_arg(uint256,uint256,uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_matrix_arg(address,uint256,uint256,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.sumMatrix.selector),
                     uint64(1),
                     uint64(2),
@@ -759,8 +759,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_pair_array_arg(uint256,uint256,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_pair_array_arg(address,uint256,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairArrayScore.selector),
                     true,
                     uint32(20),
@@ -781,8 +781,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_pair_matrix_arg(uint256,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_pair_matrix_arg(address,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairMatrixScore.selector),
                     true,
                     uint32(5),
@@ -808,8 +808,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256Value(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_value(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_value(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.paid.selector)
                 ),
                 1234
@@ -830,8 +830,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256Value(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_value_pair_arg(uint256,uint256,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_value_pair_arg(address,uint256,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.paidPair.selector),
                     true,
                     uint32(8)
@@ -853,8 +853,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         (bool flag, uint32 small) = callPairValue(
             probe,
             abi.encodeWithSignature(
-                "call_remote_value_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidPairReturn.selector)
             ),
             1234
@@ -874,8 +874,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2] memory values = callU64Array2Value(
             probe,
             abi.encodeWithSignature(
-                "call_remote_value_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidValues2.selector)
             ),
             55
@@ -895,8 +895,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2][2] memory values = callU64Matrix2Value(
             probe,
             abi.encodeWithSignature(
-                "call_remote_value_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidValuesMatrix.selector)
             ),
             55
@@ -918,8 +918,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2] memory pairs = callPairArrayValue(
             probe,
             abi.encodeWithSignature(
-                "call_remote_value_pair_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_pair_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidPairArray.selector)
             ),
             1234
@@ -941,8 +941,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2][2] memory pairs = callPairMatrixValue(
             probe,
             abi.encodeWithSignature(
-                "call_remote_value_pair_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_pair_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidPairMatrix.selector)
             ),
             1234
@@ -969,8 +969,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256Value(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_value_pair_array_arg(uint256,uint256,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_value_pair_array_arg(address,uint256,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.paidPairArrayScore.selector),
                     true,
                     uint32(20),
@@ -995,8 +995,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256Value(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_value_pair_matrix_arg(uint256,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_value_pair_matrix_arg(address,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.paidPairMatrixScore.selector),
                     true,
                     uint32(5),
@@ -1025,8 +1025,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256Value(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_value_matrix_arg(uint256,uint256,uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_value_matrix_arg(address,uint256,uint256,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.paidMatrixScore.selector),
                     uint64(1),
                     uint64(2),
@@ -1050,8 +1050,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.readStored.selector)
                 )
             ),
@@ -1068,8 +1068,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callBool(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static_bool(uint256,uint256,bool)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static_bool(address,uint256,bool)",
+                    address(callee),
                     selector(CrosscallCallee.notFlag.selector),
                     false
                 )
@@ -1087,8 +1087,8 @@ contract ProofForgeIRCrosscallSmokeTest {
                 callU32(
                     probe,
                     abi.encodeWithSignature(
-                        "call_remote_static_u32(uint256,uint256,uint32)",
-                        uint256(uint160(address(callee))),
+                        "call_remote_static_u32(address,uint256,uint32)",
+                        address(callee),
                         selector(CrosscallCallee.plusSmall.selector),
                         uint32(35)
                     )
@@ -1108,8 +1108,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callHash(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static_hash(uint256,uint256,bytes32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static_hash(address,uint256,bytes32)",
+                    address(callee),
                     selector(CrosscallCallee.echoHash.selector),
                     value
                 )
@@ -1128,8 +1128,8 @@ contract ProofForgeIRCrosscallSmokeTest {
                 callU32(
                     probe,
                     abi.encodeWithSignature(
-                        "call_remote_static_pair_arg(uint256,uint256,bool,uint32)",
-                        uint256(uint160(address(callee))),
+                        "call_remote_static_pair_arg(address,uint256,bool,uint32)",
+                        address(callee),
                         selector(CrosscallCallee.pairSmall.selector),
                         true,
                         uint32(41)
@@ -1148,8 +1148,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         (bool flag, uint32 small) = callPair(
             probe,
             abi.encodeWithSignature(
-                "call_remote_static_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pair.selector)
             )
         );
@@ -1165,8 +1165,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2] memory values = callU64Array2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_static_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.values2.selector)
             )
         );
@@ -1182,8 +1182,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2][2] memory values = callU64Matrix2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_static_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.valuesMatrix.selector)
             )
         );
@@ -1201,8 +1201,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2] memory pairs = callPairArray(
             probe,
             abi.encodeWithSignature(
-                "call_remote_static_pair_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_pair_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairArray.selector)
             )
         );
@@ -1220,8 +1220,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2][2] memory pairs = callPairMatrix(
             probe,
             abi.encodeWithSignature(
-                "call_remote_static_pair_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_pair_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairMatrix.selector)
             )
         );
@@ -1244,8 +1244,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static_pair_array_arg(uint256,uint256,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static_pair_array_arg(address,uint256,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairArrayScore.selector),
                     true,
                     uint32(20),
@@ -1266,8 +1266,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static_pair_matrix_arg(uint256,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static_pair_matrix_arg(address,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairMatrixScore.selector),
                     true,
                     uint32(5),
@@ -1292,8 +1292,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_static_matrix_arg(uint256,uint256,uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_static_matrix_arg(address,uint256,uint256,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.sumMatrix.selector),
                     uint64(1),
                     uint64(2),
@@ -1312,8 +1312,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_static(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.writeStored.selector)
             )
         );
@@ -1328,8 +1328,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_bool(uint256,uint256,bool)",
-                uint256(uint160(address(callee))),
+                "call_remote_bool(address,uint256,bool)",
+                address(callee),
                 selector(CrosscallCallee.invalidBool.selector),
                 true
             )
@@ -1344,8 +1344,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_u32(uint256,uint256,uint32)",
-                uint256(uint160(address(callee))),
+                "call_remote_u32(address,uint256,uint32)",
+                address(callee),
                 selector(CrosscallCallee.invalidU32.selector),
                 uint32(1)
             )
@@ -1360,8 +1360,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidBool.selector)
             )
         );
@@ -1375,8 +1375,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidU32.selector)
             )
         );
@@ -1391,8 +1391,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call{value: 1234}(
             abi.encodeWithSignature(
-                "call_remote_value_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidPairInvalidBool.selector)
             )
         );
@@ -1408,8 +1408,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call{value: 1234}(
             abi.encodeWithSignature(
-                "call_remote_value_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_value_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.paidPairInvalidU32.selector)
             )
         );
@@ -1424,8 +1424,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_static_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidBool.selector)
             )
         );
@@ -1439,8 +1439,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_static_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidU32.selector)
             )
         );
@@ -1454,8 +1454,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_static_bool(uint256,uint256,bool)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_bool(address,uint256,bool)",
+                address(callee),
                 selector(CrosscallCallee.invalidBool.selector),
                 true
             )
@@ -1470,8 +1470,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_static_u32(uint256,uint256,uint32)",
-                uint256(uint160(address(callee))),
+                "call_remote_static_u32(address,uint256,uint32)",
+                address(callee),
                 selector(CrosscallCallee.invalidU32.selector),
                 uint32(1)
             )
@@ -1488,8 +1488,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.readStored.selector)
                 )
             ),
@@ -1507,8 +1507,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.writeStored.selector)
                 )
             ),
@@ -1519,8 +1519,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate(uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate(address,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.readStored.selector)
                 )
             ),
@@ -1538,8 +1538,8 @@ contract ProofForgeIRCrosscallSmokeTest {
                 callU32(
                     probe,
                     abi.encodeWithSignature(
-                        "call_remote_delegate_pair_arg(uint256,uint256,bool,uint32)",
-                        uint256(uint160(address(callee))),
+                        "call_remote_delegate_pair_arg(address,uint256,bool,uint32)",
+                        address(callee),
                         selector(CrosscallCallee.pairSmall.selector),
                         true,
                         uint32(41)
@@ -1558,8 +1558,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         (bool flag, uint32 small) = callPair(
             probe,
             abi.encodeWithSignature(
-                "call_remote_delegate_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pair.selector)
             )
         );
@@ -1575,8 +1575,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2] memory values = callU64Array2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_delegate_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.values2.selector)
             )
         );
@@ -1592,8 +1592,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         uint64[2][2] memory values = callU64Matrix2(
             probe,
             abi.encodeWithSignature(
-                "call_remote_delegate_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.valuesMatrix.selector)
             )
         );
@@ -1611,8 +1611,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2] memory pairs = callPairArray(
             probe,
             abi.encodeWithSignature(
-                "call_remote_delegate_pair_array(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_pair_array(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairArray.selector)
             )
         );
@@ -1630,8 +1630,8 @@ contract ProofForgeIRCrosscallSmokeTest {
         CrosscallCallee.Pair[2][2] memory pairs = callPairMatrix(
             probe,
             abi.encodeWithSignature(
-                "call_remote_delegate_pair_matrix(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_pair_matrix(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairMatrix.selector)
             )
         );
@@ -1654,8 +1654,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate_pair_array_arg(uint256,uint256,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate_pair_array_arg(address,uint256,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairArrayScore.selector),
                     true,
                     uint32(20),
@@ -1676,8 +1676,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate_pair_matrix_arg(uint256,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate_pair_matrix_arg(address,uint256,bool,uint32,bool,uint32,bool,uint32,bool,uint32)",
+                    address(callee),
                     selector(CrosscallCallee.pairMatrixScore.selector),
                     true,
                     uint32(5),
@@ -1702,8 +1702,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callU256(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate_matrix_arg(uint256,uint256,uint256,uint256,uint256,uint256)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate_matrix_arg(address,uint256,uint256,uint256,uint256,uint256)",
+                    address(callee),
                     selector(CrosscallCallee.sumMatrix.selector),
                     uint64(1),
                     uint64(2),
@@ -1724,8 +1724,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callBool(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate_bool(uint256,uint256,bool)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate_bool(address,uint256,bool)",
+                    address(callee),
                     selector(CrosscallCallee.notFlag.selector),
                     false
                 )
@@ -1743,8 +1743,8 @@ contract ProofForgeIRCrosscallSmokeTest {
                 callU32(
                     probe,
                     abi.encodeWithSignature(
-                        "call_remote_delegate_u32(uint256,uint256,uint32)",
-                        uint256(uint160(address(callee))),
+                        "call_remote_delegate_u32(address,uint256,uint32)",
+                        address(callee),
                         selector(CrosscallCallee.plusSmall.selector),
                         uint32(35)
                     )
@@ -1764,8 +1764,8 @@ contract ProofForgeIRCrosscallSmokeTest {
             callHash(
                 probe,
                 abi.encodeWithSignature(
-                    "call_remote_delegate_hash(uint256,uint256,bytes32)",
-                    uint256(uint160(address(callee))),
+                    "call_remote_delegate_hash(address,uint256,bytes32)",
+                    address(callee),
                     selector(CrosscallCallee.echoHash.selector),
                     value
                 )
@@ -1781,8 +1781,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_delegate_bool(uint256,uint256,bool)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_bool(address,uint256,bool)",
+                address(callee),
                 selector(CrosscallCallee.invalidBool.selector),
                 true
             )
@@ -1797,8 +1797,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_delegate_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidBool.selector)
             )
         );
@@ -1812,8 +1812,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_delegate_pair(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_pair(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.pairInvalidU32.selector)
             )
         );
@@ -1827,8 +1827,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote_delegate_u32(uint256,uint256,uint32)",
-                uint256(uint160(address(callee))),
+                "call_remote_delegate_u32(address,uint256,uint32)",
+                address(callee),
                 selector(CrosscallCallee.invalidU32.selector),
                 uint32(1)
             )
@@ -1843,8 +1843,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.fail.selector)
             )
         );
@@ -1858,8 +1858,8 @@ contract ProofForgeIRCrosscallSmokeTest {
 
         (bool ok,) = probe.call(
             abi.encodeWithSignature(
-                "call_remote(uint256,uint256)",
-                uint256(uint160(address(callee))),
+                "call_remote(address,uint256)",
+                address(callee),
                 selector(CrosscallCallee.noReturn.selector)
             )
         );

@@ -21,6 +21,7 @@ command -v lake >/dev/null 2>&1 || fail "lake not on PATH"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+lake build proof-forge >/dev/null
 
 echo "=== N1.5: build Product StorageDeposit → wasm-near ==="
 lake env proof-forge build --target wasm-near --root . -o "$OUT_DIR" \
@@ -32,8 +33,8 @@ test -s "$WAT" || fail "missing WAT under $OUT_DIR"
 
 eval "$(python3 - <<'PY'
 import hashlib, struct
-# Fixed 32-byte account hash used by near-compare storage-deposit scenario.
-account = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+alice = hashlib.sha256(b"alice.testnet").digest()
+bob = hashlib.sha256(b"bob.testnet").digest()
 # Call sequence inputs:
 # init: empty
 # storage_balance_bounds: empty
@@ -45,13 +46,15 @@ account = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1
 inputs = [
     b"",
     b"",
-    account,
-    account,
-    account,
-    account + struct.pack("<Q", 3),
-    account,
+    alice,
+    alice,
+    alice,
+    alice + struct.pack("<Q", 3),
+    alice,
 ]
 print(f'INPUTS_HEX="{",".join(i.hex() for i in inputs)}"')
+unauthorized = [b"", bob, bob + struct.pack("<Q", 3), bob]
+print(f'UNAUTHORIZED_INPUTS_HEX="{",".join(i.hex() for i in unauthorized)}"')
 PY
 )"
 
@@ -78,4 +81,25 @@ grep -Fq "return_u64=4" <<<"$out" || fail "expected balance 4 after withdraw 3"
 grep -Fq "export \"storage_withdraw\"" "$WAT" || grep -Fq "storage_withdraw" "$WAT" \
   || fail "WAT must export storage_withdraw"
 
-echo "storage-deposit-offline: ok (deposit 7 → withdraw 3 → bal 4)"
+echo "=== N1.5: reject withdrawal from another account ==="
+set +e
+unauthorized_out="$("${HOST[@]}" "$WAT" \
+  init \
+  storage_deposit \
+  storage_withdraw \
+  storage_balance_of \
+  --predecessor-account-id alice.testnet \
+  --signer-account-id alice.testnet \
+  --current-account-id proof-forge.testnet \
+  --attached-deposit 7 \
+  --inputs-hex "$UNAUTHORIZED_INPUTS_HEX" 2>&1)"
+unauthorized_status=$?
+set -e
+echo "$unauthorized_out"
+[[ "$unauthorized_status" -ne 0 ]] || fail "unauthorized withdrawal unexpectedly succeeded"
+grep -Fq "call 1:storage_withdraw trapped" <<<"$unauthorized_out" || \
+  fail "unauthorized withdrawal did not trap in storage_withdraw"
+grep -Fq "unreachable" <<<"$unauthorized_out" || \
+  fail "unauthorized withdrawal did not hit the caller guard"
+
+echo "storage-deposit-offline: ok (caller-bound ledger debit 7 → 4; unauthorized debit trapped)"

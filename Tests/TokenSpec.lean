@@ -60,6 +60,19 @@ def main : IO UInt32 := do
   require (hasOperation evmPlan "erc20.approve") "EVM ERC-20 plan missing approve"
   require (hasOperation evmPlan "erc20.mint") "EVM ERC-20 plan missing mintable extension"
 
+  let oversizedEvmSupply : TokenSpec := {
+    name := "Oversized EVM Supply"
+    symbol := "BIG"
+    decimals := 18
+    initialSupply? := some 18446744073709551616
+  }
+  match planForTarget evm oversizedEvmSupply with
+  | .ok _ =>
+      throw <| IO.userError "EVM TokenSpec accepted initial supply above its u64 storage contract"
+  | .error err =>
+      require (err.contains "initialSupply" && err.contains "u64")
+        s!"unexpected oversized EVM initial-supply diagnostic: {err}"
+
   let solanaPlan ←
     match planForTarget solanaSbpfAsm fungibleToken with
     | .ok plan => pure plan

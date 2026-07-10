@@ -275,7 +275,14 @@ def classifyEntrypoint (ep : Entrypoint) : Array PortabilityFinding :=
 Native binding is target-resolved via `Target.StorageBinding`, not IR fields. -/
 def classifyState (_state : StateDecl) : Array PortabilityFinding := #[]
 
+def classifyStruct (decl : StructDecl) : Array PortabilityFinding :=
+  if decl.semantics == .linearRecord then
+    #[finding s!"struct.{decl.name}.semantics" "linear record (owner-bound consumable value)"
+        (.targetFamilyOnly .zkCircuitSourcegen)]
+  else #[]
+
 def classifyModule (module : Module) : Array PortabilityFinding :=
+  let structFindings := module.structs.foldl (fun acc decl => acc ++ classifyStruct decl) #[]
   let stateFindings := module.state.foldl (fun acc s => acc ++ classifyState s) #[]
   let entryFindings :=
     module.entrypoints.foldl (fun acc ep => acc ++ classifyEntrypoint ep) #[]
@@ -289,7 +296,13 @@ def classifyModule (module : Module) : Array PortabilityFinding :=
     else
       #[finding "module.nearCrosscallStrings" "NEAR host string pool"
           (.targetMetadata (some .wasmHost))]
-  stateFindings ++ entryFindings ++ proxyFindings ++ nearStringFindings
+  let eventAbiFindings :=
+    if module.eventAbiWords.isEmpty then #[]
+    else
+      #[finding "module.eventAbiWords" "event ABI surface overrides"
+          (.targetMetadata (some .evm))]
+  structFindings ++ stateFindings ++ entryFindings ++ proxyFindings ++
+    nearStringFindings ++ eventAbiFindings
 
 /-- Findings that are not portable-core and not generic metadata. -/
 def nonPortableFindings (module : Module) : Array PortabilityFinding :=

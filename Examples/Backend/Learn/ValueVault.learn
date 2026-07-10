@@ -64,7 +64,7 @@ contract ValueVault {
     emit ValueReleased(amount: amount, balance: next, released: released_next)
   }
 
-  query snapshot(): u64 {
+  entry snapshot(): u64 {
     let checkpoint: u64 = checkpoint_id()
     let balance_now: u64 = balance
     let released_now: u64 = released

@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use sha2::{Digest, Sha256};
-use wasmtime::{Caller, Engine, Extern, Linker, Module, Store};
+use wasmtime::{Caller, Engine, Extern, Instance, Linker, Module, Store};
 
 const DEFAULT_HEAP_BASE: u32 = 60_000;
 const WASM_PAGE_SIZE: u64 = 65_536;
+const DEFAULT_FUEL_PER_RECEIPT: u64 = 10_000_000_000;
 
 fn main() -> Result<()> {
     let config = Config::parse(env::args().skip(1))?;
@@ -32,6 +33,7 @@ struct Config {
     epoch_height: u64,
     random_seed: Vec<u8>,
     promise_result_u64: u64,
+    fuel_per_receipt: u64,
 }
 
 impl Config {
@@ -53,6 +55,7 @@ impl Config {
         let mut epoch_height = 0;
         let mut random_seed = vec![0; 32];
         let mut promise_result_u64 = 42;
+        let mut fuel_per_receipt = DEFAULT_FUEL_PER_RECEIPT;
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -124,6 +127,14 @@ impl Config {
                         .parse()
                         .context("--promise-result-u64 must be a non-negative integer")?;
                 }
+                "--fuel" => {
+                    fuel_per_receipt = take_arg(&mut args, "--fuel")?
+                        .parse()
+                        .context("--fuel must be a positive integer")?;
+                    if fuel_per_receipt == 0 {
+                        bail!("--fuel must be greater than 0");
+                    }
+                }
                 _ if arg.starts_with('-') => bail!("unknown option `{arg}`"),
                 _ => positionals.push(arg),
             }
@@ -163,6 +174,7 @@ impl Config {
             epoch_height,
             random_seed,
             promise_result_u64,
+            fuel_per_receipt,
         })
     }
 }
@@ -193,7 +205,8 @@ fn print_usage() {
            --block-timestamp N           block_timestamp stub value\n\
            --epoch-height N              epoch_height stub value\n\
            --random-seed-hex HEX         32-byte random_seed stub value\n\
-           --promise-result-u64 N        Borsh U64 returned by promise_result (default: 42)"
+           --promise-result-u64 N        Borsh U64 returned by promise_result (default: 42)
+           --fuel N                      Wasmtime fuel budget per receipt (default: 10000000000)"
     );
 }
 
@@ -250,18 +263,7 @@ fn run(config: Config) -> Result<()> {
         config.promise_result_u64,
     );
     let mut store = Store::new(&engine, host);
-    let initial_fuel: u64 = 10_000_000_000;
-    store.set_fuel(initial_fuel).context("failed to set fuel")?;
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .context("failed to instantiate module")?;
-    let mut entries = Vec::with_capacity(config.exports.len());
-    for export in &config.exports {
-        let entry = instance
-            .get_typed_func::<(), ()>(&mut store, export)
-            .with_context(|| format!("export `{export}` is missing or is not a no-arg function"))?;
-        entries.push((export.clone(), entry));
-    }
+    let initial_fuel = config.fuel_per_receipt;
 
     println!(
         "loaded {} (exports `{}`, repeat {}, heap_base {})",
@@ -273,20 +275,39 @@ fn run(config: Config) -> Result<()> {
 
     // PF-P0-06: track Wasmtime fuel honestly — cumulative vs per-call delta.
     // This is not NEAR VM gas; product budgets must not call it `near_gas`.
-    let mut previous_consumed_fuel: u64 = 0;
+    let mut cumulative_consumed_fuel: u64 = 0;
+    let mut contract_failures: u64 = 0;
     for sequence_index in 1..=config.repeat {
-        for (call_index, (export, entry)) in entries.iter().enumerate() {
+        for (call_index, export) in config.exports.iter().enumerate() {
             store.data_mut().input = call_inputs[call_index].clone();
             store.data_mut().begin_call();
+            store
+                .set_fuel(initial_fuel)
+                .context("failed to reset fuel for receipt")?;
+            let checkpoint = store.data().call_checkpoint();
+            // NEAR creates a fresh Wasm instance for each receipt. Re-instantiation
+            // prevents memory and mutable globals from leaking across contract calls;
+            // only host-backed storage and execution context intentionally persist.
+            let instance = instantiate_receipt(&linker, &mut store, &module, &checkpoint, export)?;
+            let entry = match instance.get_typed_func::<(), ()>(&mut store, export) {
+                Ok(entry) => entry,
+                Err(err) => {
+                    store.data_mut().rollback_call(checkpoint);
+                    return Err(err).with_context(|| {
+                        format!("export `{export}` is missing or is not a no-arg function")
+                    });
+                }
+            };
             let trap = entry.call(&mut store, ()).err();
-            let consumed_fuel = initial_fuel - store.get_fuel().unwrap_or(0);
-            let fuel_delta = consumed_fuel.saturating_sub(previous_consumed_fuel);
-            previous_consumed_fuel = consumed_fuel;
-            let state = store.data();
-            if let Some(message) = &state.panic_message {
-                let error = parse_panic_error(message);
+            let fuel_delta = initial_fuel.saturating_sub(store.get_fuel().unwrap_or(0));
+            cumulative_consumed_fuel = cumulative_consumed_fuel.saturating_add(fuel_delta);
+            if let Some(message) = store.data().panic_message.clone() {
+                let error = parse_panic_error(&message);
+                store.data_mut().rollback_call(checkpoint);
+                contract_failures += 1;
+                let state = store.data();
                 println!(
-                    "call {sequence_index}:{export}: error={error} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
+                    "call {sequence_index}:{export}: error={error} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={cumulative_consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
                     state.allocator.next,
                     state.allocator.allocations,
                     state.allocator.reuses,
@@ -295,10 +316,12 @@ fn run(config: Config) -> Result<()> {
                     state.logs.len()
                 );
             } else if let Some(err) = trap {
+                store.data_mut().rollback_call(checkpoint);
                 return Err(err).with_context(|| format!("call {sequence_index}:{export} trapped"));
             } else {
+                let state = store.data();
                 println!(
-                    "call {sequence_index}:{export}: {} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
+                    "call {sequence_index}:{export}: {} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={cumulative_consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
                     describe_return(&state.return_value),
                     state.allocator.next,
                     state.allocator.allocations,
@@ -308,6 +331,7 @@ fn run(config: Config) -> Result<()> {
                     state.logs.len()
                 );
             }
+            let state = store.data();
             for log in &state.logs {
                 println!("  log: {log}");
             }
@@ -317,7 +341,26 @@ fn run(config: Config) -> Result<()> {
         }
     }
 
+    if contract_failures != 0 {
+        bail!("{contract_failures} contract call(s) panicked; failed calls were rolled back");
+    }
     Ok(())
+}
+
+fn instantiate_receipt(
+    linker: &Linker<HostState>,
+    store: &mut Store<HostState>,
+    module: &Module,
+    checkpoint: &CallCheckpoint,
+    export: &str,
+) -> Result<Instance> {
+    match linker.instantiate(&mut *store, module) {
+        Ok(instance) => Ok(instance),
+        Err(err) => {
+            store.data_mut().rollback_call(checkpoint.clone());
+            Err(err).with_context(|| format!("failed to instantiate module for `{export}`"))
+        }
+    }
 }
 
 fn parse_panic_error(message: &str) -> String {
@@ -407,8 +450,25 @@ impl HostState {
         self.logs.clear();
         self.promise_trace.clear();
         self.next_promise_id = 0;
+        self.allocator = LinearMemoryAllocator::new(self.allocator.heap_base);
         self.panic_message = None;
     }
+
+    fn call_checkpoint(&self) -> CallCheckpoint {
+        CallCheckpoint {
+            storage: self.storage.clone(),
+        }
+    }
+
+    fn rollback_call(&mut self, checkpoint: CallCheckpoint) {
+        self.storage = checkpoint.storage;
+        self.begin_call();
+    }
+}
+
+#[derive(Clone)]
+struct CallCheckpoint {
+    storage: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -889,8 +949,8 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
 
     // Promise API stubs.
     // near-sys: amount is a *pointer* to little-endian u128 (16 bytes), not a
-    // raw yocto value (matches EmitWat.lowerNearDeposit). Trace prints the low
-    // 64 bits for offline readability.
+    // raw yocto value (matches EmitWat.lowerNearDeposit). Trace preserves the
+    // full u128 value so pointer decoding cannot silently truncate deposits.
     linker.func_wrap(
         "env",
         "promise_create",
@@ -907,7 +967,7 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
             let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
             let method = read_utf8_lossy(&mut caller, method_ptr, method_len)?;
             let args = read_utf8_lossy(&mut caller, args_ptr, args_len)?;
-            let amount = read_u128_le_low64(&mut caller, amount_ptr)?;
+            let amount = read_u128_le(&mut caller, amount_ptr)?;
             let state = caller.data_mut();
             let id = state.next_promise_id;
             state.next_promise_id += 1;
@@ -934,7 +994,7 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
             let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
             let method = read_utf8_lossy(&mut caller, method_ptr, method_len)?;
             let args = read_utf8_lossy(&mut caller, args_ptr, args_len)?;
-            let amount = read_u128_le_low64(&mut caller, amount_ptr)?;
+            let amount = read_u128_le(&mut caller, amount_ptr)?;
             let state = caller.data_mut();
             let id = state.next_promise_id;
             state.next_promise_id += 1;
@@ -1016,14 +1076,6 @@ fn ensure_memory(caller: &mut Caller<'_, HostState>, end: u64) -> Result<()> {
     Ok(())
 }
 
-/// Read little-endian u128 from guest memory; return the low 64 bits for traces.
-fn read_u128_le_low64(caller: &mut Caller<'_, HostState>, ptr: i64) -> Result<u64> {
-    let bytes = read_memory(caller, ptr, 16)?;
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&bytes[..8]);
-    Ok(u64::from_le_bytes(buf))
-}
-
 /// Offline peer stub for `promise_return` (N1.4).
 ///
 /// Only fills `value_return` for a **simple** promise chain (promise_create
@@ -1091,6 +1143,14 @@ fn write_memory(caller: &mut Caller<'_, HostState>, ptr: i64, bytes: &[u8]) -> R
         .context("failed to write wasm linear memory")
 }
 
+fn read_u128_le(caller: &mut Caller<'_, HostState>, ptr: i64) -> Result<u128> {
+    let bytes = read_memory(caller, ptr, 16)?;
+    let bytes: [u8; 16] = bytes
+        .try_into()
+        .map_err(|_| anyhow!("promise amount must be a 16-byte little-endian u128"))?;
+    Ok(u128::from_le_bytes(bytes))
+}
+
 fn read_utf8_lossy(caller: &mut Caller<'_, HostState>, ptr: i64, len: i64) -> Result<String> {
     let bytes = read_memory(caller, ptr, len)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
@@ -1119,5 +1179,59 @@ fn describe_return(bytes: &[u8]) -> String {
             format!("return_hex={hex} return_u64={}", u64::from_le_bytes(arr))
         }
         _ => format!("return_hex={hex} return_len={}", bytes.len()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_trap_rolls_back_host_storage() -> Result<()> {
+        let engine = Engine::default();
+        let bytes = wat::parse_str(
+            r#"(module
+              (import "env" "storage_write"
+                (func $storage_write (param i64 i64 i64 i64 i64) (result i64)))
+              (memory (export "memory") 1)
+              (data (i32.const 0) "leak")
+              (data (i32.const 8) "x")
+              (func $start
+                i64.const 4 i64.const 0
+                i64.const 1 i64.const 8 i64.const 0
+                call $storage_write drop
+                unreachable)
+              (start $start))"#,
+        )?;
+        let module = Module::from_binary(&engine, &bytes)?;
+        let mut linker = Linker::new(&engine);
+        define_host_imports(&mut linker)?;
+        let mut host = HostState::new(
+            DEFAULT_HEAP_BASE,
+            Vec::new(),
+            b"contract.near".to_vec(),
+            b"caller.near".to_vec(),
+            b"signer.near".to_vec(),
+            0,
+            0,
+            0,
+            0,
+            vec![0; 32],
+            0,
+        );
+        host.storage.insert(b"stable".to_vec(), b"value".to_vec());
+        let mut store = Store::new(&engine, host);
+        let checkpoint = store.data().call_checkpoint();
+
+        let result = instantiate_receipt(&linker, &mut store, &module, &checkpoint, "start-trap");
+
+        assert!(result.is_err());
+        assert_eq!(store.data().storage.len(), 1);
+        assert_eq!(
+            store.data().storage.get(b"stable".as_slice()),
+            Some(&b"value".to_vec())
+        );
+        assert!(!store.data().storage.contains_key(b"leak".as_slice()));
+        Ok(())
     }
 }

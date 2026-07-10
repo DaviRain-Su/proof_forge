@@ -100,11 +100,23 @@ structure StructDecl where
   fields : Array StructField
   deriveStorage : Bool := false
   isPublic : Bool := true
-  /-- Aleo/ZK opt-in: lower this struct as a Leo `record` (private UTXO-like
-  state with an `owner: address` field). Chain-neutral flag in the spirit of
-  `deriveStorage`; non-Aleo backends ignore it. -/
+  /-- Linear/consumable record semantics. Aleo materializes this as a private
+  UTXO-like `record`; adapters without equivalent ownership semantics must
+  explicitly reject it rather than treating it as a copyable struct. -/
   isRecord : Bool := false
   deriving Repr
+
+inductive StructSemantics where
+  | value
+  | linearRecord
+  deriving BEq, DecidableEq, Repr
+
+def StructSemantics.id : StructSemantics → String
+  | .value => "value"
+  | .linearRecord => "linear_record"
+
+def StructDecl.semantics (decl : StructDecl) : StructSemantics :=
+  if decl.isRecord then .linearRecord else .value
 
 inductive StateKind where
   | scalar
@@ -370,12 +382,12 @@ structure ErrorRef where
   When set, EVM lowers to `abi.encodeWithSelector(selector[, args…])`
   (PF-P2-02 / E1.1) instead of the ProofForge `(assertionId, string)` envelope. -/
   soliditySelector? : Option String := none
-  /-- Optional compile-time ABI static words after the 4-byte selector (E1.1).
-  Each `Nat` is one 32-byte ABI word (right-aligned value). Dynamic types are
-  out of scope — fail closed by omitting them (selector-only or envelope). -/
+  /-- Transitional EVM-only compile-time ABI static words after the 4-byte
+  selector (E1.1). EVM validation checks arity, supported type, and range.
+  Runtime expressions belong in a future target-plan representation. -/
   solidityArgWords : Array Nat := #[]
-  /-- Optional Solidity ABI type names parallel to `solidityArgWords` (client/metadata).
-  Example: `#["uint64", "uint64"]` for `error InsufficientBalance(uint64,uint64)`. -/
+  /-- Solidity ABI type names parallel to `solidityArgWords`. Contract metadata
+  exposes this schema, but deliberately omits the concrete compile-time words. -/
   solidityArgTypes : Array String := #[]
   deriving Repr, BEq
 
@@ -413,9 +425,22 @@ inductive EntrypointKind where
   | receive
   deriving Repr, BEq
 
+/-- Host-visible invocation semantics. A return value does not imply `view`:
+mutating calls may return a value on-chain, so the conservative default is
+`call` and read-only methods must opt in explicitly. -/
+inductive EntrypointMutability where
+  | call
+  | view
+  deriving Repr, BEq, DecidableEq, Inhabited
+
+def EntrypointMutability.id : EntrypointMutability → String
+  | .call => "call"
+  | .view => "view"
+
 structure Entrypoint where
   name : String
   kind : EntrypointKind := .function
+  mutability : EntrypointMutability := .call
   /-- Optional target dispatch tag. On EVM this is the 4-byte selector hex;
   other targets may use it as an instruction discriminator or ignore it. -/
   selector? : Option String := none
@@ -432,11 +457,23 @@ structure Entrypoint where
 abbrev Entrypoint.paramEvmAbiWords (ep : Entrypoint) : Array (Option String) :=
   ep.paramAbiWords
 
+/-- Host ABI scalar type for one named event field. Event expressions retain
+their portable IR carrier; target adapters use this declaration for canonical
+event signatures and artifact metadata. -/
+structure EventAbiWord where
+  eventName : String
+  fieldName : String
+  abiWord : String
+  deriving Repr, BEq
+
 structure Module where
   name : String
   structs : Array StructDecl := #[]
   state : Array StateDecl
   entrypoints : Array Entrypoint
+  /-- Named event-field ABI overrides, parallel to `Entrypoint.paramAbiWords`.
+  Names keep the declaration stable when indexed and data fields are split. -/
+  eventAbiWords : Array EventAbiWord := #[]
   allocator : AllocatorConfig := defaultAllocator
   /-- When set to `uups`, the EVM adapter adds a delegatecall fallback for
   proxy shells. Stored on the module as target-resolved metadata rather than a
@@ -637,7 +674,9 @@ def StructField.capabilities (field : StructField) : Array ProofForge.Target.Cap
   field.type.capabilities
 
 def StructDecl.capabilities (decl : StructDecl) : Array ProofForge.Target.Capability :=
-  #[.dataStruct] ++ decl.fields.foldl (fun acc field => acc ++ field.capabilities) #[]
+  #[.dataStruct] ++
+    (if decl.semantics == .linearRecord then #[.dataLinearRecord] else #[]) ++
+    decl.fields.foldl (fun acc field => acc ++ field.capabilities) #[]
 
 def StateDecl.capabilities (state : StateDecl) : Array ProofForge.Target.Capability :=
   match state.kind with

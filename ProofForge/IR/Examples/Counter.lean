@@ -47,6 +47,7 @@ def increment : Entrypoint := {
 def get : Entrypoint := {
   name := "get"
   selector? := some "6d4ce63c"
+  mutability := .view
   returns := .u64
   body := #[
     .return (.effect (.storageScalarRead "count"))

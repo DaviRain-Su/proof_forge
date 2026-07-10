@@ -245,8 +245,9 @@ mutual
         exprReadsPackedScalar scalars cond || body.any (stmtReadsPackedScalar scalars)
 end
 
-/-- Entrypoint only writes packed scalars (no prior pack read/RMW) → safe to
-skip cold `storage_read` via `__pf_pack_begin_fresh`. -/
+/-- Conservative packed-state read scan. This remains useful for analysis, but
+code generation must not infer a definite full overwrite merely from `false`:
+an entrypoint may write only one field in a multi-field blob. -/
 def entrypointReadsPackedScalar (scalars : Array StateInfo) (ep : Entrypoint) : Bool :=
   ep.body.any (stmtReadsPackedScalar scalars)
 

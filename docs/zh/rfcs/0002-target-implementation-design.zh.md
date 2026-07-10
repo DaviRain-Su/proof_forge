@@ -122,7 +122,7 @@ structure TargetProfile where
 
 | Target id | 家族 | 制品 | 状态（2026-07 `main`） |
 |---|---|---|---|
-| `evm` | EVM | Runtime bytecode | Experimental — 生产级门禁（Gate P0） |
+| `evm` | EVM | Runtime bytecode | Experimental — 范围化 P0 制品/运行时门禁已完成 |
 | `wasm-near` | Wasm 宿主 | NEAR 兼容 Wasm | Experimental — `main` 上的 EmitWat（Gate P0） |
 | `wasm-cosmwasm` | Wasm 宿主 | CosmWasm Wasm | Spike — Counter golden WAT + optional CI |
 | `solana-sbpf-linker` | Solana | Solana sBPF ELF `.so` | **Deprecated**（D-026；使用 `solana-sbpf-asm`） |

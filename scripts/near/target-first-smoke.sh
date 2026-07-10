@@ -164,16 +164,18 @@ python3 scripts/sdk/validate-sdk-artifact-refs.py \
   --reject-absolute \
   "$STORAGE_DIR/proof-forge-sdk.json"
 
-ACCOUNT_HASH="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+ACCOUNT_HASH="9a7068ee6434852cdaff3acb2f7d0f002fdad589c8e388b299e8a48a831ca3e4"
 WITHDRAW_INPUT="${ACCOUNT_HASH}0300000000000000"
 out="$("${HOST[@]}" "$STORAGE_DIR/nearstoragedeposit.wat" \
-  init storage_balance_bounds storage_balance_of storage_deposit storage_balance_of storage_withdraw storage_balance_of \
+  init storage_balance_bounds storage_balance_of storage_deposit storage_balance_of \
+  storage_withdraw storage_balance_of \
+  --predecessor-account-id alice.testnet \
   --attached-deposit 7 \
   --inputs-hex ",,$ACCOUNT_HASH,$ACCOUNT_HASH,$ACCOUNT_HASH,$WITHDRAW_INPUT,$ACCOUNT_HASH")"
 echo "$out"
 assert_contains "$out" "call 1:storage_balance_bounds: return_hex=0100000000000000 return_u64=1" "storage bounds"
 assert_contains "$out" "call 1:storage_balance_of: return_hex=0000000000000000 return_u64=0" "initial storage balance"
 assert_contains "$out" "call 1:storage_balance_of: return_hex=0700000000000000 return_u64=7" "updated storage balance"
-assert_contains "$out" "call 1:storage_balance_of: return_hex=0400000000000000 return_u64=4" "balance after withdraw"
+assert_contains "$out" "call 1:storage_balance_of: return_hex=0400000000000000 return_u64=4" "withdrawn storage balance"
 
 echo "near-target-first: ok"

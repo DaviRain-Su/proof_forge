@@ -1,13 +1,6 @@
 object "UUPSProxy" {
   code {
     switch shr(224, calldataload(0))
-    case 0x19ab453c {
-      if lt(calldatasize(), 36) {
-        revert(0, 0)
-      }
-      f_UUPSProxy_init(calldataload(4))
-      return(0, 0)
-    }
     default {
       let _impl := sload(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc)
       if iszero(_impl) {
@@ -20,12 +13,6 @@ object "UUPSProxy" {
         revert(0, returndatasize())
       }
       return(0, returndatasize())
-    }
-    function f_UUPSProxy_init(impl) {
-      if iszero(iszero(eq(impl, 0))) {
-        revert(0, 0)
-      }
-      sstore(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc, impl)
     }
   }
 }

@@ -60,7 +60,11 @@ structure AbiEventDescriptor where
   deriving Repr, Inhabited
 
 def abiEventFieldDescriptor (field : EventFieldPlan) : AbiEventFieldDescriptor :=
-  { name := field.name, type := field.type.name, indexed := field.indexed }
+  {
+    name := field.name
+    type := field.abiType?.getD field.type.name
+    indexed := field.indexed
+  }
 
 def abiEventDescriptor (event : EventPlan) : AbiEventDescriptor :=
   {

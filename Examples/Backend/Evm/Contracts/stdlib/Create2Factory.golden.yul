@@ -17,19 +17,19 @@ object "Create2Factory" {
     default {
       revert(0, 0)
     }
-    function f_Create2Factory_templateInitCodeHash() -> result {
-      result := 68818659148533468236157942673803971936521608035699249785660344515652537758923
+    function f_Create2Factory_templateInitCodeHash() -> __pf_result {
+      __pf_result := 68818659148533468236157942673803971936521608035699249785660344515652537758923
     }
-    function f_Create2Factory_deploy(salt) -> result {
+    function f_Create2Factory_deploy(salt) -> __pf_result {
       let deployed := __proof_forge_create2_69602a60005260206000f3600052600a6016f3(callvalue(), salt)
       {
-        mstore(0, 30936501176209415639600747326521353688298572880058963494346932220345049939968)
-        let _topic0 := keccak256(0, 24)
-        let _indexed_topic0 := deployed
-        let _indexed_topic1 := salt
-        log3(0, 0, _topic0, _indexed_topic0, _indexed_topic1)
+        mstore(0, 30936501176209415639598829821747794836005707844039030221877151186564641980416)
+        let __pf_event_topic0 := keccak256(0, 25)
+        let __pf_event_indexed_topic0 := deployed
+        let __pf_event_indexed_topic1 := salt
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
       }
-      result := deployed
+      __pf_result := deployed
     }
     function __proof_forge_create2_69602a60005260206000f3600052600a6016f3(call_value, salt) -> result {
       mstore(0, 0x69602a60005260206000f3600052600a6016f300000000000000000000000000)

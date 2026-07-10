@@ -81,14 +81,14 @@ host rewrite: `--peer logical.peer=…` / PeerMap.
 | [FungibleToken.lean](FungibleToken.lean) | TokenSpec mintable+burnable |
 | [FeeToken.lean](FeeToken.lean) | transfer_fee feature |
 | [SoulboundToken.lean](SoulboundToken.lean) | non_transferable feature |
-| [SoulboundTokenBody.lean](SoulboundTokenBody.lean) | non-transferable balances body (`contract_source`) |
-| [EscrowVault.lean](EscrowVault.lean) | two-party escrow (NEAR compare) |
-| [GuestBook.lean](GuestBook.lean) | guestbook messages (NEAR compare) |
-| [StatusMessage.lean](StatusMessage.lean) | status message (NEAR compare) |
-| [StorageDeposit.lean](StorageDeposit.lean) | storage deposit economics |
-| [HeightLockVault.lean](HeightLockVault.lean) | height-lock vault |
-| [TimelockVault.lean](TimelockVault.lean) | timelock vault |
-| [VestingVault.lean](VestingVault.lean) | vesting vault |
-| [ProRataVault.lean](ProRataVault.lean) | pro-rata vault |
+| [SoulboundTokenBody.lean](SoulboundTokenBody.lean) | portable mint/burn body with no transfer entrypoint |
+| [StatusMessage.lean](StatusMessage.lean) | per-account status-code map |
+| [GuestBook.lean](GuestBook.lean) | append-only message-code map |
+| [StorageDeposit.lean](StorageDeposit.lean) | NEP-145-lite storage accounting |
+| [ProRataVault.lean](ProRataVault.lean) | internal pro-rata share accounting |
+| [VestingVault.lean](VestingVault.lean) | timestamp-based linear vesting |
+| [EscrowVault.lean](EscrowVault.lean) | two-party escrow ledger |
+| [TimelockVault.lean](TimelockVault.lean) | timestamp-based cliff lock |
+| [HeightLockVault.lean](HeightLockVault.lean) | block-height-based cliff lock |
 
 Chain goldens live under [`../Backend/`](../Backend/) — not authoring sources.

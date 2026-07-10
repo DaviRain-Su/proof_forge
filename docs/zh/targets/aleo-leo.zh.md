@@ -1,22 +1,34 @@
 # Aleo Leo 目标
 
-状态：**Spike（本地冒烟已存在 — `scripts/aleo/counter-smoke.sh`）**
+状态：**Research sourcegen 注册目标**。`aleo-leo` 已进入 registry 和
+`--list-targets`，但不声明最终可部署包。
 
-候选目标 id：**`aleo-leo`**
+目标 id：**`aleo-leo`**（`TargetFamily.zkCircuitSourcegen`，
+`ArtifactKind.leoSource`）
 
-本文记录 ProofForge 对 Aleo 的第一版分类以及已实现的 Road 1 spike。它不会立刻
-添加 Lean target profile；spike 先验证 Leo 源码生成边界，再决定是否修改代码注册表。
+本文记录 ProofForge 对 Aleo 的分类和当前受限的 Leo sourcegen 边界。进入 registry
+不代表所有 portable contract 都可降级；完整 Counter 就因 getter ABI 无法保持而拒绝。
 
 主要交付物：
 
-- `ProofForge.Backend.Aleo.IR` 将 portable IR `Counter` fixture 降级为 Leo。
-- `proof-forge emit --target aleo-leo --fixture counter --format leo` 输出
-  `Counter.leo`。
-- `Examples/Backend/Aleo/Counter.golden.leo` 是已跟踪的 golden fixture。
-- `scripts/aleo/counter-smoke.sh` 生成 Leo 包、运行 `leo build` 和 `leo test`、
-  写入 `proof-forge-artifact.json` 并校验 metadata。
-- `ProofForge.Compiler.Leo.Emit` 额外支持带参数/返回值的纯函数入口，以及控制流语句
-  （`assert`、`if/else`、`boundedFor`、`assign`、`assignOp`）。
+- `ProofForge.Backend.Aleo.IR` 通过通用 IR→AST→source 流水线降级已验证子集。
+- 完整 Counter 稳定 fail closed：Leo 4.0.2 无法从 `final` 返回 mapping-backed
+  `get() -> U64`，后端不会把它悄悄改成 `Final`。
+- `scripts/aleo/counter-smoke.sh` 验证该拒绝；write-only Counter fragment 是编译正例。
+- `FunctionPlan` 只允许 pure、Unit-returning final，以及返回值与状态无关的
+  `(T, Final)`；metadata 使用同一 plan。
+- `.add`/`.sub`/`.mul` 由表达式节点的 `overflowChecked` 位选择 checked 或
+  Leo `_wrapped` 运算；`Module.overflowChecked` 仅控制没有节点级模式位的
+  compound `AssignOp`。
+- mixed `(T, Final)` 只接受保持原顺序的规范形：immutable pure prefix、连续
+  final/storage region、单一 terminal state-independent return。mutable local、
+  control flow、named crosscall 或 final region 后的 pure statement 都会 fail closed。
+- linear record 会递归穿透 struct/fixed array 检测，并禁止出现在 state key/value。
+- `Mapping::get_or_use` 需要默认值时，直接或递归嵌套在普通 value struct 中的
+  `address` 都会 fail closed：Leo 4.0.2 不接受 `none` 作为 address，系统也不会
+  伪造零地址。write-only address storage 仍然支持。
+- 普通 value struct 禁止使用字段名 `owner`；该名称保留给 linear record，
+  record 必需的 `owner: address` 正常支持。
 - `proof-forge emit --target aleo-leo --fixture pure-math --format leo` 输出
   `PureMath.leo`。
 - `Examples/Backend/Aleo/PureMath.golden.leo` 是已跟踪的 golden fixture。
@@ -38,34 +50,32 @@
 
 ## 本地冒烟测试
 
-Road 1 spike 通过以下脚本进行端到端验证：
+支持路径和拒绝路径通过以下门禁验证：
 
 ```bash
 ./scripts/aleo/counter-smoke.sh
+./scripts/aleo/pure-math-smoke.sh
+just aleo-leo-build-smoke
 ```
 
 前置条件：
 
 - `lean-toolchain` 指定的 Lean 工具链以及构建好的 `proof-forge` 二进制文件。
 - 用于包/清单辅助脚本的 `python3`。
-- `PATH` 上的 `leo` CLI（已在 Leo 4.0.2 上测试）；如果未安装 `leo`，脚本会
-  输出生成的 `Counter.leo` 并以退出码 `127` 退出。
+- 正例编译/测试需要 `PATH` 上的 `leo` CLI（已在 Leo 4.0.2 上测试）。
 
 它证明了什么：
 
-- Portable IR `ProofForge.IR.Examples.Counter` 可降级为 Leo 4.0 程序，包含
-  公开 `mapping`、`@noupgrade constructor` 以及通过 `fn ... -> Final` 暴露、
-  在 `final` 块中读写 mapping 的 entry point。
-- 生成的 Leo source 与已跟踪的 golden fixture
-  `Examples/Backend/Aleo/Counter.golden.leo` 一致。
-- `leo build` 能生成 Aleo Instructions（`build/main.aleo`）和 ABI JSON
-  （`build/abi.json`）。
-- `leo test` 通过。
-- `proof-forge-artifact.json` 被生成并通过了 schema 校验。
+- 完整 Counter 在 sourcegen 前被拒绝，而不是产生 ABI 不兼容的 getter。
+- PureMath 匹配 `Examples/Backend/Aleo/PureMath.golden.leo`，并通过
+  `leo build` / `leo test`。
+- write-only Counter、map、context、record、hash、mixed-return 和 crosscall
+  等正例会经过真实 Leo 编译门禁。
 
 它没有证明什么：
 
-- private records、transitions 或 proof generation。
+- 跨 `final` 的通用 state-derived 返回值。
+- record spend、proof generation 或 private-state 等价性。
 - 直接生成 Aleo Instructions。
 - devnet 部署或 execute transactions。
 - 与 EVM/Psy Counter 语义的跨目标等价性。
@@ -120,15 +130,12 @@ Aleo 需要自己的家族，因为：
 - 本地验证可以使用 `leo build`、`leo test`、`leo execute` 和 devnet deployment
   flows。
 
-## 候选目标家族
+## 目标家族决策
 
-在目标模型能表达 Aleo 的 proof/finalization split 和 record/mapping state split
-之前，不要把它加入 `ProofForge.Target.Registry`。
-
-候选家族：
+已注册的编译器家族是：
 
 ```text
-zk-app-sourcegen
+zk-circuit-sourcegen
 ```
 
 候选后端模式：
@@ -242,7 +249,7 @@ program、state、transaction 和 finalization 能力。
 
 ## 第一阶段非目标
 
-- 在候选能力完成审查前，不要把 `aleo-leo` 加入代码 registry。
+- 没有经过语义映射和 fail-closed 门禁审查，不扩宽已注册 capability profile。
 - 不把 Aleo 仅归类为 generic ZK circuit target。
 - 不混淆 Aleo VM 与 Algorand AVM。
 - 不把 records 建模成 EVM storage 或 Zcash shielded notes。
@@ -264,9 +271,8 @@ Aleo 只有在满足以下条件后才能离开 Research：
 - 一个可重复的本地命令或脚本，能验证极小 Leo program package，即使
   proving-heavy gates 在 CI 中保持可选。
 
-**状态：** Road 1 spike 已满足“可重复本地命令”和“artifact manifest schema”
-标准。其余标准（target profile、完整 capability proposal、devnet validation）
-在 private records 和 transitions 审查完成前保持开放。
+**状态：** Road 1 profile、可重复 sourcegen 命令和基础 artifact schema 已实现；
+devnet、proof generation、record spend 和完整 state-return 语义仍保持开放。
 
 ## Research 退出计划
 
@@ -275,7 +281,8 @@ Aleo 只有在满足以下条件后才能离开 Research：
 
 该规格确定了：
 
-- 目标家族：`zk-app-sourcegen`。
+- 原设计术语：`zk-app-sourcegen`；当前 registry family id 为
+  `zk-circuit-sourcegen`。
 - 第一个 spike 的规范能力：
   `lang.leo`、`vm.aleo_avm`、`artifact.avm`、`artifact.aleo_abi`、
   `execution.finalize`、`state.mapping`、`input.public`、`output.public`、
@@ -287,9 +294,8 @@ Aleo 只有在满足以下条件后才能离开 Research：
   `transaction.deploy`、`fee.credits`、`test.aleo_devnet`。
 - `aleo-leo-package` 的制品清单 schema。
 - 工具链决策：`leo build` + `leo test` 为主；prove/execute 可选。
-- Spike 范围：仅 Road 1，公开 mapping Counter，输入为
-  `ProofForge.IR.Examples.Counter`。
+- Spike 范围：Road 1 的受限 Leo sourcegen；完整 mapping Counter getter 是
+  明确拒绝样本，PureMath 和 write-only Counter 是正例。
 
-Road 1 spike 已实现；代码注册表修改
-（`ProofForge.Target.Capability` / `ProofForge.Target.Registry`）仍推迟到
-proof/finalization split 与 private-record 路线图审查之后。
+Road 1 profile 已实现。Aleo 原生 proof、transaction、fee 和 devnet capability
+仍需等相应语义与验证路径落地后再加入。

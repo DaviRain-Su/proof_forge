@@ -432,7 +432,12 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
   | .storageScalarWrite stateId value => do
       ensureType s!"scalar state `{stateId}` write" (← scalarStateType module stateId) (← inferExprType module env value)
   | .storageScalarAssignOp stateId op value => do
-      ensureAssignOpTypes op (← scalarStateType module stateId) (← inferExprType module env value)
+      if stateId == "$eip1967.implementation" then
+        .error {
+          message := "compound assignment is not allowed for the EIP-1967 implementation state"
+        }
+      else
+        ensureAssignOpTypes op (← scalarStateType module stateId) (← inferExprType module env value)
   | .storageMapContains _ _ =>
       .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ =>
@@ -505,13 +510,8 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       discard <| inferExprType module env amount
 
   | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
-      discard <| inferExprType module env operator
-      discard <| inferExprType module env fromAddr
-      discard <| inferExprType module env toAddr
-      discard <| inferExprType module env id0
-      discard <| inferExprType module env amount0
-      discard <| inferExprType module env id1
-      discard <| inferExprType module env amount1
+      for expr in #[operator, fromAddr, toAddr, id0, amount0, id1, amount1] do
+        discard <| inferExprType module env expr
 def requireMutableLocal (env : TypeEnv) (context name : String) : Except LowerError LocalBinding := do
   let some binding := findLocal? env name
     | .error { message := s!"unknown local `{name}`" }
@@ -753,19 +753,28 @@ mutual
     | .effect effect => do
         validateEffectStmtTypes module env effect
         .ok env
-    | .assert condition _ _ => do
+    | .assert condition _ errorRef? => do
         ensureType "assert condition" .bool (← inferExprType module env condition)
+        if let some ref := errorRef? then
+          discard <| lowerValidate <|
+            ProofForge.Backend.Evm.Validate.validateSolidityErrorRef "assert" ref
         .ok env
-    | .assertEq lhs rhs _ _ => do
+    | .assertEq lhs rhs _ errorRef? => do
         let lhsType ← inferExprType module env lhs
         let rhsType ← inferExprType module env rhs
         ensureType "assert_eq right operand" lhsType rhsType
         ensureEqType "assert_eq" lhsType
+        if let some ref := errorRef? then
+          discard <| lowerValidate <|
+            ProofForge.Backend.Evm.Validate.validateSolidityErrorRef "assert_eq" ref
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
     | .revert _ => .ok env
-    | .revertWithError _ => .ok env
+    | .revertWithError ref => do
+        discard <| lowerValidate <|
+          ProofForge.Backend.Evm.Validate.validateSolidityErrorRef "revertWithError" ref
+        .ok env
     | .ifElse condition thenBody elseBody => do
         ensureType "if condition" .bool (← inferExprType module env condition)
         discard <| validateStatements module entrypoint env thenBody

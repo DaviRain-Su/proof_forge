@@ -130,7 +130,10 @@ def writeUnifiedEvmClient
   let output := schemaDir / "proof-forge-client.ts"
   if let some parent := output.parent then
     IO.FS.createDirAll parent
-  IO.FS.writeFile output (ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName ++ "\n")
+  let wrapper ← match ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName with
+    | .ok wrapper => pure wrapper
+    | .error err => throw <| IO.userError s!"EVM client ABI: {err}"
+  IO.FS.writeFile output (wrapper ++ "\n")
   IO.println s!"wrote {output}"
   return output
 

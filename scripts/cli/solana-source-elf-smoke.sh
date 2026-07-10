@@ -43,6 +43,11 @@ arts = art.get("artifacts") or {}
 assert "solanaElf" in arts, arts.keys()
 bundle = art.get("artifactBundle") or {}
 assert bundle.get("kind") == "proof-forge-artifact-bundle", bundle
+assert (bundle.get("source") or {}).get("leanElaborated") is True, bundle.get("source")
+assert any(t.get("tool") == "lean" and t.get("available") is True
+           and t.get("declaredVersion") and t.get("observedVersion")
+           and t.get("version") == t.get("observedVersion")
+           for t in (bundle.get("toolchain") or [])), bundle.get("toolchain")
 assert bundle.get("finalOutput") == "solana-elf", bundle
 assert bundle.get("primaryOutput") == "solana-elf", bundle
 kinds = {o.get("kind") for o in (bundle.get("outputs") or [])}
@@ -75,6 +80,11 @@ arts = art.get("artifacts") or {}
 assert "solanaElf" not in arts, arts.keys()
 assert "sbpfAsm" in arts, arts.keys()
 bundle = art.get("artifactBundle") or {}
+assert (bundle.get("source") or {}).get("leanElaborated") is True, bundle.get("source")
+assert any(t.get("tool") == "lean" and t.get("available") is True
+           and t.get("declaredVersion") and t.get("observedVersion")
+           and t.get("version") == t.get("observedVersion")
+           for t in (bundle.get("toolchain") or [])), bundle.get("toolchain")
 assert bundle.get("finalOutput") in (None, "null") or bundle.get("finalOutput") is None, bundle
 assert bundle.get("primaryOutput") in ("sbpf-asm", None) or True
 print(f"ok assembly metadata sourceModule={expect} sbpfBuild={val.get('sbpfBuild')}")

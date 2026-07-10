@@ -9,12 +9,15 @@ U64 projections (not full NEP-145 JSON `StorageBalance` objects):
 - `storage_balance_bounds` → min required deposit
 - `storage_balance_of(account)` → cumulative registered deposit
 - `storage_deposit(account)` → credit `nativeValue` when ≥ min
-- `storage_withdraw(account, amount)` → debit when balance ≥ amount (partial withdraw)
+- `storage_withdraw(account, amount)` → caller-bound ledger debit when balance ≥ amount
+
+This is not a complete NEP-145 withdrawal: it does not require exactly 1 yocto
+or emit a predecessor refund Promise.
 
   lake env proof-forge build --target wasm-near --root . \
     -o build/storage-deposit Examples/Product/StorageDeposit.lean
 
-NEAR compare: `just near-compare-storage-deposit` / `-live`  
+NEAR compare: `just near-compare-storage-deposit` / `-live`
 Offline lifecycle: `just near-storage-deposit-offline`
 -/
 import ProofForge.Contract.Source
@@ -44,6 +47,8 @@ contract_source StorageDeposit do
     do mapWrite storageDeposits account_id (previous +! amount);
 
   entry storage_withdraw (account_id : .hash, amount : .u64) do
+    do ProofForge.Contract.Surface.requireEq callerHash
+      (ProofForge.Contract.Surface.ref account_id) "storage withdraw caller mismatch";
     let previous : .u64 := mapRead storageDeposits account_id;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref previous)
       (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";

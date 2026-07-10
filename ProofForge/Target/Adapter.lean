@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Contract.Spec
+import ProofForge.IR.Mutability
 import ProofForge.Contract.UpgradePolicy.Lower
 import ProofForge.Target.Check
 import ProofForge.Target.HostRuntime
@@ -152,6 +153,9 @@ def requireCapabilityPlan (profile : TargetProfile) (plan : CapabilityPlan) :
 
 def defaultResolve (profile : TargetProfile) (spec : ProofForge.Contract.ContractSpec) :
     Except Diagnostic CapabilityPlan := do
+  match ProofForge.IR.Mutability.validateModule spec.module with
+  | .ok () => pure ()
+  | .error message => .error { message }
   -- Portable honesty (HostEnv / Identity / sync-crosscall / upgrade materialize).
   -- Uses materializeUpgrade (UUPS-only EVM, etc.) rather than checkSupported alone
   -- so transparent proxy and missing lowers fail closed before codegen.

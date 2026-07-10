@@ -78,7 +78,7 @@ def entryRevertCustomErrorArgs : Entrypoint := {
       assertionId := 7
       userCode? := some "InsufficientBalance"
       soliditySelector? := some "9432a7ee"
-      solidityArgWords := #[10, 3]  -- available=10, required=3
+      solidityArgWords := #[9007199254740993, 3]  -- above JS Number.MAX_SAFE_INTEGER
       solidityArgTypes := #["uint64", "uint64"]
     }
   ]

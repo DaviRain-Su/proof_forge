@@ -8,11 +8,16 @@ you work on that target.
 ## Current Product Focus
 
 Gate P0 has closed for the primary-chain completion covenant (D-045). The three
-priority targets reached production-grade local/CI gates in this order:
+priority targets completed their scoped P0 local/CI gates in this order:
 
 1. `solana-sbpf-asm`
 2. `evm`
 3. `wasm-near`
+
+All three remain `experimental` in the generated backend status. P0 records
+artifact, execution, metadata, diagnostic, and budget evidence for documented
+fragments; it does not claim universal compiler correctness or production
+deployment readiness.
 
 The next hardening lane is the CLI M3/M4 migration from legacy flags to
 `proof-forge build|emit|check --target ...`. Tier-1 target work is eligible to

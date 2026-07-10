@@ -6,16 +6,11 @@ namespace ProofForge.Contract.UpgradePolicy
 def checkSupported (targetId : String) (policy : UpgradePolicy) (proxyPattern? : Option ProxyPattern) :
     Except String Unit :=
   match targetId, policy, proxyPattern? with
-  | "evm", .authority _, some .uups => .ok ()
-  -- Transparent proxy is declared in ProxyPattern but EVM Plan only lowers
-  -- `proxyPattern?=uups` → uupsProxy; transparent yields revert-not-proxy.
-  -- Honest reject until a real transparent dispatch exists.
-  | "evm", .authority _, some .transparent =>
-      .error
-        "EVM target does not materialize `transparent` proxy yet (Plan only wires uups); \
-use `proxy_pattern uups` or `immutable`"
   | "evm", .authority _, _ =>
-      .error "EVM target does not support `authority` upgrade policy without a documented proxy pattern; declare `proxy_pattern uups` or use `immutable`"
+      .error
+        "EVM target does not materialize `authority` upgrade policy yet: UUPS proxy \
+dispatch exists only as a backend spike, but `keyRef` is metadata and is not bound \
+to runtime authorization; use `immutable`"
   | "evm", .governance _, _ =>
       .error "EVM target does not support `governance` upgrade policy in v0"
   | "solana-sbpf-asm", .governance _, _ =>
@@ -75,21 +70,8 @@ def materializeUpgrade (targetId : String) (policy : UpgradePolicy)
         note := "deploy runtime bytecode; no proxy"
       }
   | "evm", .authority _ =>
-      -- Only UUPS has a real EVM lower path today.
-      match proxyPattern? with
-      | some .uups =>
-          .ok {
-            targetId := targetId
-            policyKind := policy.kind
-            shape := .evmProxy
-            note := "EVM proxy pattern `uups` + upgrade authority"
-          }
-      | some .transparent =>
-          .error (upgradeReject targetId
-            "transparent proxy not lowered (Plan maps only uups → uupsProxy); use uups")
-      | none =>
-          .error (upgradeReject targetId
-            "authority requires proxy_pattern uups (no silent default to a missing lower)")
+      .error (upgradeReject targetId
+        "authority is not materialized: the UUPS backend spike does not bind keyRef to runtime authorization")
   | "solana-sbpf-asm", .immutable =>
       .ok {
         targetId := targetId

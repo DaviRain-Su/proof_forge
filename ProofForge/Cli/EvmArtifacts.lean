@@ -29,11 +29,16 @@ namespace ProofForge.Cli
 
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
-  -- E1.4: fail closed on upgrade/proxy honesty before codegen (same gate as
-  -- NEAR/Solana contract-source builds via resolveSpec). UUPS + authority is
-  -- allowed; authority without proxy_pattern, transparent, and governance reject.
+  -- Fail closed on upgrade/proxy honesty before codegen (same gate as
+  -- NEAR/Solana contract-source builds via resolveSpec). The UUPS dispatch
+  -- backend spike may compile without a product policy, but EVM authority and
+  -- governance policies reject until their declared references are enforced.
   match ProofForge.Target.resolveSpec ProofForge.Target.evm spec with
   | .ok _ => pure ()
+  | .error err => throw <| IO.userError err.render
+  match ProofForge.Backend.Evm.ConstructorInit.validateAtomicUupsConstructor
+      spec.module spec.constructorParams spec.constructorInitBindings opts.evmConstructorArgsHex with
+  | .ok () => pure ()
   | .error err => throw <| IO.userError err.render
   -- PF-P2-03: apply deploy-time peer map so logical peer ids become `0x…`
   -- host addresses (and method pool strings stay for selector resolve).
@@ -183,6 +188,10 @@ def writeEvmInitCode
   let initCode ←
     match module? with
     | some module =>
+        match ProofForge.Backend.Evm.ConstructorInit.validateAtomicUupsConstructor
+            module specParams constructorInitBindings constructorArgsHex with
+        | .error err => throw <| IO.userError err.render
+        | .ok () => pure ()
         if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject constructorInitBindings constructorArgsHex then
           match ProofForge.Backend.Evm.ConstructorInit.renderDeployObject
               module.name module specParams constructorInitBindings runtimeTrimmed argsByteLen with
@@ -388,22 +397,16 @@ def writeEvmDeployManifest
 
 /-- PF-P1-03: honest ArtifactBundle for EVM Yul + runtime bytecode (+ initcode sidecar). -/
 def evmArtifactBundle
-    (sourceModule sourceKind : String)
-    (sourcePath? : Option String)
+    (source : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (yulPath bytecodePath initCodePath : FilePath)
     (yulSha bytecodeSha initSha : String)
     (yulBytes bytecodeBytes initBytes : Nat)
     (solcAvailable : Bool)
     (solcVersion? : Option String)
     (contractSizeOk : Bool)
-    (leanVersion? : Option String := none) :
+    (sourceToolchain : Array ProofForge.Target.ArtifactBundle.ToolProvenance := #[]) :
     ProofForge.Target.ArtifactBundle.ArtifactBundle :=
   open ProofForge.Target.ArtifactBundle in
-  let source : SourceIdentity := {
-    moduleName := sourceModule
-    path? := sourcePath?
-    kind := sourceKind
-  }
   let yulOut : TypedOutput := {
     kind := "yul"
     role := .intermediate
@@ -431,8 +434,7 @@ def evmArtifactBundle
     outputs := #[yulOut, bytecodeOut, initOut]
     primaryOutput? := some "evm-bytecode"
     finalOutput? := some "evm-bytecode"
-    toolchain := #[
-      leanElaborationTool leanVersion?,
+    toolchain := sourceToolchain ++ #[
       {
         tool := "solc"
         stage := "final-deployable"
@@ -453,17 +455,20 @@ def evmArtifactBundle
 
 def writeEvmArtifactMetadata
     (opts : CliOptions)
-    (fixture sourceKind sourceModule : String)
+    (fixture : String)
+    (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (capabilities : Array String)
     (entrypoints : Array String)
     (events : Array String)
     (methods : Array String)
-    (source? : Option FilePath)
     (yulOutput bytecodeOutput : FilePath)
     (extraArtifacts : Array (String × String) := #[])
     (storageLayout? : Option String := none)
     (module? : Option ProofForge.IR.Module := none)
     (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]) : IO Unit := do
+  let sourceKind := sourceIdentity.kind
+  let sourceModule := sourceIdentity.moduleName
+  let source? := sourceIdentity.path?.map FilePath.mk
   let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput bytecodeOutput)
   let deployOutput := defaultDeployManifestOutput metadataOutput
   let chainProfile? ← resolveEvmChainProfile? opts.evmChainProfile?
@@ -515,11 +520,10 @@ def writeEvmArtifactMetadata
   let yulDigest ← fileDigestAndBytes yulOutput
   let bytecodeDigest ← fileDigestAndBytes bytecodeOutput
   let initDigest ← fileDigestAndBytes initCodeOutput
-  let leanPin ← ProofForge.Target.ArtifactBundle.readLeanToolchainPin
+  let sourceToolchain ←
+    ProofForge.Target.ArtifactBundle.sourceElaborationToolchain sourceIdentity opts.root?
   let bundle := evmArtifactBundle
-    sourceModule
-    sourceKind
-    (source?.map (·.toString))
+    sourceIdentity
     yulOutput
     bytecodeOutput
     initCodeOutput
@@ -532,7 +536,7 @@ def writeEvmArtifactMetadata
     true
     solcVer?
     (contractSizeStatus == "passed")
-    leanPin
+    sourceToolchain
   let _ ← match ProofForge.Target.ArtifactBundle.validateHonesty bundle with
     | .ok () => pure ()
     | .error err => throw <| IO.userError s!"EVM ArtifactBundle honesty: {err.message}"
@@ -613,7 +617,8 @@ def writeEvmArtifactMetadata
 
 def writeEvmModuleArtifactMetadata
     (opts : CliOptions)
-    (fixture sourceKind sourceModule : String)
+    (fixture : String)
+    (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (module : ProofForge.IR.Module)
     (yulOutput bytecodeOutput : FilePath)
     (extraArtifacts : Array (String × String) := #[])
@@ -628,13 +633,11 @@ def writeEvmModuleArtifactMetadata
   writeEvmArtifactMetadata
     opts
     fixture
-    sourceKind
-    sourceModule
+    sourceIdentity
     (moduleCapabilityIds module)
     entrypoints
     (events.map eventAbiJson)
     #[]
-    none
     yulOutput
     bytecodeOutput
     extraArtifacts
@@ -676,7 +679,10 @@ def writeEvmContractSdkClientArtifacts
   IO.println s!"wrote {specOutput}"
   if let some parent := clientOutput.parent then
     IO.FS.createDirAll parent
-  IO.FS.writeFile clientOutput (ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName ++ "\n")
+  let wrapper ← match ProofForge.Contract.Client.renderEvmAbiWrapper spec artifactBaseName with
+    | .ok wrapper => pure wrapper
+    | .error err => throw <| IO.userError s!"EVM client ABI: {err}"
+  IO.FS.writeFile clientOutput (wrapper ++ "\n")
   IO.println s!"wrote {clientOutput}"
   let specArtifact ← artifactEntryJson specOutput
   let clientArtifact ← artifactEntryJson clientOutput
@@ -684,13 +690,14 @@ def writeEvmContractSdkClientArtifacts
 
 def writeEvmContractSdkArtifactMetadata
     (opts : CliOptions)
-    (fixture sourceModule : String)
+    (fixture : String)
+    (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (spec : ProofForge.Contract.ContractSpec)
     (module : ProofForge.IR.Module)
     (yulOutput bytecodeOutput : FilePath) : IO Unit := do
   let (_, _, specArtifact, clientArtifact) ←
     writeEvmContractSdkClientArtifacts spec bytecodeOutput fixture
-  writeEvmModuleArtifactMetadata opts fixture "contract-sdk" sourceModule module yulOutput bytecodeOutput #[
+  writeEvmModuleArtifactMetadata opts fixture sourceIdentity module yulOutput bytecodeOutput #[
     ("contractSpec", specArtifact),
     ("client", clientArtifact)
   ] spec.constructorInitBindings
@@ -701,7 +708,11 @@ def writeEvmIrArtifactMetadata
     (module : ProofForge.IR.Module)
     (yulOutput bytecodeOutput : FilePath)
     (extraArtifacts : Array (String × String) := #[]) : IO Unit :=
-  writeEvmModuleArtifactMetadata opts fixture "portable-ir" sourceModule module yulOutput bytecodeOutput extraArtifacts
+  writeEvmModuleArtifactMetadata opts fixture {
+    moduleName := sourceModule
+    kind := "portable-ir"
+    leanElaborated := false
+  } module yulOutput bytecodeOutput extraArtifacts
 
 def writeEvmLearnArtifactMetadata
     (opts : CliOptions)
@@ -716,13 +727,16 @@ def writeEvmLearnArtifactMetadata
   writeEvmArtifactMetadata
     opts
     fixture
-    "learn-source"
-    sourceModule
+    {
+      moduleName := sourceModule
+      path? := some input.toString
+      kind := "learn-source"
+      leanElaborated := false
+    }
     (moduleCapabilityIds module)
     entrypoints
     (events.map eventAbiJson)
     #[]
-    (some input)
     yulOutput
     bytecodeOutput
 

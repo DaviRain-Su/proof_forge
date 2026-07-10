@@ -44,41 +44,41 @@ object "EvmStructValueProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmStructValueProbe_local_sum() -> result {
+    function f_EvmStructValueProbe_local_sum() -> __pf_result {
       let __proof_forge_struct_p_x := 7
       let __proof_forge_struct_p_y := 13
       let head := __proof_forge_struct_p_x
-      result := __pf_checked_add(head, __proof_forge_struct_p_y)
+      __pf_result := __pf_checked_add(head, __proof_forge_struct_p_y)
     }
-    function f_EvmStructValueProbe_direct_literal_field() -> result {
-      result := 6
+    function f_EvmStructValueProbe_direct_literal_field() -> __pf_result {
+      __pf_result := 6
     }
-    function f_EvmStructValueProbe_bool_guard() -> result {
+    function f_EvmStructValueProbe_bool_guard() -> __pf_result {
       let __proof_forge_struct_flags_enabled := 1
       let __proof_forge_struct_flags_archived := 0
       if iszero(__proof_forge_struct_flags_enabled) {
         revert(0, 0)
       }
-      result := __proof_forge_struct_flags_archived
+      __pf_result := __proof_forge_struct_flags_archived
     }
-    function f_EvmStructValueProbe_u32_pick() -> result {
+    function f_EvmStructValueProbe_u32_pick() -> __pf_result {
       let __proof_forge_struct_small_a := 3
       let __proof_forge_struct_small_b := 5
-      result := __proof_forge_struct_small_b
+      __pf_result := __proof_forge_struct_small_b
     }
-    function f_EvmStructValueProbe_hash_pick() -> result {
+    function f_EvmStructValueProbe_hash_pick() -> __pf_result {
       let __proof_forge_struct_roots_root := 6277101735386680764516354157049543343084444891548699590660
       let __proof_forge_struct_roots_next := 31385508676933403821220641317563962861421152075426748694536
-      result := __proof_forge_struct_roots_root
+      __pf_result := __proof_forge_struct_roots_root
     }
-    function f_EvmStructValueProbe_mutable_point_update() -> result {
+    function f_EvmStructValueProbe_mutable_point_update() -> __pf_result {
       let __proof_forge_struct_p_x := 7
       let __proof_forge_struct_p_y := 13
       __proof_forge_struct_p_x := 9
-      __proof_forge_struct_p_y := __pf_checked_add(__proof_forge_struct_p_y, 5)
-      result := __pf_checked_add(__proof_forge_struct_p_x, __proof_forge_struct_p_y)
+      __proof_forge_struct_p_y := add(__proof_forge_struct_p_y, 5)
+      __pf_result := __pf_checked_add(__proof_forge_struct_p_x, __proof_forge_struct_p_y)
     }
-    function f_EvmStructValueProbe_mutable_mixed_fields() -> result {
+    function f_EvmStructValueProbe_mutable_mixed_fields() -> __pf_result {
       let __proof_forge_struct_flags_enabled := 0
       let __proof_forge_struct_flags_archived := 0
       __proof_forge_struct_flags_enabled := 1
@@ -94,9 +94,9 @@ object "EvmStructValueProbe" {
       if iszero(eq(__proof_forge_struct_roots_next, 56493915618480126877924928478078382379757859259304797798412)) {
         revert(0, 0)
       }
-      result := __pf_checked_add(__proof_forge_struct_flags_enabled, __proof_forge_struct_small_b)
+      __pf_result := __pf_checked_add(__proof_forge_struct_flags_enabled, __proof_forge_struct_small_b)
     }
-    function f_EvmStructValueProbe_whole_struct_assign() -> result {
+    function f_EvmStructValueProbe_whole_struct_assign() -> __pf_result {
       let __proof_forge_struct_p_x := 1
       let __proof_forge_struct_p_y := 2
       let __proof_forge_struct_q_x := 7
@@ -113,7 +113,7 @@ object "EvmStructValueProbe" {
         __proof_forge_struct_p_x := __proof_forge_assign_struct_p_x
         __proof_forge_struct_p_y := __proof_forge_assign_struct_p_y
       }
-      result := __pf_checked_add(__proof_forge_struct_p_x, __pf_checked_mul(__proof_forge_struct_p_y, 10))
+      __pf_result := __pf_checked_add(__proof_forge_struct_p_x, __pf_checked_mul(__proof_forge_struct_p_y, 10))
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -128,7 +128,7 @@ object "EvmStructValueProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

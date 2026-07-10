@@ -15,6 +15,7 @@ fi
 
 cd "${ROOT}"
 lake build ProofForge.Backend.Aleo.IR >/dev/null
+rm -rf "${VERIFY_DIR}"
 lake env lean --run RenderAleoFixtures.lean >/dev/null
 
 # A local stub for the external program crosscall imports. crosscall's generated

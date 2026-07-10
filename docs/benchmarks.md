@@ -1,6 +1,6 @@
 # ProofForge vs Native Benchmark Matrix
 
-Status: **Active (B1 wave core complete through B1.8)**  
+Status: **Active (B1 wave core complete through B1.8)**
 Plan: [post-review execution plan](superpowers/plans/2026-07-10-post-review-execution.md) wave **B1**
 
 ## Why

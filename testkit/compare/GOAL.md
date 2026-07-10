@@ -3,9 +3,10 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 28 live dual-deploy** (Wave 13 HeightLockVault HostEnv height gate).
+Status: **In progress: 28 live dual-deploy reports; observation coverage audit pending.**
 Blocked: full Stdlib.ERC4626 NEAR asset crosscall; UTF-8 string KV.
-Optional next: UTF-8 string KV; more product contracts.
+Next: complete argument/caller/return/log/storage observations before restoring
+any semantic-equivalence or performance-ranking claim.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -14,8 +15,9 @@ Baseline already landed (do not re-build from scratch):
 
 - Dual-deploy harness under `testkit/compare/` (offline size/fuel + NEAR Sandbox)
 - Contracts: **Counter**, **ValueVault**
-- Gas path: multi-scalar pack (`__pf_s`), event composite putstr, write-only
-  `pack_begin_fresh`, zero-arg skip `input`
+- State path: stable per-field storage keys. Automatic multi-scalar packing is
+  disabled until artifacts carry an explicit layout version and migration path.
+  Event composite putstr and zero-arg input elision remain enabled.
 - Recipes: `just near-compare*`, `just near-compare-value-vault*`,
   `just near-compare-all-live`
 - Docs: `testkit/compare/README.md`
@@ -75,6 +77,9 @@ not rewrite for sport.
    “README matrix” may be separate commits.
 7. **Do not weaken gates.** Fix implementation or truly stale goldens; no
    `--no-verify`, no deleting asserts to go green.
+   `--allow-semantic-mismatch` is permitted only for explicitly named
+   measurement-only runs; normal `*-live` recipes must return non-zero until
+   observation coverage is complete.
 8. **Do not push, open a PR, force-push, or rewrite history** unless the human
    explicitly asks.
 9. **Stay on NEAR compare scope.** Do not expand EVM/Solana compare matrices
@@ -109,7 +114,8 @@ just near-compare-<name>
 
 # Live (when sandbox available)
 just near-compare-<name>-live
-# Expect sandbox-report.json: semanticMatch true; non-zero gas fields
+# Expect non-zero gas fields. `observedSemanticMatch` describes only recorded
+# evidence; `semanticMatch` may be true only with complete observationCoverage.
 
 # Existing matrix must not regress
 just near-compare-all-live   # or at least counter + value-vault + new
@@ -130,30 +136,34 @@ Keep task IDs stable. Prefer wave order; within a wave prefer listed order.
 If blocked only by tools (e.g. sandbox), mark blocked and continue another
 eligible offline slice.
 
+Historical `done` rows below record that the dual-deploy scenario and metrics
+landed. They are not semantic-equivalence claims; each must be re-run under the
+observation-aware report schema before it is eligible for ranking.
+
 | Wave | Task | Title | State | Eligibility |
 |------|------|-------|-------|-------------|
 | 0 | NC-0.1 | Counter dual-deploy compare | done: baseline harness | — |
-| 0 | NC-0.2 | ValueVault dual-deploy + gas packing | done: baseline harness | — |
+| 0 | NC-0.2 | ValueVault dual-deploy + stable per-key state | done: baseline harness | packing awaits versioned migration |
 | 0 | NC-0.3 | Harness + README snapshot | done | — |
-| 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live semanticMatch; wasm ~48× | — |
-| 1 | NC-1.3 | Ownable / owner gate | done: live semanticMatch; wasm ~256× | — |
-| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | done: live semanticMatch; U64 codes (not UTF-8); wasm ~126× | honesty: string KV open |
+| 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live dual-deploy; historical wasm ~48× | observation coverage pending |
+| 1 | NC-1.3 | Ownable / owner gate | done: live dual-deploy; historical wasm ~256× | observation coverage pending |
+| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | done: live dual-deploy; U64 codes (not UTF-8); historical wasm ~126× | string KV + observation coverage open |
 | H | NC-H1 | Scenario registry (less paste in sandbox main) | done: verified@1a9046e1; modular + SideCtx + run_side | — |
 | H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` (+ status/guestbook) | — |
-| 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
+| 2 | NC-2.1 | StakingVault (map + nativeValue) | done: live dual-deploy; historical wasm ~94× | observation coverage pending |
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
 | 2 | NC-2.3 | FeeToken / extended FT | done: live ~93× wasm; body under Backend/WasmNear | — |
-| 3 | NC-3.1 | GuestBook / multi-message storage | done: live semanticMatch; U64 codes; wasm ~119× | honesty: string KV open |
+| 3 | NC-3.1 | GuestBook / multi-message storage | done: live dual-deploy; U64 codes; historical wasm ~119× | string KV + observation coverage open |
 | 3 | NC-3.2 | Cross-contract / promise scenario | done: live peer rebuild + dual deploy | — |
 | 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | done: live NEP-145-lite StorageDeposit; wasm ~196× | honesty: no full JSON StorageBalance |
-| 4 | NC-4.1 | Pausable emergency-stop mixin | done: live semanticMatch; wasm ~131× | — |
-| 4 | NC-4.2 | ReentrancyGuard lock-bit | done: live semanticMatch; wasm ~135× | honesty: lock bit only |
-| 4 | NC-4.3 | OwnablePausable owner-gated pause | done: live semanticMatch; wasm ~98× | — |
-| 5 | NC-5.1 | ArrayExample fixed array locals | done: live semanticMatch; wasm ~131× | view-only |
-| 5 | NC-5.2 | OwnableHash 32-byte owner | done: live semanticMatch; wasm ~115× | — |
-| 5 | NC-5.3 | HostEnvProbe triad snapshot | done: live semanticMatch; wasm ~84× | honesty: time/height host-defined |
-| 6 | NC-6.1 | AuthRemoteCall debit + promise | done: live semanticMatch; wasm ~159× | multi-account + peer rebuild |
-| 6 | NC-6.2 | AccessControl role map | done: live semanticMatch; wasm ~177× | .address→U64 on NEAR |
+| 4 | NC-4.1 | Pausable emergency-stop mixin | done: live dual-deploy; historical wasm ~131× | observation coverage pending |
+| 4 | NC-4.2 | ReentrancyGuard lock-bit | done: live dual-deploy; historical wasm ~135× | lock bit only; observation coverage pending |
+| 4 | NC-4.3 | OwnablePausable owner-gated pause | done: live dual-deploy; historical wasm ~98× | observation coverage pending |
+| 5 | NC-5.1 | ArrayExample fixed array locals | done: live dual-deploy; historical wasm ~131× | view-only; observation coverage pending |
+| 5 | NC-5.2 | OwnableHash 32-byte owner | done: live dual-deploy; historical wasm ~115× | observation coverage pending |
+| 5 | NC-5.3 | HostEnvProbe triad snapshot | done: live dual-deploy; historical wasm ~84× | time/height host-defined; observation coverage pending |
+| 6 | NC-6.1 | AuthRemoteCall debit + promise | done: live dual-deploy; historical wasm ~159× | callback/result coverage pending |
+| 6 | NC-6.2 | AccessControl role map | done: live dual-deploy; historical wasm ~177× | .address→U64; observation coverage pending |
 | 7 | NC-7.1 | ExternalTokenTransfer NEP-141 client | done: live ~111× wasm; mock FT peer | Layer B |
 | 7 | NC-7.2 | ExternalVault peer client | done: live ~138× wasm; mock vault peer | Layer B |
 | 7 | NC-7.3 | Product scan + MATRIX.md comparison | done | Soulbound/ERC4626 blocked |
@@ -178,7 +188,8 @@ eligible offline slice.
   `testkit/compare/near/fungible-token/`.
 - **Scenario (suggested):** initialize supply → mint or seed → transfer →
   balance views on both accounts if needed.
-- **Accept:** offline size report + live dual-deploy semantic match + README row.
+- **Accept:** offline size report + live dual-deploy with complete observation
+  coverage and semantic match + README row.
 - **Risks:** TokenSpec vs EmitWat body mismatch; JSON vs Borsh args; map storage
   gas. Prefer fixing product/codegen only as needed for the scenario.
 
@@ -216,9 +227,12 @@ Mark Status **Complete: verified@\<sha\>** only when all of the following hold:
 
 1. At least **Wave 1**: NC-1.2 done (live), plus either NC-1.3 or NC-1.1 done (live).
 2. **Wave 2**: NC-2.1 done (live).
-3. `just near-compare-all-live` runs Counter + ValueVault + all new live contracts
-   with `semanticMatch: true` (or documented sandbox skip only if environment
-   cannot start sandbox — then Complete is not allowed).
+3. `just near-compare-all-live` runs Counter + ValueVault + all new live contracts.
+   Every report must use the exact v1 schema and have
+   `observedSemanticMatch: true`, `semanticMatch: true`,
+   `observationCoverage.complete: true`, an empty `missing` list, and every
+   required dimension in `covered`; a documented sandbox skip, malformed
+   coverage, or a partial-observation match does not permit Complete.
 4. `testkit/compare/README.md` matrix is up to date for every done contract.
 5. No known regression on Counter/ValueVault live ratios worse than noise
    without a documented reason.

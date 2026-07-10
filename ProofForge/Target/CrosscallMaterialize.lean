@@ -80,6 +80,36 @@ structure Report where
   note : String
   deriving Repr
 
+/-! Linear record materialization reporting
+
+`StructDecl.isRecord` carries consumable/linear semantics. Only Aleo currently
+has a native adapter; every other registered target reports an explicit reject
+so tooling cannot silently present the type as an ordinary copyable struct. -/
+
+inductive LinearRecordDisposition where
+  | materialize
+  | reject
+  deriving BEq, DecidableEq, Repr
+
+structure LinearRecordReport where
+  targetId : String
+  disposition : LinearRecordDisposition
+  note : String
+  deriving Repr
+
+def linearRecordForProfile (profile : TargetProfile) : LinearRecordReport :=
+  if profile.capabilities.contains .dataLinearRecord then
+    { targetId := profile.id
+      disposition := .materialize
+      note := "linear_record materializes as a Leo record with owner semantics" }
+  else
+    { targetId := profile.id
+      disposition := .reject
+      note := "target has no declared linear-record materialization; reject instead of lowering as a value struct" }
+
+def linearRecordReportsForAllImplemented : Array LinearRecordReport :=
+  all.map linearRecordForProfile
+
 private def jsonStr (s : String) : String := "\"" ++ s ++ "\""
 
 def Report.json (r : Report) : String :=

@@ -5,11 +5,10 @@ object "CounterUUPSImpl" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+        revert(0, 0)
+      }
       f_CounterUUPSImpl_upgradeTo(calldataload(4))
-      return(0, 0)
-    }
-    case 0xe1c7392a {
-      f_CounterUUPSImpl_init()
       return(0, 0)
     }
     case 0xd09de08a {
@@ -25,30 +24,54 @@ object "CounterUUPSImpl" {
       revert(0, 0)
     }
     function f_CounterUUPSImpl_upgradeTo(newImpl) {
-      if iszero(eq(caller(), and(shr(192, sload(0)), 18446744073709551615))) {
+      if iszero(eq(__proof_forge_hash_word(caller()), sload(0))) {
         revert(0, 0)
       }
       if iszero(iszero(eq(newImpl, 0))) {
         revert(0, 0)
       }
-      sstore(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc, newImpl)
       {
-        mstore(0, 38645192964397054375116689231969871224811042888286884345660562590062149107712)
-        let _topic0 := keccak256(0, 16)
-        let _indexed_topic0 := newImpl
-        log2(0, 0, _topic0, _indexed_topic0)
+        let __pf_implementation_candidate := newImpl
+        if gt(__pf_implementation_candidate, 1461501637330902918203684832716283019655932542975) {
+          revert(0, 0)
+        }
+        if iszero(extcodesize(__pf_implementation_candidate)) {
+          revert(0, 0)
+        }
+        if eq(__pf_implementation_candidate, address()) {
+          revert(0, 0)
+        }
+        sstore(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc, __pf_implementation_candidate)
+      }
+      {
+        mstore(0, 38645192964397054375114771727196312373665420932860864730563608020886214410240)
+        let __pf_event_topic0 := keccak256(0, 17)
+        let __pf_event_indexed_topic0 := newImpl
+        log2(0, 0, __pf_event_topic0, __pf_event_indexed_topic0)
       }
     }
-    function f_CounterUUPSImpl_init() {
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, caller())))
-      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, 0)))
-    }
     function f_CounterUUPSImpl_increment() {
-      let n := and(shr(64, sload(0)), 18446744073709551615)
-      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, __pf_checked_add(n, 1))))
+      let n := and(shr(64, sload(1)), 18446744073709551615)
+      {
+        let __pf_packed_value := __pf_checked_width(__pf_checked_add(__pf_checked_width(n, 18446744073709551615), __pf_checked_width(1, 18446744073709551615)), 18446744073709551615)
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(1, or(and(sload(1), not(shl(64, 18446744073709551615))), shl(64, and(__pf_packed_value, 18446744073709551615))))
+      }
     }
-    function f_CounterUUPSImpl_get() -> result {
-      result := and(shr(64, sload(0)), 18446744073709551615)
+    function f_CounterUUPSImpl_get() -> __pf_result {
+      __pf_result := and(shr(64, sload(1)), 18446744073709551615)
+    }
+    function __proof_forge_hash_word(value) -> result {
+      mstore(0, value)
+      result := keccak256(0, 32)
+    }
+    function __pf_checked_width(value, maxValue) -> result {
+      if gt(value, maxValue) {
+        revert(0, 0)
+      }
+      result := value
     }
     function __pf_checked_add(a, b) -> r {
       if gt(a, sub(115792089237316195423570985008687907853269984665640564039457584007913129639935, b)) {
@@ -63,7 +86,7 @@ object "CounterUUPSImpl" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }

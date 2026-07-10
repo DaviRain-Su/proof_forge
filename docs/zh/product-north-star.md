@@ -53,7 +53,7 @@
 | ② 指定 target 自动物化 | `ProofForge/Target/` 的 `materialize` 层 + 可移植 crosscall(`declareRemote` + `remoteCallRef`,逻辑 peer,不碰 host 字符串池/裸池索引)按 target 生成 CPI / promise / 存储 | ✅ 推进中 |
 | ③ 抽象组件库 | `Shared` catalog:OwnableHash、OwnablePausable、FungibleToken(NEP-141)、RemoteCall | ✅ 冒头 |
 | ④ 一份源→多链 | EVM / Solana / NEAR / CosmWasm / Soroban 五个 host 家族(WASM 家族共享一个 `WasmExec` 核) | ✅ 在 |
-| 护城河 | 三链全称精化(Counter/ValueVault)+ FV-9 底座(共享可证解释器、覆盖谓词、归纳 wrapper) | ✅ 底座在;`∀ 合约` 封顶未做 |
+| 护城河 | Solana/WASM 证明面 + EVM 当前低位布局固定 trace + FV-9 底座(共享可证解释器、覆盖谓词、归纳 wrapper) | 部分完成:EVM 通用 theorem 仍需 `CounterCompiledPowdrEntrypointObligations`;`∀ 合约` 封顶未做 |
 
 **结论:代码确实在造这个内核,不是跑偏成纯 FV。** 最近的 portable-SDK / crosscall / Soroban /
 token 那批提交,恰恰是在建 ①②③④;FV 是底下的护城河。

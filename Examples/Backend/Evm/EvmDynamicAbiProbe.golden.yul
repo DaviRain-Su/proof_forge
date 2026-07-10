@@ -17,9 +17,9 @@ object "EvmDynamicAbiProbe" {
         mstore(__pf_dyn_ptr_data, calldataload(add(4, calldataload(4))))
         calldatacopy(add(__pf_dyn_ptr_data, 32), add(add(4, calldataload(4)), 32), mul(div(add(calldataload(add(4, calldataload(4))), 31), 32), 32))
         mstore(64, add(__pf_dyn_ptr_data, add(mul(div(add(calldataload(add(4, calldataload(4))), 31), 32), 32), 32)))
-        let data__length := calldataload(add(4, calldataload(4)))
-        let data__data_ptr := __pf_dyn_ptr_data
-        let _r := f_EvmDynamicAbiProbe_echo_bytes(data__length, data__data_ptr)
+        let __pf_param_data_length := calldataload(add(4, calldataload(4)))
+        let __pf_param_data_data_ptr := __pf_dyn_ptr_data
+        let _r := f_EvmDynamicAbiProbe_echo_bytes(__pf_param_data_length, __pf_param_data_data_ptr)
         let _ret_len := mload(_r)
         let _ret_word_count := div(add(_ret_len, 31), 32)
         mstore(0, 32)
@@ -47,9 +47,9 @@ object "EvmDynamicAbiProbe" {
         mstore(__pf_dyn_ptr_data, calldataload(add(4, calldataload(4))))
         calldatacopy(add(__pf_dyn_ptr_data, 32), add(add(4, calldataload(4)), 32), mul(div(add(calldataload(add(4, calldataload(4))), 31), 32), 32))
         mstore(64, add(__pf_dyn_ptr_data, add(mul(div(add(calldataload(add(4, calldataload(4))), 31), 32), 32), 32)))
-        let data__length := calldataload(add(4, calldataload(4)))
-        let data__data_ptr := __pf_dyn_ptr_data
-        let _r := f_EvmDynamicAbiProbe_echo_string(data__length, data__data_ptr)
+        let __pf_param_data_length := calldataload(add(4, calldataload(4)))
+        let __pf_param_data_data_ptr := __pf_dyn_ptr_data
+        let _r := f_EvmDynamicAbiProbe_echo_string(__pf_param_data_length, __pf_param_data_data_ptr)
         let _ret_len := mload(_r)
         let _ret_word_count := div(add(_ret_len, 31), 32)
         mstore(0, 32)
@@ -67,6 +67,12 @@ object "EvmDynamicAbiProbe" {
         if lt(calldatasize(), 68) {
           revert(0, 0)
         }
+        if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
+          revert(0, 0)
+        }
+        if gt(calldataload(36), 18446744073709551615) {
+          revert(0, 0)
+        }
         let _r := f_EvmDynamicAbiProbe_transfer(calldataload(4), calldataload(36))
         mstore(0, _r)
         return(0, 32)
@@ -75,16 +81,16 @@ object "EvmDynamicAbiProbe" {
         revert(0, 0)
       }
     }
-    function f_EvmDynamicAbiProbe_echo_bytes(data__length, data__data_ptr) -> result {
-      let data := data__data_ptr
-      result := data__data_ptr
+    function f_EvmDynamicAbiProbe_echo_bytes(__pf_param_data_length, __pf_param_data_data_ptr) -> __pf_result {
+      let data := __pf_param_data_data_ptr
+      __pf_result := __pf_param_data_data_ptr
     }
-    function f_EvmDynamicAbiProbe_echo_string(data__length, data__data_ptr) -> result {
-      let data := data__data_ptr
-      result := data__data_ptr
+    function f_EvmDynamicAbiProbe_echo_string(__pf_param_data_length, __pf_param_data_data_ptr) -> __pf_result {
+      let data := __pf_param_data_data_ptr
+      __pf_result := __pf_param_data_data_ptr
     }
-    function f_EvmDynamicAbiProbe_transfer(to, amount) -> result {
-      result := 1
+    function f_EvmDynamicAbiProbe_transfer(to, amount) -> __pf_result {
+      __pf_result := 1
     }
   }
 }

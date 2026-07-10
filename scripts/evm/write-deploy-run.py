@@ -35,8 +35,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--rpc-url", required=True)
+    parser.add_argument("--chain-profile-json", required=True)
     parser.add_argument("--chain-id", type=int, required=True)
-    parser.add_argument("--network-kind", default="anvil")
+    parser.add_argument(
+        "--network-kind",
+        choices=("anvil", "chain-profile"),
+        required=True,
+    )
+    parser.add_argument(
+        "--anvil-started-status",
+        choices=("passed", "skipped"),
+        required=True,
+    )
     parser.add_argument("--deployer", required=True)
     parser.add_argument("--deploy-manifest", required=True)
     parser.add_argument("--runtime-bytecode", required=True)
@@ -54,6 +64,14 @@ def main() -> int:
     root = Path(args.root)
     deploy_receipt = json.loads(Path(args.deploy_receipt).read_text(encoding="utf-8"))
     deploy_manifest = json.loads(Path(args.deploy_manifest).read_text(encoding="utf-8"))
+    profile = json.loads(args.chain_profile_json)
+    if not isinstance(profile, dict):
+        raise SystemExit("--chain-profile-json must decode to an object")
+    if profile.get("chainId") != args.chain_id:
+        raise SystemExit("--chain-id must match --chain-profile-json chainId")
+    expected_network_kind = "anvil" if profile.get("id") == "anvil-local" else "chain-profile"
+    if args.network_kind != expected_network_kind:
+        raise SystemExit("--network-kind must match --chain-profile-json profile")
     runtime_hex = Path(args.runtime_bytecode).read_text(encoding="utf-8").strip()
     contract_address = deploy_receipt["contractAddress"]
 
@@ -69,7 +87,7 @@ def main() -> int:
         "deployManifest": file_entry(root, args.deploy_manifest),
         "runtimeBytecode": file_entry(root, args.runtime_bytecode),
         "initCode": file_entry(root, args.init_code),
-        "chainProfile": deploy_manifest.get("chainProfile"),
+        "chainProfile": profile,
         "constructorAbi": deploy_manifest["abi"]["constructor"],
         "constructorArgs": deploy_manifest["creation"]["constructorArgs"],
         "castSendReceipt": file_entry(root, args.deploy_receipt),
@@ -109,7 +127,7 @@ def main() -> int:
             "afterSecondIncrementGet": args.after_second_increment_get,
         },
         "validation": {
-            "anvilStarted": "passed",
+            "anvilStarted": args.anvil_started_status,
             "chainId": "passed",
             "castCreate": "passed",
             "creationTransaction": "passed",

@@ -15,6 +15,9 @@ object "EvmMapProbe" {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmMapProbe_read_balance(calldataload(4))
       mstore(0, _r)
       return(0, 32)
@@ -23,12 +26,24 @@ object "EvmMapProbe" {
       if lt(calldatasize(), 68) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmMapProbe_upsert_balance(calldataload(4), calldataload(36))
       mstore(0, _r)
       return(0, 32)
     }
     case 0xb41d1f5c {
       if lt(calldatasize(), 68) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
         revert(0, 0)
       }
       f_EvmMapProbe_set_balance(calldataload(4), calldataload(36))
@@ -41,6 +56,9 @@ object "EvmMapProbe" {
     }
     case 0x4c136189 {
       if lt(calldatasize(), 36) {
+        revert(0, 0)
+      }
+      if gt(calldataload(4), 18446744073709551615) {
         revert(0, 0)
       }
       let _r := f_EvmMapProbe_contains_balance(calldataload(4))
@@ -66,6 +84,15 @@ object "EvmMapProbe" {
       if lt(calldatasize(), 100) {
         revert(0, 0)
       }
+      if gt(calldataload(4), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(36), 18446744073709551615) {
+        revert(0, 0)
+      }
+      if gt(calldataload(68), 18446744073709551615) {
+        revert(0, 0)
+      }
       let _r := f_EvmMapProbe_nested_path_dynamic(calldataload(4), calldataload(36), calldataload(68))
       mstore(0, _r)
       return(0, 32)
@@ -73,9 +100,9 @@ object "EvmMapProbe" {
     default {
       revert(0, 0)
     }
-    function f_EvmMapProbe_map_lifecycle() -> result {
-      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, 111)))
-      sstore(2, or(and(sload(2), not(shl(192, 18446744073709551615))), shl(192, 222)))
+    function f_EvmMapProbe_map_lifecycle() -> __pf_result {
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(111, 18446744073709551615))))
+      sstore(2, or(and(sload(2), not(shl(0, 18446744073709551615))), shl(0, and(222, 18446744073709551615))))
       let old0 := __proof_forge_map_set_return(1, 1001, 11)
       if iszero(eq(old0, 0)) {
         revert(0, 0)
@@ -87,21 +114,21 @@ object "EvmMapProbe" {
       if iszero(eq(old1, 11)) {
         revert(0, 0)
       }
-      result := sload(__proof_forge_map_slot(1, 1001))
+      __pf_result := sload(__proof_forge_map_slot(1, 1001))
     }
-    function f_EvmMapProbe_get_seed_balance() -> result {
-      result := sload(__proof_forge_map_slot(1, 1001))
+    function f_EvmMapProbe_get_seed_balance() -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(1, 1001))
     }
-    function f_EvmMapProbe_read_balance(key) -> result {
-      result := sload(__proof_forge_map_slot(1, key))
+    function f_EvmMapProbe_read_balance(key) -> __pf_result {
+      __pf_result := sload(__proof_forge_map_slot(1, key))
     }
-    function f_EvmMapProbe_upsert_balance(key, value) -> result {
-      result := __proof_forge_map_set_return(1, key, value)
+    function f_EvmMapProbe_upsert_balance(key, value) -> __pf_result {
+      __pf_result := __proof_forge_map_set_return(1, key, value)
     }
     function f_EvmMapProbe_set_balance(key, value) {
       __proof_forge_map_write(1, key, value)
     }
-    function f_EvmMapProbe_contains_lifecycle() -> result {
+    function f_EvmMapProbe_contains_lifecycle() -> __pf_result {
       if iszero(eq(iszero(iszero(sload(__proof_forge_map_presence_slot(1, 1001)))), 0)) {
         revert(0, 0)
       }
@@ -119,16 +146,16 @@ object "EvmMapProbe" {
       if iszero(eq(iszero(iszero(sload(__proof_forge_map_presence_slot(1, 1001)))), 1)) {
         revert(0, 0)
       }
-      result := sload(__proof_forge_map_slot(1, 1001))
+      __pf_result := sload(__proof_forge_map_slot(1, 1001))
     }
-    function f_EvmMapProbe_contains_balance(key) -> result {
-      result := iszero(iszero(sload(__proof_forge_map_presence_slot(1, key))))
+    function f_EvmMapProbe_contains_balance(key) -> __pf_result {
+      __pf_result := iszero(iszero(sload(__proof_forge_map_presence_slot(1, key))))
     }
-    function f_EvmMapProbe_path_lifecycle() -> result {
+    function f_EvmMapProbe_path_lifecycle() -> __pf_result {
       __proof_forge_map_write(1, 2002, 77)
-      result := sload(__proof_forge_map_slot(1, 2002))
+      __pf_result := sload(__proof_forge_map_slot(1, 2002))
     }
-    function f_EvmMapProbe_path_assign_lifecycle() -> result {
+    function f_EvmMapProbe_path_assign_lifecycle() -> __pf_result {
       __proof_forge_map_write(1, 3003, 11)
       __proof_forge_map_assign_add(1, 3003, 5)
       __proof_forge_map_assign_sub(1, 3003, 1)
@@ -140,34 +167,34 @@ object "EvmMapProbe" {
       __proof_forge_map_assign_xor(1, 3003, 7)
       __proof_forge_map_assign_shl(1, 3003, 2)
       __proof_forge_map_assign_shr(1, 3003, 1)
-      result := sload(__proof_forge_map_slot(1, 3003))
+      __pf_result := sload(__proof_forge_map_slot(1, 3003))
     }
-    function f_EvmMapProbe_nested_path_lifecycle() -> result {
+    function f_EvmMapProbe_nested_path_lifecycle() -> __pf_result {
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, 4004), 5005)
-        sstore(_slot, 88)
-        sstore(_presence_slot, 1)
+        let __pf_storage_slot := __proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005)
+        let __pf_storage_presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, 4004), 5005)
+        sstore(__pf_storage_slot, 88)
+        sstore(__pf_storage_presence_slot, 1)
       }
       if iszero(eq(sload(__proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005)), 88)) {
         revert(0, 0)
       }
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, 4004), 5005)
-        sstore(_slot, __pf_checked_add(sload(_slot), 7))
-        sstore(_presence_slot, 1)
+        let __pf_storage_slot := __proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005)
+        let __pf_storage_presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, 4004), 5005)
+        sstore(__pf_storage_slot, add(sload(__pf_storage_slot), 7))
+        sstore(__pf_storage_presence_slot, 1)
       }
-      result := sload(__proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005))
+      __pf_result := sload(__proof_forge_map_slot(__proof_forge_map_slot(1, 4004), 5005))
     }
-    function f_EvmMapProbe_nested_path_dynamic(outer, inner, value) -> result {
+    function f_EvmMapProbe_nested_path_dynamic(outer, inner, value) -> __pf_result {
       {
-        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(1, outer), inner)
-        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, outer), inner)
-        sstore(_slot, value)
-        sstore(_presence_slot, 1)
+        let __pf_storage_slot := __proof_forge_map_slot(__proof_forge_map_slot(1, outer), inner)
+        let __pf_storage_presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(1, outer), inner)
+        sstore(__pf_storage_slot, value)
+        sstore(__pf_storage_presence_slot, 1)
       }
-      result := sload(__proof_forge_map_slot(__proof_forge_map_slot(1, outer), inner))
+      __pf_result := sload(__proof_forge_map_slot(__proof_forge_map_slot(1, outer), inner))
     }
     function __proof_forge_map_slot(slot, key) -> result {
       mstore(0, key)
@@ -195,17 +222,17 @@ object "EvmMapProbe" {
     }
     function __proof_forge_map_assign_add(slot, key, value) {
       let _slot := __proof_forge_map_slot(slot, key)
-      sstore(_slot, __pf_checked_add(sload(_slot), value))
+      sstore(_slot, add(sload(_slot), value))
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
     function __proof_forge_map_assign_sub(slot, key, value) {
       let _slot := __proof_forge_map_slot(slot, key)
-      sstore(_slot, __pf_checked_sub(sload(_slot), value))
+      sstore(_slot, sub(sload(_slot), value))
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
     function __proof_forge_map_assign_mul(slot, key, value) {
       let _slot := __proof_forge_map_slot(slot, key)
-      sstore(_slot, __pf_checked_mul(sload(_slot), value))
+      sstore(_slot, mul(sload(_slot), value))
       sstore(__proof_forge_map_presence_slot(slot, key), 1)
     }
     function __proof_forge_map_assign_div(slot, key, value) {
@@ -256,7 +283,7 @@ object "EvmMapProbe" {
       r := sub(a, b)
     }
     function __pf_checked_mul(a, b) -> r {
-      if iszero(a) {
+      if or(iszero(a), iszero(b)) {
         r := 0
         leave
       }
