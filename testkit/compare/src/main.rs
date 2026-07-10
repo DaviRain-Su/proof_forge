@@ -86,6 +86,13 @@ fn main() -> Result<()> {
         ["near", "external-vault"] | ["near", "externalvault"] | ["near", "ext-vault"] => {
             run_near_external_vault(&repo_root, &args)
         }
+        ["near", "pro-rata-vault"]
+        | ["near", "proratavault"]
+        | ["near", "share-vault"] => run_near_pro_rata_vault(&repo_root, &args),
+        ["near", "soulbound-token"]
+        | ["near", "soulboundtoken"]
+        | ["near", "sbt"]
+        | ["near", "soulbound"] => run_near_soulbound_token(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -93,7 +100,8 @@ fn main() -> Result<()> {
                   role-gated-token, fee-token, remote-call, status-message, guestbook, \
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
-                  access-control, external-token-transfer, external-vault)"
+                  access-control, external-token-transfer, external-vault, \
+                  pro-rata-vault, soulbound-token)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -173,7 +181,8 @@ fn print_usage() {
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
                     storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
                     array-example|ownable-hash|host-env-probe|auth-remote-call|\n\
-                    access-control|external-token-transfer|external-vault\n\n\
+                    access-control|external-token-transfer|external-vault|\n\
+                    pro-rata-vault|soulbound-token\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -2328,6 +2337,134 @@ fn run_near_external_protocol_client(
     println!("wrote {}", rel(repo_root, &report_path));
     println!("testkit-compare near/{contract}: ok");
     Ok(())
+}
+
+fn run_near_pro_rata_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let a100 = hex_encode_le_u64(100);
+    let bal = hex_encode_le_u64(alice);
+    // init, deposit 100, convert 100, donate 100, convert 100, deposit 100, balance, supply, assets
+    let inputs = format!(",{a100},{a100},{a100},{a100},{a100},{bal},,");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "pro-rata-vault",
+        "testkit/compare/near/pro-rata-vault",
+        "Examples/Product/ProRataVault.lean",
+        "ProRataVault.near-artifact.json",
+        "pf_near_sdk_pro_rata_vault_reference.wasm",
+        &["proratavault.wat", "ProRataVault.wat"],
+        &[
+            "init",
+            "deposit",
+            "donate",
+            "convert_to_shares",
+            "withdraw",
+            "total_assets",
+            "total_supply",
+            "balance_of",
+        ],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "deposit",
+                    "convert_to_shares",
+                    "donate",
+                    "convert_to_shares",
+                    "deposit",
+                    "balance_of",
+                    "total_supply",
+                    "total_assets",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=100"), "expected convert 100 after first deposit\n{out}");
+            ensure!(out.contains("return_u64=50"), "expected convert 50 after donate\n{out}");
+            ensure!(out.contains("return_u64=150"), "expected bal/supply 150\n{out}");
+            ensure!(out.contains("return_u64=300"), "expected assets 300\n{out}");
+            Ok(("deposit→donate→pro-rata deposit→150/300".into(), out))
+        },
+        &["total_assets", "total_supply"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "ERC-4626-inspired internal vault; no IERC20 asset pulls.",
+            "donate doubles assets without shares → convert_to_shares halves.",
+        ],
+    )
+}
+
+fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let mint = {
+        let mut v = alice.to_le_bytes().to_vec();
+        v.extend_from_slice(&10u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let bal = hex_encode_le_u64(alice);
+    let burn = hex_encode_le_u64(10);
+    // init, mint, balance, supply, burn, balance, supply
+    let inputs = format!(",{mint},{bal},,{burn},{bal},");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "soulbound-token",
+        "testkit/compare/near/soulbound-token",
+        "Examples/Product/SoulboundTokenBody.lean",
+        "SoulboundTokenBody.near-artifact.json",
+        "pf_near_sdk_soulbound_token_reference.wasm",
+        &["soulboundtokenbody.wat", "SoulboundTokenBody.wat"],
+        &["init", "mint", "burn", "balance_of", "total_supply"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "mint",
+                    "balance_of",
+                    "total_supply",
+                    "burn",
+                    "balance_of",
+                    "total_supply",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=10"), "expected mint bal/supply 10\n{out}");
+            ensure!(out.contains("return_u64=0"), "expected after burn 0\n{out}");
+            Ok(("mint 10→burn 10".into(), out))
+        },
+        &["total_supply"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "No transfer entry — soulbound honesty.",
+            "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
 }
 
 fn run_near_external_token_transfer(repo_root: &Path, args: &Args) -> Result<()> {

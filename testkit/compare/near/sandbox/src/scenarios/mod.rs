@@ -30,6 +30,8 @@ mod auth_remote_call;
 mod access_control;
 mod external_token_transfer;
 mod external_vault;
+mod pro_rata_vault;
+mod soulbound_token;
 
 
 /// Run one side (ProofForge or near-sdk) for a registered contract.
@@ -70,6 +72,12 @@ pub(crate) async fn run_side(
         }
         ContractKind::AccessControl => {
             access_control::run_access_control_side(worker, wasm_path, side).await
+        }
+        ContractKind::ProRataVault => {
+            pro_rata_vault::run_pro_rata_vault_side(worker, wasm_path, side).await
+        }
+        ContractKind::SoulboundToken => {
+            soulbound_token::run_soulbound_token_side(worker, wasm_path, side).await
         }
         ContractKind::RemoteCall
         | ContractKind::AuthRemoteCall

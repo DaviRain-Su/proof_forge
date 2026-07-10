@@ -110,6 +110,12 @@ just near-compare-external-token-transfer-live
 just near-compare-external-vault
 just near-compare-external-vault-live
 
+# ProRataVault / SoulboundToken body
+just near-compare-pro-rata-vault
+just near-compare-pro-rata-vault-live
+just near-compare-soulbound-token
+just near-compare-soulbound-token-live
+
 # All live dual-deploys
 just near-compare-all-live
 ```
@@ -232,8 +238,10 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | 15–18 | OwnablePausable / Staking / Fee / RGT | **~88–98×** | ~1.06–1.20× | 773–2373 B |
 | 19–20 | HostEnv / ValueVault | **~76–84×** | ~1.11–1.16× | 893–2053 B |
 | 21 | FungibleToken | **~48×** | ~1.10× | 3860 B |
+| — | ProRataVault | **~82×** | ~1.13× | 2412 B |
+| — | SoulboundToken | **~110×** | ~1.12× | 1734 B |
 
-**Stats (live):** median wasm× **~126×**, median call× **~1.13×**, range wasm× **48–256×**.
+**Stats (live, 23 contracts):** median wasm× **~119×**, median call× **~1.13×**, range wasm× **48–256×**.
 
 **Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
@@ -255,7 +263,9 @@ Fairness notes:
 - AccessControl: wasm-near lowers `.address` to U64 (sha256 limb0); nested role maps.
 - AuthRemoteCall: promise body is raw LE u64 amount; peer `receive` parses `env::input()`.
 - ExternalTokenTransfer / ExternalVault are **Layer B peer clients** with mock peers (not full FT/4626).
-- **Not in matrix:** SoulboundToken (TokenSpec-only), ERC4626Vault (stdlib olean gap).
+- **ProRataVault:** ERC-4626-like pro-rata shares without IERC20 pulls (stdlib ERC4626 still NEAR-blocked).
+- **SoulboundTokenBody:** mint/burn only; TokenSpec `SoulboundToken.lean` remains Solana plan path.
+- **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
 
 ## Contracts
 
@@ -282,5 +292,7 @@ Fairness notes:
 | `access-control` | `just near-compare-access-control-live` | `Examples/Product/AccessControl.lean` |
 | `external-token-transfer` | `just near-compare-external-token-transfer-live` | `Examples/Product/ExternalTokenTransfer.lean` |
 | `external-vault` | `just near-compare-external-vault-live` | `Examples/Product/ExternalVault.lean` |
+| `pro-rata-vault` | `just near-compare-pro-rata-vault-live` | `Examples/Product/ProRataVault.lean` |
+| `soulbound-token` | `just near-compare-soulbound-token-live` | `Examples/Product/SoulboundTokenBody.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

@@ -25,6 +25,8 @@ pub(crate) enum ContractKind {
     AccessControl,
     ExternalTokenTransfer,
     ExternalVault,
+    ProRataVault,
+    SoulboundToken,
 }
 
 impl ContractKind {
@@ -54,6 +56,12 @@ impl ContractKind {
             | "ext-ft"
             | "external_token" => Ok(Self::ExternalTokenTransfer),
             "external-vault" | "externalvault" | "ext-vault" => Ok(Self::ExternalVault),
+            "pro-rata-vault" | "proratavault" | "pro_rata_vault" | "share-vault" => {
+                Ok(Self::ProRataVault)
+            }
+            "soulbound-token" | "soulboundtoken" | "sbt" | "soulbound" => {
+                Ok(Self::SoulboundToken)
+            }
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -81,6 +89,8 @@ impl ContractKind {
             Self::AccessControl => "access-control",
             Self::ExternalTokenTransfer => "external-token-transfer",
             Self::ExternalVault => "external-vault",
+            Self::ProRataVault => "pro-rata-vault",
+            Self::SoulboundToken => "soulbound-token",
         }
     }
 }

@@ -1,0 +1,21 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "program": "soulbound-token",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/SoulboundTokenBody.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "SoulboundTokenBody",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "mint", "amount": 10 },
+      { "call": "balance_of", "expect": 10 },
+      { "call": "burn", "amount": 10 },
+      { "call": "balance_of", "expect": 0 }
+    ]
+  },
+  "honesty": [
+    "No transfer entry — soulbound honesty.",
+    "TokenSpec SoulboundToken.lean remains Solana Token-2022 plan path; this is the EmitWat body."
+  ]
+}

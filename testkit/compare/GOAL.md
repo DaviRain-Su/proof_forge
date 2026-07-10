@@ -3,9 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 21 live dual-deploy; MATRIX.md refreshed@all-reports**.
-Product scan final — only blocked: SoulboundToken (TokenSpec), ERC4626Vault
-(`nearCrosscallStrings` empty).
+Status: **Complete: 23 live dual-deploy** (Wave 8 ProRataVault + SoulboundTokenBody).
+Blocked: TokenSpec-only Soulbound plan; full Stdlib.ERC4626 NEAR asset crosscall.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
@@ -158,6 +157,8 @@ eligible offline slice.
 | 7 | NC-7.1 | ExternalTokenTransfer NEP-141 client | done: live ~111× wasm; mock FT peer | Layer B |
 | 7 | NC-7.2 | ExternalVault peer client | done: live ~138× wasm; mock vault peer | Layer B |
 | 7 | NC-7.3 | Product scan + MATRIX.md comparison | done | Soulbound/ERC4626 blocked |
+| 8 | NC-8.1 | ProRataVault (ERC-4626-like NEAR subset) | done: live ~82× wasm | honesty: no IERC20 pulls |
+| 8 | NC-8.2 | SoulboundTokenBody mint/burn | done: live ~110× wasm | TokenSpec path separate |
 
 ### Task briefs
 
