@@ -27,7 +27,7 @@ Region map (base -> base+size, all bytes are exclusive scratch space):
 | `HASH_CONCAT_BUF`| 40000 | 64     | 40064  | `hash_two_to_one` 64-byte input |
 | `CTX_BUF`       | 41000  | 128    | 41128  | account-id -> sha256 -> u64 |
 | `EVENT_BUF`     | 42000  | 256    | 42256  | event JSON scratch |
-| `EVT_KEY_PTR`   | 42800  | 5      | 42805  | fixed "event" key string |
+| `EVT_PUNCT`     | 42800  | 16     | 42816  | static JSON punctuation for event logs |
 | `STRING_BASE`   | 43000  | ~1000  | 44000  | event/field name string pool |
 | `INPUT_BUF`     | 44000  | ~2000  | 46000  | Borsh input args (1 KB headroom) |
 | `PARAM_HASH_BUF`| 46000  | ~1000  | 47000  | 32-byte slots for decoded hash params |
@@ -63,7 +63,24 @@ def ARR_HEAP : Nat := 60000       -- bump-allocator base for array-value tempora
 def HASH_CONCAT_BUF : Nat := 40000 -- 64-byte scratch for hash_two_to_one
 def CTX_BUF : Nat := 41000          -- 128-byte scratch for account-id -> sha256 -> u64
 def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
-def EVT_KEY_PTR : Nat := 42800     -- fixed "event" key string (5 bytes)
+/-- Static punctuation pack used by optimized event JSON assembly (replaces
+per-character `putc` sequences). Layout within the 16-byte region:
+  +0  (10) `{"event":"`
+  +10 (1)  `"`
+  +11 (2)  `,"`
+  +13 (2)  `":`
+  +15 (1)  `}`
+-/
+def EVT_PUNCT_BASE : Nat := 42800
+def EVT_PUNCT_SIZE : Nat := 16
+def EVT_HDR_OPEN_PTR : Nat := EVT_PUNCT_BASE
+def EVT_HDR_OPEN_LEN : Nat := 10
+def EVT_QUOTE_PTR : Nat := EVT_PUNCT_BASE + 10
+def EVT_FIELD_SEP_PTR : Nat := EVT_PUNCT_BASE + 11
+def EVT_COLON_PTR : Nat := EVT_PUNCT_BASE + 13
+def EVT_CLOSE_PTR : Nat := EVT_PUNCT_BASE + 15
+/-- Back-compat alias: start of the event punctuation pack (was "event" key). -/
+def EVT_KEY_PTR : Nat := EVT_PUNCT_BASE
 def STRING_BASE : Nat := 43000     -- event/field name string pool base
 def INPUT_BUF : Nat := 44000       -- 1 KB scratch for Borsh input args
 def CROSSCALL_BUF : Nat := 47000          -- scratch for building crosscall JSON arg arrays
@@ -94,7 +111,7 @@ def memoryLayoutNonoverlap : Bool :=
     (KEY_BUF, 4096), (RET_BUF, 3808), (TRUE_PTR, 6), (FALSE_PTR, 5),
     (HEX_LUT_PTR, 16), (MAPKEY_BUF, 17500), (HASH_HEAP, 10000),
     (HASH_CONCAT_BUF, 64), (CTX_BUF, 128),
-    (EVENT_BUF, 256), (EVT_KEY_PTR, 5), (STRING_BASE, 1000),
+    (EVENT_BUF, 256), (EVT_PUNCT_BASE, EVT_PUNCT_SIZE), (STRING_BASE, 1000),
     (INPUT_BUF, 2000), (PARAM_HASH_BUF, 1000), (CROSSCALL_BUF, 1100),
     (CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN),
     (CROSSCALL_STRING_BASE, 1000), (ZERO_HASH_BUF, 32),

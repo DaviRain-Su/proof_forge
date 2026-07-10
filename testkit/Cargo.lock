@@ -3039,6 +3039,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-forge-testkit-compare"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proof-forge-testkit-core"
 version = "0.1.0"
 dependencies = [

@@ -2,11 +2,19 @@
 resolver = "2"
 members = [
   "core",
+  "compare",
   "harness-evm",
   "harness-near",
   "harness-quint",
   "harness-solana",
   "runner",
+]
+# Nested near-sdk reference crates under compare/near/*/ are standalone
+# (they declare their own [workspace] so cargo does not inherit this one).
+exclude = [
+  "compare/near/counter",
+  "compare/near/value-vault",
+  "compare/near/sandbox",
 ]
 
 [workspace.package]

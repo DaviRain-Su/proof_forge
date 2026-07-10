@@ -25,6 +25,11 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 
 See `scripts/portable/value-vault-smoke.sh` for a checked end-to-end demo.
 
+NEAR native compare (testkit/compare/near/value-vault):
+  just near-compare-value-vault
+  just near-compare-value-vault-live
+
+
 `ProofForge/Contract/Examples/ValueVault.lean` is a compatibility alias for
 this source so tests and formal gates keep one canonical authoring surface.
 -/

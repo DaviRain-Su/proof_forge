@@ -25,6 +25,11 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 
 See `scripts/portable/counter-multi-target.sh` for a checked end-to-end demo.
 
+NEAR native compare (colocated under testkit/compare/near/counter):
+  just near-compare
+  # optional: PROOF_FORGE_NEAR_SDK_BUILD=1 just near-compare
+  # sandbox dual-deploy (real gas): just near-compare-live
+
 Canonical **author** source. `ProofForge.Contract.Examples.Counter` aliases this
 module. `ProofForge.IR.Examples.Counter` is a formal/CLI IR fixture with the
 same shape (name/state/entrypoints); do not author against the IR path.

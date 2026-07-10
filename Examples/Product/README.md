@@ -9,6 +9,7 @@ PDA, CPI, Promise, slots, token standards, or pack layouts (JSON/ABI/ix).
 ```bash
 just product
 just product-token-near     # TokenSpec plan + NEP-141 body on wasm-near
+just near-compare           # NEAR compare bench (testkit/compare/near/counter)
 just product-token-solana   # TokenSpec → Solana SPL plan
 just product-protocol-ft    # external_token transfer (no Protocols import)
 ```

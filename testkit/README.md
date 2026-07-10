@@ -73,3 +73,24 @@ List scenarios without executing them:
 ```sh
 cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
 ```
+
+## Native compare benchmarks
+
+Cross-implementation size/fuel comparison lives in
+[`testkit/compare/`](compare/) (not under ad-hoc `benchmark/` or
+`references/`). Each example keeps its native near-sdk reference and
+manifest next to the Rust driver:
+
+```sh
+just near-compare
+# or:
+cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter
+
+# Include near-sdk wasm size ratio:
+PROOF_FORGE_NEAR_SDK_BUILD=1 just near-compare
+
+# Real dual-deploy on NEAR Sandbox (near-workspaces):
+just near-compare-live
+```
+
+See [`compare/README.md`](compare/README.md).

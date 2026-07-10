@@ -1,0 +1,15 @@
+[package]
+name = "proof-forge-testkit-compare"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Native-vs-ProofForge compare benchmarks (NEAR first)"
+
+[[bin]]
+name = "proof-forge-testkit-compare"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true

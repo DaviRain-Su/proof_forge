@@ -4,6 +4,8 @@ build/
 runtime/offline-host/target/
 testkit/target/
 tools/cosmwasm-vm-runner/target/
+references/**/target/
+testkit/compare/**/target/
 *.bin
 *.yul
 !Examples/Evm/*.golden.yul

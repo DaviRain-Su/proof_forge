@@ -1,0 +1,61 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "counter",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "near-examples/counters",
+    "url": "https://github.com/near-examples/counters",
+    "notes": "Official tutorial uses i8 + optional delta + reset/decrement. This reference keeps the same counter pattern but aligns entrypoints and u64 state with ProofForge Product/Counter."
+  },
+  "proofForgeSource": "Examples/Product/Counter.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "Counter",
+  "state": [
+    {
+      "name": "count",
+      "type": "U64",
+      "encoding": "native-u64"
+    }
+  ],
+  "entrypoints": [
+    {
+      "name": "initialize",
+      "kind": "init",
+      "params": [],
+      "returns": "unit",
+      "mutates": ["count"]
+    },
+    {
+      "name": "increment",
+      "kind": "call",
+      "params": [],
+      "returns": "unit",
+      "mutates": ["count"]
+    },
+    {
+      "name": "get",
+      "kind": "view",
+      "params": [],
+      "returns": "U64",
+      "mutates": []
+    }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "initialize" },
+      { "call": "get", "expectReturnU64": 0 },
+      { "call": "increment" },
+      { "call": "get", "expectReturnU64": 1 }
+    ]
+  },
+  "baselines": {
+    "handwrittenWat": "Examples/Backend/near/spike/handwritten-counter.wat",
+    "notes": "Handwritten spike uses init/get/increment with ASCII digit storage; included as a size floor, not ABI-identical."
+  },
+  "references": [
+    "https://docs.near.org/smart-contracts/tutorials/basic-contracts",
+    "https://github.com/near-examples/counters",
+    "https://github.com/near/near-sdk-rs"
+  ]
+}

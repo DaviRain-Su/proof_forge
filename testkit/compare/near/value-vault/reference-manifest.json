@@ -1,0 +1,74 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "value-vault",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "ProofForge Product/ValueVault",
+    "notes": "near-sdk reference aligned to portable ValueVault state and core entrypoints for dual-deploy compare."
+  },
+  "proofForgeSource": "Examples/Product/ValueVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "ValueVault",
+  "state": [
+    { "name": "balance", "type": "U64" },
+    { "name": "released", "type": "U64" },
+    { "name": "fees", "type": "U64" },
+    { "name": "last_value", "type": "U64" },
+    { "name": "last_checkpoint", "type": "U64" },
+    { "name": "operations", "type": "U64" }
+  ],
+  "entrypoints": [
+    {
+      "name": "initialize",
+      "kind": "init",
+      "params": [{ "name": "initial", "type": "U64" }],
+      "returns": "unit"
+    },
+    {
+      "name": "deposit",
+      "kind": "call",
+      "params": [{ "name": "amount", "type": "U64" }],
+      "returns": "unit"
+    },
+    {
+      "name": "charge_fee",
+      "kind": "call",
+      "params": [
+        { "name": "gross", "type": "U64" },
+        { "name": "fee_bps", "type": "U64" }
+      ],
+      "returns": "unit"
+    },
+    {
+      "name": "release",
+      "kind": "call",
+      "params": [{ "name": "amount", "type": "U64" }],
+      "returns": "unit"
+    },
+    {
+      "name": "get_balance",
+      "kind": "view",
+      "params": [],
+      "returns": "U64"
+    },
+    {
+      "name": "get_net_value",
+      "kind": "view",
+      "params": [],
+      "returns": "U64"
+    }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "initialize", "args": [100] },
+      { "call": "get_balance", "expectReturnU64": 100 },
+      { "call": "deposit", "args": [50] },
+      { "call": "get_balance", "expectReturnU64": 150 }
+    ]
+  },
+  "references": [
+    "Examples/Product/ValueVault.lean",
+    "https://github.com/near/near-sdk-rs"
+  ]
+}

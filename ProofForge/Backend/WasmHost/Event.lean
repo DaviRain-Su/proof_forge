@@ -121,12 +121,15 @@ def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
 def evtPutcInsns (c : Nat) : Array Insn :=
   #[.i32Const c, .call evtPutcName]
 
+def evtPutstrInsns (ptr len : Nat) : Array Insn :=
+  #[.i32Const ptr, .i32Const len, .call evtPutstrName]
+
+/-- Emit `{"event":"<name>"` using static punctuation + name pool (no per-char putc). -/
 def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
-  #[.call evtStartName] ++ evtPutcInsns 0x7B ++ evtPutcInsns 0x22
-    ++ #[.i32Const EVT_KEY_PTR, .i32Const 5, .call evtPutstrName]
-    ++ evtPutcInsns 0x22 ++ evtPutcInsns 0x3A ++ evtPutcInsns 0x22
+  #[.call evtStartName]
+    ++ evtPutstrInsns EVT_HDR_OPEN_PTR EVT_HDR_OPEN_LEN
     ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName]
-    ++ evtPutcInsns 0x22
+    ++ evtPutstrInsns EVT_QUOTE_PTR 1
 
 def evtValueInsnsForType (fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
@@ -137,14 +140,16 @@ def evtValueInsnsForType (fieldName : String) (type : ValueType) :
   | .hash => .ok #[.call evtPutHashName]
   | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
 
+/-- Emit `,"field":<value>` with static `,"` / `":` punctuation. -/
 def evtFieldInsns (fieldName : String) (fieldSi : StringInfo)
     (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) := do
   let valInsns ← evtValueInsnsForType fieldName valueType
-  .ok (evtPutcInsns 0x2C ++ evtPutcInsns 0x22
+  .ok (evtPutstrInsns EVT_FIELD_SEP_PTR 2
     ++ #[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
-    ++ evtPutcInsns 0x22 ++ evtPutcInsns 0x3A ++ valueInsns ++ valInsns)
+    ++ evtPutstrInsns EVT_COLON_PTR 2
+    ++ valueInsns ++ valInsns)
 
 def evtFooterInsns : Array Insn :=
-  evtPutcInsns 0x7D ++ #[.call evtLogName]
+  evtPutstrInsns EVT_CLOSE_PTR 1 ++ #[.call evtLogName]
 
 end ProofForge.Backend.WasmHost.Event

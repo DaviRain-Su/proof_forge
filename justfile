@@ -415,6 +415,31 @@ wasm-near-ft-transfer-call:
 wasm-near-ft-transfer-call-e2e:
     scripts/near/ft-transfer-call-smoke.sh
 
+# NEAR compare benchmarks (colocated under testkit/compare/).
+# Offline by default. Set PROOF_FORGE_NEAR_SDK_BUILD=1 (or --build-sdk) to also
+# cargo-build the near-sdk reference wasm for size comparison.
+near-compare:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter
+
+# Offline + NEAR Sandbox dual-deploy (ProofForge wasm vs near-sdk wasm).
+# Requires network once to download neard-sandbox via near-workspaces.
+# Skips (exit 0 offline, sandbox status=skipped) if sandbox cannot start.
+near-compare-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near counter --live
+
+# ValueVault offline compare (size/fuel); add --live via near-compare-value-vault-live.
+near-compare-value-vault:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near value-vault
+
+near-compare-value-vault-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near value-vault --live
+
+# Run Counter + ValueVault sandbox dual-deploy.
+near-compare-all-live: near-compare-live near-compare-value-vault-live
+
+near-compare-counter: near-compare
+near-benchmark-counter: near-compare
+
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh

@@ -457,7 +457,7 @@ def nearHostBufferMemoryRegions : Array WasmMemoryRegionExpectation := #[
   { name := "KEY_BUF", offset := emitWatKeyBuf, byteLength := 32 },
   { name := "RET_BUF", offset := emitWatRetBuf, byteLength := 32 },
   { name := "EVENT_BUF", offset := emitWatEventBuf, byteLength := 256 },
-  { name := "EVT_KEY_PTR", offset := emitWatEvtKeyPtr, byteLength := 5 },
+  { name := "EVT_PUNCT", offset := emitWatEvtKeyPtr, byteLength := 16 },
   { name := "INPUT_BUF", offset := emitWatInputBuf, byteLength := 1024 }
 ]
 
