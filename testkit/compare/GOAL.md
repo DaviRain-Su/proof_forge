@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Active NC-H1** — Wave 0–4 live matrix@34394de7; harness modularization in progress.
+Status: **Complete NC-H1: verified@1a9046e1** — modular sandbox harness. Wave 0–4 matrix intact. Optional: UTF-8 string KV; more product contracts.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
@@ -137,7 +137,7 @@ eligible offline slice.
 | 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live semanticMatch; wasm ~48× | — |
 | 1 | NC-1.3 | Ownable / owner gate | done: live semanticMatch; wasm ~256× | — |
 | 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | done: live semanticMatch; U64 codes (not UTF-8); wasm ~126× | honesty: string KV open |
-| H | NC-H1 | Scenario registry (less paste in sandbox main) | in_progress: modular sandbox + SideCtx + run_side registry | — |
+| H | NC-H1 | Scenario registry (less paste in sandbox main) | done: verified@1a9046e1; modular + SideCtx + run_side | — |
 | H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` (+ status/guestbook) | — |
 | 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
