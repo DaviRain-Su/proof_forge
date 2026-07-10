@@ -371,12 +371,23 @@ honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
 extend the `just aleo-leo-codegen-smoke` gate. PureMath golden is
 byte-identical; Counter `get` refreshed to a `view fn` returning `u64`.
 
-**Remaining deepening frontier** (need design / Leo work before lowering):
-`crypto.hash` expressions (`Poseidon`/`BHP`) — genuinely blocked: the portable
-IR `Hash` is 4×u64 (EVM-flavored), while Leo hashes are single-input →
-field/u64, so there is no faithful mapping. Events (not in the profile),
-cross-circuit calls, and the mixed `(record, Final)` return shape remain future
-work. (Struct-field storage writes LANDED — see below.)
+**Remaining deepening frontier** (genuinely blocked / not in Leo):
+`crypto.hash` — the portable `Hash` is 4×u64 (EVM-flavored) while Leo hashes
+are single-input → field/u64, so there is no faithful mapping (honest reject).
+**Events** — Aleo/Leo has no event mechanism (it uses records + finalize), and
+the profile intentionally omits `eventsEmit` (honest reject). **Cross-circuit
+calls** — Leo `_dynamic_call` takes `identifier` args (program/network/function
+names), not the portable runtime-address `crosscallInvoke(target, methodId)`
+model, so the mapping is lossy (honest reject until a portable cross-program
+call surface lands).
+
+**Mixed `(value, Final)` return LANDED:** a stateful function whose return
+value is pure lowers as `fn f(…) -> (T, Final) { …; return (value, final { … }); }`
+(verified against `functions/transfer_inline`). Pure (non-storage) statements
++ the pure return run off-chain; storage read/write statements run in `final {}`
+in source order. Functions whose return value reads state keep the plain
+`fn -> Final` shape. `Tests/AleoLeoMixedReturnSmoke.lean` covers a
+`transfer_public_to_private`-style withdraw.
 
 **Coverage breadth:** `Tests/AleoLeoCoverageSmoke.lean` runs 9 pre-existing IR
 probes (arithmetic, bitwise, assertions, conditionals, bounded loops, structs,

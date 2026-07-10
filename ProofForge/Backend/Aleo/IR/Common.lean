@@ -295,6 +295,33 @@ def hasStateWrite (body : Array IR.Statement) : Bool := effectIn effectIsWrite b
 /-- A body contains a storage read but is covered by `hasStateWrite` separately. -/
 def hasStateRead (body : Array IR.Statement) : Bool := effectIn effectIsRead body
 
+/-- A storage read or write effect (excludes context reads, which may stay
+off-chain). Drives the mixed `(value, Final)` partition. -/
+def storageEffect (e : Effect) : Bool := effectIsRead e || effectIsWrite e
+
+/-- A statement touches on-chain storage (read or write). -/
+def hasStorageEffectStmt (s : IR.Statement) : Bool := effectStmtIn storageEffect s
+
+/-- An expression touches on-chain storage (read or write). -/
+def hasStorageEffectExpr (e : Expr) : Bool := effectExprIn storageEffect e
+
+/-- The trailing `return value` of a body, if any. -/
+def lastReturn? (body : Array IR.Statement) : Option Expr :=
+  match body.toList.reverse with
+  | IR.Statement.return v :: _ => some v
+  | _ => none
+
+/-- A stateful (write) function is eligible for the mixed `(value, Final)`
+return shape when it returns a non-unit value whose expression is pure (no
+storage read/write) — so the value can be computed off-chain while the storage
+effects run in `final {}`. Functions whose return value reads state keep the
+plain `fn -> Final` shape (return dropped). -/
+def mixedReturnEligible (ep : Entrypoint) : Bool :=
+  hasStateWrite ep.body && ep.returns != .unit &&
+    match lastReturn? ep.body with
+    | some v => !hasStorageEffectExpr v
+    | none => false
+
 /-- An expression contains any effect. Used by the finalize builder to decide
 whether a `return value` in a `final {}` block should still run its read. -/
 def hasEffectExpr (e : Expr) : Bool := effectExprIn (fun _ => true) e

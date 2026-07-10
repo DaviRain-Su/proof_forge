@@ -327,33 +327,71 @@ def makeInput (name : String) (ty : ValueType) : Except LowerError Input := do
 def finalizeReturnType : LeoType :=
   .future #[] .unit
 
+/-- The Leo 4.x mixed return type `(T, Final)` for a function that returns a
+value AND runs on-chain finalize (verified against `functions/transfer_inline`). -/
+def mixedReturnType (valueType : LeoType) : LeoType :=
+  .tuple #[valueType, finalizeReturnType]
+
+/-- Lower the mixed `(value, Final)` body: pure (non-storage) statements run
+off-chain in order; storage-effect statements run inside `final {}` in order;
+the pure return value is paired with the async finalize block. -/
+def buildMixedBody (ctx : BuildContext) (body : Array IR.Statement) : Except LowerError (Array Statement) := do
+  let mut offChain := #[]
+  let mut finalStmts := #[]
+  let mut returnValue? : Option Expression := none
+  for stmt in body do
+    match stmt with
+    | .return v => returnValue? := some (← buildExpr ctx v)
+    | other =>
+        let ss ← buildStmt ctx other
+        if hasStorageEffectStmt other then
+          finalStmts := finalStmts ++ ss
+        else
+          offChain := offChain ++ ss
+  let some returnValue := returnValue?
+    | .error { message := "mixed (value, Final) return requires a return statement" }
+  let asyncBlock : Block := { statements := finalStmts }
+  let ret := .returnSt (some (.tuple #[returnValue, .async asyncBlock]))
+  .ok (offChain.push ret)
+
 /-- Build a Leo entrypoint `Function` from a portable `Entrypoint`.
 
-Three-way split (verified against the ProvableHQ/leo `functions/view_basic`
-and `style/inline_final` examples):
+Four cases (verified against the ProvableHQ/leo examples):
 
-- **write** (any storage write/event) → `fn … -> Final { return final { … }; }`
-  (Leo's on-chain finalize model);
-- **read-only** (storage reads, no writes) → `view fn … -> T { body }`, which
-  can read mappings/context and *return* the value directly (unlike the Final
-  path, the caller actually receives it);
-- **pure** (no state effects; context reads are allowed in a plain `fn`) →
-  `fn … -> T { body }`. -/
+- **write + pure return value** → `fn … -> (T, Final) { …; return (value, final { … }); }`
+  (mixed: off-chain compute + on-chain finalize — `functions/transfer_inline`);
+- **write** (return dropped / unit) → `fn … -> Final { return final { … }; }`;
+- **read-only** → `view fn … -> T` (returns the value directly);
+- **pure** → `fn … -> T`. -/
 def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Function := do
   let inputs ← ep.params.mapM fun (n, t) => makeInput n t
   if hasStateWrite ep.body then
-    let bodyStmts ← buildFinalizeBody ctx ep.body
-    let asyncBlock : Block := { statements := bodyStmts }
-    .ok {
-      annotations := #[]
-      variant := .entryPoint
-      identifier := ep.name
-      constParameters := #[]
-      input := inputs
-      output := #[]
-      outputType := finalizeReturnType
-      block := { statements := #[.returnSt (some (.async asyncBlock))] }
-    }
+    if mixedReturnEligible ep then
+      let ret ← valueType ep.returns
+      let bodyStmts ← buildMixedBody ctx ep.body
+      .ok {
+        annotations := #[]
+        variant := .entryPoint
+        identifier := ep.name
+        constParameters := #[]
+        input := inputs
+        output := #[]
+        outputType := mixedReturnType ret
+        block := { statements := bodyStmts }
+      }
+    else
+      let bodyStmts ← buildFinalizeBody ctx ep.body
+      let asyncBlock : Block := { statements := bodyStmts }
+      .ok {
+        annotations := #[]
+        variant := .entryPoint
+        identifier := ep.name
+        constParameters := #[]
+        input := inputs
+        output := #[]
+        outputType := finalizeReturnType
+        block := { statements := #[.returnSt (some (.async asyncBlock))] }
+      }
   else
     let ret ← valueType ep.returns
     let bodyStmts ← buildBody ctx ep.body
