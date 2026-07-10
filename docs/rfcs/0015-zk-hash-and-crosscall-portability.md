@@ -161,8 +161,13 @@ non-lossy path.
    faithful to the 4×u64 shape, but heavier and un-ZK-idiomatic). Recommendation:
    `field`.
 2. Confirm **default algorithm per family** (EVM keccak / ZK Poseidon) vs a
-   single global default. Recommendation: per-family.
-3. Whether to land **Decision 3 (algorithm tag)** now or defer. Recommendation:
-   defer; unblock with 1+2 first.
-4. **Cross-circuit** scope: named-callee op (Decision 4) now or later.
-   Recommendation: later — hashing is the higher-value ZK unblock.
+   single global default. Recommendation: per-family. **(Resolved 2026-07-10:
+   per-family landed — Aleo Poseidon via D1+2.)**
+3. **Decision 3 (algorithm tag): DEFERRED.** Landing it would require either
+   modifying `Expr.hash`'s arity (breaks 61 `.hash` match sites across all
+   backends) or adding a new `Expr.hashWith` constructor (a ~30-file cascade
+   like `crosscallNamed`). For an *opt-in* value-portable feature that most
+   contracts do not need, that cost is not justified now; revisit if a real
+   cross-chain Merkle/bridge use case demands forced-keccak digests.
+4. **Cross-circuit (Decision 4): LANDED 2026-07-10** (`crosscallNamed` → static
+   qualified call + import).
