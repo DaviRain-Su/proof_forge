@@ -3,8 +3,9 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: Wave 0–7** — 21 live dual-deploy contracts; MATRIX.md ranked.
-Blocked Product: SoulboundToken (TokenSpec), ERC4626Vault (stdlib olean).
+Status: **Complete: 21 live dual-deploy; MATRIX.md refreshed@all-reports**.
+Product scan final — only blocked: SoulboundToken (TokenSpec), ERC4626Vault
+(`nearCrosscallStrings` empty).
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on

@@ -217,22 +217,25 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | ExternalVault | call gas | 4.26e12 | 4.82e12 | **~1.13×** |
 | ExternalVault | storage | 1513 B | 176389 B | **~116.6×** |
 
-### Compact comparison (wasm×, ranked)
+### Compact comparison (wasm× ranked, 21 live reports)
 
 | Rank | Contract | wasm× | call× | PF wasm |
 |-----:|----------|------:|------:|--------:|
 | 1 | Ownable | **~256×** | ~1.13× | 627 B |
 | 2 | StorageDeposit | **~196×** | ~1.18× | 895 B |
-| 3 | AccessControl | **~177×** | ~1.26× | 1055 B |
-| 4 | AuthRemoteCall | **~159×** | ~1.11× | ~1.1 KB |
-| 5 | ExternalVault | **~138×** | ~1.13× | 1272 B |
-| 6 | ReentrancyGuard / Array / Pausable | **~131×** | ~1.05–1.08× | 374–415 B |
-| … | Status / GuestBook / OwnableHash / ExtFT | **~111–126×** | ~1.06–1.25× | 0.6–1.6 KB |
-| … | OwnablePausable / Fee / Staking / RGT | **~88–98×** | ~1.06–1.20× | 0.8–2.4 KB |
-| … | HostEnv / ValueVault | **~76–84×** | ~1.11–1.16× | 0.9–2 KB |
-| last | FungibleToken (richest body) | **~48×** | ~1.10× | 3860 B |
+| 3 | RemoteCall | **~186×** | ~1.13× | 899 B |
+| 4 | AccessControl | **~177×** | ~1.26× | 1055 B |
+| 5 | AuthRemoteCall | **~159×** | ~1.11× | 1093 B |
+| 6 | ExternalVault | **~138×** | ~1.13× | 1272 B |
+| 7–10 | Counter / Reentrancy / Array / Pausable | **~131–136×** | ~1.05–1.07× | 374–415 B |
+| 11–14 | Status / GuestBook / OwnableHash / ExtFT | **~111–126×** | ~1.06–1.25× | 656–1647 B |
+| 15–18 | OwnablePausable / Staking / Fee / RGT | **~88–98×** | ~1.06–1.20× | 773–2373 B |
+| 19–20 | HostEnv / ValueVault | **~76–84×** | ~1.11–1.16× | 893–2053 B |
+| 21 | FungibleToken | **~48×** | ~1.10× | 3860 B |
 
-**Pattern:** PF is always far smaller in **wasm / storage / deploy gas**. **Call gas** stays near parity (~1.05–1.26×) because storage host ops dominate.
+**Stats (live):** median wasm× **~126×**, median call× **~1.13×**, range wasm× **48–256×**.
+
+**Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
 Fairness notes:
 
