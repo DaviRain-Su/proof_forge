@@ -64,6 +64,7 @@ enum ContractKind {
     RemoteCall,
     StatusMessage,
     GuestBook,
+    StorageDeposit,
 }
 
 impl ContractKind {
@@ -79,6 +80,7 @@ impl ContractKind {
             "remote-call" | "remotecall" | "crosscall" => Ok(Self::RemoteCall),
             "status-message" | "statusmessage" | "status" => Ok(Self::StatusMessage),
             "guestbook" | "guest-book" => Ok(Self::GuestBook),
+            "storage-deposit" | "storagedeposit" | "nep145" => Ok(Self::StorageDeposit),
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -95,6 +97,7 @@ impl ContractKind {
             Self::RemoteCall => "remote-call",
             Self::StatusMessage => "status-message",
             Self::GuestBook => "guestbook",
+            Self::StorageDeposit => "storage-deposit",
         }
     }
 }
@@ -258,6 +261,9 @@ async fn run() -> Result<()> {
         ContractKind::GuestBook => {
             run_guestbook_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
         }
+        ContractKind::StorageDeposit => {
+            run_storage_deposit_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
 
@@ -283,6 +289,9 @@ async fn run() -> Result<()> {
         }
         ContractKind::GuestBook => {
             run_guestbook_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::StorageDeposit => {
+            run_storage_deposit_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
         }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
@@ -535,6 +544,102 @@ async fn run_guestbook_side(
             let s = view_json_u64(&contract, "get_message", json!({ "index": 1 })).await?;
             ensure_ok(&s, "sdk get1")?;
             ensure_ret(&s, 22, "sdk msg1")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_storage_deposit_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+    let alice = contract.id().as_str().to_string();
+    let alice_hash = sha256_32(alice.as_bytes());
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "storage_balance_bounds").await?;
+            ensure_ok(&s, "PF bounds")?;
+            ensure_ret(&s, 1, "PF bounds")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "storage_balance_of", &alice_hash).await?;
+            ensure_ok(&s, "PF bal0")?;
+            ensure_ret(&s, 0, "PF bal initial")?;
+            steps.push(s);
+
+            let s = call_raw_deposit(&contract, "storage_deposit", &alice_hash, 7).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF deposit")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "storage_balance_of", &alice_hash).await?;
+            ensure_ok(&s, "PF bal1")?;
+            ensure_ret(&s, 7, "PF bal after deposit")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "storage_balance_bounds", json!({})).await?;
+            ensure_ok(&s, "sdk bounds")?;
+            ensure_ret(&s, 1, "sdk bounds")?;
+            steps.push(s);
+
+            let s = view_json_u64(
+                &contract,
+                "storage_balance_of",
+                json!({ "account_id": alice }),
+            )
+            .await?;
+            ensure_ok(&s, "sdk bal0")?;
+            ensure_ret(&s, 0, "sdk bal initial")?;
+            steps.push(s);
+
+            let s = call_json_deposit(
+                &contract,
+                "storage_deposit",
+                json!({ "account_id": alice }),
+                7,
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk deposit")?;
+            steps.push(s);
+
+            let s = view_json_u64(
+                &contract,
+                "storage_balance_of",
+                json!({ "account_id": alice }),
+            )
+            .await?;
+            ensure_ok(&s, "sdk bal1")?;
+            ensure_ret(&s, 7, "sdk bal after deposit")?;
             steps.push(s);
         }
     }

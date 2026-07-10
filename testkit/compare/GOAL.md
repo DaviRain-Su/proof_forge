@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Wave 1–3 in progress** — live matrix: Counter…RemoteCall + StatusMessage + GuestBook.
-Remaining primary: NC-3.3 (NEP-145 storage subset).
+Status: **Complete: Wave 0–3 live dual-deploy matrix** (Counter…StorageDeposit).
+Optional remaining: NC-H1 harness scenario registry; full UTF-8 string KV for Status/GuestBook.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -144,7 +144,7 @@ eligible offline slice.
 | 2 | NC-2.3 | FeeToken / extended FT | done: live ~93× wasm; body under Backend/WasmNear | — |
 | 3 | NC-3.1 | GuestBook / multi-message storage | done: live semanticMatch; U64 codes; wasm ~119× | honesty: string KV open |
 | 3 | NC-3.2 | Cross-contract / promise scenario | done: live peer rebuild + dual deploy | — |
-| 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | pending | after NC-1.2 solid |
+| 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | done: live NEP-145-lite StorageDeposit; wasm ~196× | honesty: no full JSON StorageBalance |
 
 ### Task briefs
 

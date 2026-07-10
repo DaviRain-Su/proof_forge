@@ -17,6 +17,7 @@ testkit/compare/
     remote-call/      # promise_create + callee
     status-message/   # per-account status (u64 codes)
     guestbook/        # append/index message board (u64 codes)
+    storage-deposit/  # NEP-145-lite storage_deposit
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
 ```
 
@@ -62,6 +63,10 @@ just near-compare-status-message-live
 # GuestBook (u64 message codes; string KV still open)
 just near-compare-guestbook
 just near-compare-guestbook-live
+
+# NEP-145-lite storage_deposit
+just near-compare-storage-deposit
+just near-compare-storage-deposit-live
 
 # All live dual-deploys
 just near-compare-all-live
@@ -123,6 +128,10 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | GuestBook | deploy gas | 7.03e11 | 1.46e13 | **~20.7×** |
 | GuestBook | call gas | 4.69e12 | 5.45e12 | **~1.16×** |
 | GuestBook | storage | 2147 B | 196640 B | **~91.6×** |
+| StorageDeposit | wasm | **895 B** | 175626 B | **~196.2×** |
+| StorageDeposit | deploy gas | 6.50e11 | 1.31e13 | **~20.2×** |
+| StorageDeposit | call gas | 2.75e12 | 3.25e12 | **~1.18×** |
+| StorageDeposit | storage | 1236 B | 175962 B | **~142.4×** |
 
 Fairness notes:
 
@@ -133,6 +142,8 @@ Fairness notes:
 - Live host fix: `attached_deposit` matches near-sys `(balance_ptr)` u128 write (needed for StakingVault).
 - StatusMessage / GuestBook store **U64 codes** (not free-form UTF-8 strings) until EmitWat
   string KV lands; control flow + map storage match the classic tutorials.
+- StorageDeposit is **NEP-145-lite** (U64 cumulative deposits + min bounds), not full
+  JSON `StorageBalance` / withdraw / refund.
 
 ## Contracts
 
@@ -148,5 +159,6 @@ Fairness notes:
 | `remote-call` | `just near-compare-remote-call-live` | `Examples/Product/RemoteCall.lean` |
 | `status-message` | `just near-compare-status-message-live` | `Examples/Product/StatusMessage.lean` |
 | `guestbook` | `just near-compare-guestbook-live` | `Examples/Product/GuestBook.lean` |
+| `storage-deposit` | `just near-compare-storage-deposit-live` | `Examples/Product/StorageDeposit.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

@@ -1,0 +1,27 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "storage-deposit",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "NEP-145 storage management (minimal)",
+    "notes": "U64 projected balances; no StorageBalance JSON / withdraw / refund."
+  },
+  "proofForgeSource": "Examples/Product/StorageDeposit.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "StorageDeposit",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "storage_balance_bounds", "expect": 1 },
+      { "call": "storage_balance_of", "account": "alice", "expect": 0 },
+      { "call": "storage_deposit", "account": "alice", "attached_deposit": 7 },
+      { "call": "storage_balance_of", "account": "alice", "expect": 7 }
+    ]
+  },
+  "honesty": [
+    "NEP-145-lite: cumulative U64 deposit map, not full JSON StorageBalance.",
+    "PF keys by 32-byte account hash; sdk uses AccountId LookupMap.",
+    "Attached deposit drives storage_deposit via nativeValue / env::attached_deposit."
+  ]
+}

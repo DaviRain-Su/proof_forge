@@ -54,11 +54,15 @@ fn main() -> Result<()> {
         ["near", "guestbook"] | ["near", "guest-book"] => {
             run_near_guestbook(&repo_root, &args)
         }
+        ["near", "storage-deposit"] | ["near", "storagedeposit"] | ["near", "nep145"] => {
+            run_near_storage_deposit(&repo_root, &args)
+        }
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
-                  role-gated-token, fee-token, remote-call, status-message, guestbook)"
+                  role-gated-token, fee-token, remote-call, status-message, guestbook, \
+                  storage-deposit)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -135,7 +139,8 @@ fn print_usage() {
         "usage: proof-forge-testkit-compare near <contract> \
          [--build-sdk] [--live] [--repeat N]\n\
          contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
-                    role-gated-token|fee-token|remote-call|status-message|guestbook\n\n\
+                    role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
+                    storage-deposit\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -1697,6 +1702,82 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "U64 message codes stand in for free-form strings.",
             "Append + index + count matches classic guestbook control flow.",
+        ],
+    )
+}
+
+fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
+    // Fixed 32-byte account hash (matches scripts/near/target-first-smoke.sh).
+    let account_hash =
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    let inputs = format!(",,{account_hash},{account_hash},{account_hash}");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "storage-deposit",
+        "testkit/compare/near/storage-deposit",
+        "Examples/Product/StorageDeposit.lean",
+        "StorageDeposit.near-artifact.json",
+        "pf_near_sdk_storage_deposit_reference.wasm",
+        &["storagedeposit.wat", "StorageDeposit.wat"],
+        &[
+            "init",
+            "storage_balance_bounds",
+            "storage_balance_of",
+            "storage_deposit",
+        ],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "storage_balance_bounds",
+                    "storage_balance_of",
+                    "storage_deposit",
+                    "storage_balance_of",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: Some(7),
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=1"),
+                "expected bounds=1\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=0"),
+                "expected initial balance 0\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=7"),
+                "expected balance 7 after deposit\n{out}"
+            );
+            Ok((
+                "init→bounds 1→bal 0→deposit(7)→bal 7".into(),
+                out,
+            ))
+        },
+        &[
+            "init",
+            "storage_balance_bounds",
+            "storage_balance_of",
+            "storage_deposit",
+            "storage_balance_of",
+        ],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: Some(7),
+            repeat: 1,
+        },
+        &[
+            "NEP-145-lite: U64 cumulative deposits, not full StorageBalance JSON.",
+            "Attached deposit via nativeValue / env::attached_deposit.",
         ],
     )
 }
