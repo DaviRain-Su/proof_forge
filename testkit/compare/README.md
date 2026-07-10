@@ -120,6 +120,10 @@ just near-compare-soulbound-token-live
 just near-compare-ft-peer-client
 just near-compare-ft-peer-client-live
 
+# VestingVault (HostEnv timestamp linear vesting)
+just near-compare-vesting-vault
+just near-compare-vesting-vault-live
+
 # Regenerate MATRIX.md from live reports
 just near-compare-matrix
 
@@ -247,8 +251,9 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | 21 | FungibleToken | **~48×** | ~1.10× | 3860 B |
 | — | ProRataVault | **~82×** | ~1.13× | 2412 B |
 | — | SoulboundToken | **~110×** | ~1.12× | 1734 B |
+| — | VestingVault | **~95×** | ~1.14× | 1556 B |
 
-**Stats (live, 23 contracts):** median wasm× **~119×**, median call× **~1.13×**, range wasm× **48–256×**.
+**Stats (live, 25 contracts):** median wasm× **~115×**, median call× **~1.13×**, range wasm× **48–256×**.
 
 **Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
@@ -272,6 +277,7 @@ Fairness notes:
 - ExternalTokenTransfer / ExternalVault are **Layer B peer clients** with mock peers (not full FT/4626).
 - **ProRataVault:** ERC-4626-like pro-rata shares without IERC20 pulls (stdlib ERC4626 still NEAR-blocked).
 - **SoulboundTokenBody:** mint/burn only; TokenSpec `SoulboundToken.lean` remains Solana plan path.
+- **VestingVault:** linear vesting via HostEnv `timestamp` / `block_timestamp`; internal claim ledger (no external token).
 - **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
 
 ## Contracts
@@ -302,5 +308,6 @@ Fairness notes:
 | `pro-rata-vault` | `just near-compare-pro-rata-vault-live` | `Examples/Product/ProRataVault.lean` |
 | `soulbound-token` | `just near-compare-soulbound-token-live` | `Examples/Product/SoulboundTokenBody.lean` |
 | `ft-peer-client` | `just near-compare-ft-peer-client-live` | `Examples/Backend/WasmNear/FtPeerClient.lean` |
+| `vesting-vault` | `just near-compare-vesting-vault-live` | `Examples/Product/VestingVault.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

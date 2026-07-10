@@ -1,0 +1,23 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "program": "vesting-vault",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/VestingVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "VestingVault",
+  "scenario": {
+    "steps": [
+      { "call": "init", "who": 7, "total": 1000, "start": 0, "dur": 1 },
+      { "call": "release" },
+      { "view": "claim_balance", "expect": 1000 },
+      { "view": "released_amount", "expect": 1000 },
+      { "view": "total_allocation", "expect": 1000 }
+    ]
+  },
+  "honesty": [
+    "Linear vesting via HostEnv timestamp (NEAR block_timestamp nanoseconds).",
+    "Internal claim ledger only — no external token transfer.",
+    "vested/releasable are change methods (PF scratch write; NEAR view forbids storage_write).",
+    "Live: start=0 duration=1 → fully vested under any real sandbox time."
+  ]
+}

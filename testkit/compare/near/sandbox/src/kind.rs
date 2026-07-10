@@ -28,6 +28,7 @@ pub(crate) enum ContractKind {
     ProRataVault,
     SoulboundToken,
     FtPeerClient,
+    VestingVault,
 }
 
 impl ContractKind {
@@ -66,6 +67,9 @@ impl ContractKind {
             "ft-peer-client" | "ftpeerclient" | "ft_peer" | "near-ft-peer" => {
                 Ok(Self::FtPeerClient)
             }
+            "vesting-vault" | "vestingvault" | "vesting_vault" | "vesting" => {
+                Ok(Self::VestingVault)
+            }
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -96,6 +100,7 @@ impl ContractKind {
             Self::ProRataVault => "pro-rata-vault",
             Self::SoulboundToken => "soulbound-token",
             Self::FtPeerClient => "ft-peer-client",
+            Self::VestingVault => "vesting-vault",
         }
     }
 }

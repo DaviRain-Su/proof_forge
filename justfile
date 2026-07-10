@@ -588,12 +588,19 @@ near-compare-ft-peer-client:
 near-compare-ft-peer-client-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ft-peer-client --live
 
+# VestingVault (HostEnv timestamp linear vesting).
+near-compare-vesting-vault:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near vesting-vault
+
+near-compare-vesting-vault-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near vesting-vault --live
+
 # Regenerate MATRIX.md from sandbox-report.json files.
 near-compare-matrix:
     python3 scripts/near/compare-matrix-snapshot.py
 
 # Full matrix.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live near-compare-auth-remote-call-live near-compare-access-control-live near-compare-external-token-transfer-live near-compare-external-vault-live near-compare-pro-rata-vault-live near-compare-soulbound-token-live near-compare-ft-peer-client-live
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live near-compare-auth-remote-call-live near-compare-access-control-live near-compare-external-token-transfer-live near-compare-external-vault-live near-compare-pro-rata-vault-live near-compare-soulbound-token-live near-compare-ft-peer-client-live near-compare-vesting-vault-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

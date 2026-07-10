@@ -96,6 +96,9 @@ fn main() -> Result<()> {
         ["near", "ft-peer-client"]
         | ["near", "ftpeerclient"]
         | ["near", "ft_peer"] => run_near_ft_peer_client(&repo_root, &args),
+        ["near", "vesting-vault"]
+        | ["near", "vestingvault"]
+        | ["near", "vesting"] => run_near_vesting_vault(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -104,7 +107,7 @@ fn main() -> Result<()> {
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
                   access-control, external-token-transfer, external-vault, \
-                  pro-rata-vault, soulbound-token, ft-peer-client)"
+                  pro-rata-vault, soulbound-token, ft-peer-client, vesting-vault)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -903,6 +906,8 @@ struct OfflineHostOpts<'a> {
     inputs_hex_csv: &'a str,
     predecessor: Option<&'a str>,
     attached_deposit: Option<u64>,
+    /// When set, passed as `--block-timestamp` to offline-host (HostEnv time).
+    block_timestamp: Option<u64>,
     repeat: u32,
 }
 
@@ -921,6 +926,7 @@ fn run_offline_host_with_inputs(
             inputs_hex_csv,
             predecessor: None,
             attached_deposit: None,
+            block_timestamp: None,
             repeat,
         },
     )
@@ -954,6 +960,9 @@ fn run_offline_host_opts(
     }
     if let Some(dep) = opts.attached_deposit {
         cmd.args(["--attached-deposit", &dep.to_string()]);
+    }
+    if let Some(ts) = opts.block_timestamp {
+        cmd.args(["--block-timestamp", &ts.to_string()]);
     }
     if opts.repeat != 1 {
         cmd.args(["--repeat", &opts.repeat.to_string()]);
@@ -1297,6 +1306,7 @@ fn run_near_fungible_token(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1331,6 +1341,7 @@ fn run_near_fungible_token(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1367,6 +1378,7 @@ fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1391,6 +1403,7 @@ fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1423,6 +1436,7 @@ fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: Some(50),
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1445,6 +1459,7 @@ fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: Some(50),
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1505,6 +1520,7 @@ fn run_near_role_gated_token(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1540,6 +1556,7 @@ fn run_near_role_gated_token(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1594,6 +1611,7 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1628,6 +1646,7 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1665,6 +1684,7 @@ fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1678,6 +1698,7 @@ fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1721,6 +1742,7 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1742,6 +1764,7 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1786,6 +1809,7 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: Some(7),
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1818,6 +1842,7 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: Some(7),
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1847,6 +1872,7 @@ fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: None,
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1861,6 +1887,7 @@ fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: None,
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1889,6 +1916,7 @@ fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: None,
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1902,6 +1930,7 @@ fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: None,
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1930,6 +1959,7 @@ fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1944,6 +1974,7 @@ fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -1973,6 +2004,7 @@ fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: None,
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -1987,6 +2019,7 @@ fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: None,
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &["Fixed local u64x3 only; no persistent storage on either side."],
@@ -2015,6 +2048,7 @@ fn run_near_ownable_hash(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -2034,6 +2068,7 @@ fn run_near_ownable_hash(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -2072,6 +2107,7 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: "",
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -2094,6 +2130,7 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -2173,6 +2210,7 @@ fn run_near_external_protocol_client(
             inputs_hex_csv: offline_inputs,
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
     )?;
@@ -2197,6 +2235,7 @@ fn run_near_external_protocol_client(
             inputs_hex_csv: offline_inputs,
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: args.repeat,
         },
     )?;
@@ -2386,6 +2425,7 @@ fn run_near_pro_rata_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -2401,6 +2441,7 @@ fn run_near_pro_rata_vault(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -2448,6 +2489,7 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -2461,11 +2503,93 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
             "No transfer entry — soulbound honesty.",
             "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
+}
+
+fn run_near_vesting_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    // init(who=7, total=1000, start=0, dur=100) — LE concat
+    let init = {
+        let mut v = 7u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&1000u64.to_le_bytes());
+        v.extend_from_slice(&0u64.to_le_bytes());
+        v.extend_from_slice(&100u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, vested, releasable, release, claim_balance, released_amount, total_allocation
+    let inputs = format!(",,,,,,");
+    // prefix init input
+    let inputs = format!("{init}{inputs}");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "vesting-vault",
+        "testkit/compare/near/vesting-vault",
+        "Examples/Product/VestingVault.lean",
+        "VestingVault.near-artifact.json",
+        "pf_near_sdk_vesting_vault_reference.wasm",
+        &["vestingvault.wat", "VestingVault.wat"],
+        &[
+            "init",
+            "vested",
+            "releasable",
+            "release",
+            "claim_balance",
+            "released_amount",
+            "total_allocation",
+        ],
+        |repo, wat| {
+            // t=50 / duration=100 → 50% of 1000 = 500 vested
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "vested",
+                    "releasable",
+                    "release",
+                    "claim_balance",
+                    "released_amount",
+                    "total_allocation",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    block_timestamp: Some(50),
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=500"),
+                "expected vested/releasable/claim 500 at t=50\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=1000"),
+                "expected total_allocation 1000\n{out}"
+            );
+            Ok(("init→t=50 half-vest→release 500".into(), out))
+        },
+        &["init", "release", "claim_balance", "total_allocation"],
+        &format!("{init},,,"),
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            block_timestamp: Some(50),
+            repeat: 1,
+        },
+        &[
+            "Linear vesting via HostEnv timestamp (block_timestamp).",
+            "Internal claim ledger only — no external token transfer.",
+            "vested/releasable are entries (scratch write; NEAR view forbids storage_write).",
+            "Live: start=0 duration=1 → fully vested under sandbox ns time.",
         ],
     )
 }
@@ -2593,6 +2717,7 @@ fn run_near_access_control(repo_root: &Path, args: &Args) -> Result<()> {
                     inputs_hex_csv: &inputs,
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
+                    block_timestamp: None,
                     repeat: 1,
                 },
             )?;
@@ -2612,6 +2737,7 @@ fn run_near_access_control(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
         &[
@@ -2687,6 +2813,7 @@ fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: &inputs,
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
     )?;
@@ -2715,6 +2842,7 @@ fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: &inputs,
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: args.repeat,
         },
     )?;
@@ -2938,6 +3066,7 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: ",,",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: 1,
         },
     )?;
@@ -2966,6 +3095,7 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             inputs_hex_csv: ",,",
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
+            block_timestamp: None,
             repeat: args.repeat,
         },
     )?;

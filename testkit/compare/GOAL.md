@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 24 live dual-deploy** (Wave 9 FtPeerClient + matrix snapshot tool).
+Status: **Complete: 25 live dual-deploy** (Wave 10 VestingVault HostEnv linear vesting).
 Blocked: full Stdlib.ERC4626 NEAR asset crosscall; UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
@@ -161,6 +161,7 @@ eligible offline slice.
 | 8 | NC-8.2 | SoulboundTokenBody mint/burn | done: live ~110× wasm | TokenSpec path separate |
 | 9 | NC-9.1 | FtPeerClient protocol NEP-141 client | done: live ~102× wasm | Backend path |
 | 9 | NC-9.2 | near-compare-matrix snapshot script | done | scripts/near/compare-matrix-snapshot.py |
+| 10 | NC-10.1 | VestingVault HostEnv linear vesting | done: live ~95× wasm | internal claim ledger |
 
 ### Task briefs
 

@@ -41,6 +41,7 @@ KINDS = {
     "pro-rata-vault": "share vault",
     "soulbound-token": "non-transferable",
     "ft-peer-client": "protocol FT client",
+    "vesting-vault": "HostEnv vesting",
 }
 
 
