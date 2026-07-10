@@ -8,6 +8,20 @@ default:
 build:
     lake build
 
+# Build modules imported only by Tests/ (not reachable from the proof-forge
+# exe, so `lake build` alone skips them). Several `check` recipes run
+# `lake env lean --run Tests/X.lean`, which needs these oleans pre-built.
+# This dynamically finds and builds whatever `lake build` left unbuilt, so it
+# auto-adapts as the test surface changes (no brittle static module list).
+build-test-deps:
+    #!/usr/bin/env bash
+    set -e
+    mods=$({ for src in $(find ProofForge Examples -name "*.lean" -not -path "*/.*"); do
+      olen=".lake/build/lib/lean/${src%.lean}.olean"
+      [ -f "$olen" ] || echo "${src%.lean}" | sed 's|/|.|g'
+    done; })
+    if [ -n "$mods" ]; then lake build $mods; fi
+
 # Check the target registry smoke.
 target-registry:
     lake env lean --run Tests/TargetRegistry.lean
@@ -889,7 +903,7 @@ testkit-budget-gate:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build product target-registry target-backend target-support artifact-bundle preflight-l2 contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
+check: build build-test-deps product target-registry target-backend target-support artifact-bundle preflight-l2 contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

@@ -50,7 +50,7 @@ portable Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和
 | `move-aptos` | portable IR → Aptos Move 包 | Spike | Counter golden Move、`just aptos-counter-smoke`（可选 CI） |
 | `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike（已列入 `--list-targets`；fixture emit + 可选 `leo` 门禁） | Counter/PureMath golden fixture 与冒烟 |
+| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | 注册表目标（Road 1 sourcegen；Road 2 待开放） | 通用 IR→Leo lowering（`Backend/Aleo/IR/{Common,Validate}` + `IR`）、标量+map 存储、artifact metadata（`Metadata`/`MetadataJson`）、Counter/PureMath golden + map-lowering + metadata 冒烟 |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike（仅 fixture `emit`） | `tsc` 类型检查、`wrangler` dry-run |
 
 **仅 CLI 的验证目标：** `quint` 可通过 `proof-forge emit --target quint` 用于形式化/模型检查

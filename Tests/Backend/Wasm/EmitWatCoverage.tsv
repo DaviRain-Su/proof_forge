@@ -84,6 +84,10 @@ Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects 
 Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
 Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
+Expr	crosscallNamed	unsupported	EmitWat capability checking rejects named-callee cross-program calls (crosscallNamed) with a wasm-near sourcegen diagnostic; crosscallNamed is ZK-lane only (RFC 0015 D4).
+Expr	crosscallAbiPacked	unsupported	wasm-near IR v0 rejects ABI-packed crosscall (Call[]) as EVM-specific with an explicit diagnostic.
+Expr	ecrecover	unsupported	wasm-near IR v0 rejects ecrecover (secp256k1) as EVM-specific with an explicit diagnostic.
+Expr	eip712PermitDigest	unsupported	wasm-near IR v0 rejects EIP-712 permit digest as EVM-specific with an explicit diagnostic.
 Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call covers ft_on_transfer args.
 Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen after promise_create, scheduling a local callback method via promise_then on the current account.
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count for callback entrypoints.
