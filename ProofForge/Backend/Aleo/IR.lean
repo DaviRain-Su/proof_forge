@@ -243,15 +243,23 @@ mutual
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
     | .storageStructFieldWrite stateId fieldName value => do
-        -- Read-modify-write via Leo struct update `Name { field: value, ..read }`.
+        -- Read-modify-write. Leo 4.0.2 has no `..base` struct-update spread (that
+        -- is newer than 4.0.2), so read into a temp local and rebuild the whole
+        -- struct: `let __t = read; Mapping::set(id, 0, Name { f1: __t.f1, …, field: value, … });`.
         let t ← requireScalarState ctx stateId
         let structName ← match t with
           | .structType n => .ok n
           | other => .error { message := s!"state `{stateId}` has scalar type `{other.name}`, not struct storage" }
+        let some decl := findStruct? ctx.module structName
+          | .error { message := s!"state `{stateId}` references unknown struct `{structName}`" }
         let d ← defaultExpr ctx t
-        let base := mappingGetOrUse stateId scalarSlotKey d
-        let updated := .compositeUpdate structName #[(fieldName, ← buildExpr ctx value)] base
-        .ok #[.expression (mappingSet stateId scalarSlotKey updated)]
+        let v ← buildExpr ctx value
+        let tmp := "pf_" ++ stateId
+        let readStmt := .definition (.single tmp) (some (← valueType t)) (mappingGetOrUse stateId scalarSlotKey d)
+        let fields := decl.fields.map fun f =>
+          if f.id == fieldName then (f.id, v) else (f.id, (.memberAccess ⟨.identifier tmp, f.id⟩))
+        let setStmt := .expression (mappingSet stateId scalarSlotKey (.composite structName fields))
+        .ok #[readStmt, setStmt]
     | .storagePathRead _ _ =>
         .error { message := "storage.path.read must be used as an expression" }
     | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
@@ -333,9 +341,15 @@ mutual
       let mut result := #[]
       for stmt in arr do
         match stmt with
-        | .return value =>
-            if hasEffectExpr value then
-              result := result.push (.expression (← buildExpr ctx value))
+        | .return value => do
+            -- The Final path does not surface the return value to the caller.
+            -- Emit the value as a statement only when it is a function call
+            -- (Leo 4.0.2 requires expression statements to be calls); arithmetic /
+            -- struct / etc. are dropped (storage reads are state no-ops).
+            let e ← buildExpr ctx value
+            match e with
+            | .call _ => result := result.push (.expression e)
+            | _ => pure ()
         | other =>
             let ss ← buildStmt ctx other
             result := result ++ ss
@@ -384,13 +398,14 @@ def buildMixedBody (ctx : BuildContext) (body : Array IR.Statement) : Except Low
 
 /-- Build a Leo entrypoint `Function` from a portable `Entrypoint`.
 
-Four cases (verified against the ProvableHQ/leo examples):
+Cases (Leo 4.0.2 — `view fn` is newer than 4.0.2, so mapping reads must run in
+`final`):
 
 - **write + pure return value** → `fn … -> (T, Final) { …; return (value, final { … }); }`
-  (mixed: off-chain compute + on-chain finalize — `functions/transfer_inline`);
-- **write** (return dropped / unit) → `fn … -> Final { return final { … }; }`;
-- **read-only** → `view fn … -> T` (returns the value directly);
-- **pure** → `fn … -> T`. -/
+  (mixed: off-chain compute + on-chain finalize);
+- **any storage effect otherwise** (write with stateful return, or read-only) →
+  `fn … -> Final { return final { … }; }` (reads/writes run in `final`);
+- **pure** (no state effects) → `fn … -> T`. -/
 def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Function := do
   let inputs ← ep.params.mapM fun (n, t) => makeInput n t
   if hasStateWrite ep.body then
@@ -420,13 +435,29 @@ def buildFunction (ctx : BuildContext) (ep : Entrypoint) : Except LowerError Fun
         outputType := finalizeReturnType
         block := { statements := #[.returnSt (some (.async asyncBlock))] }
       }
+  else if hasStateRead ep.body then
+    -- Read-only stateful: Leo 4.0.2 requires mapping reads in a `final` context
+    -- (`view fn` is newer than 4.0.2). Read inside `final`, return `Final`
+    -- (the value is not surfaced to the caller in 4.0.2 — the documented getter
+    -- limitation until `view fn`).
+    let bodyStmts ← buildFinalizeBody ctx ep.body
+    let asyncBlock : Block := { statements := bodyStmts }
+    .ok {
+      annotations := #[]
+      variant := .entryPoint
+      identifier := ep.name
+      constParameters := #[]
+      input := inputs
+      output := #[]
+      outputType := finalizeReturnType
+      block := { statements := #[.returnSt (some (.async asyncBlock))] }
+    }
   else
     let ret ← valueType ep.returns
     let bodyStmts ← buildBody ctx ep.body
-    let variant := if hasStateRead ep.body then Variant.view else Variant.entryPoint
     .ok {
       annotations := #[]
-      variant := variant
+      variant := .entryPoint
       identifier := ep.name
       constParameters := #[]
       input := inputs

@@ -209,6 +209,13 @@ zk-portability-smoke:
     lake build ProofForge.Backend.Aleo.IR ProofForge.Backend.Psy.IR
     lake env lean --run Tests/ZkPortabilitySmoke.lean
 
+# REAL Aleo compile gate: render every feature shape and `leo build` each.
+# Needs `leo` (4.0.2) on PATH; exits 127 if absent (optional, like the CI aleo-smoke job).
+aleo-leo-build-smoke:
+    lake build ProofForge.Backend.Aleo.IR
+    lake env lean --run RenderAleoFixtures.lean
+    bash scripts/aleo/leo-build-smoke.sh
+
 # WASM-5a contract axis: ValueVault universal IR↔Wasm core refinement.
 value-vault-wasm-refinement-smoke:
     lake build ProofForge.Backend.WasmHost.ValueVaultWasmRefinement

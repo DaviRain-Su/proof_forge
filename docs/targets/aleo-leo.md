@@ -361,15 +361,26 @@ Coverage now lowered: all arithmetic/bitwise/comparison/boolean ops, `cast`,
 struct literals/field access, array literals/get, `assert`/`assertEq`/`revert`,
 `if/else`, `boundedFor`, `return`, **scalar + map storage**, and **finalize
 context reads** (`contextRead .userId/.userIdHash/.origin → self.caller`,
-`.checkpointId → block.height`). Entrypoints are split three ways (verified
-against `ProvableHQ/leo`): **write** → `fn … -> Final { return final { … }; }`,
-**read-only** → `view fn … -> T` (the caller receives the value — e.g. the
-Counter `get` now returns the count), **pure** → `fn … -> T`. The profile
-honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
-`mapping u64 => T`). `Tests/AleoLeoMapLoweringSmoke.lean`,
-`Tests/AleoLeoContextLoweringSmoke.lean`, and `Tests/AleoLeoMetadataSmoke.lean`
-extend the `just aleo-leo-codegen-smoke` gate. PureMath golden is
-byte-identical; Counter `get` refreshed to a `view fn` returning `u64`.
+`.checkpointId → block.height`). Entrypoints lower (verified against the
+INSTALLED `leo` 4.0.2 — `view fn` and the `..base` struct spread are newer
+than 4.0.2, so they are NOT used): **write + pure return value** →
+`fn … -> (T, Final)`; **any other storage effect** (write with stateful return,
+or read-only) → `fn … -> Final { return final { … }; }` (mapping reads must
+run in `final` in 4.0.2); **pure** → `fn … -> T`. Struct-field storage writes
+use a 4.0.2-compatible read-modify-write (temp local + full struct rebuild,
+NOT `..base`). The profile honestly declares `storage.scalar` (Aleo rewrites
+scalars to a single-slot Leo `mapping u64 => T`).
+`Tests/AleoLeoMapLoweringSmoke.lean`, `Tests/AleoLeoContextLoweringSmoke.lean`,
+and `Tests/AleoLeoMetadataSmoke.lean` extend the `just aleo-leo-codegen-smoke`
+gate. PureMath golden is byte-identical; Counter `get` is a `fn … -> Final`
+finalize read (4.0.2-correct).
+
+**Real compile gate:** every generated feature shape has been verified against
+`leo build` (4.0.2) — see the `aleo-leo-build-smoke` gate (renders all shapes
+via `RenderAleoFixtures.lean` and compiles each). Counter/PureMath/records/hash/
+map/context/mixed-return/struct all compile; crosscall needs an external program
+dependency. The Lean marker-smokes only check substrings, so this `leo build`
+gate is the real correctness witness.
 
 **`crypto.hash` LANDED (RFC 0015 Decisions 1+2):** Aleo resolves the portable
 `Hash` digest to `field` and lowers hash ops to the native ZK hash
