@@ -94,6 +94,7 @@ import ProofForge.Cli.LearnArtifacts
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
 import ProofForge.Cli.Options
+import ProofForge.Cli.TargetDriver
 import ProofForge.Cli.TargetFirst
 import ProofForge.Cli.LegacyArgs
 
@@ -154,6 +155,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .learnBytecode => compileLearnBytecode opts
   | .learnSbpf => compileLearnSbpf opts
   | .contractSourceSbpf => compileContractSourceSbpf opts
+  | .contractSourceSolanaElf => compileContractSourceSolanaElf opts
   | .contractSourceEmitWat => compileContractSourceEmitWat opts
   | .learnTarget => compileLearnTarget opts
   | .learnTokenTarget => compileLearnTokenTarget opts
@@ -317,7 +319,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   | _ =>
     let parseResult : Except String ProofForge.Cli.CliOptions :=
       match args with
-      | "--list-targets" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listTargets }
+      | "--list-targets" :: rest =>
+        let wantsJson := rest.any (fun a => a == "--json")
+        Except.ok {
+          cmd := ProofForge.Cli.Command.listTargets
+          reportFormat? := if wantsJson then some "json" else none
+        }
       | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
       | "build" :: rest =>
         match ProofForge.Cli.parseNewOptions rest {} with
@@ -327,6 +334,7 @@ unsafe def main (args : List String) : IO UInt32 := do
             match ProofForge.Cli.parseArgs legacyArgs {} with
             | Except.ok opts => Except.ok { opts with
                 cmd := ProofForge.Cli.Command.build,
+                format? := state.format?,
                 scenario? := state.scenario?.map FilePath.mk,
                 fromNewSurface := true }
             | Except.error msg => Except.error msg
@@ -341,6 +349,7 @@ unsafe def main (args : List String) : IO UInt32 := do
             | Except.ok opts => Except.ok { opts with
                 cmd := ProofForge.Cli.Command.emit,
                 fixture? := state.fixture?,
+                format? := state.format?,
                 scenario? := state.scenario?.map FilePath.mk,
                 fromNewSurface := true }
             | Except.error msg => Except.error msg
@@ -377,7 +386,11 @@ unsafe def main (args : List String) : IO UInt32 := do
     | Except.ok opts => do
         match opts.cmd with
         | ProofForge.Cli.Command.listTargets =>
-          IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
+          -- Plain list: registry membership (PF-P0-02). JSON: full support matrix (PF-P1-02).
+          if opts.reportFormat? == some "json" then
+            IO.println ProofForge.Cli.listTargetsJson
+          else
+            IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
           return 0
         | ProofForge.Cli.Command.listFixtures =>
           IO.println (String.intercalate "\n" ProofForge.Cli.Fixture.ids.toList)

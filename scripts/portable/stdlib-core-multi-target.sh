@@ -93,7 +93,7 @@ for module in "${MODULES[@]}"; do
     "$module_out/evm/${module}.proof-forge-artifact.json"
 
   echo "portable-stdlib-core: $module Solana sBPF"
-  "${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+  "${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
     -o "$module_out/solana/${module}.s" \
     --artifact-output "$module_out/solana/${module}.solana-artifact.json" \
     "$source"

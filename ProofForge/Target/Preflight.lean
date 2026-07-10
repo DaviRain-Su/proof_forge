@@ -28,12 +28,15 @@ IR.Module
 Solana Anchor/Pinocchio-style **account** checks are **L3→L4**: schema from
 materialize, traps in entrypoint prologue — not portable IR nodes.
 
-This module implements **L0+L1 preflight** as one report so CLI/tests can
-assert “ready to materialize” without running full emit.
+This module implements **L0+L1+L2 preflight** as one report (PF-P1-04). L2 runs
+when `TargetBackend` registers validate/plan/package hooks; secondary targets
+without hooks keep L0∧L1 readiness only.
 -/
 import ProofForge.IR.Contract
 import ProofForge.IR.Portability
 import ProofForge.Target.Adapter
+import ProofForge.Target.Backend
+import ProofForge.Target.BackendRegistry
 import ProofForge.Target.Registry
 import ProofForge.Target.CrosscallMaterialize
 import ProofForge.Target.PortableHonesty
@@ -60,18 +63,31 @@ structure Report where
   metadataNotes : Array String
   /-- Declared native form for portable crosscall (if any). -/
   crosscallNativeForm : String
-  /-- Ready for target materialize/emit (hard L0 ∧ L1). L2 still runs in backends. -/
+  /-- L2 backend fragment validation when TargetBackend registers hooks (PF-P1-04).
+  `true` when no L2 hooks are registered, or when validate/plan/package pass. -/
+  backendOk : Bool := true
+  backendError? : Option String := none
+  /-- `notRegistered` | `passed` | `failed` | `skippedL1` (L2 not run after L1 fail). -/
+  backendStage : String := "notRegistered"
+  /-- Ready for target materialize/emit: hard L0 ∧ L1 ∧ L2 (when L2 is registered). -/
   readyToMaterialize : Bool
   note : String
   deriving Repr
 
 private def jsonStr (s : String) : String := "\"" ++ s ++ "\""
 
+private def jsonStrOption : Option String → String
+  | none => "null"
+  | some s => jsonStr s
+
 def Report.json (r : Report) : String :=
   "{" ++
   "\"targetId\":" ++ jsonStr r.targetId ++ "," ++
   "\"capabilityOk\":" ++ (if r.capabilityOk then "true" else "false") ++ "," ++
   "\"portabilityOk\":" ++ (if r.portabilityOk then "true" else "false") ++ "," ++
+  "\"backendOk\":" ++ (if r.backendOk then "true" else "false") ++ "," ++
+  "\"backendStage\":" ++ jsonStr r.backendStage ++ "," ++
+  "\"backendError\":" ++ jsonStrOption r.backendError? ++ "," ++
   "\"readyToMaterialize\":" ++ (if r.readyToMaterialize then "true" else "false") ++ "," ++
   "\"crosscallNativeForm\":" ++ jsonStr r.crosscallNativeForm ++ "," ++
   "\"note\":" ++ jsonStr r.note ++
@@ -92,18 +108,41 @@ def softMetadataNotes (module : Module) (family : TargetFamily) : Array Portabil
     | .targetMetadata (some other) => other != family
     | _ => false
 
-/-- Run L0 portability + L1 capability + portable honesty preflight for one target.
+/-- Run L2 **supported-fragment** validation via TargetBackend hooks (PF-P1-04).
+
+Returns `(ok, stage, error?)` where stage is `notRegistered` | `passed` | `failed`.
+
+L2 readiness uses `validateModule` (the fragment/well-formedness gate). Plan and
+package dry-runs remain available on TargetBackend for `check`/emit paths, but
+are **not** folded into `readyToMaterialize` here: some backends still diverge
+between plan surface and production lower (e.g. NEAR nested mapKey paths).
+-/
+def runBackendL2 (profile : TargetProfile) (module : Module) (_plan? : Option CapabilityPlan) :
+    Bool × String × Option String :=
+  match findBackend? profile.id with
+  | none => (true, "notRegistered", none)
+  | some backend =>
+      if !backend.hasValidate then
+        (true, "notRegistered", none)
+      else
+        match backend.validateModule module with
+        | .error err => (false, "failed", some err.message)
+        | .ok () => (true, "passed", none)
+
+/-- Run L0 portability + L1 capability + L2 backend fragment preflight for one target.
 
 Portable honesty (HostEnv/Identity/sync-crosscall) is enforced inside
 `resolveModule` → `defaultResolve`; this report surfaces that as capabilityOk
-failure with the PortableHonesty diagnostic text.
+failure with the PortableHonesty diagnostic text. When TargetBackend registers
+validate/plan/package hooks, `readyToMaterialize` requires those L2 stages too
+(PF-P1-04).
 -/
 def run (profile : TargetProfile) (module : Module) : Report :=
   let capResult := resolveModule profile module
-  let (capabilityOk, capabilityError?) :=
+  let (capabilityOk, capabilityError?, plan?) :=
     match capResult with
-    | .ok _ => (true, none)
-    | .error e => (false, some e.render)
+    | .ok plan => (true, none, some plan)
+    | .error e => (false, some e.render, none)
   let hard := hardPortabilityViolations module profile.family
   let soft := softMetadataNotes module profile.family
   let portabilityOk := hard.isEmpty
@@ -117,17 +156,30 @@ def run (profile : TargetProfile) (module : Module) : Report :=
     else if moduleUsesPortableSyncCrosscall module then
       " [portable sync-subset remote]"
     else ""
-  let ready := capabilityOk && portabilityOk
+  -- L2 only after L0+L1 hard gates (avoid noisy backend errors on illegal modules).
+  let (backendOk, backendStage, backendError?) :=
+    if capabilityOk && portabilityOk then
+      runBackendL2 profile module plan?
+    else
+      (true, "skippedL1", none)
+  let ready := capabilityOk && portabilityOk && backendOk
   let note :=
     if ready then
       let softNote :=
         if metaStrs.isEmpty then ""
         else s!" (soft metadata ignored: {String.intercalate "; " metaStrs.toList})"
-      s!"preflight ok → materialize as {xform} (L2 protocol validate still in backend){softNote}{syncNote}"
+      let l2Note :=
+        if backendStage == "notRegistered" then
+          " (L2 hooks not registered on TargetBackend)"
+        else
+          " (L0+L1+L2 ok)"
+      s!"preflight ok → materialize as {xform}{l2Note}{softNote}{syncNote}"
     else if !capabilityOk then
       s!"capability/honesty reject: {capabilityError?.getD "?"}"
-    else
+    else if !portabilityOk then
       s!"portability reject: {String.intercalate "; " violStrs.toList}"
+    else
+      s!"backend L2 reject: {backendError?.getD "?"}"
   { targetId := profile.id
     capabilityOk := capabilityOk
     capabilityError? := capabilityError?
@@ -135,6 +187,9 @@ def run (profile : TargetProfile) (module : Module) : Report :=
     portabilityViolations := violStrs
     metadataNotes := metaStrs
     crosscallNativeForm := xform
+    backendOk := backendOk
+    backendError? := backendError?
+    backendStage := backendStage
     readyToMaterialize := ready
     note := note }
 

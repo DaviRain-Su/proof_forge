@@ -45,7 +45,7 @@ else
 fi
 
 echo "=== product-protocol-vault: Solana / NEAR portable smoke ==="
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/solana/ExternalVault.s" "$SOURCE" || fail "Solana build"
 require_file "$OUT/solana/ExternalVault.s"
 require_contains "$OUT/solana/ExternalVault.s" "sol_invoke_signed_c" "Solana CPI"

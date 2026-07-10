@@ -309,5 +309,40 @@ def solanaExtensionsJson (plan : ProofForge.Target.CapabilityPlan) : String :=
     ("dataLogActions", jsonArray (extensions.dataLogActions.map solanaDataLogActionJson))
   ]
 
+/-! ## PF-P1-02: machine-readable target support matrix (`--list-targets --json`) -/
+
+def toolStageRequirementJson (req : ProofForge.Target.ToolStageRequirement) : String :=
+  jsonObject #[
+    ("tool", jsonString req.tool),
+    ("stage", jsonString req.stage)
+  ]
+
+def targetSupportJson (support : ProofForge.Target.TargetSupport) : String :=
+  jsonObject #[
+    ("maturity", jsonString support.maturity.id),
+    ("inputModes", jsonStringArray (support.inputModes.map fun m => m.id)),
+    ("commands", jsonStringArray (support.commands.map fun c => c.id)),
+    ("outputStages", jsonStringArray (support.outputStages.map fun s => s.id)),
+    ("validationLevel", jsonString support.validationLevel.id),
+    ("supportedFragment", jsonString support.supportedFragment),
+    ("toolStages", jsonArray (support.toolStages.map toolStageRequirementJson))
+  ]
+
+def targetProfileSupportJson (profile : ProofForge.Target.TargetProfile) : String :=
+  jsonObject #[
+    ("id", jsonString profile.id),
+    ("family", jsonString profile.family.id),
+    ("artifactKind", jsonString profile.artifactKind.id),
+    ("requiredTools", jsonStringArray profile.requiredTools),
+    ("support", targetSupportJson profile.support)
+  ]
+
+/-- Authoritative support matrix for every active registry target. -/
+def listTargetsJson : String :=
+  jsonObject #[
+    ("schemaVersion", jsonString "1"),
+    ("kind", jsonString "proof-forge-target-support-matrix"),
+    ("targets", jsonArray (ProofForge.Target.all.map targetProfileSupportJson))
+  ]
 
 end ProofForge.Cli

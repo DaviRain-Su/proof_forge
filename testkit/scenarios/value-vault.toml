@@ -663,7 +663,7 @@ equals = "solana"
 
 [[artifact.json]]
 path = "artifactKind"
-equals = "solana-elf"
+equals = "solana-sbpf-asm"
 
 [[artifact.json]]
 path = "fixture"
@@ -815,7 +815,7 @@ u64 = 100
 [step.expect.budget]
 solana_cu = { baseline = 440, tolerance = 0.05 }
 evm_gas = { baseline = 95565, tolerance = 0.10 }
-near_gas = { baseline = 1198, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 1198, tolerance = 0.05 }
 
 [[step]]
 call = "get_balance"
@@ -824,7 +824,7 @@ u64 = 100
 [step.expect.budget]
 solana_cu = { baseline = 166, tolerance = 0.05 }
 evm_gas = { baseline = 23350, tolerance = 0.10 }
-near_gas = { baseline = 1236, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 1236, tolerance = 0.05 }
 
 [[step]]
 call = "deposit"
@@ -833,7 +833,7 @@ u64 = 25
 [step.expect.budget]
 solana_cu = { baseline = 412, tolerance = 0.05 }
 evm_gas = { baseline = 37975, tolerance = 0.10 }
-near_gas = { baseline = 2701, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 2701, tolerance = 0.05 }
 
 [[step]]
 call = "get_balance"
@@ -842,7 +842,7 @@ u64 = 125
 [step.expect.budget]
 solana_cu = { baseline = 166, tolerance = 0.05 }
 evm_gas = { baseline = 23350, tolerance = 0.10 }
-near_gas = { baseline = 2739, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 2739, tolerance = 0.05 }
 
 [[step]]
 call = "charge_fee"
@@ -853,7 +853,7 @@ u64 = 250
 [step.expect.budget]
 solana_cu = { baseline = 553, tolerance = 0.05 }
 evm_gas = { baseline = 60551, tolerance = 0.10 }
-near_gas = { baseline = 4353, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 4353, tolerance = 0.05 }
 
 [[step]]
 call = "get_balance"
@@ -862,7 +862,7 @@ u64 = 223
 [step.expect.budget]
 solana_cu = { baseline = 166, tolerance = 0.05 }
 evm_gas = { baseline = 23350, tolerance = 0.10 }
-near_gas = { baseline = 4391, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 4391, tolerance = 0.05 }
 
 [[step]]
 call = "get_net_value"
@@ -871,7 +871,7 @@ u64 = 221
 [step.expect.budget]
 solana_cu = { baseline = 176, tolerance = 0.05 }
 evm_gas = { baseline = 25478, tolerance = 0.10 }
-near_gas = { baseline = 4458, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 4458, tolerance = 0.05 }
 
 [[step]]
 call = "release"
@@ -880,7 +880,7 @@ u64 = 23
 [step.expect.budget]
 solana_cu = { baseline = 425, tolerance = 0.05 }
 evm_gas = { baseline = 60131, tolerance = 0.10 }
-near_gas = { baseline = 5955, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 5955, tolerance = 0.05 }
 
 [[step]]
 call = "get_balance"
@@ -889,7 +889,7 @@ u64 = 200
 [step.expect.budget]
 solana_cu = { baseline = 166, tolerance = 0.05 }
 evm_gas = { baseline = 23350, tolerance = 0.10 }
-near_gas = { baseline = 5993, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 5993, tolerance = 0.05 }
 
 [[step]]
 call = "snapshot"
@@ -898,7 +898,7 @@ u64 = 200
 [step.expect.budget]
 solana_cu = { baseline = 757, tolerance = 0.05 }
 evm_gas = { baseline = 31635, tolerance = 0.10 }
-near_gas = { baseline = 7651, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 7651, tolerance = 0.05 }
 
 [[step]]
 call = "get_net_value"
@@ -907,4 +907,4 @@ u64 = 198
 [step.expect.budget]
 solana_cu = { baseline = 176, tolerance = 0.05 }
 evm_gas = { baseline = 25478, tolerance = 0.10 }
-near_gas = { baseline = 7718, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 7718, tolerance = 0.05 }

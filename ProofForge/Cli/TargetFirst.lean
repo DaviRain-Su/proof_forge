@@ -2,6 +2,7 @@ import Lean.Util.Path
 import ProofForge.Cli.ConstructorAbi
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.Quint
+import ProofForge.Cli.TargetDriver
 import ProofForge.Cli.Usage
 
 open System
@@ -120,11 +121,6 @@ partial def parseNewOptions : List String → NewCommandParseState → Except St
       else
         parseNewOptions rest { state with input? := some arg }
 
-def isLeanSourceFile (input? : Option String) : Bool :=
-  match input? with
-  | some path => path.endsWith ".lean"
-  | none => false
-
 def pathLooksLikeDirectory (path : String) : Bool :=
   (FilePath.mk path).extension.isNone
 
@@ -151,213 +147,22 @@ def targetFirstYulOutput? (target flag : String) (out? yulOut? : Option String) 
         none
   | none, none => none
 
-def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Option String := none) (format? : Option String := none) (token : Bool := false) : Except String String :=
-  let isLearn := match input? with | some input => input.endsWith ".learn" | none => false
-  let isLeanSource := isLeanSourceFile input?
-  match target, isLearn, fixture?, format?, token with
-  | "evm", true, _, some "yul", false => Except.ok "--learn-yul"
-  | "evm", true, _, some "yul", true => Except.error "proof-forge build --target evm --token --format yul is not yet implemented"
-  | "evm", true, _, some "bytecode", true => Except.ok "--learn-token"
-  | "evm", true, _, some "bytecode", false => Except.ok "--learn"
-  | "evm", true, _, none, true => Except.ok "--learn-token"
-  | "evm", true, _, none, false => Except.ok "--learn"
-  | "evm", false, _, some "yul", true =>
-      if isLeanSource then
-        Except.error "proof-forge build --target evm --token --format yul is not yet implemented"
-      else
-        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
-  | "evm", false, _, some "bytecode", true =>
-      if isLeanSource then
-        Except.ok "--learn-token"
-      else
-        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
-  | "evm", false, _, none, true =>
-      if isLeanSource then
-        Except.ok "--learn-token"
-      else
-        Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
-  | "evm", false, _, some "yul", _ =>
-      if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-yul"
-  | "evm", false, _, _, _ =>
-      if input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-bytecode"
-  | "wasm-near", true, _, _, _ =>
-      Except.error "proof-forge build --target wasm-near from .learn source is not yet implemented"
-  | "wasm-near", false, _, _, true =>
-      if isLeanSource then
-        Except.ok "--learn-token"
-      else
-        Except.error "proof-forge build --target wasm-near --token requires a .lean TokenSpec or .learn token source"
-  | "wasm-near", false, fixture?, format?, _ =>
-      if isLeanSource then
-        if format?.isSome && format? != some "wat" then
-          Except.error s!"proof-forge build --target wasm-near does not support format '{format?.getD ""}'; use --format wat"
-        else
-          Except.ok "--contract-source-emitwat"
-      else if input?.isSome then
-        Except.error "proof-forge build --target wasm-near from Lean source is not yet implemented; use a .lean contract_source module"
-      else
-        if format?.isSome && format? != some "wat" then
-          Except.error s!"proof-forge build --target wasm-near does not support format '{format?.getD ""}'; use --format wat"
-        else
-          let fixture := fixture?.getD "counter"
-          if ProofForge.Cli.Fixture.isWasmNearFixture fixture then
-            Except.ok s!"--emit-{fixture}-emitwat"
-          else
-            Except.error s!"proof-forge build --target wasm-near --fixture {fixture} is not yet implemented"
-  | "wasm-stellar-soroban", true, _, _, _ =>
-      Except.error "proof-forge build --target wasm-stellar-soroban from .learn source is not yet implemented"
-  | "wasm-stellar-soroban", false, _, _, true =>
-      Except.error
-        "proof-forge build --target wasm-stellar-soroban --token: no TokenSpec lane; \
-use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)"
-  | "wasm-stellar-soroban", false, _, format?, _ =>
-      if isLeanSource then
-        if format?.isSome && format? != some "wat" then
-          Except.error s!"proof-forge build --target wasm-stellar-soroban does not support format '{format?.getD ""}'; use --format wat"
-        else
-          Except.ok "--contract-source-emitwat"
-      else
-        Except.error "proof-forge build --target wasm-stellar-soroban requires a .lean contract_source module"
-  | "wasm-cosmwasm", true, _, _, _ =>
-      Except.error "proof-forge build --target wasm-cosmwasm from .learn source is not yet implemented"
-  | "wasm-cosmwasm", false, _, _, _ => Except.ok "--emit-counter-ir-cosmwasm"
-  | "solana-sbpf-asm", true, _, _, true => Except.ok "--learn-token"
-  | "solana-sbpf-asm", true, _, _, false => Except.ok "--learn"
-  | "solana-sbpf-asm", false, _, _, true =>
-      if isLeanSource then
-        Except.ok "--learn-token"
-      else
-        Except.error "proof-forge build --target solana-sbpf-asm --token requires a .lean TokenSpec or .learn token source"
-  | "solana-sbpf-asm", false, _, _, _ =>
-      if isLeanSource then
-        Except.ok "--contract-source-sbpf"
-      else if format? == some "s" || format?.isNone then
-        Except.ok "--emit-counter-ir-sbpf"
-      else
-        Except.error s!"proof-forge build --target solana-sbpf-asm does not support format '{format?.getD ""}' without a Lean contract source input"
-  | "psy-dpn", true, _, _, _ =>
-      Except.error "proof-forge build --target psy-dpn from .learn source is not yet implemented"
-  | "psy-dpn", false, _, _, _ =>
-      if isLeanSource then
-        Except.error "proof-forge build --target psy-dpn does not support contract source input yet; the psy-dpn backend is fixture/sourcegen only. Use: proof-forge emit --target psy-dpn --fixture <name>"
-      else
-        Except.ok "--emit-counter-ir-psy"
-  | "aleo-leo", true, _, _, _ =>
-      Except.error "proof-forge build --target aleo-leo from .learn source is not yet implemented"
-  | "aleo-leo", false, _, _, _ => Except.ok "--emit-counter-ir-leo"
-  | "move-aptos", true, _, _, _ =>
-      Except.error "proof-forge build --target move-aptos from .learn source is not yet implemented"
-  | "move-aptos", false, _, _, _ => Except.ok "--emit-counter-ir-aptos"
-  | "move-sui", true, _, _, _ =>
-      Except.error "proof-forge build --target move-sui from .learn source is not yet implemented"
-  | "move-sui", false, fixture?, _, _ =>
-      if isLeanSource then
-        Except.error "proof-forge build --target move-sui from source is out of scope for the Counter object MVP; use --fixture counter"
-      else
-        match fixture? with
-        | some fixture =>
-            if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
-            else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
-        | none => Except.ok "--emit-counter-ir-sui"
-  | other, _, _, _, _ => Except.error s!"unknown target '{other}'"
+/-- Build legacy flag via registry-backed `TargetCliDriver` (PF-P1-01). -/
+def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Option String := none)
+    (format? : Option String := none) (token : Bool := false) : Except String String :=
+  resolveBuildLegacyFlag target {
+    input? := input?
+    fixture? := fixture?
+    format? := format?
+    token := token
+  }
 
+/-- Emit legacy flag via registry-backed `TargetCliDriver` (PF-P1-01). -/
 def emitLegacyFlag (target fixture : String) (format? : Option String) : Except String String :=
-  let format := format?.getD ""
-  match target, fixture, format with
-  | "evm", f, "yul" =>
-      if f == "array-abi" then
-        Except.ok "--emit-evm-array-abi-ir-yul"
-      else
-        Except.ok s!"--emit-{f}-ir-yul"
-  | "evm", f, "bytecode" =>
-      if f == "array-abi" then
-        Except.ok "--emit-evm-array-abi-ir-bytecode"
-      else
-        Except.ok s!"--emit-{f}-ir-bytecode"
-  | "solana-sbpf-asm", "counter", fmt =>
-      if fmt == "elf" || fmt == "so" then
-        Except.ok "--solana-elf"
-      else
-        Except.ok "--emit-counter-ir-sbpf"
-  | "solana-sbpf-asm", "value-vault", fmt =>
-      if fmt == "elf" || fmt == "so" then
-        Except.ok "--value-vault-solana-elf"
-      else
-        Except.ok "--emit-value-vault-ir-sbpf"
-  | "solana-sbpf-asm", "error-ref", _ => Except.ok "--emit-error-ref-ir-sbpf"
-  | "solana-sbpf-asm", "control", _ => Except.ok "--emit-control-ir-sbpf"
-  | "solana-sbpf-asm", "solana-sdk", _ => Except.ok "--emit-solana-sdk-sbpf"
-  | "solana-sbpf-asm", "canned-entrypoint", _ => Except.ok "--emit-sbpf-asm"
-  | "solana-sbpf-asm", f, fmt =>
-      if f.startsWith "solana-" then
-        if fmt == "s" then
-          Except.error s!"emit --target solana-sbpf-asm --fixture {f} --format s is not yet mapped to a legacy flag; use --format elf"
-        else
-          Except.ok s!"--solana-{f.drop 7}-elf"
-      else if f.startsWith "spl-token-" then
-        if fmt == "s" || fmt == "" then
-          Except.ok s!"--emit-solana-spl-token-{f.drop 10}-sbpf"
-        else
-          Except.ok s!"--solana-spl-token-{f.drop 10}-elf"
-      else if f == "associated-token-cpi" then
-        if fmt == "s" || fmt == "" then
-          Except.ok "--emit-solana-associated-token-cpi-sbpf"
-        else
-          Except.ok "--solana-associated-token-cpi-elf"
-      else if f.startsWith "system-" then
-        if fmt == "s" || fmt == "" then
-          Except.ok s!"--emit-solana-system-{f.drop 7}-sbpf"
-        else
-          Except.ok s!"--solana-system-{f.drop 7}-elf"
-      else if f == "log-event" then
-        if fmt == "s" then
-          Except.error s!"emit --target solana-sbpf-asm --fixture {f} --format s is not yet mapped to a legacy flag; use --format elf"
-        else
-          Except.ok "--solana-log-event-elf"
-      else
-        Except.error s!"emit --target solana-sbpf-asm --fixture {f} is not yet mapped to a legacy flag"
-  | "wasm-near", f, "wat" =>
-      if ProofForge.Cli.Fixture.isWasmNearFixture f then
-        Except.ok s!"--emit-{f}-emitwat"
-      else
-        Except.error s!"emit --target wasm-near --fixture {f} --format wat is not yet mapped to a legacy flag"
-  | "wasm-near", f, _ =>
-      if ProofForge.Cli.Fixture.isWasmNearFixture f then
-        Except.ok s!"--emit-{f}-ir-wasm-near"
-      else
-        Except.error s!"emit --target wasm-near --fixture {f} is not yet mapped"
-  | "wasm-cosmwasm", "counter", _ => Except.ok "--emit-counter-ir-cosmwasm"
-  | "wasm-cloudflare-workers", "counter", _ => Except.ok "--emit-counter-ir-ts"
-  | "psy-dpn", f, _ =>
-      if ProofForge.Cli.Fixture.supportsFormat "psy-dpn" f .psy then
-        Except.ok s!"--emit-{f}-ir-psy"
-      else
-        Except.error s!"emit --target psy-dpn --fixture {f} is not yet mapped to a legacy flag"
-  | "aleo-leo", "counter", _ => Except.ok "--emit-counter-ir-leo"
-  | "aleo-leo", "pure-math", _ => Except.ok "--emit-pure-math-ir-leo"
-  | "move-aptos", "counter", _ => Except.ok "--emit-counter-ir-aptos"
-  | "move-sui", "counter", fmt =>
-      if fmt == "" || fmt == "sui" || fmt == "move" then Except.ok "--emit-counter-ir-sui"
-      else Except.error s!"emit --target move-sui --fixture counter --format {fmt} is not supported; use --format sui"
-  | "quint", f, fmt =>
-      if fmt == "scenario" || fmt == "toml" then
-        if !ProofForge.Cli.Quint.supportsFixture f then
-          Except.error s!"emit --target quint --fixture {f} is not supported; supported fixtures: {String.intercalate ", " ProofForge.Cli.Quint.supportedFixtureIds.toList}"
-        else
-          Except.ok "--emit-ir-quint-scenario"
-      else if fmt == "qnt" || fmt == "" then
-        if !ProofForge.Cli.Quint.supportsFixture f then
-          Except.error s!"emit --target quint --fixture {f} is not supported; supported fixtures: {String.intercalate ", " ProofForge.Cli.Quint.supportedFixtureIds.toList}"
-        else if f == "counter" then
-          Except.ok "--emit-counter-ir-quint"
-        else if f == "value-vault" then
-          Except.ok "--emit-value-vault-ir-quint"
-        else
-          Except.ok "--emit-ir-quint"
-      else
-        Except.error s!"emit --target quint --fixture {f} --format {fmt} is not supported; use --format qnt or scenario"
-  | t, f, fmt =>
-      Except.error s!"emit --target {t} --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
+  resolveEmitLegacyFlag target {
+    fixture := fixture
+    format? := format?
+  }
 
 def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Except String (List String) := do
   if cmd == "build" then

@@ -34,7 +34,7 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 | `caller.sender` | 交易签名者/调用者 | Y | Y | Y | Y | Y | N | P | Y |
 | `value.native` | 调用附带的原生代币 | Y | Y | Y | Y | Y | N | P | N |
 | `events.emit` | 结构化日志/事件输出 | Y | Y | Y | Y | Y | N | Y | Y |
-| `crosscall.invoke` | 调用另一个合约/程序 | Y | Y | Y | N | Y | N | P | Y |
+| `crosscall.invoke` | 调用另一个合约/程序 | Y | Y | Y | Y | Y | N | P | Y |
 | `env.block` | 区块高度/时间/链 id 读取 | Y | Y | P | P | P | N | P | P |
 | `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P | Y |
 | `control.bounded_loop` | 目标可展开或静态处理的有界循环 | P | P | N | P | N | N | P | Y |
@@ -42,7 +42,7 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 | `data.dynamic_bytes` | 动态长度 bytes/string 值类型和 head-tail ABI 编码 | Y | N | N | N | N | N | N | N |
 | `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P | Y |
 | `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | N | Y | Y |
-| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | N | Y | Y |
+| `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | Y | Y | Y |
 | `account.explicit` | 具名账户/对象/资源绑定 | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | 程序派生地址状态 | N | N | N | Y | N | N | N | N |
 | `runtime.allocator` | 目标运行时堆分配器约定 | N | N | N | Y | N | N | N | N |

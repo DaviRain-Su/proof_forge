@@ -29,6 +29,7 @@ inductive EmitMode where
   | learnBytecode
   | learnSbpf
   | contractSourceSbpf
+  | contractSourceSolanaElf
   | contractSourceEmitWat
   | learnTarget
   | learnTokenTarget

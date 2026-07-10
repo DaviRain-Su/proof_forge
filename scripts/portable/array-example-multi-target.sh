@@ -59,7 +59,7 @@ python3 scripts/evm/validate-artifact-metadata.py \
   "$OUT/evm/ArrayExample.proof-forge-artifact.json"
 
 echo "portable-array-example: Solana sBPF"
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/solana/ArrayExample.s" \
   --artifact-output "$OUT/solana/ArrayExample.solana-artifact.json" \
   "$SOURCE"

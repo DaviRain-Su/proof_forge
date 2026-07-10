@@ -39,7 +39,7 @@ python3 scripts/evm/validate-artifact-metadata.py \
   "$OUT/Counter.proof-forge-artifact.json"
 
 echo "portable-counter: Solana sBPF"
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/Counter.s" \
   --artifact-output "$OUT/Counter.solana-artifact.json" \
   "$SOURCE"

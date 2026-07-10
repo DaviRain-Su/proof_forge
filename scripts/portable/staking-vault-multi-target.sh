@@ -37,7 +37,7 @@ python3 scripts/evm/validate-artifact-metadata.py \
   "$OUT/StakingVault.proof-forge-artifact.json"
 
 echo "portable-staking-vault: Solana sBPF"
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/StakingVault.s" \
   --artifact-output "$OUT/StakingVault.solana-artifact.json" \
   "$SOURCE"

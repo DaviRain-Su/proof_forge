@@ -319,8 +319,12 @@ pub struct BudgetExpectation {
     pub solana_cu: Option<BudgetValue>,
     #[serde(default)]
     pub evm_gas: Option<BudgetValue>,
+    /// Cumulative Wasmtime fuel since process start (not NEAR VM gas). PF-P0-06.
+    #[serde(default, alias = "near_gas")]
+    pub wasmtime_fuel_cumulative: Option<BudgetValue>,
+    /// Per-call Wasmtime fuel delta. PF-P0-06.
     #[serde(default)]
-    pub near_gas: Option<BudgetValue>,
+    pub wasmtime_fuel_delta: Option<BudgetValue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -355,7 +359,9 @@ impl BudgetValue {
 pub struct BudgetOutcome {
     pub solana_cu: Option<u64>,
     pub evm_gas: Option<u64>,
-    pub near_gas: Option<u64>,
+    /// Cumulative Wasmtime fuel (PF-P0-06; formerly mislabeled `near_gas`).
+    pub wasmtime_fuel_cumulative: Option<u64>,
+    pub wasmtime_fuel_delta: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1890,14 +1896,32 @@ fn assert_budget(
         }
     }
     if target_id == "wasm-near" {
-        if let Some(expected) = &expected.near_gas {
-            let actual = budget.near_gas.with_context(|| {
-                format!("scenario `{scenario}` call `{call}` expected near_gas budget but harness did not report one")
+        if let Some(expected) = &expected.wasmtime_fuel_cumulative {
+            let actual = budget.wasmtime_fuel_cumulative.with_context(|| {
+                format!(
+                    "scenario `{scenario}` call `{call}` expected wasmtime_fuel_cumulative budget but harness did not report one"
+                )
             })?;
             let max_allowed = expected.max_allowed();
             ensure!(
                 actual <= max_allowed,
-                "scenario `{scenario}` call `{call}` near_gas budget exceeded: baseline={}, tolerance={}, max_allowed={}, got={}",
+                "scenario `{scenario}` call `{call}` wasmtime_fuel_cumulative budget exceeded: baseline={}, tolerance={}, max_allowed={}, got={}",
+                expected.baseline(),
+                expected.tolerance(),
+                max_allowed,
+                actual
+            );
+        }
+        if let Some(expected) = &expected.wasmtime_fuel_delta {
+            let actual = budget.wasmtime_fuel_delta.with_context(|| {
+                format!(
+                    "scenario `{scenario}` call `{call}` expected wasmtime_fuel_delta budget but harness did not report one"
+                )
+            })?;
+            let max_allowed = expected.max_allowed();
+            ensure!(
+                actual <= max_allowed,
+                "scenario `{scenario}` call `{call}` wasmtime_fuel_delta budget exceeded: baseline={}, tolerance={}, max_allowed={}, got={}",
                 expected.baseline(),
                 expected.tolerance(),
                 max_allowed,
@@ -1990,7 +2014,13 @@ pub fn parse_offline_host_outcomes(stdout: &str) -> Result<Vec<CallOutcome>> {
                 "deallocations" => outcome.deallocations = Some(value.parse()?),
                 "solana_cu" => budget.solana_cu = Some(value.parse()?),
                 "evm_gas" => budget.evm_gas = Some(value.parse()?),
-                "near_gas" => budget.near_gas = Some(value.parse()?),
+                // PF-P0-06: honest Wasmtime fuel labels (near_gas rejected as product name).
+                "wasmtimeFuelCumulative" | "wasmtime_fuel_cumulative" => {
+                    budget.wasmtime_fuel_cumulative = Some(value.parse()?)
+                }
+                "wasmtimeFuelDelta" | "wasmtime_fuel_delta" => {
+                    budget.wasmtime_fuel_delta = Some(value.parse()?)
+                }
                 "error" => {
                     if let Some(id_str) = value.strip_prefix("assertion_id=") {
                         let assertion_id: u32 = id_str.parse()?;

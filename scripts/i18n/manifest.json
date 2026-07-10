@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "deff3e964a1045eef729a8a3cdd4822802c116fa37f04bf44e4ca603f3f20483",
+    "sha256": "f0e9ad7169b997a9846e03f1ee65c4b60b7a7da4d5037f904d1920b867cad036",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-10 audit integration"
+    "note": "manually synced for PF-P1-02 (backend-status generated table pointer)"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -32,10 +32,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/capability-registry.md": {
-    "sha256": "0cea0f876c859487a3d463222da1e06eba99cdc6f70e443a40adcbec015acb49",
+    "sha256": "f20cd943f74234d9f5852c9ffefcb2fa46a71c2fd5033841ae35c8fa2a7a1c73",
     "zh": "docs/zh/capability-registry.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced for PF-P0-05 (README/capability registry honesty)"
   },
   "docs/portable-ir.md": {
     "sha256": "d28f500c252fcfbeb905950ec2f67ee3c43a331e4c4c7dafdaccbfde762015c2",
@@ -43,9 +43,9 @@
     "model": "manual-zh"
   },
   "docs/shared-scenario.md": {
-    "sha256": "0b81393e19813124fccbec1300a9279ece2c5280a2c46dbb24841d6320736856",
+    "sha256": "0a64af1f4436d45dce75cf0e04aaacb868d862020f336ade6f2728b2f7df6253",
     "zh": "docs/zh/shared-scenario.zh.md",
-    "model": "gemini-3-flash-preview",
+    "model": "manual-zh",
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/tutorials/portable-contract-three-targets.md": {
@@ -77,9 +77,9 @@
     "note": "manually synced through the 2026-07-10 audit integration"
   },
   "docs/validation-gates.md": {
-    "sha256": "6394a975afad3df6888ca148911662f74e6864f1add87583dc63f4e14b461f7d",
+    "sha256": "86bde14c8df73cb99f36bfafe44a74ae6d1ebfca28af1303950d9687237a0a02",
     "zh": "docs/zh/validation-gates.zh.md",
-    "model": "gemini-3-flash-preview",
+    "model": "manual-zh",
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/rfcs/README.md": {
@@ -154,9 +154,9 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/gate-status.md": {
-    "sha256": "4dc4946dd7f8d2dcb3efb6a25618c1292182c7a8ecea319720a0432bb5b06205",
+    "sha256": "ccc2a4d22fdeee468e68323f6bfc6ce2744e4695afac40cc5104aaf002d0e055",
     "zh": "docs/zh/gate-status.zh.md",
-    "model": "gemini-3-flash-preview",
+    "model": "manual-zh",
     "en_sha256": "4dc4946dd7f8d2dcb3efb6a25618c1292182c7a8ecea319720a0432bb5b06205"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "b0c7b3f3c81606ecb03d8e29c40856dce56434a06e2bb8c4bd19c4888bf9d078",

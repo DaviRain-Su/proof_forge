@@ -3,6 +3,7 @@ import Init.Data.String.Basic
 import ProofForge.IR.Allocator
 import ProofForge.Target.Capability
 import ProofForge.Target.HostBridge
+import ProofForge.Target.Support
 
 namespace ProofForge.Target
 
@@ -55,6 +56,9 @@ structure TargetProfile where
   but the underlying constants (`solanaSbpfLinker`, `solanaZigFork`) remain
   importable for tests that exercise legacy routing. -/
   deprecated : Bool := false
+  /-- Machine-readable command/input/stage support (PF-P1-02). Authoritative
+  over README prose; plain `--list-targets` still means registry membership. -/
+  support : TargetSupport := {}
   deriving Repr, BEq
 
 structure EvmChainProfile where
@@ -101,6 +105,12 @@ def evm : TargetProfile := {
     .accountExplicit
   ]
   requiredTools := #["solc", "foundry"]
+  support := TargetSupport.primaryTriad
+    "portable IR Counter/ValueVault + TokenSpec; Yul intermediate, solc bytecode final"
+    #[
+      { tool := "solc", stage := "final-deployable" },
+      { tool := "foundry", stage := "runtime-smoke" }
+    ]
 }
 
 def wasmNear : TargetProfile := {
@@ -129,6 +139,12 @@ def wasmNear : TargetProfile := {
   ]
   hostBridge? := some .near
   requiredTools := #["rustup", "cargo", "near-cli"]
+  support := TargetSupport.primaryTriad
+    "portable IR → EmitWat WAT intermediate → wat2wasm Wasm final; NEP-141 stdlib"
+    #[
+      { tool := "wat2wasm", stage := "final-deployable" },
+      { tool := "near-cli", stage := "deploy" }
+    ]
 }
 
 def wasmCosmWasm : TargetProfile := {
@@ -150,6 +166,9 @@ def wasmCosmWasm : TargetProfile := {
   hostBridge? := some .cosmWasm
   -- M1 spike uses a direct WAT emitter; the Zig route is deferred to Workstream 4.
   requiredTools := #["wat2wasm", "cosmwasm-check"]
+  support := TargetSupport.fixtureSpike
+    "Counter fixture EmitWat spike; source input fail-closed"
+    #[{ tool := "wat2wasm", stage := "intermediate" }]
 }
 
 def wasmCloudflareWorkers : TargetProfile := {
@@ -171,6 +190,13 @@ def wasmCloudflareWorkers : TargetProfile := {
     .assertions
   ]
   requiredTools := #["zig", "wrangler"]
+  support := {
+    TargetSupport.fixtureResearch
+      "Counter fixture TypeScript Worker sourcegen; not Wasm despite artifactKind"
+      #[{ tool := "wrangler", stage := "sourcegen" }]
+    with
+    commands := #[.emit]
+  }
 }
 
 /-- Stellar Soroban host-family adapter (Phase 4). In `Registry.all` /
@@ -200,6 +226,15 @@ def wasmStellarSoroban : TargetProfile := {
   ]
   hostBridge? := some .soroban
   requiredTools := #["wat2wasm"]
+  support := {
+    maturity := .spike
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.intermediate, .finalDeployable]
+    validationLevel := .capability
+    supportedFragment := "contract_source via EmitWat + HostBridge.soroban; TokenSpec unsupported"
+    toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
+  }
 }
 
 def solanaSbpfLinker : TargetProfile := {
@@ -263,6 +298,9 @@ def solanaSbpfAsm : TargetProfile := {
     .crosscallInvoke
   ]
   requiredTools := #["sbpf"]
+  support := TargetSupport.primaryTriad
+    "portable IR → sBPF assembly intermediate → sbpf ELF final; CPI/PDA extensions"
+    #[{ tool := "sbpf", stage := "final-deployable" }]
 }
 
 def solanaZigFork : TargetProfile := {
@@ -292,6 +330,9 @@ def moveAptos : TargetProfile := {
     .accountExplicit
   ]
   requiredTools := #["aptos"]
+  support := TargetSupport.fixtureSpike
+    "Counter Move package sourcegen spike; source input fail-closed"
+    #[{ tool := "aptos", stage := "sourcegen" }]
 }
 
 def moveSui : TargetProfile := {
@@ -304,6 +345,15 @@ def moveSui : TargetProfile := {
     .accountExplicit
   ]
   requiredTools := #["sui"]
+  support := {
+    maturity := .counterMvp
+    inputModes := #[.fixture]
+    commands := #[.build, .emit, .check]
+    outputStages := #[.sourcegen]
+    validationLevel := .capability
+    supportedFragment := "Counter MVP Move package; scalar storage + assertions only"
+    toolStages := #[{ tool := "sui", stage := "sourcegen" }]
+  }
 }
 
 def psyDpn : TargetProfile := {
@@ -329,6 +379,9 @@ def psyDpn : TargetProfile := {
     .zkProof
   ]
   requiredTools := #["dargo"]
+  support := TargetSupport.fixtureSpike
+    "restricted IR → .psy intermediate → dargo circuit JSON; fixture/sourcegen lane"
+    #[{ tool := "dargo", stage := "final-deployable" }]
 }
 
 /-- Aleo/Leo target (Phase 4 ZK lane, Road 1 sourcegen).
@@ -366,6 +419,9 @@ def aleoLeo : TargetProfile := {
     .zkProof
   ]
   requiredTools := #["leo"]
+  support := TargetSupport.fixtureResearch
+    "Counter/PureMath Leo sourcegen research spike; fixture emit"
+    #[{ tool := "leo", stage := "sourcegen" }]
 }
 
 /-- All defined profiles, including deprecated ones. Tests that exercise

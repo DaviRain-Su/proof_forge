@@ -17,7 +17,7 @@ lake env proof-forge build --target evm --root . --format bytecode \
   -o "$OUT_ROOT/evm/Counter.bin" \
   --yul-output "$OUT_ROOT/evm/Counter.yul" \
   "$SOURCE"
-lake env proof-forge build --target solana-sbpf-asm --root . \
+lake env proof-forge build --target solana-sbpf-asm --format s --root . \
   -o "$OUT_ROOT/solana-sbpf-asm/Counter.s" \
   "$SOURCE"
 lake env proof-forge build --target wasm-near --root . --format wat \

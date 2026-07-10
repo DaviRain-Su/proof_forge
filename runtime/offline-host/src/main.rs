@@ -271,17 +271,22 @@ fn run(config: Config) -> Result<()> {
         config.heap_base
     );
 
+    // PF-P0-06: track Wasmtime fuel honestly — cumulative vs per-call delta.
+    // This is not NEAR VM gas; product budgets must not call it `near_gas`.
+    let mut previous_consumed_fuel: u64 = 0;
     for sequence_index in 1..=config.repeat {
         for (call_index, (export, entry)) in entries.iter().enumerate() {
             store.data_mut().input = call_inputs[call_index].clone();
             store.data_mut().begin_call();
             let trap = entry.call(&mut store, ()).err();
             let consumed_fuel = initial_fuel - store.get_fuel().unwrap_or(0);
+            let fuel_delta = consumed_fuel.saturating_sub(previous_consumed_fuel);
+            previous_consumed_fuel = consumed_fuel;
             let state = store.data();
             if let Some(message) = &state.panic_message {
                 let error = parse_panic_error(message);
                 println!(
-                    "call {sequence_index}:{export}: error={error} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} near_gas={consumed_fuel}",
+                    "call {sequence_index}:{export}: error={error} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
                     state.allocator.next,
                     state.allocator.allocations,
                     state.allocator.reuses,
@@ -293,7 +298,7 @@ fn run(config: Config) -> Result<()> {
                 return Err(err).with_context(|| format!("call {sequence_index}:{export} trapped"));
             } else {
                 println!(
-                    "call {sequence_index}:{export}: {} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} near_gas={consumed_fuel}",
+                    "call {sequence_index}:{export}: {} heap_next={} allocations={} reuses={} deallocations={} storage_keys={} logs={} wasmtimeFuelCumulative={consumed_fuel} wasmtimeFuelDelta={fuel_delta}",
                     describe_return(&state.return_value),
                     state.allocator.next,
                     state.allocator.allocations,

@@ -283,7 +283,7 @@ equals = "solana"
 path = "artifactKind"
 kind = "string"
 non_empty = true
-equals = "solana-elf"
+equals = "solana-sbpf-asm"
 
 [[artifact.json]]
 path = "fixture"
@@ -606,7 +606,7 @@ call = "initialize"
 [step.expect.budget]
 solana_cu = { baseline = 56, tolerance = 0.05 }
 evm_gas = { baseline = 23332, tolerance = 0.10 }
-near_gas = { baseline = 22, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 22, tolerance = 0.05 }
 
 [[step]]
 call = "get"
@@ -615,14 +615,14 @@ u64 = 0
 [step.expect.budget]
 solana_cu = { baseline = 163, tolerance = 0.05 }
 evm_gas = { baseline = 23281, tolerance = 0.10 }
-near_gas = { baseline = 60, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 60, tolerance = 0.05 }
 
 [[step]]
 call = "increment"
 [step.expect.budget]
 solana_cu = { baseline = 63, tolerance = 0.05 }
 evm_gas = { baseline = 43259, tolerance = 0.10 }
-near_gas = { baseline = 109, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 109, tolerance = 0.05 }
 
 [[step]]
 call = "get"
@@ -631,4 +631,4 @@ u64 = 1
 [step.expect.budget]
 solana_cu = { baseline = 163, tolerance = 0.05 }
 evm_gas = { baseline = 23281, tolerance = 0.10 }
-near_gas = { baseline = 147, tolerance = 0.05 }
+wasmtime_fuel_cumulative = { baseline = 147, tolerance = 0.05 }

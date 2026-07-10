@@ -24,6 +24,12 @@ ProofForge 的目标是：一份经过验证的 Lean 合约代码库，可以在
 
 ## 后端状态
 
+机器可读的支持矩阵（maturity、input modes、commands、output stages、validation
+level）由 `proof-forge --list-targets --json` 生成到
+[`docs/generated/backend-status.md`](../generated/backend-status.md)
+（`just target-support` / `just backend-status-gen`）。下表仍是管线与本地验证
+的人读总览；生成表是 PF-P1-02 合同。
+
 所有后端都在 `main` 上（"链"是目录和 target id，不是分支）。生命周期阶段见
 [docs/targets/README.md](../targets/README.md)。
 主三链完成规约 (D-045) 已关闭，`evm`、`solana-sbpf-asm` 和 `wasm-near`
@@ -39,12 +45,16 @@ portable Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和
 | `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental（生产级门禁） | golden Yul、诊断、Foundry 运行时冒烟（15 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
 | `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
 | `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
+| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Spike（Phase 4 host-family 适配器） | Counter refinement；Soroban 专用 sidecar；offline-host 冒烟；auth/TTL/contract-spec 仍为后续工作 |
 | `wasm-cosmwasm` | portable IR → `EmitWat` → WAT → `wat2wasm` | Spike（**G1a 未开始**） | Counter golden WAT；portable remote 使用 **execute_msg STUB**（不是完整 submessage）；`just cosmwasm-counter-smoke` 可选 |
 | `move-aptos` | portable IR → Aptos Move 包 | Spike | Counter golden Move、`just aptos-counter-smoke`（可选 CI） |
 | `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike（仅 CLI） | Counter/PureMath golden fixture 与冒烟 |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike | `tsc` 类型检查、`wrangler` dry-run |
+| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Research spike（已列入 `--list-targets`；fixture emit + 可选 `leo` 门禁） | Counter/PureMath golden fixture 与冒烟 |
+| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Research spike（仅 fixture `emit`） | `tsc` 类型检查、`wrangler` dry-run |
+
+**仅 CLI 的验证目标：** `quint` 可通过 `proof-forge emit --target quint` 用于形式化/模型检查
+fixture，但**不在** `Target.knownIds` / `--list-targets` 中（验证通道，不是产品 host）。
 
 **Spike 诚实性 (U7)：**CosmWasm / Aptos / Soroban / Cloudflare 不是主要产品
 host。CosmWasm portable crosscall 是 WasmMsg 形状的 `execute_msg` stub；

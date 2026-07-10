@@ -26,7 +26,7 @@ gaps.
 |---|---|---|---|
 | ERC-20 | Covered | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | — |
 | ERC-721 (NFT) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Backend/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **Limitation:** `safeTransferFrom` does not invoke `onERC721Received` (documented in stdlib header) | P1 |
-| ERC-1155 (multi-token) | Partial | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, and single `safeTransferFrom`; `Examples/Backend/Evm/Contracts/stdlib/ERC1155.lean` golden Yul; `foundry-smoke.sh` exercises mint/approval/transfer/burn. **Gap:** batch operations and receiver callbacks remain open | P1 |
+| ERC-1155 (multi-token) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, and single `safeTransferFrom`; `Examples/Backend/Evm/Contracts/stdlib/ERC1155.lean` golden Yul; `foundry-smoke.sh` exercises mint/approval/transfer/burn. **Limitation:** batch operations and receiver callbacks remain open | P1 |
 | ERC-4626 (vault standard) | Covered (v1 frozen) | **Call** peer: `IERC4626` / `external_vault`. **Deploy body:** `Stdlib.ERC4626` pro-rata + entry/exit feeBps + FOT vault+recipient deltas (`just product-erc4626-vault`). **v2:** fee-recipient re-measure; non-EVM vault body | — |
 | ERC-2612 (permit) | Covered (EVM) | Peer client + stdlib body + **TokenSpec `moduleFor` merges ERC20Permit** when `permit` feature set (`Tests/TokenEvm`). DOMAIN still init-set; staged `setPermitSig` | — |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
@@ -38,7 +38,7 @@ gaps.
 |---|---|---|---|
 | Ownable | Covered | `stdlib/Ownable.lean` — owner storage, onlyOwner, transfer, renounce | — |
 | AccessControl (roles) | Covered | `stdlib/AccessControl.lean` — `grantRole`/`revokeRole`/`hasRole` + nested map `(role, account) → membership` + `guard_role` DSL statement; `Examples/Backend/Evm/Contracts/stdlib/AccessControl.lean` golden Yul | — |
-| Pausable | Partial | `stdlib/Pausable.lean` has pause/unpause + `guard_not_paused`/`guard_paused` DSL statements + Lean proof (`not_paused_zero`); `Examples/Backend/Evm/Contracts/stdlib/Pausable.lean` golden Yul. **Gap:** pause/unpause have no owner/role auth (compose with Ownable/AccessControl for guarded pause) | P1 |
+| Pausable | Covered (limited) | `stdlib/Pausable.lean` has pause/unpause + `guard_not_paused`/`guard_paused` DSL statements + Lean proof (`not_paused_zero`); `Examples/Backend/Evm/Contracts/stdlib/Pausable.lean` golden Yul. **Limitation:** pause/unpause have no built-in owner/role auth (compose with Ownable/AccessControl for guarded pause) | P1 |
 | ReentrancyGuard | Covered | `stdlib/ReentrancyGuard.lean` — reusable `acquireLock`/`releaseLock` mixin via `acquire_lock`/`release_lock` DSL statements; `Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean` golden Yul. VerifiedVault hand-rolled guard predates the stdlib | — |
 
 ### Proxy / Upgrade patterns
@@ -49,7 +49,7 @@ gaps.
 | Transparent proxy | Missing | Same rejection | P1 |
 | Beacon proxy | Missing | Same rejection | P2 |
 | Diamonds (EIP-2535) | Missing | No facet/loupe storage pattern | P2 |
-| CREATE2 factory | Partial | IR lowers `create2`; Foundry proves deterministic deploy; no reusable factory template | P1 |
+| CREATE2 factory | Covered (limited) | `ProofForge/Contract/Stdlib/Create2Factory.lean` + IR `create2` lowering; Foundry proves deterministic deploy. **Limitation:** advanced factory templates / salt bookkeeping remain product follow-ups | P1 |
 
 ### DeFi primitives
 

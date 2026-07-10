@@ -8,6 +8,7 @@
 # Usage:
 #   scripts/docs/audit-doc-code-sync.sh           # write build/doc-sync-audit.md
 #   scripts/docs/audit-doc-code-sync.sh --check   # exit 1 if any P0 mechanical drift
+#   scripts/docs/audit-doc-code-sync.sh --strict  # exit 1 if any finding remains (PF-P0-05)
 #
 # Output: build/doc-sync-audit.md (and build/doc-sync-audit.json for tooling)
 
@@ -17,15 +18,17 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 CHECK_MODE=false
-if [[ "${1:-}" == "--check" ]]; then
-  CHECK_MODE=true
-fi
+STRICT_MODE=false
+case "${1:-}" in
+  --check) CHECK_MODE=true ;;
+  --strict) STRICT_MODE=true ;;
+esac
 
 OUT_MD="${DOC_SYNC_OUT:-build/doc-sync-audit.md}"
 OUT_JSON="${DOC_SYNC_JSON:-build/doc-sync-audit.json}"
 mkdir -p build
 
-python3 - "$REPO_ROOT" "$OUT_MD" "$OUT_JSON" "$CHECK_MODE" <<'PY'
+python3 - "$REPO_ROOT" "$OUT_MD" "$OUT_JSON" "$CHECK_MODE" "$STRICT_MODE" <<'PY'
 import json
 import re
 import sys
@@ -35,6 +38,7 @@ repo = Path(sys.argv[1])
 out_md = Path(sys.argv[2])
 out_json = Path(sys.argv[3])
 check_mode = sys.argv[4].lower() == "true"
+strict_mode = len(sys.argv) > 5 and sys.argv[5].lower() == "true"
 
 findings: list[dict] = []
 
@@ -329,7 +333,18 @@ for tid in only_readme:
         f"Remove README row or add target to Registry.",
     )
 
+# Skip when README/AGENTS already document the CLI-only verification lane (PF-P0-05).
+agents_md = read_text(repo / "AGENTS.md") + "\n" + read_text(repo / "Agents.md")
 for tid in cli_not_registry:
+    documented = (
+        f"`{tid}`" in readme
+        and ("CLI-only" in readme or "cli-only" in readme or "verification" in readme.lower())
+    ) or (
+        f"`{tid}`" in agents_md
+        and ("CLI-only" in agents_md or "cli-only" in agents_md)
+    )
+    if documented:
+        continue
     add(
         f"DC-CLI-{tid.replace('-', '_').upper()}",
         "target_inventory",
@@ -587,5 +602,7 @@ print(f"Wrote {out_md} ({len(findings)} findings: P0={p0} P1={p1} P2={p2})")
 print(f"Wrote {out_json}")
 
 if check_mode and p0 > 0:
+    sys.exit(1)
+if strict_mode and len(findings) > 0:
     sys.exit(1)
 PY

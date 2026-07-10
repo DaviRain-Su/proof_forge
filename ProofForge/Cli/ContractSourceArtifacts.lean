@@ -18,6 +18,7 @@ import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
 import ProofForge.IR
 import ProofForge.Target
+import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Preflight
 
 open System
@@ -84,6 +85,33 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
       let idlArtifact ← artifactEntryJson idlOutput
       let clientArtifact ← artifactEntryJson clientOutput
       let sourceArtifactEntry ← artifactEntryJson input
+      let asmDigest ← fileDigestAndBytes output
+      -- PF-P1-03 / PF-P0-03: assembly intermediate only; ELF not claimed.
+      let bundle : ProofForge.Target.ArtifactBundle.ArtifactBundle := {
+        targetId := ProofForge.Backend.Solana.SbpfAsm.targetId
+        source := {
+          moduleName := spec.name
+          path? := some input.toString
+          kind := "contract-source"
+        }
+        outputs := #[{
+          kind := "sbpf-asm"
+          role := .intermediate
+          path? := some output.toString
+          sha256? := some asmDigest.fst
+          bytes? := some asmDigest.snd
+        }]
+        primaryOutput? := some "sbpf-asm"
+        finalOutput? := none
+        toolchain := #[{ tool := "sbpf", stage := "final-deployable", available := false }]
+        validations := #[
+          { name := "contractSourceLowering", state := .passed },
+          { name := "sbpfBuild", state := .notRun, detail? := some "--format s: ELF link not requested" }
+        ]
+      }
+      let _ ← match ProofForge.Target.ArtifactBundle.validateHonesty bundle with
+        | .ok () => pure ()
+        | .error err => throw <| IO.userError s!"Solana ArtifactBundle honesty: {err.message}"
       let metadata := jsonObject #[
         ("schemaVersion", "1"),
         ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
@@ -103,7 +131,8 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
           ProofForge.Backend.Solana.Materialize.reportJson
             (ProofForge.Backend.Solana.Materialize.report spec.module
               (ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlan plan))),
-        ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
+        -- Assembly intermediate only (PF-P0-03): do not claim solana-elf.
+        ("artifactKind", jsonString "solana-sbpf-asm"),
         ("fixture", jsonString (leanBaseName input)),
         ("sourceKind", jsonString "contract-sdk"),
         ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
@@ -127,11 +156,13 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
           ("solanaIdl", idlArtifact),
           ("solanaClientTs", clientArtifact)
         ]),
+        ("artifactBundle", ProofForge.Target.ArtifactBundle.ArtifactBundle.toJson bundle),
         ("validation", jsonObject #[
           ("contractSourceLowering", jsonString "passed"),
           ("targetRouting", jsonString "passed"),
           ("manifestGeneration", jsonString "passed"),
-          ("sbpfBuild", jsonString "pending")
+          -- Honest intermediate: ELF not requested/run (was misleading "skipped").
+          ("sbpfBuild", jsonString "notRun")
         ])
       ]
       IO.FS.writeFile metadataOutput (metadata ++ "\n")
@@ -167,12 +198,20 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
           pure out
     | none =>
         throw <| IO.userError "contract source EmitWat build requires -o output directory (or .wat path)"
+  -- PF-P0-04: resolve the requested Wasm-host profile (NEAR vs Soroban), never alias to NEAR.
+  let targetId := opts.targetId?.getD ProofForge.Target.wasmNear.id
+  let profile ←
+    match ProofForge.Target.find? targetId with
+    | some profile => pure profile
+    | none =>
+        throw <| IO.userError
+          s!"unknown EmitWat target '{targetId}'; known targets: {String.intercalate ", " ProofForge.Target.knownIds.toList}"
   let opts' := { opts with
     output? := some outputDir
-    targetId? := opts.targetId? <|> some ProofForge.Target.wasmNear.id
+    targetId? := some profile.id
   }
   let plan ←
-    match ProofForge.Target.resolveSpec ProofForge.Target.wasmNear spec with
+    match ProofForge.Target.resolveSpec profile spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
   compileEmitWatWithPlan opts' fixtureSlug spec.module plan

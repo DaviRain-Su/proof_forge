@@ -125,6 +125,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .learnSbpf }
   | "--contract-source-sbpf" :: rest, opts =>
       parseArgs rest { opts with mode := .contractSourceSbpf }
+  | "--contract-source-solana-elf" :: rest, opts =>
+      parseArgs rest { opts with mode := .contractSourceSolanaElf }
   | "--contract-source-emitwat" :: rest, opts =>
       parseArgs rest { opts with mode := .contractSourceEmitWat }
   | "--emit-abi-scalar-ir-yul" :: rest, opts =>

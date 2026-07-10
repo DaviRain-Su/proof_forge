@@ -69,7 +69,7 @@ else
 fi
 
 echo "=== product-protocol-ft: Solana portable CPI smoke ==="
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/solana/ExternalTokenTransfer.s" \
   --artifact-output "$OUT/solana/ExternalTokenTransfer.solana-artifact.json" \
   "$SOURCE" \

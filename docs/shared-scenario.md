@@ -167,7 +167,7 @@ PR that bumps the toolchain.
 
 | Scenario | Metrics asserted | Typical tolerance |
 |---|---|---|
-| Counter | `evm_gas`, `solana_cu`, `near_gas` on every step | EVM ±10%, Solana/NEAR ±5% |
+| Counter | `evm_gas`, `solana_cu`, `wasmtime_fuel_cumulative` on every step | EVM ±10%, Solana/NEAR ±5% |
 | ValueVault | same | same |
 
 Run the budget gate locally:
@@ -186,7 +186,7 @@ To inspect measured budgets while authoring new baselines, run:
 cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter --trace
 ```
 
-Copy reported `solana_cu`, `evm_gas`, and `near_gas` values into the scenario
+Copy reported `solana_cu`, `evm_gas`, and `wasmtime_fuel_cumulative` values into the scenario
 file when locking a new baseline. See [RFC 0010](rfcs/0010-resource-budgets-as-gates.md).
 
 ## ZK Target Experimental Criteria

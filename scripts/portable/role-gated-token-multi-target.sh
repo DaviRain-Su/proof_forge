@@ -37,7 +37,7 @@ python3 scripts/evm/validate-artifact-metadata.py \
   "$OUT/RoleGatedToken.proof-forge-artifact.json"
 
 echo "portable-role-gated-token: Solana sBPF"
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/RoleGatedToken.s" \
   --artifact-output "$OUT/RoleGatedToken.solana-artifact.json" \
   "$SOURCE"

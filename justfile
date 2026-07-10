@@ -12,6 +12,27 @@ build:
 target-registry:
     lake env lean --run Tests/TargetRegistry.lean
 
+# PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
+target-backend:
+    lake env lean Tests/TargetBackend.lean
+
+# PF-P1-02: machine-readable TargetProfile support matrix.
+target-support:
+    lake env lean --run Tests/TargetSupport.lean
+    python3 scripts/docs/generate-backend-status.py --check
+
+# PF-P1-03: ArtifactBundle honesty schema (intermediate/final/missing-tool).
+artifact-bundle:
+    lake env lean --run Tests/ArtifactBundle.lean
+
+# PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
+preflight-l2:
+    lake env lean --run Tests/PreflightL2.lean
+
+# Regenerate docs/generated/backend-status.md from --list-targets --json.
+backend-status-gen:
+    python3 scripts/docs/generate-backend-status.py
+
 # Check target-neutral ContractSpec JSON schema output.
 contract-spec-json:
     lake env lean --run Tests/ContractSpecJson.lean
@@ -254,6 +275,30 @@ fv5-overflow-smoke:
 cli-target-first:
     python3 scripts/cli/check-target-first-migration.py
     lake env lean Tests/CliTargetFirst.lean
+
+# PF-P0-01: ValueVault source identity across every registered target (no silent Counter).
+source-identity:
+    scripts/cli/source-identity-smoke.sh
+
+# PF-P0-02: --list-targets membership vs per-command support honesty.
+registry-command:
+    scripts/cli/registry-command-smoke.sh
+
+# PF-P0-03: Solana contract_source default ELF + honest --format s assembly.
+solana-source-elf:
+    scripts/cli/solana-source-elf-smoke.sh
+
+# PF-P0-04: Soroban uses its own TargetProfile / sidecar (not NEAR).
+soroban-profile:
+    scripts/cli/soroban-profile-smoke.sh
+
+# PF-P0-08: default Wasm build fails without wat2wasm; --format wat is intermediate.
+wat2wasm-fail-closed:
+    scripts/cli/wat2wasm-fail-closed-smoke.sh
+
+# PF-P0-07: check uses the same input-mode / L2 fail-closed rules as build.
+check-l2-parity:
+    scripts/cli/check-l2-parity-smoke.sh
 
 # Generic sBPF step lemmas — active C-proof surface (PRs touch SbpfExec here).
 solana-sbpf-exec-smoke:
@@ -793,6 +838,10 @@ docs-check: examples-topology portable-default
 doc-sync-audit:
     scripts/docs/audit-doc-code-sync.sh
 
+# PF-P0-05: fail if any mechanical doc↔code finding remains.
+doc-sync-audit-strict:
+    scripts/docs/audit-doc-code-sync.sh --strict
+
 # Emit Counter .qnt model and run `quint verify`. Skips if Java < 17.
 quint-model-gate:
     scripts/quint/model-check-gate.sh
@@ -840,7 +889,7 @@ testkit-budget-gate:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build product target-registry contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
+check: build product target-registry target-backend target-support artifact-bundle preflight-l2 contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

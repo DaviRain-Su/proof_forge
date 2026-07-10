@@ -664,7 +664,8 @@ fn outcome_from_output(sequence: u32, call: &str, output: &[u8], gas_used: u64) 
         budget: Some(proof_forge_testkit_core::BudgetOutcome {
             solana_cu: None,
             evm_gas: Some(gas_used),
-            near_gas: None,
+            wasmtime_fuel_cumulative: None,
+            wasmtime_fuel_delta: None,
         }),
         error: None,
         raw_line,
@@ -698,7 +699,8 @@ fn outcome_from_revert(sequence: u32, call: &str, output: &[u8], gas_used: u64) 
         budget: Some(proof_forge_testkit_core::BudgetOutcome {
             solana_cu: None,
             evm_gas: Some(gas_used),
-            near_gas: None,
+            wasmtime_fuel_cumulative: None,
+            wasmtime_fuel_delta: None,
         }),
         error,
         raw_line,

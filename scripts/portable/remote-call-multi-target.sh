@@ -61,7 +61,7 @@ else
 fi
 
 echo "portable-remote-call: Solana sBPF"
-"${proof_forge[@]}" build --target solana-sbpf-asm --root . \
+"${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \
   -o "$OUT/solana/RemoteCall.s" \
   --artifact-output "$OUT/solana/RemoteCall.solana-artifact.json" \
   "$SOURCE"

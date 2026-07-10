@@ -126,8 +126,14 @@ def main : IO UInt32 := do
     ["build", "--target", "wasm-near", "--fixture", "context", "--format", "wat", "-o", "build/wasm-near/context"]
     ["--emit-context-emitwat", "-o", "build/wasm-near/context"]
   requireLegacy
-    ["build", "--target", "solana-sbpf-asm", "--root", ".", "-o", "build/portable-counter/Counter.s", "Examples/Product/Counter.lean"]
+    ["build", "--target", "solana-sbpf-asm", "--format", "s", "--root", ".", "-o", "build/portable-counter/Counter.s", "Examples/Product/Counter.lean"]
     ["--contract-source-sbpf", "-o", "build/portable-counter/Counter.s", "--root", ".", "Examples/Product/Counter.lean"]
+  requireLegacy
+    ["build", "--target", "solana-sbpf-asm", "--format", "elf", "--root", ".", "-o", "build/portable-counter/Counter.so", "Examples/Product/Counter.lean"]
+    ["--contract-source-solana-elf", "-o", "build/portable-counter/Counter.so", "--root", ".", "Examples/Product/Counter.lean"]
+  requireLegacy
+    ["build", "--target", "solana-sbpf-asm", "--root", ".", "-o", "build/portable-counter/Counter.so", "Examples/Product/Counter.lean"]
+    ["--contract-source-solana-elf", "-o", "build/portable-counter/Counter.so", "--root", ".", "Examples/Product/Counter.lean"]
   requireLegacy
     ["build", "--target", "wasm-near", "--root", ".", "-o", "build/portable-counter/near", "Examples/Product/Counter.lean"]
     -- Host bridge (NEAR vs Soroban) is selected from --target on EmitWat path.
@@ -159,15 +165,32 @@ def main : IO UInt32 := do
     #["move-sui", "value-vault", "not yet mapped"]
   requireErrorContains
     ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Product/Counter.lean"]
-    #["move-sui", "source", "out of scope"]
-  /- Psy source-build fail-closed (PF-P0-01): a .lean contract source must be
-     rejected with a stable diagnostic, never silently substituted by Counter. -/
+    #["move-sui", "source input is not supported"]
+  -- PF-P0-01: fixture-only build routes must not accept Lean sources (no silent Counter).
   requireErrorContains
-    ["build", "--target", "psy-dpn", "--root", ".", "-o", "build/source-sdk/psy-dpn", "Examples/Product/Counter.lean"]
-    #["psy-dpn", "source input", "fixture/sourcegen"]
+    ["build", "--target", "wasm-cosmwasm", "--root", ".", "-o", "build/source-sdk/cosmwasm.wat",
+      "Examples/Product/ValueVault.lean"]
+    #["wasm-cosmwasm", "source input is not supported"]
   requireErrorContains
-    ["build", "--target", "psy-dpn", "--root", ".", "-o", "build/source-sdk/psy-dpn", "Examples/Product/ValueVault.lean"]
-    #["psy-dpn", "source input", "fixture/sourcegen"]
+    ["build", "--target", "psy-dpn", "--root", ".", "-o", "build/source-sdk/vault.psy",
+      "Examples/Product/ValueVault.lean"]
+    #["psy-dpn", "source input is not supported"]
+  requireErrorContains
+    ["build", "--target", "aleo-leo", "--root", ".", "-o", "build/source-sdk/vault.leo",
+      "Examples/Product/ValueVault.lean"]
+    #["aleo-leo", "source input is not supported"]
+  requireErrorContains
+    ["build", "--target", "move-aptos", "--root", ".", "-o", "build/source-sdk/move-aptos",
+      "Examples/Product/ValueVault.lean"]
+    #["move-aptos", "source input is not supported"]
+  requireErrorContains
+    ["build", "--target", "wasm-cloudflare-workers", "--root", ".", "-o", "build/source-sdk/workers",
+      "Examples/Product/ValueVault.lean"]
+    #["wasm-cloudflare-workers", "source input is not supported"]
+  -- Fixture emit remains the supported surface for Counter spikes.
+  requireLegacy
+    ["build", "--target", "wasm-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
+    ["--emit-counter-ir-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
   requireLegacy
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]

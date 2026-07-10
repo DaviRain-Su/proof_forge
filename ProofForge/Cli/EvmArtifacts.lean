@@ -16,6 +16,7 @@ import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
 import ProofForge.IR
 import ProofForge.Target
+import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Preflight
 
 open ProofForge.Cli.ConstructorAbi
@@ -375,6 +376,67 @@ def writeEvmDeployManifest
     IO.FS.createDirAll parent
   IO.FS.writeFile deployOutput (manifest ++ "\n")
 
+/-- PF-P1-03: honest ArtifactBundle for EVM Yul + runtime bytecode (+ initcode sidecar). -/
+def evmArtifactBundle
+    (sourceModule sourceKind : String)
+    (sourcePath? : Option String)
+    (yulPath bytecodePath initCodePath : FilePath)
+    (yulSha bytecodeSha initSha : String)
+    (yulBytes bytecodeBytes initBytes : Nat)
+    (solcAvailable : Bool)
+    (solcVersion? : Option String)
+    (contractSizeOk : Bool) :
+    ProofForge.Target.ArtifactBundle.ArtifactBundle :=
+  open ProofForge.Target.ArtifactBundle in
+  let source : SourceIdentity := {
+    moduleName := sourceModule
+    path? := sourcePath?
+    kind := sourceKind
+  }
+  let yulOut : TypedOutput := {
+    kind := "yul"
+    role := .intermediate
+    path? := some yulPath.toString
+    sha256? := some yulSha
+    bytes? := some yulBytes
+  }
+  let bytecodeOut : TypedOutput := {
+    kind := "evm-bytecode"
+    role := .finalDeployable
+    path? := some bytecodePath.toString
+    sha256? := some bytecodeSha
+    bytes? := some bytecodeBytes
+  }
+  let initOut : TypedOutput := {
+    kind := "evm-initcode"
+    role := .sidecar
+    path? := some initCodePath.toString
+    sha256? := some initSha
+    bytes? := some initBytes
+  }
+  {
+    targetId := "evm"
+    source := source
+    outputs := #[yulOut, bytecodeOut, initOut]
+    primaryOutput? := some "evm-bytecode"
+    finalOutput? := some "evm-bytecode"
+    toolchain := #[{
+      tool := "solc"
+      stage := "final-deployable"
+      available := solcAvailable
+      version? := solcVersion?
+    }]
+    validations := #[
+      { name := "solcStrictAssembly", state := if solcAvailable then .passed else .unavailable },
+      { name := "bytecodeGeneration", state := if solcAvailable then .passed else .unavailable },
+      {
+        name := "contractSizeCheck"
+        state := if contractSizeOk then .passed else .failed
+        detail? := some s!"runtime bytecode bytes={bytecodeBytes} limit=24576"
+      }
+    ]
+  }
+
 def writeEvmArtifactMetadata
     (opts : CliOptions)
     (fixture sourceKind sourceModule : String)
@@ -424,8 +486,9 @@ def writeEvmArtifactMetadata
     artifactFields := artifactFields.push ("source", sourceArtifact)
   for (name, artifact) in extraArtifacts do
     artifactFields := artifactFields.push (name, artifact)
+  let solcVer? ← solcVersion? opts.solc
   let solcVersionValue :=
-    match (← solcVersion? opts.solc) with
+    match solcVer? with
     | some version => jsonString version
     | none => "null"
   -- EIP-170 contract code size limit: 24,576 bytes
@@ -435,6 +498,28 @@ def writeEvmArtifactMetadata
   let contractSizeStatus :=
     if bytecodeBytes > contractSizeLimit then "exceeded"
     else "passed"
+  let yulDigest ← fileDigestAndBytes yulOutput
+  let bytecodeDigest ← fileDigestAndBytes bytecodeOutput
+  let initDigest ← fileDigestAndBytes initCodeOutput
+  let bundle := evmArtifactBundle
+    sourceModule
+    sourceKind
+    (source?.map (·.toString))
+    yulOutput
+    bytecodeOutput
+    initCodeOutput
+    yulDigest.fst
+    bytecodeDigest.fst
+    initDigest.fst
+    yulDigest.snd
+    bytecodeDigest.snd
+    initDigest.snd
+    true
+    solcVer?
+    (contractSizeStatus == "passed")
+  let _ ← match ProofForge.Target.ArtifactBundle.validateHonesty bundle with
+    | .ok () => pure ()
+    | .error err => throw <| IO.userError s!"EVM ArtifactBundle honesty: {err.message}"
   let materializationJson :=
     match module? with
     | some module =>
@@ -489,6 +574,7 @@ def writeEvmArtifactMetadata
       ("methods", jsonArray methods)
     ]),
     ("artifacts", jsonObject artifactFields),
+    ("artifactBundle", ProofForge.Target.ArtifactBundle.ArtifactBundle.toJson bundle),
     ("validation", jsonObject #[
       ("solcStrictAssembly", jsonString "passed"),
       ("bytecodeGeneration", jsonString "passed"),

@@ -1,6 +1,7 @@
 import Init.Notation
 import Init.System.IO
 import Lean
+import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
@@ -11,6 +12,7 @@ import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
 import ProofForge.IR.Examples.HashProbe
 import ProofForge.IR.Examples.MapProbe
+import ProofForge.Target.HostBridge
 import ProofForge.Target.Registry
 import ProofForge.Target.Preflight
 
@@ -199,9 +201,32 @@ def checkFixtureCapabilities (profile : ProofForge.Target.TargetProfile) (fixtur
         validation := pushValidation report.validation "capabilities" "failed"
       }
 
+/-- Fixture-only Spike/Research targets: source check must fail closed (PF-P0-01/02). -/
+def isFixtureOnlySourceTarget (targetId : String) : Bool :=
+  targetId == "wasm-cosmwasm" ||
+  targetId == "wasm-cloudflare-workers" ||
+  targetId == "psy-dpn" ||
+  targetId == "aleo-leo" ||
+  targetId == "move-aptos" ||
+  targetId == "move-sui"
+
 unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
     (root? : Option FilePath) (moduleName? : Option Name) (report : Report) : IO Report := do
   let mut next := report
+  -- Decouple registry membership from source-command support (PF-P0-02).
+  if isFixtureOnlySourceTarget profile.id then
+    return {
+      next with
+      diagnostics := pushDiagnostic next.diagnostics {
+        severity := .error
+        code := "input.unsupported"
+        message :=
+          s!"proof-forge check --target {profile.id}: source input is not supported; \
+use `proof-forge emit --target {profile.id} --fixture <id>` for the Counter spike surface"
+        file? := some input.toString
+      }
+      validation := pushValidation next.validation "contractSource" "failed"
+    }
   let spec ←
     try
       let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
@@ -221,34 +246,94 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
       validation := pushValidation next.validation "contractSource" "failed"
     }
       | .ok spec =>
-          -- L0+L1 preflight (portability hard + capability) before materialize/emit.
+          -- L0+L1+L2 preflight (PF-P1-04): readiness requires backend fragment hooks when registered.
           let pref := ProofForge.Target.Preflight.run profile spec.module
           if !pref.readyToMaterialize then
+            let code :=
+              if !pref.backendOk then "backend.validate"
+              else if !pref.capabilityOk then "capability.unsupported"
+              else if !pref.portabilityOk then "portability.failed"
+              else "preflight.failed"
             return {
               next with
               diagnostics := pushDiagnostic next.diagnostics {
                 severity := .error
-                code := "preflight.failed"
+                code := code
                 message := pref.note
                 file? := some input.toString
               }
-              validation := pushValidation next.validation "preflight" "failed"
+              validation := pushValidation
+                (pushValidation next.validation "preflight" "failed")
+                "backendStage" pref.backendStage
             }
           let preflighted := {
             next with
-            validation := pushValidation next.validation "preflight" "passed"
+            validation :=
+              pushValidation
+                (pushValidation next.validation "preflight" "passed")
+                "backendStage" pref.backendStage
           }
-          match ProofForge.Target.resolveSpec profile spec with
+          -- PF-P1-01: capability resolve goes through the registry-backed TargetBackend.
+          let backend ← match ProofForge.Target.findBackend? profile.id with
+          | some b => pure b
+          | none =>
+              return {
+                preflighted with
+                diagnostics := pushDiagnostic preflighted.diagnostics {
+                  severity := .error
+                  code := "target.unknown"
+                  message := s!"unknown target '{profile.id}': no TargetBackend is registered"
+                  file? := some input.toString
+                }
+                validation := pushValidation preflighted.validation "capabilities" "failed"
+              }
+          match backend.resolve spec with
           | .error diag =>
             return {
               preflighted with
               diagnostics := pushDiagnostic preflighted.diagnostics (diagnosticFromTarget diag "capability.unsupported" .error)
               validation := pushValidation preflighted.validation "capabilities" "failed"
             }
-          | .ok _ =>
-            let resolved := { preflighted with validation := pushValidation preflighted.validation "capabilities" "passed" }
-            if profile.id == ProofForge.Target.wasmNear.id then
-              match ProofForge.Backend.WasmHost.EmitWat.renderModule spec.module with
+          | .ok plan =>
+            let mut resolved := { preflighted with validation := pushValidation preflighted.validation "capabilities" "passed" }
+            -- Primary triad: backend-owned validate + plan stages (PF-P1-01).
+            if backend.hasValidate then
+              match backend.validateModule spec.module with
+              | .error diag =>
+                return {
+                  resolved with
+                  diagnostics := pushDiagnostic resolved.diagnostics (diagnosticFromTarget diag "backend.validate" .error)
+                  validation := pushValidation resolved.validation "backendValidate" "failed"
+                }
+              | .ok () =>
+                  resolved := { resolved with validation := pushValidation resolved.validation "backendValidate" "passed" }
+            if backend.hasPlan then
+              match backend.ensurePlan spec.module with
+              | .error diag =>
+                return {
+                  resolved with
+                  diagnostics := pushDiagnostic resolved.diagnostics (diagnosticFromTarget diag "backend.plan" .error)
+                  validation := pushValidation resolved.validation "backendPlan" "failed"
+                }
+              | .ok () =>
+                  resolved := { resolved with validation := pushValidation resolved.validation "backendPlan" "passed" }
+            -- PF-P1-01: package dry-run via TargetBackend when registered.
+            if backend.hasPackage then
+              match backend.ensurePackage spec.module plan with
+              | .error diag =>
+                return {
+                  resolved with
+                  diagnostics := pushDiagnostic resolved.diagnostics (diagnosticFromTarget diag "lowering.failed" .error)
+                  validation := pushValidation resolved.validation "lowering" "failed"
+                }
+              | .ok () =>
+                  return { resolved with validation := pushValidation resolved.validation "lowering" "passed" }
+            -- Residual secondary host-family package path (until those backends
+            -- register ensurePackage hooks).
+            if profile.id == ProofForge.Target.wasmStellarSoroban.id ||
+               profile.id == ProofForge.Target.wasmCosmWasm.id then
+              let bridge := profile.hostBridge?.getD ProofForge.Target.HostBridge.near
+              match ProofForge.Backend.WasmHost.EmitWat.renderModuleWithPlan spec.module plan bridge with
               | .ok _ =>
                   return { resolved with validation := pushValidation resolved.validation "lowering" "passed" }
               | .error err =>
@@ -262,8 +347,6 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
                   }
                   validation := pushValidation resolved.validation "lowering" "failed"
                 }
-            else if profile.id == ProofForge.Target.evm.id then
-              return { resolved with validation := pushValidation resolved.validation "contractSource" "passed" }
             else
               return { resolved with validation := pushValidation resolved.validation "contractSource" "passed" }
 

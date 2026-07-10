@@ -139,6 +139,8 @@ def supportedTargetIds : Array String := #[
   "solana-sbpf-asm",
   "wasm-near",
   "wasm-cosmwasm",
+  "wasm-cloudflare-workers",
+  "wasm-stellar-soroban",
   "psy-dpn",
   "aleo-leo",
   "move-aptos",
@@ -154,6 +156,8 @@ def defaultFormatFor (targetId fixtureId : String) : Option Format :=
       else some .yul
   | "solana-sbpf-asm" => some .s
   | "wasm-near" | "wasm-cosmwasm" => some .wat
+  | "wasm-cloudflare-workers" => some .ts
+  | "wasm-stellar-soroban" => some .wat
   | "psy-dpn" => some .psy
   | "aleo-leo" => some .leo
   | "move-aptos" => some .aptos
@@ -206,6 +210,8 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "solana-sbpf-asm", f, _ => isSolanaFixture f
   | "wasm-near", f, _ => isWasmNearFixture f
   | "wasm-cosmwasm", "counter", .wat => true
+  | "wasm-cloudflare-workers", "counter", .ts => true
+  | "wasm-stellar-soroban", f, .wat => isWasmNearFixture f
   | "psy-dpn", f, .psy => isPsyFixture f
   | "aleo-leo", "counter", .leo => true
   | "aleo-leo", "pure-math", .leo => true

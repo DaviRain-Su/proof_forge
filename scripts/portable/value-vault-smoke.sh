@@ -101,12 +101,12 @@ else
 fi
 
 echo "=== Portable ValueVault step 2: emit Solana sBPF assembly ==="
-lake env proof-forge build --target solana-sbpf-asm \
+lake env proof-forge build --target solana-sbpf-asm --format s \
   --root . \
   -o "$SOLANA_ASM" \
   --artifact-output "$SOLANA_ARTIFACT" \
   "$SOURCE" \
-  || fail "proof-forge build --target solana-sbpf-asm failed"
+  || fail "proof-forge build --target solana-sbpf-asm --format s failed"
 require_file "$SOLANA_ASM"
 require_file "$SOLANA_MANIFEST"
 require_file "$SOLANA_IDL"
@@ -152,10 +152,13 @@ def require(condition: bool, message: str) -> None:
 require(artifact.get("schemaVersion") == 1, "schemaVersion mismatch")
 require(artifact.get("target") == "solana-sbpf-asm", "target mismatch")
 require(artifact.get("targetFamily") == "solana", "targetFamily mismatch")
-require(artifact.get("artifactKind") == "solana-elf", "artifactKind mismatch")
+# Assembly intermediate (--format s): honest kind is solana-sbpf-asm, not solana-elf (PF-P0-03).
+require(artifact.get("artifactKind") == "solana-sbpf-asm", "artifactKind mismatch")
 require(artifact.get("fixture") == "ValueVault", "fixture mismatch")
 require(artifact.get("sourceKind") == "contract-sdk", "sourceKind mismatch")
 require(artifact.get("sourceModule") == "ValueVault", "sourceModule mismatch")
+validation = artifact.get("validation") or {}
+require(validation.get("sbpfBuild") in ("skipped", "notRun"), "assembly path must not claim sbpfBuild passed")
 
 caps = set(artifact.get("capabilities", []))
 for cap in ["storage.scalar", "events.emit", "env.block"]:

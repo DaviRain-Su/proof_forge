@@ -45,7 +45,7 @@ remain uniform.
 | `caller.sender` | Transaction signer/caller | Y | Y | Y | Y | Y | N | P | Y |
 | `value.native` | Native token attached to call | Y | Y | Y | Y | Y | N | P | N |
 | `events.emit` | Structured log/event output | Y | Y | Y | Y | Y | N | Y | Y |
-| `crosscall.invoke` | Call another contract/program | Y | Y | Y | N | Y | N | P | Y |
+| `crosscall.invoke` | Call another contract/program | Y | Y | Y | Y | Y | N | P | Y |
 | `env.block` | Block height/time/chain id reads | Y | Y | P | P | P | N | P | P |
 | `control.conditional` | Statement-level conditional branches with target-supported boolean predicates | P | P | N | Y | N | N | P | Y |
 | `control.bounded_loop` | Static bounded loops that can be flattened or unrolled by the target | P | P | N | P | N | N | P | Y |
@@ -53,7 +53,7 @@ remain uniform.
 | `data.dynamic_bytes` | Dynamic-length bytes/string value type with head-tail ABI encoding | Y | N | N | N | N | N | N | N |
 | `data.struct` | Struct value type, literals, and field access | P | P | N | Y | N | N | P | Y |
 | `crypto.hash` | Host or library hashing | Y | Y | Y | Y | Y | N | Y | Y |
-| `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | N | Y | Y |
+| `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | Y | Y | Y |
 | `account.explicit` | Named account/object/resource binding | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | Program-derived address state | N | N | N | Y | N | N | N | N |
 | `runtime.allocator` | Target runtime heap allocator contract | N | N | N | Y | N | N | N | N |

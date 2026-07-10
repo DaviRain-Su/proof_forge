@@ -28,10 +28,17 @@ def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
     if emitWatCapabilities.contains c then .ok ()
     else .error { message := s!"EmitWat: capability `{c.id}` is not supported by the EmitWat backend" }) ()
 
+/-- EmitWat serves the Wasm-host family (NEAR, Soroban, CosmWasm). Plans must
+name one of those registered host targets (PF-P0-04: do not force NEAR). -/
 def checkTargetPlan (plan : ProofForge.Target.CapabilityPlan) : Except EmitError Unit :=
-  if plan.targetId == ProofForge.Target.wasmNear.id then
+  if plan.targetId == ProofForge.Target.wasmNear.id ||
+     plan.targetId == ProofForge.Target.wasmStellarSoroban.id ||
+     plan.targetId == ProofForge.Target.wasmCosmWasm.id then
     .ok ()
   else
-    .error { message := s!"EmitWat plan requires target `wasm-near`, got `{plan.targetId}`" }
+    .error {
+      message :=
+        s!"EmitWat plan requires a Wasm-host target (wasm-near | wasm-stellar-soroban | wasm-cosmwasm), got `{plan.targetId}`"
+    }
 
 end ProofForge.Backend.WasmHost.Capabilities

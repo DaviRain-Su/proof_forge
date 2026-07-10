@@ -9,6 +9,9 @@ def evmAbiWrapperPath : String := "proof-forge-evm-abi.ts"
 
 def nearWrapperPath : String := "proof-forge-near.ts"
 
+/-- Spike-level Soroban TypeScript sidecar (not a NEAR wrapper path). -/
+def sorobanWrapperPath : String := "proof-forge-soroban.ts"
+
 def solanaClientPath : String := "proof-forge-client.ts"
 
 def solanaIdlPath : String := "proof-forge-idl.json"
@@ -265,6 +268,36 @@ def renderNearWrapper (spec : ContractSpec) : String :=
     "  account = signer;",
     "}",
     entrypointLines
+  ]
+
+/-- Minimal Soroban client stub for the Spike host-family adapter (PF-P0-04).
+Does not import NEAR packages; full Stellar client wiring remains follow-on work. -/
+def renderSorobanWrapper (spec : ContractSpec) : String :=
+  let names := String.intercalate ", " (spec.module.entrypoints.map (fun e => e.name)).toList
+  let quoted := String.intercalate ", " (spec.module.entrypoints.map (fun e => "\"" ++ e.name ++ "\"")).toList
+  String.intercalate "\n" [
+    "/* ProofForge generated Soroban wrapper (Spike). */",
+    "/* Target: wasm-stellar-soroban — not a NEAR client. */",
+    "/* eslint-disable @typescript-eslint/no-explicit-any */",
+    "",
+    "export type SorobanCallOptions = {",
+    "  // Follow-on: Stellar RPC / auth / TTL options.",
+    "  [key: string]: unknown;",
+    "};",
+    "",
+    "let contractId: string;",
+    "",
+    "export function connect(id: string) {",
+    "  contractId = id;",
+    "}",
+    "",
+    "export const entrypoints = [" ++ quoted ++ "] as const;",
+    "",
+    "// Declared entrypoints: " ++ names,
+    "export function getContractId(): string {",
+    "  return contractId;",
+    "}",
+    ""
   ]
 
 end ProofForge.Contract.Client

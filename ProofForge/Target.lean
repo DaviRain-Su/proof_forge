@@ -1,4 +1,5 @@
 import ProofForge.Target.Capability
+import ProofForge.Target.Support
 import ProofForge.Target.HostRuntime
 import ProofForge.Target.Identity
 import ProofForge.Target.PortableHonesty
@@ -10,4 +11,7 @@ import ProofForge.Target.CrosscallMaterialize
 import ProofForge.Target.Check
 import ProofForge.Target.Plan
 import ProofForge.Target.Adapter
+import ProofForge.Target.Backend
+import ProofForge.Target.BackendRegistry
+import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Formal

@@ -5,7 +5,9 @@ import ProofForge.Cli.Options
 import ProofForge.Cli.Process
 import ProofForge.Contract.Client
 import ProofForge.Contract.SdkSchema
+import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
+import ProofForge.Target
 
 open ProofForge.Cli.HexUtil
 open ProofForge.Cli.JsonUtil
@@ -152,6 +154,32 @@ def writeNearContractSidecars
   IO.FS.writeFile unifiedClientOutput nearClient
   IO.println s!"wrote {unifiedClientOutput}"
   return (specOutput, nearClientOutput, unifiedClientOutput)
+
+/-- Wasm-host sidecars keyed by target (PF-P0-04): Soroban must not emit NEAR wrappers. -/
+def writeWasmHostContractSidecars
+    (targetId : String)
+    (schemaDir : FilePath)
+    (spec : ProofForge.Contract.ContractSpec) : IO (FilePath × FilePath × FilePath) := do
+  if targetId == ProofForge.Target.wasmStellarSoroban.id then
+    let specOutput := schemaDir / s!"{spec.name}.contract-spec.json"
+    let sorobanClientOutput := schemaDir / ProofForge.Contract.Client.sorobanWrapperPath
+    let unifiedClientOutput := schemaDir / "proof-forge-client.ts"
+    if let some parent := specOutput.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile specOutput (ProofForge.Contract.Spec.Json.render spec ++ "\n")
+    IO.println s!"wrote {specOutput}"
+    let client := ProofForge.Contract.Client.renderSorobanWrapper spec ++ "\n"
+    if let some parent := sorobanClientOutput.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile sorobanClientOutput client
+    IO.println s!"wrote {sorobanClientOutput}"
+    if let some parent := unifiedClientOutput.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile unifiedClientOutput client
+    IO.println s!"wrote {unifiedClientOutput}"
+    return (specOutput, sorobanClientOutput, unifiedClientOutput)
+  else
+    writeNearContractSidecars schemaDir spec
 
 def optionalArtifactEntryJson : Option FilePath → IO (Option String)
   | some path => do
