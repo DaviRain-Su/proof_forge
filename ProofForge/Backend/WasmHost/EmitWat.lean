@@ -468,7 +468,8 @@ mutual
   partial def lowerCrosscallArgsJson (ctx : Ctx) (env : LocalTypes) (args : Array Expr) :
       Except EmitError (Array Insn × Nat × Nat) := do
     if args.isEmpty then
-      .ok (#[], CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN)
+      -- near-sdk zero-arg methods expect empty input (not JSON `[]`).
+      .ok (#[], CROSSCALL_ARGS_EMPTY_PTR, 0)
     else
       let (body, _) ← args.foldlM (fun (accInsns, isFirst) arg => do
         let (vis, putInsn) ← lowerCrosscallArgValue ctx env arg
@@ -478,13 +479,25 @@ mutual
       let body := body ++ #[.i32Const 93, .call crosscallArgsPutcName]
       .ok (body, CROSSCALL_BUF, 0)
 
+  /-- near-sys `promise_create` / `promise_then` take `amount_ptr` (u128 LE), not a
+  raw yocto value. Encode U64 deposit as low 64 bits at `RET_BUF`, zero high 64,
+  and push `RET_BUF` as the pointer. Constant-zero deposit reuses `ZERO_HASH_BUF`. -/
   partial def lowerNearDeposit (ctx : Ctx) (env : LocalTypes) (label : String) (deposit : Expr) :
       Except EmitError (Array Insn) := do
-    let (depositInsns, depositType) ← lowerExpr ctx env deposit
-    if depositType != .u64 then
-      err s!"EmitWat: {label} deposit expected `U64`, got `{depositType.name}`"
-    else
-      .ok depositInsns
+    match deposit with
+    | .literal (.u64 0) =>
+        .ok #[.i64Const ZERO_HASH_BUF]
+    | _ =>
+      let (depositInsns, depositType) ← lowerExpr ctx env deposit
+      if depositType != .u64 then
+        err s!"EmitWat: {label} deposit expected `U64`, got `{depositType.name}`"
+      else
+        -- stack after depositInsns: value; store [addr,value]; zero hi; push ptr
+        .ok (#[.i32Const RET_BUF] ++ depositInsns ++ #[
+          .store "i64.store" 0,
+          .i32Const (RET_BUF + 8), .i64Const 0, .store "i64.store" 0,
+          .i64Const RET_BUF
+        ])
 
   partial def lowerU32OrU64AsI64 (ctx : Ctx) (env : LocalTypes) (label : String) (value : Expr) :
       Except EmitError (Array Insn) := do

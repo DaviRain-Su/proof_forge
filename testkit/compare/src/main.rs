@@ -45,11 +45,14 @@ fn main() -> Result<()> {
             run_near_role_gated_token(&repo_root, &args)
         }
         ["near", "fee-token"] | ["near", "feetoken"] => run_near_fee_token(&repo_root, &args),
+        ["near", "remote-call"] | ["near", "remotecall"] | ["near", "crosscall"] => {
+            run_near_remote_call(&repo_root, &args)
+        }
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
-                  role-gated-token, fee-token)"
+                  role-gated-token, fee-token, remote-call)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -124,7 +127,7 @@ impl Args {
 fn print_usage() {
     eprintln!(
         "usage: proof-forge-testkit-compare near \
-         <counter|value-vault|fungible-token|ownable|staking-vault|role-gated-token|fee-token> \
+         <counter|value-vault|fungible-token|ownable|staking-vault|role-gated-token|fee-token|remote-call> \
          [--build-sdk] [--live] [--repeat N]\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
@@ -1577,6 +1580,257 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
     )
 }
 
+fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
+    let fixture_dir = repo_root.join("testkit/compare/near/remote-call");
+    let callee_dir = fixture_dir.join("callee");
+    let manifest_path = fixture_dir.join("reference-manifest.json");
+    let reference_source = fixture_dir.join("src/lib.rs");
+    let pf_source = repo_root.join("Examples/Product/RemoteCall.lean");
+    ensure!(manifest_path.is_file(), "missing {}", manifest_path.display());
+    ensure!(reference_source.is_file(), "missing {}", reference_source.display());
+    ensure!(pf_source.is_file(), "missing {}", pf_source.display());
+    ensure!(callee_dir.is_dir(), "missing callee crate {}", callee_dir.display());
+
+    let out_root = repo_root.join("build/testkit/compare/near/remote-call");
+    let pf_dir = out_root.join("proof-forge");
+    let sdk_dir = out_root.join("near-sdk");
+    let callee_out = out_root.join("callee");
+    let report_path = out_root.join("report.json");
+    if out_root.exists() {
+        fs::remove_dir_all(&out_root)?;
+    }
+    fs::create_dir_all(&pf_dir)?;
+    fs::create_dir_all(&sdk_dir)?;
+    fs::create_dir_all(&callee_out)?;
+
+    println!("=== testkit-compare near/remote-call: build ProofForge ===");
+    build_proof_forge_near(
+        repo_root,
+        &pf_source,
+        &pf_dir,
+        "RemoteCall.near-artifact.json",
+    )?;
+    let wat_path = ["remotecall.wat", "RemoteCall.wat"]
+        .iter()
+        .map(|n| pf_dir.join(n))
+        .find(|p| p.is_file())
+        .context("RemoteCall WAT missing")?;
+    let wasm_path = wat_path.with_extension("wasm");
+    if !wasm_path.is_file() {
+        run_checked(
+            Command::new("wat2wasm")
+                .current_dir(repo_root)
+                .arg(&wat_path)
+                .arg("-o")
+                .arg(&wasm_path),
+            "wat2wasm",
+        )?;
+    }
+    let artifact_path = pf_dir.join("RemoteCall.near-artifact.json");
+
+    println!("=== testkit-compare near/remote-call: entrypoint equivalence ===");
+    check_equivalence_subset(
+        &artifact_path,
+        &reference_source,
+        &["initialize", "call_remote", "call_with_args"],
+    )?;
+
+    println!("=== testkit-compare near/remote-call: offline promise scenario ===");
+    let semantic_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        &["initialize", "call_remote", "call_with_args"],
+        OfflineHostOpts {
+            inputs_hex_csv: ",,",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+    )?;
+    ensure!(
+        semantic_out.contains("promise_create")
+            && semantic_out.contains("remote_call")
+            && semantic_out.contains("promise_return"),
+        "expected promise_create/return traces\n{semantic_out}"
+    );
+    ensure!(
+        semantic_out.contains("account=peer.callee") || semantic_out.contains("peer.callee"),
+        "expected peer.callee account in promise trace\n{semantic_out}"
+    );
+    println!("{semantic_out}");
+
+    println!(
+        "=== testkit-compare near/remote-call: offline fuel bench (repeat={}) ===",
+        args.repeat
+    );
+    let bench_started = Instant::now();
+    let bench_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        &["initialize", "call_remote", "call_with_args"],
+        OfflineHostOpts {
+            inputs_hex_csv: ",,",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: args.repeat,
+        },
+    )?;
+    let wall_ms = bench_started.elapsed().as_secs_f64() * 1000.0;
+    let fuel = parse_fuel_summary(&bench_out);
+
+    let mut sdk_built = false;
+    let mut sdk_note = "skipped".to_string();
+    let mut sdk_wasm_bytes: Option<u64> = None;
+    let mut callee_wasm_bytes: Option<u64> = None;
+    let sdk_wasm_path = sdk_dir.join("contract.wasm");
+    let callee_wasm_path = callee_out.join("contract.wasm");
+    if args.build_sdk {
+        println!("=== testkit-compare near/remote-call: build near-sdk caller + callee ===");
+        match build_near_sdk_wasm(
+            repo_root,
+            &fixture_dir,
+            &sdk_dir,
+            "pf_near_sdk_remote_call_reference.wasm",
+        ) {
+            Ok(bytes) => {
+                sdk_built = true;
+                sdk_wasm_bytes = Some(bytes);
+                sdk_note = "built".to_string();
+            }
+            Err(err) => {
+                sdk_note = format!("caller build failed: {err:#}");
+                if args.live {
+                    bail!("--live requires sdk caller: {sdk_note}");
+                }
+            }
+        }
+        match build_near_sdk_wasm(
+            repo_root,
+            &callee_dir,
+            &callee_out,
+            "pf_near_sdk_remote_callee_reference.wasm",
+        ) {
+            Ok(bytes) => callee_wasm_bytes = Some(bytes),
+            Err(err) => {
+                if args.live {
+                    bail!("--live requires callee wasm: {err:#}");
+                }
+                eprintln!("WARN: callee build failed: {err:#}");
+            }
+        }
+    }
+
+    let mut sandbox_section = json!({
+        "requested": args.live,
+        "status": if args.live { "pending" } else { "not_requested" },
+    });
+    if args.live {
+        ensure!(
+            sdk_built && sdk_wasm_path.is_file() && callee_wasm_path.is_file(),
+            "--live: need sdk caller + callee wasms"
+        );
+        println!("=== testkit-compare near/remote-call: NEAR Sandbox dual deploy ===");
+        let sandbox_report = out_root.join("sandbox-report.json");
+        match run_near_sandbox_dual_ext(
+            repo_root,
+            "remote-call",
+            &wasm_path,
+            &sdk_wasm_path,
+            &sandbox_report,
+            Some(&callee_wasm_path),
+        ) {
+            Ok(SandboxRun::Passed { report }) => {
+                println!("sandbox dual-deploy: passed (real NEAR gas)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::Skipped { reason }) => {
+                eprintln!("sandbox dual-deploy: SKIP — {reason}");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "skipped",
+                    "detail": { "reason": reason },
+                });
+            }
+            Err(err) => bail!("NEAR Sandbox dual-deploy FAILED: {err:#}"),
+        }
+    }
+
+    let pf_wasm_bytes = file_len(&wasm_path)?;
+    let pf_wat_bytes = file_len(&wat_path)?;
+    let mut comparison = json!({
+        "proofForgeWasmBytes": pf_wasm_bytes,
+        "proofForgeWatBytes": pf_wat_bytes,
+        "nearSdkWasmBytes": sdk_wasm_bytes,
+        "calleeWasmBytes": callee_wasm_bytes,
+    });
+    if let Some(obj) = comparison.as_object_mut() {
+        if let Some(sdk) = sdk_wasm_bytes {
+            if pf_wasm_bytes > 0 {
+                obj.insert(
+                    "nearSdkWasm_vs_proofForgeWasm_ratio".into(),
+                    json!(round3(sdk as f64 / pf_wasm_bytes as f64)),
+                );
+            }
+        }
+        if let Some(detail) = sandbox_section.get("detail") {
+            if let Some(cmp) = detail.get("comparison") {
+                obj.insert("sandbox".into(), cmp.clone());
+            }
+        }
+    }
+
+    let report = json!({
+        "schema": "proof-forge.testkit.compare.v0",
+        "chain": "near",
+        "contract": "remote-call",
+        "fixtureDir": "testkit/compare/near/remote-call",
+        "scenario": {
+            "semantic": "initialize → call_remote/call_with_args promise_create traces",
+            "repeat": args.repeat,
+        },
+        "implementations": {
+            "proof-forge-emitwat": {
+                "source": "Examples/Product/RemoteCall.lean",
+                "target": "wasm-near",
+                "watPath": rel(repo_root, &wat_path),
+                "wasmPath": rel(repo_root, &wasm_path),
+                "wasmBytes": pf_wasm_bytes,
+                "watBytes": pf_wat_bytes,
+                "wasmtimeFuel": fuel,
+                "wallClockMs": round3(wall_ms),
+            },
+            "near-sdk-rs": {
+                "source": "testkit/compare/near/remote-call",
+                "callee": "testkit/compare/near/remote-call/callee",
+                "built": sdk_built,
+                "note": sdk_note,
+                "wasmBytes": sdk_wasm_bytes,
+                "calleeWasmBytes": callee_wasm_bytes,
+            },
+        },
+        "sandbox": sandbox_section,
+        "comparison": comparison,
+        "honesty": [
+            "Offline: promise_create/return host traces (peer.callee logical id).",
+            "Live: sandbox deploys callee, rebuilds PF with --peer peer.callee=<id>, dual-deploys callers.",
+            "sdk initialize takes callee AccountId; PF peer string is compile-time.",
+        ],
+    });
+    fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report)? + "\n",
+    )?;
+    println!("{}", serde_json::to_string_pretty(&comparison)?);
+    println!("wrote {}", rel(repo_root, &report_path));
+    println!("testkit-compare near/remote-call: ok");
+    Ok(())
+}
+
 enum SandboxRun {
     Passed { report: JsonValue },
     Skipped { reason: String },
@@ -1588,6 +1842,17 @@ fn run_near_sandbox_dual(
     pf_wasm: &Path,
     sdk_wasm: &Path,
     report_path: &Path,
+) -> Result<SandboxRun> {
+    run_near_sandbox_dual_ext(repo_root, contract, pf_wasm, sdk_wasm, report_path, None)
+}
+
+fn run_near_sandbox_dual_ext(
+    repo_root: &Path,
+    contract: &str,
+    pf_wasm: &Path,
+    sdk_wasm: &Path,
+    report_path: &Path,
+    callee_wasm: Option<&Path>,
 ) -> Result<SandboxRun> {
     let sandbox_manifest = repo_root.join("testkit/compare/near/sandbox/Cargo.toml");
     ensure!(
@@ -1608,8 +1873,8 @@ fn run_near_sandbox_dual(
         bail!("sandbox harness cargo build failed");
     }
 
-    let output = Command::new(&cargo)
-        .current_dir(repo_root)
+    let mut cmd = Command::new(&cargo);
+    cmd.current_dir(repo_root)
         .args(["run", "--quiet", "--manifest-path"])
         .arg(&sandbox_manifest)
         .args(["--", "--contract", contract, "--pf-wasm"])
@@ -1618,6 +1883,12 @@ fn run_near_sandbox_dual(
         .arg(sdk_wasm)
         .arg("--report")
         .arg(report_path)
+        .arg("--repo-root")
+        .arg(repo_root);
+    if let Some(c) = callee_wasm {
+        cmd.arg("--callee-wasm").arg(c);
+    }
+    let output = cmd
         .output()
         .context("failed to spawn pf-near-sandbox-dual")?;
 

@@ -1,0 +1,5 @@
+# near-workspaces ≥0.22 needs rustc ≥1.93. The parent testkit workspace pins
+# 1.91.0; this package is intentionally standalone with a newer toolchain.
+[toolchain]
+channel = "1.94.0"
+profile = "minimal"

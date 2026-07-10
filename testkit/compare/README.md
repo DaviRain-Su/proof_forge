@@ -46,6 +46,10 @@ just near-compare-role-gated-token-live
 just near-compare-fee-token
 just near-compare-fee-token-live
 
+# RemoteCall (promise_create cross-contract)
+just near-compare-remote-call
+just near-compare-remote-call-live
+
 # All live dual-deploys
 just near-compare-all-live
 ```
@@ -94,6 +98,10 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | FeeToken | deploy gas | 7.29e11 | 1.40e13 | **~19.1×** |
 | FeeToken | call gas | 4.72e12 | 5.32e12 | **~1.13×** |
 | FeeToken | storage | 2379 B | 187732 B | **~78.9×** |
+| RemoteCall | wasm | **~900 B** | ~167 KB | **~186×** |
+| RemoteCall | deploy gas | 6.50e11 | 1.25e13 | **~19.3×** |
+| RemoteCall | call gas | 4.14e12 | 4.67e12 | **~1.13×** |
+| RemoteCall | storage | 1135 B | 167688 B | **~148×** |
 
 Fairness notes:
 
@@ -114,5 +122,6 @@ Fairness notes:
 | `staking-vault` | `just near-compare-staking-vault-live` | `Examples/Product/StakingVault.lean` |
 | `role-gated-token` | `just near-compare-role-gated-token-live` | `Examples/Product/RoleGatedToken.lean` |
 | `fee-token` | `just near-compare-fee-token-live` | `Examples/Backend/WasmNear/FeeToken.lean` |
+| `remote-call` | `just near-compare-remote-call-live` | `Examples/Product/RemoteCall.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

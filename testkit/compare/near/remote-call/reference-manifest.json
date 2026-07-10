@@ -1,0 +1,33 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "remote-call",
+  "source": "src/lib.rs",
+  "callee": "callee/",
+  "proofForgeSource": "Examples/Product/RemoteCall.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "RemoteCall",
+  "entrypoints": [
+    { "name": "initialize", "kind": "init" },
+    { "name": "call_remote", "kind": "call", "promise": true },
+    { "name": "call_with_args", "kind": "call", "promise": true }
+  ],
+  "scenario": {
+    "offline": [
+      "initialize",
+      "call_remote → promise_create(peer.callee, remote_call)",
+      "call_with_args → promise_create with JSON args [42,7]"
+    ],
+    "live": [
+      "deploy callee (remote_call → 42)",
+      "build PF with --peer peer.callee=<callee_id>",
+      "deploy PF + sdk callers",
+      "initialize + call_remote (promise succeeds)"
+    ]
+  },
+  "honesty": [
+    "PF embeds peer account string at build time (CLI --peer); sdk stores callee AccountId in initialize.",
+    "Offline host records promise_create/return traces without executing peer code.",
+    "Live dual-deploy rebuilds PF wasm inside sandbox harness when lake/proof-forge available."
+  ]
+}

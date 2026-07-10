@@ -142,7 +142,7 @@ eligible offline slice.
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
 | 2 | NC-2.3 | FeeToken / extended FT | done: live ~93× wasm; body under Backend/WasmNear | — |
 | 3 | NC-3.1 | GuestBook / multi-message storage | pending | string/dynamic readiness |
-| 3 | NC-3.2 | Cross-contract / promise scenario | pending | multi-account sandbox |
+| 3 | NC-3.2 | Cross-contract / promise scenario | done: live peer rebuild + dual deploy | — |
 | 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | pending | after NC-1.2 solid |
 
 ### Task briefs

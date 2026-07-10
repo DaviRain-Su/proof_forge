@@ -469,8 +469,15 @@ near-compare-fee-token:
 near-compare-fee-token-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near fee-token --live
 
-# Full matrix: baseline + Wave 1/2 + RoleGated + Fee.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live
+# RemoteCall (promise_create cross-contract) offline / live.
+near-compare-remote-call:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near remote-call
+
+near-compare-remote-call-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near remote-call --live
+
+# Full matrix: baseline + Wave 1/2 + RoleGated + Fee + RemoteCall.
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare
