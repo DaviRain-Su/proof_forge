@@ -61,6 +61,20 @@ jobs:
       - name: Product multi-target gate
         run: just product
 
+      - name: First-run portable init smoke
+        run: just portable-init-smoke
+
+      - name: First-run portable check smoke
+        run: just portable-check-smoke
+
+      - name: First-run portable EVM client smoke
+        run: just portable-evm-client
+
+      - name: Literal README product build command
+        run: |
+          lake env proof-forge build --target evm --root . \
+            -o build/evm/Counter.bin Examples/Product/Counter.lean
+
   build-test:
     runs-on: ubuntu-latest
     needs: [product]
