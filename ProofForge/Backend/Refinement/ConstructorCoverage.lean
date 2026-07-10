@@ -523,6 +523,7 @@ mutual
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallInvokeDelegateTyped t m args _ =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
+    | n + 1, .crosscallNamed _ _ args _ => args.toList.all (exprFC n)
     | n + 1, .crosscallCreate v _ => exprFC n v
     | n + 1, .crosscallCreate2 v s _ => exprFC n v && exprFC n s
     | n + 1, .nearCrosscallInvokePool a m args d =>
