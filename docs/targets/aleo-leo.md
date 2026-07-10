@@ -380,12 +380,17 @@ are rejected (EVM 4×u64 digest shape). Hashing is capability-portable, NOT
 value-portable (keccak ≠ Poseidon) — see RFC 0015.
 `Tests/AleoLeoHashLoweringSmoke.lean` covers it.
 
-**Remaining honest rejects** (not in Leo / need portable surface):
-**Events** — Aleo/Leo has no event mechanism (records + finalize instead); the
-profile intentionally omits `eventsEmit`. **Cross-circuit calls** — Leo
-`_dynamic_call` takes `identifier` args, not the portable runtime-address
-`crosscallInvoke(target, methodId)` model (honest reject until the RFC 0015
-Decision 4 named-callee surface lands).
+**Cross-circuit calls LANDED (RFC 0015 Decision 4):** a portable
+`crosscallNamed(programId, method, args, returnType)` (new `Expr` constructor +
+`crosscall.named` capability, declared on the aleo-leo profile) lowers to a
+static qualified call `programId::method(args)` plus an `import programId;`
+declaration (verified against `data_types/external_consumer`). Account-chain
+targets reject it. `Tests/AleoLeoCrosscallSmoke.lean` covers it.
+
+**Remaining honest reject:** **Events** — Aleo/Leo has no event mechanism
+(records + finalize instead); the profile intentionally omits `eventsEmit`.
+(RFC 0015 Decision 3 — an opt-in hash-algorithm tag for value-portable keccak —
+remains deferred.)
 
 **Mixed `(value, Final)` return LANDED:** a stateful function whose return
 value is pure lowers as `fn f(…) -> (T, Final) { …; return (value, final { … }); }`
