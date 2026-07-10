@@ -61,6 +61,7 @@ where
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c)
     | .crosscallCreate a _ => pushExpr acc a
     | .crosscallCreate2 a b _ => pushExpr (pushExpr acc a) b
+    | .crosscallNamed _ _ args _ => args.foldl pushExpr acc
     | .nearCrosscallInvokePool a b args d =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
     | .nearPromiseThen a b args d =>
@@ -122,6 +123,7 @@ where
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
     | .crosscallCreate a _ => exprUses a
     | .crosscallCreate2 a b _ => exprUses a || exprUses b
+    | .crosscallNamed _ _ args _ => args.any exprUses
     | .nearCrosscallInvokePool a b args d =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
     | .nearPromiseThen a b args d =>

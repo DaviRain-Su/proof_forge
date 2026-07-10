@@ -283,9 +283,16 @@ def printProgramScope (indentLevel : Nat) (scope : ProgramScope) : Except LowerE
       declsStr ++ blank ++ functionsStr
   .ok ("program " ++ scope.programId ++ " {\n" ++ body ++ "\n" ++ indent indentLevel "}")
 
-def printProgram (p : Program) : Except LowerError String :=
+def printImport (i : Import) : String :=
+  "import " ++ i.programId ++ ";"
+
+def printProgram (p : Program) : Except LowerError String := do
   match p.scopes with
-  | #[(_, scope)] => printProgramScope 0 scope
+  | #[(_, scope)] =>
+      let importLines := p.imports.map printImport
+      let header := String.intercalate "\n" importLines.toList
+      let body ← printProgramScope 0 scope
+      .ok (if importLines.isEmpty then body else header ++ "\n\n" ++ body)
   | _ => .error { message := "Leo printer currently supports exactly one program scope" }
 
 def printProgramToString (p : Program) : Except LowerError String := printProgram p

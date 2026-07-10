@@ -151,6 +151,10 @@ mutual
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
         .error { message := "contract creation is not supported by Leo IR v0" }
+    | .crosscallNamed programId method args _ => do
+        -- RFC 0015 D4: static qualified cross-program call `programId::method(args)`.
+        let args' ← args.mapM (buildExpr ctx)
+        .ok (.call ⟨#[programId, method], #[], args'⟩)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Leo IR v0" }
     | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _
@@ -457,6 +461,25 @@ def buildComposite (decl : StructDecl) : Except LowerError (Identifier × Compos
 def constructor : Constructor :=
   { annotations := #[{ name := "noupgrade" }], block := { statements := #[] } }
 
+/- Collect program ids referenced by `crosscallNamed` (RFC 0015 D4), so the
+emitted program gets `import` declarations for the static qualified calls. -/
+mutual
+  partial def crosscallProgramIdsExpr : IR.Expr → Array String
+    | .crosscallNamed programId _ args _ => #[programId] ++ args.flatMap crosscallProgramIdsExpr
+    | _ => #[]
+  partial def crosscallProgramIdsStmt : IR.Statement → Array String
+    | .letBind _ _ v | .letMutBind _ _ v => crosscallProgramIdsExpr v
+    | .assign _ v | .assignOp _ _ v | .return v => crosscallProgramIdsExpr v
+    | .ifElse _ t e => t.flatMap crosscallProgramIdsStmt ++ e.flatMap crosscallProgramIdsStmt
+    | .boundedFor _ _ _ b => b.flatMap crosscallProgramIdsStmt
+    | _ => #[]
+end
+
+def crosscallImports (module : Module) : Array Import :=
+  let ids := module.entrypoints.flatMap (fun ep => ep.body.flatMap crosscallProgramIdsStmt)
+  let dedup := ids.foldl (fun acc p => if acc.contains p then acc else acc.push p) #[]
+  dedup.map fun pid => { programId := pid }
+
 /-- Emit a full portable IR module as a Leo `Program` AST. -/
 def buildModule (module : Module) : Except LowerError Program := do
   let ctx : BuildContext := { module }
@@ -475,7 +498,7 @@ def buildModule (module : Module) : Except LowerError Program := do
     constructor := some constructor
   }
   .ok {
-    imports := #[]
+    imports := crosscallImports module
     scopes := #[(module.name.toLower, scope)]
   }
 

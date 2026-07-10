@@ -73,6 +73,7 @@ mutual
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ collectArrayLitsExpr v ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallCreate value _ => collectArrayLitsExpr value
     | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
+    | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
         collectArrayLitsExpr accountIndex ++ collectArrayLitsExpr methodId ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
@@ -143,6 +144,7 @@ mutual
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ collectStructLitsExpr v ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallCreate value _ => collectStructLitsExpr value
     | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
+    | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
         collectStructLitsExpr accountIndex ++ collectStructLitsExpr methodId ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]

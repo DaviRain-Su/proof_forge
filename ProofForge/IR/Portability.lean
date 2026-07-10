@@ -67,6 +67,10 @@ mutual
     | .crosscallCreate2 callValue salt _ =>
         #[finding path "crosscallCreate2 (CREATE2 deploy)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.value" callValue ++ classifyExpr s!"{path}.salt" salt
+    | .crosscallNamed _ _ args _ =>
+        -- RFC 0015 D4: named-callee app-chain call (Aleo _dynamic_call).
+        #[finding path "crosscallNamed (named-callee app-chain call)" (.targetFamilyOnly .zkCircuitSourcegen)] ++
+          args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
     | .crosscallInvokeStaticTyped target methodId args _returnType =>
         #[finding path "crosscallInvokeStaticTyped (STATICCALL)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++

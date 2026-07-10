@@ -172,6 +172,7 @@ where
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
     | .crosscallCreate .. | .crosscallCreate2 ..
     | .nearCrosscallInvokePool .. | .nearPromiseThen .. => true
+    | .crosscallNamed _ _ args _ => args.any exprUses
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
@@ -280,6 +281,7 @@ where
         exprUses a || exprUses b || args.any exprUses
     | .crosscallCreate a _ => exprUses a
     | .crosscallCreate2 a b _ => exprUses a || exprUses b
+    | .crosscallNamed _ _ args _ => args.any exprUses
     | .literal _ | .local _ | .nativeValue => false
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v

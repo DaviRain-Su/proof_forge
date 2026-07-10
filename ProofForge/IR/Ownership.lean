@@ -160,6 +160,8 @@ mutual
         checkExprFuel fuel entrypoint env target
         checkExprFuel fuel entrypoint env methodId
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
+    | fuel + 1, entrypoint, env, .crosscallNamed _ _ args _ => do
+        args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
     | fuel + 1, entrypoint, env, .crosscallInvokeTyped target methodId args _
     | fuel + 1, entrypoint, env, .crosscallInvokeStaticTyped target methodId args _
     | fuel + 1, entrypoint, env, .crosscallInvokeDelegateTyped target methodId args _ => do

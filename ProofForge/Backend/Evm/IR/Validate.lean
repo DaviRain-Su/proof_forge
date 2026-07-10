@@ -215,6 +215,9 @@ mutual
         ensureType "contract creation salt" .hash (← inferExprType module env salt)
         discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
+    | .crosscallNamed _ _ args returnType => do
+        for arg in args do discard <| inferExprType module env arg
+        .ok returnType
     | .nearPromiseThen _ _ _ _
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount

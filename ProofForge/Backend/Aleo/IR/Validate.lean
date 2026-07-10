@@ -259,6 +259,12 @@ mutual
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
         .error { message := "contract creation is not supported by Leo IR v0" }
+    | .crosscallNamed _ _ args returnType => do
+        -- RFC 0015 D4: named-callee cross-program call (lowered to a static
+        -- qualified call `programId::method(args)` + an import).
+        for arg in args do discard <| inferExprType module env arg
+        validateValueType module returnType
+        .ok returnType
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Leo IR v0" }
     | .nearPromiseThen _ _ _ _

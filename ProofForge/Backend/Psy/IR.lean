@@ -130,6 +130,8 @@ mutual
         .error { message := "EVM contract creation is not supported by Psy IR v0" }
     | .crosscallCreate2 _ _ _ =>
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
+    | .crosscallNamed _ _ _ _ =>
+        .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by Psy IR v0" }
     | .nearPromiseThen _ _ _ _
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount

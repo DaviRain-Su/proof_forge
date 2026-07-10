@@ -386,7 +386,8 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallInvokeValueTyped _ _ _ args _ =>
       acc.push { entrypoint, argCount := args.size }
   | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
-  | .crosscallCreate .. | .crosscallCreate2 .. => acc
+  | .crosscallCreate .. | .crosscallCreate2 ..
+  | .crosscallNamed .. => acc
   | .nearCrosscallInvokePool .. | .nearPromiseThen .. => acc
   | .effect e => collectFromEffect entrypoint acc e
   | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b

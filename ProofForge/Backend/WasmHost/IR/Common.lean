@@ -425,6 +425,7 @@ mutual
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
+    | .crosscallNamed _ _ _ returnType => .ok returnType
     | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
     | .nearPromiseThen _ _ _ _ => .ok .u64
     | .nearPromiseResultsCount => .ok .u64

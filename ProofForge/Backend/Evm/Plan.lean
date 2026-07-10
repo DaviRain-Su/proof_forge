@@ -671,6 +671,8 @@ mutual
     | .crosscallCreate callValue _ => contextOpsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         contextOpsFromExpr callValue ++ contextOpsFromExpr salt
+    | .crosscallNamed _ _ args _ =>
+        args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
     | .nearPromiseThen parentPromise callbackMethod args deposit =>
         contextOpsFromExpr parentPromise ++ contextOpsFromExpr callbackMethod ++ contextOpsFromExpr deposit ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg

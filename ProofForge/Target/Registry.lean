@@ -361,6 +361,7 @@ def aleoLeo : TargetProfile := {
     .assertions,
     .accountExplicit,
     .checkedArithmetic,
+    .crosscallNamed,
     .zkCircuit,
     .zkProof
   ]

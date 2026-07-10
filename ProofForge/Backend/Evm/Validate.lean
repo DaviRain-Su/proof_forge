@@ -206,6 +206,9 @@ mutual
         ensureType "contract creation salt" .hash (← inferExprType module env salt)
         discard <| normalizeInitCodeHex "contract creation" initCodeHex
         .ok .u64
+    | .crosscallNamed _ _ args returnType => do
+        for arg in args do discard <| inferExprType module env arg
+        .ok returnType
     | .nearPromiseThen _ _ _ _
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
@@ -897,6 +900,7 @@ mutual
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
     | .nearPromiseThen p m args d =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic

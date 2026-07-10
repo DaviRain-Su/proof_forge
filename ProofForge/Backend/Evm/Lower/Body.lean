@@ -1133,6 +1133,7 @@ mutual
           (← buildExprPlan module env callValue)
           (some (← buildExprPlan module env salt))
           initCodeHex)
+    | .crosscallNamed _ _ _ _
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _

@@ -442,6 +442,7 @@ mutual
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
+    | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
     | .nearPromiseThen p m args d =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic

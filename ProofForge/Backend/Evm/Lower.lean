@@ -563,7 +563,7 @@ mutual
         collectEventPlansFromExpr module env collector d
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ => pure collector
+    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
     | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
@@ -769,6 +769,7 @@ mutual
         localArrayGetLengthsExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
+    | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
     | .nearPromiseThen p m args d =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
           (mergeNatSets (localArrayGetLengthsExpr env d) (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
@@ -947,6 +948,7 @@ mutual
         nestedLocalArrayGetShapesExpr env callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
+    | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
     | .nearPromiseThen p m args d =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)
         let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env d)

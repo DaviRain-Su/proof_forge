@@ -62,6 +62,7 @@ partial def canDuplicateExpr : Expr → Bool
   | .crosscallInvokeDelegateTyped _ _ _ _
   | .crosscallCreate _ _
   | .crosscallCreate2 _ _ _
+  | .crosscallNamed _ _ _ _
   | .nearCrosscallInvokePool _ _ _ _
   | .nearPromiseThen _ _ _ _
   | .nearPromiseResultsCount

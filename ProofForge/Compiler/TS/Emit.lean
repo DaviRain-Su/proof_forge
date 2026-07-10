@@ -170,7 +170,8 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ | .crosscallCreate _ _
-    | .crosscallCreate2 _ _ _ =>
+    | .crosscallCreate2 _ _ _
+    | .crosscallNamed _ _ _ _ =>
         throw "EmitTS: unsupported expression"
     | .nearPromiseThen _ _ _ _
     | .nearPromiseResultsCount

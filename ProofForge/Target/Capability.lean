@@ -11,6 +11,7 @@ inductive Capability where
   | valueNative
   | eventsEmit
   | crosscallInvoke
+  | crosscallNamed
   | nearPromise
   | envBlock
   | controlConditional
@@ -45,6 +46,7 @@ def Capability.id : Capability → String
   | .valueNative => "value.native"
   | .eventsEmit => "events.emit"
   | .crosscallInvoke => "crosscall.invoke"
+  | .crosscallNamed => "crosscall.named"
   | .nearPromise => "near.promise"
   | .envBlock => "env.block"
   | .controlConditional => "control.conditional"
