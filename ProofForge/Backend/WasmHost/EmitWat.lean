@@ -176,9 +176,10 @@ export ProofForge.Backend.WasmHost.Imports (
 )
 
 export ProofForge.Backend.WasmHost.Layout (
-  StateInfo stateLayout findScalarState? MapInfo mapLayout findMapState?
-  findArrayState? StringInfo stringPool panicMessage panicPool findString?
-  crosscallStringInfos
+  StateInfo isPackableScalarType moduleScalarsPackable stateLayout
+  stateLayoutPacked findScalarState? MapInfo mapLayout findMapState?
+  findArrayState? StringInfo eventHeaderPoolString eventFieldPoolString
+  stringPool panicMessage panicPool findString? crosscallStringInfos
 )
 
 export ProofForge.Backend.WasmHost.LoweringEnv (
@@ -1034,11 +1035,15 @@ def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
 
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
-  let some nameSi ← pure (findString? ctx.strings name) | err s!"EmitWat: event name `{name}` not in string pool"
+  let headerKey := eventHeaderPoolString name
+  let some nameSi ← pure (findString? ctx.strings headerKey)
+    | err s!"EmitWat: event header `{headerKey}` not in string pool"
   let header := evtHeaderInsns nameSi
   let fieldInsns ← appendInsnChunksM fields fun f => do
     let (fname, vexpr) := f
-    let some fsi ← pure (findString? ctx.strings fname) | err s!"EmitWat: field name `{fname}` not in string pool"
+    let fieldKey := eventFieldPoolString fname
+    let some fsi ← pure (findString? ctx.strings fieldKey)
+      | err s!"EmitWat: event field key `{fieldKey}` not in string pool"
     let (vis, vt) ← lowerExpr ctx env vexpr
     evtFieldInsns fname fsi vis vt
   .ok (header ++ fieldInsns ++ evtFooterInsns)

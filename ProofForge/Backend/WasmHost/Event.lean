@@ -67,14 +67,30 @@ def evtPutstrFunc : Func :=
       .globalGet evtPtrGlobal, .localGet "ptr", .localGet "len", .call memcpyName,
       .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] } }
 
+/-- Format a u64 decimal directly into the event buffer (no separate fmt helper
+call). Digits are written reverse into `RET_BUF` scratch then memcpy'd once. -/
 def evtPutu64Func : Func :=
   { name := evtPutu64Name, params := #[{ name := "v", type := .i64 }],
-    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    locals := #[{ name := "tmp", type := .i64 }, { name := "p", type := .i32 },
+                { name := "d", type := .i32 }, { name := "len", type := .i32 }],
     body := { insns := #[
-      .localGet "v", .call fmtU64Name, .localSet "p",
-      .i32Const (RET_BUF + 20), .localGet "p", .plain "i32.sub", .localSet "len",
-      .globalGet evtPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
-      .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] } }
+      .localGet "v", .localSet "tmp",
+      .localGet "tmp", .plain "i64.eqz",
+      .if_ { insns := #[
+          .globalGet evtPtrGlobal, .i32Const 48, .store "i32.store8" 0,
+          .globalGet evtPtrGlobal, .i32Const 1, .plain "i32.add", .globalSet evtPtrGlobal ] }
+         { insns := #[
+          .i32Const (RET_BUF + 20), .localSet "p",
+          .block_ { insns := #[ .loop_ { insns := #[
+            .localGet "tmp", .plain "i64.eqz", .brIf 1,
+            .localGet "tmp", .i64Const 10, .plain "i64.rem_u", .plain "i32.wrap_i64", .localSet "d",
+            .localGet "tmp", .i64Const 10, .plain "i64.div_u", .localSet "tmp",
+            .localGet "p", .i32Const 1, .plain "i32.sub", .localTee "p",
+            .i32Const 48, .localGet "d", .plain "i32.add", .store "i32.store8" 0, .br 0 ] } ] },
+          .i32Const (RET_BUF + 20), .localGet "p", .plain "i32.sub", .localSet "len",
+          .globalGet evtPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
+          .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] }
+    ] } }
 
 def evtPutboolFunc : Func :=
   { name := evtPutboolName, params := #[{ name := "b", type := .i32 }],
@@ -109,6 +125,9 @@ def evtLogFunc : Func :=
       .i64Const EVENT_BUF, .call "log_utf8" ] } }
 
 def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
+  -- Keep `fmtU64Func` when numeric events are used so Crosscall can share it
+  -- (`usesEventNumeric ⇒ skip emitting fmt in Crosscall`). Event putu64 itself
+  -- inlines decimal formatting to avoid an extra call per field.
   (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
     (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
     (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
@@ -124,12 +143,10 @@ def evtPutcInsns (c : Nat) : Array Insn :=
 def evtPutstrInsns (ptr len : Nat) : Array Insn :=
   #[.i32Const ptr, .i32Const len, .call evtPutstrName]
 
-/-- Emit `{"event":"<name>"` using static punctuation + name pool (no per-char putc). -/
+/-- Emit composite header `{"event":"<name>"` from the string pool (one putstr). -/
 def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
   #[.call evtStartName]
-    ++ evtPutstrInsns EVT_HDR_OPEN_PTR EVT_HDR_OPEN_LEN
     ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName]
-    ++ evtPutstrInsns EVT_QUOTE_PTR 1
 
 def evtValueInsnsForType (fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
@@ -140,13 +157,11 @@ def evtValueInsnsForType (fieldName : String) (type : ValueType) :
   | .hash => .ok #[.call evtPutHashName]
   | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
 
-/-- Emit `,"field":<value>` with static `,"` / `":` punctuation. -/
+/-- Emit composite `,"field":` + value (one putstr for the static key fragment). -/
 def evtFieldInsns (fieldName : String) (fieldSi : StringInfo)
     (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) := do
   let valInsns ← evtValueInsnsForType fieldName valueType
-  .ok (evtPutstrInsns EVT_FIELD_SEP_PTR 2
-    ++ #[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
-    ++ evtPutstrInsns EVT_COLON_PTR 2
+  .ok (#[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
     ++ valueInsns ++ valInsns)
 
 def evtFooterInsns : Array Insn :=

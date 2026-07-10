@@ -900,11 +900,12 @@ def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
         }]
   requiredDataSegments := #[
     (42600, "__pf_s"),
-    (43000, "VaultInitialized"),
-    (43036, "ValueDeposited"),
-    (43077, "ValueCharged"),
-    (43104, "ValueReleased"),
-    (43127, "ValueSnapshot")
+    -- Composite JSON event headers (one putstr per event; see Layout.eventHeaderPoolString)
+    (43000, "{\"event\":\"VaultInitialized\""),
+    (43055, "{\"event\":\"ValueDeposited\""),
+    (43119, "{\"event\":\"ValueCharged\""),
+    (43169, "{\"event\":\"ValueReleased\""),
+    (43207, "{\"event\":\"ValueSnapshot\"")
   ]
   requiredMemoryRegions := nearHostBufferMemoryRegions
 }

@@ -186,22 +186,60 @@
     i32.add
     global.set $evt_ptr
   )
-  (func $__pf_evt_putu64 (param $v i64) (local $p i32) (local $len i32)
+  (func $__pf_evt_putu64 (param $v i64) (local $tmp i64) (local $p i32) (local $d i32) (local $len i32)
     local.get $v
-    call $__pf_fmt_u64
-    local.set $p
-    i32.const 8212
-    local.get $p
-    i32.sub
-    local.set $len
-    global.get $evt_ptr
-    local.get $p
-    local.get $len
-    call $__pf_memcpy
-    global.get $evt_ptr
-    local.get $len
-    i32.add
-    global.set $evt_ptr
+    local.set $tmp
+    local.get $tmp
+    i64.eqz
+    if
+      global.get $evt_ptr
+      i32.const 48
+      i32.store8
+      global.get $evt_ptr
+      i32.const 1
+      i32.add
+      global.set $evt_ptr
+    else
+      i32.const 8212
+      local.set $p
+      block
+        loop
+          local.get $tmp
+          i64.eqz
+          br_if 1
+          local.get $tmp
+          i64.const 10
+          i64.rem_u
+          i32.wrap_i64
+          local.set $d
+          local.get $tmp
+          i64.const 10
+          i64.div_u
+          local.set $tmp
+          local.get $p
+          i32.const 1
+          i32.sub
+          local.tee $p
+          i32.const 48
+          local.get $d
+          i32.add
+          i32.store8
+          br 0
+        end
+      end
+      i32.const 8212
+      local.get $p
+      i32.sub
+      local.set $len
+      global.get $evt_ptr
+      local.get $p
+      local.get $len
+      call $__pf_memcpy
+      global.get $evt_ptr
+      local.get $len
+      i32.add
+      global.set $evt_ptr
+    end
   )
   (func $__pf_evt_log
     global.get $evt_ptr
@@ -242,34 +280,16 @@
     i64.const 1
     call $__pf_pack_write_u64
     call $__pf_evt_start
-    i32.const 42800
-    i32.const 10
-    call $__pf_evt_putstr
     i32.const 43000
-    i32.const 16
+    i32.const 27
     call $__pf_evt_putstr
-    i32.const 42810
-    i32.const 1
-    call $__pf_evt_putstr
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43017
-    i32.const 7
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43028
+    i32.const 11
     call $__pf_evt_putstr
     local.get $initial
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43025
-    i32.const 10
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43040
+    i32.const 14
     call $__pf_evt_putstr
     local.get $checkpoint
     call $__pf_evt_putu64
@@ -313,45 +333,21 @@
     local.get $next_ops
     call $__pf_pack_write_u64
     call $__pf_evt_start
-    i32.const 42800
+    i32.const 43055
+    i32.const 25
+    call $__pf_evt_putstr
+    i32.const 43081
     i32.const 10
-    call $__pf_evt_putstr
-    i32.const 43036
-    i32.const 14
-    call $__pf_evt_putstr
-    i32.const 42810
-    i32.const 1
-    call $__pf_evt_putstr
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43051
-    i32.const 6
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
     call $__pf_evt_putstr
     local.get $amount
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43058
-    i32.const 7
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43092
+    i32.const 11
     call $__pf_evt_putstr
     local.get $next
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43066
-    i32.const 10
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43104
+    i32.const 14
     call $__pf_evt_putstr
     local.get $next_ops
     call $__pf_evt_putu64
@@ -418,56 +414,26 @@
     local.get $next_ops
     call $__pf_pack_write_u64
     call $__pf_evt_start
-    i32.const 42800
-    i32.const 10
+    i32.const 43119
+    i32.const 23
     call $__pf_evt_putstr
-    i32.const 43077
-    i32.const 12
-    call $__pf_evt_putstr
-    i32.const 42810
-    i32.const 1
-    call $__pf_evt_putstr
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43090
-    i32.const 5
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43143
+    i32.const 9
     call $__pf_evt_putstr
     local.get $gross
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43096
-    i32.const 3
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43153
+    i32.const 7
     call $__pf_evt_putstr
     local.get $fee
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43100
-    i32.const 3
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43161
+    i32.const 7
     call $__pf_evt_putstr
     local.get $net
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43058
-    i32.const 7
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43092
+    i32.const 11
     call $__pf_evt_putstr
     local.get $next
     call $__pf_evt_putu64
@@ -521,45 +487,21 @@
     local.get $next_ops
     call $__pf_pack_write_u64
     call $__pf_evt_start
-    i32.const 42800
+    i32.const 43169
+    i32.const 24
+    call $__pf_evt_putstr
+    i32.const 43081
     i32.const 10
-    call $__pf_evt_putstr
-    i32.const 43104
-    i32.const 13
-    call $__pf_evt_putstr
-    i32.const 42810
-    i32.const 1
-    call $__pf_evt_putstr
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43051
-    i32.const 6
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
     call $__pf_evt_putstr
     local.get $amount
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43058
-    i32.const 7
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43092
+    i32.const 11
     call $__pf_evt_putstr
     local.get $next
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43118
-    i32.const 8
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43194
+    i32.const 12
     call $__pf_evt_putstr
     local.get $released_next
     call $__pf_evt_putu64
@@ -591,56 +533,26 @@
     local.get $checkpoint
     call $__pf_pack_write_u64
     call $__pf_evt_start
-    i32.const 42800
-    i32.const 10
+    i32.const 43207
+    i32.const 24
     call $__pf_evt_putstr
-    i32.const 43127
-    i32.const 13
-    call $__pf_evt_putstr
-    i32.const 42810
-    i32.const 1
-    call $__pf_evt_putstr
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43058
-    i32.const 7
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43092
+    i32.const 11
     call $__pf_evt_putstr
     local.get $balance_now
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43118
-    i32.const 8
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43194
+    i32.const 12
     call $__pf_evt_putstr
     local.get $released_now
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43141
-    i32.const 4
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43232
+    i32.const 8
     call $__pf_evt_putstr
     local.get $fees_now
     call $__pf_evt_putu64
-    i32.const 42811
-    i32.const 2
-    call $__pf_evt_putstr
-    i32.const 43025
-    i32.const 10
-    call $__pf_evt_putstr
-    i32.const 42813
-    i32.const 2
+    i32.const 43040
+    i32.const 14
     call $__pf_evt_putstr
     local.get $checkpoint
     call $__pf_evt_putu64
@@ -649,7 +561,6 @@
     call $__pf_evt_putstr
     call $__pf_evt_log
     local.get $balance_now
-    call $__pf_pack_flush
     call $__pf_return_u64
     call $__pf_pack_flush
   )
@@ -662,7 +573,6 @@
     call $read_register
     i32.const 0
     call $__pf_pack_read_u64
-    call $__pf_pack_flush
     call $__pf_return_u64
     call $__pf_pack_flush
   )
@@ -682,7 +592,6 @@
     local.get $balance_now
     local.get $fees_now
     i64.sub
-    call $__pf_pack_flush
     call $__pf_return_u64
     call $__pf_pack_flush
   )
@@ -692,19 +601,19 @@
   (data (i32.const 12006) "false")
   (data (i32.const 12012) "0123456789abcdef")
   (data (i32.const 42800) "{\"event\":\"\",\"\":}")
-  (data (i32.const 43000) "VaultInitialized")
-  (data (i32.const 43017) "initial")
-  (data (i32.const 43025) "checkpoint")
-  (data (i32.const 43036) "ValueDeposited")
-  (data (i32.const 43051) "amount")
-  (data (i32.const 43058) "balance")
-  (data (i32.const 43066) "operations")
-  (data (i32.const 43077) "ValueCharged")
-  (data (i32.const 43090) "gross")
-  (data (i32.const 43096) "fee")
-  (data (i32.const 43100) "net")
-  (data (i32.const 43104) "ValueReleased")
-  (data (i32.const 43118) "released")
-  (data (i32.const 43127) "ValueSnapshot")
-  (data (i32.const 43141) "fees")
+  (data (i32.const 43000) "{\"event\":\"VaultInitialized\"")
+  (data (i32.const 43028) ",\"initial\":")
+  (data (i32.const 43040) ",\"checkpoint\":")
+  (data (i32.const 43055) "{\"event\":\"ValueDeposited\"")
+  (data (i32.const 43081) ",\"amount\":")
+  (data (i32.const 43092) ",\"balance\":")
+  (data (i32.const 43104) ",\"operations\":")
+  (data (i32.const 43119) "{\"event\":\"ValueCharged\"")
+  (data (i32.const 43143) ",\"gross\":")
+  (data (i32.const 43153) ",\"fee\":")
+  (data (i32.const 43161) ",\"net\":")
+  (data (i32.const 43169) "{\"event\":\"ValueReleased\"")
+  (data (i32.const 43194) ",\"released\":")
+  (data (i32.const 43207) "{\"event\":\"ValueSnapshot\"")
+  (data (i32.const 43232) ",\"fees\":")
 )

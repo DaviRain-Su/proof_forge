@@ -98,14 +98,27 @@ structure StringInfo where
   ptr : Nat
   len : Nat
 
-/-- Collect event-name + field-name strings into a deduped pool at STRING_BASE. -/
+/-- Composite JSON event header stored in the string pool: `{"event":"<name>"`.
+One putstr emits the whole static prefix (no per-char / multi-fragment assembly). -/
+def eventHeaderPoolString (name : String) : String :=
+  "{\"event\":\"" ++ name ++ "\""
+
+/-- Composite JSON field key fragment: `,"field":` — one putstr per field. -/
+def eventFieldPoolString (field : String) : String :=
+  ",\"" ++ field ++ "\":"
+
+/-- Collect composite event header/field strings into a deduped pool at STRING_BASE. -/
 def stringPool (mod : ProofForge.IR.Module) : Array StringInfo :=
   let raw : Array String := mod.entrypoints.foldl (init := #[]) fun acc ep =>
     ep.body.foldl (init := acc) fun acc' s =>
       match s with
-      | .effect (.eventEmit name fields) => acc' ++ #[name] ++ fields.map (fun (n, _) => n)
+      | .effect (.eventEmit name fields) =>
+          acc' ++ #[eventHeaderPoolString name] ++
+            fields.map (fun (n, _) => eventFieldPoolString n)
       | .effect (.eventEmitIndexed name indexedFields dataFields) =>
-          acc' ++ #[name] ++ indexedFields.map (fun (n, _) => n) ++ dataFields.map (fun (n, _) => n)
+          acc' ++ #[eventHeaderPoolString name] ++
+            indexedFields.map (fun (n, _) => eventFieldPoolString n) ++
+            dataFields.map (fun (n, _) => eventFieldPoolString n)
       | _ => acc'
   let unique : Array String := raw.foldl (init := #[]) fun acc s => if acc.contains s then acc else acc.push s
   let result : Array StringInfo × Nat :=

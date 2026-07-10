@@ -24,20 +24,22 @@ open ProofForge.Backend.WasmHost.Types
 def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
     (insns : Array Insn) (actual : ValueType)
     (bridge : ProofForge.Target.HostBridge := .near)
-    (packScalars : Bool := false) : Except EmitError (Array Insn) := do
-  let flush := if packScalars then packFlushInsns else #[]
+    (_packScalars : Bool := false) : Except EmitError (Array Insn) := do
+  -- Packed-scalar flush is applied once as the entrypoint body suffix in EmitWat
+  -- (`packFlushInsns` after the lowered body). Do not flush here or void/return
+  -- paths double-call `__pf_pack_flush`.
   if actual != expected then
     err s!"EmitWat: return expected `{expected.name}`, got `{actual.name}`"
   else if bridge == .near && exprReturnsNearPromise expr then
     -- NEAR Promise id must be passed to promise_return; Soroban invoke returns a
     -- host handle and uses ordinary value_return encoding.
-    .ok (insns ++ flush ++ #[.call "promise_return"])
+    .ok (insns ++ #[.call "promise_return"])
   else match actual with
-    | .u64 => .ok (insns ++ flush ++ #[.call returnU64Name])
-    | .u32 => .ok (insns ++ flush ++ #[.call returnU32Name])
-    | .bool => .ok (insns ++ flush ++ #[.call returnBoolName])
+    | .u64 => .ok (insns ++ #[.call returnU64Name])
+    | .u32 => .ok (insns ++ #[.call returnU32Name])
+    | .bool => .ok (insns ++ #[.call returnBoolName])
     | .hash =>
-      .ok (#[.i64Const 32] ++ insns ++ flush ++
+      .ok (#[.i64Const 32] ++ insns ++
         #[.plain "i64.extend_i32_u", .call "value_return"])
     | _ => err s!"EmitWat: return type `{actual.name}` is not supported"
 
