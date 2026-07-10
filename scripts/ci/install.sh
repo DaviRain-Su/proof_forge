@@ -77,10 +77,6 @@ curl -fsSL -H "$CURL_USER_AGENT" -o "$TMPDIR/${tarball_name}" "$URL"
 if [ "$VERSION" != "latest" ]; then
   CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
   if curl -fsSL -H "$CURL_USER_AGENT" -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" 2>/dev/null; then
-    if ! grep -q -F "$tarball_name" "$TMPDIR/checksums.txt"; then
-      echo "install.sh: checksums.txt does not contain an entry for ${tarball_name}" >&2
-      exit 1
-    fi
     # Prefer GNU sha256sum; fall back to macOS shasum.
     if command -v sha256sum >/dev/null 2>&1; then
       sha_cmd=(sha256sum -c -)
@@ -90,7 +86,12 @@ if [ "$VERSION" != "latest" ]; then
       echo "install.sh: no sha256 checksum utility found (sha256sum or shasum)" >&2
       exit 1
     fi
-    if ! (cd "$TMPDIR" && grep -F "$tarball_name" checksums.txt | "${sha_cmd[@]}"); then
+    checksum_line="$(cd "$TMPDIR" && grep -E "^[a-f0-9]+  ${tarball_name}$" checksums.txt || true)"
+    if [ -z "$checksum_line" ]; then
+      echo "install.sh: no checksum found for ${tarball_name}" >&2
+      exit 1
+    fi
+    if ! printf '%s\n' "$checksum_line" | "${sha_cmd[@]}"; then
       echo "install.sh: checksum verification failed for ${tarball_name}" >&2
       exit 1
     fi
