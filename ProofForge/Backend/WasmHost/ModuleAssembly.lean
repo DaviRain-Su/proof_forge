@@ -45,8 +45,11 @@ def loweringCtxForModule (mod : ProofForge.IR.Module)
     (bridge : ProofForge.Target.HostBridge := .near) : Ctx :=
   let strings := stringPool mod
   let panics := panicPool mod (moduleStringPoolEnd strings)
+  let pack := bridge == ProofForge.Target.HostBridge.near && moduleScalarsPackable mod
+  let (scalars, packSize) :=
+    if pack then stateLayoutPacked mod else (stateLayout mod, 0)
   {
-    scalars := stateLayout mod
+    scalars := scalars
     maps := mapLayout mod
     strings := strings
     panics := panics
@@ -54,10 +57,16 @@ def loweringCtxForModule (mod : ProofForge.IR.Module)
     structs := mod.structs
     allocator := mod.allocator
     bridge := bridge
+    packScalars := pack
+    packSize := packSize
   }
 
 def dataSegmentsForModulePlan (modulePlan : ModulePlan) (ctx : Ctx) : Array DataSegment :=
-  let scalarData := ctx.scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
+  let scalarData :=
+    if ctx.packScalars then
+      #[{ offset := PACK_KEY_PTR, bytes := "__pf_s" : DataSegment }]
+    else
+      ctx.scalars.map fun s => { offset := s.keyPtr, bytes := s.id : DataSegment }
   let mapData := ctx.maps.map fun m => { offset := m.prefixPtr, bytes := m.id ++ ":" : DataSegment }
   let boolData : Array DataSegment :=
     #[{ offset := TRUE_PTR, bytes := "true" },
@@ -85,7 +94,12 @@ def dataSegmentsForModulePlan (modulePlan : ModulePlan) (ctx : Ctx) : Array Data
 
 def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Module)
     (ctx : Ctx) (entryFuncs : Array Func) : Array Func :=
-  scalarStorageHelperFuncsForModulePlan modulePlan ctx.bridge ++
+  let packHelpers :=
+    if ctx.packScalars then packHelperFuncs ctx.packSize modulePlan else #[]
+  let scalarHelpers :=
+    if ctx.packScalars then #[]
+    else scalarStorageHelperFuncsForModulePlan modulePlan ctx.bridge
+  scalarHelpers ++ packHelpers ++
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
@@ -96,15 +110,16 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     mapHashHelperFuncsForModulePlan modulePlan ctx.bridge ++
     aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
 
-def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.AllocatorConfig) :
-    Array Global :=
+def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.AllocatorConfig)
+    (packScalars : Bool := false) : Array Global :=
   let arrPtrDecls :=
     if allocator.requiresHost || !modulePlanUsesArrHeap modulePlan then #[]
     else if allocator.usesMinimalMallocShape then
       #[arrPtrGlobalDecl allocator.heapBase, arrFreeGlobalDecl]
     else #[arrPtrGlobalDecl allocator.heapBase]
   let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
-  hashGlobals ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
+  let packG := if packScalars then packGlobals else #[]
+  hashGlobals ++ packG ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
     crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
 
 end ProofForge.Backend.WasmHost.ModuleAssembly

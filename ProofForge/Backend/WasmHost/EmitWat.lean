@@ -660,9 +660,7 @@ mutual
       .ok (#[.call "attached_deposit"], .u64)
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
-      | some s =>
-        let callName := if s.type == .hash then readHashName else readName s.type
-        .ok (#[.i32Const s.keyPtr, .i32Const s.keyLen, .call callName], s.type)
+      | some s => .ok (storageScalarReadInsns s)
       | none => err s!"EmitWat: unknown scalar state `{id}`"
     | .effect (.storageMapGet id key) => lowerMapGet ctx env id key
     | .effect (.storageMapContains id key) => lowerMapContains ctx env id key
@@ -1032,7 +1030,7 @@ end
 def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
-  returnInsnsForLoweredExpr expected e is t ctx.bridge
+  returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars
 
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
@@ -1149,10 +1147,14 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
       sorobanAuthPrologue ctx ep
     else
       #[]
+  let packPrefix := if ctx.packScalars then packBeginInsns else #[]
+  let packSuffix := if ctx.packScalars then packFlushInsns else #[]
   .ok {
     name := ep.name
     locals := locals
-    body := { insns := resetPrefix ++ authPrefix ++ paramPrologue ++ bodyInsns }
+    body := {
+      insns := resetPrefix ++ authPrefix ++ packPrefix ++ paramPrologue ++ bodyInsns ++ packSuffix
+    }
     exportName := ep.name
   }
 
@@ -1168,7 +1170,7 @@ def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan
   let hasPanic := !ctx.panics.isEmpty
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic ctx.bridge
   let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
-  let globals := globalsForModulePlan modulePlan mod.allocator
+  let globals := globalsForModulePlan modulePlan mod.allocator ctx.packScalars
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := dataSegmentsForModulePlan modulePlan ctx }

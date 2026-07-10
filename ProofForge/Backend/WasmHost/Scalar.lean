@@ -9,6 +9,7 @@ import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.LoweringEnv
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.HostBridge
@@ -18,6 +19,7 @@ namespace ProofForge.Backend.WasmHost.Scalar
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.Diagnostics
+open ProofForge.Backend.WasmHost.Hash
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.LoweringEnv
 open ProofForge.Backend.WasmHost.Memory
@@ -33,11 +35,101 @@ def storageScalarStateInfo (scalars : Array StateInfo) (id : String) :
   | some stateInfo => .ok stateInfo
   | none => err s!"EmitWat: unknown scalar state `{id}`"
 
+/-- Packed-scalar helpers (NEAR): one storage key `__pf_s`, entry-local load/flush. -/
+def packLoadedGlobal : String := "pack_loaded"
+def packDirtyGlobal : String := "pack_dirty"
+def packEnsureName : String := "__pf_pack_ensure"
+def packFlushName : String := "__pf_pack_flush"
+def packBeginName : String := "__pf_pack_begin"
+def packWriteName (vt : ValueType) : String := "__pf_pack_write_" ++ typeSuffix vt
+def packReadName (vt : ValueType) : String := "__pf_pack_read_" ++ typeSuffix vt
+
+def packGlobals : Array Global :=
+  #[{ name := packLoadedGlobal, type := .i32, init := "0", isMutable := true },
+    { name := packDirtyGlobal, type := .i32, init := "0", isMutable := true }]
+
+def packBeginFunc : Func :=
+  { name := packBeginName, body := { insns := #[
+      .i32Const 0, .globalSet packLoadedGlobal,
+      .i32Const 0, .globalSet packDirtyGlobal ] } }
+
+/-- Zero `packSize` bytes at PACK_BUF via an i32 loop (byte stores). -/
+def packZeroInsns (packSize : Nat) : Array Insn :=
+  #[.i32Const 0, .localSet "i",
+    .block_ { insns := #[ .loop_ { insns := #[
+      .localGet "i", .i32Const packSize, .plain "i32.ge_u", .brIf 1,
+      .i32Const PACK_BUF, .localGet "i", .plain "i32.add",
+      .i32Const 0, .store "i32.store8" 0,
+      .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i",
+      .br 0 ] } ] }]
+
+def packEnsureFunc (packSize : Nat) : Func :=
+  { name := packEnsureName,
+    locals := #[{ name := "i", type := .i32 }],
+    body := { insns := #[
+      .globalGet packLoadedGlobal, .plain "i32.eqz",
+      .if_ { insns := #[
+          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR, .i64Const 0, .call "storage_read",
+          .i64Const 0, .plain "i64.ne",
+          .if_ { insns := #[.i64Const 0, .i64Const PACK_BUF, .call "read_register"] }
+             { insns := packZeroInsns packSize },
+          .i32Const 1, .globalSet packLoadedGlobal
+        ] } { insns := #[] }
+    ] } }
+
+def packFlushFunc (packSize : Nat) : Func :=
+  { name := packFlushName,
+    body := { insns := #[
+      .globalGet packDirtyGlobal,
+      .if_ { insns := #[
+          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR,
+          .i64Const packSize, .i64Const PACK_BUF, .i64Const 0,
+          .call "storage_write", .drop,
+          .i32Const 0, .globalSet packDirtyGlobal
+        ] } { insns := #[] }
+    ] } }
+
+def packWriteFunc (vt : ValueType) : Func :=
+  { name := packWriteName vt,
+    params := #[{ name := "off", type := .i32 }, { name := "v", type := wasmTypeOf vt }],
+    body := { insns := #[
+      .call packEnsureName,
+      .i32Const PACK_BUF, .localGet "off", .plain "i32.add",
+      .localGet "v", .store (storeOpFor vt) 0,
+      .i32Const 1, .globalSet packDirtyGlobal
+    ] } }
+
+def packReadFunc (vt : ValueType) : Func :=
+  { name := packReadName vt,
+    params := #[{ name := "off", type := .i32 }],
+    results := #[wasmTypeOf vt],
+    body := { insns := #[
+      .call packEnsureName,
+      .i32Const PACK_BUF, .localGet "off", .plain "i32.add",
+      .load (loadOpFor vt) 0
+    ] } }
+
+def packBeginInsns : Array Insn := #[.call packBeginName]
+def packFlushInsns : Array Insn := #[.call packFlushName]
+
+def packHelperFuncs (packSize : Nat) (plan : ModulePlan) : Array Func :=
+  #[packBeginFunc, packEnsureFunc packSize, packFlushFunc packSize] ++
+    (if plan.scalarWriteTypes.contains .u64 then #[packWriteFunc .u64] else #[]) ++
+    (if plan.scalarReadTypes.contains .u64 then #[packReadFunc .u64] else #[]) ++
+    (if plan.scalarWriteTypes.contains .u32 then #[packWriteFunc .u32] else #[]) ++
+    (if plan.scalarReadTypes.contains .u32 then #[packReadFunc .u32] else #[]) ++
+    (if plan.scalarWriteTypes.contains .bool then #[packWriteFunc .bool] else #[]) ++
+    (if plan.scalarReadTypes.contains .bool then #[packReadFunc .bool] else #[])
+
 def storageScalarWriteInsns (structs : Array ProofForge.IR.StructDecl)
     (stateInfo : StateInfo) (id : String) (valueInsns : Array Insn)
     (valueType : ValueType) : Except EmitError (Array Insn) :=
   if valueType != stateInfo.type then
     err s!"EmitWat: scalar write `{id}` expected `{stateInfo.type.name}`, got `{valueType.name}`"
+  else if stateInfo.packed then
+    -- stack order: off (i32), then value (matches packWrite params)
+    .ok (#[.i32Const stateInfo.packOffset] ++ valueInsns ++
+      #[.call (packWriteName stateInfo.type)])
   else match stateInfo.type with
     | .structType typeName =>
       match findStruct? structs typeName with
@@ -51,6 +143,13 @@ def storageScalarWriteInsns (structs : Array ProofForge.IR.StructDecl)
       .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen] ++ valueInsns ++
         #[.call (writeName stateInfo.type)])
 
+def storageScalarReadInsns (stateInfo : StateInfo) : Array Insn × ValueType :=
+  if stateInfo.packed then
+    (#[.i32Const stateInfo.packOffset, .call (packReadName stateInfo.type)], stateInfo.type)
+  else
+    let callName := if stateInfo.type == .hash then readHashName else readName stateInfo.type
+    (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call callName], stateInfo.type)
+
 def storageScalarAssignOpTargetType (stateInfo : StateInfo) (id : String) :
     Except EmitError ValueType :=
   if stateInfo.type == .hash then
@@ -61,6 +160,14 @@ def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : Assig
     (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) :=
   if valueType != stateInfo.type then
     err s!"EmitWat: scalar assignOp `{id}` expected `{stateInfo.type.name}`, got `{valueType.name}`"
+  else if stateInfo.packed then
+    -- read; apply op; stage result in KEY_BUF; pack_write(offset, result)
+    .ok (#[.i32Const stateInfo.packOffset, .call (packReadName stateInfo.type)] ++ valueInsns
+          ++ #[.plain (widthOf stateInfo.type ++ "." ++ assignOpName op),
+             .i32Const KEY_BUF, .store (storeOpFor stateInfo.type) 0,
+             .i32Const stateInfo.packOffset,
+             .i32Const KEY_BUF, .load (loadOpFor stateInfo.type) 0,
+             .call (packWriteName stateInfo.type)])
   else
     .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
              .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,

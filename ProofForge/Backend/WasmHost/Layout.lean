@@ -6,11 +6,13 @@ import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.Memory
+import ProofForge.Backend.WasmHost.Types
 
 namespace ProofForge.Backend.WasmHost.Layout
 
 open ProofForge.IR
 open ProofForge.Backend.WasmHost.Memory
+open ProofForge.Backend.WasmHost.Types
 
 /-! Pure storage/data layout helpers for EmitWat. These compute storage-key
 offsets and literal string pools; instruction generation stays in EmitWat. -/
@@ -20,15 +22,49 @@ structure StateInfo where
   type : ValueType
   keyPtr : Nat
   keyLen : Nat
+  /-- Byte offset within the packed scalar blob when `packed = true`. -/
+  packOffset : Nat := 0
+  /-- When true, NEAR EmitWat batches this scalar into one storage key (`__pf_s`). -/
+  packed : Bool := false
+
+def isPackableScalarType : ValueType → Bool
+  | .u32 | .u64 | .bool => true
+  | _ => false
+
+/-- True when packing multi-scalar state into one storage key is worthwhile:
+every scalar is u32/u64/bool and there are **at least two** scalars. Single-field
+modules (Counter) keep the classic one-key-per-scalar layout. -/
+def moduleScalarsPackable (mod : ProofForge.IR.Module) : Bool :=
+  let scalars := mod.state.filter (fun s => s.kind == .scalar)
+  scalars.size >= 2 && scalars.all (fun s => isPackableScalarType s.type)
 
 def stateLayout (mod : ProofForge.IR.Module) : Array StateInfo :=
   let step (acc : Array StateInfo) (offset : Nat) (s : StateDecl) : Array StateInfo × Nat :=
     match s.kind with
-    | .scalar => (acc.push { id := s.id, type := s.type, keyPtr := offset, keyLen := s.id.length }, offset + s.id.length + 1)
+    | .scalar =>
+      (acc.push {
+          id := s.id, type := s.type, keyPtr := offset, keyLen := s.id.length,
+          packOffset := 0, packed := false },
+        offset + s.id.length + 1)
     | _ => (acc, offset)
   let result : Array StateInfo × Nat := mod.state.foldl (init := (#[], 0))
     fun (acc, offset) s => step acc offset s
   result.fst
+
+/-- Pack all packable scalars into one storage key `__pf_s` with sequential
+byte offsets. Only used on the NEAR EmitWat path when `moduleScalarsPackable`. -/
+def stateLayoutPacked (mod : ProofForge.IR.Module) : Array StateInfo × Nat :=
+  let step (acc : Array StateInfo) (packOff : Nat) (s : StateDecl) : Array StateInfo × Nat :=
+    match s.kind with
+    | .scalar =>
+      let w := scalarWidth s.type
+      (acc.push {
+          id := s.id, type := s.type,
+          keyPtr := PACK_KEY_PTR, keyLen := PACK_KEY_LEN,
+          packOffset := packOff, packed := true },
+        packOff + w)
+    | _ => (acc, packOff)
+  mod.state.foldl (init := (#[], 0)) fun (acc, packOff) s => step acc packOff s
 
 def findScalarState? (layout : Array StateInfo) (id : String) : Option StateInfo :=
   layout.find? (fun s => s.id == id)

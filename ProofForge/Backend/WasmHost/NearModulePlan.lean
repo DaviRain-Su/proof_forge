@@ -38,11 +38,15 @@ import ProofForge.IR.Contract
 import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
+import ProofForge.Target.HostBridge
 
 namespace ProofForge.Backend.WasmHost.NearModulePlan
 
 open ProofForge.IR
+open ProofForge.Backend.WasmHost.Types
+open ProofForge.Target.HostBridge
 open ProofForge.Backend.WasmHost.Plan
 open ProofForge.Backend.WasmHost.EmitWat
 
@@ -54,6 +58,8 @@ structure NearStatePlan where
   type : ValueType
   keyPtr : Nat
   keyLen : Nat
+  packOffset : Nat := 0
+  packed : Bool := false
   deriving Repr, BEq
 
 /-- One map/array state slot's plan: the `id ++ ":"` prefix pointer. Carries
@@ -118,9 +124,16 @@ def renderValueType (vt : ValueType) : String := vt.name
 /-- Project the scalar-state subset of `mod.state` into plan entries, reusing
 `EmitWat.stateLayout` (the exact function `EmitWat.lowerModule` calls) so the
 pointers are byte-identical to the current inline computation. -/
-def buildScalars (mod : Module) : Array NearStatePlan :=
-  (stateLayout mod).map fun s =>
-    { id := s.id, type := s.type, keyPtr := s.keyPtr, keyLen := s.keyLen }
+def buildScalars (mod : Module) (bridge : ProofForge.Target.HostBridge := .near) :
+    Array NearStatePlan :=
+  let layout :=
+    if bridge == .near && moduleScalarsPackable mod then
+      (stateLayoutPacked mod).1
+    else
+      stateLayout mod
+  layout.map fun s =>
+    { id := s.id, type := s.type, keyPtr := s.keyPtr, keyLen := s.keyLen,
+      packOffset := s.packOffset, packed := s.packed }
 
 /-- Project the map/array-state subset of `mod.state` into plan entries, reusing
 `EmitWat.mapLayout`. -/
@@ -278,9 +291,14 @@ plan. The frozen scratch-region base addresses in the seed are carried for the
 plan artifact's inspectability but are not needed for `Ctx` reconstruction (the
 absolute pointers are baked into the layout arrays). -/
 def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitWat.Ctx :=
+  let pack := layout.scalars.any (fun s => s.packed)
+  let packSize :=
+    layout.scalars.foldl (init := 0) fun acc s =>
+      if s.packed then Nat.max acc (s.packOffset + scalarWidth s.type) else acc
   {
     scalars := layout.scalars.map (fun s =>
-      { id := s.id, type := s.type, keyPtr := s.keyPtr, keyLen := s.keyLen : EmitWat.StateInfo })
+      { id := s.id, type := s.type, keyPtr := s.keyPtr, keyLen := s.keyLen,
+        packOffset := s.packOffset, packed := s.packed : EmitWat.StateInfo })
     maps := layout.maps.map (fun m =>
       { id := m.id, keyType := m.keyType, valueType := m.valueType,
         prefixPtr := m.prefixPtr, prefixLen := m.prefixLen, isArray := m.isArray : EmitWat.MapInfo })
@@ -292,6 +310,8 @@ def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitW
       { str := e.str, ptr := e.ptr, len := e.len : EmitWat.StringInfo })
     structs := seed.structs
     allocator := seed.allocator
+    packScalars := pack
+    packSize := packSize
   }
 
 /-- Lower a module using a pre-built `NearModulePlan`. This is the Tier B

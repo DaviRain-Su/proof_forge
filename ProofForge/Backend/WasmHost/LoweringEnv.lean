@@ -28,6 +28,11 @@ structure Ctx where
   /-- Host bridge selects native crosscall materialization
   (NEAR `promise_create` vs Soroban `invoke_contract`). Defaults to NEAR. -/
   bridge : ProofForge.Target.HostBridge := .near
+  /-- When true, NEAR scalar state is packed into one storage key with
+  entrypoint-local load/flush. -/
+  packScalars : Bool := false
+  /-- Total packed scalar blob size in bytes (0 when packing is off). -/
+  packSize : Nat := 0
 
 structure LBind where
   name : String
