@@ -3,7 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Active Wave 5** — NC-H1@1a9046e1; adding ArrayExample / OwnableHash / HostEnvProbe.
+Status: **Complete: verified@1b06e795** — Wave 0–5 live matrix (17 contracts).
+Optional: AuthRemoteCall; UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
