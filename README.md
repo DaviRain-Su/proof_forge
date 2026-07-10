@@ -32,44 +32,38 @@ The machine-readable support matrix (maturity, input modes, commands, output
 stages, validation level) is generated from `proof-forge --list-targets --json`
 into [`docs/generated/backend-status.md`](docs/generated/backend-status.md)
 (`just target-support` / `just backend-status-gen`). The narrative table below
-remains the human overview of pipelines and local validation; the generated
-table is the PF-P1-02 contract.
+is the human overview; the generated table remains the PF-P1-02 contract.
 
-All backends live on `main` (chains are directories and target ids, not
-branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.md).
-The primary-chain completion covenant (D-045) is closed and all P0 SDK
-blockers across `evm`, `solana-sbpf-asm`, and `wasm-near` are resolved:
-**0 open P0 blockers** remain. Unified SDK schema/layout outputs now exist
-for `evm`, `solana-sbpf-asm`, `wasm-near`, and `move-sui` via the portable
-Counter flow. Three-chain portable scenarios (Counter, ValueVault) compile
-and execute on EVM, Solana, and NEAR via `just portable-counter-multi-target`
-and `just portable-value-vault`; Sui is intentionally scoped to a Counter MVP
-with local `sui move build/test` validation.
+### Beta-ready `contract_source` targets
+
+These three targets compile real `ProofForge.Contract.Source` contracts,
+produce a canonical SDK layout, and are required to pass `just product`:
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, diagnostics, Foundry runtime smoke (15 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
-| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening |
-| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion` (source identity · fail-closed · HostBridge · wat2wasm · offline-host lifecycle · docs); auth still spike-always; Stellar CLI/TTL remain follow-on |
-| `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
-| `move-aptos` | portable IR → Aptos Move package | Counter MVP (PF-P3-02 six-gate) | `just aptos-promotion` (fixture counter · aptos compile/test · product source fail-closed); needs `aptos` CLI |
-| `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
-| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
-| `aleo-leo` | portable IR → Leo package → `leo build`/`leo test` | Counter MVP (PF-P3-02 six-gate; ALU Road 1+) | generic IR→Leo lowering + ALU ops; `just aleo-promotion` (fixture counter · leo build/test · product fail-closed); Counter/PureMath goldens + map/metadata smokes |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Counter MVP (PF-P3-02 six-gate) | `just cloudflare-promotion` (fixture TS · wrangler · product fail-closed); not Wasm binary |
+| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Beta-ready | golden Yul, diagnostics, Foundry runtime smoke, Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib coverage |
+| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Beta-ready | Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, CPI gates, Token-2022 extensions, map storage |
+| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Beta-ready | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke, NEP-141 FT stdlib, aggregate ABI params |
+
+### Counter-MVP / research spikes (not beta-ready)
+
+The following targets are implemented on `main` but are intentionally limited
+to Counter fixtures, host-adapter spikes, or research prototypes. They are **not**
+advertised as public-beta `contract_source` compilers:
+
+| Target id | Status | Why it is demoted |
+|---|---|---|
+| `wasm-stellar-soroban` | Counter MVP (PF-P3-02) | Auth still spike-always; Stellar CLI/TTL remain follow-on. |
+| `wasm-cosmwasm` | Counter MVP (PF-P3-02) | `execute_msg` is a WasmMsg-shaped stub; full crosscall not wired. |
+| `move-aptos` | Counter spike (PF-P3-02) | Product source fail-closed; needs `aptos` CLI for validation. |
+| `move-sui` | Counter MVP | Counter package layout only; beyond-Counter planning is ongoing. |
+| `psy-dpn` | Research spike (restricted subset) | Dargo-backed execution only; not a general compiler. |
+| `aleo-leo` | Counter MVP / research (Road 1+) | Generic Leo sourcegen + ALU ops; broader shape coverage in progress. |
+| `wasm-cloudflare-workers` | Counter TS spike (PF-P3-02) | TypeScript Worker output; not a Wasm binary target. |
 
 **CLI-only verification target:** `quint` is accepted by `proof-forge emit --target quint`
 for formal/model-checking fixtures but is **not** in `Target.knownIds` /
-`--list-targets` (same class as a verification lane, not a product host).
-
-
-**Spike honesty (U7):** CosmWasm / Aptos / Soroban / Cloudflare are **not**
-primary-product hosts. CosmWasm portable crosscall is a WasmMsg-shaped
-`execute_msg` stub; Soroban interpreter `require_auth_for_args` is always-auth
-in Lean. Gate G1a/G1b (CosmWasm/Aptos M3–M4) stay **not started** until
-explicitly scheduled — see [gate-status](docs/gate-status.md) and
-[unified-support-roadmap](docs/superpowers/plans/2026-07-09-unified-support-roadmap.md) U7.
+`--list-targets` (verification lane, not a product host).
 
 The multi-chain Token SDK (`TokenSpec`, [RFC 0006](docs/rfcs/0006-multichain-token-sdk.md))
 routes one token intent to ERC-20 bytecode on EVM or SPL Token / Token-2022
@@ -100,8 +94,8 @@ lake build
 Compile the EVM Counter example to runtime bytecode:
 
 ```sh
-lake env proof-forge build --target evm --root . --module Counter \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+lake env proof-forge build --target evm --root . \
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 ```
 
 Emit artifacts for other targets from built-in portable IR fixtures:

@@ -3,13 +3,13 @@
 ## Cursor Cloud specific instructions
 
 ProofForge is a Lean 4 compiler/CLI (`proof-forge`) that lowers Lean smart-contract
-sources to portable IR and target artifacts. Implemented backends live on `main`:
-`evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm` (Counter spike),
-`wasm-stellar-soroban` (Phase 4 host-family adapter, Counter refinement),
-`move-aptos` (Counter spike), `move-sui` (Counter MVP), `psy-dpn`, `aleo-leo`
-(Phase 4 ZK lane, Road 1 Leo sourcegen), plus research spike
-`wasm-cloudflare-workers`. The formal-verification target `quint` is CLI-only
-(not in `--list-targets`). See README "Backend Status" for the full stage table.
+sources to portable IR and target artifacts. For the public beta, only three targets
+are advertised as `contract_source` compilers: `evm`, `solana-sbpf-asm`, and
+`wasm-near`. The remaining registry entries (`wasm-cosmwasm`, `wasm-stellar-soroban`,
+`move-aptos`, `move-sui`, `psy-dpn`, `aleo-leo`, `wasm-cloudflare-workers`) are
+Counter-MVP/fixture/research spikes on `main`; the formal-verification target `quint`
+is CLI-only and not in `--list-targets`. See README "Backend Status" for the full
+stage table.
 CI is **product-first**: required `just product` (business sources × multi-target)
 before backend-heavy suites. Solana live-network/Pinocchio and `just psy-all` need
 extra tools (see below).
@@ -18,6 +18,7 @@ extra tools (see below).
 
 | Surface | Targets |
 |---------|---------|
+| Beta-ready `contract_source` compilers | `evm`, `solana-sbpf-asm`, `wasm-near` |
 | `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `wasm-stellar-soroban`, `move-aptos`, `move-sui`, `psy-dpn`, `aleo-leo` |
 | `proof-forge emit --target …` (fixture whitelist) | above plus `quint` (verification; CLI-only). `wasm-stellar-soroban` uses EmitWat + `HostBridge.soroban` (not a separate codegen core). |
 
