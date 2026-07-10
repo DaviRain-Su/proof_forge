@@ -1,9 +1,8 @@
 {
   "README.md": {
-    "sha256": "3d164c3afd32f3e349ad240ee5afacf0c667d853b3798effec67892b1e3bd8c3",
+    "sha256": "5d084e5d3646f494fadbc2fd371309b9ec75119755c11a1ae7ebdf37d3881477",
     "zh": "docs/zh/README-root.zh.md",
-    "model": "manual-zh",
-    "note": "S0.3 claim audit: EVM Experimental not production-grade SDK wording"
+    "model": "gemini-3-flash-preview"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
