@@ -102,6 +102,9 @@ fn main() -> Result<()> {
         ["near", "escrow-vault"]
         | ["near", "escrowvault"]
         | ["near", "escrow"] => run_near_escrow_vault(&repo_root, &args),
+        ["near", "timelock-vault"]
+        | ["near", "timelockvault"]
+        | ["near", "timelock"] => run_near_timelock_vault(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -111,7 +114,7 @@ fn main() -> Result<()> {
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
                   access-control, external-token-transfer, external-vault, \
                   pro-rata-vault, soulbound-token, ft-peer-client, vesting-vault, \
-                  escrow-vault)"
+                  escrow-vault, timelock-vault)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -2513,6 +2516,92 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "No transfer entry — soulbound honesty.",
             "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
+}
+
+fn run_near_timelock_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    // lock(amount=1000, unlockAt=50)
+    let lock = {
+        let mut v = 1000u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&50u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, lock, get_locked, get_unlock_at, claim, claim_balance, is_claimed, get_locked
+    let inputs = format!(",{lock},,,,,,");
+    let fuel_inputs = format!(",{lock},,");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "timelock-vault",
+        "testkit/compare/near/timelock-vault",
+        "Examples/Product/TimelockVault.lean",
+        "TimelockVault.near-artifact.json",
+        "pf_near_sdk_timelock_vault_reference.wasm",
+        &["timelockvault.wat", "TimelockVault.wat"],
+        &[
+            "init",
+            "lock",
+            "claim",
+            "get_locked",
+            "get_unlock_at",
+            "claim_balance",
+            "is_claimed",
+        ],
+        |repo, wat| {
+            // t=100 >= unlockAt=50 → claim full 1000
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "lock",
+                    "get_locked",
+                    "get_unlock_at",
+                    "claim",
+                    "claim_balance",
+                    "is_claimed",
+                    "get_locked",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    block_timestamp: Some(100),
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=1000"),
+                "expected locked/claim 1000\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=50"),
+                "expected unlock_at 50\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=1"),
+                "expected is_claimed 1\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=0"),
+                "expected get_locked 0 after claim\n{out}"
+            );
+            Ok(("init→lock 1000@50→t=100 claim→1000".into(), out))
+        },
+        &["init", "lock", "claim", "claim_balance"],
+        &fuel_inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            block_timestamp: Some(100),
+            repeat: 1,
+        },
+        &[
+            "Binary timelock (timestamp >= unlockAt) — not linear VestingVault.",
+            "Internal claim ledger only — no external token transfer.",
+            "Live: unlockAt=1 fully unlocks under sandbox nanosecond time.",
         ],
     )
 }

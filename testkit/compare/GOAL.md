@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 26 live dual-deploy** (Wave 11 EscrowVault two-party state machine).
+Status: **Complete: 27 live dual-deploy** (Wave 12 TimelockVault binary HostEnv unlock).
 Blocked: full Stdlib.ERC4626 NEAR asset crosscall; UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
@@ -163,6 +163,7 @@ eligible offline slice.
 | 9 | NC-9.2 | near-compare-matrix snapshot script | done | scripts/near/compare-matrix-snapshot.py |
 | 10 | NC-10.1 | VestingVault HostEnv linear vesting | done: live ~95× wasm | internal claim ledger |
 | 11 | NC-11.1 | EscrowVault fund→release|refund | done: live ~95× wasm | two-party state machine |
+| 12 | NC-12.1 | TimelockVault binary HostEnv unlock | done: live ~108× wasm | contrast VestingVault linear |
 
 ### Task briefs
 

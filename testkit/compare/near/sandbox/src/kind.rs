@@ -30,6 +30,7 @@ pub(crate) enum ContractKind {
     FtPeerClient,
     VestingVault,
     EscrowVault,
+    TimelockVault,
 }
 
 impl ContractKind {
@@ -74,6 +75,9 @@ impl ContractKind {
             "escrow-vault" | "escrowvault" | "escrow_vault" | "escrow" => {
                 Ok(Self::EscrowVault)
             }
+            "timelock-vault" | "timelockvault" | "timelock_vault" | "timelock" => {
+                Ok(Self::TimelockVault)
+            }
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -106,6 +110,7 @@ impl ContractKind {
             Self::FtPeerClient => "ft-peer-client",
             Self::VestingVault => "vesting-vault",
             Self::EscrowVault => "escrow-vault",
+            Self::TimelockVault => "timelock-vault",
         }
     }
 }

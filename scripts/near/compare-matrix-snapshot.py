@@ -43,6 +43,7 @@ KINDS = {
     "ft-peer-client": "protocol FT client",
     "vesting-vault": "HostEnv vesting",
     "escrow-vault": "escrow state machine",
+    "timelock-vault": "HostEnv timelock",
 }
 
 

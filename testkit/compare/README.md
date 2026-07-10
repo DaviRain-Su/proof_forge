@@ -128,6 +128,10 @@ just near-compare-vesting-vault-live
 just near-compare-escrow-vault
 just near-compare-escrow-vault-live
 
+# TimelockVault (binary HostEnv unlock)
+just near-compare-timelock-vault
+just near-compare-timelock-vault-live
+
 # Regenerate MATRIX.md from live reports
 just near-compare-matrix
 
@@ -257,8 +261,9 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | — | SoulboundToken | **~110×** | ~1.12× | 1734 B |
 | — | VestingVault | **~95×** | ~1.14× | 1556 B |
 | — | EscrowVault | **~95×** | ~1.13× | 1583 B |
+| — | TimelockVault | **~108×** | ~1.13× | 1363 B |
 
-**Stats (live, 26 contracts):** median wasm× **~115×**, median call× **~1.13×**, range wasm× **48–256×**.
+**Stats (live, 27 contracts):** median wasm× **~112×**, median call× **~1.13×**, range wasm× **48–256×**.
 
 **Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
@@ -284,6 +289,7 @@ Fairness notes:
 - **SoulboundTokenBody:** mint/burn only; TokenSpec `SoulboundToken.lean` remains Solana plan path.
 - **VestingVault:** linear vesting via HostEnv `timestamp` / `block_timestamp`; internal claim ledger (no external token).
 - **EscrowVault:** two-party fund → release | refund state machine; internal claim ledger only.
+- **TimelockVault:** binary unlock (`timestamp >= unlockAt`); not linear VestingVault.
 - **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
 
 ## Contracts
@@ -316,5 +322,6 @@ Fairness notes:
 | `ft-peer-client` | `just near-compare-ft-peer-client-live` | `Examples/Backend/WasmNear/FtPeerClient.lean` |
 | `vesting-vault` | `just near-compare-vesting-vault-live` | `Examples/Product/VestingVault.lean` |
 | `escrow-vault` | `just near-compare-escrow-vault-live` | `Examples/Product/EscrowVault.lean` |
+| `timelock-vault` | `just near-compare-timelock-vault-live` | `Examples/Product/TimelockVault.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

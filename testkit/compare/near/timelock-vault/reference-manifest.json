@@ -1,0 +1,23 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "program": "timelock-vault",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/TimelockVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "TimelockVault",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "lock", "amount": 1000, "unlockAt": 1 },
+      { "call": "claim" },
+      { "view": "claim_balance", "expect": 1000 },
+      { "view": "is_claimed", "expect": 1 },
+      { "view": "get_locked", "expect": 0 }
+    ]
+  },
+  "honesty": [
+    "Binary timelock (timestamp >= unlockAt) — not linear VestingVault.",
+    "Internal claim ledger only — no external token transfer.",
+    "Live: unlockAt=1 fully unlocks under sandbox nanosecond time."
+  ]
+}
