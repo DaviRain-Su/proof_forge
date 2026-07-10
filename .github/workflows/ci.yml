@@ -166,6 +166,9 @@ jobs:
       - name: Check generated contract clients
         run: just contract-client
 
+      - name: Check EVM ABI selector schema
+        run: just evm-abi-schema
+
       - name: Check EVM semantic plan
         run: just evm-plan
 

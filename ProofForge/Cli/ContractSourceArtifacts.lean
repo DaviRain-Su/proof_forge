@@ -42,12 +42,13 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput
   writeTextFile output (bytecode ++ "\n")
+  let hydratedSpec := { spec with module := module }
   writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
-    moduleName := spec.name
+    moduleName := hydratedSpec.name
     path? := some input.toString
     kind := "contract-sdk"
     leanElaborated := true
-  } spec module yulOutput output
+  } hydratedSpec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
