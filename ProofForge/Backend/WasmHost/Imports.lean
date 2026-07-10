@@ -48,7 +48,9 @@ def panicImport : Import := hostImport "panic" #[.i64, .i64] #[]
 def predecessorImport : Import := hostImport "predecessor_account_id" #[.i64] #[]
 def currentAcctImport : Import := hostImport "current_account_id" #[.i64] #[]
 def signerImport : Import := hostImport "signer_account_id" #[.i64] #[]
-def depositImport : Import := hostImport "attached_deposit" #[] #[.i64]
+/-- NEAR sys: `attached_deposit(balance_ptr)` writes little-endian u128 (16 bytes)
+at `balance_ptr` (see `near-sys`). Not a zero-arg i64 return. -/
+def depositImport : Import := hostImport "attached_deposit" #[.i64] #[]
 def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
 def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
 def epochHeightImport : Import := hostImport "epoch_height" #[] #[.i64]

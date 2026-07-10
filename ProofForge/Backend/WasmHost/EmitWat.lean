@@ -655,10 +655,11 @@ mutual
       else .ok (is ++ #[.plain "i32.eqz"], .bool)
     | .cast value target => lowerCast ctx env value target
     | .nativeValue =>
-      -- NEAR attached_deposit returns U128, but IR v0 treats nativeValue as U64.
-      -- For deposits within U64 range (< 2^64), the low 64 bits are the amount.
-      -- Call attached_deposit (returns i64 = low 64 bits) and use directly.
-      .ok (#[.call "attached_deposit"], .u64)
+      -- NEAR `attached_deposit(balance_ptr)` writes u128 LE at ptr (near-sys).
+      -- IR v0 models nativeValue as U64: use the low 64 bits (scenario deposits
+      -- stay well below 2^64).
+      .ok (#[.i64Const RET_BUF, .call "attached_deposit",
+             .i32Const RET_BUF, .load "i64.load" 0], .u64)
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s => .ok (storageScalarReadInsns s)

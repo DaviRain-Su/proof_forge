@@ -1318,8 +1318,10 @@ fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
                 out,
             ))
         },
-        &["init", "owner", "transferOwnership", "owner"],
-        &inputs,
+        // Fuel bench cannot re-run `init` (requireZero already-initialized).
+        // Measure view path only; full scenario is covered by the semantic step.
+        &["owner"],
+        "",
         OfflineHostOpts {
             inputs_hex_csv: "",
             predecessor: Some("alice.testnet"),

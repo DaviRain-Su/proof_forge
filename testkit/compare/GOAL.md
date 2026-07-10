@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Active**
+Status: **Complete: verified Wave 1+2 dual-deploy (FT, Ownable, StakingVault)**
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -133,12 +133,12 @@ eligible offline slice.
 | 0 | NC-0.1 | Counter dual-deploy compare | done: baseline harness | — |
 | 0 | NC-0.2 | ValueVault dual-deploy + gas packing | done: baseline harness | — |
 | 0 | NC-0.3 | Harness + README snapshot | done | — |
-| 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | **pending** | next |
-| 1 | NC-1.3 | Ownable / owner gate | pending | after NC-1.2 or parallel if FT blocked |
-| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | pending | after NC-1.2; needs string/map readiness |
-| H | NC-H1 | Scenario registry (less paste in sandbox main) | pending | anytime; prefer after 2nd new contract pain |
-| H | NC-H3 | `near-compare-matrix` offline + all-live matrix | pending | after ≥1 Wave-1 contract |
-| 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | pending | Wave 1 ≥1 done; Product exists |
+| 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live semanticMatch; wasm ~48× | — |
+| 1 | NC-1.3 | Ownable / owner gate | done: live semanticMatch; wasm ~256× | — |
+| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | pending | stretch |
+| H | NC-H1 | Scenario registry (less paste in sandbox main) | pending | optional |
+| H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` | — |
+| 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | pending | after NC-2.1 |
 | 2 | NC-2.3 | FeeToken / extended FT | pending | after NC-1.2 |
 | 3 | NC-3.1 | GuestBook / multi-message storage | pending | string/dynamic readiness |

@@ -334,7 +334,13 @@ def runNearHostCall (name : String) (args : Array Nat) (state : WasmState) :
       }
       .ok { state with host }
   | "attached_deposit" =>
-      .ok (stackPush state state.host.attachedDeposit)
+      -- NEAR sys: write u128 LE at balance_ptr (args[0]); IR uses low 64 as U64.
+      let ptr := args.getD 0 0
+      let amount := state.host.attachedDeposit
+      let lo := amount % (1 <<< 64)
+      let hi := amount / (1 <<< 64)
+      let mem := writeBytes state.memory ptr (natToLEBytes 8 lo ++ natToLEBytes 8 hi)
+      .ok { state with memory := mem }
   | other =>
       .error s!"unsupported NEAR host call `{other}`"
 
@@ -460,7 +466,7 @@ def hostArity (bridge : ProofForge.Target.HostBridge) (name : String) :
   | .near, "log_utf8" => .ok 2
   | .near, "block_index" => .ok 0
   | .near, "signer_account_id" => .ok 1
-  | .near, "attached_deposit" => .ok 0
+  | .near, "attached_deposit" => .ok 1
   | .cosmWasm, name => cosmWasmHostArity name
   | .soroban, name => sorobanHostArity name
   | _, other => .error s!"unsupported host call `{other}`"

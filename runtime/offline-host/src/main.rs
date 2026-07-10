@@ -690,10 +690,22 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         },
     )?;
 
+    // near-sys: attached_deposit(balance_ptr) writes little-endian u128 (16 bytes).
     linker.func_wrap(
         "env",
         "attached_deposit",
-        |caller: Caller<'_, HostState>| -> i64 { caller.data().attached_deposit as i64 },
+        |mut caller: Caller<'_, HostState>, balance_ptr: i64| -> Result<()> {
+            let ptr = usize::try_from(balance_ptr).context("attached_deposit ptr")?;
+            let amount = caller.data().attached_deposit as u128;
+            let bytes = amount.to_le_bytes();
+            let mem = caller
+                .get_export("memory")
+                .and_then(|e| e.into_memory())
+                .context("missing memory export for attached_deposit")?;
+            mem.write(&mut caller, ptr, &bytes)
+                .context("attached_deposit memory write")?;
+            Ok(())
+        },
     )?;
 
     linker.func_wrap(

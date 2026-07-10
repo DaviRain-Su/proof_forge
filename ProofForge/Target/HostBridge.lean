@@ -92,7 +92,8 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "read_register", params := #["i64", "i64"], results := #[] },
       { name := "value_return",  params := #["i64", "i64"], results := #[] },
       { name := "signer_account_id", params := #["i64"], results := #[] },
-      { name := "attached_deposit", params := #[], results := #["i64"] },
+      -- near-sys: void attached_deposit(uint64_t balance_ptr) — writes u128 LE.
+      { name := "attached_deposit", params := #["i64"], results := #[] },
       { name := "block_timestamp", params := #[], results := #["i64"] },
       { name := "epoch_height", params := #[], results := #["i64"] },
       { name := "random_seed", params := #["i64"], results := #[] },
