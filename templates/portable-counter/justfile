@@ -54,6 +54,7 @@ check-all: check-evm check-solana check-near
 build-solana: build-cli check-source
     mkdir -p build/solana
     {{proof_forge}} build --target solana-sbpf-asm --root . \
+      --format s \
       -o build/solana/Counter.s \
       --artifact-output build/solana/Counter.solana-artifact.json \
       {{source}}
