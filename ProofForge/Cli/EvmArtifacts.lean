@@ -17,6 +17,7 @@ import ProofForge.Contract.Spec.Json
 import ProofForge.IR
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
+import ProofForge.Target.PeerMap
 import ProofForge.Target.Preflight
 
 open ProofForge.Cli.ConstructorAbi
@@ -28,7 +29,10 @@ namespace ProofForge.Cli
 
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
-  let module ← hydrateEvmSelectors opts.cast spec.module
+  -- PF-P2-03: apply deploy-time peer map so logical peer ids become `0x…`
+  -- host addresses (and method pool strings stay for selector resolve).
+  let module0 := ProofForge.Target.PeerMap.applyToModule spec.module opts.peerMap
+  let module ← hydrateEvmSelectors opts.cast module0
   match ProofForge.Cli.Evm.renderYul module with
   | .ok yul => return (yul, module)
   | .error err => throw <| IO.userError err.render

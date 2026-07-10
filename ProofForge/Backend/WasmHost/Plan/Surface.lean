@@ -529,6 +529,20 @@ mutual
           return mergeContextExprPlans acc (← contextOpsFromExpr field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
           return mergeContextExprPlans acc (← contextOpsFromExpr field.snd)
+    | .checkErc721Received a b c d => do
+        let s1 ← contextOpsFromExpr a
+        let s2 ← contextOpsFromExpr b
+        let s3 ← contextOpsFromExpr c
+        let s4 ← contextOpsFromExpr d
+        return mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)
+    | .checkErc1155Received a b c d e => do
+        let s1 ← contextOpsFromExpr a
+        let s2 ← contextOpsFromExpr b
+        let s3 ← contextOpsFromExpr c
+        let s4 ← contextOpsFromExpr d
+        let s5 ← contextOpsFromExpr e
+        return mergeContextExprPlans
+          (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)) s5
 
   partial def contextOpsFromPath (path : Array StoragePathSegment) :
       Except PlanError (Array ContextExprPlan) :=
@@ -825,6 +839,20 @@ mutual
           return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
+    | .checkErc721Received a b c d => do
+        let s1 ← surfaceFromExpr module env a
+        let s2 ← surfaceFromExpr module env b
+        let s3 ← surfaceFromExpr module env c
+        let s4 ← surfaceFromExpr module env d
+        return mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)
+    | .checkErc1155Received a b c d e => do
+        let s1 ← surfaceFromExpr module env a
+        let s2 ← surfaceFromExpr module env b
+        let s3 ← surfaceFromExpr module env c
+        let s4 ← surfaceFromExpr module env d
+        let s5 ← surfaceFromExpr module env e
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)) s5
 
   partial def surfaceFromPath (module : Module) (env : LocalTypeEnv) (path : Array StoragePathSegment) :
       Except PlanError ModuleSurface :=

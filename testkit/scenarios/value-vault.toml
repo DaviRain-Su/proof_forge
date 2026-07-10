@@ -661,9 +661,10 @@ equals = "solana-sbpf-asm"
 path = "targetFamily"
 equals = "solana"
 
+# PF-P2-02: product ValueVault uses source-built final ELF through testkit.
 [[artifact.json]]
 path = "artifactKind"
-equals = "solana-sbpf-asm"
+equals = "solana-elf"
 
 [[artifact.json]]
 path = "fixture"
@@ -706,6 +707,10 @@ path = "validation.manifestGeneration"
 equals = "passed"
 
 [[artifact.json]]
+path = "validation.sbpfBuild"
+equals = "passed"
+
+[[artifact.json]]
 path = "artifacts"
 kind = "object"
 non_empty = true
@@ -724,10 +729,6 @@ non_empty = true
 length = 7
 
 [[artifact.file]]
-path = "artifacts.source"
-artifact = "source"
-
-[[artifact.file]]
 path = "artifacts.sbpfAsm"
 artifact = "sbpf-asm"
 
@@ -742,6 +743,10 @@ artifact = "idl"
 [[artifact.file]]
 path = "artifacts.solanaClientTs"
 artifact = "client"
+
+[[artifact.file]]
+path = "artifacts.solanaElf"
+artifact = "elf"
 
 [[artifact.jsonArtifact]]
 path = "solanaIdl"

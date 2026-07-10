@@ -31,6 +31,8 @@ struct Args {
     target: Option<String>,
     scenario_dir: PathBuf,
     trace: bool,
+    /// PF-P2-01: CI mode — skipped target/diagnostic/quint runs are failures.
+    deny_skip: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +51,7 @@ impl Args {
         let mut target = None;
         let mut scenario_dir = PathBuf::from("testkit/scenarios");
         let mut trace = false;
+        let mut deny_skip = false;
 
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
@@ -61,6 +64,7 @@ impl Args {
                     scenario_dir = PathBuf::from(take_arg(&mut args, "--scenarios-dir")?);
                 }
                 "--trace" => trace = true,
+                "--deny-skip" => deny_skip = true,
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
@@ -75,6 +79,7 @@ impl Args {
             target,
             scenario_dir,
             trace,
+            deny_skip,
         })
     }
 }
@@ -89,7 +94,7 @@ where
 
 fn print_usage() {
     eprintln!(
-        "usage: proof-forge-testkit [run|list] [--scenario NAME] [--target ID] [--scenarios-dir DIR] [--trace]"
+        "usage: proof-forge-testkit [run|list] [--scenario NAME] [--target ID] [--scenarios-dir DIR] [--trace] [--deny-skip]"
     );
 }
 
@@ -176,6 +181,13 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
                         quint_runs += 1;
                     }
                     QuintRun::Skipped { reason } => {
+                        if args.deny_skip {
+                            bail!(
+                                "scenario {} quint {}: skipped under --deny-skip ({reason})",
+                                case.manifest.scenario.name,
+                                quint.name
+                            );
+                        }
                         println!(
                             "scenario {} quint {}: skipped ({reason})",
                             case.manifest.scenario.name, quint.name
@@ -212,6 +224,14 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
                     diagnostic_runs += 1;
                 }
                 DiagnosticRun::Skipped { reason } => {
+                    if args.deny_skip {
+                        bail!(
+                            "scenario {} target {} diagnostic {}: skipped under --deny-skip ({reason})",
+                            case.manifest.scenario.name,
+                            diagnostic.target,
+                            diagnostic.name
+                        );
+                    }
                     println!(
                         "scenario {} target {} diagnostic {}: skipped ({reason})",
                         case.manifest.scenario.name, diagnostic.target, diagnostic.name
@@ -226,8 +246,9 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
         }
 
         let mut runs = Vec::new();
-        for target in targets {
-            let Some(harness) = harnesses.get(target) else {
+        let target_count = targets.len();
+        for target in &targets {
+            let Some(harness) = harnesses.get(*target) else {
                 bail!(
                     "scenario `{}` targets unsupported `{target}`",
                     case.manifest.scenario.name
@@ -247,10 +268,17 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
                         target,
                         outcomes.len()
                     );
-                    runs.push((target.to_string(), outcomes));
+                    runs.push(((*target).to_string(), outcomes));
                     target_runs += 1;
                 }
                 HarnessRun::Skipped { reason } => {
+                    if args.deny_skip {
+                        bail!(
+                            "scenario {} target {}: skipped under --deny-skip ({reason})",
+                            case.manifest.scenario.name,
+                            target
+                        );
+                    }
                     println!(
                         "scenario {} target {}: skipped ({reason})",
                         case.manifest.scenario.name, target
@@ -267,12 +295,26 @@ fn run_scenarios(repo_root: &Path, scenarios: &[ScenarioCase], args: &Args) -> R
                 outcomes,
             })
             .collect();
+        // PF-P2-01: never claim multi-target parity with fewer than two executed targets.
+        if args.deny_skip && target_count > 1 && traces.len() < 2 {
+            bail!(
+                "scenario {} trace parity refused under --deny-skip: need ≥2 executed targets, got {}",
+                case.manifest.scenario.name,
+                traces.len()
+            );
+        }
         assert_trace_equivalence(case, &traces)?;
         if traces.len() > 1 {
             println!(
                 "scenario {} trace parity: ok ({} target(s))",
                 case.manifest.scenario.name,
                 traces.len()
+            );
+        } else if traces.len() == 1 && target_count > 1 {
+            println!(
+                "scenario {} trace parity: partial (1 of {} target(s) executed; not parity success)",
+                case.manifest.scenario.name,
+                target_count
             );
         }
     }

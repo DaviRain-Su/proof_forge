@@ -1088,7 +1088,8 @@ mutual
         .ok .nativeValue
     | .crosscallInvoke target methodId args => do
         .ok (.crosscall .call
-          (← buildExprPlan module env target)
+          (← buildExprPlan module env
+            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
           (← buildExprPlan module env
             (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
           none
@@ -1096,7 +1097,8 @@ mutual
           .u64)
     | .crosscallInvokeTyped target methodId args returnType => do
         .ok (.crosscall .call
-          (← buildExprPlan module env target)
+          (← buildExprPlan module env
+            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
           (← buildExprPlan module env
             (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
           none
@@ -1104,7 +1106,8 @@ mutual
           returnType)
     | .crosscallInvokeValueTyped target methodId callValue args returnType => do
         .ok (.crosscall .callValue
-          (← buildExprPlan module env target)
+          (← buildExprPlan module env
+            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
           (← buildExprPlan module env
             (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
           (some (← buildExprPlan module env callValue))
@@ -1112,7 +1115,8 @@ mutual
           returnType)
     | .crosscallInvokeStaticTyped target methodId args returnType => do
         .ok (.crosscall .staticcall
-          (← buildExprPlan module env target)
+          (← buildExprPlan module env
+            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
           (← buildExprPlan module env
             (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
           none
@@ -1120,7 +1124,8 @@ mutual
           returnType)
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         .ok (.crosscall .delegatecall
-          (← buildExprPlan module env target)
+          (← buildExprPlan module env
+            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
           (← buildExprPlan module env
             (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
           none
@@ -1371,6 +1376,19 @@ mutual
             | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
           buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
         eventEffectWordPlan module env (.eventEmitIndexed eventPlan plannedIndexed plannedData)
+    | .checkErc721Received operator fromAddr toAddr tokenId => do
+        .ok (.checkErc721Received
+          (← buildExprPlan module env operator)
+          (← buildExprPlan module env fromAddr)
+          (← buildExprPlan module env toAddr)
+          (← buildExprPlan module env tokenId))
+    | .checkErc1155Received operator fromAddr toAddr id amount => do
+        .ok (.checkErc1155Received
+          (← buildExprPlan module env operator)
+          (← buildExprPlan module env fromAddr)
+          (← buildExprPlan module env toAddr)
+          (← buildExprPlan module env id)
+          (← buildExprPlan module env amount))
 
   partial def buildStatementPlan
       (module : Module)

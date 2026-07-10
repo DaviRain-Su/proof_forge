@@ -113,9 +113,11 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana portable PDA remote package render failed: {err.render}"
 
-  -- Selective pack: readonly spectator should be omitted; signer/writable/program kept.
-  let selectiveSpec : ProofForge.Contract.ContractSpec :=
-    let s := build "SolanaSelectiveCpiAccounts" do
+  -- Pure peer CPI (no PDA signers): empty AccountMeta pack (PF-P2-03).
+  -- Outer host accounts are not forwarded; method+args ride in ix data.
+  -- Selective pack activates only when PDA signer seeds are present (above).
+  let purePeerSpec : ProofForge.Contract.ContractSpec :=
+    let s := build "SolanaPurePeerCpi" do
       scalarState "nonce" .u64
       writableAccountConstraint "authority"
       readonlyAccountConstraint "spectator"
@@ -126,23 +128,21 @@ def main : IO UInt32 := do
           (localVar "target") (localVar "method") #[])
     { s with module := { s.module with nearCrosscallStrings := #["portable.callee"] } }
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "selective-cpi-accounts" selectiveSpec with
+      "pure-peer-cpi-accounts" purePeerSpec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
-        | throw <| IO.userError "selective package missing sBPF assembly"
+        | throw <| IO.userError "pure-peer package missing sBPF assembly"
       let asm := asmFile.contents
-      require (contains asm "selective pack")
-        "portable CPI must emit selective pack marker"
+      require (contains asm "empty AccountMeta pack" || contains asm "accounts=0")
+        "pure peer CPI must use empty AccountMeta pack (no host-account forward)"
       require (contains asm "sol_invoke_signed_c")
-        "selective portable remote must still invoke"
-      -- Spectator is readonly/any — not in selective set; authority is signer/writable.
-      require (contains asm "signer|writable|program|executable")
-        "selective comment documents account filter"
+        "pure peer portable remote must still invoke"
+      require (contains asm "sol_get_return_data")
+        "pure peer CPI must decode return data"
   | .error err =>
-      throw <| IO.userError s!"selective CPI accounts package render failed: {err.render}"
+      throw <| IO.userError s!"pure peer CPI accounts package render failed: {err.render}"
 
-  IO.println "solana-pda-seeds: ok (derive + portable signed CPI + selective accounts)"
-  return 0
+  IO.println "solana-pda-seeds: ok (derive + portable signed CPI + pure-peer empty pack)"  return 0
 
 end ProofForge.Tests.SolanaPdaSeeds
 

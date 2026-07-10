@@ -1,6 +1,11 @@
 # Stellar Soroban 目标
 
-状态：**Research（文档优先候选）**
+状态：**Counter MVP（PF-P3-02 六门，2026-07-10）** — 注册 id `wasm-stellar-soroban`
+已上线；产品 Counter 经 `EmitWat` + `HostBridge.soroban` 降级，`wat2wasm` 校验，
+offline-host 生命周期（`just soroban-promotion`）。
+
+**仍保留的 spike 诚实点：** `require_auth_for_args` always-auth；`invoke_contract`
+桩；Stellar CLI / TTL 尚未进 promotion 门。主产品三元组仍是 EVM · Solana · NEAR。
 
 候选 target id：**`wasm-stellar-soroban`**
 
@@ -22,7 +27,7 @@ Stellar smart contract 目标
 
 ## 对 ProofForge 的含义
 
-`wasm-stellar-soroban` 应先作为文档优先的 Research candidate。第一步不直接加入 `ProofForge.Target.Registry`。
+`wasm-stellar-soroban` 已在 `ProofForge.Target.Registry` 中；Counter 六门证据见 `just soroban-promotion`。
 
 目标特有问题包括：
 

@@ -41,6 +41,7 @@ python3 "$ROOT/scripts/evm/validate-artifact-metadata.py" \
   --expect-entrypoint revertPlain:e6023528 \
   --expect-entrypoint revertWithMessage:185c38a4 \
   --expect-entrypoint revertWithErrorRef:b34aafd2 \
+  --expect-entrypoint revertCustomError:c5159795 \
   --expect-entrypoint guardedRevert:0ff6ea62 \
   --expect-entrypoint conditionalRevert:194fd609 \
   --expect-entrypoint normalPath:a3f05111 \
@@ -101,6 +102,18 @@ contract ProofForgeIRErrorsSmokeTest {
     function test_revertWithErrorRef_reverts() public {
         (bool ok,) = PROBE.call(hex"b34aafd2");
         assertFalse(ok);
+    }
+
+    // PF-P2-02: Solidity custom-error selector surface (no-args CustomError).
+    function test_revertCustomError_selector() public {
+        (bool ok, bytes memory ret) = PROBE.call(hex"c5159795");
+        assertFalse(ok);
+        require(ret.length == 4, "custom error should be 4-byte selector");
+        bytes4 sel;
+        assembly {
+            sel := mload(add(ret, 32))
+        }
+        require(sel == bytes4(0x09caebf3), "unexpected custom error selector");
     }
 
     function test_guardedRevert_false_reverts() public {

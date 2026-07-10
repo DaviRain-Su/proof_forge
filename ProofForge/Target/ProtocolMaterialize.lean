@@ -94,7 +94,24 @@ def evmSelector? : String → Option Nat
   | "mint" => some 0x94bf804d
   | "withdraw" => some 0xb460af94
   | "redeem" => some 0xba087652
+  -- PF-P2-03: generic RemoteCall peer method (call_with_args → two uint256 words).
+  | "remote_call" => some 0xf1ae0699
   | _ => none
+
+/-- Parse a `0x`-prefixed EVM address (≤20 bytes) into a Nat word. -/
+def parseEvmAddressHex? (s : String) : Option Nat :=
+  let raw :=
+    if s.startsWith "0x" || s.startsWith "0X" then s.drop 2 else s
+  if raw.isEmpty || raw.length > 40 then none
+  else if !raw.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F') then
+    none
+  else
+    some <| raw.foldl (init := 0) fun acc c =>
+      let v :=
+        if c.isDigit then c.toNat - '0'.toNat
+        else if 'a' ≤ c && c ≤ 'f' then c.toNat - 'a'.toNat + 10
+        else c.toNat - 'A'.toNat + 10
+      acc * 16 + v
 /-- NEAR native method name for promise_create (identity for NEP-141 names). -/
 def nearMethod? : String → Option String
   | "ft_transfer" => some "ft_transfer"
@@ -127,6 +144,20 @@ def resolveEvmMethodExpr (pool : Array String) (methodId : Expr) : Expr :=
           | none => methodId
       | none => methodId
   | _ => methodId
+
+/-- Resolve a crosscall target for EVM (PF-P2-03): after `PeerMap` rewrites a
+logical peer id to a `0x…` host address string, turn the pool handle into a
+literal address word so CALL uses the real peer rather than index 0. -/
+def resolveEvmTargetExpr (pool : Array String) (target : Expr) : Expr :=
+  match target with
+  | .literal (.address idx) =>
+      match pool[idx]? with
+      | some host =>
+          match parseEvmAddressHex? host with
+          | some addr => .literal (.address addr)
+          | none => target
+      | none => target
+  | _ => target
 
 /-- Materialize note for operators / JSON reports. -/
 structure HostNote where

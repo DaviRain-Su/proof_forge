@@ -111,6 +111,8 @@ def dedupStrings (values : Array String) : Array String :=
 structure ErrorCatalogEntry where
   assertionId : UInt32
   userCode? : Option String := none
+  /-- Optional Solidity custom-error selector (8 hex digits, no `0x`). -/
+  soliditySelector? : Option String := none
   message : String
   entrypoints : Array String
   deriving Repr
@@ -118,6 +120,7 @@ structure ErrorCatalogEntry where
 def ErrorCatalogEntry.matches (entry : ErrorCatalogEntry) (ref : ErrorRef) (message : String) : Bool :=
   entry.assertionId == ref.assertionId &&
     entry.userCode? == ref.userCode? &&
+    entry.soliditySelector? == ref.soliditySelector? &&
     entry.message == message
 
 def addErrorRef (entrypointName message : String) (ref : ErrorRef)
@@ -126,6 +129,7 @@ def addErrorRef (entrypointName message : String) (ref : ErrorRef)
     | [] => [{
         assertionId := ref.assertionId
         userCode? := ref.userCode?
+        soliditySelector? := ref.soliditySelector?
         message
         entrypoints := #[entrypointName]
       }]
@@ -140,6 +144,8 @@ partial def collectStatementErrors (entrypointName : String)
     (entries : Array ErrorCatalogEntry) : Statement → Array ErrorCatalogEntry
   | .assert _ message (some ref) => addErrorRef entrypointName message ref entries
   | .assertEq _ _ message (some ref) => addErrorRef entrypointName message ref entries
+  | .revertWithError ref =>
+      addErrorRef entrypointName (ref.userCode?.getD "revertWithError") ref entries
   | .ifElse _ thenBody elseBody =>
       let entries := thenBody.foldl (collectStatementErrors entrypointName) entries
       elseBody.foldl (collectStatementErrors entrypointName) entries
@@ -158,6 +164,7 @@ def errorCatalogEntryJson (entry : ErrorCatalogEntry) : String :=
   jsonObject #[
     ("assertionId", jsonUInt32 entry.assertionId),
     ("userCode", jsonStringOption entry.userCode?),
+    ("soliditySelector", jsonStringOption entry.soliditySelector?),
     ("message", jsonString entry.message),
     ("entrypoints", jsonStringArray entry.entrypoints)
   ]

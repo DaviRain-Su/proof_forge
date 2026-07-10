@@ -675,7 +675,29 @@ where
       Except LowerError (Array AstNode × LowerCtx) := do
     -- Evaluate operands into r2, then write into the fixed CPI frame so stack
     -- locals never collide with cpiInstructionOffset…cpiProgramIdOffset.
-    let (tNodes, ctx1) ← lowerExpr ctx0 target
+    -- PF-P2-03: portable peer handles (`.literal (.address _)` from declareRemote)
+    -- are string-pool indices, not Solana input account indices. Map them to
+    -- the inferred peer_program / callee_program account so CPI program_id is
+    -- the real peer ELF, not the marker data account at index 0.
+    let peerAccountIdx? : Option Nat :=
+      match ctx0.accountBindings.find? (fun b => b.name == "peer_program") with
+      | some b => some b.layout.index
+      | none =>
+          match ctx0.accountBindings.find? (fun b => b.name == "callee_program") with
+          | some b => some b.layout.index
+          | none => none
+    let (tNodes, ctx1) ←
+      match target, peerAccountIdx? with
+      | .literal (.address _), some peerIdx =>
+          .ok (#[
+            .comment s!"portable peer handle → peer/callee account index {peerIdx} (PF-P2-03)",
+            .instruction {
+              opcode := .mov64
+              dst := some .r2
+              imm := some (.num peerIdx)
+            }
+          ], ctx0)
+      | _, _ => lowerExpr ctx0 target
     let saveTarget : Array AstNode := tNodes ++ #[
       .instruction {
         opcode := .stxdw

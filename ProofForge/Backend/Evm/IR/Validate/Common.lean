@@ -129,26 +129,75 @@ def byteToHex (b : UInt8) : String :=
 def stringToHex (s : String) : String :=
   s.toUTF8.toList.map byteToHex |>.foldl (· ++ ·) ""
 
+/-- Parse 8 hex digits (no `0x`) into a Nat selector value, or none. -/
+def parseSoliditySelectorHex (hex : String) : Option Nat :=
+  if hex.length != 8 then none
+  else
+    let rec go (i : Nat) (acc : Nat) : Option Nat :=
+      if i ≥ hex.length then some acc
+      else
+        let c := hex.data[i]!
+        let d? :=
+          if '0' ≤ c ∧ c ≤ '9' then some (c.toNat - '0'.toNat)
+          else if 'a' ≤ c ∧ c ≤ 'f' then some (10 + c.toNat - 'a'.toNat)
+          else if 'A' ≤ c ∧ c ≤ 'F' then some (10 + c.toNat - 'A'.toNat)
+          else none
+        match d? with
+        | none => none
+        | some d => go (i + 1) (acc * 16 + d)
+    go 0 0
+
+/-- Solidity custom-error revert: 4-byte selector left-aligned in memory. -/
+def solidityCustomErrorRevertStmts (selector : Nat) : Array Lean.Compiler.Yul.Statement :=
+  -- mstore(0, shl(224, selector)); revert(0, 4)
+  let word :=
+    Lean.Compiler.Yul.builtin "shl" #[
+      Lean.Compiler.Yul.Expr.num 224,
+      Lean.Compiler.Yul.Expr.num selector
+    ]
+  #[
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, word]),
+    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 4])
+  ]
+
 def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul.Statement :=
-  let code := ref.userCode?.getD ""
-  let codeLen := code.length
-  let paddedLen := ((codeLen + 31) / 32) * 32
-  let totalSize := 96 + paddedLen
-  let headerStmts : Array Lean.Compiler.Yul.Statement := #[
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num ref.assertionId.toNat]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.num 64]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.num codeLen])
-  ]
-  let chunks := if codeLen > 0 then ProofForge.Backend.Evm.ToYul.hexChunks64 (stringToHex code) else #[]
-  let dataStmts := chunks.foldl (init := #[]) fun acc chunk =>
-    let idx := acc.size
-    acc.push <| .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
-      Lean.Compiler.Yul.Expr.num (96 + idx * 32),
-      Lean.Compiler.Yul.Expr.lit (Lean.Compiler.Yul.Literal.hex ("0x" ++ ProofForge.Backend.Evm.ToYul.rightPadHex64 chunk))
-    ])
-  headerStmts ++ dataStmts ++ #[
-    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
-  ]
+  match ref.soliditySelector? with
+  | some hex =>
+      match parseSoliditySelectorHex hex with
+      | some sel => solidityCustomErrorRevertStmts sel
+      | none =>
+          -- Invalid selector falls back to envelope so build stays fail-open for typos
+          -- at IR construction time (callers should validate selectors).
+          let code := ref.userCode?.getD ""
+          let codeLen := code.length
+          let paddedLen := ((codeLen + 31) / 32) * 32
+          let totalSize := 96 + paddedLen
+          #[
+            .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num ref.assertionId.toNat]),
+            .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.num 64]),
+            .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.num codeLen]),
+            .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
+          ]
+  | none =>
+      let code := ref.userCode?.getD ""
+      let codeLen := code.length
+      let paddedLen := ((codeLen + 31) / 32) * 32
+      let totalSize := 96 + paddedLen
+      let headerStmts : Array Lean.Compiler.Yul.Statement := #[
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num ref.assertionId.toNat]),
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.num 64]),
+        .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.num codeLen])
+      ]
+      let chunks := if codeLen > 0 then ProofForge.Backend.Evm.ToYul.hexChunks64 (stringToHex code) else #[]
+      let dataStmts := chunks.foldl (init := #[]) fun acc chunk =>
+        let idx := acc.size
+        acc.push <| .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+          Lean.Compiler.Yul.Expr.num (96 + idx * 32),
+          Lean.Compiler.Yul.Expr.lit (Lean.Compiler.Yul.Literal.hex ("0x" ++ ProofForge.Backend.Evm.ToYul.rightPadHex64 chunk))
+        ])
+      headerStmts ++ dataStmts ++ #[
+        .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
+      ]
 
 def calldataWordExpr (paramIndex : Nat) : Lean.Compiler.Yul.Expr :=
   ProofForge.Backend.Evm.ToYul.calldataWordExpr paramIndex

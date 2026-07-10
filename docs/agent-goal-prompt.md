@@ -8,7 +8,8 @@ Status: **Active**
 Queue source of truth:
 [`multi-chain-gap-audit-2026-07-10.md`](multi-chain-gap-audit-2026-07-10.md)
 
-Baseline: Wave 1 complete (PF-P1-01..04). Next: Wave 2 PF-P1-05 authoring DSL diagnostic boundary.
+Baseline: Waves 0–3 done. Wave 4: PF-P3-02 in progress — Soroban Counter six-gate
+slice (`just soroban-promotion`); next CosmWasm in promotion order.
 
 ---
 
@@ -112,14 +113,14 @@ implementation SHA is only known after the implementation commit exists.
 | 1 | PF-P1-02 | done: verified@3ece05d8; just target-support; just product; just docs-check | all Wave 0 tasks done; coordinate with PF-P1-01 |
 | 1 | PF-P1-03 | done: verified@3021cb13; just artifact-bundle; just solana-source-elf; just product; just check | PF-P1-01 and PF-P1-02 done |
 | 1 | PF-P1-04 | done: verified@4cae7f88; just preflight-l2; just check-l2-parity; just product; just check | PF-P1-01 through PF-P1-03 done |
-| 2 | PF-P1-05 | pending | Wave 1 done |
-| 2 | PF-P1-06 | pending | Wave 1 done |
-| 3 | PF-P2-01 | pending | Waves 1 and 2 done |
-| 3 | PF-P2-02 | pending | Waves 1 and 2 done; complete one backend slice at a time |
-| 3 | PF-P2-03 | pending | Waves 1 and 2 done |
+| 2 | PF-P1-05 | done: verified@d3d2f3d8; just source-dsl-arity; just portable-default; just product; just check | Wave 1 done |
+| 2 | PF-P1-06 | done: verified@1f4c73e7; just leo-printer-fail-closed; just aleo-leo-codegen-smoke; just product; just check | Wave 1 done |
+| 3 | PF-P2-01 | done: verified@72c5789e; just product-catalog; just product; just testkit; just testkit-array-example; just testkit-ownable; just testkit-remote-call; just check | Waves 1 and 2 done |
+| 3 | PF-P2-02 | done: verified@7c4def9c; Foundry ERC721/1155/custom-error; Solana ELF; `just near-sandbox-peer` (storage_usage + promise peer); `just product`; `just check` | Waves 1 and 2 done; complete one backend slice at a time |
+| 3 | PF-P2-03 | done: verified@7c4def9c; `just testkit-remote-call` (evm+solana); Foundry peer; Mollusk CPI; `just near-sandbox-peer` (call_with_args→49); `just product` | Waves 1 and 2 done |
 | 5 | PF-P3-01 | pending | Wave 3 done |
 | 5 | PF-P3-03 | pending | Wave 3 done |
-| 4 | PF-P3-02 | pending | Wave 3 done; promote only one target at a time, and do not block Wave 5 |
+| 4 | PF-P3-02 | in_progress: Soroban Counter six-gate via `just soroban-promotion` (offline-host `_get`/`_put`); next CosmWasm | Wave 3 done; promote only one target at a time, and do not block Wave 5 |
 
 PF-P3-02 promotion order is fixed unless the human changes it: Soroban,
 CosmWasm, Aptos, Sui, Cloudflare Workers, Psy, Aleo. Completing one target is a

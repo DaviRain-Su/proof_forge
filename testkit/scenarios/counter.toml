@@ -279,11 +279,12 @@ kind = "string"
 non_empty = true
 equals = "solana"
 
+# PF-P2-02: product Counter uses source-built final ELF through testkit.
 [[artifact.json]]
 path = "artifactKind"
 kind = "string"
 non_empty = true
-equals = "solana-sbpf-asm"
+equals = "solana-elf"
 
 [[artifact.json]]
 path = "fixture"
@@ -318,14 +319,14 @@ path = "validation.manifestGeneration"
 equals = "passed"
 
 [[artifact.json]]
+path = "validation.sbpfBuild"
+equals = "passed"
+
+[[artifact.json]]
 path = "artifacts"
 kind = "object"
 non_empty = true
 length = 5
-
-[[artifact.file]]
-path = "artifacts.source"
-artifact = "source"
 
 [[artifact.file]]
 path = "artifacts.sbpfAsm"
@@ -342,6 +343,10 @@ artifact = "idl"
 [[artifact.file]]
 path = "artifacts.solanaClientTs"
 artifact = "client"
+
+[[artifact.file]]
+path = "artifacts.solanaElf"
+artifact = "elf"
 
 [[artifact.json]]
 path = "solanaIdl.instructions"

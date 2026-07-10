@@ -11,7 +11,7 @@ registry membership only (PF-P0-02).
 | `wasm-cosmwasm` | `spike` | `fixture` | `build`, `emit`, `check` | `intermediate`, `sourcegen` | `capability` | Counter fixture EmitWat spike; source input fail-closed |
 | `solana-sbpf-asm` | `experimental` | `contract-source`, `fixture`, `learn`, `token-spec` | `build`, `emit`, `check` | `intermediate`, `final-deployable` | `package` | portable IR → sBPF assembly intermediate → sbpf ELF final; CPI/PDA extensions |
 | `wasm-cloudflare-workers` | `research` | `fixture` | `emit` | `sourcegen` | `none` | Counter fixture TypeScript Worker sourcegen; not Wasm despite artifactKind |
-| `wasm-stellar-soroban` | `spike` | `contract-source` | `build`, `check` | `intermediate`, `final-deployable` | `capability` | contract_source via EmitWat + HostBridge.soroban; TokenSpec unsupported |
+| `wasm-stellar-soroban` | `spike` | `contract-source` | `build`, `check` | `intermediate`, `final-deployable` | `capability` | Counter MVP (PF-P3-02 six-gate): contract_source via EmitWat + HostBridge.soroban; offline-host lifecycle; TokenSpec unsupported; auth/TTL/Stellar CLI follow-on |
 | `move-aptos` | `spike` | `fixture` | `build`, `emit`, `check` | `intermediate`, `sourcegen` | `capability` | Counter Move package sourcegen spike; source input fail-closed |
 | `move-sui` | `counter-mvp` | `fixture` | `build`, `emit`, `check` | `sourcegen` | `capability` | Counter MVP Move package; scalar storage + assertions only |
 | `psy-dpn` | `spike` | `fixture` | `build`, `emit`, `check` | `intermediate`, `sourcegen` | `capability` | restricted IR → .psy intermediate → dargo circuit JSON; fixture/sourcegen lane |

@@ -232,7 +232,9 @@ def wasmStellarSoroban : TargetProfile := {
     commands := #[.build, .check]
     outputStages := #[.intermediate, .finalDeployable]
     validationLevel := .capability
-    supportedFragment := "contract_source via EmitWat + HostBridge.soroban; TokenSpec unsupported"
+    supportedFragment :=
+      "Counter MVP (PF-P3-02 six-gate): contract_source via EmitWat + HostBridge.soroban; " ++
+      "offline-host lifecycle; TokenSpec unsupported; auth/TTL/Stellar CLI follow-on"
     toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
   }
 }

@@ -1,6 +1,6 @@
 {
   "README.md": {
-    "sha256": "62d9ca681e47d7e9558aa4c09b8f285ebf01782f01da80b47364cd5049e59298",
+    "sha256": "001183b4e308739f81f202c826525b9e7a93c15463c41c42233f897f00117f64",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
     "note": "manually synced for PF-P1-02 (backend-status generated table pointer) — re-synced for aleo-leo ALU feature merge"
@@ -116,7 +116,7 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/README.md": {
-    "sha256": "c01464c14febd41ea88f30ece437a90a2f998c7e8bc02e21364c9312028ca70c",
+    "sha256": "5a2922d2653cce4697c87451585193c44ac7fa4e659571e0a78f976417a42d72",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"

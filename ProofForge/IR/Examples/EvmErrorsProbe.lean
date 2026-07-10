@@ -49,6 +49,22 @@ def entryRevertWithErrorRef : Entrypoint := {
   ]
 }
 
+/-- PF-P2-02: Solidity custom-error selector for `CustomError()` (cast sig 0x09caebf3).
+    Entrypoint selector is `revertCustomError()` (cast sig 0xc5159795). -/
+def entryRevertCustomError : Entrypoint := {
+  name := "revertCustomError"
+  selector? := some "c5159795"
+  params := #[]
+  returns := .unit
+  body := #[
+    .revertWithError {
+      assertionId := 0
+      userCode? := some "CustomError"
+      soliditySelector? := some "09caebf3"
+    }
+  ]
+}
+
 def entryGuardedRevert : Entrypoint := {
   name := "guardedRevert"
   selector? := some "0ff6ea62"
@@ -89,6 +105,7 @@ def module : Module := {
     entryRevertPlain,
     entryRevertWithMessage,
     entryRevertWithErrorRef,
+    entryRevertCustomError,
     entryGuardedRevert,
     entryConditionalRevert,
     entryNormalPath

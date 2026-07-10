@@ -314,6 +314,10 @@ mutual
         .ok t
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
+    | .checkErc721Received _ _ _ _ =>
+        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Leo" }
+    | .checkErc1155Received _ _ _ _ _ =>
+        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Leo" }
 
   partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
     | .local name =>
@@ -388,6 +392,10 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "context.read must be used as an expression" }
   | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
       .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
+  | .checkErc721Received _ _ _ _ =>
+      .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
+  | .checkErc1155Received _ _ _ _ _ =>
+      .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
 
 /-! ### Statement validation -/
 

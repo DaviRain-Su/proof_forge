@@ -87,7 +87,7 @@ spike is scheduled.
 
 | Target | Family | Current boundary |
 |---|---|---|
-| [Stellar Soroban](stellar-soroban.md) | Wasm host | Opens after CosmWasm proves the host-adapter split. |
+| [Stellar Soroban](stellar-soroban.md) | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion`; auth/TTL/Stellar CLI remain follow-on. |
 | [Internet Computer](internet-computer.md) | Wasm host | Requires the Wasm-host split plus an async/inter-canister design note. |
 | [Algorand AVM](algorand-avm.md) | Source package generation | Parked behind a later sourcegen-lane exit. |
 | [Cardano Plutus/Aiken](cardano-plutus-aiken.md) | eUTXO validator sourcegen | Parked behind a later sourcegen-lane exit. |

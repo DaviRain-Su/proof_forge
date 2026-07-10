@@ -1,14 +1,15 @@
 # Stellar Soroban Target
 
-Status: **Phase 4 WASM host-family adapter landed (first spike) —
-**SPIKE honesty (U7.2):** in-Lean `require_auth_for_args` is always-authorised
-in the interpreter (not real Env auth). Portable product triad remains
-EVM · Solana · NEAR.
+Status: **Counter MVP (PF-P3-02 six-gate, 2026-07-10)** — registry id
+`wasm-stellar-soroban` is live; product Counter sources lower through
+`EmitWat` + `HostBridge.soroban`, validate with `wat2wasm`, and execute the
+Counter lifecycle on the offline host (`just soroban-promotion`).
 
-Status (continued): **Phase 4 WASM host-family adapter landed (first spike) —
-`wasm-stellar-soroban` host bridge is implemented as `ProofForge.Target.HostBridge.soroban`
-+ `ProofForge.Backend.WasmHost.SorobanHost.lean`, reusing the shared `WasmExec` core.
-Not yet a separate registry id; the Counter refinement reuses the host-agnostic core.**
+**SPIKE honesty retained where incomplete:** in-Lean and offline-host
+`require_auth_for_args` are always-authorised (not real Env auth);
+`invoke_contract` is a spike stub (records slices, returns handle 0);
+Stellar CLI / sandbox / TTL archival are **not** yet promotion gates.
+Portable product triad remains EVM · Solana · NEAR.
 
 **Product queue (2026-07 close-out):** EVM · Solana · NEAR portable crosscall
 paths are the closed triad. **Soroban is the next Wasm-host spike** after that
@@ -162,15 +163,28 @@ First spike:
 This should wait until the Wasm runtime split is real enough to avoid another
 one-off adapter.
 
-## Non-Goals For The First Pass
+## Non-Goals (still open after Counter MVP)
 
-- Do not add `wasm-stellar-soroban` to the code registry yet.
 - Do not merge Soroban with `wasm-near` or `wasm-cosmwasm`.
 - Do not treat Rust/Soroban SDK details as ProofForge's long-term IR.
-- Do not ignore TTL/state archival when modeling storage.
-- Do not model authorization as a simple `msg.sender` equivalent.
-- Do not claim supported Stellar output until a local build/deploy/invoke smoke
-  exists.
+- Do not ignore TTL/state archival when modeling storage beyond the
+  shared host-key map used for Counter scalars.
+- Do not model authorization as real Stellar `require_auth` until Env auth
+  is wired (always-auth remains spike honesty).
+- Do not claim Stellar CLI deploy/invoke until those tools are gated.
+
+## PF-P3-02 six-gate evidence (Counter fragment)
+
+| Gate | Evidence |
+|---|---|
+| 1 Input loaded | `proof-forge build --target wasm-stellar-soroban Examples/Product/Counter.lean` |
+| 2 Fragment honesty | Artifact `hostBridge=soroban`; no NEAR wrapper swap; TokenSpec still unsupported |
+| 3 Plan → AST → package | EmitWat + `HostBridge.soroban` (`_get`/`_put`, no `promise_create`) |
+| 4 Toolchain | `wat2wasm` final stage (`validation.wat2wasm=passed`) |
+| 5 Runtime | offline-host Counter `initialize/get/increment/get` → 0→1 |
+| 6 Docs surface | registry + `--list-targets` + README + this note |
+
+Command: `just soroban-promotion` / `scripts/cli/soroban-promotion-smoke.sh`.
 
 ## Research Exit Criteria
 
