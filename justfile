@@ -497,8 +497,29 @@ near-compare-storage-deposit:
 near-compare-storage-deposit-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near storage-deposit --live
 
+# Pausable emergency-stop mixin (unauthenticated).
+near-compare-pausable:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near pausable
+
+near-compare-pausable-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near pausable --live
+
+# ReentrancyGuard lock-bit mixin.
+near-compare-reentrancy-guard:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near reentrancy-guard
+
+near-compare-reentrancy-guard-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near reentrancy-guard --live
+
+# Ownable + Pausable (owner-gated pause).
+near-compare-ownable-pausable:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable-pausable
+
+near-compare-ownable-pausable-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable-pausable --live
+
 # Full matrix.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

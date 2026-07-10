@@ -57,12 +57,20 @@ fn main() -> Result<()> {
         ["near", "storage-deposit"] | ["near", "storagedeposit"] | ["near", "nep145"] => {
             run_near_storage_deposit(&repo_root, &args)
         }
+        ["near", "pausable"] | ["near", "pause"] => run_near_pausable(&repo_root, &args),
+        ["near", "reentrancy-guard"]
+        | ["near", "reentrancyguard"]
+        | ["near", "reentrancy"]
+        | ["near", "rg"] => run_near_reentrancy_guard(&repo_root, &args),
+        ["near", "ownable-pausable"]
+        | ["near", "ownablepausable"]
+        | ["near", "ownable_pausable"] => run_near_ownable_pausable(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
                   role-gated-token, fee-token, remote-call, status-message, guestbook, \
-                  storage-deposit)"
+                  storage-deposit, pausable, reentrancy-guard, ownable-pausable)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -140,7 +148,7 @@ fn print_usage() {
          [--build-sdk] [--live] [--repeat N]\n\
          contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
-                    storage-deposit\n\n\
+                    storage-deposit|pausable|reentrancy-guard|ownable-pausable\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -1778,6 +1786,132 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "NEP-145-lite: U64 cumulative deposits, not full StorageBalance JSON.",
             "Attached deposit via nativeValue / env::attached_deposit.",
+        ],
+    )
+}
+
+fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "pausable",
+        "testkit/compare/near/pausable",
+        "Examples/Product/Pausable.lean",
+        "Pausable.near-artifact.json",
+        "pf_near_sdk_pausable_reference.wasm",
+        &["pausable.wat", "Pausable.wat"],
+        &["paused", "pause", "unpause"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["paused", "pause", "paused", "unpause", "paused"],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: None,
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=0"), "expected unpaused 0\n{out}");
+            ensure!(out.contains("return_u64=1"), "expected paused 1\n{out}");
+            Ok(("paused 0→pause→1→unpause→0".into(), out))
+        },
+        // Guarded transitions are not idempotent — fuel-bench the view only.
+        &["paused"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: None,
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Unauthenticated emergency-stop mixin; owner-gated path is OwnablePausable.",
+        ],
+    )
+}
+
+fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "reentrancy-guard",
+        "testkit/compare/near/reentrancy-guard",
+        "Examples/Product/ReentrancyGuard.lean",
+        "ReentrancyGuard.near-artifact.json",
+        "pf_near_sdk_reentrancy_guard_reference.wasm",
+        &["reentrancyguard.wat", "ReentrancyGuard.wat"],
+        &["acquire", "release", "locked"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["locked", "acquire", "locked", "release", "locked"],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: None,
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=0"), "expected unlocked 0\n{out}");
+            ensure!(out.contains("return_u64=1"), "expected locked 1\n{out}");
+            Ok(("locked 0→acquire→1→release→0".into(), out))
+        },
+        &["locked"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: None,
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Lock bit + require-unlocked only; not EVM call-stack reentrancy theory.",
+        ],
+    )
+}
+
+fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "ownable-pausable",
+        "testkit/compare/near/ownable-pausable",
+        "Examples/Product/OwnablePausable.lean",
+        "OwnablePausable.near-artifact.json",
+        "pf_near_sdk_ownable_pausable_reference.wasm",
+        &["ownablepausable.wat", "OwnablePausable.wat"],
+        &["init", "owner", "paused", "pause", "unpause", "renounceOwnership"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["init", "paused", "pause", "paused", "unpause", "paused"],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=0"), "expected unpaused 0\n{out}");
+            ensure!(out.contains("return_u64=1"), "expected paused 1\n{out}");
+            Ok(("init→pause→unpause (owner-gated)".into(), out))
+        },
+        // Cannot re-init; fuel-bench the view path.
+        &["paused"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Owner-gated pause/unpause (OpenZeppelin-style onlyOwner).",
+            "PF owner = u64 caller projection; sdk owner = AccountId.",
         ],
     )
 }

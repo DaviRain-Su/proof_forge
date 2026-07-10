@@ -1,0 +1,22 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "reentrancy-guard",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/ReentrancyGuard.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "ReentrancyGuard",
+  "scenario": {
+    "steps": [
+      { "call": "locked", "expect": 0 },
+      { "call": "acquire" },
+      { "call": "locked", "expect": 1 },
+      { "call": "release" },
+      { "call": "locked", "expect": 0 }
+    ]
+  },
+  "honesty": [
+    "Portable lock bit + require-unlocked only; not EVM call-stack reentrancy.",
+    "No init on either side (sdk Default state = unlocked)."
+  ]
+}

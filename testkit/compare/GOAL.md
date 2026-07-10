@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: verified@596d5b2a** — Wave 0–3 live dual-deploy matrix
-(Counter…StorageDeposit). Optional: NC-H1 harness registry; UTF-8 string KV.
+Status: **Active Wave 4** — Wave 0–3 complete@596d5b2a; Wave 4 mixin ladder
+(Pausable / ReentrancyGuard / OwnablePausable) landing. Optional: NC-H1.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -145,6 +145,9 @@ eligible offline slice.
 | 3 | NC-3.1 | GuestBook / multi-message storage | done: live semanticMatch; U64 codes; wasm ~119× | honesty: string KV open |
 | 3 | NC-3.2 | Cross-contract / promise scenario | done: live peer rebuild + dual deploy | — |
 | 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | done: live NEP-145-lite StorageDeposit; wasm ~196× | honesty: no full JSON StorageBalance |
+| 4 | NC-4.1 | Pausable emergency-stop mixin | done: live semanticMatch; wasm ~131× | — |
+| 4 | NC-4.2 | ReentrancyGuard lock-bit | done: live semanticMatch; wasm ~135× | honesty: lock bit only |
+| 4 | NC-4.3 | OwnablePausable owner-gated pause | done: live semanticMatch; wasm ~98× | — |
 
 ### Task briefs
 

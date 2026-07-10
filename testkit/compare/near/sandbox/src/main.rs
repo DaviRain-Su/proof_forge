@@ -65,6 +65,9 @@ enum ContractKind {
     StatusMessage,
     GuestBook,
     StorageDeposit,
+    Pausable,
+    ReentrancyGuard,
+    OwnablePausable,
 }
 
 impl ContractKind {
@@ -81,6 +84,13 @@ impl ContractKind {
             "status-message" | "statusmessage" | "status" => Ok(Self::StatusMessage),
             "guestbook" | "guest-book" => Ok(Self::GuestBook),
             "storage-deposit" | "storagedeposit" | "nep145" => Ok(Self::StorageDeposit),
+            "pausable" | "pause" => Ok(Self::Pausable),
+            "reentrancy-guard" | "reentrancyguard" | "reentrancy" | "rg" => {
+                Ok(Self::ReentrancyGuard)
+            }
+            "ownable-pausable" | "ownablepausable" | "ownable_pausable" => {
+                Ok(Self::OwnablePausable)
+            }
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -98,6 +108,9 @@ impl ContractKind {
             Self::StatusMessage => "status-message",
             Self::GuestBook => "guestbook",
             Self::StorageDeposit => "storage-deposit",
+            Self::Pausable => "pausable",
+            Self::ReentrancyGuard => "reentrancy-guard",
+            Self::OwnablePausable => "ownable-pausable",
         }
     }
 }
@@ -264,6 +277,15 @@ async fn run() -> Result<()> {
         ContractKind::StorageDeposit => {
             run_storage_deposit_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
         }
+        ContractKind::Pausable => {
+            run_pausable_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
+        ContractKind::ReentrancyGuard => {
+            run_reentrancy_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
+        ContractKind::OwnablePausable => {
+            run_ownable_pausable_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
 
@@ -292,6 +314,15 @@ async fn run() -> Result<()> {
         }
         ContractKind::StorageDeposit => {
             run_storage_deposit_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::Pausable => {
+            run_pausable_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::ReentrancyGuard => {
+            run_reentrancy_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::OwnablePausable => {
+            run_ownable_pausable_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
         }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
@@ -544,6 +575,250 @@ async fn run_guestbook_side(
             let s = view_json_u64(&contract, "get_message", json!({ "index": 1 })).await?;
             ensure_ok(&s, "sdk get1")?;
             ensure_ret(&s, 22, "sdk msg1")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_pausable_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused0")?;
+            ensure_ret(&s, 0, "PF unpaused")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "pause", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF pause")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused1")?;
+            ensure_ret(&s, 1, "PF paused")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "unpause", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF unpause")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused2")?;
+            ensure_ret(&s, 0, "PF unpaused again")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused0")?;
+            ensure_ret(&s, 0, "sdk unpaused")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "pause", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk pause")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused1")?;
+            ensure_ret(&s, 1, "sdk paused")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "unpause", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk unpause")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused2")?;
+            ensure_ret(&s, 0, "sdk unpaused again")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_reentrancy_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = view_raw_u64(&contract, "locked").await?;
+            ensure_ok(&s, "PF locked0")?;
+            ensure_ret(&s, 0, "PF unlocked")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "acquire", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF acquire")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "locked").await?;
+            ensure_ok(&s, "PF locked1")?;
+            ensure_ret(&s, 1, "PF locked")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "release", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF release")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "locked").await?;
+            ensure_ok(&s, "PF locked2")?;
+            ensure_ret(&s, 0, "PF unlocked again")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = view_json_u64(&contract, "locked", json!({})).await?;
+            ensure_ok(&s, "sdk locked0")?;
+            ensure_ret(&s, 0, "sdk unlocked")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "acquire", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk acquire")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "locked", json!({})).await?;
+            ensure_ok(&s, "sdk locked1")?;
+            ensure_ret(&s, 1, "sdk locked")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "release", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk release")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "locked", json!({})).await?;
+            ensure_ok(&s, "sdk locked2")?;
+            ensure_ret(&s, 0, "sdk unlocked again")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_ownable_pausable_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused0")?;
+            ensure_ret(&s, 0, "PF unpaused")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "pause", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF pause")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused1")?;
+            ensure_ret(&s, 1, "PF paused")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "unpause", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF unpause")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "paused").await?;
+            ensure_ok(&s, "PF paused2")?;
+            ensure_ret(&s, 0, "PF unpaused again")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused0")?;
+            ensure_ret(&s, 0, "sdk unpaused")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "pause", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk pause")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused1")?;
+            ensure_ret(&s, 1, "sdk paused")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "unpause", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk unpause")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "paused", json!({})).await?;
+            ensure_ok(&s, "sdk paused2")?;
+            ensure_ret(&s, 0, "sdk unpaused again")?;
             steps.push(s);
         }
     }

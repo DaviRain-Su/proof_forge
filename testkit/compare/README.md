@@ -18,6 +18,9 @@ testkit/compare/
     status-message/   # per-account status (u64 codes)
     guestbook/        # append/index message board (u64 codes)
     storage-deposit/  # NEP-145-lite storage_deposit
+    pausable/         # emergency-stop mixin
+    reentrancy-guard/ # lock-bit mixin
+    ownable-pausable/ # owner-gated pause
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
 ```
 
@@ -67,6 +70,14 @@ just near-compare-guestbook-live
 # NEP-145-lite storage_deposit
 just near-compare-storage-deposit
 just near-compare-storage-deposit-live
+
+# Pausable / ReentrancyGuard / OwnablePausable mixins
+just near-compare-pausable
+just near-compare-pausable-live
+just near-compare-reentrancy-guard
+just near-compare-reentrancy-guard-live
+just near-compare-ownable-pausable
+just near-compare-ownable-pausable-live
 
 # All live dual-deploys
 just near-compare-all-live
@@ -132,6 +143,18 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | StorageDeposit | deploy gas | 6.50e11 | 1.31e13 | **~20.2×** |
 | StorageDeposit | call gas | 2.75e12 | 3.25e12 | **~1.18×** |
 | StorageDeposit | storage | 1236 B | 175962 B | **~142.4×** |
+| Pausable | wasm | **415 B** | 54216 B | **~130.6×** |
+| Pausable | deploy gas | 6.15e11 | 4.46e12 | **~7.2×** |
+| Pausable | call gas | 2.68e12 | 2.81e12 | **~1.05×** |
+| Pausable | storage | 651 B | 54451 B | **~83.6×** |
+| ReentrancyGuard | wasm | **401 B** | 54145 B | **~135.0×** |
+| ReentrancyGuard | deploy gas | 6.14e11 | 4.45e12 | **~7.2×** |
+| ReentrancyGuard | call gas | 2.61e12 | 2.81e12 | **~1.08×** |
+| ReentrancyGuard | storage | 635 B | 54380 B | **~85.6×** |
+| OwnablePausable | wasm | **773 B** | 76105 B | **~98.5×** |
+| OwnablePausable | deploy gas | 6.41e11 | 6.02e12 | **~9.4×** |
+| OwnablePausable | call gas | 4.11e12 | 4.36e12 | **~1.06×** |
+| OwnablePausable | storage | 1016 B | 76387 B | **~75.2×** |
 
 Fairness notes:
 
@@ -144,6 +167,8 @@ Fairness notes:
   string KV lands; control flow + map storage match the classic tutorials.
 - StorageDeposit is **NEP-145-lite** (U64 cumulative deposits + min bounds), not full
   JSON `StorageBalance` / withdraw / refund.
+- Pausable / ReentrancyGuard use sdk `Default` state (no init) to match PF mixin surface.
+- ReentrancyGuard is a **lock bit**, not EVM call-stack reentrancy theory.
 
 ## Contracts
 
@@ -160,5 +185,8 @@ Fairness notes:
 | `status-message` | `just near-compare-status-message-live` | `Examples/Product/StatusMessage.lean` |
 | `guestbook` | `just near-compare-guestbook-live` | `Examples/Product/GuestBook.lean` |
 | `storage-deposit` | `just near-compare-storage-deposit-live` | `Examples/Product/StorageDeposit.lean` |
+| `pausable` | `just near-compare-pausable-live` | `Examples/Product/Pausable.lean` |
+| `reentrancy-guard` | `just near-compare-reentrancy-guard-live` | `Examples/Product/ReentrancyGuard.lean` |
+| `ownable-pausable` | `just near-compare-ownable-pausable-live` | `Examples/Product/OwnablePausable.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.
