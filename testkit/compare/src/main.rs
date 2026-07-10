@@ -93,6 +93,9 @@ fn main() -> Result<()> {
         | ["near", "soulboundtoken"]
         | ["near", "sbt"]
         | ["near", "soulbound"] => run_near_soulbound_token(&repo_root, &args),
+        ["near", "ft-peer-client"]
+        | ["near", "ftpeerclient"]
+        | ["near", "ft_peer"] => run_near_ft_peer_client(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -101,7 +104,7 @@ fn main() -> Result<()> {
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
                   access-control, external-token-transfer, external-vault, \
-                  pro-rata-vault, soulbound-token)"
+                  pro-rata-vault, soulbound-token, ft-peer-client)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -182,7 +185,7 @@ fn print_usage() {
                     storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
                     array-example|ownable-hash|host-env-probe|auth-remote-call|\n\
                     access-control|external-token-transfer|external-vault|\n\
-                    pro-rata-vault|soulbound-token\n\n\
+                    pro-rata-vault|soulbound-token|ft-peer-client\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -2463,6 +2466,30 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "No transfer entry — soulbound honesty.",
             "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
+}
+
+fn run_near_ft_peer_client(repo_root: &Path, args: &Args) -> Result<()> {
+    let amt = hex_encode_le_u64(50);
+    run_near_external_protocol_client(
+        repo_root,
+        args,
+        "ft-peer-client",
+        "testkit/compare/near/ft-peer-client",
+        "Examples/Backend/WasmNear/FtPeerClient.lean",
+        "NearFtPeerClient.near-artifact.json",
+        "pf_near_sdk_ft_peer_client_reference.wasm",
+        "pf_near_sdk_ft_peer_mock_reference.wasm",
+        &["nearftpeerclient.wat", "NearFtPeerClient.wat", "ftpeerclient.wat"],
+        &["pay", "pay_with_callback", "query_balance", "query_supply"],
+        &["pay"],
+        &amt,
+        &["promise_create", "ft_transfer", "my_ft"],
+        &[
+            "Layer B protocol client (Protocols.Near.FungibleToken + Builder).",
+            "Live rebuilds PF with --peer my_ft=<mock>; receiver pool is alice.near.",
+            "Distinct from Product ExternalTokenTransfer (DSL external_token).",
         ],
     )
 }

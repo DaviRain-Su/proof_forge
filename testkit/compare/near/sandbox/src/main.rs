@@ -25,7 +25,7 @@ use crate::kind::ContractKind;
 use crate::report::{write_dual_report, Args, SideKind};
 use crate::scenarios::{
     run_auth_remote_call_matrix, run_external_token_transfer_matrix, run_external_vault_matrix,
-    run_remote_call_matrix, run_side,
+    run_ft_peer_client_matrix, run_remote_call_matrix, run_side,
 };
 
 #[tokio::main]
@@ -77,6 +77,7 @@ async fn run() -> Result<()> {
             | ContractKind::AuthRemoteCall
             | ContractKind::ExternalTokenTransfer
             | ContractKind::ExternalVault
+            | ContractKind::FtPeerClient
     ) {
         let callee = args
             .callee_wasm
@@ -110,6 +111,10 @@ async fn run() -> Result<()> {
             }
             ContractKind::ExternalVault => {
                 run_external_vault_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee)
+                    .await?
+            }
+            ContractKind::FtPeerClient => {
+                run_ft_peer_client_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee)
                     .await?
             }
             _ => unreachable!(),

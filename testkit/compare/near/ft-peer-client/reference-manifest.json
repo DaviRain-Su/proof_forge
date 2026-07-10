@@ -1,0 +1,18 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "program": "ft-peer-client",
+  "source": "src/lib.rs",
+  "peer": "peer/",
+  "proofForgeSource": "Examples/Backend/WasmNear/FtPeerClient.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "NearFtPeerClient",
+  "scenario": {
+    "offline": ["pay → promise ft_transfer to alice.near on my_ft"],
+    "live": ["deploy FT peer", "rebuild PF with --peer my_ft=<id>", "pay(50)"]
+  },
+  "honesty": [
+    "Layer B protocol client (Builder + Protocols.Near.FungibleToken), not Product external_token DSL.",
+    "Receiver fixed to alice.near in PF host pool; sdk stores receiver AccountId at init.",
+    "Overlaps ExternalTokenTransfer but exercises protocol-layer declareFtTransfer path."
+  ]
+}

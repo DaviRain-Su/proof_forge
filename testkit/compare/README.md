@@ -116,6 +116,13 @@ just near-compare-pro-rata-vault-live
 just near-compare-soulbound-token
 just near-compare-soulbound-token-live
 
+# Backend FtPeerClient (protocol NEP-141 client)
+just near-compare-ft-peer-client
+just near-compare-ft-peer-client-live
+
+# Regenerate MATRIX.md from live reports
+just near-compare-matrix
+
 # All live dual-deploys
 just near-compare-all-live
 ```
@@ -294,5 +301,6 @@ Fairness notes:
 | `external-vault` | `just near-compare-external-vault-live` | `Examples/Product/ExternalVault.lean` |
 | `pro-rata-vault` | `just near-compare-pro-rata-vault-live` | `Examples/Product/ProRataVault.lean` |
 | `soulbound-token` | `just near-compare-soulbound-token-live` | `Examples/Product/SoulboundTokenBody.lean` |
+| `ft-peer-client` | `just near-compare-ft-peer-client-live` | `Examples/Backend/WasmNear/FtPeerClient.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

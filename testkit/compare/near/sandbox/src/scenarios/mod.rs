@@ -32,6 +32,7 @@ mod external_token_transfer;
 mod external_vault;
 mod pro_rata_vault;
 mod soulbound_token;
+mod ft_peer_client;
 
 
 /// Run one side (ProofForge or near-sdk) for a registered contract.
@@ -82,7 +83,8 @@ pub(crate) async fn run_side(
         ContractKind::RemoteCall
         | ContractKind::AuthRemoteCall
         | ContractKind::ExternalTokenTransfer
-        | ContractKind::ExternalVault => {
+        | ContractKind::ExternalVault
+        | ContractKind::FtPeerClient => {
             bail!("{} uses multi-account matrix, not run_side", kind.as_str())
         }
     }
@@ -91,4 +93,5 @@ pub(crate) async fn run_side(
 pub(crate) use auth_remote_call::run_auth_remote_call_matrix;
 pub(crate) use external_token_transfer::run_external_token_transfer_matrix;
 pub(crate) use external_vault::run_external_vault_matrix;
+pub(crate) use ft_peer_client::run_ft_peer_client_matrix;
 pub(crate) use remote_call::run_remote_call_matrix;
