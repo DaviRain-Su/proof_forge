@@ -137,6 +137,9 @@ jobs:
       - name: Build Lean package
         run: just build
 
+      - name: Check proof-forge --version
+        run: just cli-version
+
       - name: Check target registry
         run: just target-registry
 

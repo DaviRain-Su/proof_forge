@@ -122,6 +122,33 @@ export ProofForge.Cli.EmitMode (EmitMode)
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
 
+def cliVersion : String :=
+  "0.1.0-beta.1"
+
+def readFileTrim (path : String) : IO String := do
+  let s ← IO.FS.readFile (FilePath.mk path)
+  return s.trim
+
+def gitShortSha? : IO (Option String) := do
+  try
+    let out ← IO.Process.output { cmd := "git", args := #["rev-parse", "--short", "HEAD"] }
+    if out.exitCode == 0 then
+      return some out.stdout.trim
+    else
+      return none
+  catch _ =>
+    return none
+
+def printVersion : IO UInt32 := do
+  let toolchain ← try readFileTrim "lean-toolchain" catch _ => pure "unknown"
+  let sha ← gitShortSha?
+  IO.println s!"proof-forge {cliVersion}"
+  IO.println s!"Lean toolchain: {toolchain}"
+  match sha with
+  | some s => IO.println s!"git sha: {s}"
+  | none => IO.println "git sha: unknown"
+  return 0
+
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
     | some id => pure id
@@ -320,6 +347,8 @@ unsafe def main (args : List String) : IO UInt32 := do
     | Except.error msg =>
         IO.eprintln msg
         return 1
+  | ["--version"] | "--version" :: _ =>
+    ProofForge.Cli.printVersion
   | _ =>
     let parseResult : Except String ProofForge.Cli.CliOptions :=
       match args with
