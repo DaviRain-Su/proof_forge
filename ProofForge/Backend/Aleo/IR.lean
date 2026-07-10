@@ -55,6 +55,20 @@ def mappingSet (id : Identifier) (key value : Expression) : Expression :=
 def mappingContains (id : Identifier) (key : Expression) : Expression :=
   .call ⟨#["Mapping", "contains"], #[], #[.identifier id, key]⟩
 
+/-! ### ZK hash helpers (RFC 0015: Aleo `Hash ≡ field`, native Poseidon2) -/
+
+/-- `Poseidon2::hash_to_field(x)` — the Aleo-native ZK hash to a field digest.
+Verified against ProvableHQ/leo operators/crypto (`Poseidon2::hash_to_field(2i64)`). -/
+def poseidonHashToField (x : Expression) : Expression :=
+  .call ⟨#["Poseidon2", "hash_to_field"], #[], #[x]⟩
+
+/-- Fold two values into one field digest: hash each, add (field), hash again.
+Leo hashes a single primitive, so a portable 2-input hash folds pairwise.
+(Deterministic; not equal to EVM keccak — hashing is capability-portable, not
+value-portable, per RFC 0015.) -/
+def poseidonHashTwo (l r : Expression) : Expression :=
+  poseidonHashToField (.binary ⟨.add, poseidonHashToField l, poseidonHashToField r⟩)
+
 /-- The zero/empty default expression for a `ValueType`, used as the
 `get_or_use` fallback. Numeric types default to typed `0`, `Bool` to `false`,
 `Address` to `none`, and structs to a field-wise default literal
@@ -65,6 +79,7 @@ partial def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerEr
   | .u32 => .ok (.literal (.integer .u32 0))
   | .u64 => .ok (.literal (.integer .u64 0))
   | .u128 => .ok (.literal (.integer .u128 0))
+  | .hash => .ok (.literal (.field "0field"))  -- RFC 0015: Hash ≡ field
   | .bool => .ok (.literal (.boolean false))
   | .address => .ok (.literal (.none))
   | .structType name => do
@@ -79,6 +94,10 @@ partial def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerEr
 
 mutual
   partial def buildExpr (ctx : BuildContext) : IR.Expr → Except LowerError Expression
+    | .literal (.hash4 ..) =>
+        -- RFC 0015: a `hash4` literal is an EVM keccak digest (4×u64 limbs); it has
+        -- no Aleo `field` meaning. Aleo hashes field/u64 VALUES via `.hash`.
+        .error { message := "Leo IR v0 does not lower `hash4` literals (EVM 4×u64 digest); hash a field/u64 value with `.hash` instead" }
     | .literal l => .ok (.literal (leoLiteral l))
     | .local name => .ok (.identifier name)
     | .add lhs rhs _ => do .ok (.binary ⟨.add, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
@@ -115,8 +134,13 @@ mutual
           .error { message := "Leo IR v0 does not support empty fixed-array literals" }
         let vs ← values.mapM (buildExpr ctx)
         .ok (.array vs)
-    | .hashValue _ _ _ _ | .hash _ | .hashTwoToOne _ _ =>
-        .error { message := "Leo IR v0 does not lower crypto-hash expressions (use Field/U64 components)" }
+    | .hashValue a b c d => do
+        -- RFC 0015: tree-fold four inputs pairwise into one field digest.
+        let ab := poseidonHashTwo (← buildExpr ctx a) (← buildExpr ctx b)
+        let cd := poseidonHashTwo (← buildExpr ctx c) (← buildExpr ctx d)
+        .ok (poseidonHashTwo ab cd)
+    | .hash preimage => do .ok (poseidonHashToField (← buildExpr ctx preimage))
+    | .hashTwoToOne l r => do .ok (poseidonHashTwo (← buildExpr ctx l) (← buildExpr ctx r))
     | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
     | .crosscallAbiPacked .. =>

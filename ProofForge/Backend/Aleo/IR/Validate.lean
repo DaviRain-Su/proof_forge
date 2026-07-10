@@ -35,8 +35,8 @@ open ProofForge.Target
 partial def validateValueType (module : Module) (type : ValueType) : Except LowerError Unit := do
   match type with
   | .unit => .error { message := "Leo IR v0 does not support Unit as a stored or structured value type" }
-  | .bool | .u8 | .u32 | .u64 | .u128 | .address => pure ()
-  | .hash | .bytes | .string =>
+  | .bool | .u8 | .u32 | .u64 | .u128 | .address | .hash => pure ()  -- RFC 0015: Hash ≡ field
+  | .bytes | .string =>
       .error { message := s!"Leo IR v0 does not support `{type.name}` as a stored or structured value type" }
   | .array _ =>
       .error { message := "Leo IR v0 does not support dynamic arrays as a stored or structured value type" }
@@ -55,10 +55,10 @@ partial def validateAbiValueType (module : Module) (type : ValueType) (context :
   | .unit =>
       if allowUnit then pure ()
       else
-        .error { message := s!"{context} uses Unit; Leo IR v0 entrypoint parameters must use U8/U32/U64/U128/Bool/Address, fixed arrays, or declared structs" }
-  | .bool | .u8 | .u32 | .u64 | .u128 | .address => pure ()
-  | .hash | .bytes | .string =>
-      .error { message := s!"{context} uses `{type.name}`; Leo IR v0 entrypoint parameters must use U8/U32/U64/U128/Bool/Address, fixed arrays, or declared structs" }
+        .error { message := s!"{context} uses Unit; Leo IR v0 entrypoint parameters must use U8/U32/U64/U128/Bool/Address/Hash, fixed arrays, or declared structs" }
+  | .bool | .u8 | .u32 | .u64 | .u128 | .address | .hash => pure ()  -- RFC 0015: Hash ≡ field
+  | .bytes | .string =>
+      .error { message := s!"{context} uses `{type.name}`; Leo IR v0 entrypoint parameters must use U8/U32/U64/U128/Bool/Address/Hash, fixed arrays, or declared structs" }
   | .array _ =>
       .error { message := s!"{context} uses dynamic array; Leo IR v0 entrypoint parameters must use U8/U32/U64/U128/Bool/Address, fixed arrays, or declared structs" }
   | .fixedArray element length =>
@@ -234,8 +234,19 @@ mutual
     | .boolNot value => do
         ensureType "boolean not" .bool (← inferExprType module env value)
         .ok .bool
-    | .hashValue _ _ _ _ | .hash _ | .hashTwoToOne _ _ =>
-        .error { message := "Leo IR v0 does not support crypto-hash expressions (use Field/U64 components)" }
+    | .hashValue a b c d => do
+        discard <| inferExprType module env a
+        discard <| inferExprType module env b
+        discard <| inferExprType module env c
+        discard <| inferExprType module env d
+        .ok .hash
+    | .hash preimage => do
+        discard <| inferExprType module env preimage
+        .ok .hash
+    | .hashTwoToOne l r => do
+        discard <| inferExprType module env l
+        discard <| inferExprType module env r
+        .ok .hash
     | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
     | .crosscallAbiPacked .. =>
@@ -514,7 +525,7 @@ def validateState (module : Module) : Except LowerError Unit := do
   for state in module.state do
     match state.kind, state.type with
     | .scalar, .bool | .scalar, .u8 | .scalar, .u32 | .scalar, .u64
-    | .scalar, .u128 | .scalar, .address =>
+    | .scalar, .u128 | .scalar, .address | .scalar, .hash =>
         pure ()
     | .scalar, .structType typeName =>
         match findStruct? module typeName with

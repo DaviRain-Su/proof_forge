@@ -371,15 +371,21 @@ honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
 extend the `just aleo-leo-codegen-smoke` gate. PureMath golden is
 byte-identical; Counter `get` refreshed to a `view fn` returning `u64`.
 
-**Remaining deepening frontier** (genuinely blocked / not in Leo):
-`crypto.hash` — the portable `Hash` is 4×u64 (EVM-flavored) while Leo hashes
-are single-input → field/u64, so there is no faithful mapping (honest reject).
-**Events** — Aleo/Leo has no event mechanism (it uses records + finalize), and
-the profile intentionally omits `eventsEmit` (honest reject). **Cross-circuit
-calls** — Leo `_dynamic_call` takes `identifier` args (program/network/function
-names), not the portable runtime-address `crosscallInvoke(target, methodId)`
-model, so the mapping is lossy (honest reject until a portable cross-program
-call surface lands).
+**`crypto.hash` LANDED (RFC 0015 Decisions 1+2):** Aleo resolves the portable
+`Hash` digest to `field` and lowers hash ops to the native ZK hash
+`Poseidon2::hash_to_field` (verified against ProvableHQ/leo operators/crypto).
+`.hash preimage` → `Poseidon2::hash_to_field(preimage)`; `.hashTwoToOne`/
+`.hashValue` fold pairwise (Leo hashes a single primitive). `hash4` literals
+are rejected (EVM 4×u64 digest shape). Hashing is capability-portable, NOT
+value-portable (keccak ≠ Poseidon) — see RFC 0015.
+`Tests/AleoLeoHashLoweringSmoke.lean` covers it.
+
+**Remaining honest rejects** (not in Leo / need portable surface):
+**Events** — Aleo/Leo has no event mechanism (records + finalize instead); the
+profile intentionally omits `eventsEmit`. **Cross-circuit calls** — Leo
+`_dynamic_call` takes `identifier` args, not the portable runtime-address
+`crosscallInvoke(target, methodId)` model (honest reject until the RFC 0015
+Decision 4 named-callee surface lands).
 
 **Mixed `(value, Final)` return LANDED:** a stateful function whose return
 value is pure lowers as `fn f(…) -> (T, Final) { …; return (value, final { … }); }`

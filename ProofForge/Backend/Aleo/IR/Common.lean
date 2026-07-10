@@ -92,7 +92,7 @@ def valueType (type : ValueType) : Except LowerError LeoType :=
   | .u128 => .ok (.integer .u128)
   | .address => .ok .address
   | .string => .ok .string
-  | .hash => .error { message := "Leo IR v0 does not support Hash; use U64/Field components instead" }
+  | .hash => .ok .field  -- RFC 0015: Aleo resolves the portable Hash digest to `field` (Poseidon).
   | .bytes => .error { message := "Leo IR v0 does not support Bytes" }
   | .fixedArray element length =>
       if length == 0 then
