@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Active Wave 4** — Wave 0–3 complete@596d5b2a; Wave 4 mixin ladder
-(Pausable / ReentrancyGuard / OwnablePausable) landing. Optional: NC-H1.
+Status: **Complete: verified@34394de7** — Wave 0–4 live dual-deploy matrix
+(Counter…OwnablePausable). Optional: NC-H1 harness registry; UTF-8 string KV.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
