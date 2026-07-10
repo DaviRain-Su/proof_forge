@@ -174,6 +174,39 @@ def solidityCustomErrorRevertStmts (selector : Nat) (argWords : Array Nat := #[]
     ])
   ]
 
+/-- Solidity custom-error revert with runtime expression arguments.
+    Each `Expr` is lowered via `lowerExpr` to a Yul value and stored at the
+    corresponding ABI word offset. The selector is still compile-time. -/
+def solidityCustomErrorRevertStmtsRuntime
+    {ε : Type} (_mkError : String → ε)
+    (lowerExpr : ProofForge.IR.Expr → Except ε Lean.Compiler.Yul.Expr)
+    (selector : Nat) (argExprs : Array ProofForge.IR.Expr) :
+    Except ε (Array Lean.Compiler.Yul.Statement) := do
+  let selectorWord :=
+    Lean.Compiler.Yul.builtin "shl" #[
+      Lean.Compiler.Yul.Expr.num 224,
+      Lean.Compiler.Yul.Expr.num selector
+    ]
+  let header : Array Lean.Compiler.Yul.Statement := #[
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, selectorWord])
+  ]
+  let mut argStmts : Array Lean.Compiler.Yul.Statement := #[]
+  for expr in argExprs do
+    let offset := 4 + argStmts.size * 32
+    let yulExpr ← lowerExpr expr
+    argStmts := argStmts.push <|
+      .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+        Lean.Compiler.Yul.Expr.num offset,
+        yulExpr
+      ])
+  let totalSize := 4 + argExprs.size * 32
+  .ok (header ++ argStmts ++ #[
+    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[
+      Lean.Compiler.Yul.Expr.num 0,
+      Lean.Compiler.Yul.Expr.num totalSize
+    ])
+  ])
+
 def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul.Statement :=
   match ref.soliditySelector? with
   | some hex =>
@@ -213,6 +246,29 @@ def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul
       headerStmts ++ dataStmts ++ #[
         .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
       ]
+
+/-- Runtime-expression version of `errorRefRevertStmts`. When
+    `ref.solidityArgExprs` is non-empty, each expression is lowered via
+    `lowerExpr` to a Yul value. Falls back to `errorRefRevertStmts` (compile-time
+    path) when `solidityArgExprs` is empty. -/
+def errorRefRevertStmtsRuntime
+    {ε : Type} (mkError : String → ε)
+    (lowerExpr : ProofForge.IR.Expr → Except ε Lean.Compiler.Yul.Expr)
+    (ref : ProofForge.IR.ErrorRef) :
+    Except ε (Array Lean.Compiler.Yul.Statement) :=
+  if ref.solidityArgExprs.isEmpty then
+    .ok (errorRefRevertStmts ref)
+  else
+    match ref.soliditySelector? with
+    | some hex =>
+        match parseSoliditySelectorHex hex with
+        | some sel => solidityCustomErrorRevertStmtsRuntime mkError lowerExpr sel ref.solidityArgExprs
+        | none =>
+            .error (mkError
+              s!"errorRefRevertStmtsRuntime: invalid selector `{hex}` for runtime error args")
+    | none =>
+        .error (mkError
+          "errorRefRevertStmtsRuntime: runtime error args require a Solidity selector")
 
 def calldataWordExpr (paramIndex : Nat) : Lean.Compiler.Yul.Expr :=
   ProofForge.Backend.Evm.ToYul.calldataWordExpr paramIndex

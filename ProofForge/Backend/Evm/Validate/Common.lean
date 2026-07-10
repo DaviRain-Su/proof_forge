@@ -87,13 +87,24 @@ def solidityStaticArgBitWidth? : String -> Option Nat
   | "bytes32" => some 256
   | _ => none
 
-/-- Fail-closed validation for the transitional EVM custom-error static-word
-    annotation on portable `ErrorRef`. Runtime expressions and dynamic ABI
-    values require a future target-plan representation. -/
+/-- Fail-closed validation for the EVM custom-error annotation on portable
+    `ErrorRef`. Two arg modes are supported:
+
+  * **Compile-time static words** (`solidityArgWords`): literal ABI values
+    validated for arity, supported type, and range. This is the E1.1 path.
+  * **Runtime expressions** (`solidityArgExprs`): IR expressions lowered to Yul
+    at codegen time. Types are validated for static ABI compatibility, but
+    range checks are deferred to runtime (the expression may produce any
+    in-range value). Dynamic types (bytes/string/array) are rejected in both
+    modes.
+
+  When both `solidityArgExprs` and `solidityArgWords` are non-empty, the
+  runtime expressions take precedence. The `solidityArgTypes` array must
+  match whichever arg mode is active. -/
 def validateSolidityErrorRef (context : String) (ref : ErrorRef) : Except LowerError Unit := do
   match ref.soliditySelector? with
   | none =>
-      if !ref.solidityArgTypes.isEmpty || !ref.solidityArgWords.isEmpty then
+      if !ref.solidityArgTypes.isEmpty || !ref.solidityArgWords.isEmpty || !ref.solidityArgExprs.isEmpty then
         .error {
           message := s!"{context} has Solidity custom-error args without a selector"
         }
@@ -104,25 +115,35 @@ def validateSolidityErrorRef (context : String) (ref : ErrorRef) : Except LowerE
         .error {
           message := s!"{context} Solidity custom-error selector must be exactly 8 hex digits"
         }
-      if ref.solidityArgTypes.size != ref.solidityArgWords.size then
+      let useRuntime := !ref.solidityArgExprs.isEmpty
+      let argCount := if useRuntime then ref.solidityArgExprs.size else ref.solidityArgWords.size
+      if ref.solidityArgTypes.size != argCount then
         .error {
           message :=
             s!"{context} Solidity custom-error arg type/value count mismatch: " ++
-              s!"{ref.solidityArgTypes.size} type(s), {ref.solidityArgWords.size} value(s)"
+              s!"{ref.solidityArgTypes.size} type(s), {argCount} value(s)"
         }
-      for ((abiType, word), index) in
-          (ref.solidityArgTypes.zip ref.solidityArgWords).zipIdx do
-        let some width := solidityStaticArgBitWidth? abiType
+      for (abiType, index) in ref.solidityArgTypes.zipIdx do
+        let some _width := solidityStaticArgBitWidth? abiType
           | .error {
               message :=
                 s!"{context} Solidity custom-error arg {index} has unsupported static ABI type " ++
                   s!"`{abiType}`"
             }
-        if word >= 2 ^ width then
-          .error {
-            message :=
-              s!"{context} Solidity custom-error arg {index} value `{word}` exceeds `{abiType}` range"
-          }
+      if !useRuntime then
+        for ((abiType, word), index) in
+            (ref.solidityArgTypes.zip ref.solidityArgWords).zipIdx do
+          let some width := solidityStaticArgBitWidth? abiType
+            | .error {
+                message :=
+                  s!"{context} Solidity custom-error arg {index} has unsupported static ABI type " ++
+                    s!"`{abiType}`"
+              }
+          if word >= 2 ^ width then
+            .error {
+              message :=
+                s!"{context} Solidity custom-error arg {index} value `{word}` exceeds `{abiType}` range"
+            }
       .ok ()
 
 -- ASCII "PROOF_FORGE_MAP_PRESENCE" packed as one EVM word.
