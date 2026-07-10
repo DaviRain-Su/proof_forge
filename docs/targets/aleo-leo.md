@@ -378,9 +378,12 @@ finalize read (4.0.2-correct).
 **Real compile gate:** every generated feature shape has been verified against
 `leo build` (4.0.2) — see the `aleo-leo-build-smoke` gate (renders all shapes
 via `RenderAleoFixtures.lean` and compiles each). Counter/PureMath/records/hash/
-map/context/mixed-return/struct all compile; crosscall needs an external program
-dependency. The Lean marker-smokes only check substrings, so this `leo build`
-gate is the real correctness witness.
+map/context/mixed-return/struct all compile; crosscall compiles to Aleo
+instructions against a local `credits.aleo` stub (leo 4.0.2 has a downstream
+bytecode-serialization bug for external calls that fires after instruction
+generation — a toolchain defect, not a source defect — so the gate treats
+instruction generation as the crosscall success criterion). The Lean marker-smokes
+only check substrings, so this `leo build` gate is the real correctness witness.
 
 **`crypto.hash` LANDED (RFC 0015 Decisions 1+2):** Aleo resolves the portable
 `Hash` digest to `field` and lowers hash ops to the native ZK hash
