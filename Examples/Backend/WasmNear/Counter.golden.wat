@@ -51,22 +51,12 @@
     call $value_return
   )
   (func $initialize (export "initialize")
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     i32.const 5
     i64.const 0
     call $__pf_write_u64
   )
   (func $increment (export "increment") (local $n i64)
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     i32.const 5
     call $__pf_read_u64
@@ -79,11 +69,6 @@
     call $__pf_write_u64
   )
   (func $get (export "get")
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     i32.const 5
     call $__pf_read_u64

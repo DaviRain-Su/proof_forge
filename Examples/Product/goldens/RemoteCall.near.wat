@@ -191,22 +191,12 @@
     local.get $result
   )
   (func $initialize (export "initialize")
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     i32.const 6
     i64.const 0
     call $__pf_write_u64
   )
   (func $call_remote (export "call_remote")
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i64.const 19
     i32.const 49000
     i64.extend_i32_u
@@ -222,11 +212,6 @@
     call $promise_return
   )
   (func $call_with_args (export "call_with_args")
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     call $__pf_crosscall_args_start
     i32.const 91
     call $__pf_crosscall_args_putc
