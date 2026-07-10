@@ -132,6 +132,10 @@ just near-compare-escrow-vault-live
 just near-compare-timelock-vault
 just near-compare-timelock-vault-live
 
+# HeightLockVault (binary HostEnv block height unlock)
+just near-compare-height-lock-vault
+just near-compare-height-lock-vault-live
+
 # Regenerate MATRIX.md from live reports
 just near-compare-matrix
 
@@ -262,8 +266,9 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | — | VestingVault | **~95×** | ~1.14× | 1556 B |
 | — | EscrowVault | **~95×** | ~1.13× | 1583 B |
 | — | TimelockVault | **~108×** | ~1.13× | 1363 B |
+| — | HeightLockVault | **~108×** | ~1.13× | 1366 B |
 
-**Stats (live, 27 contracts):** median wasm× **~112×**, median call× **~1.13×**, range wasm× **48–256×**.
+**Stats (live, 28 contracts):** median wasm× **~111×**, median call× **~1.13×**, range wasm× **48–256×**.
 
 **Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
@@ -290,6 +295,7 @@ Fairness notes:
 - **VestingVault:** linear vesting via HostEnv `timestamp` / `block_timestamp`; internal claim ledger (no external token).
 - **EscrowVault:** two-party fund → release | refund state machine; internal claim ledger only.
 - **TimelockVault:** binary unlock (`timestamp >= unlockAt`); not linear VestingVault.
+- **HeightLockVault:** binary unlock (`checkpointId`/`block_height` >= unlockHeight).
 - **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
 
 ## Contracts
@@ -323,5 +329,6 @@ Fairness notes:
 | `vesting-vault` | `just near-compare-vesting-vault-live` | `Examples/Product/VestingVault.lean` |
 | `escrow-vault` | `just near-compare-escrow-vault-live` | `Examples/Product/EscrowVault.lean` |
 | `timelock-vault` | `just near-compare-timelock-vault-live` | `Examples/Product/TimelockVault.lean` |
+| `height-lock-vault` | `just near-compare-height-lock-vault-live` | `Examples/Product/HeightLockVault.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

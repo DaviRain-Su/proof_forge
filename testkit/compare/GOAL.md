@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 27 live dual-deploy** (Wave 12 TimelockVault binary HostEnv unlock).
+Status: **Complete: 28 live dual-deploy** (Wave 13 HeightLockVault HostEnv height gate).
 Blocked: full Stdlib.ERC4626 NEAR asset crosscall; UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
@@ -164,6 +164,7 @@ eligible offline slice.
 | 10 | NC-10.1 | VestingVault HostEnv linear vesting | done: live ~95× wasm | internal claim ledger |
 | 11 | NC-11.1 | EscrowVault fund→release|refund | done: live ~95× wasm | two-party state machine |
 | 12 | NC-12.1 | TimelockVault binary HostEnv unlock | done: live ~108× wasm | contrast VestingVault linear |
+| 13 | NC-13.1 | HeightLockVault binary height gate | done: live ~108× wasm | checkpointId / block_index |
 
 ### Task briefs
 

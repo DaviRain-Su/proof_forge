@@ -105,6 +105,10 @@ fn main() -> Result<()> {
         ["near", "timelock-vault"]
         | ["near", "timelockvault"]
         | ["near", "timelock"] => run_near_timelock_vault(&repo_root, &args),
+        ["near", "height-lock-vault"]
+        | ["near", "heightlockvault"]
+        | ["near", "height-lock"]
+        | ["near", "heightlock"] => run_near_height_lock_vault(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -114,7 +118,7 @@ fn main() -> Result<()> {
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
                   access-control, external-token-transfer, external-vault, \
                   pro-rata-vault, soulbound-token, ft-peer-client, vesting-vault, \
-                  escrow-vault, timelock-vault)"
+                  escrow-vault, timelock-vault, height-lock-vault)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -915,6 +919,8 @@ struct OfflineHostOpts<'a> {
     attached_deposit: Option<u64>,
     /// When set, passed as `--block-timestamp` to offline-host (HostEnv time).
     block_timestamp: Option<u64>,
+    /// When set, passed as `--block-index` to offline-host (HostEnv height).
+    block_index: Option<u64>,
     repeat: u32,
 }
 
@@ -934,6 +940,7 @@ fn run_offline_host_with_inputs(
             predecessor: None,
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat,
         },
     )
@@ -970,6 +977,9 @@ fn run_offline_host_opts(
     }
     if let Some(ts) = opts.block_timestamp {
         cmd.args(["--block-timestamp", &ts.to_string()]);
+    }
+    if let Some(idx) = opts.block_index {
+        cmd.args(["--block-index", &idx.to_string()]);
     }
     if opts.repeat != 1 {
         cmd.args(["--repeat", &opts.repeat.to_string()]);
@@ -1314,6 +1324,7 @@ fn run_near_fungible_token(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1349,6 +1360,7 @@ fn run_near_fungible_token(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1386,6 +1398,7 @@ fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1411,6 +1424,7 @@ fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1444,6 +1458,7 @@ fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: Some(50),
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1467,6 +1482,7 @@ fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: Some(50),
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1528,6 +1544,7 @@ fn run_near_role_gated_token(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1564,6 +1581,7 @@ fn run_near_role_gated_token(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1619,6 +1637,7 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1654,6 +1673,7 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1692,6 +1712,7 @@ fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1706,6 +1727,7 @@ fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1750,6 +1772,7 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1772,6 +1795,7 @@ fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1817,6 +1841,7 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: Some(7),
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1850,6 +1875,7 @@ fn run_near_storage_deposit(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: Some(7),
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1880,6 +1906,7 @@ fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: None,
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1895,6 +1922,7 @@ fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: None,
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1924,6 +1952,7 @@ fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: None,
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1938,6 +1967,7 @@ fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: None,
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -1967,6 +1997,7 @@ fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -1982,6 +2013,7 @@ fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2012,6 +2044,7 @@ fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: None,
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2027,6 +2060,7 @@ fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: None,
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &["Fixed local u64x3 only; no persistent storage on either side."],
@@ -2056,6 +2090,7 @@ fn run_near_ownable_hash(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2076,6 +2111,7 @@ fn run_near_ownable_hash(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2115,6 +2151,7 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2138,6 +2175,7 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2218,6 +2256,7 @@ fn run_near_external_protocol_client(
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
     )?;
@@ -2243,6 +2282,7 @@ fn run_near_external_protocol_client(
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: args.repeat,
         },
     )?;
@@ -2433,6 +2473,7 @@ fn run_near_pro_rata_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2449,6 +2490,7 @@ fn run_near_pro_rata_vault(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2497,6 +2539,7 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2511,11 +2554,101 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
             "No transfer entry — soulbound honesty.",
             "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
+}
+
+fn run_near_height_lock_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    // lock(amount=1000, unlockHeight=50)
+    let lock = {
+        let mut v = 1000u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&50u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, lock, get_locked, get_unlock_height, claim, claim_balance, is_claimed, get_locked
+    let inputs = format!(",{lock},,,,,,");
+    let fuel_inputs = format!(",{lock},,");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "height-lock-vault",
+        "testkit/compare/near/height-lock-vault",
+        "Examples/Product/HeightLockVault.lean",
+        "HeightLockVault.near-artifact.json",
+        "pf_near_sdk_height_lock_vault_reference.wasm",
+        &["heightlockvault.wat", "HeightLockVault.wat"],
+        &[
+            "init",
+            "lock",
+            "claim",
+            "get_locked",
+            "get_unlock_height",
+            "claim_balance",
+            "is_claimed",
+        ],
+        |repo, wat| {
+            // block_index=100 >= unlockHeight=50 → claim full 1000
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "lock",
+                    "get_locked",
+                    "get_unlock_height",
+                    "claim",
+                    "claim_balance",
+                    "is_claimed",
+                    "get_locked",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    block_timestamp: None,
+                    block_index: Some(100),
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=1000"),
+                "expected locked/claim 1000\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=50"),
+                "expected unlock_height 50\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=1"),
+                "expected is_claimed 1\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=0"),
+                "expected get_locked 0 after claim\n{out}"
+            );
+            Ok(("init→lock 1000@height50→h=100 claim→1000".into(), out))
+        },
+        &["init", "lock", "claim", "claim_balance"],
+        &fuel_inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            block_timestamp: None,
+            block_index: Some(100),
+            repeat: 1,
+        },
+        &[
+            "Binary height lock (checkpointId/block_index >= unlockHeight).",
+            "Not wall-clock TimelockVault; not linear VestingVault.",
+            "Internal claim ledger only — no external token transfer.",
+            "Live: unlockHeight=1 unlocks under any real sandbox height.",
         ],
     )
 }
@@ -2568,6 +2701,7 @@ fn run_near_timelock_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: Some(100),
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2596,6 +2730,7 @@ fn run_near_timelock_vault(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: Some(100),
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2658,6 +2793,7 @@ fn run_near_escrow_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2686,6 +2822,7 @@ fn run_near_escrow_vault(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2746,6 +2883,7 @@ fn run_near_vesting_vault(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: Some(50),
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2766,6 +2904,7 @@ fn run_near_vesting_vault(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: Some(50),
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2901,6 +3040,7 @@ fn run_near_access_control(repo_root: &Path, args: &Args) -> Result<()> {
                     predecessor: Some("alice.testnet"),
                     attached_deposit: None,
                     block_timestamp: None,
+                    block_index: None,
                     repeat: 1,
                 },
             )?;
@@ -2921,6 +3061,7 @@ fn run_near_access_control(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
         &[
@@ -2997,6 +3138,7 @@ fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
     )?;
@@ -3026,6 +3168,7 @@ fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: args.repeat,
         },
     )?;
@@ -3250,6 +3393,7 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: 1,
         },
     )?;
@@ -3279,6 +3423,7 @@ fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
             predecessor: Some("alice.testnet"),
             attached_deposit: None,
             block_timestamp: None,
+            block_index: None,
             repeat: args.repeat,
         },
     )?;

@@ -31,6 +31,7 @@ pub(crate) enum ContractKind {
     VestingVault,
     EscrowVault,
     TimelockVault,
+    HeightLockVault,
 }
 
 impl ContractKind {
@@ -78,6 +79,11 @@ impl ContractKind {
             "timelock-vault" | "timelockvault" | "timelock_vault" | "timelock" => {
                 Ok(Self::TimelockVault)
             }
+            "height-lock-vault"
+            | "heightlockvault"
+            | "height_lock_vault"
+            | "height-lock"
+            | "heightlock" => Ok(Self::HeightLockVault),
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -111,6 +117,7 @@ impl ContractKind {
             Self::VestingVault => "vesting-vault",
             Self::EscrowVault => "escrow-vault",
             Self::TimelockVault => "timelock-vault",
+            Self::HeightLockVault => "height-lock-vault",
         }
     }
 }

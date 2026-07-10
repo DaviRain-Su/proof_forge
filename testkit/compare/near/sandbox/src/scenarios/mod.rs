@@ -36,6 +36,7 @@ mod ft_peer_client;
 mod vesting_vault;
 mod escrow_vault;
 mod timelock_vault;
+mod height_lock_vault;
 
 
 /// Run one side (ProofForge or near-sdk) for a registered contract.
@@ -91,6 +92,9 @@ pub(crate) async fn run_side(
         }
         ContractKind::TimelockVault => {
             timelock_vault::run_timelock_vault_side(worker, wasm_path, side).await
+        }
+        ContractKind::HeightLockVault => {
+            height_lock_vault::run_height_lock_vault_side(worker, wasm_path, side).await
         }
         ContractKind::RemoteCall
         | ContractKind::AuthRemoteCall

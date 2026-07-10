@@ -44,6 +44,7 @@ KINDS = {
     "vesting-vault": "HostEnv vesting",
     "escrow-vault": "escrow state machine",
     "timelock-vault": "HostEnv timelock",
+    "height-lock-vault": "HostEnv height lock",
 }
 
 
