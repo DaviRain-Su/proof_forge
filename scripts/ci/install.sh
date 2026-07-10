@@ -48,12 +48,16 @@ esac
 
 tarball_name="proof-forge-${VERSION}-${os_tag}-${arch_tag}.tar.gz"
 
+CURL_USER_AGENT="User-Agent: proof-forge-installer"
+
 if [ "$VERSION" = "latest" ]; then
-  URL="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+  # The pipeline may exit non-zero when no matching asset is found; capture the
+  # result so the diagnostic below is reachable under set -e.
+  URL="$(curl -fsSL -H "$CURL_USER_AGENT" "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
     | grep "browser_download_url" \
     | grep "proof-forge-.*-${os_tag}-${arch_tag}.tar.gz" \
     | head -n1 \
-    | cut -d '"' -f4)"
+    | cut -d '"' -f4)" || URL=""
   if [ -z "$URL" ]; then
     echo "install.sh: could not find latest release asset for ${os_tag}-${arch_tag}" >&2
     exit 1
@@ -67,19 +71,35 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 echo "install.sh: downloading proof-forge ${VERSION} for ${os_tag}-${arch_tag}"
-curl -fsSL -o "$TMPDIR/proof-forge.tar.gz" "$URL"
+curl -fsSL -H "$CURL_USER_AGENT" -o "$TMPDIR/${tarball_name}" "$URL"
 
 # Optional checksum verification for pinned-version installs.
 if [ "$VERSION" != "latest" ]; then
   CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
-  if curl -fsSL -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" 2>/dev/null; then
-    (cd "$TMPDIR" && grep "^.*  ${tarball_name}$" checksums.txt | sha256sum -c -)
+  if curl -fsSL -H "$CURL_USER_AGENT" -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" 2>/dev/null; then
+    if ! grep -q -F "$tarball_name" "$TMPDIR/checksums.txt"; then
+      echo "install.sh: checksums.txt does not contain an entry for ${tarball_name}" >&2
+      exit 1
+    fi
+    # Prefer GNU sha256sum; fall back to macOS shasum.
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha_cmd=(sha256sum -c -)
+    elif command -v shasum >/dev/null 2>&1; then
+      sha_cmd=(shasum -a 256 -c -)
+    else
+      echo "install.sh: no sha256 checksum utility found (sha256sum or shasum)" >&2
+      exit 1
+    fi
+    if ! (cd "$TMPDIR" && grep -F "$tarball_name" checksums.txt | "${sha_cmd[@]}"); then
+      echo "install.sh: checksum verification failed for ${tarball_name}" >&2
+      exit 1
+    fi
   fi
 fi
 
 INSTALL_DIR="$INSTALL_ROOT/$VERSION"
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$TMPDIR/proof-forge.tar.gz" -C "$INSTALL_DIR"
+tar -xzf "$TMPDIR/${tarball_name}" -C "$INSTALL_DIR"
 
 mkdir -p "$BIN_DIR"
 ln -sf "$INSTALL_DIR/proof-forge" "$BIN_DIR/proof-forge"
