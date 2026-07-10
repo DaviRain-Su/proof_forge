@@ -77,7 +77,7 @@ flowchart TB
 - [新手入门](onboarding.zh.md)：本地设置路径、编辑器说明以及针对新贡献者的最小验证循环。
 - [Quint 模型生成](../quint.md)：从可移植 IR 发射可执行状态机模型，进行模拟、模型检查并重放 MBT 追踪。
 - [开发日志](../development-log.md)：带有验证说明和后续步骤的里程碑日志。
-- [[编写模型](authoring-model.zh.md)：学习 source、`contract_source` 以及内部 `ContractSpec` 边界。
+- [编写模型](authoring-model.zh.md)：学习 source、`contract_source` 以及内部 `ContractSpec` 边界。
 - [验证门控](validation-gates.zh.md)：可运行的门控和工具先决条件。
 - [形式化验证路线图](../formal-verification.md)：现有的形式化锚点和阶段性证明目标。
 - [Solana sBPF 可执行追踪](../solana-sbpf-executable-trace.md)：Lean 内置的 Counter + ValueVault 标量/事件，以及用于直接 sBPF 汇编的 fixed-array/u64-map 存储目标语义。
@@ -105,23 +105,23 @@ flowchart TB
   - [EVM](targets/evm.zh.md)
   - [Wasm 家族](targets/wasm-family.zh.md)
   - [Wasm-NEAR](targets/wasm-near.zh.md)
-  - [Cloudflare Workers 目标](../targets/cloudflare-workers.md)- [[Stellar Soroban 目标](targets/stellar-soroban.zh.md)
-  - [[Internet Computer 目标](targets/internet-computer.zh.md)
-  - [[Algorand AVM 目标](targets/algorand-avm.zh.md)
+  - [Cloudflare Workers 目标](../targets/cloudflare-workers.md)- [Stellar Soroban 目标](targets/stellar-soroban.zh.md)
+  - [Internet Computer 目标](targets/internet-computer.zh.md)
+  - [Algorand AVM 目标](targets/algorand-avm.zh.md)
   - [Solana sBPF Asm](../targets/solana-sbpf-asm.md) (规范的直接汇编路径)
   - [Solana sBPF](targets/solana-sbf.zh.md) (已废弃的 Zig/sbpf-linker 路径)
   - [Move 目标家族](targets/move-family.zh.md)
-  - [[Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)
-  - [[Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)
-  - [[Starknet Cairo 目标](targets/starknet-cairo.zh.md)
-  - [[Aleo Leo 目标](targets/aleo-leo.zh.md)
-  - [[Aleo Leo 设计规范](superpowers/specs/2026-07-01-aleo-leo-design.zh.md)
-  - [[TON TVM 目标](targets/ton-tvm.zh.md)
-  - [[Bitcoin Script/Miniscript 目标](targets/bitcoin-script-miniscript.zh.md)
-  - [[Zcash Shielded 目标](targets/zcash-shielded.zh.md)
-  - [[Bitcoin Cash CashScript 目标](targets/bitcoin-cash-cashscript.zh.md)
+  - [Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)
+  - [Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)
+  - [Starknet Cairo 目标](targets/starknet-cairo.zh.md)
+  - [Aleo Leo 目标](targets/aleo-leo.zh.md)
+  - [Aleo Leo 设计规范](superpowers/specs/2026-07-01-aleo-leo-design.zh.md)
+  - [TON TVM 目标](targets/ton-tvm.zh.md)
+  - [Bitcoin Script/Miniscript 目标](targets/bitcoin-script-miniscript.zh.md)
+  - [Zcash Shielded 目标](targets/zcash-shielded.zh.md)
+  - [Bitcoin Cash CashScript 目标](targets/bitcoin-cash-cashscript.zh.md)
   - [Psy DPN ZK 目标](../targets/psy-dpn.md)
-  - [[Kaspa Toccata 目标](targets/kaspa-toccata.zh.md)
+  - [Kaspa Toccata 目标](targets/kaspa-toccata.zh.md)
 
 ## 中文说明
 

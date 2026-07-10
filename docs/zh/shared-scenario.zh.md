@@ -5,9 +5,9 @@
 Counter 场景是第一个跨目标验收标准测试。它在 Lean 业务核心中练习可移植标量状态，而不涉及特定于链的账户模型。
 ValueVault 是下一个共享场景：它覆盖多个标量状态字段、算术、事件发射和区块上下文读取，同时应用源代码仍保持链无关。
 
-相关：[[可移植 IR](portable-ir.zh.md),
-[[能力注册表](capability-registry.zh.md),
-[[Decisions](decisions.zh.md)。
+相关：[可移植 IR](portable-ir.zh.md),
+[能力注册表](capability-registry.zh.md),
+[Decisions](decisions.zh.md)。
 
 ## 场景定义
 
@@ -136,7 +136,7 @@ legacy `Examples/Backend/Learn/ValueVault.learn` fixture 继续保留，用于 p
 等价覆盖。它不是新合约推荐的 authoring 路径。
 
 分步 walkthrough 见
-[[tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.zh.md)
+[tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.zh.md)
 （中文：[portable-contract-three-targets.zh.md](tutorials/portable-contract-three-targets.zh.md)）。
 
 ## Resource budget baseline（CS-5.2）

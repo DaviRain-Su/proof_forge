@@ -108,7 +108,7 @@ semantics（在 `evalNumericBinary` 内把 overflow 作为 observable trace outc
 
 ### Kaspa Toccata
 
-参见 [[Kaspa Toccata 目标](targets/kaspa-toccata.zh.md)。
+参见 [Kaspa Toccata 目标](targets/kaspa-toccata.zh.md)。
 
 | 候选 id | 可移植含义 | 为什么需要单独表达 |
 |---|---|---|
@@ -124,7 +124,7 @@ base target 是 Kaspa covenant package。
 
 ### Stellar Soroban
 
-参见 [[Stellar Soroban 目标](targets/stellar-soroban.zh.md)。
+参见 [Stellar Soroban 目标](targets/stellar-soroban.zh.md)。
 
 大部分 Soroban 行为可以先从现有 Wasm-host 能力集开始，但若干目标语义还没有被当前 registry 覆盖。
 
@@ -138,7 +138,7 @@ base target 是 Kaspa covenant package。
 
 ### Internet Computer
 
-参见 [[Internet Computer 目标](targets/internet-computer.zh.md)。
+参见 [Internet Computer 目标](targets/internet-computer.zh.md)。
 
 ICP canister 与 Wasm-host 家族有重叠，但在添加 target profile 前，需要显式表达若干 canister 语义。
 
@@ -157,7 +157,7 @@ ICP canister 与 Wasm-host 家族有重叠，但在添加 target profile 前，�
 
 ### Algorand AVM
 
-参见 [[Algorand AVM 目标](targets/algorand-avm.zh.md)。
+参见 [Algorand AVM 目标](targets/algorand-avm.zh.md)。
 
 Algorand 与通用合约能力有部分重叠，但 AVM programs、storage classes、transaction groups 和 explicit resource references 在添加 target profile 前需要显式表达。
 
@@ -178,7 +178,7 @@ Algorand 与通用合约能力有部分重叠，但 AVM programs、storage class
 
 ### Cardano Plutus/Aiken
 
-参见 [[Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)。
+参见 [Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)。
 
 Cardano 与 UTXO covenant 目标有重叠，但 eUTXO validator roles、datum、redeemer、script context、execution units 和 Plutus blueprint metadata 在添加 target profile 前需要显式表达。
 
@@ -199,7 +199,7 @@ Cardano 与 UTXO covenant 目标有重叠，但 eUTXO validator roles、datum、
 
 ### Tezos Michelson/LIGO
 
-参见 [[Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)。
+参见 [Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)。
 
 Tezos 与通用 contract storage 和 entrypoints 有部分重叠，但 Michelson typed data、operation-list effects、views、events、tickets 和 gas/storage-burn 语义需要在添加 target profile 前显式表达。
 
@@ -220,7 +220,7 @@ Tezos 与通用 contract storage 和 entrypoints 有部分重叠，但 Michelson
 
 ### Starknet Cairo
 
-参见 [[Starknet Cairo 目标](targets/starknet-cairo.zh.md)。
+参见 [Starknet Cairo 目标](targets/starknet-cairo.zh.md)。
 
 Starknet 与 contract storage、events 和 calls 有部分重叠，但 Cairo/Sierra/CASM artifacts、class hashes、account abstraction、syscalls 和 L1/L2 messaging 在添加 target profile 前需要显式表达。
 
@@ -241,8 +241,8 @@ Starknet 与 contract storage、events 和 calls 有部分重叠，但 Cairo/Sie
 
 ### Aleo Leo
 
-参见 [[Aleo Leo 目标](targets/aleo-leo.zh.md) 和
-[[docs/zh/superpowers/specs/2026-07-01-aleo-leo-design.zh.md](superpowers/specs/2026-07-01-aleo-leo-design.zh.md)。
+参见 [Aleo Leo 目标](targets/aleo-leo.zh.md) 和
+[docs/zh/superpowers/specs/2026-07-01-aleo-leo-design.zh.md](superpowers/specs/2026-07-01-aleo-leo-design.zh.md)。
 
 Aleo 与 source-generation 和 ZK 目标有重叠，但它的 contract model 有明确的
 proof/finalization split。private execution 生成 transitions 和 proofs；public
@@ -295,7 +295,7 @@ devnet validation 在添加 target profile 前需要显式表达。
 
 ### TON TVM
 
-参见 [[TON TVM 目标](targets/ton-tvm.zh.md)。
+参见 [TON TVM 目标](targets/ton-tvm.zh.md)。
 
 TON 与通用合约能力有部分重叠，但 TVM cells、messages 和 actions 在添加 target profile 前需要显式表达。
 
@@ -314,7 +314,7 @@ TON 与通用合约能力有部分重叠，但 TVM cells、messages 和 actions 
 
 ### Bitcoin Script/Miniscript
 
-参见 [[Bitcoin Script/Miniscript 目标](targets/bitcoin-script-miniscript.zh.md)。
+参见 [Bitcoin Script/Miniscript 目标](targets/bitcoin-script-miniscript.zh.md)。
 
 Bitcoin 与 UTXO script targets 有重叠，但 base-layer Script 更适合建模为 spending policy，而不是 general contract execution。Miniscript、descriptors、Taproot/Tapscript、PSBT flows、standardness 和 weight/fee checks 在添加 target profile 前需要显式表达。
 
@@ -339,7 +339,7 @@ Bitcoin 应在语义匹配时复用已有 UTXO candidate ids，包括 `storage.u
 
 ### Zcash Shielded
 
-参见 [[Zcash Shielded 目标](targets/zcash-shielded.zh.md)。
+参见 [Zcash Shielded 目标](targets/zcash-shielded.zh.md)。
 
 Zcash 与 Bitcoin-derived UTXO flows 有重叠，但它的 shielded pools 不是普通
 Bitcoin Script，也不是 generic ZK circuit target。Sapling/Orchard notes、
@@ -371,7 +371,7 @@ Zcash 在 transparent flows 中应在语义匹配时复用已有 UTXO candidate 
 
 ### Bitcoin Cash CashScript
 
-参见 [[Bitcoin Cash CashScript 目标](targets/bitcoin-cash-cashscript.zh.md)。
+参见 [Bitcoin Cash CashScript 目标](targets/bitcoin-cash-cashscript.zh.md)。
 
 BCH/CashScript 与 UTXO covenant 目标有重叠，但 CashVM、transaction introspection、CashTokens 和 transaction-builder 语义在添加 target profile 前需要显式表达。
 

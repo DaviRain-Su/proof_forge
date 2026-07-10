@@ -4,8 +4,8 @@ Status: **Draft**
 
 Date: 2026-07-06
 
-Builds on: [[RFC 0003](0003-portable-ir-and-runtime.zh.md)（portable IR）、
-[[RFC 0004](0004-evm-semantic-plan.zh.md)（EVM semantic plan）、
+Builds on: [RFC 0003](0003-portable-ir-and-runtime.zh.md)（portable IR）、
+[RFC 0004](0004-evm-semantic-plan.zh.md)（EVM semantic plan）、
 [RFC 0005](../../rfcs/0005-solana-sbpf-assembly-backend.md)（Solana sBPF 后端）。
 
 ## 摘要
@@ -25,7 +25,7 @@ contract_source / ContractSpec
 
 EVM 已经端到端遵循这一形状（`Backend/Evm/{Validate,Plan,Lower,IR}`，由 `just evm-plan` / `just evm-semantic-plan` 门控，并带有 `Refinement` 层）。其他主要后端则不然：**Solana** 仅有 `validateCapabilities` 加上一个隐式的 `LowerCtx`，**NEAR** 拥有丰富的 `validateModule` 但没有 plan 模块，而 **Psy** 仅有仅元数据的 `PsyModulePlan`。
 
-本 RFC 提议**Tier B 统一**：让每个主要后端对齐到相同的*契约*（validate、plan、AST、smoke），而不强制采用单一的全局 `ModulePlan` 类型。Plan 类型保持逐目标，正如 [[RFC 0004](0004-evm-semantic-plan.zh.md) 的非目标已经要求的那样，因为 account/CPI、host-import 和 circuit 模型各不相同。两个相邻的层级——共享 IR 操作语义（Tier A）和端到端 refinement（Tier C-diff 差分 replay / Tier C-proof 机器证明）——在本 RFC 中界定范围但不交付。
+本 RFC 提议**Tier B 统一**：让每个主要后端对齐到相同的*契约*（validate、plan、AST、smoke），而不强制采用单一的全局 `ModulePlan` 类型。Plan 类型保持逐目标，正如 [RFC 0004](0004-evm-semantic-plan.zh.md) 的非目标已经要求的那样，因为 account/CPI、host-import 和 circuit 模型各不相同。两个相邻的层级——共享 IR 操作语义（Tier A）和端到端 refinement（Tier C-diff 差分 replay / Tier C-proof 机器证明）——在本 RFC 中界定范围但不交付。
 
 ## 动机
 
@@ -727,13 +727,13 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 
 ## 参考
 
-- [[RFC 0002](0002-target-implementation-design.zh.md) —— 目标 profile 与后端实现设计。
-- [[RFC 0003](0003-portable-ir-and-runtime.zh.md) —— portable IR、capability lowering、运行时 profile。
-- [[RFC 0004](0004-evm-semantic-plan.zh.md) —— EVM semantic plan 与 Yul AST 边界（本 RFC 推广的参考形状）。
+- [RFC 0002](0002-target-implementation-design.zh.md) —— 目标 profile 与后端实现设计。
+- [RFC 0003](0003-portable-ir-and-runtime.zh.md) —— portable IR、capability lowering、运行时 profile。
+- [RFC 0004](0004-evm-semantic-plan.zh.md) —— EVM semantic plan 与 Yul AST 边界（本 RFC 推广的参考形状）。
 - [RFC 0005](../../rfcs/0005-solana-sbpf-assembly-backend.md) —— Solana sBPF assembly 后端。
-- [[`docs/portable-ir.md`](../portable-ir.zh.md) —— 共享流水线图。
+- [`docs/portable-ir.md`](../portable-ir.zh.md) —— 共享流水线图。
 - [`docs/formal-verification.md`](../../formal-verification.md) —— FV-1..FV-8（FV-2 语义增长、FV-4 Psy 差分、FV-8 ValueVault 不变式）。
-- [[`docs/validation-gates.md`](../validation-gates.zh.md)、[[`docs/gate-status.md`](../gate-status.zh.md) —— P0-2 EVM semantic-plan 状态。
+- [`docs/validation-gates.md`](../validation-gates.zh.md)、[`docs/gate-status.md`](../gate-status.zh.md) —— P0-2 EVM semantic-plan 状态。
 - `ProofForge/Backend/Evm/{Validate,Plan,Lower,IR,Refinement,YulSemantics}.lean`
 - `ProofForge/Backend/WasmHost/{IR,EmitWat,Refinement}.lean`
 - `ProofForge/Backend/Psy/{Plan,IR,Metadata}.lean`

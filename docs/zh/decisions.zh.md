@@ -125,20 +125,20 @@ Phase 5: Cloud platform
 | CosmWasm SDK spike 草案 | [targets/wasm-family.md](targets/wasm-family.zh.md) |
 | Wasm-NEAR 源代码生成目标 | [targets/wasm-near.md](targets/wasm-near.zh.md) |
 | Cloudflare Workers 目标 | [targets/cloudflare-workers.md](../targets/cloudflare-workers.md) |
-| Stellar/Soroban 候选目标 | [[targets/stellar-soroban.md](targets/stellar-soroban.zh.md) |
-| Internet Computer 候选目标 | [[targets/internet-computer.md](targets/internet-computer.zh.md) |
-| Algorand AVM 候选目标 | [[targets/algorand-avm.md](targets/algorand-avm.zh.md) |
+| Stellar/Soroban 候选目标 | [targets/stellar-soroban.md](targets/stellar-soroban.zh.md) |
+| Internet Computer 候选目标 | [targets/internet-computer.md](targets/internet-computer.zh.md) |
+| Algorand AVM 候选目标 | [targets/algorand-avm.md](targets/algorand-avm.zh.md) |
 | Solana 指令清单 | [targets/solana-sbf.md](targets/solana-sbf.zh.md) |
-| Cardano Plutus/Aiken 候选目标 | [[targets/cardano-plutus-aiken.md](targets/cardano-plutus-aiken.zh.md) |
-| Tezos Michelson/LIGO 候选目标 | [[targets/tezos-michelson-ligo.md](targets/tezos-michelson-ligo.zh.md) |
-| Starknet Cairo 候选目标 | [[targets/starknet-cairo.md](targets/starknet-cairo.zh.md) |
-| Aleo Leo 候选目标 | [[targets/aleo-leo.md](targets/aleo-leo.zh.md) |
-| TON TVM 候选目标 | [[targets/ton-tvm.md](targets/ton-tvm.zh.md) |
-| Bitcoin Script/Miniscript 候选目标 | [[targets/bitcoin-script-miniscript.md](targets/bitcoin-script-miniscript.zh.md) |
-| Zcash Shielded 候选目标 | [[targets/zcash-shielded.md](targets/zcash-shielded.zh.md) |
-| Bitcoin Cash CashScript 候选目标 | [[targets/bitcoin-cash-cashscript.md](targets/bitcoin-cash-cashscript.zh.md) |
+| Cardano Plutus/Aiken 候选目标 | [targets/cardano-plutus-aiken.md](targets/cardano-plutus-aiken.zh.md) |
+| Tezos Michelson/LIGO 候选目标 | [targets/tezos-michelson-ligo.md](targets/tezos-michelson-ligo.zh.md) |
+| Starknet Cairo 候选目标 | [targets/starknet-cairo.md](targets/starknet-cairo.zh.md) |
+| Aleo Leo 候选目标 | [targets/aleo-leo.md](targets/aleo-leo.zh.md) |
+| TON TVM 候选目标 | [targets/ton-tvm.md](targets/ton-tvm.zh.md) |
+| Bitcoin Script/Miniscript 候选目标 | [targets/bitcoin-script-miniscript.md](targets/bitcoin-script-miniscript.zh.md) |
+| Zcash Shielded 候选目标 | [targets/zcash-shielded.md](targets/zcash-shielded.zh.md) |
+| Bitcoin Cash CashScript 候选目标 | [targets/bitcoin-cash-cashscript.md](targets/bitcoin-cash-cashscript.zh.md) |
 | Psy/DPN ZK 目标 | [targets/psy-dpn.md](../targets/psy-dpn.md) |
-| Kaspa/Toccata 候选目标 | [[targets/kaspa-toccata.md](targets/kaspa-toccata.zh.md) |
+| Kaspa/Toccata 候选目标 | [targets/kaspa-toccata.md](targets/kaspa-toccata.zh.md) |
 
 ## 已取代的立场
 
