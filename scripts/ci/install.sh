@@ -91,7 +91,7 @@ if [ "$VERSION" != "latest" ]; then
       echo "install.sh: no checksum found for ${tarball_name}" >&2
       exit 1
     fi
-    if ! printf '%s\n' "$checksum_line" | "${sha_cmd[@]}"; then
+    if ! (cd "$TMPDIR" && printf '%s\n' "$checksum_line" | "${sha_cmd[@]}"); then
       echo "install.sh: checksum verification failed for ${tarball_name}" >&2
       exit 1
     fi
