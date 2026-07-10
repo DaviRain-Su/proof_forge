@@ -35,4 +35,5 @@ scripts/near/sandbox-peer-smoke/target/
 id.json
 *.mnemonic
 *.seed
-*keypair*
+*.keypair.json
+*keypair.json
