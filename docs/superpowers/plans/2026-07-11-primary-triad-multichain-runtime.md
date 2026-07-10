@@ -709,7 +709,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | ID | Deliverable | Primary files | Acceptance | Depends | State |
 |---|---|---|---|---|---|
 | T-00 | Requirement-level standards manifests and evidence model; replace broad `Covered` claims | `docs/sdk-ecosystem-gaps-2026-07.md`, new `ProofForge/Contract/Compliance.lean`, `Tests/StandardCompliance.lean` | Stable requirement IDs cover interface, behavior and security obligations; status binds adapter version, artifact digest, oracle version and actual run result | none | done: verified@fd137842; `just standard-compliance`, `just docs-check`, `just product` |
-| E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | pending |
+| E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | done: verified@71bdfa71; `just evm-abi-schema`, `just portable-counter-multi-target`, `just evm-foundry` |
 | E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | pending |
 | E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | pending |
 | E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | in_progress: initial expression lowering committed at bbc4fb9d |
@@ -850,13 +850,13 @@ token artifact tests.
 **Files:** Modify `ProofForge/Cli/EvmAbi.lean`, the contract ABI/spec schema,
 EVM validators, and focused ABI/dispatcher tests.
 
-- [ ] Add a regression where an advertised selector and actual parameter schema
+- [x] Add a regression where an advertised selector and actual parameter schema
       disagree and prove the current path accepts or misreports it.
-- [ ] Derive selectors from the same canonical function schema consumed by the
+- [x] Derive selectors from the same canonical function schema consumed by the
       dispatcher and client; reject manual overrides that disagree.
-- [ ] Compare emitted ABI JSON, dispatcher decode widths/types, and runtime call
+- [x] Compare emitted ABI JSON, dispatcher decode widths/types, and runtime call
       behavior for static and dynamic arguments.
-- [ ] Run the focused ABI tests, `just product`, `just evm-foundry`, and commit.
+- [x] Run the focused ABI tests, `just product`, `just evm-foundry`, and commit.
 
 ### Task 4: E-P0-02 Atomic ERC-2612
 
