@@ -115,6 +115,29 @@ Research candidates, not canonical ids yet:
 Do not add these to `ProofForge.Target.Capability` until a target profile and lowering rules
 are reviewed.
 
+## Lowering sketch (portable IR → Noir) — Road 1 implementation map
+
+Grounded in `noir-lang/noir` (`test_programs`, `noir_stdlib/src/hash/poseidon2.nr`).
+Noir-core maps closely to `psy-dpn` (both ZK-circuit sourcegen); the first spike is a
+pure-function circuit (no Aztec state).
+
+| Portable IR | Noir | Notes |
+|---|---|---|
+| `u8/u16/u32/u64/u128` | `u8/u16/u32/u64/u128` | Noir has the full integer widths — closer to the portable IR than Leo. |
+| `bool` | `bool` | direct |
+| `field` / `hash` | `Field` | a Noir `Field` is the native circuit element; a Poseidon digest is a `Field` (RFC 0015 `Hash ≡ field` applies). |
+| `address` | `Field` | Aztec addresses are `Field`; first spike treats address as `Field`. |
+| `fixedArray T N` | `[T; N]` | direct |
+| `structType` | `struct` | direct |
+| `Expr.add/sub/mul/…` (wrapping) | `+ - * …` | Noir integer arithmetic wraps by default (matches portable wrapping default). |
+| `Expr.assert` / `assertEq` | `assert(cond)` / `assert(lhs == rhs)` | Noir `assert` is the circuit constraint. |
+| `Expr.hash preimage` | `std::hash::Poseidon2Hasher` (or `std::hash<…>`) | Noir stdlib ships Poseidon2 — same algorithm family as Aleo/Psy (capability-portable, not value-portable, per RFC 0015). |
+| `if/else`, `boundedFor` | `if` / `for i in 0..n` | Noir supports both (bounded `for` unrolls into constraints). |
+| `letBind/assign/return` | `let` (immutable) / `let mut` / trailing expr | Noir returns the trailing expression. |
+| entrypoint | `fn main(..)` constrained | one constrained `fn` per proof; `pub` marks public inputs. |
+
+**First-spike fixture:** `PureMath` (pure arithmetic, no state) → a Noir `fn main(a: u64, b: u64) -> u64 { a + b }` package + `nargo compile`/`nargo test`. This is the Road 1 exit and the prerequisite for the Lampe FV-import (Road 2).
+
 ## Implementation Roads
 
 ### Road 1: Noir package sourcegen (the codegen prerequisite)
