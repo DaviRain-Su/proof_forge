@@ -1,0 +1,19 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "external-vault",
+  "source": "src/lib.rs",
+  "peer": "peer/",
+  "proofForgeSource": "Examples/Product/ExternalVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "ExternalVault",
+  "scenario": {
+    "offline": ["initialize", "deposit_assets → promise deposit on vault.peer"],
+    "live": ["deploy vault peer", "rebuild PF with --peer vault.peer=<id>", "initialize + deposit_assets"]
+  },
+  "honesty": [
+    "Protocol client to external vault peer (not full ERC-4626 body).",
+    "PF method name is convertToShares; mock peer uses convert_to_shares for sdk and deposit for both.",
+    "PF deposit promise may use raw LE pairs; mock peer accepts LE input."
+  ]
+}

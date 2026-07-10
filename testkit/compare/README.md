@@ -104,9 +104,17 @@ just near-compare-auth-remote-call-live
 just near-compare-access-control
 just near-compare-access-control-live
 
+# External protocol clients (peer mocks)
+just near-compare-external-token-transfer
+just near-compare-external-token-transfer-live
+just near-compare-external-vault
+just near-compare-external-vault-live
+
 # All live dual-deploys
 just near-compare-all-live
 ```
+
+**Full ranked matrix + Product scan:** [`MATRIX.md`](./MATRIX.md).
 
 Reports under `build/testkit/compare/near/<contract>/`:
 
@@ -200,6 +208,31 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | AuthRemoteCall | deploy gas | 6.64e11 | 1.30e13 | **~19.6×** |
 | AuthRemoteCall | call gas | 4.35e12 | 4.83e12 | **~1.11×** |
 | AuthRemoteCall | storage | 1330 B | 174222 B | **~131.0×** |
+| ExternalTokenTransfer | wasm | **1629 B** | 180222 B | **~110.6×** |
+| ExternalTokenTransfer | deploy gas | 7.02e11 | 1.35e13 | **~19.2×** |
+| ExternalTokenTransfer | call gas | 4.37e12 | 4.93e12 | **~1.13×** |
+| ExternalTokenTransfer | storage | 1870 B | 180504 B | **~96.5×** |
+| ExternalVault | wasm | **1272 B** | 176107 B | **~138.4×** |
+| ExternalVault | deploy gas | 6.76e11 | 1.32e13 | **~19.5×** |
+| ExternalVault | call gas | 4.26e12 | 4.82e12 | **~1.13×** |
+| ExternalVault | storage | 1513 B | 176389 B | **~116.6×** |
+
+### Compact comparison (wasm×, ranked)
+
+| Rank | Contract | wasm× | call× | PF wasm |
+|-----:|----------|------:|------:|--------:|
+| 1 | Ownable | **~256×** | ~1.13× | 627 B |
+| 2 | StorageDeposit | **~196×** | ~1.18× | 895 B |
+| 3 | AccessControl | **~177×** | ~1.26× | 1055 B |
+| 4 | AuthRemoteCall | **~159×** | ~1.11× | ~1.1 KB |
+| 5 | ExternalVault | **~138×** | ~1.13× | 1272 B |
+| 6 | ReentrancyGuard / Array / Pausable | **~131×** | ~1.05–1.08× | 374–415 B |
+| … | Status / GuestBook / OwnableHash / ExtFT | **~111–126×** | ~1.06–1.25× | 0.6–1.6 KB |
+| … | OwnablePausable / Fee / Staking / RGT | **~88–98×** | ~1.06–1.20× | 0.8–2.4 KB |
+| … | HostEnv / ValueVault | **~76–84×** | ~1.11–1.16× | 0.9–2 KB |
+| last | FungibleToken (richest body) | **~48×** | ~1.10× | 3860 B |
+
+**Pattern:** PF is always far smaller in **wasm / storage / deploy gas**. **Call gas** stays near parity (~1.05–1.26×) because storage host ops dominate.
 
 Fairness notes:
 
@@ -218,6 +251,8 @@ Fairness notes:
 - HostEnvProbe checks identity limbs + snapshot success; absolute time/height are host-defined.
 - AccessControl: wasm-near lowers `.address` to U64 (sha256 limb0); nested role maps.
 - AuthRemoteCall: promise body is raw LE u64 amount; peer `receive` parses `env::input()`.
+- ExternalTokenTransfer / ExternalVault are **Layer B peer clients** with mock peers (not full FT/4626).
+- **Not in matrix:** SoulboundToken (TokenSpec-only), ERC4626Vault (stdlib olean gap).
 
 ## Contracts
 
@@ -242,5 +277,7 @@ Fairness notes:
 | `host-env-probe` | `just near-compare-host-env-probe-live` | `Examples/Product/HostEnvProbe.lean` |
 | `auth-remote-call` | `just near-compare-auth-remote-call-live` | `Examples/Product/AuthRemoteCall.lean` |
 | `access-control` | `just near-compare-access-control-live` | `Examples/Product/AccessControl.lean` |
+| `external-token-transfer` | `just near-compare-external-token-transfer-live` | `Examples/Product/ExternalTokenTransfer.lean` |
+| `external-vault` | `just near-compare-external-vault-live` | `Examples/Product/ExternalVault.lean` |
 
-Expansion charter: `testkit/compare/GOAL.md`.
+Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

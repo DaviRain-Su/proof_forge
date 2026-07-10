@@ -23,6 +23,8 @@ pub(crate) enum ContractKind {
     HostEnvProbe,
     AuthRemoteCall,
     AccessControl,
+    ExternalTokenTransfer,
+    ExternalVault,
 }
 
 impl ContractKind {
@@ -47,6 +49,11 @@ impl ContractKind {
             "host-env-probe" | "hostenvprobe" | "hostenv" => Ok(Self::HostEnvProbe),
             "auth-remote-call" | "authremotecall" | "auth_remote" => Ok(Self::AuthRemoteCall),
             "access-control" | "accesscontrol" | "acl" => Ok(Self::AccessControl),
+            "external-token-transfer"
+            | "externaltokentransfer"
+            | "ext-ft"
+            | "external_token" => Ok(Self::ExternalTokenTransfer),
+            "external-vault" | "externalvault" | "ext-vault" => Ok(Self::ExternalVault),
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -72,6 +79,8 @@ impl ContractKind {
             Self::HostEnvProbe => "host-env-probe",
             Self::AuthRemoteCall => "auth-remote-call",
             Self::AccessControl => "access-control",
+            Self::ExternalTokenTransfer => "external-token-transfer",
+            Self::ExternalVault => "external-vault",
         }
     }
 }

@@ -23,7 +23,10 @@ use anyhow::{bail, Context, Result};
 use crate::host::ensure_file;
 use crate::kind::ContractKind;
 use crate::report::{write_dual_report, Args, SideKind};
-use crate::scenarios::{run_auth_remote_call_matrix, run_remote_call_matrix, run_side};
+use crate::scenarios::{
+    run_auth_remote_call_matrix, run_external_token_transfer_matrix, run_external_vault_matrix,
+    run_remote_call_matrix, run_side,
+};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -70,7 +73,10 @@ async fn run() -> Result<()> {
 
     if matches!(
         args.contract,
-        ContractKind::RemoteCall | ContractKind::AuthRemoteCall
+        ContractKind::RemoteCall
+            | ContractKind::AuthRemoteCall
+            | ContractKind::ExternalTokenTransfer
+            | ContractKind::ExternalVault
     ) {
         let callee = args
             .callee_wasm
@@ -90,6 +96,20 @@ async fn run() -> Result<()> {
             }
             ContractKind::AuthRemoteCall => {
                 run_auth_remote_call_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee)
+                    .await?
+            }
+            ContractKind::ExternalTokenTransfer => {
+                run_external_token_transfer_matrix(
+                    &worker,
+                    repo,
+                    &args.pf_wasm,
+                    &args.sdk_wasm,
+                    callee,
+                )
+                .await?
+            }
+            ContractKind::ExternalVault => {
+                run_external_vault_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee)
                     .await?
             }
             _ => unreachable!(),

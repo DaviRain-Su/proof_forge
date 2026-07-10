@@ -80,6 +80,12 @@ fn main() -> Result<()> {
         ["near", "access-control"] | ["near", "accesscontrol"] | ["near", "acl"] => {
             run_near_access_control(&repo_root, &args)
         }
+        ["near", "external-token-transfer"]
+        | ["near", "externaltokentransfer"]
+        | ["near", "ext-ft"] => run_near_external_token_transfer(&repo_root, &args),
+        ["near", "external-vault"] | ["near", "externalvault"] | ["near", "ext-vault"] => {
+            run_near_external_vault(&repo_root, &args)
+        }
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -87,7 +93,7 @@ fn main() -> Result<()> {
                   role-gated-token, fee-token, remote-call, status-message, guestbook, \
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
-                  access-control)"
+                  access-control, external-token-transfer, external-vault)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -167,7 +173,7 @@ fn print_usage() {
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
                     storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
                     array-example|ownable-hash|host-env-probe|auth-remote-call|\n\
-                    access-control\n\n\
+                    access-control|external-token-transfer|external-vault\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -2081,6 +2087,303 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "Triad-safe HostEnv only (time/height/self/caller).",
             "Absolute time/height are host-defined; identity limbs are sha256 first-8 LE.",
+        ],
+    )
+}
+
+fn run_near_external_protocol_client(
+    repo_root: &Path,
+    args: &Args,
+    contract: &str,
+    fixture_rel: &str,
+    pf_source_rel: &str,
+    artifact_name: &str,
+    sdk_release_wasm: &str,
+    peer_release_wasm: &str,
+    wat_candidates: &[&str],
+    required_entrypoints: &[&str],
+    offline_calls: &[&str],
+    offline_inputs: &str,
+    offline_needles: &[&str],
+    honesty: &[&str],
+) -> Result<()> {
+    let fixture_dir = repo_root.join(fixture_rel);
+    let peer_dir = fixture_dir.join("peer");
+    let manifest_path = fixture_dir.join("reference-manifest.json");
+    let reference_source = fixture_dir.join("src/lib.rs");
+    let pf_source = repo_root.join(pf_source_rel);
+    ensure!(manifest_path.is_file(), "missing {}", manifest_path.display());
+    ensure!(reference_source.is_file(), "missing {}", reference_source.display());
+    ensure!(pf_source.is_file(), "missing {}", pf_source.display());
+    ensure!(peer_dir.is_dir(), "missing peer crate {}", peer_dir.display());
+
+    let out_root = repo_root.join(format!("build/testkit/compare/near/{contract}"));
+    let pf_dir = out_root.join("proof-forge");
+    let sdk_dir = out_root.join("near-sdk");
+    let peer_out = out_root.join("peer");
+    let report_path = out_root.join("report.json");
+    if out_root.exists() {
+        fs::remove_dir_all(&out_root)?;
+    }
+    fs::create_dir_all(&pf_dir)?;
+    fs::create_dir_all(&sdk_dir)?;
+    fs::create_dir_all(&peer_out)?;
+
+    println!("=== testkit-compare near/{contract}: build ProofForge ===");
+    build_proof_forge_near(repo_root, &pf_source, &pf_dir, artifact_name)?;
+    let wat_path = wat_candidates
+        .iter()
+        .map(|n| pf_dir.join(n))
+        .find(|p| p.is_file())
+        .with_context(|| format!("{contract} WAT missing"))?;
+    let wasm_path = wat_path.with_extension("wasm");
+    if !wasm_path.is_file() {
+        run_checked(
+            Command::new("wat2wasm")
+                .current_dir(repo_root)
+                .arg(&wat_path)
+                .arg("-o")
+                .arg(&wasm_path),
+            "wat2wasm",
+        )?;
+    }
+    let artifact_path = pf_dir.join(artifact_name);
+
+    println!("=== testkit-compare near/{contract}: entrypoint equivalence ===");
+    check_equivalence_subset(&artifact_path, &reference_source, required_entrypoints)?;
+
+    println!("=== testkit-compare near/{contract}: offline promise scenario ===");
+    let semantic_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        offline_calls,
+        OfflineHostOpts {
+            inputs_hex_csv: offline_inputs,
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+    )?;
+    for needle in offline_needles {
+        ensure!(
+            semantic_out.contains(needle),
+            "expected offline needle `{needle}`\n{semantic_out}"
+        );
+    }
+    println!("{semantic_out}");
+
+    println!(
+        "=== testkit-compare near/{contract}: offline fuel bench (repeat={}) ===",
+        args.repeat
+    );
+    let bench_started = Instant::now();
+    let bench_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        offline_calls,
+        OfflineHostOpts {
+            inputs_hex_csv: offline_inputs,
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: args.repeat,
+        },
+    )?;
+    let wall_ms = bench_started.elapsed().as_secs_f64() * 1000.0;
+    let fuel = parse_fuel_summary(&bench_out);
+
+    let mut sdk_built = false;
+    let mut sdk_note = "skipped".to_string();
+    let mut sdk_wasm_bytes: Option<u64> = None;
+    let mut peer_wasm_bytes: Option<u64> = None;
+    let sdk_wasm_path = sdk_dir.join("contract.wasm");
+    let peer_wasm_path = peer_out.join("contract.wasm");
+    if args.build_sdk {
+        println!("=== testkit-compare near/{contract}: build near-sdk client + peer ===");
+        match build_near_sdk_wasm(repo_root, &fixture_dir, &sdk_dir, sdk_release_wasm) {
+            Ok(bytes) => {
+                sdk_built = true;
+                sdk_wasm_bytes = Some(bytes);
+                sdk_note = "built".to_string();
+            }
+            Err(err) => {
+                sdk_note = format!("client build failed: {err:#}");
+                if args.live {
+                    bail!("--live requires sdk client: {sdk_note}");
+                }
+            }
+        }
+        match build_near_sdk_wasm(repo_root, &peer_dir, &peer_out, peer_release_wasm) {
+            Ok(bytes) => peer_wasm_bytes = Some(bytes),
+            Err(err) => {
+                if args.live {
+                    bail!("--live requires peer wasm: {err:#}");
+                }
+                eprintln!("WARN: peer build failed: {err:#}");
+            }
+        }
+    }
+
+    let mut sandbox_section = json!({
+        "requested": args.live,
+        "status": if args.live { "pending" } else { "not_requested" },
+    });
+    if args.live {
+        ensure!(
+            sdk_built && sdk_wasm_path.is_file() && peer_wasm_path.is_file(),
+            "--live: need sdk client + peer wasms"
+        );
+        println!("=== testkit-compare near/{contract}: NEAR Sandbox dual deploy ===");
+        let sandbox_report = out_root.join("sandbox-report.json");
+        match run_near_sandbox_dual_ext(
+            repo_root,
+            contract,
+            &wasm_path,
+            &sdk_wasm_path,
+            &sandbox_report,
+            Some(&peer_wasm_path),
+        ) {
+            Ok(SandboxRun::Passed { report }) => {
+                println!("sandbox dual-deploy: passed (real NEAR gas)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::Skipped { reason }) => {
+                eprintln!("sandbox dual-deploy: SKIP — {reason}");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "skipped",
+                    "detail": { "reason": reason },
+                });
+            }
+            Err(err) => bail!("NEAR Sandbox dual-deploy FAILED: {err:#}"),
+        }
+    }
+
+    let pf_wasm_bytes = file_len(&wasm_path)?;
+    let pf_wat_bytes = file_len(&wat_path)?;
+    let mut comparison = json!({
+        "proofForgeWasmBytes": pf_wasm_bytes,
+        "proofForgeWatBytes": pf_wat_bytes,
+        "nearSdkWasmBytes": sdk_wasm_bytes,
+        "peerWasmBytes": peer_wasm_bytes,
+    });
+    if let Some(obj) = comparison.as_object_mut() {
+        if let Some(sdk) = sdk_wasm_bytes {
+            if pf_wasm_bytes > 0 {
+                obj.insert(
+                    "nearSdkWasm_vs_proofForgeWasm_ratio".into(),
+                    json!(round3(sdk as f64 / pf_wasm_bytes as f64)),
+                );
+            }
+        }
+        if let Some(detail) = sandbox_section.get("detail") {
+            if let Some(cmp) = detail.get("comparison") {
+                obj.insert("sandbox".into(), cmp.clone());
+            }
+        }
+    }
+
+    let report = json!({
+        "schema": "proof-forge.testkit.compare.v0",
+        "chain": "near",
+        "contract": contract,
+        "fixtureDir": fixture_rel,
+        "scenario": {
+            "semantic": offline_needles.join(" + "),
+            "repeat": args.repeat,
+        },
+        "implementations": {
+            "proof-forge-emitwat": {
+                "source": pf_source_rel,
+                "target": "wasm-near",
+                "watPath": rel(repo_root, &wat_path),
+                "wasmPath": rel(repo_root, &wasm_path),
+                "wasmBytes": pf_wasm_bytes,
+                "watBytes": pf_wat_bytes,
+                "wasmtimeFuel": fuel,
+                "wallClockMs": round3(wall_ms),
+            },
+            "near-sdk-rs": {
+                "source": fixture_rel,
+                "peer": format!("{fixture_rel}/peer"),
+                "built": sdk_built,
+                "note": sdk_note,
+                "wasmBytes": sdk_wasm_bytes,
+                "peerWasmBytes": peer_wasm_bytes,
+            },
+        },
+        "sandbox": sandbox_section,
+        "comparison": comparison,
+        "honesty": honesty,
+    });
+    fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report)? + "\n",
+    )?;
+    println!("{}", serde_json::to_string_pretty(&comparison)?);
+    println!("wrote {}", rel(repo_root, &report_path));
+    println!("testkit-compare near/{contract}: ok");
+    Ok(())
+}
+
+fn run_near_external_token_transfer(repo_root: &Path, args: &Args) -> Result<()> {
+    let pay = {
+        let mut v = 7u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&50u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let inputs = format!(",{pay}");
+    run_near_external_protocol_client(
+        repo_root,
+        args,
+        "external-token-transfer",
+        "testkit/compare/near/external-token-transfer",
+        "Examples/Product/ExternalTokenTransfer.lean",
+        "ExternalTokenTransfer.near-artifact.json",
+        "pf_near_sdk_external_token_transfer_reference.wasm",
+        "pf_near_sdk_external_ft_peer_reference.wasm",
+        &["externaltokentransfer.wat", "ExternalTokenTransfer.wat"],
+        &["initialize", "pay", "set_allowance", "read_balance", "read_supply"],
+        &["initialize", "pay"],
+        &inputs,
+        &["promise_create", "ft_transfer", "usdc.peer"],
+        &[
+            "Layer B NEP-141 peer client — not a full FT body.",
+            "Live rebuilds PF with --peer usdc.peer=<mock FT>.",
+            "u64 recipient → account id packing may differ (PF pool vs sdk synthetic strings).",
+        ],
+    )
+}
+
+fn run_near_external_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    let dep = {
+        let mut v = 100u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&7u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let inputs = format!(",{dep}");
+    run_near_external_protocol_client(
+        repo_root,
+        args,
+        "external-vault",
+        "testkit/compare/near/external-vault",
+        "Examples/Product/ExternalVault.lean",
+        "ExternalVault.near-artifact.json",
+        "pf_near_sdk_external_vault_reference.wasm",
+        "pf_near_sdk_external_vault_peer_reference.wasm",
+        &["externalvault.wat", "ExternalVault.wat"],
+        &["initialize", "deposit_assets", "preview_shares", "read_total_assets"],
+        &["initialize", "deposit_assets"],
+        &inputs,
+        &["promise_create", "deposit", "vault.peer"],
+        &[
+            "Layer B external vault peer client — not full ERC-4626 body.",
+            "Live rebuilds PF with --peer vault.peer=<mock vault>.",
+            "ERC4626Vault stdlib body not in matrix (build/TokenSpec gap).",
         ],
     )
 }

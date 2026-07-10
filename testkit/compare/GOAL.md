@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: verified@cba90680** — Wave 0–6 live matrix (19 contracts).
-Optional: UTF-8 string KV.
+Status: **Complete: Wave 0–7** — 21 live dual-deploy contracts; MATRIX.md ranked.
+Blocked Product: SoulboundToken (TokenSpec), ERC4626Vault (stdlib olean).
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
@@ -154,6 +154,9 @@ eligible offline slice.
 | 5 | NC-5.3 | HostEnvProbe triad snapshot | done: live semanticMatch; wasm ~84× | honesty: time/height host-defined |
 | 6 | NC-6.1 | AuthRemoteCall debit + promise | done: live semanticMatch; wasm ~159× | multi-account + peer rebuild |
 | 6 | NC-6.2 | AccessControl role map | done: live semanticMatch; wasm ~177× | .address→U64 on NEAR |
+| 7 | NC-7.1 | ExternalTokenTransfer NEP-141 client | done: live ~111× wasm; mock FT peer | Layer B |
+| 7 | NC-7.2 | ExternalVault peer client | done: live ~138× wasm; mock vault peer | Layer B |
+| 7 | NC-7.3 | Product scan + MATRIX.md comparison | done | Soulbound/ERC4626 blocked |
 
 ### Task briefs
 

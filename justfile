@@ -553,8 +553,22 @@ near-compare-access-control:
 near-compare-access-control-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near access-control --live
 
+# ExternalTokenTransfer (NEP-141 peer client).
+near-compare-external-token-transfer:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near external-token-transfer
+
+near-compare-external-token-transfer-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near external-token-transfer --live
+
+# ExternalVault (vault peer client).
+near-compare-external-vault:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near external-vault
+
+near-compare-external-vault-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near external-vault --live
+
 # Full matrix.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live near-compare-auth-remote-call-live near-compare-access-control-live
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live near-compare-auth-remote-call-live near-compare-access-control-live near-compare-external-token-transfer-live near-compare-external-vault-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare
