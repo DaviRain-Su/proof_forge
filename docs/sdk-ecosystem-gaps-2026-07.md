@@ -12,6 +12,43 @@ that block the goal of broad developer coverage on each chain.
 Each section is ordered by priority (P0 = blocks "any contract", P1 =
 blocks common patterns, P2 = polish / broader coverage).
 
+## Compliance vocabulary
+
+Implementation coverage is not standard compliance. A source file, selector,
+golden artifact, or named smoke proves only the behavior it actually executes.
+`just standard-compliance` is the machine gate for standard claims:
+
+- `exact`: every applicable requirement has passing evidence bound to the
+  adapter version, artifact digest, oracle version, command, toolchain, and run
+  result.
+- `scoped`: the same evidence rule passes for an explicit requirement subset.
+- `experimental`: evidence is missing, failed, skipped, or not yet bound at
+  requirement level.
+
+Current audit output is intentionally conservative. Existing smokes have not
+yet been migrated into requirement-bound reports, so none of these standards
+is currently `exact`:
+
+| Manifest id | Machine level | Scope |
+|---|---|---|
+| `erc-20` | `experimental` | ERC-20 mandatory interface/behavior |
+| `proof-forge-erc20-product` | `experimental` | Optional metadata and product policies |
+| `erc-165` | `experimental` | Interface discovery |
+| `erc-721` | `experimental` | NFT core |
+| `erc-1155` | `experimental` | Multi-token core |
+| `erc-2612` | `experimental` | Atomic permit |
+| `erc-4626` | `experimental` | Tokenized vault |
+| `erc-173` | `experimental` | Ownership interface |
+| `proof-forge-role-access` | `experimental` | Role-access product profile |
+| `nep-141` | `experimental` | NEAR fungible token |
+| `nep-145` | `experimental` | NEAR storage management |
+| `spl-token` | `experimental` | Solana Token Program |
+| `spl-token-2022` | `experimental` | Solana Token-2022 extensions |
+
+The tables below retain implementation details, but their status cells must not
+be interpreted as a compliance level unless they use one of the three terms
+above.
+
 ---
 
 ## EVM
@@ -25,20 +62,20 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| ERC-20 | Covered | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | — |
-| ERC-721 (NFT) | Covered | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Backend/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **PF-P2-02:** `safeTransferFrom` invokes `onERC721Received` when `extcodesize(to) > 0` (magic `0x150b7a02`); Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}` in `scripts/evm/foundry-smoke.sh` | — |
-| ERC-1155 (multi-token) | Covered (size-2 batch) | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, single `safeTransferFrom`, and **size-2 batch** `safeBatchTransferFrom2` with **E1.2** `onERC1155BatchReceived` (fixed two ids); golden Yul + Foundry `testERC1155SafeBatchTransferFrom2` + accept/reject batch receiver. **Limitation:** arbitrary-length dynamic-array batch ABI remains open | P1 remain: dynamic-length batch |
-| ERC-4626 (vault standard) | Covered (v1 frozen) | **Call** peer: `IERC4626` / `external_vault`. **Deploy body:** `Stdlib.ERC4626` pro-rata + entry/exit feeBps + FOT vault+recipient deltas (`just product-erc4626-vault`). **v2:** fee-recipient re-measure; non-EVM vault body | — |
-| ERC-2612 (permit) | Covered (EVM) | Peer client + stdlib body + **TokenSpec `moduleFor` merges ERC20Permit** when `permit` feature set (`Tests/TokenEvm`). DOMAIN still init-set; staged `setPermitSig` | — |
+| ERC-20 | Implemented subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | Bind every ERC-20 requirement to artifact/runtime evidence |
+| ERC-721 (NFT) | Implemented transfer subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); mandatory balance/approval/operator surfaces and canonical address ABI remain incomplete. **PF-P2-02:** `safeTransferFrom` invokes `onERC721Received` when `extcodesize(to) > 0` (magic `0x150b7a02`); Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}` in `scripts/evm/foundry-smoke.sh` | P0: mandatory core and requirement evidence |
+| ERC-1155 (multi-token) | Implemented fixed-size subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC1155.lean` covers balances, operator approvals, mint, burn, single `safeTransferFrom`, and custom size-2 `safeBatchTransferFrom2`; this is not the standard arbitrary-length dynamic batch/`TransferBatch` surface | P0: canonical dynamic batch, receiver data, discovery, and evidence |
+| ERC-4626 (vault standard) | Implemented vault subset; compliance `experimental` | **Call** peer: `IERC4626` / `external_vault`. **Deploy body:** `Stdlib.ERC4626` pro-rata + entry/exit feeBps + FOT vault+recipient deltas (`just product-erc4626-vault`). Share allowance/delegated exits, total-assets policy, full-width math, and atomic init remain open | P0/P1: close manifest and bind evidence |
+| ERC-2612 (permit) | Non-compliant staged implementation; compliance `experimental` | Peer client + stdlib body + **TokenSpec `moduleFor` merges ERC20Permit** when `permit` feature set (`Tests/TokenEvm`). Public `setPermitSig` plus a second permit call is not atomic ERC-2612 | P0: replace with canonical atomic permit |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
-| ERC-165 (supportsInterface) | Covered | `ProofForge/Contract/Stdlib/ERC165.lean` stdlib mixin (supportsInterface + registerInterface); `Examples/Backend/Evm/Contracts/stdlib/ERC165.lean` golden Yul | — |
+| ERC-165 (supportsInterface) | Mutable subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC165.lean` exposes supportsInterface + public registerInterface; the advertised set is not immutable and must reject `0xffffffff` | P0 |
 
 ### Access patterns
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Ownable | Covered | `stdlib/Ownable.lean` — owner storage, onlyOwner, transfer, renounce | — |
-| AccessControl (roles) | Covered | `stdlib/AccessControl.lean` — `grantRole`/`revokeRole`/`hasRole` + nested map `(role, account) → membership` + `guard_role` DSL statement; `Examples/Backend/Evm/Contracts/stdlib/AccessControl.lean` golden Yul | — |
+| Ownable / ERC-173 | Implemented policy subset; compliance `experimental` | `stdlib/Ownable.lean` — owner storage, onlyOwner, transfer, renounce; canonical address ABI, event, and one-shot initialization remain in the ERC-173 manifest | P0 |
+| AccessControl (roles) | Implemented policy subset; profile `experimental` | `stdlib/AccessControl.lean` — `grantRole`/`revokeRole`/`hasRole` + nested map `(role, account) → membership` + `guard_role` DSL statement; canonical role/event/admin/renounce behavior remains open | P0/P1 |
 | Pausable | Covered (limited) | `stdlib/Pausable.lean` has pause/unpause + `guard_not_paused`/`guard_paused` DSL statements + Lean proof (`not_paused_zero`); `Examples/Backend/Evm/Contracts/stdlib/Pausable.lean` golden Yul. **Limitation:** pause/unpause have no built-in owner/role auth (compose with Ownable/AccessControl for guarded pause) | P1 |
 | ReentrancyGuard | Covered | `stdlib/ReentrancyGuard.lean` — reusable `acquireLock`/`releaseLock` mixin via `acquire_lock`/`release_lock` DSL statements; `Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean` golden Yul. VerifiedVault hand-rolled guard predates the stdlib | — |
 
@@ -95,6 +132,10 @@ missing.
 
 ### CPI coverage
 
+The `Covered` labels in this table mean that the named instruction slice has a
+test. They do not make the aggregate SPL Token manifest exact; its current
+machine compliance level is `experimental` until the evidence rows are bound.
+
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | System transfer | Covered | Live Surfpool + Pinocchio reference | — |
@@ -108,6 +149,11 @@ missing.
 | ComputeBudgetInstruction | Covered | Solana manifest/IDL/client/package metadata exposes per-entrypoint compute-unit limit and priority-fee advice; generated TS clients emit `ComputeBudgetProgram` pre-instructions | — |
 
 ### Token-2022 extensions
+
+Each row below is extension-level implementation evidence, not an aggregate
+Token-2022 compliance claim. The versioned extension schema, compatibility,
+account-space, initialization-order, and authority requirements remain
+`experimental` in `just standard-compliance`.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
@@ -182,12 +228,12 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| NEP-141 (fungible token) | Partial (N1.3) | `just product-token-near`: Product TokenSpec plan + generic stdlib body WAT + Backend-wrapper offline mint/transfer conformance; these are not yet one parameterized Product runtime artifact. `just wasm-near-ft-transfer-call-e2e` covers transfer_call/resolve; bare TokenSpec `build` needs `--token` | P0 remain: TokenSpec → parameterized runtime artifact; P1: NEP-148 metadata, optional live sandbox dual deploy |
-| NEP-145 (storage management) | Partial (N1.5) | Product `storage_deposit` plus caller-bound `storage_withdraw` **ledger debit**; `just near-storage-deposit-offline` checks 7→4 and rejects cross-account debit; sandbox compare runs the same projected balance sequence | P0 remain: 1-yocto guard and predecessor refund Promise; P1: JSON `StorageBalance`, unregister |
+| NEP-141 (fungible token) | Implemented lite subset; compliance `experimental` | `just product-token-near`: Product TokenSpec plan + generic stdlib body WAT + Backend-wrapper offline mint/transfer conformance; current Borsh/Hash/U64 shape is not the standard JSON AccountId/U128 contract and security requirements remain open | P0: parameterized interoperable runtime and bound evidence |
+| NEP-145 (storage management) | Implemented ledger subset; compliance `experimental` | Product `storage_deposit` plus caller-bound `storage_withdraw` ledger debit; canonical JSON objects, refunds, unregister, complete one-yocto behavior, and requirement evidence remain open | P0/P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
 | NEP-171 (NFT) | Missing | No NFT example | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
-| NEP-448 (multi-token) | Missing | No multi-token example | P2 |
+| NEP-245 (multi-token) | Missing | No multi-token example | P2 |
 
 ### Account model
 

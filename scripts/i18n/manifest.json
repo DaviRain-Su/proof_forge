@@ -163,7 +163,7 @@
     "model": "manual-zh",
     "en_sha256": "474529032de93d7d0be3cf2bddd5e1802f08a3ef9a06c4c0ad82d8cb68e23cf4"
   },
-  "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
+  "docs/sdk-ecosystem-gaps-2026-07.md": "52f5cc9d6a56c8ca95c492e2441821a859e6e85afe5097c1299d21dab2e185e8",
   "docs/tutorials/portable-shared-path.md": {
     "sha256": "01bc8f804f62c56a171796721b7adbba2fd36955bdedbc48187f7020236ace08",
     "zh": "docs/zh/tutorials/portable-shared-path.zh.md",

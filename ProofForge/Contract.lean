@@ -1,5 +1,6 @@
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Client
+import ProofForge.Contract.Compliance
 import ProofForge.Contract.Examples
 import ProofForge.Contract.Intent
 import ProofForge.Contract.Learn

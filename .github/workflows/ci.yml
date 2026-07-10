@@ -157,6 +157,9 @@ jobs:
       - name: Check target registry
         run: just target-registry
 
+      - name: Check standard compliance evidence
+        run: just standard-compliance
+
       - name: Check ContractSpec JSON schema
         run: just contract-spec-json
 
