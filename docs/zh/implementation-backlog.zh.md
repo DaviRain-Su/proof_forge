@@ -1,5 +1,5 @@
 > **注意：** 公共验证命令的更改必须同时更新
-> 同一更改中的 [validation-gates.md](validation-gates.md)。
+> 同一更改中的 [[validation-gates.md](validation-gates.zh.md)。
 
 # 实现待办事项
 
@@ -9,13 +9,13 @@
 
 相关文档：
 
-- [设计决策](decisions.md)
-- [可移植合约 IR](portable-ir.md)
-- [能力注册表](capability-registry.md)
-- [共享场景：Counter](shared-scenario.md)
-- [RFC 0002](rfcs/0002-target-implementation-design.md)
+- [[设计决策](decisions.zh.md)
+- [[可移植合约 IR](portable-ir.zh.md)
+- [[能力注册表](capability-registry.zh.md)
+- [[共享场景：Counter](shared-scenario.zh.md)
+- [[RFC 0002](rfcs/0002-target-implementation-design.zh.md)
 - [目标说明](targets-README.zh.md)
-- [验证门禁](validation-gates.md)
+- [[验证门禁](validation-gates.zh.md)
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
 
 ## 主三链完成规约（D-045）
@@ -27,7 +27,7 @@
 3. `wasm-near` —— 基于 Wasm 家族后端的 NEAR。
 
 这不是普通的研究路线图偏好，而是产品前置条件，作为 Gate P0 记录在
-[gate-status.md](gate-status.md) 中。“完成”意味着三条链分别具备 target-first
+[[gate-status.md](gate-status.zh.md) 中。“完成”意味着三条链分别具备 target-first
 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖
 以及同步维护的文档。新链实现工作现在不再被 D-045 阻塞。CLI M3 target-first
 迁移已经为 executable callers 落地；Tier-1 M3/M4 的推进仍需要显式排期，
@@ -108,7 +108,7 @@
   `solana-sbpf-asm`, `solana-sbpf-linker` (已取代), `solana-zig-fork`,
   `move-sui`, `move-aptos`, `psy-dpn`。
 - 定义目标家族、制品种类、所需工具和能力集
-  （参见 [capability-registry.md](capability-registry.md)）。
+  （参见 [[capability-registry.md](capability-registry.zh.md)）。
 - 为 CLI 和脚本添加目标查找函数。
 - 已完成：为部署元数据添加 EVM 兼容链的 profile 层，
   从 `evm` 编译器目标下的 `robinhood-chain-testnet` 开始。
@@ -127,10 +127,10 @@
 
 任务：
 
-- 根据 [portable-ir.md](portable-ir.md) 实现 IR 节点类型。
-- 根据 [shared-scenario.md](shared-scenario.md) 表达 Counter。
+- 根据 [[portable-ir.md](portable-ir.zh.md) 实现 IR 节点类型。
+- 根据 [[shared-scenario.md](shared-scenario.zh.md) 表达 Counter。
 - 将 Counter IR 降级到 EVM（直接或通过 EmitYul 适配器）。
-- 将能力检查器连接到 [capability-registry.md](capability-registry.md)。
+- 将能力检查器连接到 [[capability-registry.md](capability-registry.zh.md)。
 
 验收标准：
 
@@ -242,7 +242,7 @@
 
 ## 工作流 2：制品元数据
 
-有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.md)。
+有关当前和计划中的验证命令，请参阅 [[validation-gates.md](validation-gates.zh.md)。
 
 目标：每次构建都应产生机器可读的结果，以便后续提供给 CI 和云平台。
 
@@ -272,7 +272,7 @@
 
 ## 工作流 3：EVM 基线加固
 
-有关当前和计划中的验证命令，请参阅 [validation-gates.md](validation-gates.md)。
+有关当前和计划中的验证命令，请参阅 [[validation-gates.md](validation-gates.zh.md)。
 
 目标：在引入目标模型时保持 EVM 稳定。
 
@@ -420,7 +420,7 @@
 
 任务：
 
-- 添加 `Lean.CosmWasm` SDK 骨架（参见 [wasm-family.md](targets/wasm-family.md)）。
+- 添加 `Lean.CosmWasm` SDK 骨架（参见 [[wasm-family.md](targets/wasm-family.zh.md)）。
 - 添加 `zigc-cosmwasm` 包装器。
 - 添加 `cosmwasm_contract_root.zig`。
 - 导出 `interface_version_8`、`allocate`、`deallocate`、`instantiate`、`execute` 和 `query`。
@@ -788,7 +788,7 @@
 
 ## 工作流 9：CI 扩展
 
-参阅 [validation-gates.md](validation-gates.md) 了解当前和计划中的验证命令。
+参阅 [[validation-gates.md](validation-gates.zh.md) 了解当前和计划中的验证命令。
 
 目标：保持 CI 的实用性，且无需在第一天就要求安装所有外部链工具。
 
@@ -1133,7 +1133,7 @@
 - 重新生成由合并后清单标记的过时 `docs/zh` 翻译（手动合并的决策/能力表已同步；在自动合并下发生更改的叙述性文档应通过 `translate-docs.py` 重新运行）。
 - 决定 Solana bump-allocator 选择是统一在合并后的 `TargetProfile.deploymentAllocator?` 抽象下，还是保持目标本地；在 `decisions.md` 中记录结果。
 - 统一 CI 工作流：合并后的 `.github/workflows/ci.yml` 现在承载 EVM、Solana-light、NEAR 和 Psy 门控；一旦它们的工具链（`leo`、`tsc`/`wrangler`）固定，就将 Aleo 和 TS/Cloudflare 冒烟测试添加为可选作业。
-- 命名清理：决定公开 SDK 名称，安排 `Lean.Evm` → `ProofForge.*` 命名空间重命名，并执行 Learn 冻结（[authoring-model](authoring-model.md)）。
+- 命名清理：决定公开 SDK 名称，安排 `Lean.Evm` → `ProofForge.*` 命名空间重命名，并执行 Learn 冻结（[[authoring-model](authoring-model.zh.md)）。
 - 在 RFC 0004 中宣布 `ContractSpec` → EVM Plan → Yul 为 EVM 产品流水线；将 LCNF → `EmitYul` 标记为 Lean-native Experimental 路径。
   ✅ 已完成（D-046 / CS-6.3）：LCNF `EmitYul` 已移除；RFC 0004 为 Accepted；
   `contract_source` 为产品入口。
@@ -1216,7 +1216,7 @@
 **Completion-first rule（D-044，2026-07-03）：** 先按实现优先级完成三个 Tier-0 target
 —— `solana-sbpf-asm`、`evm`、`wasm-near` —— 达到完整 DoD（行为一致性以及
 D-040 所要求的资源预算），然后才允许推进任何新链。逐项状态记录在
-[gate-status.md](gate-status.md)。
+[[gate-status.md](gate-status.zh.md)。
 
 ### Tier-0 完成（当前最高优先级，阻塞下面所有内容）
 
@@ -1244,7 +1244,7 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 任务：
 
 - 已完成：Gate G0（Tier-0 behavior/budget slice）已关闭。证据记录在
-  [gate-status.md](gate-status.md)。
+  [[gate-status.md](gate-status.zh.md)。
 - 已完成：Gate P0（主三链签署）已关闭。Gate G0 加上 D-045 中的生产级硬化，
   已对 Solana P0-1、EVM P0-2 和 NEAR/Wasm P0-3 签署。
 - Tier 1a `wasm-cosmwasm`: M1 CosmWasm 宿主导入 + EmitWat 中的 region-allocator ABI (来自 RFC 0008 的 `cosmWasmRegion` 绑定); M2 Counter 制品通过 `cosmwasm-check`; M3 testkit `harness-cosmwasm` 场景通过，且与 `wasm-near` 具有跨目标等价性; M4 注册表阶段 → Experimental。
@@ -1311,9 +1311,9 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 
 相关文档：
 
-- [Authoring model](authoring-model.md)
+- [[Authoring model](authoring-model.zh.md)
 - [SDK ecosystem gaps (2026-07)](../sdk-ecosystem-gaps-2026-07.md)
-- [Shared scenario](shared-scenario.md)
+- [[Shared scenario](shared-scenario.zh.md)
 - PR #11 统一 EVM 入口（legacy `Lean.Evm` / LCNF 已移除）
 
 ### 设计契约
@@ -1465,7 +1465,7 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 `just testkit-budget-gate` 通过统一 testkit 运行 Counter 与 ValueVault；CI
 仍执行完整 `just testkit`，因此 budget 回归会阻断默认 pipeline。
 
-当前 CS-5.3 教程切片：[tutorials/portable-contract-three-targets.md](../tutorials/portable-contract-three-targets.md)
+当前 CS-5.3 教程切片：[[tutorials/portable-contract-three-targets.md](tutorials/portable-contract-three-targets.zh.md)
 逐步讲解 `Examples/Product/Counter.lean` 与 ValueVault 的 build 命令、
 `just portable-counter-multi-target`、testkit parity 与 budget gate。中文镜像位于
 [docs/zh/tutorials/portable-contract-three-targets.zh.md](tutorials/portable-contract-three-targets.zh.md)，
@@ -1493,11 +1493,11 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 和 `ProofForge.Evm` / `Lean.Evm` / LCNF `EmitYul` 路线只作为 legacy compatibility
 或历史研究背景保留。
 
-当前 CS-6.3 切片：[decisions.md](decisions.md) D-046 记录移除
-`ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods`；[RFC 0004](rfcs/0004-evm-semantic-plan.md)
+当前 CS-6.3 切片：[[decisions.md](decisions.zh.md) D-046 记录移除
+`ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods`；[[RFC 0004](rfcs/0004-evm-semantic-plan.zh.md)
 为 **Accepted**，并将 `contract_source` → portable IR → EVM semantic plan →
-Yul → solc 作为唯一 EVM 产品流水线。[INDEX.md](INDEX.md)、
-[validation-gates.md](validation-gates.md) 和 [targets/evm.md](targets/evm.md)
+Yul → solc 作为唯一 EVM 产品流水线。[[INDEX.md](INDEX.zh.md)、
+[[validation-gates.md](validation-gates.zh.md) 和 [[targets/evm.md](targets/evm.zh.md)
 不再把 LCNF 描述为 live compiler 路线。
 
 当前 CS-6.4 切片：`Examples/Backend/Evm/README.md` 与

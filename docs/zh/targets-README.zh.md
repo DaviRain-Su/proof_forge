@@ -2,10 +2,10 @@
 
 本目录包含目标家族说明，其层级介于 RFC 与实现任务之间。随着研究转化为代码，这些说明将不断更新。
 
-相关文档：[文档索引](../INDEX.md)、
-[RFC 0002](../rfcs/0002-target-implementation-design.md)、
-[实现积压](../implementation-backlog.md)、
-[设计决策](../decisions.md)。
+相关文档：[[文档索引](INDEX.zh.md)、
+[[RFC 0002](rfcs/0002-target-implementation-design.zh.md)、
+[[实现积压](implementation-backlog.zh.md)、
+[[设计决策](decisions.zh.md)。
 
 ## 目标生命周期
 
@@ -35,7 +35,7 @@
 
 用本页回答“仓库里已经有哪些目标说明？”；用
 [target-roadmap.md](../target-roadmap.md) 和
-[gate-status.md](../gate-status.md) 回答“下一步哪些目标可以获得产品实现投入？”
+[[gate-status.md](gate-status.zh.md) 回答“下一步哪些目标可以获得产品实现投入？”
 
 ## 已完成的主产品目标（Gate P0）
 

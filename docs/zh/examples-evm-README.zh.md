@@ -59,8 +59,8 @@ lake env proof-forge build --target evm \
 不需要 `.evm-methods` sidecar。CLI 从
 Lean 模块加载 `spec : ContractSpec` 并通过可移植 IR EVM 后端进行降级。
 
-参见 [docs/authoring-model.md](../../docs/authoring-model.md) 和
-[docs/targets/evm.md](../../docs/targets/evm.md)。
+参见 [[docs/authoring-model.md](authoring-model.zh.md) 和
+[[docs/targets/evm.md](targets/evm.zh.md)。
 
 ## 构建所有示例
 
@@ -81,5 +81,5 @@ scripts/evm/foundry-smoke.sh
 ## 共享场景
 
 规范的共享示例位于 [Examples/Product](../../Examples/Product/README.md)。
-参见 [docs/shared-scenario.md](../../docs/shared-scenario.md) 了解 Counter 和 ValueVault 场景详情。
+参见 [[docs/shared-scenario.md](shared-scenario.zh.md) 了解 Counter 和 ValueVault 场景详情。
 参见 [Examples/Product/FungibleToken.lean](../../Examples/Product/FungibleToken.lean) 了解目标中立的 token-intent 示例。
