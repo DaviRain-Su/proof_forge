@@ -1,8 +1,12 @@
 # 多链愿景差距审查
 
-状态：**当前修复工作的权威事实源**
+状态：**当前修复工作的权威事实源** —— Delivery Wave 0（P0
+正确性与声明诚实性门禁）已于 commit `1599f37d`（2026-07-11）**关闭**；下文
+列出的每个 PF-P0-0N 门禁现在都运行在 `just check` 中。
+finding 正文原样保留作可追溯的修复记录；其逐任务验收已对照 *Wave 0
+closure* 小节列出的门禁重新核对。
 
-日期：2026-07-10
+日期：2026-07-10（审查）。Wave 0 关闭于 2026-07-11 验证。
 
 本审查把产品愿景（只维护一份业务逻辑，在构建时选择 target）与 `main`
 上的代码和可运行门禁进行对照。它是当前跨项目修复优先级的权威来源。
@@ -93,6 +97,26 @@ lake env proof-forge build --target <target> --root . \
 
 `quint` 是 CLI-only 形式化模型 target。它有意不属于 `Target.knownIds`，
 不得被描述为可部署编译器 target。
+
+## Wave 0 closure（2026-07-11 验证，commit `1599f37d`）
+
+全部 8 个 P0（正确性与声明诚实性）任务已关闭：其验收 smoke 已接入
+`just check`，相关产品行为已对照实时代码重新验证。P1 工作（统一的
+编译器/target 契约）仍是当前活动队列 —— 见 `agent-goal-prompt.md`。
+
+| 任务 | 验收门禁（现已接入 `just check`） | 状态 |
+|---|---|---|
+| PF-P0-01 target-first 构建静默替换 Counter | `just source-identity` | 已关闭 |
+| PF-P0-02 注册表与可执行命令支持不一致 | `just registry-command` | 已关闭 |
+| PF-P0-03 Solana 通用构建声明它未发射的最终制品 | `just solana-source-elf` | 已关闭 |
+| PF-P0-04 Soroban 构建解析到错误的 target profile | `just soroban-profile` | 已关闭 |
+| PF-P0-05 文档与翻译门禁不诚实 | `just doc-sync-audit-strict`（+ `scripts/i18n/check-sync.sh`） | 已关闭 |
+| PF-P0-06 `near_gas` 被误标为累积 Wasmtime fuel | `just near-budget-honesty`；offline-host 现发射 `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` 并拒绝 `near_gas` 作为产品名 | 已关闭 |
+| PF-P0-07 `check` 不经后端验证即可通过 | `just check-l2-parity` | 已关闭 |
+| PF-P0-08 Wasm 构建在未生成 Wasm 时成功 | `just wat2wasm-fail-closed` | 已关闭 |
+
+下文的 finding 段落是 2026-07-10 的原始文本，仍作为修复理由保留；它们
+未被重新打开。
 
 ## 发现与修复任务
 

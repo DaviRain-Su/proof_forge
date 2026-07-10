@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "f560347adff51b6e6fd877fd8b51a06e282e781256f452b20538a673af1cbc35",
+    "sha256": "732f8baf3308a6fc789b8c6c0eb4e860c4d45a6c8107248640cd1b20136e6ac7",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 post-review verification and Foundry count update"
+    "note": "manually synced through the 2026-07-11 target-maturity docs update"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -56,9 +56,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/multi-chain-gap-audit-2026-07-10.md": {
-    "sha256": "2446fc2ae30d319e6ca589ddff1e2abcde8166d3a06c179415fa5e1855cd8557",
+    "sha256": "6b8517fea895f858e54beca1b2d0990f818ce63323aa5a9c4cdaf4bd8219ea6d",
     "zh": "docs/zh/multi-chain-gap-audit-2026-07-10.zh.md",
-    "model": "manual-zh"
+    "model": "manual-zh",
+    "note": "manually synced through the 2026-07-11 target-maturity docs update"
   },
   "docs/implementation-backlog.md": {
     "sha256": "7ca8434c0d81d35a9c156ff92a6a51b096ee0f372abd2acb67bb778992bc3dbf",
@@ -67,9 +68,10 @@
     "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
   },
   "docs/review-checklist.md": {
-    "sha256": "c2a11658b0c9f51316f973e88195de3bc26f9863a1b81016b8f364a22856c979",
+    "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
     "zh": "docs/zh/review-checklist.zh.md",
-    "model": "manual"
+    "model": "manual-zh",
+    "note": "manually synced through the 2026-07-11 target-maturity docs update"
   },
   "docs/development-standards.md": {
     "sha256": "0841ffcb77ec15ed6fccf8628d7d336a9a9ed8439abe6405a75d2ebaff25fcef",
@@ -117,10 +119,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/README.md": {
-    "sha256": "cb54d68d50081b033087b032cf9facabe62830741ca2a581ea6970f89212975f",
+    "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
     "zh": "docs/zh/targets-README.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced through the 2026-07-11 target-maturity docs update"
   },
   "docs/targets/evm.md": {
     "sha256": "5235c1b6ab6e73fd6afcc874d8b9d408cb04f75612268f24d879eda63e69ec58",
@@ -129,10 +131,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "4ae08d940e67df659bb800578e116302a8d566c5cefb030a9272cfec04efe746",
+    "sha256": "f83bfe438747e7c993f32c351dc21e4146b9f5be92d951f5515374d1b7b9ac60",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-10 audit integration"
+    "note": "manually synced through the 2026-07-11 target-maturity docs update"
   },
   "docs/targets/solana-sbf.md": {
     "sha256": "98fa9fcada4a214df7291553e65891c7a2c3b66a1d163d96a2eb280db3fffbfa",
