@@ -139,8 +139,8 @@ eligible offline slice.
 | H | NC-H1 | Scenario registry (less paste in sandbox main) | pending | optional |
 | H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` | — |
 | 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
-| 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | pending | after NC-2.1 |
-| 2 | NC-2.3 | FeeToken / extended FT | pending | after NC-1.2 |
+| 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
+| 2 | NC-2.3 | FeeToken / extended FT | done: live ~93× wasm; body under Backend/WasmNear | — |
 | 3 | NC-3.1 | GuestBook / multi-message storage | pending | string/dynamic readiness |
 | 3 | NC-3.2 | Cross-contract / promise scenario | pending | multi-account sandbox |
 | 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | pending | after NC-1.2 solid |

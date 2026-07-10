@@ -1,0 +1,33 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "role-gated-token",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/RoleGatedToken.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "RoleGatedToken",
+  "entrypoints": [
+    { "name": "init", "kind": "init" },
+    { "name": "grantRole", "sdkName": "grant_role", "kind": "call" },
+    { "name": "mint", "kind": "call" },
+    { "name": "transfer", "kind": "call" },
+    { "name": "balanceOf", "sdkName": "balance_of", "kind": "view" },
+    { "name": "totalSupply", "sdkName": "total_supply", "kind": "view" }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "grantRole", "role": 1, "who": "self" },
+      { "call": "mint", "to": "self", "amount": 100 },
+      { "call": "balanceOf", "expect": 100 },
+      { "call": "transfer", "to": "bob", "amount": 30 },
+      { "call": "balanceOf self", "expect": 70 },
+      { "call": "balanceOf bob", "expect": 30 },
+      { "call": "totalSupply", "expect": 100 }
+    ]
+  },
+  "honesty": [
+    "PF maps use u64 caller projection; sdk uses AccountId.",
+    "PF role storage is nested mapKey path; sdk uses flat string keys role:account."
+  ]
+}

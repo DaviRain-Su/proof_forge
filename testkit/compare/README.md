@@ -38,6 +38,14 @@ just near-compare-ownable-live
 just near-compare-staking-vault
 just near-compare-staking-vault-live
 
+# RoleGatedToken
+just near-compare-role-gated-token
+just near-compare-role-gated-token-live
+
+# FeeToken (fee-on-transfer body)
+just near-compare-fee-token
+just near-compare-fee-token-live
+
 # All live dual-deploys
 just near-compare-all-live
 ```
@@ -78,6 +86,14 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | StakingVault | deploy gas | 7.23e11 | 1.36e13 | **~18.8×** |
 | StakingVault | call gas | 4.53e12 | 5.10e12 | **~1.13×** |
 | StakingVault | storage | 2230 B | 182053 B | **~81.6×** |
+| RoleGatedToken | wasm | **2373 B** | 208887 B | **~88.0×** |
+| RoleGatedToken | deploy gas | 7.55e11 | 1.55e13 | **~20.5×** |
+| RoleGatedToken | call gas | 6.30e12 | 7.54e12 | **~1.20×** |
+| RoleGatedToken | storage | 2898 B | 209520 B | **~72.3×** |
+| FeeToken | wasm | **2006 B** | 187292 B | **~93.4×** |
+| FeeToken | deploy gas | 7.29e11 | 1.40e13 | **~19.1×** |
+| FeeToken | call gas | 4.72e12 | 5.32e12 | **~1.13×** |
+| FeeToken | storage | 2379 B | 187732 B | **~78.9×** |
 
 Fairness notes:
 
@@ -96,5 +112,7 @@ Fairness notes:
 | `fungible-token` | `just near-compare-fungible-token-live` | `Examples/Backend/WasmNear/FungibleToken.lean` |
 | `ownable` | `just near-compare-ownable-live` | `Examples/Product/Ownable.lean` |
 | `staking-vault` | `just near-compare-staking-vault-live` | `Examples/Product/StakingVault.lean` |
+| `role-gated-token` | `just near-compare-role-gated-token-live` | `Examples/Product/RoleGatedToken.lean` |
+| `fee-token` | `just near-compare-fee-token-live` | `Examples/Backend/WasmNear/FeeToken.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

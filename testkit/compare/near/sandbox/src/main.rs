@@ -59,6 +59,8 @@ enum ContractKind {
     FungibleToken,
     Ownable,
     StakingVault,
+    RoleGatedToken,
+    FeeToken,
 }
 
 impl ContractKind {
@@ -69,9 +71,12 @@ impl ContractKind {
             "fungible-token" | "ft" | "fungible_token" => Ok(Self::FungibleToken),
             "ownable" => Ok(Self::Ownable),
             "staking-vault" | "stakingvault" | "staking_vault" => Ok(Self::StakingVault),
+            "role-gated-token" | "rolegatedtoken" | "rgt" => Ok(Self::RoleGatedToken),
+            "fee-token" | "feetoken" => Ok(Self::FeeToken),
             other => bail!(
                 "unknown --contract `{other}` \
-                 (known: counter, value-vault, fungible-token, ownable, staking-vault)"
+                 (known: counter, value-vault, fungible-token, ownable, staking-vault, \
+                  role-gated-token, fee-token)"
             ),
         }
     }
@@ -83,6 +88,8 @@ impl ContractKind {
             Self::FungibleToken => "fungible-token",
             Self::Ownable => "ownable",
             Self::StakingVault => "staking-vault",
+            Self::RoleGatedToken => "role-gated-token",
+            Self::FeeToken => "fee-token",
         }
     }
 }
@@ -201,6 +208,10 @@ async fn run() -> Result<()> {
         ContractKind::StakingVault => {
             run_staking_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
         }
+        ContractKind::RoleGatedToken => {
+            run_rgt_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
+        ContractKind::FeeToken => run_fee_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?,
     };
 
     println!("=== near-sandbox dual: deploy + run near-sdk ===");
@@ -216,6 +227,10 @@ async fn run() -> Result<()> {
         ContractKind::StakingVault => {
             run_staking_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
         }
+        ContractKind::RoleGatedToken => {
+            run_rgt_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::FeeToken => run_fee_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?,
     };
 
     // Semantic checks are embedded in each runner; re-assert totals for report.
@@ -908,6 +923,256 @@ async fn run_staking_side(
             let s = view_json_u64(&contract, "total_deposits", json!({})).await?;
             ensure_ok(&s, "sdk total#2")?;
             ensure_ret(&s, 30, "sdk total after withdraw")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_rgt_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+    let alice = contract.id().as_str().to_string();
+    let alice_u64 = account_u64(&alice);
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            // grant minter role (1) to self
+            let mut grant = 1u64.to_le_bytes().to_vec();
+            grant.extend_from_slice(&alice_u64.to_le_bytes());
+            let s = call_raw(&contract, "grantRole", &grant).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF grantRole")?;
+            steps.push(s);
+
+            let mut mint = alice_u64.to_le_bytes().to_vec();
+            mint.extend_from_slice(&100u64.to_le_bytes());
+            let s = call_raw(&contract, "mint", &mint).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF mint")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "balanceOf", &alice_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF bal")?;
+            ensure_ret(&s, 100, "PF bal after mint")?;
+            steps.push(s);
+
+            let bob_u64 = account_u64("bob.testnet");
+            let mut xfer = bob_u64.to_le_bytes().to_vec();
+            xfer.extend_from_slice(&30u64.to_le_bytes());
+            let s = call_raw(&contract, "transfer", &xfer).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF transfer")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "balanceOf", &alice_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF bal alice")?;
+            ensure_ret(&s, 70, "PF alice after xfer")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "balanceOf", &bob_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF bal bob")?;
+            ensure_ret(&s, 30, "PF bob after xfer")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "totalSupply").await?;
+            ensure_ok(&s, "PF supply")?;
+            ensure_ret(&s, 100, "PF supply")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = call_json(
+                &contract,
+                "grant_role",
+                json!({ "role": 1, "who": alice }),
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk grant_role")?;
+            steps.push(s);
+
+            let s = call_json(
+                &contract,
+                "mint",
+                json!({ "recipient": alice, "amount": 100 }),
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk mint")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "balance_of", json!({ "who": alice })).await?;
+            ensure_ok(&s, "sdk bal")?;
+            ensure_ret(&s, 100, "sdk bal after mint")?;
+            steps.push(s);
+
+            let bob = worker.dev_create_account().await.context("bob")?;
+            let s = call_json(
+                &contract,
+                "transfer",
+                json!({ "recipient": bob.id().as_str(), "amount": 30 }),
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk transfer")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "balance_of", json!({ "who": alice })).await?;
+            ensure_ok(&s, "sdk bal alice")?;
+            ensure_ret(&s, 70, "sdk alice")?;
+            steps.push(s);
+
+            let s = view_json_u64(
+                &contract,
+                "balance_of",
+                json!({ "who": bob.id().as_str() }),
+            )
+            .await?;
+            ensure_ok(&s, "sdk bal bob")?;
+            ensure_ret(&s, 30, "sdk bob")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "total_supply", json!({})).await?;
+            ensure_ok(&s, "sdk supply")?;
+            ensure_ret(&s, 100, "sdk supply")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_fee_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+    let alice = contract.id().as_str().to_string();
+    let alice_u64 = account_u64(&alice);
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &1000u64.to_le_bytes()).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            let mut mint = alice_u64.to_le_bytes().to_vec();
+            mint.extend_from_slice(&100u64.to_le_bytes());
+            let s = call_raw(&contract, "mint", &mint).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF mint")?;
+            steps.push(s);
+
+            let bob_u64 = account_u64("bob.testnet");
+            let mut xfer = bob_u64.to_le_bytes().to_vec();
+            xfer.extend_from_slice(&50u64.to_le_bytes());
+            let s = call_raw(&contract, "transfer", &xfer).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF transfer")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "balanceOf", &alice_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF bal alice")?;
+            ensure_ret(&s, 50, "PF alice after fee xfer")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "balanceOf", &bob_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF bal bob")?;
+            ensure_ret(&s, 45, "PF bob net")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "totalSupply").await?;
+            ensure_ok(&s, "PF supply")?;
+            ensure_ret(&s, 95, "PF supply after fee")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({ "fee_bps": 1000 })).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = call_json(
+                &contract,
+                "mint",
+                json!({ "recipient": alice, "amount": 100 }),
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk mint")?;
+            steps.push(s);
+
+            let bob = worker.dev_create_account().await.context("bob")?;
+            let s = call_json(
+                &contract,
+                "transfer",
+                json!({ "recipient": bob.id().as_str(), "amount": 50 }),
+            )
+            .await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk transfer")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "balance_of", json!({ "who": alice })).await?;
+            ensure_ok(&s, "sdk bal alice")?;
+            ensure_ret(&s, 50, "sdk alice")?;
+            steps.push(s);
+
+            let s = view_json_u64(
+                &contract,
+                "balance_of",
+                json!({ "who": bob.id().as_str() }),
+            )
+            .await?;
+            ensure_ok(&s, "sdk bal bob")?;
+            ensure_ret(&s, 45, "sdk bob")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "total_supply", json!({})).await?;
+            ensure_ok(&s, "sdk supply")?;
+            ensure_ret(&s, 95, "sdk supply")?;
             steps.push(s);
         }
     }

@@ -41,10 +41,15 @@ fn main() -> Result<()> {
         ["near", "staking-vault"] | ["near", "stakingvault"] | ["near", "staking_vault"] => {
             run_near_staking_vault(&repo_root, &args)
         }
+        ["near", "role-gated-token"] | ["near", "rolegatedtoken"] | ["near", "rgt"] => {
+            run_near_role_gated_token(&repo_root, &args)
+        }
+        ["near", "fee-token"] | ["near", "feetoken"] => run_near_fee_token(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
-                 (known: counter, value-vault, fungible-token, ownable, staking-vault)"
+                 (known: counter, value-vault, fungible-token, ownable, staking-vault, \
+                  role-gated-token, fee-token)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -119,7 +124,7 @@ impl Args {
 fn print_usage() {
     eprintln!(
         "usage: proof-forge-testkit-compare near \
-         <counter|value-vault|fungible-token|ownable|staking-vault> \
+         <counter|value-vault|fungible-token|ownable|staking-vault|role-gated-token|fee-token> \
          [--build-sdk] [--live] [--repeat N]\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
@@ -1385,6 +1390,189 @@ fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "PF depositor key = u64 caller projection; sdk uses AccountId map.",
             "Attached deposit used for deposit; withdraw burns shares only in scenario.",
+        ],
+    )
+}
+
+fn run_near_role_gated_token(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let bob = u64::from_le_bytes(near_account_hash32("bob.testnet")[..8].try_into().unwrap());
+    let grant = {
+        let mut v = 1u64.to_le_bytes().to_vec(); // minter role
+        v.extend_from_slice(&alice.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let mint = {
+        let mut v = alice.to_le_bytes().to_vec();
+        v.extend_from_slice(&100u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let bal_a = hex_encode_le_u64(alice);
+    let bal_b = hex_encode_le_u64(bob);
+    let xfer = {
+        let mut v = bob.to_le_bytes().to_vec();
+        v.extend_from_slice(&30u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, grantRole, mint, balanceOf, transfer, balanceOf, balanceOf, totalSupply
+    let inputs = format!(",{grant},{mint},{bal_a},{xfer},{bal_a},{bal_b},");
+
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "role-gated-token",
+        "testkit/compare/near/role-gated-token",
+        "Examples/Product/RoleGatedToken.lean",
+        "RoleGatedToken.near-artifact.json",
+        "pf_near_sdk_role_gated_token_reference.wasm",
+        &["rolegatedtoken.wat", "RoleGatedToken.wat"],
+        &["init", "grantRole", "mint", "transfer", "balanceOf", "totalSupply"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "grantRole",
+                    "mint",
+                    "balanceOf",
+                    "transfer",
+                    "balanceOf",
+                    "balanceOf",
+                    "totalSupply",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=100"),
+                "expected balance/supply 100\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=70"),
+                "expected alice bal 70\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=30"),
+                "expected bob bal 30\n{out}"
+            );
+            Ok((
+                "init→grant minter→mint 100→xfer 30→bal 70/30 supply 100".into(),
+                out,
+            ))
+        },
+        &[
+            "init",
+            "grantRole",
+            "mint",
+            "balanceOf",
+            "transfer",
+            "balanceOf",
+            "balanceOf",
+            "totalSupply",
+        ],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "PF role path is nested mapKey; sdk uses flat role:account string keys.",
+            "Account identity: PF u64 sha256-prefix; sdk AccountId.",
+        ],
+    )
+}
+
+fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let bob = u64::from_le_bytes(near_account_hash32("bob.testnet")[..8].try_into().unwrap());
+    let init = hex_encode_le_u64(1000); // 10% fee
+    let mint = {
+        let mut v = alice.to_le_bytes().to_vec();
+        v.extend_from_slice(&100u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let xfer = {
+        let mut v = bob.to_le_bytes().to_vec();
+        v.extend_from_slice(&50u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let bal_a = hex_encode_le_u64(alice);
+    let bal_b = hex_encode_le_u64(bob);
+    // init, mint, transfer, balanceOf, balanceOf, totalSupply
+    let inputs = format!("{init},{mint},{xfer},{bal_a},{bal_b},");
+
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "fee-token",
+        "testkit/compare/near/fee-token",
+        "Examples/Backend/WasmNear/FeeToken.lean",
+        "FeeToken.near-artifact.json",
+        "pf_near_sdk_fee_token_reference.wasm",
+        &["feetoken.wat", "FeeToken.wat"],
+        &["init", "mint", "transfer", "balanceOf", "totalSupply"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "mint",
+                    "transfer",
+                    "balanceOf",
+                    "balanceOf",
+                    "totalSupply",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            // after mint 100, transfer 50 with 10% fee: alice 50, bob 45, supply 95
+            ensure!(
+                out.contains("return_u64=50"),
+                "expected alice bal 50\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=45"),
+                "expected bob bal 45 (net after fee)\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=95"),
+                "expected supply 95 after fee burn\n{out}"
+            );
+            Ok((
+                "init(fee=10%)→mint 100→transfer 50→bal 50/45 supply 95".into(),
+                out,
+            ))
+        },
+        &[
+            "init",
+            "mint",
+            "transfer",
+            "balanceOf",
+            "balanceOf",
+            "totalSupply",
+        ],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Product FeeToken.lean is TokenSpec intent; body is Backend WasmNear FeeToken.",
+            "Fee burns from totalSupply on both sides (not treasury credit).",
         ],
     )
 }

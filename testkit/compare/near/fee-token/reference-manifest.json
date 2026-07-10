@@ -1,0 +1,24 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "fee-token",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Backend/WasmNear/FeeToken.lean",
+  "proofForgeProductIntent": "Examples/Product/FeeToken.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "FeeToken",
+  "scenario": {
+    "steps": [
+      { "call": "init", "fee_bps": 1000 },
+      { "call": "mint", "to": "self", "amount": 100 },
+      { "call": "transfer", "to": "bob", "amount": 50 },
+      { "call": "balanceOf self", "expect": 50 },
+      { "call": "balanceOf bob", "expect": 45 },
+      { "call": "totalSupply", "expect": 95 }
+    ]
+  },
+  "honesty": [
+    "Product FeeToken.lean is TokenSpec (Solana fee plan); NEAR body is Backend WasmNear FeeToken.",
+    "Fee burns from totalSupply (not treasury credit) on both sides."
+  ]
+}

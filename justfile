@@ -455,8 +455,22 @@ near-compare-staking-vault:
 near-compare-staking-vault-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near staking-vault --live
 
-# Run Counter + ValueVault + Wave 1/2 contracts sandbox dual-deploy.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live
+# RoleGatedToken offline / live.
+near-compare-role-gated-token:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near role-gated-token
+
+near-compare-role-gated-token-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near role-gated-token --live
+
+# FeeToken offline / live.
+near-compare-fee-token:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near fee-token
+
+near-compare-fee-token-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near fee-token --live
+
+# Full matrix: baseline + Wave 1/2 + RoleGated + Fee.
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare
