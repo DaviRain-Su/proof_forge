@@ -21,6 +21,9 @@ testkit/compare/
     pausable/         # emergency-stop mixin
     reentrancy-guard/ # lock-bit mixin
     ownable-pausable/ # owner-gated pause
+    array-example/    # fixed u64x3 locals
+    ownable-hash/     # 32-byte sha256 owner
+    host-env-probe/   # triad HostEnv snapshot
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
       src/
         main.rs       # CLI + dispatch
@@ -84,6 +87,14 @@ just near-compare-reentrancy-guard
 just near-compare-reentrancy-guard-live
 just near-compare-ownable-pausable
 just near-compare-ownable-pausable-live
+
+# ArrayExample / OwnableHash / HostEnvProbe
+just near-compare-array-example
+just near-compare-array-example-live
+just near-compare-ownable-hash
+just near-compare-ownable-hash-live
+just near-compare-host-env-probe
+just near-compare-host-env-probe-live
 
 # All live dual-deploys
 just near-compare-all-live
@@ -161,6 +172,18 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | OwnablePausable | deploy gas | 6.41e11 | 6.02e12 | **~9.4×** |
 | OwnablePausable | call gas | 4.11e12 | 4.36e12 | **~1.06×** |
 | OwnablePausable | storage | 1016 B | 76387 B | **~75.2×** |
+| ArrayExample | wasm | **374 B** | 49041 B | **~131.1×** |
+| ArrayExample | deploy gas | 6.12e11 | 4.09e12 | **~6.7×** |
+| ArrayExample | call gas | 0 (views only) | 0 | — |
+| ArrayExample | storage | 556 B | 49223 B | **~88.5×** |
+| OwnableHash | wasm | **656 B** | 75445 B | **~115.0×** |
+| OwnableHash | deploy gas | 6.32e11 | 5.97e12 | **~9.4×** |
+| OwnableHash | call gas | 2.73e12 | 2.91e12 | **~1.06×** |
+| OwnableHash | storage | 915 B | 75705 B | **~82.7×** |
+| HostEnvProbe | wasm | **893 B** | 74718 B | **~83.7×** |
+| HostEnvProbe | deploy gas | 6.49e11 | 5.92e12 | **~9.1×** |
+| HostEnvProbe | call gas | 2.61e12 | 2.91e12 | **~1.11×** |
+| HostEnvProbe | storage | 1152 B | 74977 B | **~65.1×** |
 
 Fairness notes:
 
@@ -175,6 +198,8 @@ Fairness notes:
   JSON `StorageBalance` / withdraw / refund.
 - Pausable / ReentrancyGuard use sdk `Default` state (no init) to match PF mixin surface.
 - ReentrancyGuard is a **lock bit**, not EVM call-stack reentrancy theory.
+- ArrayExample is view-only (call gas 0); OwnableHash owner is full 32-byte sha256.
+- HostEnvProbe checks identity limbs + snapshot success; absolute time/height are host-defined.
 
 ## Contracts
 
@@ -194,5 +219,8 @@ Fairness notes:
 | `pausable` | `just near-compare-pausable-live` | `Examples/Product/Pausable.lean` |
 | `reentrancy-guard` | `just near-compare-reentrancy-guard-live` | `Examples/Product/ReentrancyGuard.lean` |
 | `ownable-pausable` | `just near-compare-ownable-pausable-live` | `Examples/Product/OwnablePausable.lean` |
+| `array-example` | `just near-compare-array-example-live` | `Examples/Product/ArrayExample.lean` |
+| `ownable-hash` | `just near-compare-ownable-hash-live` | `Examples/Product/OwnableHash.lean` |
+| `host-env-probe` | `just near-compare-host-env-probe-live` | `Examples/Product/HostEnvProbe.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

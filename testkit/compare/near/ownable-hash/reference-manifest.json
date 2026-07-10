@@ -1,0 +1,21 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "ownable-hash",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/OwnableHash.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "OwnableHash",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "owner", "expect": "sha256(self)" },
+      { "call": "renounceOwnership" },
+      { "call": "owner", "expect": "zeros" }
+    ]
+  },
+  "honesty": [
+    "Owner is full 32-byte sha256(predecessor), not AccountId string or u64 limb.",
+    "No transferOwnership on this surface (stdlib note); renounce only."
+  ]
+}

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use near_gas::NearGas;
 use near_workspaces::network::Sandbox;
 use near_workspaces::result::ExecutionFinalResult;
@@ -466,6 +466,71 @@ impl SideCtx {
         }
         self.steps.push(s);
         Ok(())
+    }
+
+    /// View raw bytes (e.g. hash-width `owner` → 32-byte return).
+    pub async fn view_raw_bytes(
+        &mut self,
+        method: &str,
+        label: &str,
+        expect: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        let details = self
+            .contract
+            .view(method)
+            .args(Vec::new())
+            .await
+            .with_context(|| format!("view `{method}` bytes"))?;
+        let bytes = details.result;
+        if let Some(exp) = expect {
+            ensure!(
+                bytes.as_slice() == exp,
+                "{label}: expected {exp:02x?}, got {bytes:02x?}"
+            );
+        }
+        self.steps.push(StepReport {
+            call: method.into(),
+            kind: "view".into(),
+            ok: true,
+            gas_burnt: None,
+            return_u64: None,
+            logs: details.logs,
+            error: None,
+        });
+        Ok(bytes)
+    }
+
+    /// View JSON `[u8; N]` / `Vec<u8>` returned as a JSON number array.
+    pub async fn view_json_bytes(
+        &mut self,
+        method: &str,
+        args: serde_json::Value,
+        label: &str,
+        expect: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        let details = self
+            .contract
+            .view(method)
+            .args_json(args)
+            .await
+            .with_context(|| format!("view `{method}` json bytes"))?;
+        let nums: Vec<u8> = details.json().context("json byte array")?;
+        if let Some(exp) = expect {
+            ensure!(
+                nums.as_slice() == exp,
+                "{label}: expected {exp:02x?}, got {nums:02x?}"
+            );
+        }
+        self.steps.push(StepReport {
+            call: method.into(),
+            kind: "view".into(),
+            ok: true,
+            gas_burnt: None,
+            return_u64: None,
+            logs: details.logs,
+            error: None,
+        });
+        Ok(nums)
     }
 
     pub fn push_step(&mut self, s: StepReport) {

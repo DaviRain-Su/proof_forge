@@ -1,0 +1,20 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "array-example",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/ArrayExample.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "ArrayExample",
+  "scenario": {
+    "steps": [
+      { "call": "sizeOf3", "expect": 3 },
+      { "call": "getElem", "expect": 20 },
+      { "call": "sumOf3", "expect": 60 }
+    ]
+  },
+  "honesty": [
+    "Pure fixed-array local reductions; no persistent storage.",
+    "PF exports camelCase sizeOf3/getElem/sumOf3; sdk uses snake_case."
+  ]
+}

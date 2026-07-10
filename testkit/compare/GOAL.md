@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete NC-H1: verified@1a9046e1** — modular sandbox harness. Wave 0–4 matrix intact. Optional: UTF-8 string KV; more product contracts.
+Status: **Active Wave 5** — NC-H1@1a9046e1; adding ArrayExample / OwnableHash / HostEnvProbe.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
@@ -148,6 +148,9 @@ eligible offline slice.
 | 4 | NC-4.1 | Pausable emergency-stop mixin | done: live semanticMatch; wasm ~131× | — |
 | 4 | NC-4.2 | ReentrancyGuard lock-bit | done: live semanticMatch; wasm ~135× | honesty: lock bit only |
 | 4 | NC-4.3 | OwnablePausable owner-gated pause | done: live semanticMatch; wasm ~98× | — |
+| 5 | NC-5.1 | ArrayExample fixed array locals | done: live semanticMatch; wasm ~131× | view-only |
+| 5 | NC-5.2 | OwnableHash 32-byte owner | done: live semanticMatch; wasm ~115× | — |
+| 5 | NC-5.3 | HostEnvProbe triad snapshot | done: live semanticMatch; wasm ~84× | honesty: time/height host-defined |
 
 ### Task briefs
 

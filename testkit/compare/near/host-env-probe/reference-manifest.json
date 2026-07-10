@@ -1,0 +1,22 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "host-env-probe",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/HostEnvProbe.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "HostEnvProbe",
+  "scenario": {
+    "steps": [
+      { "call": "initialize" },
+      { "call": "snapshot" },
+      { "call": "getCaller", "expect": "sha256_limb0(predecessor)" },
+      { "call": "getSelf", "expect": "sha256_limb0(current)" }
+    ]
+  },
+  "honesty": [
+    "Triad-safe HostEnv only: time/height/self/caller projections.",
+    "Time/height absolute values are host-defined; scenario checks success + identity limbs.",
+    "PF getSelf/getCaller are u64 first-8-LE of sha256; sdk matches that projection."
+  ]
+}

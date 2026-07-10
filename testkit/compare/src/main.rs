@@ -65,12 +65,22 @@ fn main() -> Result<()> {
         ["near", "ownable-pausable"]
         | ["near", "ownablepausable"]
         | ["near", "ownable_pausable"] => run_near_ownable_pausable(&repo_root, &args),
+        ["near", "array-example"] | ["near", "arrayexample"] | ["near", "array"] => {
+            run_near_array_example(&repo_root, &args)
+        }
+        ["near", "ownable-hash"] | ["near", "ownablehash"] | ["near", "ownable_hash"] => {
+            run_near_ownable_hash(&repo_root, &args)
+        }
+        ["near", "host-env-probe"]
+        | ["near", "hostenvprobe"]
+        | ["near", "hostenv"] => run_near_host_env_probe(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
                   role-gated-token, fee-token, remote-call, status-message, guestbook, \
-                  storage-deposit, pausable, reentrancy-guard, ownable-pausable)"
+                  storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
+                  array-example, ownable-hash, host-env-probe)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -148,7 +158,8 @@ fn print_usage() {
          [--build-sdk] [--live] [--repeat N]\n\
          contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
-                    storage-deposit|pausable|reentrancy-guard|ownable-pausable\n\n\
+                    storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
+                    array-example|ownable-hash|host-env-probe\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -1912,6 +1923,156 @@ fn run_near_ownable_pausable(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "Owner-gated pause/unpause (OpenZeppelin-style onlyOwner).",
             "PF owner = u64 caller projection; sdk owner = AccountId.",
+        ],
+    )
+}
+
+fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "array-example",
+        "testkit/compare/near/array-example",
+        "Examples/Product/ArrayExample.lean",
+        "ArrayExample.near-artifact.json",
+        "pf_near_sdk_array_example_reference.wasm",
+        &["arrayexample.wat", "ArrayExample.wat"],
+        &["sizeOf3", "getElem", "sumOf3"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["sizeOf3", "getElem", "sumOf3"],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: None,
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=3"), "expected size 3\n{out}");
+            ensure!(out.contains("return_u64=20"), "expected elem 20\n{out}");
+            ensure!(out.contains("return_u64=60"), "expected sum 60\n{out}");
+            Ok(("sizeOf3=3 getElem=20 sumOf3=60".into(), out))
+        },
+        &["sizeOf3", "getElem", "sumOf3"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: None,
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &["Fixed local u64x3 only; no persistent storage on either side."],
+    )
+}
+
+fn run_near_ownable_hash(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice_hash = hex_encode_bytes(&near_account_hash32("alice.testnet"));
+    let zeros = "00".repeat(32);
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "ownable-hash",
+        "testkit/compare/near/ownable-hash",
+        "Examples/Product/OwnableHash.lean",
+        "OwnableHash.near-artifact.json",
+        "pf_near_sdk_ownable_hash_reference.wasm",
+        &["ownablehash.wat", "OwnableHash.wat"],
+        &["init", "owner", "renounceOwnership"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["init", "owner", "renounceOwnership", "owner"],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains(&format!("return_hex={alice_hash}")),
+                "expected owner=sha256(alice)\n{out}"
+            );
+            ensure!(
+                out.contains(&format!("return_hex={zeros}")),
+                "expected renounced zeros\n{out}"
+            );
+            Ok(("init→owner=sha256(alice)→renounce→zeros".into(), out))
+        },
+        &["owner"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Owner is full 32-byte sha256(predecessor), not AccountId or u64 limb.",
+            "No transferOwnership on this surface (stdlib Solana constraint).",
+        ],
+    )
+}
+
+fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "host-env-probe",
+        "testkit/compare/near/host-env-probe",
+        "Examples/Product/HostEnvProbe.lean",
+        "HostEnvProbe.near-artifact.json",
+        "pf_near_sdk_host_env_probe_reference.wasm",
+        &["hostenvprobe.wat", "HostEnvProbe.wat"],
+        &["initialize", "snapshot", "getTime", "getHeight", "getSelf", "getCaller"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "initialize",
+                    "getCaller",
+                    "snapshot",
+                    "getCaller",
+                    "getSelf",
+                    "getTime",
+                    "getHeight",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: "",
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=0"),
+                "expected zero before snapshot\n{out}"
+            );
+            ensure!(
+                out.contains(&format!("return_u64={alice}")),
+                "expected getCaller=alice limb after snapshot\n{out}"
+            );
+            Ok((
+                format!("init→snapshot→caller={alice} (+ self/time/height)"),
+                out,
+            ))
+        },
+        &["getTime", "getHeight", "getSelf", "getCaller"],
+        "",
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "Triad-safe HostEnv only (time/height/self/caller).",
+            "Absolute time/height are host-defined; identity limbs are sha256 first-8 LE.",
         ],
     )
 }

@@ -518,8 +518,29 @@ near-compare-ownable-pausable:
 near-compare-ownable-pausable-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable-pausable --live
 
+# ArrayExample fixed u64x3 locals.
+near-compare-array-example:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near array-example
+
+near-compare-array-example-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near array-example --live
+
+# OwnableHash (32-byte sha256 owner).
+near-compare-ownable-hash:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable-hash
+
+near-compare-ownable-hash-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable-hash --live
+
+# HostEnvProbe triad snapshot.
+near-compare-host-env-probe:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near host-env-probe
+
+near-compare-host-env-probe-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near host-env-probe --live
+
 # Full matrix.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

@@ -18,6 +18,9 @@ pub(crate) enum ContractKind {
     Pausable,
     ReentrancyGuard,
     OwnablePausable,
+    ArrayExample,
+    OwnableHash,
+    HostEnvProbe,
 }
 
 impl ContractKind {
@@ -37,6 +40,9 @@ impl ContractKind {
             "pausable" | "pause" => Ok(Self::Pausable),
             "reentrancy-guard" | "reentrancyguard" | "reentrancy" | "rg" => Ok(Self::ReentrancyGuard),
             "ownable-pausable" | "ownablepausable" | "ownable_pausable" => Ok(Self::OwnablePausable),
+            "array-example" | "arrayexample" | "array" => Ok(Self::ArrayExample),
+            "ownable-hash" | "ownablehash" | "ownable_hash" => Ok(Self::OwnableHash),
+            "host-env-probe" | "hostenvprobe" | "hostenv" => Ok(Self::HostEnvProbe),
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -57,6 +63,9 @@ impl ContractKind {
             Self::Pausable => "pausable",
             Self::ReentrancyGuard => "reentrancy-guard",
             Self::OwnablePausable => "ownable-pausable",
+            Self::ArrayExample => "array-example",
+            Self::OwnableHash => "ownable-hash",
+            Self::HostEnvProbe => "host-env-probe",
         }
     }
 }
