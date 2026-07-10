@@ -37,6 +37,38 @@ def main : IO UInt32 := do
   require (ProofForge.Cli.Deploy.defaultDeployPlanOutput "build/evm/Counter.proof-forge-deploy.json"
     == "build/evm/Counter.proof-forge-deploy-plan.json") "deploy-plan default output"
 
+  match ProofForge.Cli.Deploy.parseDeployOptions [
+    "--target", "evm",
+    "--deploy-manifest", "build/evm/Counter.proof-forge-deploy.json",
+    "--private-key", "0x1234"
+  ] with
+  | Except.ok opts => do
+      let key ← ProofForge.Cli.Deploy.resolvePrivateKey opts
+      require (key == "0x1234") "explicit private key resolution"
+  | Except.error err => throw <| IO.userError err
+
+  try
+    let _ ← ProofForge.Cli.Deploy.resolvePrivateKey {
+      targetId := "evm",
+      deployManifest := "build/evm/Counter.proof-forge-deploy.json"
+    }
+    require false "missing private key should error"
+  catch _ =>
+    pure ()
+
+  match ← IO.getEnv "PROOF_FORGE_DEPLOY_PRIVATE_KEY" with
+  | some envKey =>
+      match ProofForge.Cli.Deploy.parseDeployOptions [
+        "--target", "evm",
+        "--deploy-manifest", "build/evm/Counter.proof-forge-deploy.json"
+      ] with
+      | Except.ok opts => do
+          let key ← ProofForge.Cli.Deploy.resolvePrivateKey opts
+          require (key == envKey) "env var private key resolution"
+      | Except.error err => throw <| IO.userError err
+  | none =>
+      pure ()
+
   IO.println "CliDeploy: ok"
   return 0
 

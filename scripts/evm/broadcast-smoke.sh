@@ -6,6 +6,7 @@ set -euo pipefail
 # --max-priority-fee-per-gas path and validates the deploy-run artifact.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PROOF_FORGE_DEPLOY_PRIVATE_KEY="${PROOF_FORGE_DEPLOY_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 OUT_DIR="${EVM_OUT_DIR:-$ROOT/build/evm}"
 RUN_DIR="${EVM_BROADCAST_RUN_DIR:-$ROOT/build/broadcast-smoke}"
 CHAIN_ID="${EVM_ANVIL_CHAIN_ID:-31337}"

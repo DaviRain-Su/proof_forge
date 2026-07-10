@@ -10,9 +10,6 @@ open ProofForge.Cli.HexUtil
 
 namespace ProofForge.Cli.Deploy
 
-def defaultAnvilPrivateKey : String :=
-  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-
 def defaultAnvilDeployer : String :=
   "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
 
@@ -32,7 +29,7 @@ def deployUsage : String :=
     "  -o, --output PATH       deploy-run or deploy-plan output path",
     "  --evm-chain-profile ID  override chain profile (default: manifest profile)",
     "  --rpc-url URL           JSON-RPC endpoint (default: profile rpcUrls[0])",
-    "  --private-key KEY       signing key for cast send (default: Anvil test key)",
+    "  --private-key KEY       signing key for cast send (required unless PROOF_FORGE_DEPLOY_PRIVATE_KEY is set)",
     "  --deployer ADDRESS      expected deployer address metadata",
     "  --cast PATH             cast executable (default: cast)",
     "  --anvil PATH            anvil executable (default: anvil)",
@@ -67,6 +64,17 @@ structure DeployOptions where
   maxPriorityFeePerGas? : Option Nat := none
   root : String := "."
   deriving Inhabited
+
+def resolvePrivateKey (opts : DeployOptions) : IO String := do
+  if let some key := opts.privateKey? then
+    if key.isEmpty then
+      throw <| IO.userError "--private-key value is empty"
+    return key
+  if let some key ← IO.getEnv "PROOF_FORGE_DEPLOY_PRIVATE_KEY" then
+    if key.isEmpty then
+      throw <| IO.userError "PROOF_FORGE_DEPLOY_PRIVATE_KEY is set but empty"
+    return key
+  throw <| IO.userError "deploy requires --private-key KEY or the PROOF_FORGE_DEPLOY_PRIVATE_KEY environment variable"
 
 def joinPath (a b : String) : String :=
   if a.endsWith "/" then s!"{a}{b}" else s!"{a}/{b}"
@@ -351,7 +359,7 @@ def broadcastEvmDeploy (opts : DeployOptions) (profile : ProofForge.Target.EvmCh
     IO.println "deploy: live broadcast skipped (use --broadcast with --rpc-url and --private-key to broadcast on public RPC)"
     return 0
 
-  let privateKey := opts.privateKey?.getD defaultAnvilPrivateKey
+  let privateKey ← resolvePrivateKey opts
   let deployer := opts.deployerAddress?.getD defaultAnvilDeployer
   let rpcUrl ← resolveBroadcastRpcUrl opts profile profileRpcUrl
   let _ ← expectChainId opts.castPath rpcUrl profile.chainId
