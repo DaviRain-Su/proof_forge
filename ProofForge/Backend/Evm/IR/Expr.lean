@@ -969,8 +969,8 @@ partial def lowerScalarAssertStmtPlan
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (fun
-          | none => #[revertStmt]
-          | some ref => errorRefRevertStmts ref)
+          | none => .ok #[revertStmt]
+          | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
         (.assert conditionPlan message errorRef?)
   | .assertEq lhs rhs message errorRef? => do
       let lhsPlan ←
@@ -986,8 +986,8 @@ partial def lowerScalarAssertStmtPlan
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (fun
-          | none => #[revertStmt]
-          | some ref => errorRefRevertStmts ref)
+          | none => .ok #[revertStmt]
+          | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
         (.assertEq lhsPlan rhsPlan message errorRef?)
   | _ =>
       .error { message := "EVM StmtPlan-to-Yul scalar assertion lowering expected assert/assertEq" }

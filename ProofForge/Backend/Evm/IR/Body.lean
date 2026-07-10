@@ -908,8 +908,8 @@ mutual
             (fun expr => lowerExpr module env expr)
             (lowerPlanEffectExpr module env)
             (fun
-              | none => #[revertStmt]
-              | some ref => errorRefRevertStmts ref)
+              | none => .ok #[revertStmt]
+              | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.assert condition message errorRef?)
         .ok (statements, env)
     | .assertEq lhs rhs message errorRef? => do
@@ -919,8 +919,8 @@ mutual
             (fun expr => lowerExpr module env expr)
             (lowerPlanEffectExpr module env)
             (fun
-              | none => #[revertStmt]
-              | some ref => errorRefRevertStmts ref)
+              | none => .ok #[revertStmt]
+              | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.assertEq lhs rhs message errorRef?)
         .ok (statements, env)
     | .release _ =>
@@ -929,14 +929,14 @@ mutual
         let statements ←
           ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
             toYulError
-            errorRefRevertStmts
+            (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revert message)
         .ok (statements, env)
     | .revertWithError errorRef => do
         let statements ←
           ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
             toYulError
-            errorRefRevertStmts
+            (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revertWithError errorRef)
         .ok (statements, env)
     | .ifElse condition thenBody elseBody => do
@@ -1069,14 +1069,14 @@ mutual
         let statements ←
           ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
             toYulError
-            errorRefRevertStmts
+            (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revert message)
         .ok (statements, env)
     | .revertWithError errorRef => do
         let statements ←
           ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
             toYulError
-            errorRefRevertStmts
+            (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revertWithError errorRef)
         .ok (statements, env)
     | .ifElse condition thenBody elseBody => do

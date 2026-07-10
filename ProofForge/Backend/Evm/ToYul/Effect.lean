@@ -421,13 +421,13 @@ def scalarAssertStmtPlanStatements
     (mkError : String → ε)
     (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
     (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr)
-    (revertStatementsFor : Option ProofForge.IR.ErrorRef → Array Lean.Compiler.Yul.Statement) :
+    (revertStatementsFor : Option ProofForge.IR.ErrorRef → Except ε (Array Lean.Compiler.Yul.Statement)) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .assert condition _ errorRef? => do
       .ok #[
         assertStatementFromCondition
           (← exprPlanExpr mkError lowerExpr lowerEffect condition)
-          (revertStatementsFor errorRef?)
+          (← revertStatementsFor errorRef?)
       ]
   | .assertEq lhs rhs _ errorRef? => do
       let lhsExpr ← exprPlanExpr mkError lowerExpr lowerEffect lhs
@@ -435,7 +435,7 @@ def scalarAssertStmtPlanStatements
       .ok #[
         assertStatementFromCondition
           (Lean.Compiler.Yul.builtin "eq" #[lhsExpr, rhsExpr])
-          (revertStatementsFor errorRef?)
+          (← revertStatementsFor errorRef?)
       ]
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul scalar assertion lowering expected assert/assertEq")
@@ -443,7 +443,7 @@ def scalarAssertStmtPlanStatements
 def revertStmtPlanStatements
     {ε : Type}
     (mkError : String → ε)
-    (revertStatementsFor : ProofForge.IR.ErrorRef → Array Lean.Compiler.Yul.Statement) :
+    (revertStatementsFor : ProofForge.IR.ErrorRef → Except ε (Array Lean.Compiler.Yul.Statement)) :
     StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
   | .revert message =>
       if message.isEmpty then
@@ -451,7 +451,7 @@ def revertStmtPlanStatements
       else
         .ok (revertWithMessageStatements message)
   | .revertWithError errorRef =>
-      .ok (revertStatementsFor errorRef)
+      revertStatementsFor errorRef
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul revert lowering expected revert/revertWithError")
 

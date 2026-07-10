@@ -13,8 +13,9 @@ Implements the core NEP-141 interface:
 - `ft_metadata` — token metadata (NEP-148: decimals)
 - `storage_deposit` / `storage_withdraw` / `storage_balance_of` /
   `storage_balance_bounds` — NEP-145-lite U64 projections. `storage_withdraw`
-  is a caller-bound ledger debit; predecessor refund and 1-yocto enforcement
-  remain unsupported.
+  enforces the 1-yoctoNEAR minimum deposit guard (NEP-145 requirement).
+  Predecessor refund via `promise_transfer` remains a TODO (requires a
+  runtime-account-id promise effect, not just pool-index crosscall).
 
 `module.nearCrosscallStrings` layout for this mixin:
 - `0` = `ft_on_transfer` method name
@@ -142,8 +143,11 @@ contract_mixin NearFungibleTokenMixin do
     emit StorageDeposit indexed #[fieldAsName "account" account_id] data #[fieldAsName "amount" amount];
 
   entry storage_withdraw (account_id : .hash, amount : .u64) do
+    let deposit : .u64 := nativeValue;
     do ProofForge.Contract.Surface.requireEq callerHash
       (ProofForge.Contract.Surface.ref account_id) "storage withdraw caller mismatch";
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref deposit)
+      (u64 1) "storage withdraw requires at least 1 yoctoNEAR deposit";
     let previous : .u64 := mapRead storageDeposits account_id;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref previous)
       (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";

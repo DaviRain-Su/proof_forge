@@ -14,8 +14,10 @@ import ProofForge.Cli.Options
 import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
+import ProofForge.Cli.TokenLoader
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
+import ProofForge.Contract.Token.NearSpec
 import ProofForge.IR
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
@@ -198,21 +200,32 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   | .error err =>
       throw <| IO.userError err.render
 
+/-- Try loading a `ContractSpec` first; if that fails and the source defines a
+    `TokenSpec`, materialize a target-appropriate `ContractSpec` from it.
+
+    This lets authors run `proof-forge build --target wasm-near Token.lean`
+    without `--token` when the source is a `TokenSpec` (P0-NEAR-1). -/
+unsafe def tryLoadSpecOrTokenSpec
+    (input : System.FilePath) (root? : Option System.FilePath)
+    (moduleName? : Option Lean.Name) (targetId : String) :
+    IO (Except String ProofForge.Contract.ContractSpec) := do
+  try
+    let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
+    pure (.ok spec)
+  catch _ =>
+    try
+      let (_, tokenSpec) ← ProofForge.Cli.TokenLoader.loadToken input root? moduleName?
+      if targetId == ProofForge.Target.wasmNear.id then
+        pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec))
+      else
+        pure (.error s!"source defines a TokenSpec but target `{targetId}` has no TokenSpec auto-detect lane; use `--token`")
+    catch err =>
+      pure (.error s!"{err}")
+
 unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
-  let fixtureSlug := spec.name.toLower
-  let outputDir ← match opts.output? with
-    | some out =>
-        if out.extension == "wat" then
-          pure <| match out.parent with | some parent => parent | none => FilePath.mk "."
-        else
-          pure out
-    | none =>
-        throw <| IO.userError "contract source EmitWat build requires -o output directory (or .wat path)"
-  -- PF-P0-04: resolve the requested Wasm-host profile (NEAR vs Soroban), never alias to NEAR.
   let targetId := opts.targetId?.getD ProofForge.Target.wasmNear.id
   let profile ←
     match ProofForge.Target.find? targetId with
@@ -220,6 +233,19 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     | none =>
         throw <| IO.userError
           s!"unknown EmitWat target '{targetId}'; known targets: {String.intercalate ", " ProofForge.Target.knownIds.toList}"
+  let spec ←
+    match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
+    | .ok spec => pure spec
+    | .error err => throw <| IO.userError err
+  let fixtureSlug := spec.name.toLower
+  let outputDir ← match opts.output? with
+  | some out =>
+      if out.extension == "wat" then
+        pure <| match out.parent with | some parent => parent | none => FilePath.mk "."
+      else
+        pure out
+    | none =>
+        throw <| IO.userError "contract source EmitWat build requires -o output directory (or .wat path)"
   let opts' := { opts with
     output? := some outputDir
     targetId? := some profile.id

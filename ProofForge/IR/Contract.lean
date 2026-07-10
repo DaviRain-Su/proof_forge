@@ -383,13 +383,30 @@ structure ErrorRef where
   (PF-P2-02 / E1.1) instead of the ProofForge `(assertionId, string)` envelope. -/
   soliditySelector? : Option String := none
   /-- Transitional EVM-only compile-time ABI static words after the 4-byte
-  selector (E1.1). EVM validation checks arity, supported type, and range.
-  Runtime expressions belong in a future target-plan representation. -/
+  selector (E1.1). EVM validation checks arity, supported type, and range. -/
   solidityArgWords : Array Nat := #[]
-  /-- Solidity ABI type names parallel to `solidityArgWords`. Contract metadata
-  exposes this schema, but deliberately omits the concrete compile-time words. -/
+  /-- Solidity ABI type names parallel to `solidityArgWords` / `solidityArgExprs`.
+  Contract metadata exposes this schema, but deliberately omits the concrete
+  compile-time words or runtime expressions. -/
   solidityArgTypes : Array String := #[]
-  deriving Repr, BEq
+  /-- Runtime expression arguments after the 4-byte selector. When non-empty,
+  EVM lowers each expression to a Yul value and `mstore`s it at the
+  corresponding ABI word offset, replacing the compile-time `solidityArgWords`.
+  The `solidityArgTypes` array must have the same length. EVM validation
+  rejects dynamic types (bytes/string/array) in this slot. -/
+  solidityArgExprs : Array Expr := #[]
+  deriving Repr
+
+/-- Manual `BEq` for `ErrorRef` — `solidityArgExprs` compared by arity only,
+since `Expr` is a mutual inductive without a structural `BEq` instance. -/
+instance : BEq ErrorRef where
+  beq a b :=
+    a.assertionId == b.assertionId &&
+    a.userCode? == b.userCode? &&
+    a.soliditySelector? == b.soliditySelector? &&
+    a.solidityArgWords == b.solidityArgWords &&
+    a.solidityArgTypes == b.solidityArgTypes &&
+    a.solidityArgExprs.size == b.solidityArgExprs.size
 
 inductive Statement where
   | letBind (name : String) (type : ValueType) (value : Expr)

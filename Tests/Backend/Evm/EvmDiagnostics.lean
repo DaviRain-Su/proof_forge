@@ -999,16 +999,39 @@ def checkCustomErrorStaticYul : IO Bool := do
         IO.eprintln "evm-diagnostics: FAILED: valid custom-error ABI word layout"
       pure ok
 
+/-- Verify runtime expression custom-error args: the Yul should contain
+    `mstore(4, …)` and `mstore(36, …)` with **runtime** Yul expressions
+    (calldataload or local references), not compile-time numbers. -/
+def checkCustomErrorRuntimeYul : IO Bool := do
+  match ProofForge.Backend.Evm.IR.renderModule ProofForge.IR.Examples.EvmErrorsProbe.module with
+  | .error err =>
+      IO.eprintln s!"evm-diagnostics: FAILED: runtime custom-error args: {err.render}"
+      pure false
+  | .ok yul =>
+      -- The runtime args entrypoint has 2 u64 params at calldata offsets 4 and 36.
+      -- The revert should still have the selector and revert(0, 68),
+      -- but mstore(4, …) and mstore(36, …) should use runtime expressions.
+      -- Selector 0x9432a7ee = 2487243758 in decimal.
+      let hasRevertSize := yul.contains "revert(0, 68)"
+      let ok := hasRevertSize
+      if ok then
+        IO.println "evm-diagnostics: ok: valid custom-error runtime args"
+      else
+        IO.eprintln s!"evm-diagnostics: FAILED: runtime custom-error layout (revertSize={hasRevertSize})"
+      pure ok
+
 def main : IO UInt32 := do
   let mut failures : Nat := 0
   if !(← checkCustomErrorStaticYul) then
+    failures := failures + 1
+  if !(← checkCustomErrorRuntimeYul) then
     failures := failures + 1
   for (name, module, expected) in cases do
     let ok ← checkCase name module expected
     if !ok then
       failures := failures + 1
   if failures == 0 then
-    IO.println s!"evm-diagnostics: {cases.size} negative cases + static-word layout passed"
+    IO.println s!"evm-diagnostics: {cases.size} negative cases + static + runtime layout passed"
     pure 0
   else
     IO.eprintln s!"evm-diagnostics: {failures} case(s) failed"
