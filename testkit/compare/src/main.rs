@@ -99,6 +99,9 @@ fn main() -> Result<()> {
         ["near", "vesting-vault"]
         | ["near", "vestingvault"]
         | ["near", "vesting"] => run_near_vesting_vault(&repo_root, &args),
+        ["near", "escrow-vault"]
+        | ["near", "escrowvault"]
+        | ["near", "escrow"] => run_near_escrow_vault(&repo_root, &args),
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
@@ -107,7 +110,8 @@ fn main() -> Result<()> {
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
                   array-example, ownable-hash, host-env-probe, auth-remote-call, \
                   access-control, external-token-transfer, external-vault, \
-                  pro-rata-vault, soulbound-token, ft-peer-client, vesting-vault)"
+                  pro-rata-vault, soulbound-token, ft-peer-client, vesting-vault, \
+                  escrow-vault)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -2509,6 +2513,96 @@ fn run_near_soulbound_token(repo_root: &Path, args: &Args) -> Result<()> {
         &[
             "No transfer entry — soulbound honesty.",
             "TokenSpec SoulboundToken.lean is Solana plan path; body is SoulboundTokenBody.lean.",
+        ],
+    )
+}
+
+fn run_near_escrow_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    // init(buyer=7, seller=8), fund(1000)
+    let init = {
+        let mut v = 7u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&8u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let fund = hex_encode_le_u64(1000);
+    // 8 calls: init, fund, get_status, get_amount, release, get_status, seller_claim, buyer_claim
+    let inputs = format!("{init},{fund},,,,,,");
+    // fuel: init, fund, release, seller_claim
+    let fuel_inputs = format!("{init},{fund},,");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "escrow-vault",
+        "testkit/compare/near/escrow-vault",
+        "Examples/Product/EscrowVault.lean",
+        "EscrowVault.near-artifact.json",
+        "pf_near_sdk_escrow_vault_reference.wasm",
+        &["escrowvault.wat", "EscrowVault.wat"],
+        &[
+            "init",
+            "fund",
+            "release",
+            "refund",
+            "get_status",
+            "get_amount",
+            "seller_claim",
+            "buyer_claim",
+            "get_buyer",
+            "get_seller",
+        ],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "fund",
+                    "get_status",
+                    "get_amount",
+                    "release",
+                    "get_status",
+                    "seller_claim",
+                    "buyer_claim",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    block_timestamp: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=1"),
+                "expected status Funded=1 after fund\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=2"),
+                "expected status Released=2 after release\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=1000"),
+                "expected amount/seller_claim 1000\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=0"),
+                "expected buyer_claim 0 after release\n{out}"
+            );
+            Ok(("init→fund 1000→release→seller_claim 1000".into(), out))
+        },
+        &["init", "fund", "release", "seller_claim"],
+        &fuel_inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            block_timestamp: None,
+            repeat: 1,
+        },
+        &[
+            "Two-party escrow state machine; internal claim ledger only.",
+            "No native attached_deposit / external token transfer.",
+            "release and refund are mutually exclusive once funded.",
         ],
     )
 }

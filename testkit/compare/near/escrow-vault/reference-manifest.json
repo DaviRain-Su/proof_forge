@@ -1,0 +1,24 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "program": "escrow-vault",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/EscrowVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "EscrowVault",
+  "scenario": {
+    "steps": [
+      { "call": "init", "buyerId": 7, "sellerId": 8 },
+      { "call": "fund", "amt": 1000 },
+      { "call": "release" },
+      { "view": "get_status", "expect": 2 },
+      { "view": "seller_claim", "expect": 1000 },
+      { "view": "buyer_claim", "expect": 0 },
+      { "view": "get_amount", "expect": 1000 }
+    ]
+  },
+  "honesty": [
+    "Two-party escrow state machine; internal claim ledger only.",
+    "No native attached_deposit / external token transfer.",
+    "release and refund are mutually exclusive once funded."
+  ]
+}

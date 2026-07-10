@@ -124,6 +124,10 @@ just near-compare-ft-peer-client-live
 just near-compare-vesting-vault
 just near-compare-vesting-vault-live
 
+# EscrowVault (two-party fund → release | refund)
+just near-compare-escrow-vault
+just near-compare-escrow-vault-live
+
 # Regenerate MATRIX.md from live reports
 just near-compare-matrix
 
@@ -252,8 +256,9 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | — | ProRataVault | **~82×** | ~1.13× | 2412 B |
 | — | SoulboundToken | **~110×** | ~1.12× | 1734 B |
 | — | VestingVault | **~95×** | ~1.14× | 1556 B |
+| — | EscrowVault | **~95×** | ~1.13× | 1583 B |
 
-**Stats (live, 25 contracts):** median wasm× **~115×**, median call× **~1.13×**, range wasm× **48–256×**.
+**Stats (live, 26 contracts):** median wasm× **~115×**, median call× **~1.13×**, range wasm× **48–256×**.
 
 **Pattern:** PF wins hard on **wasm / storage / deploy**. **Call gas** stays near parity because storage host ops dominate. Full table: [`MATRIX.md`](./MATRIX.md).
 
@@ -278,6 +283,7 @@ Fairness notes:
 - **ProRataVault:** ERC-4626-like pro-rata shares without IERC20 pulls (stdlib ERC4626 still NEAR-blocked).
 - **SoulboundTokenBody:** mint/burn only; TokenSpec `SoulboundToken.lean` remains Solana plan path.
 - **VestingVault:** linear vesting via HostEnv `timestamp` / `block_timestamp`; internal claim ledger (no external token).
+- **EscrowVault:** two-party fund → release | refund state machine; internal claim ledger only.
 - **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
 
 ## Contracts
@@ -309,5 +315,6 @@ Fairness notes:
 | `soulbound-token` | `just near-compare-soulbound-token-live` | `Examples/Product/SoulboundTokenBody.lean` |
 | `ft-peer-client` | `just near-compare-ft-peer-client-live` | `Examples/Backend/WasmNear/FtPeerClient.lean` |
 | `vesting-vault` | `just near-compare-vesting-vault-live` | `Examples/Product/VestingVault.lean` |
+| `escrow-vault` | `just near-compare-escrow-vault-live` | `Examples/Product/EscrowVault.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`. Ranked matrix: `testkit/compare/MATRIX.md`.

@@ -34,6 +34,7 @@ mod pro_rata_vault;
 mod soulbound_token;
 mod ft_peer_client;
 mod vesting_vault;
+mod escrow_vault;
 
 
 /// Run one side (ProofForge or near-sdk) for a registered contract.
@@ -83,6 +84,9 @@ pub(crate) async fn run_side(
         }
         ContractKind::VestingVault => {
             vesting_vault::run_vesting_vault_side(worker, wasm_path, side).await
+        }
+        ContractKind::EscrowVault => {
+            escrow_vault::run_escrow_vault_side(worker, wasm_path, side).await
         }
         ContractKind::RemoteCall
         | ContractKind::AuthRemoteCall

@@ -3,7 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: 25 live dual-deploy** (Wave 10 VestingVault HostEnv linear vesting).
+Status: **Complete: 26 live dual-deploy** (Wave 11 EscrowVault two-party state machine).
 Blocked: full Stdlib.ERC4626 NEAR asset crosscall; UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
@@ -162,6 +162,7 @@ eligible offline slice.
 | 9 | NC-9.1 | FtPeerClient protocol NEP-141 client | done: live ~102× wasm | Backend path |
 | 9 | NC-9.2 | near-compare-matrix snapshot script | done | scripts/near/compare-matrix-snapshot.py |
 | 10 | NC-10.1 | VestingVault HostEnv linear vesting | done: live ~95× wasm | internal claim ledger |
+| 11 | NC-11.1 | EscrowVault fund→release|refund | done: live ~95× wasm | two-party state machine |
 
 ### Task briefs
 
