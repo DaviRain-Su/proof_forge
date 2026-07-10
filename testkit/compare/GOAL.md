@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: Wave 0–3 live dual-deploy matrix** (Counter…StorageDeposit).
-Optional remaining: NC-H1 harness scenario registry; full UTF-8 string KV for Status/GuestBook.
+Status: **Complete: verified@596d5b2a** — Wave 0–3 live dual-deploy matrix
+(Counter…StorageDeposit). Optional: NC-H1 harness registry; UTF-8 string KV.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
