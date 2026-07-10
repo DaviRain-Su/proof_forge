@@ -1,0 +1,27 @@
+[package]
+name = "pf-near-sdk-auth-remote-callee-reference"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+description = "Peer callee receive(amount LE) for AuthRemoteCall compare"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.28"
+
+[features]
+default = []
+host-tests = ["near-sdk/unit-testing"]
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

@@ -24,6 +24,8 @@ testkit/compare/
     array-example/    # fixed u64x3 locals
     ownable-hash/     # 32-byte sha256 owner
     host-env-probe/   # triad HostEnv snapshot
+    auth-remote-call/ # debit + promise receive (+ callee)
+    access-control/   # admin role map grant/revoke
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
       src/
         main.rs       # CLI + dispatch
@@ -95,6 +97,12 @@ just near-compare-ownable-hash
 just near-compare-ownable-hash-live
 just near-compare-host-env-probe
 just near-compare-host-env-probe-live
+
+# AuthRemoteCall / AccessControl
+just near-compare-auth-remote-call
+just near-compare-auth-remote-call-live
+just near-compare-access-control
+just near-compare-access-control-live
 
 # All live dual-deploys
 just near-compare-all-live
@@ -184,6 +192,14 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | HostEnvProbe | deploy gas | 6.49e11 | 5.92e12 | **~9.1×** |
 | HostEnvProbe | call gas | 2.61e12 | 2.91e12 | **~1.11×** |
 | HostEnvProbe | storage | 1152 B | 74977 B | **~65.1×** |
+| AccessControl | wasm | **1055 B** | 186321 B | **~176.6×** |
+| AccessControl | deploy gas | 6.61e11 | 1.39e13 | **~21.0×** |
+| AccessControl | call gas | 4.26e12 | 5.38e12 | **~1.26×** |
+| AccessControl | storage | 1389 B | 186683 B | **~134.4×** |
+| AuthRemoteCall | wasm | **~1.1 KB** | ~174 KB | **~159×** |
+| AuthRemoteCall | deploy gas | 6.64e11 | 1.30e13 | **~19.6×** |
+| AuthRemoteCall | call gas | 4.35e12 | 4.83e12 | **~1.11×** |
+| AuthRemoteCall | storage | 1330 B | 174222 B | **~131.0×** |
 
 Fairness notes:
 
@@ -200,6 +216,8 @@ Fairness notes:
 - ReentrancyGuard is a **lock bit**, not EVM call-stack reentrancy theory.
 - ArrayExample is view-only (call gas 0); OwnableHash owner is full 32-byte sha256.
 - HostEnvProbe checks identity limbs + snapshot success; absolute time/height are host-defined.
+- AccessControl: wasm-near lowers `.address` to U64 (sha256 limb0); nested role maps.
+- AuthRemoteCall: promise body is raw LE u64 amount; peer `receive` parses `env::input()`.
 
 ## Contracts
 
@@ -222,5 +240,7 @@ Fairness notes:
 | `array-example` | `just near-compare-array-example-live` | `Examples/Product/ArrayExample.lean` |
 | `ownable-hash` | `just near-compare-ownable-hash-live` | `Examples/Product/OwnableHash.lean` |
 | `host-env-probe` | `just near-compare-host-env-probe-live` | `Examples/Product/HostEnvProbe.lean` |
+| `auth-remote-call` | `just near-compare-auth-remote-call-live` | `Examples/Product/AuthRemoteCall.lean` |
+| `access-control` | `just near-compare-access-control-live` | `Examples/Product/AccessControl.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

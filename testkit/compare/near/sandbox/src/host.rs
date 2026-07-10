@@ -468,6 +468,73 @@ impl SideCtx {
         Ok(())
     }
 
+    /// View a 1-byte bool return (0/1), common for `returns(.bool)` on EmitWat.
+    pub async fn view_raw_bool(
+        &mut self,
+        method: &str,
+        args: &[u8],
+        label: &str,
+        expect: Option<bool>,
+    ) -> Result<bool> {
+        let details = self
+            .contract
+            .view(method)
+            .args(args.to_vec())
+            .await
+            .with_context(|| format!("view `{method}` bool"))?;
+        let bytes = details.result;
+        let val = match bytes.as_slice() {
+            [0] | [] => false,
+            [1] => true,
+            // Some hosts return LE u64 0/1
+            b if b.len() == 8 => u64::from_le_bytes(b.try_into().unwrap()) != 0,
+            other => bail!("{label}: expected bool bytes, got {other:02x?}"),
+        };
+        if let Some(exp) = expect {
+            ensure!(val == exp, "{label}: expected {exp}, got {val}");
+        }
+        self.steps.push(StepReport {
+            call: method.into(),
+            kind: "view".into(),
+            ok: true,
+            gas_burnt: None,
+            return_u64: Some(u64::from(val)),
+            logs: details.logs,
+            error: None,
+        });
+        Ok(val)
+    }
+
+    /// View JSON bool.
+    pub async fn view_json_bool(
+        &mut self,
+        method: &str,
+        args: serde_json::Value,
+        label: &str,
+        expect: Option<bool>,
+    ) -> Result<bool> {
+        let details = self
+            .contract
+            .view(method)
+            .args_json(args)
+            .await
+            .with_context(|| format!("view `{method}` json bool"))?;
+        let val: bool = details.json().context("json bool")?;
+        if let Some(exp) = expect {
+            ensure!(val == exp, "{label}: expected {exp}, got {val}");
+        }
+        self.steps.push(StepReport {
+            call: method.into(),
+            kind: "view".into(),
+            ok: true,
+            gas_burnt: None,
+            return_u64: Some(u64::from(val)),
+            logs: details.logs,
+            error: None,
+        });
+        Ok(val)
+    }
+
     /// View raw bytes (e.g. hash-width `owner` → 32-byte return).
     pub async fn view_raw_bytes(
         &mut self,

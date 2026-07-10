@@ -23,7 +23,7 @@ use anyhow::{bail, Context, Result};
 use crate::host::ensure_file;
 use crate::kind::ContractKind;
 use crate::report::{write_dual_report, Args, SideKind};
-use crate::scenarios::{run_remote_call_matrix, run_side};
+use crate::scenarios::{run_auth_remote_call_matrix, run_remote_call_matrix, run_side};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -68,18 +68,32 @@ async fn run() -> Result<()> {
         Err(err) => bail!("skip: failed to start NEAR sandbox: {err:#}"),
     };
 
-    if args.contract == ContractKind::RemoteCall {
+    if matches!(
+        args.contract,
+        ContractKind::RemoteCall | ContractKind::AuthRemoteCall
+    ) {
         let callee = args
             .callee_wasm
             .as_ref()
-            .context("remote-call requires --callee-wasm")?;
+            .context("multi-account contract requires --callee-wasm")?;
         let repo = args
             .repo_root
             .as_ref()
-            .context("remote-call requires --repo-root")?;
-        println!("=== near-sandbox dual: remote-call multi-account ===");
-        let (pf, sdk) =
-            run_remote_call_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee).await?;
+            .context("multi-account contract requires --repo-root")?;
+        println!(
+            "=== near-sandbox dual: {} multi-account ===",
+            args.contract.as_str()
+        );
+        let (pf, sdk) = match args.contract {
+            ContractKind::RemoteCall => {
+                run_remote_call_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee).await?
+            }
+            ContractKind::AuthRemoteCall => {
+                run_auth_remote_call_matrix(&worker, repo, &args.pf_wasm, &args.sdk_wasm, callee)
+                    .await?
+            }
+            _ => unreachable!(),
+        };
         write_dual_report(&args, pf, sdk)?;
         return Ok(());
     }

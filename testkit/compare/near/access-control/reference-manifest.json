@@ -1,0 +1,24 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "access-control",
+  "source": "src/lib.rs",
+  "proofForgeSource": "Examples/Product/AccessControl.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "AccessControl",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "hasRole", "role": 0, "who": "self", "expect": true },
+      { "call": "grantRole", "role": 1, "who": "bob" },
+      { "call": "hasRole", "role": 1, "who": "bob", "expect": true },
+      { "call": "revokeRole", "role": 1, "who": "bob" },
+      { "call": "hasRole", "role": 1, "who": "bob", "expect": false }
+    ]
+  },
+  "honesty": [
+    "On wasm-near, Stdlib.AccessControl .address params lower to U64 (sha256 limb0).",
+    "sdk uses compound LookupMap keys; PF uses nested pathWriteRole maps.",
+    "DEFAULT_ADMIN_ROLE = 0; minter demo role = 1."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "auth-remote-call",
+  "source": "src/lib.rs",
+  "callee": "callee/",
+  "proofForgeSource": "Examples/Product/AuthRemoteCall.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "AuthRemoteCall",
+  "scenario": {
+    "offline": [
+      "initialize → balance 100",
+      "debit_and_forward(10) → promise_create(peer.callee, receive, [10])"
+    ],
+    "live": [
+      "deploy callee with receive",
+      "rebuild PF with --peer peer.callee=<id>",
+      "initialize + debit_and_forward(10)"
+    ]
+  },
+  "honesty": [
+    "PF embeds peer at build time; sdk stores callee AccountId in initialize.",
+    "Promise body is raw LE u64 amount (not JSON) for PF/sdk interop with this callee.",
+    "caller is read on PF path for Solana authority synthesis; NEAR uses predecessor only."
+  ]
+}

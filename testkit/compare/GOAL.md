@@ -3,8 +3,7 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: verified@1b06e795** — Wave 0–5 live matrix (17 contracts).
-Optional: AuthRemoteCall; UTF-8 string KV.
+Status: **Active Wave 6** — Wave 0–5@1b06e795; AuthRemoteCall + AccessControl landing.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
@@ -152,6 +151,8 @@ eligible offline slice.
 | 5 | NC-5.1 | ArrayExample fixed array locals | done: live semanticMatch; wasm ~131× | view-only |
 | 5 | NC-5.2 | OwnableHash 32-byte owner | done: live semanticMatch; wasm ~115× | — |
 | 5 | NC-5.3 | HostEnvProbe triad snapshot | done: live semanticMatch; wasm ~84× | honesty: time/height host-defined |
+| 6 | NC-6.1 | AuthRemoteCall debit + promise | done: live semanticMatch; wasm ~159× | multi-account + peer rebuild |
+| 6 | NC-6.2 | AccessControl role map | done: live semanticMatch; wasm ~177× | .address→U64 on NEAR |
 
 ### Task briefs
 

@@ -21,6 +21,8 @@ pub(crate) enum ContractKind {
     ArrayExample,
     OwnableHash,
     HostEnvProbe,
+    AuthRemoteCall,
+    AccessControl,
 }
 
 impl ContractKind {
@@ -43,6 +45,8 @@ impl ContractKind {
             "array-example" | "arrayexample" | "array" => Ok(Self::ArrayExample),
             "ownable-hash" | "ownablehash" | "ownable_hash" => Ok(Self::OwnableHash),
             "host-env-probe" | "hostenvprobe" | "hostenv" => Ok(Self::HostEnvProbe),
+            "auth-remote-call" | "authremotecall" | "auth_remote" => Ok(Self::AuthRemoteCall),
+            "access-control" | "accesscontrol" | "acl" => Ok(Self::AccessControl),
             other => bail!("unknown --contract `{other}`"),
         }
     }
@@ -66,6 +70,8 @@ impl ContractKind {
             Self::ArrayExample => "array-example",
             Self::OwnableHash => "ownable-hash",
             Self::HostEnvProbe => "host-env-probe",
+            Self::AuthRemoteCall => "auth-remote-call",
+            Self::AccessControl => "access-control",
         }
     }
 }

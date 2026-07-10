@@ -539,8 +539,22 @@ near-compare-host-env-probe:
 near-compare-host-env-probe-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near host-env-probe --live
 
+# AuthRemoteCall (debit + promise receive).
+near-compare-auth-remote-call:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near auth-remote-call
+
+near-compare-auth-remote-call-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near auth-remote-call --live
+
+# AccessControl role map.
+near-compare-access-control:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near access-control
+
+near-compare-access-control-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near access-control --live
+
 # Full matrix.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live near-compare-storage-deposit-live near-compare-pausable-live near-compare-reentrancy-guard-live near-compare-ownable-pausable-live near-compare-array-example-live near-compare-ownable-hash-live near-compare-host-env-probe-live near-compare-auth-remote-call-live near-compare-access-control-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

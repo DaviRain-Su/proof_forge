@@ -26,6 +26,8 @@ mod fee_token;
 mod array_example;
 mod ownable_hash;
 mod host_env_probe;
+mod auth_remote_call;
+mod access_control;
 
 
 /// Run one side (ProofForge or near-sdk) for a registered contract.
@@ -64,10 +66,14 @@ pub(crate) async fn run_side(
         ContractKind::HostEnvProbe => {
             host_env_probe::run_host_env_probe_side(worker, wasm_path, side).await
         }
-        ContractKind::RemoteCall => {
-            bail!("remote-call uses run_remote_call_matrix, not run_side")
+        ContractKind::AccessControl => {
+            access_control::run_access_control_side(worker, wasm_path, side).await
+        }
+        ContractKind::RemoteCall | ContractKind::AuthRemoteCall => {
+            bail!("{} uses multi-account matrix, not run_side", kind.as_str())
         }
     }
 }
 
+pub(crate) use auth_remote_call::run_auth_remote_call_matrix;
 pub(crate) use remote_call::run_remote_call_matrix;

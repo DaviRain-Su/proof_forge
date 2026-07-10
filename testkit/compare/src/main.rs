@@ -74,13 +74,20 @@ fn main() -> Result<()> {
         ["near", "host-env-probe"]
         | ["near", "hostenvprobe"]
         | ["near", "hostenv"] => run_near_host_env_probe(&repo_root, &args),
+        ["near", "auth-remote-call"]
+        | ["near", "authremotecall"]
+        | ["near", "auth_remote"] => run_near_auth_remote_call(&repo_root, &args),
+        ["near", "access-control"] | ["near", "accesscontrol"] | ["near", "acl"] => {
+            run_near_access_control(&repo_root, &args)
+        }
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
                   role-gated-token, fee-token, remote-call, status-message, guestbook, \
                   storage-deposit, pausable, reentrancy-guard, ownable-pausable, \
-                  array-example, ownable-hash, host-env-probe)"
+                  array-example, ownable-hash, host-env-probe, auth-remote-call, \
+                  access-control)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -159,7 +166,8 @@ fn print_usage() {
          contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
                     role-gated-token|fee-token|remote-call|status-message|guestbook|\n\
                     storage-deposit|pausable|reentrancy-guard|ownable-pausable|\n\
-                    array-example|ownable-hash|host-env-probe\n\n\
+                    array-example|ownable-hash|host-env-probe|auth-remote-call|\n\
+                    access-control\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -2075,6 +2083,328 @@ fn run_near_host_env_probe(repo_root: &Path, args: &Args) -> Result<()> {
             "Absolute time/height are host-defined; identity limbs are sha256 first-8 LE.",
         ],
     )
+}
+
+fn run_near_access_control(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let bob = u64::from_le_bytes(near_account_hash32("bob.testnet")[..8].try_into().unwrap());
+    let admin_args = {
+        let mut v = 0u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&alice.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let grant_args = {
+        let mut v = 1u64.to_le_bytes().to_vec();
+        v.extend_from_slice(&bob.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, hasRole(0,alice), grantRole(1,bob), hasRole(1,bob), revokeRole(1,bob), hasRole(1,bob)
+    let inputs = format!(",{admin_args},{grant_args},{grant_args},{grant_args},{grant_args}");
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "access-control",
+        "testkit/compare/near/access-control",
+        "Examples/Product/AccessControl.lean",
+        "AccessControl.near-artifact.json",
+        "pf_near_sdk_access_control_reference.wasm",
+        &["accesscontrol.wat", "AccessControl.wat"],
+        &["init", "hasRole", "grantRole", "revokeRole"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "hasRole",
+                    "grantRole",
+                    "hasRole",
+                    "revokeRole",
+                    "hasRole",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_bool=true"),
+                "expected true hasRole results\n{out}"
+            );
+            ensure!(
+                out.contains("return_bool=false"),
+                "expected false after revoke\n{out}"
+            );
+            Ok(("init→admin→grant minter→revoke".into(), out))
+        },
+        &["hasRole"],
+        &admin_args,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "On wasm-near, .address params lower to U64 (sha256 limb0 of account).",
+            "DEFAULT_ADMIN_ROLE=0; demo minter role=1.",
+        ],
+    )
+}
+
+fn run_near_auth_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
+    let fixture_dir = repo_root.join("testkit/compare/near/auth-remote-call");
+    let callee_dir = fixture_dir.join("callee");
+    let manifest_path = fixture_dir.join("reference-manifest.json");
+    let reference_source = fixture_dir.join("src/lib.rs");
+    let pf_source = repo_root.join("Examples/Product/AuthRemoteCall.lean");
+    ensure!(manifest_path.is_file(), "missing {}", manifest_path.display());
+    ensure!(reference_source.is_file(), "missing {}", reference_source.display());
+    ensure!(pf_source.is_file(), "missing {}", pf_source.display());
+    ensure!(callee_dir.is_dir(), "missing callee crate {}", callee_dir.display());
+
+    let out_root = repo_root.join("build/testkit/compare/near/auth-remote-call");
+    let pf_dir = out_root.join("proof-forge");
+    let sdk_dir = out_root.join("near-sdk");
+    let callee_out = out_root.join("callee");
+    let report_path = out_root.join("report.json");
+    if out_root.exists() {
+        fs::remove_dir_all(&out_root)?;
+    }
+    fs::create_dir_all(&pf_dir)?;
+    fs::create_dir_all(&sdk_dir)?;
+    fs::create_dir_all(&callee_out)?;
+
+    println!("=== testkit-compare near/auth-remote-call: build ProofForge ===");
+    build_proof_forge_near(
+        repo_root,
+        &pf_source,
+        &pf_dir,
+        "AuthRemoteCall.near-artifact.json",
+    )?;
+    let wat_path = ["authremotecall.wat", "AuthRemoteCall.wat"]
+        .iter()
+        .map(|n| pf_dir.join(n))
+        .find(|p| p.is_file())
+        .context("AuthRemoteCall WAT missing")?;
+    let wasm_path = wat_path.with_extension("wasm");
+    if !wasm_path.is_file() {
+        run_checked(
+            Command::new("wat2wasm")
+                .current_dir(repo_root)
+                .arg(&wat_path)
+                .arg("-o")
+                .arg(&wasm_path),
+            "wat2wasm",
+        )?;
+    }
+    let artifact_path = pf_dir.join("AuthRemoteCall.near-artifact.json");
+
+    println!("=== testkit-compare near/auth-remote-call: entrypoint equivalence ===");
+    check_equivalence_subset(
+        &artifact_path,
+        &reference_source,
+        &["initialize", "debit_and_forward"],
+    )?;
+
+    let amt = hex_encode_le_u64(10);
+    let inputs = format!(",{amt}");
+    println!("=== testkit-compare near/auth-remote-call: offline promise scenario ===");
+    let semantic_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        &["initialize", "debit_and_forward"],
+        OfflineHostOpts {
+            inputs_hex_csv: &inputs,
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+    )?;
+    ensure!(
+        semantic_out.contains("promise_create")
+            && semantic_out.contains("receive")
+            && semantic_out.contains("promise_return"),
+        "expected promise_create receive/return traces\n{semantic_out}"
+    );
+    ensure!(
+        semantic_out.contains("account=peer.callee") || semantic_out.contains("peer.callee"),
+        "expected peer.callee account in promise trace\n{semantic_out}"
+    );
+    println!("{semantic_out}");
+
+    println!(
+        "=== testkit-compare near/auth-remote-call: offline fuel bench (repeat={}) ===",
+        args.repeat
+    );
+    let bench_started = Instant::now();
+    let bench_out = run_offline_host_opts(
+        repo_root,
+        &wat_path,
+        &["initialize", "debit_and_forward"],
+        OfflineHostOpts {
+            inputs_hex_csv: &inputs,
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: args.repeat,
+        },
+    )?;
+    let wall_ms = bench_started.elapsed().as_secs_f64() * 1000.0;
+    let fuel = parse_fuel_summary(&bench_out);
+
+    let mut sdk_built = false;
+    let mut sdk_note = "skipped".to_string();
+    let mut sdk_wasm_bytes: Option<u64> = None;
+    let mut callee_wasm_bytes: Option<u64> = None;
+    let sdk_wasm_path = sdk_dir.join("contract.wasm");
+    let callee_wasm_path = callee_out.join("contract.wasm");
+    if args.build_sdk {
+        println!("=== testkit-compare near/auth-remote-call: build near-sdk caller + callee ===");
+        match build_near_sdk_wasm(
+            repo_root,
+            &fixture_dir,
+            &sdk_dir,
+            "pf_near_sdk_auth_remote_call_reference.wasm",
+        ) {
+            Ok(bytes) => {
+                sdk_built = true;
+                sdk_wasm_bytes = Some(bytes);
+                sdk_note = "built".to_string();
+            }
+            Err(err) => {
+                sdk_note = format!("caller build failed: {err:#}");
+                if args.live {
+                    bail!("--live requires sdk caller: {sdk_note}");
+                }
+            }
+        }
+        match build_near_sdk_wasm(
+            repo_root,
+            &callee_dir,
+            &callee_out,
+            "pf_near_sdk_auth_remote_callee_reference.wasm",
+        ) {
+            Ok(bytes) => callee_wasm_bytes = Some(bytes),
+            Err(err) => {
+                if args.live {
+                    bail!("--live requires callee wasm: {err:#}");
+                }
+                eprintln!("WARN: callee build failed: {err:#}");
+            }
+        }
+    }
+
+    let mut sandbox_section = json!({
+        "requested": args.live,
+        "status": if args.live { "pending" } else { "not_requested" },
+    });
+    if args.live {
+        ensure!(
+            sdk_built && sdk_wasm_path.is_file() && callee_wasm_path.is_file(),
+            "--live: need sdk caller + callee wasms"
+        );
+        println!("=== testkit-compare near/auth-remote-call: NEAR Sandbox dual deploy ===");
+        let sandbox_report = out_root.join("sandbox-report.json");
+        match run_near_sandbox_dual_ext(
+            repo_root,
+            "auth-remote-call",
+            &wasm_path,
+            &sdk_wasm_path,
+            &sandbox_report,
+            Some(&callee_wasm_path),
+        ) {
+            Ok(SandboxRun::Passed { report }) => {
+                println!("sandbox dual-deploy: passed (real NEAR gas)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::Skipped { reason }) => {
+                eprintln!("sandbox dual-deploy: SKIP — {reason}");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "skipped",
+                    "detail": { "reason": reason },
+                });
+            }
+            Err(err) => bail!("NEAR Sandbox dual-deploy FAILED: {err:#}"),
+        }
+    }
+
+    let pf_wasm_bytes = file_len(&wasm_path)?;
+    let pf_wat_bytes = file_len(&wat_path)?;
+    let mut comparison = json!({
+        "proofForgeWasmBytes": pf_wasm_bytes,
+        "proofForgeWatBytes": pf_wat_bytes,
+        "nearSdkWasmBytes": sdk_wasm_bytes,
+        "calleeWasmBytes": callee_wasm_bytes,
+    });
+    if let Some(obj) = comparison.as_object_mut() {
+        if let Some(sdk) = sdk_wasm_bytes {
+            if pf_wasm_bytes > 0 {
+                obj.insert(
+                    "nearSdkWasm_vs_proofForgeWasm_ratio".into(),
+                    json!(round3(sdk as f64 / pf_wasm_bytes as f64)),
+                );
+            }
+        }
+        if let Some(detail) = sandbox_section.get("detail") {
+            if let Some(cmp) = detail.get("comparison") {
+                obj.insert("sandbox".into(), cmp.clone());
+            }
+        }
+    }
+
+    let report = json!({
+        "schema": "proof-forge.testkit.compare.v0",
+        "chain": "near",
+        "contract": "auth-remote-call",
+        "fixtureDir": "testkit/compare/near/auth-remote-call",
+        "scenario": {
+            "semantic": "initialize → debit_and_forward(10) promise receive",
+            "repeat": args.repeat,
+        },
+        "implementations": {
+            "proof-forge-emitwat": {
+                "source": "Examples/Product/AuthRemoteCall.lean",
+                "target": "wasm-near",
+                "watPath": rel(repo_root, &wat_path),
+                "wasmPath": rel(repo_root, &wasm_path),
+                "wasmBytes": pf_wasm_bytes,
+                "watBytes": pf_wat_bytes,
+                "wasmtimeFuel": fuel,
+                "wallClockMs": round3(wall_ms),
+            },
+            "near-sdk-rs": {
+                "source": "testkit/compare/near/auth-remote-call",
+                "callee": "testkit/compare/near/auth-remote-call/callee",
+                "built": sdk_built,
+                "note": sdk_note,
+                "wasmBytes": sdk_wasm_bytes,
+                "calleeWasmBytes": callee_wasm_bytes,
+            },
+        },
+        "sandbox": sandbox_section,
+        "comparison": comparison,
+        "honesty": [
+            "Offline: promise_create/return host traces (peer.callee, method receive).",
+            "Live: sandbox deploys receive-callee, rebuilds PF with --peer, dual-deploys callers.",
+            "Promise body is raw LE u64 amount for PF/sdk interop with this callee.",
+        ],
+    });
+    fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report)? + "\n",
+    )?;
+    println!("{}", serde_json::to_string_pretty(&comparison)?);
+    println!("wrote {}", rel(repo_root, &report_path));
+    println!("testkit-compare near/auth-remote-call: ok");
+    Ok(())
 }
 
 fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
