@@ -244,7 +244,7 @@ hook ELF.
 
 | ID | Finding | Consequence |
 |---|---|---|
-| X-P0-01 | `TokenSpec` feature matrices validate plan labels rather than final behavior | `full` can be reported for code that does not materialize cap, pause, permit, confidential transfer, or storage unregister |
+| X-P0-01 | `TokenSpec` feature matrices historically validated plan labels rather than final behavior | Fail-closed routing is now enforced for cap, pause, permit, confidential transfer and storage unregister; requirement-bound promotion from `experimental` to `full` remains open |
 | X-P0-02 | There is no typed product route plan above target module plans | CLI, client, metadata, deploy and lowerers can independently infer different standard choices |
 | X-P0-03 | Artifact kind does not fully model generated code versus protocol transaction bundles versus hybrid output | Solana TokenSpec is either under-claimed as a plan or over-claimed as a program |
 | X-P0-04 | Portable call intent does not distinguish atomic return from scheduled callback | NEAR Promise identifiers can be mistaken for business return values |
@@ -279,8 +279,8 @@ hook ELF.
 - `NearFungibleToken` is not NEP-141-compatible and has repeatable init,
   unrestricted mint, non-private resolver, one global pending-transfer slot,
   and incomplete refund bounds.
-- TokenSpec name, decimals, initial supply, cap, pause, and permit can be
-  accepted without being materialized.
+- TokenSpec name, decimals, and initial supply still need complete runtime
+  parameterization. Cap, pause, and permit now reject before NEAR planning.
 - External FT portable calls use zero deposit and synchronous assumptions that
   conflict with NEP-141 and Promise semantics.
 - Predecessor/current/signer identities are hashed and truncated to U64,
@@ -295,8 +295,9 @@ hook ELF.
   later account/instruction offsets.
 - Every entrypoint is forced to carry the module-wide account set, expanding
   locks and writable permissions.
-- Token feature support overstates cap, pause, permit, confidential transfer,
-  and unconditional burn behavior.
+- Token feature routing now rejects cap, pause, permit, and confidential
+  transfer, and burn is capability-gated. Evidence-bound promotion from
+  `experimental` remains open.
 - Token-2022 extension initialization uses an untyped common account/parameter
   shape even though extension scope, space, ordering, and accounts differ.
 - `SolanaModulePlan` remains a flat MVP while lowerer extensions, IDL, client,
@@ -716,7 +717,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | pending |
 | S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | pending |
 | S-P0-02 | Per-entrypoint account graph and least privilege | `Backend/Solana/Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, lowerer | unused accounts absent; signer/writable escalation tests fail closed | S-P0-01 | pending |
-| X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | pending |
+| X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | in_progress: fail-closed matrix and burn/unregister honesty implemented; evidence-bound promotion pending |
 | T-99 | Wave-T fail-closed gate | all Wave-T tests and product matrices | Every earlier Wave-T row is green or the corresponding route is rejected; evidence report records commands and digests | all earlier Wave-T rows | pending |
 
 ### Wave F - Portable numeric and principal foundations
@@ -835,13 +836,13 @@ after current branch changes are safely committed.
 `ProofForge/Contract/TokenAuth.lean`, `Tests/TokenFeatureMatrix.lean`, and target
 token artifact tests.
 
-- [ ] Add negative cases for EVM cap/pause, NEAR cap/pause/permit/unregister,
+- [x] Add negative cases for EVM cap/pause, NEAR cap/pause/permit/unregister,
       and Solana cap/pause/permit/confidential/unconditional burn.
-- [ ] Change every unmaterialized combination to a stable fail-closed
+- [x] Change every unmaterialized combination to a stable fail-closed
       diagnostic before adding any new feature implementation.
 - [ ] Replace named-gate strings with verified evidence references for the
       exact adapter version and emitted artifact/bundle digest.
-- [ ] Run `just token-feature-matrix`, affected target token smokes,
+- [x] Run `just token-feature-matrix`, affected target token smokes,
       `just product`, and commit.
 
 ### Task 3: E-P0-01 Canonical EVM ABI And Selector Schema

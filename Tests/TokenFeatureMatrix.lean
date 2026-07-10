@@ -18,30 +18,28 @@ def main : IO Unit := do
   require (rows.size == primaryTokenTargetIds.size * knownFeatureIds.size)
     s!"matrix size {rows.size}"
 
-  -- EVM: core + permit full; Token-2022 extensions reject (T2.2).
-  for f in corePortableFeatures do
-    require (featureSupportOnTarget "evm" f == .full)
-      s!"evm should fully support {f.id}"
+  -- No feature is `full` until requirement-bound executable evidence exists.
+  -- Implemented mint/burn paths remain usable but are explicitly experimental.
+  for f in #[TokenFeature.mintable, .burnable] do
+    require (featureSupportOnTarget "evm" f == .experimental)
+      s!"evm should mark implemented {f.id} experimental"
     require (planSucceedsForFeature evm f)
       s!"evm planForTarget should succeed for {f.id}"
+  for f in #[TokenFeature.capped, .pausable, .permit] do
+    require (featureSupportOnTarget "evm" f == .reject)
+      s!"evm should reject unmaterialized {f.id}"
+    require (!planSucceedsForFeature evm f)
+      s!"evm planForTarget must fail closed for {f.id}"
   for f in solanaExtensionFeatures do
     require (featureSupportOnTarget "evm" f == .reject)
       s!"evm should reject {f.id}"
     require (!planSucceedsForFeature evm f)
       s!"evm planForTarget must fail for {f.id}"
-  require (featureSupportOnTarget "evm" .permit == .full)
-    "evm plans permit via ERC20Permit stdlib path"
-  require (planSucceedsForFeature evm .permit)
-    "evm planForTarget should succeed for permit"
   match planForTarget evm {
     name := "P", symbol := "P", decimals := 18, features := #[.permit]
   } with
-  | .error e => throw (IO.userError s!"permit plan: {e}")
-  | .ok plan =>
-      require (plan.operations.any (· == "erc20.permit")) "ops include erc20.permit"
-      require (plan.capabilities.any (· == .cryptoEcrecover)) "plan needs crypto.ecrecover"
-      require (plan.notes.any (fun n => n.contains "ERC20Permit"))
-        "notes point at ERC20Permit stdlib"
+  | .ok _ => throw (IO.userError "EVM must reject staged/non-compliant permit")
+  | .error e => require (e.contains "permit") s!"permit reject names feature: {e}"
   match planForTarget evm {
     name := "Fee", symbol := "FEE", decimals := 9, features := #[.transferFee]
   } with
@@ -52,29 +50,35 @@ def main : IO Unit := do
       require (msg.contains "solana-sbpf-asm")
         s!"EVM reject should point to Solana: {msg}"
 
-  -- Solana: core + extension full (Token-2022 when needed).
-  for f in corePortableFeatures do
-    require (featureSupportOnTarget "solana-sbpf-asm" f == .full)
-      s!"solana should support core {f.id}"
+  -- Solana: only actually rendered feature slices may plan; evidence is pending.
+  for f in #[TokenFeature.mintable, .burnable] do
+    require (featureSupportOnTarget "solana-sbpf-asm" f == .experimental)
+      s!"solana should mark implemented core {f.id} experimental"
     require (planSucceedsForFeature solanaSbpfAsm f)
       s!"solana plan ok for {f.id}"
-  for f in solanaExtensionFeatures do
-    require (featureSupportOnTarget "solana-sbpf-asm" f == .full)
-      s!"solana should support extension {f.id}"
-    -- transfer_fee + non_transferable together is invalid; single-feature ok
-    if f != .transferFee && f != .nonTransferable then
-      require (planSucceedsForFeature solanaSbpfAsm f)
-        s!"solana plan ok for {f.id}"
-    else
-      require (planSucceedsForFeature solanaSbpfAsm f)
-        s!"solana single-feature plan ok for {f.id}"
+  for f in #[TokenFeature.transferFee, .nonTransferable, .transferHook,
+      .metadataPointer, .defaultAccountState, .immutableOwner] do
+    require (featureSupportOnTarget "solana-sbpf-asm" f == .experimental)
+      s!"solana should mark rendered extension {f.id} experimental"
+    require (planSucceedsForFeature solanaSbpfAsm f)
+      s!"solana single-feature plan ok for {f.id}"
+  for f in #[TokenFeature.capped, .pausable, .permit, .confidentialTransfer] do
+    require (featureSupportOnTarget "solana-sbpf-asm" f == .reject)
+      s!"solana should reject unmaterialized {f.id}"
+    require (!planSucceedsForFeature solanaSbpfAsm f)
+      s!"solana plan must fail closed for {f.id}"
 
-  -- NEAR: core NEP-141 plan lane; extension features reject.
-  for f in corePortableFeatures do
-    require (featureSupportOnTarget "wasm-near" f == .full)
-      s!"wasm-near should plan core {f.id}"
+  -- NEAR mint/burn bodies exist but are not yet compliance-qualified.
+  for f in #[TokenFeature.mintable, .burnable] do
+    require (featureSupportOnTarget "wasm-near" f == .experimental)
+      s!"wasm-near should mark implemented {f.id} experimental"
     require (planSucceedsForFeature wasmNear f)
       s!"wasm-near planForTarget should succeed for {f.id}"
+  for f in #[TokenFeature.capped, .pausable, .permit] do
+    require (featureSupportOnTarget "wasm-near" f == .reject)
+      s!"wasm-near should reject unmaterialized {f.id}"
+    require (!planSucceedsForFeature wasmNear f)
+      s!"wasm-near plan must fail closed for {f.id}"
   for f in solanaExtensionFeatures do
     require (featureSupportOnTarget "wasm-near" f == .reject)
       s!"wasm-near should reject extension {f.id}"
