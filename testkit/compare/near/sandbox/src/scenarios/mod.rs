@@ -1,0 +1,61 @@
+//! Scenario registry — one dispatch table for dual-deploy sides.
+
+use std::path::Path;
+
+use anyhow::{bail, Result};
+use near_workspaces::network::Sandbox;
+use near_workspaces::Worker;
+
+use crate::kind::ContractKind;
+use crate::report::{SideKind, SideReport};
+
+mod status;
+mod guestbook;
+mod pausable;
+mod reentrancy;
+mod ownable_pausable;
+mod storage_deposit;
+mod remote_call;
+mod counter;
+mod value_vault;
+mod fungible_token;
+mod ownable;
+mod staking;
+mod role_gated;
+mod fee_token;
+
+
+/// Run one side (ProofForge or near-sdk) for a registered contract.
+pub(crate) async fn run_side(
+    kind: ContractKind,
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    side: SideKind,
+) -> Result<SideReport> {
+    match kind {
+        ContractKind::Counter => counter::run_counter_side(worker, wasm_path, side).await,
+        ContractKind::ValueVault => value_vault::run_value_vault_side(worker, wasm_path, side).await,
+        ContractKind::FungibleToken => fungible_token::run_ft_side(worker, wasm_path, side).await,
+        ContractKind::Ownable => ownable::run_ownable_side(worker, wasm_path, side).await,
+        ContractKind::StakingVault => staking::run_staking_side(worker, wasm_path, side).await,
+        ContractKind::RoleGatedToken => role_gated::run_rgt_side(worker, wasm_path, side).await,
+        ContractKind::FeeToken => fee_token::run_fee_side(worker, wasm_path, side).await,
+        ContractKind::StatusMessage => status::run_status_side(worker, wasm_path, side).await,
+        ContractKind::GuestBook => guestbook::run_guestbook_side(worker, wasm_path, side).await,
+        ContractKind::StorageDeposit => {
+            storage_deposit::run_storage_deposit_side(worker, wasm_path, side).await
+        }
+        ContractKind::Pausable => pausable::run_pausable_side(worker, wasm_path, side).await,
+        ContractKind::ReentrancyGuard => {
+            reentrancy::run_reentrancy_side(worker, wasm_path, side).await
+        }
+        ContractKind::OwnablePausable => {
+            ownable_pausable::run_ownable_pausable_side(worker, wasm_path, side).await
+        }
+        ContractKind::RemoteCall => {
+            bail!("remote-call uses run_remote_call_matrix, not run_side")
+        }
+    }
+}
+
+pub(crate) use remote_call::run_remote_call_matrix;

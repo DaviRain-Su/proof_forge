@@ -3,8 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: verified@34394de7** — Wave 0–4 live dual-deploy matrix
-(Counter…OwnablePausable). Optional: NC-H1 harness registry; UTF-8 string KV.
+Status: **Active NC-H1** — Wave 0–4 live matrix@34394de7; harness modularization in progress.
+Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -137,7 +137,7 @@ eligible offline slice.
 | 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live semanticMatch; wasm ~48× | — |
 | 1 | NC-1.3 | Ownable / owner gate | done: live semanticMatch; wasm ~256× | — |
 | 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | done: live semanticMatch; U64 codes (not UTF-8); wasm ~126× | honesty: string KV open |
-| H | NC-H1 | Scenario registry (less paste in sandbox main) | pending | optional |
+| H | NC-H1 | Scenario registry (less paste in sandbox main) | in_progress: modular sandbox + SideCtx + run_side registry | — |
 | H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` (+ status/guestbook) | — |
 | 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
@@ -186,8 +186,10 @@ eligible offline slice.
 
 #### NC-H1 / NC-H3
 
-- Refactor harness when copy-paste hurts; do not block Wave 1 on perfect
-  architecture.
+- **NC-H1 (landing):** split `testkit/compare/near/sandbox` into
+  `kind` / `report` / `host` (`SideCtx`) / `scenarios/*` with `run_side` registry.
+  New contracts add one scenario file + one `ContractKind` arm + `run_side` match arm.
+- NC-H3 already done via `just near-compare-all-live`.
 
 ---
 

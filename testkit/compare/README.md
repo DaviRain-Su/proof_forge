@@ -22,6 +22,12 @@ testkit/compare/
     reentrancy-guard/ # lock-bit mixin
     ownable-pausable/ # owner-gated pause
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
+      src/
+        main.rs       # CLI + dispatch
+        kind.rs       # ContractKind
+        report.rs     # SideReport / write_dual_report
+        host.rs       # deploy/call/view + SideCtx
+        scenarios/    # one module per contract + run_side registry
 ```
 
 ## Run
