@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+          - os: macos-13
+            name: macos-x86_64
+          - os: macos-latest
+            name: macos-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          toolchain="$(cat lean-toolchain)"
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain "$toolchain"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build proof-forge
+        run: just build
+
+      - name: Package binary
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          name="proof-forge-${version}-${{ matrix.name }}"
+          mkdir -p "dist/${name}"
+          cp ".lake/build/bin/proof-forge" "dist/${name}/proof-forge"
+          chmod +x "dist/${name}/proof-forge"
+          tar -czf "dist/${name}.tar.gz" -C "dist/${name}" proof-forge
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
