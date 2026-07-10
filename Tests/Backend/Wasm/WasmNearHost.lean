@@ -106,15 +106,25 @@ theorem host_step_reduction_chain_value_return_sample :
           { storedState with
             host := { storedState.host with returnValue := readBytes storedState.memory 20 3 } }
 
+/-- near-sys ABI: write u128 LE at balance_ptr (here 0); attachedDeposit=55 → lo=55, hi=0. -/
 theorem attached_deposit_sample :
-    runNearHostCall "attached_deposit" #[] storedState =
-      .ok (stackPush storedState 55) := by
-  exact nearHost_attached_deposit_ok storedState
+    runNearHostCall "attached_deposit" #[0] storedState =
+      .ok { storedState with
+        memory := writeBytes storedState.memory 0
+          (natToLEBytes 8 55 ++ natToLEBytes 8 0) } := by
+  have h := nearHost_attached_deposit_ok storedState 0
+  -- attachedDeposit = 55 ⇒ lo = 55, hi = 0
+  simpa [storedState, Nat.mod_eq_of_lt (by decide : (55 : Nat) < 1 <<< 64),
+    Nat.div_eq_of_lt (by decide : (55 : Nat) < 1 <<< 64)] using h
 
 theorem run_host_attached_deposit_sample :
-    runHostCall "attached_deposit" storedState =
-      .ok (stackPush storedState 55) := by
-  exact runHostCall_near_attached_deposit_stack_ok storedState rfl
+    runHostCall "attached_deposit" (stackPush storedState 0) =
+      .ok { storedState with
+        memory := writeBytes storedState.memory 0
+          (natToLEBytes 8 55 ++ natToLEBytes 8 0) } := by
+  have h := runHostCall_near_attached_deposit_stack_ok storedState 0 rfl
+  simpa [storedState, Nat.mod_eq_of_lt (by decide : (55 : Nat) < 1 <<< 64),
+    Nat.div_eq_of_lt (by decide : (55 : Nat) < 1 <<< 64)] using h
 
 end ProofForge.Tests.WasmNearHost
 

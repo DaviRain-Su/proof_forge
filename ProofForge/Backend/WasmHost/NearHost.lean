@@ -128,10 +128,15 @@ theorem nearHost_signer_account_id_ok (state : State) (registerId : Nat) :
             writeRegister state.host.registers registerId state.host.signerAccountId } } := by
   rfl
 
-theorem nearHost_attached_deposit_ok (state : State) :
-    runNearHostCall "attached_deposit" #[] state =
-      .ok (stackPush state state.host.attachedDeposit) := by
-  rfl
+/-- near-sys: `attached_deposit(balance_ptr)` writes little-endian u128 at ptr.
+IR uses the low 64 bits as `nativeValue` U64. -/
+theorem nearHost_attached_deposit_ok (state : State) (balancePtr : Nat) :
+    runNearHostCall "attached_deposit" #[balancePtr] state =
+      .ok { state with
+        memory := writeBytes state.memory balancePtr
+          (natToLEBytes 8 (state.host.attachedDeposit % (1 <<< 64)) ++
+            natToLEBytes 8 (state.host.attachedDeposit / (1 <<< 64))) } := by
+  simp [runNearHostCall]
 
 theorem nearHost_hook_ok
     (name : String) (state argsState finalState : State)
@@ -341,20 +346,28 @@ theorem runHostCall_near_value_return_stack_ok
     (nearHost_value_return_ok state len ptr)
 
 theorem runHostCall_near_attached_deposit_stack_ok
-    (state : State) (hbridge : state.host.bridge = .near) :
-    runHostCall "attached_deposit" state =
-      .ok (stackPush state state.host.attachedDeposit) := by
-  rw [runHostCall_near_eq_hook state "attached_deposit" hbridge]
+    (state : State) (balancePtr : Nat)
+    (hbridge : state.host.bridge = .near) :
+    runHostCall "attached_deposit" (stackPush state balancePtr) =
+      .ok { state with
+        memory := writeBytes state.memory balancePtr
+          (natToLEBytes 8 (state.host.attachedDeposit % (1 <<< 64)) ++
+            natToLEBytes 8 (state.host.attachedDeposit / (1 <<< 64))) } := by
+  rw [runHostCall_near_eq_hook (stackPush state balancePtr) "attached_deposit"
+    (by simp [stackPush, hbridge])]
   exact nearHost_hook_ok
     (name := "attached_deposit")
-    (state := state)
+    (state := stackPush state balancePtr)
     (argsState := state)
-    (finalState := stackPush state state.host.attachedDeposit)
-    (argCount := 0)
-    (args := #[])
+    (finalState := { state with
+      memory := writeBytes state.memory balancePtr
+        (natToLEBytes 8 (state.host.attachedDeposit % (1 <<< 64)) ++
+          natToLEBytes 8 (state.host.attachedDeposit / (1 <<< 64))) })
+    (argCount := 1)
+    (args := #[balancePtr])
     rfl
-    (splitStackArgs_zero state)
-    (nearHost_attached_deposit_ok state)
+    (splitStackArgs_stackPush1 state balancePtr)
+    (nearHost_attached_deposit_ok state balancePtr)
 
 theorem hostCallStep_near_input_stack_reduction
     (state : State) (registerId : Nat)
@@ -466,11 +479,15 @@ theorem hostCallStep_near_value_return_stack_reduction
     runHostCall_near_value_return_stack_ok state len ptr hbridge
 
 theorem hostCallStep_near_attached_deposit_stack_reduction
-    (state : State) (hbridge : state.host.bridge = .near) :
-    StateStepReduction (hostCallStep "attached_deposit") state
-      (stackPush state state.host.attachedDeposit) :=
-  hostCallStep_ok "attached_deposit" state _ <|
-    runHostCall_near_attached_deposit_stack_ok state hbridge
+    (state : State) (balancePtr : Nat)
+    (hbridge : state.host.bridge = .near) :
+    StateStepReduction (hostCallStep "attached_deposit") (stackPush state balancePtr)
+      { state with
+        memory := writeBytes state.memory balancePtr
+          (natToLEBytes 8 (state.host.attachedDeposit % (1 <<< 64)) ++
+            natToLEBytes 8 (state.host.attachedDeposit / (1 <<< 64))) } :=
+  hostCallStep_ok "attached_deposit" (stackPush state balancePtr) _ <|
+    runHostCall_near_attached_deposit_stack_ok state balancePtr hbridge
 
 theorem nearHost_storage_read_after_write_same
     (storage : NearHost.Storage) (key value : Bytes) :
