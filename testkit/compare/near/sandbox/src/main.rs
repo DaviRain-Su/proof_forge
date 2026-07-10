@@ -62,6 +62,8 @@ enum ContractKind {
     RoleGatedToken,
     FeeToken,
     RemoteCall,
+    StatusMessage,
+    GuestBook,
 }
 
 impl ContractKind {
@@ -75,11 +77,9 @@ impl ContractKind {
             "role-gated-token" | "rolegatedtoken" | "rgt" => Ok(Self::RoleGatedToken),
             "fee-token" | "feetoken" => Ok(Self::FeeToken),
             "remote-call" | "remotecall" | "crosscall" => Ok(Self::RemoteCall),
-            other => bail!(
-                "unknown --contract `{other}` \
-                 (known: counter, value-vault, fungible-token, ownable, staking-vault, \
-                  role-gated-token, fee-token, remote-call)"
-            ),
+            "status-message" | "statusmessage" | "status" => Ok(Self::StatusMessage),
+            "guestbook" | "guest-book" => Ok(Self::GuestBook),
+            other => bail!("unknown --contract `{other}`"),
         }
     }
 
@@ -93,6 +93,8 @@ impl ContractKind {
             Self::RoleGatedToken => "role-gated-token",
             Self::FeeToken => "fee-token",
             Self::RemoteCall => "remote-call",
+            Self::StatusMessage => "status-message",
+            Self::GuestBook => "guestbook",
         }
     }
 }
@@ -250,6 +252,12 @@ async fn run() -> Result<()> {
             run_rgt_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
         }
         ContractKind::FeeToken => run_fee_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?,
+        ContractKind::StatusMessage => {
+            run_status_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
+        ContractKind::GuestBook => {
+            run_guestbook_side(&worker, &args.pf_wasm, SideKind::ProofForge).await?
+        }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
 
@@ -270,6 +278,12 @@ async fn run() -> Result<()> {
             run_rgt_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
         }
         ContractKind::FeeToken => run_fee_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?,
+        ContractKind::StatusMessage => {
+            run_status_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
+        ContractKind::GuestBook => {
+            run_guestbook_side(&worker, &args.sdk_wasm, SideKind::NearSdk).await?
+        }
         ContractKind::RemoteCall => unreachable!("handled above"),
     };
 
@@ -369,6 +383,174 @@ impl SideKind {
 /// 1. deploy callee wasm
 /// 2. rebuild PF RemoteCall with `--peer peer.callee=<callee_id>`
 /// 3. deploy PF + sdk callers; call initialize + call_remote
+async fn run_status_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+    let alice = contract.id().as_str().to_string();
+    let alice_u64 = account_u64(&alice);
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "set_status", &7u64.to_le_bytes()).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF set_status")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "get_status", &alice_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF get")?;
+            ensure_ret(&s, 7, "PF status 7")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "set_status", &99u64.to_le_bytes()).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF set 99")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "get_status", &alice_u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF get 99")?;
+            ensure_ret(&s, 99, "PF status 99")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "set_status", json!({ "status": 7 })).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk set")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "get_status", json!({ "account": alice })).await?;
+            ensure_ok(&s, "sdk get")?;
+            ensure_ret(&s, 7, "sdk status 7")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "set_status", json!({ "status": 99 })).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk set 99")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "get_status", json!({ "account": alice })).await?;
+            ensure_ok(&s, "sdk get 99")?;
+            ensure_ret(&s, 99, "sdk status 99")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
+async fn run_guestbook_side(
+    worker: &Worker<Sandbox>,
+    wasm_path: &Path,
+    kind: SideKind,
+) -> Result<SideReport> {
+    let wasm = fs::read(wasm_path)?;
+    let wasm_bytes = wasm.len() as u64;
+    let (contract, deploy_gas, _) = deploy_with_metrics(worker, &wasm).await?;
+    let mut steps = Vec::new();
+    let mut call_gas = 0u64;
+
+    match kind {
+        SideKind::ProofForge => {
+            let s = call_raw(&contract, "init", &[]).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF init")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "add_message", &11u64.to_le_bytes()).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF add 11")?;
+            steps.push(s);
+
+            let s = call_raw(&contract, "add_message", &22u64.to_le_bytes()).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "PF add 22")?;
+            steps.push(s);
+
+            let s = view_raw_u64(&contract, "total_messages").await?;
+            ensure_ok(&s, "PF total")?;
+            ensure_ret(&s, 2, "PF total")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "get_message", &0u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF get0")?;
+            ensure_ret(&s, 11, "PF msg0")?;
+            steps.push(s);
+
+            let s = view_raw_u64_args(&contract, "get_message", &1u64.to_le_bytes()).await?;
+            ensure_ok(&s, "PF get1")?;
+            ensure_ret(&s, 22, "PF msg1")?;
+            steps.push(s);
+        }
+        SideKind::NearSdk => {
+            let s = call_json(&contract, "init", json!({})).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk init")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "add_message", json!({ "code": 11 })).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk add 11")?;
+            steps.push(s);
+
+            let s = call_json(&contract, "add_message", json!({ "code": 22 })).await?;
+            call_gas = call_gas.saturating_add(s.gas_burnt.unwrap_or(0));
+            ensure_ok(&s, "sdk add 22")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "total_messages", json!({})).await?;
+            ensure_ok(&s, "sdk total")?;
+            ensure_ret(&s, 2, "sdk total")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "get_message", json!({ "index": 0 })).await?;
+            ensure_ok(&s, "sdk get0")?;
+            ensure_ret(&s, 11, "sdk msg0")?;
+            steps.push(s);
+
+            let s = view_json_u64(&contract, "get_message", json!({ "index": 1 })).await?;
+            ensure_ok(&s, "sdk get1")?;
+            ensure_ret(&s, 22, "sdk msg1")?;
+            steps.push(s);
+        }
+    }
+    let storage = refresh_storage(&contract).await?;
+    Ok(SideReport {
+        label: kind.label().into(),
+        account_id: contract.id().to_string(),
+        wasm_bytes,
+        deploy_gas_burnt: deploy_gas,
+        storage_usage_bytes: storage,
+        call_gas_burnt: call_gas,
+        total_gas_burnt: deploy_gas.saturating_add(call_gas),
+        steps,
+    })
+}
+
 async fn run_remote_call_matrix(
     worker: &Worker<Sandbox>,
     repo_root: &Path,

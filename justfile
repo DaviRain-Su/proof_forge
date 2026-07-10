@@ -476,8 +476,22 @@ near-compare-remote-call:
 near-compare-remote-call-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near remote-call --live
 
-# Full matrix: baseline + Wave 1/2 + RoleGated + Fee + RemoteCall.
-near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live
+# StatusMessage (u64 status codes; tutorial-shaped map).
+near-compare-status-message:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near status-message
+
+near-compare-status-message-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near status-message --live
+
+# GuestBook (append message codes).
+near-compare-guestbook:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near guestbook
+
+near-compare-guestbook-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near guestbook --live
+
+# Full matrix.
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live near-compare-role-gated-token-live near-compare-fee-token-live near-compare-remote-call-live near-compare-status-message-live near-compare-guestbook-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

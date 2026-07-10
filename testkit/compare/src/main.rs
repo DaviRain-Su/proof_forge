@@ -48,11 +48,17 @@ fn main() -> Result<()> {
         ["near", "remote-call"] | ["near", "remotecall"] | ["near", "crosscall"] => {
             run_near_remote_call(&repo_root, &args)
         }
+        ["near", "status-message"] | ["near", "statusmessage"] | ["near", "status"] => {
+            run_near_status_message(&repo_root, &args)
+        }
+        ["near", "guestbook"] | ["near", "guest-book"] => {
+            run_near_guestbook(&repo_root, &args)
+        }
         ["near", other] => {
             bail!(
                 "unknown near compare example `{other}` \
                  (known: counter, value-vault, fungible-token, ownable, staking-vault, \
-                  role-gated-token, fee-token, remote-call)"
+                  role-gated-token, fee-token, remote-call, status-message, guestbook)"
             )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
@@ -126,9 +132,10 @@ impl Args {
 
 fn print_usage() {
     eprintln!(
-        "usage: proof-forge-testkit-compare near \
-         <counter|value-vault|fungible-token|ownable|staking-vault|role-gated-token|fee-token|remote-call> \
-         [--build-sdk] [--live] [--repeat N]\n\n\
+        "usage: proof-forge-testkit-compare near <contract> \
+         [--build-sdk] [--live] [--repeat N]\n\
+         contracts: counter|value-vault|fungible-token|ownable|staking-vault|\n\
+                    role-gated-token|fee-token|remote-call|status-message|guestbook\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
          Report:             build/testkit/compare/near/<contract>/report.json\n\
@@ -1580,6 +1587,120 @@ fn run_near_fee_token(repo_root: &Path, args: &Args) -> Result<()> {
     )
 }
 
+fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let inputs = format!(
+        ",{},{},{},{}",
+        hex_encode_le_u64(7),
+        hex_encode_le_u64(alice),
+        hex_encode_le_u64(99),
+        hex_encode_le_u64(alice)
+    );
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "status-message",
+        "testkit/compare/near/status-message",
+        "Examples/Product/StatusMessage.lean",
+        "StatusMessage.near-artifact.json",
+        "pf_near_sdk_status_message_reference.wasm",
+        &["statusmessage.wat", "StatusMessage.wat"],
+        &["init", "set_status", "get_status"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["init", "set_status", "get_status", "set_status", "get_status"],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=7"), "expected status 7\n{out}");
+            ensure!(out.contains("return_u64=99"), "expected status 99\n{out}");
+            Ok(("init→set 7→get 7→set 99→get 99".into(), out))
+        },
+        &["init", "set_status", "get_status", "set_status", "get_status"],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "U64 status codes (not UTF-8 strings) until EmitWat string KV lands.",
+            "Tutorial parity is control-flow + per-account map storage.",
+        ],
+    )
+}
+
+fn run_near_guestbook(repo_root: &Path, args: &Args) -> Result<()> {
+    let inputs = format!(
+        ",{},{},,{},{}",
+        hex_encode_le_u64(11),
+        hex_encode_le_u64(22),
+        hex_encode_le_u64(0),
+        hex_encode_le_u64(1)
+    );
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "guestbook",
+        "testkit/compare/near/guestbook",
+        "Examples/Product/GuestBook.lean",
+        "GuestBook.near-artifact.json",
+        "pf_near_sdk_guestbook_reference.wasm",
+        &["guestbook.wat", "GuestBook.wat"],
+        &["init", "add_message", "get_message", "total_messages"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "add_message",
+                    "add_message",
+                    "total_messages",
+                    "get_message",
+                    "get_message",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(out.contains("return_u64=2"), "expected total 2\n{out}");
+            ensure!(out.contains("return_u64=11"), "expected msg0=11\n{out}");
+            ensure!(out.contains("return_u64=22"), "expected msg1=22\n{out}");
+            Ok(("init→add 11→add 22→total 2→get 11/22".into(), out))
+        },
+        &[
+            "init",
+            "add_message",
+            "add_message",
+            "total_messages",
+            "get_message",
+            "get_message",
+        ],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "U64 message codes stand in for free-form strings.",
+            "Append + index + count matches classic guestbook control flow.",
+        ],
+    )
+}
+
 fn run_near_remote_call(repo_root: &Path, args: &Args) -> Result<()> {
     let fixture_dir = repo_root.join("testkit/compare/near/remote-call");
     let callee_dir = fixture_dir.join("callee");
@@ -2091,15 +2212,33 @@ fn build_near_sdk_wasm(
     sdk_out: &Path,
     release_wasm_name: &str,
 ) -> Result<u64> {
-    // Prefer rustup cargo so wasm32 std is available.
+    // Prefer rustup cargo + PATH so wasm32 std is available even when
+    // Homebrew rustc sits earlier on the default PATH (no wasm32 target).
     let cargo = prefer_rustup_cargo();
     let target_dir = sdk_out.join("target");
     let mut cmd = Command::new(&cargo);
-    // Clear env pollution from homebrew rustc when rustup cargo is used.
-    if cargo.file_name().and_then(|s| s.to_str()) == Some("cargo")
-        && cargo.parent().is_some_and(|p| p.ends_with(".cargo/bin"))
-    {
-        cmd.env_remove("RUSTC");
+    // Drop empty / polluted RUSTC so cargo does not invoke sccache with "".
+    match env::var_os("RUSTC") {
+        None => {}
+        Some(v) if v.is_empty() => {
+            cmd.env_remove("RUSTC");
+        }
+        Some(_) => {
+            // Prefer rustup's rustc when we control cargo via rustup.
+            if let Some(rustc) = prefer_rustup_bin("rustc") {
+                cmd.env("RUSTC", rustc);
+            } else {
+                cmd.env_remove("RUSTC");
+            }
+        }
+    }
+    if let Some(cargo_bin) = cargo.parent() {
+        let mut path = cargo_bin.as_os_str().to_os_string();
+        path.push(":");
+        if let Some(existing) = env::var_os("PATH") {
+            path.push(existing);
+        }
+        cmd.env("PATH", path);
     }
     let status = cmd
         .current_dir(repo_root)
@@ -2131,13 +2270,13 @@ fn build_near_sdk_wasm(
 }
 
 fn prefer_rustup_cargo() -> PathBuf {
-    if let Some(home) = env::var_os("HOME") {
-        let candidate = PathBuf::from(home).join(".cargo/bin/cargo");
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    PathBuf::from("cargo")
+    prefer_rustup_bin("cargo").unwrap_or_else(|| PathBuf::from("cargo"))
+}
+
+fn prefer_rustup_bin(name: &str) -> Option<PathBuf> {
+    let home = env::var_os("HOME")?;
+    let candidate = PathBuf::from(home).join(".cargo/bin").join(name);
+    candidate.is_file().then_some(candidate)
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

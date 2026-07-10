@@ -1,0 +1,27 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "status-message",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "near-examples/rust-status-message",
+    "url": "https://github.com/near-examples/rust-status-message",
+    "notes": "Tutorial uses String values; compare uses u64 status codes for EmitWat parity."
+  },
+  "proofForgeSource": "Examples/Product/StatusMessage.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "StatusMessage",
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "set_status", "status": 7 },
+      { "call": "get_status", "account": "self", "expect": 7 },
+      { "call": "set_status", "status": 99 },
+      { "call": "get_status", "expect": 99 }
+    ]
+  },
+  "honesty": [
+    "Official sample stores UTF-8 strings; this matrix stores U64 codes until EmitWat string KV lands.",
+    "PF keys by u64 caller projection; sdk uses AccountId LookupMap."
+  ]
+}

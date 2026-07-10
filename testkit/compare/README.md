@@ -12,6 +12,11 @@ testkit/compare/
     fungible-token/   # NEP-141-minimal FT reference
     ownable/          # Ownable reference
     staking-vault/    # StakingVault reference
+    role-gated-token/ # nested-map role gate
+    fee-token/        # fee-on-transfer FT body
+    remote-call/      # promise_create + callee
+    status-message/   # per-account status (u64 codes)
+    guestbook/        # append/index message board (u64 codes)
     sandbox/          # NEAR Sandbox dual-deploy (near-workspaces)
 ```
 
@@ -49,6 +54,14 @@ just near-compare-fee-token-live
 # RemoteCall (promise_create cross-contract)
 just near-compare-remote-call
 just near-compare-remote-call-live
+
+# StatusMessage (u64 status codes; string KV still open)
+just near-compare-status-message
+just near-compare-status-message-live
+
+# GuestBook (u64 message codes; string KV still open)
+just near-compare-guestbook
+just near-compare-guestbook-live
 
 # All live dual-deploys
 just near-compare-all-live
@@ -102,6 +115,14 @@ Reports under `build/testkit/compare/near/<contract>/`:
 | RemoteCall | deploy gas | 6.50e11 | 1.25e13 | **~19.3×** |
 | RemoteCall | call gas | 4.14e12 | 4.67e12 | **~1.13×** |
 | RemoteCall | storage | 1135 B | 167688 B | **~148×** |
+| StatusMessage | wasm | **1428 B** | 179296 B | **~125.6×** |
+| StatusMessage | deploy gas | 6.88e11 | 1.34e13 | **~19.5×** |
+| StatusMessage | call gas | 4.09e12 | 5.10e12 | **~1.25×** |
+| StatusMessage | storage | 1729 B | 179624 B | **~103.9×** |
+| GuestBook | wasm | **1647 B** | 196089 B | **~119.1×** |
+| GuestBook | deploy gas | 7.03e11 | 1.46e13 | **~20.7×** |
+| GuestBook | call gas | 4.69e12 | 5.45e12 | **~1.16×** |
+| GuestBook | storage | 2147 B | 196640 B | **~91.6×** |
 
 Fairness notes:
 
@@ -110,6 +131,8 @@ Fairness notes:
 - FT body is `Stdlib.NearFungibleToken` via `Examples/Backend/WasmNear/FungibleToken.lean`
   (Product `FungibleToken.lean` is TokenSpec intent).
 - Live host fix: `attached_deposit` matches near-sys `(balance_ptr)` u128 write (needed for StakingVault).
+- StatusMessage / GuestBook store **U64 codes** (not free-form UTF-8 strings) until EmitWat
+  string KV lands; control flow + map storage match the classic tutorials.
 
 ## Contracts
 
@@ -123,5 +146,7 @@ Fairness notes:
 | `role-gated-token` | `just near-compare-role-gated-token-live` | `Examples/Product/RoleGatedToken.lean` |
 | `fee-token` | `just near-compare-fee-token-live` | `Examples/Backend/WasmNear/FeeToken.lean` |
 | `remote-call` | `just near-compare-remote-call-live` | `Examples/Product/RemoteCall.lean` |
+| `status-message` | `just near-compare-status-message-live` | `Examples/Product/StatusMessage.lean` |
+| `guestbook` | `just near-compare-guestbook-live` | `Examples/Product/GuestBook.lean` |
 
 Expansion charter: `testkit/compare/GOAL.md`.

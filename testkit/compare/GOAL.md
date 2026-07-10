@@ -3,7 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Complete: verified Wave 1+2 dual-deploy (FT, Ownable, StakingVault)**
+Status: **Wave 1–3 in progress** — live matrix: Counter…RemoteCall + StatusMessage + GuestBook.
+Remaining primary: NC-3.3 (NEP-145 storage subset).
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
 `near-compare` / compare expansion; do not force-push or open PRs unless asked.
@@ -135,13 +136,13 @@ eligible offline slice.
 | 0 | NC-0.3 | Harness + README snapshot | done | — |
 | 1 | **NC-1.2** | **FungibleToken NEP-141 minimal face** | done: live semanticMatch; wasm ~48× | — |
 | 1 | NC-1.3 | Ownable / owner gate | done: live semanticMatch; wasm ~256× | — |
-| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | pending | stretch |
+| 1 | NC-1.1 | StatusMessage (string/map guest-book lite) | done: live semanticMatch; U64 codes (not UTF-8); wasm ~126× | honesty: string KV open |
 | H | NC-H1 | Scenario registry (less paste in sandbox main) | pending | optional |
-| H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` | — |
+| H | NC-H3 | `near-compare-matrix` offline + all-live matrix | done: `just near-compare-all-live` (+ status/guestbook) | — |
 | 2 | NC-2.1 | StakingVault (map + nativeValue + pack) | done: live semanticMatch; wasm ~94× | — |
 | 2 | NC-2.2 | RoleGatedToken (nested maps / roles) | done: live ~88× wasm | — |
 | 2 | NC-2.3 | FeeToken / extended FT | done: live ~93× wasm; body under Backend/WasmNear | — |
-| 3 | NC-3.1 | GuestBook / multi-message storage | pending | string/dynamic readiness |
+| 3 | NC-3.1 | GuestBook / multi-message storage | done: live semanticMatch; U64 codes; wasm ~119× | honesty: string KV open |
 | 3 | NC-3.2 | Cross-contract / promise scenario | done: live peer rebuild + dual deploy | — |
 | 3 | NC-3.3 | Fuller NEP-141 / storage staking subset | pending | after NC-1.2 solid |
 
@@ -167,12 +168,12 @@ eligible offline slice.
 - Scenario: init owner → restricted mut → transfer ownership → reject non-owner.
 - Low complexity; good packing/single-field contrast.
 
-#### NC-1.1 StatusMessage
+#### NC-1.1 StatusMessage — **done (U64 subset)**
 
 - Classic near-examples status message (account → string).
-- Only when EmitWat string / map-of-string story is honest for the scenario;
-  otherwise `blocked` with evidence, do not fake with u64 hashes without
-  documenting the subset.
+- Landed as **U64 status codes** keyed by caller projection / AccountId map;
+  documented in README honesty + product header. Full UTF-8 string KV remains
+  open (not required to re-open this task).
 
 #### NC-2.1 StakingVault
 
