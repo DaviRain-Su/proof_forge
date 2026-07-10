@@ -127,13 +127,13 @@ def cliVersion : String :=
 
 def readFileTrim (path : String) : IO String := do
   let s ← IO.FS.readFile (FilePath.mk path)
-  return s.trim
+  return s.trimAscii.toString
 
 def gitShortSha? : IO (Option String) := do
   try
     let out ← IO.Process.output { cmd := "git", args := #["rev-parse", "--short", "HEAD"] }
     if out.exitCode == 0 then
-      return some out.stdout.trim
+      return some out.stdout.trimAscii.toString
     else
       return none
   catch _ =>
