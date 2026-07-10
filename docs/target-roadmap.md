@@ -51,8 +51,8 @@ maintenance-only unless a later gate or explicit backlog slice promotes them.
 | `solana-sbpf-asm` | **Primary priority 1.** Scoped P0-1 gates signed off; direct assembly, loader-compatible ELF packaging, Pinocchio live CI equivalence, and Surfpool dual-deploy gates are green |
 | `evm` | **Primary priority 2.** Scoped P0-2 gates signed off; semantic-plan migration landed, with EVM smokes, Foundry, Anvil, and FV-4 trace anchors green |
 | `wasm-near` | **Primary priority 3.** Scoped P0-3 gates signed off; EmitWat canonical, target-first local execution, artifact/deploy metadata, diagnostics, budget baselines, and CI gates are green |
-| `psy-dpn` | Maintenance-only Experimental subset until a new product lane explicitly schedules it |
-| `aleo-leo` | Maintenance-only Research spike per D-032 until a new ZK-app lane is scheduled |
+| `psy-dpn` | Maintenance-only Spike until a new product lane explicitly schedules it |
+| `aleo-leo` | Maintenance-only Research per D-032 until a new ZK-app lane is scheduled |
 | `wasm-cloudflare-workers` | Maintenance-only off-chain host demo (D-033); no product expansion currently scheduled |
 
 ### Tier-0 completion checklist (D-044, current focus)
@@ -267,7 +267,7 @@ placement:
 ```mermaid
 flowchart LR
   T0["Tier 0 primary hardening<br/>solana-sbpf-asm → evm → wasm-near"]
-  AUX["Frozen maintenance inventory<br/>psy-dpn · aleo-leo · cf-workers"]
+  AUX["Frozen maintenance inventory<br/>psy-dpn · aleo-leo · cf-workers (Spike/Research)"]
   G0{"Gate G0 (closed)<br/>behavior + budget parity"}
   P0{"Gate P0<br/>primary-chain production sign-off"}
   CW["Tier 1a<br/>wasm-cosmwasm"]

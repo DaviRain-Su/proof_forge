@@ -65,9 +65,9 @@ is limited to CI stability, security fixes, and documentation maintenance.
 
 | Target | Stage | Scheduling status |
 |---|---|---|
-| [Psy DPN](psy-dpn.md) | Experimental subset | Generated `.psy`/Dargo path stays maintained; no capability-completion push until a ZK/circuit lane is scheduled. |
-| [Aleo Leo](aleo-leo.md) | Research spike | Counter/PureMath sourcegen and smokes stay maintained; no new ZK-app lane is currently scheduled. |
-| [Cloudflare Workers](cloudflare-workers.md) | Research spike (TS emit) | Counter TypeScript Worker demo stays as an off-chain host reference; no product expansion is currently scheduled. |
+| [Psy DPN](psy-dpn.md) | Spike | Generated `.psy`/Dargo path stays maintained; no capability-completion push until a ZK/circuit lane is scheduled. |
+| [Aleo Leo](aleo-leo.md) | Research | Counter/PureMath sourcegen and smokes stay maintained; no new ZK-app lane is currently scheduled. |
+| [Cloudflare Workers](cloudflare-workers.md) | Research (TS emit) | Counter TypeScript Worker demo stays as an off-chain host reference; no product expansion is currently scheduled. |
 | [Sui Move](move-family.md) | Counter MVP | Counter package + local `just sui-*` gates stay maintained; beyond-Counter expansion waits for Aptos M4 per D-007. |
 
 ## Tier-1 Candidates
@@ -77,8 +77,8 @@ CLI M3/M4 target-first migration is scheduled and reviewed.
 
 | Target | Stage | Resume condition |
 |---|---|---|
-| CosmWasm | M1/M2 spike | Resume M3/M4 after CLI M3/M4 cleanup; reuses the Wasm-family EmitWat host-adapter path. |
-| Aptos Move | M1/M2 spike | Resume M3/M4 after CLI M3/M4 cleanup; remains the first Move sourcegen proof before Sui. |
+| CosmWasm | Counter MVP | Promoted via the `PF-P3-02` six-gate (`just cosmwasm-promotion`); Gate G1a (M3/M4 capability completion) is **not started** and the portable-remote `execute_msg` is still a stub. |
+| Aptos Move | Spike | `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`; remains the first Move sourcegen proof before Sui. |
 
 ## Docs-Only Parked Research
 

@@ -55,7 +55,7 @@ local `sui move build/test` validation.
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
 | `move-aptos` | portable IR → Aptos Move source package | Counter sourcegen Spike | fixture Counter package + capability checks; `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`, not default final-artifact evidence |
 | `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
-| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
+| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo source package | Research sourcegen | validated pure, Unit-final, and state-independent `(T, Final)` fragment; ordered Poseidon pair hashing, record semantics, and plan-derived metadata; state-derived non-Unit returns fail closed under Leo 4.0.2 |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Off-chain Research sourcegen | fixture Counter TS only; product source fails closed; promotion requires successful Wrangler dry-run plus executable Worker lifecycle; not a Wasm binary |
 

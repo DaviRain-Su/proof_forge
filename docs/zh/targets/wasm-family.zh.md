@@ -7,8 +7,8 @@ Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Internet Computer canister
 - **NEAR (`wasm-near`)** 是主要 Wasm 产品 host（Experimental）。
 - **CosmWasm：**portable remote 使用 WasmMsg 形状的 `execute_msg` **stub**；
   Gate G1a（M3/M4）**未开始**。
-- **Soroban：**host adapter spike；在真实 Env auth 落地前，interpreter auth
-  始终授权。
+- **Soroban：**Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
+  落地前，interpreter auth 始终授权。
 - **Cloudflare Workers：**仅用于 research / off-chain。
 
 ## 通用形态

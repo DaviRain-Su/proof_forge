@@ -4,7 +4,7 @@
 
 ProofForge is a Lean 4 compiler/CLI (`proof-forge`) that lowers Lean smart-contract
 sources to portable IR and target artifacts. Implemented backends live on `main`:
-`evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm` (Counter spike),
+`evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm` (Counter MVP),
 `wasm-stellar-soroban` (Phase 4 host-family adapter, Counter refinement),
 `move-aptos` (Counter spike), `move-sui` (Counter MVP), `psy-dpn`, `aleo-leo`
 (Phase 4 ZK lane, Road 1 Leo sourcegen), plus research spike
