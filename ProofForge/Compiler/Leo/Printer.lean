@@ -100,6 +100,12 @@ mutual
     | .composite name fields => do
         let fs ← fields.mapM (fun (n, e) => do let s ← printExpression e; .ok (n ++ ": " ++ s))
         .ok (name ++ " { " ++ String.intercalate ", " fs.toList ++ " }")
+    | .compositeUpdate name fields base => do
+        let fs ← fields.mapM (fun (n, e) => do let s ← printExpression e; .ok (n ++ ": " ++ s))
+        let b ← printExpression base
+        -- Leo struct/record update: `Name { f: v, ..base }` (verified against
+        -- ProvableHQ/leo data_types/struct_update / record_update).
+        .ok (name ++ " { " ++ String.intercalate ", " fs.toList ++ ", .." ++ b ++ " }")
     | .ternary cond t e => do
         let c ← printExpression cond
         let tt ← printExpression t

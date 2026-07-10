@@ -74,6 +74,7 @@ mutual
     | call (e : CallExpression)
     | cast (e : CastExpression)
     | composite (name : Identifier) (fields : Array (Identifier × Expression))
+    | compositeUpdate (name : Identifier) (fields : Array (Identifier × Expression)) (base : Expression)
     | err
     | identifier (name : Identifier)
     | literal (l : Literal)

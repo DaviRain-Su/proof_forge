@@ -371,13 +371,22 @@ honestly declares `storage.scalar` (Aleo rewrites scalars to a single-slot Leo
 extend the `just aleo-leo-codegen-smoke` gate. PureMath golden is
 byte-identical; Counter `get` refreshed to a `view fn` returning `u64`.
 
-**Remaining deepening frontier** (need Leo intrinsic / AST work before
-lowering): `crypto.hash` expressions (`Poseidon`/`BHP` — also blocked on a
-`Hash`↔`field` type convention, since portable IR hash ops are multi-component
-and Hash-typed), struct-field / storage-path writes (Leo `Struct { f: v, ..base }`
-read-modify-write, needs an AST spread form), events, cross-circuit calls, and
-Road 2 record CONSUME/transfer (needs private input-record parameters, which
-the portable IR does not express yet).
+**Remaining deepening frontier** (need design / Leo work before lowering):
+`crypto.hash` expressions (`Poseidon`/`BHP`) — genuinely blocked: the portable
+IR `Hash` is 4×u64 (EVM-flavored), while Leo hashes are single-input →
+field/u64, so there is no faithful mapping. Events (not in the profile),
+cross-circuit calls, and the mixed `(record, Final)` return shape remain future
+work. (Struct-field storage writes LANDED — see below.)
+
+**Coverage breadth:** `Tests/AleoLeoCoverageSmoke.lean` runs 9 pre-existing IR
+probes (arithmetic, bitwise, assertions, conditionals, bounded loops, structs,
+U32 arithmetic, U64/U32/Bool scalar storage) through `renderModule`; all lower.
+
+**Struct-field storage writes LANDED:** `storageStructFieldWrite` now lowers via
+a read-modify-write using Leo's struct-update form `Name { f: v, ..read }` (new
+`Expression.compositeUpdate` + Printer case; `defaultExpr` builds a field-wise
+default struct literal so the `get_or_use` read has a fallback). This was the
+last gap for the common IR subset (e.g. `StructProbe` now lowers fully).
 
 Road 2 slice 1 LANDED: record DECLARATION + CREATION. An opt-in
 `StructDecl.isRecord` flag (mirroring `deriveStorage`) lowers a struct as a

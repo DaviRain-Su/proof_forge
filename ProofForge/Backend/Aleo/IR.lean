@@ -57,8 +57,9 @@ def mappingContains (id : Identifier) (key : Expression) : Expression :=
 
 /-- The zero/empty default expression for a `ValueType`, used as the
 `get_or_use` fallback. Numeric types default to typed `0`, `Bool` to `false`,
-`Address` to `none`. -/
-def defaultExpr (type : ValueType) : Except LowerError Expression :=
+`Address` to `none`, and structs to a field-wise default literal
+`Name { f: <default>, … }` (so struct-field storage writes can read-modify-write). -/
+partial def defaultExpr (ctx : BuildContext) (type : ValueType) : Except LowerError Expression :=
   match type with
   | .u8 => .ok (.literal (.integer .u8 0))
   | .u32 => .ok (.literal (.integer .u32 0))
@@ -66,6 +67,12 @@ def defaultExpr (type : ValueType) : Except LowerError Expression :=
   | .u128 => .ok (.literal (.integer .u128 0))
   | .bool => .ok (.literal (.boolean false))
   | .address => .ok (.literal (.none))
+  | .structType name => do
+      let some decl := findStruct? ctx.module name
+        | .error { message := s!"Leo IR v0 default: unknown struct `{name}`" }
+      let fs ← decl.fields.mapM fun field => do
+        .ok (field.id, ← defaultExpr ctx field.type)
+      .ok (.composite name fs)
   | other => .error { message := s!"Leo IR v0 has no default literal for `{other.name}` storage" }
 
 /-! ### Expression / statement lowering -/
@@ -132,7 +139,7 @@ mutual
   partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Expression
     | .storageScalarRead stateId => do
         let t ← requireScalarState ctx stateId
-        let d ← defaultExpr t
+        let d ← defaultExpr ctx t
         .ok (mappingGetOrUse stateId scalarSlotKey d)
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
@@ -143,7 +150,7 @@ mutual
         .ok (mappingContains stateId (← buildExpr ctx key))
     | .storageMapGet stateId key => do
         let (_, valueType) ← requireMapState ctx stateId
-        let d ← defaultExpr valueType
+        let d ← defaultExpr ctx valueType
         .ok (mappingGetOrUse stateId (← buildExpr ctx key) d)
     | .storageMapInsert _ _ _ | .storageMapSet _ _ _ =>
         .error { message := "storage.map.insert/set are statement effects, not expressions" }
@@ -157,13 +164,13 @@ mutual
         .error { message := "memory arrays are not supported by Leo IR v0" }
     | .storageStructFieldRead stateId fieldName => do
         let t ← requireScalarState ctx stateId
-        let d ← defaultExpr t
+        let d ← defaultExpr ctx t
         .ok (.memberAccess ⟨mappingGetOrUse stateId scalarSlotKey d, fieldName⟩)
     | .storageStructFieldWrite _ _ _ =>
         .error { message := "storage.struct.field.write is a statement effect, not an expression" }
     | .storagePathRead stateId path => do
         let t ← resolveStoragePathType ctx.module stateId path
-        let d ← defaultExpr t
+        let d ← defaultExpr ctx t
         let base := mappingGetOrUse stateId scalarSlotKey d
         let result ← path.foldlM (init := base) fun acc seg => do
           match seg with
@@ -189,7 +196,7 @@ mutual
         .ok #[.expression (mappingSet stateId scalarSlotKey (← buildExpr ctx value))]
     | .storageScalarAssignOp stateId op value => do
         let t ← requireScalarState ctx stateId
-        let d ← defaultExpr t
+        let d ← defaultExpr ctx t
         let lhs := mappingGetOrUse stateId scalarSlotKey d
         let rhs : Expression := .binary ⟨assignOpToBinary op, lhs, ← buildExpr ctx value⟩
         .ok #[.expression (mappingSet stateId scalarSlotKey rhs)]
@@ -207,8 +214,16 @@ mutual
         .error { message := "memory arrays are not supported by Leo IR v0" }
     | .storageStructFieldRead _ _ =>
         .error { message := "storage.struct.field.read must be used as an expression" }
-    | .storageStructFieldWrite _ _ _ =>
-        .error { message := "Leo IR v0 does not lower struct-field storage writes (read-modify-write is Road 2)" }
+    | .storageStructFieldWrite stateId fieldName value => do
+        -- Read-modify-write via Leo struct update `Name { field: value, ..read }`.
+        let t ← requireScalarState ctx stateId
+        let structName ← match t with
+          | .structType n => .ok n
+          | other => .error { message := s!"state `{stateId}` has scalar type `{other.name}`, not struct storage" }
+        let d ← defaultExpr ctx t
+        let base := mappingGetOrUse stateId scalarSlotKey d
+        let updated := .compositeUpdate structName #[(fieldName, ← buildExpr ctx value)] base
+        .ok #[.expression (mappingSet stateId scalarSlotKey updated)]
     | .storagePathRead _ _ =>
         .error { message := "storage.path.read must be used as an expression" }
     | .storagePathWrite _ _ _ | .storagePathAssignOp _ _ _ _ =>
