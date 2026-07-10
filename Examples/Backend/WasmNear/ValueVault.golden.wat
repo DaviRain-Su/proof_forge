@@ -15,7 +15,31 @@
     i32.const 0
     global.set $pack_dirty
   )
-  (func $__pf_pack_ensure (local $i i32)
+  (func $__pf_pack_begin_fresh
+    i32.const 52000
+    i64.const 0
+    i64.store
+    i32.const 52008
+    i64.const 0
+    i64.store
+    i32.const 52016
+    i64.const 0
+    i64.store
+    i32.const 52024
+    i64.const 0
+    i64.store
+    i32.const 52032
+    i64.const 0
+    i64.store
+    i32.const 52040
+    i64.const 0
+    i64.store
+    i32.const 1
+    global.set $pack_loaded
+    i32.const 0
+    global.set $pack_dirty
+  )
+  (func $__pf_pack_ensure
     global.get $pack_loaded
     i32.eqz
     if
@@ -30,26 +54,24 @@
         i64.const 52000
         call $read_register
       else
-        i32.const 0
-        local.set $i
-        block
-          loop
-            local.get $i
-            i32.const 48
-            i32.ge_u
-            br_if 1
-            i32.const 52000
-            local.get $i
-            i32.add
-            i32.const 0
-            i32.store8
-            local.get $i
-            i32.const 1
-            i32.add
-            local.set $i
-            br 0
-          end
-        end
+        i32.const 52000
+        i64.const 0
+        i64.store
+        i32.const 52008
+        i64.const 0
+        i64.store
+        i32.const 52016
+        i64.const 0
+        i64.store
+        i32.const 52024
+        i64.const 0
+        i64.store
+        i32.const 52032
+        i64.const 0
+        i64.store
+        i32.const 52040
+        i64.const 0
+        i64.store
       end
       i32.const 1
       global.set $pack_loaded
@@ -250,7 +272,7 @@
     call $log_utf8
   )
   (func $initialize (export "initialize") (local $initial i64) (local $checkpoint i64)
-    call $__pf_pack_begin
+    call $__pf_pack_begin_fresh
     i64.const 0
     call $input
     i64.const 0
@@ -513,11 +535,6 @@
   )
   (func $snapshot (export "snapshot") (local $checkpoint i64) (local $balance_now i64) (local $released_now i64) (local $fees_now i64)
     call $__pf_pack_begin
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     call $block_index
     local.set $checkpoint
     i32.const 0
@@ -566,11 +583,6 @@
   )
   (func $get_balance (export "get_balance")
     call $__pf_pack_begin
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     call $__pf_pack_read_u64
     call $__pf_return_u64
@@ -578,11 +590,6 @@
   )
   (func $get_net_value (export "get_net_value") (local $balance_now i64) (local $fees_now i64)
     call $__pf_pack_begin
-    i64.const 0
-    call $input
-    i64.const 0
-    i64.const 44000
-    call $read_register
     i32.const 0
     call $__pf_pack_read_u64
     local.set $balance_now

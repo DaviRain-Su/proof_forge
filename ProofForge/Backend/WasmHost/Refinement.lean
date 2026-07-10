@@ -587,24 +587,19 @@ def nearU64HostFrameExpectations : Array WasmHostFrameExpectation := #[
   }
 ]
 
-def nearInputHostFrameExpectations : Array WasmHostFrameExpectation := #[
-  { functionName := "initialize", expectedOps := nearInputRegisterFrame },
-  { functionName := "increment", expectedOps := nearInputRegisterFrame },
-  { functionName := "get", expectedOps := nearInputRegisterFrame }
-]
+/-- Counter entrypoints are zero-arg: no `input` / `read_register` prologue. -/
+def nearInputHostFrameExpectations : Array WasmHostFrameExpectation := #[]
 
+/-- Only entrypoints with Borsh params keep the input prologue. -/
 def nearValueVaultInputHostFrameExpectations : Array WasmHostFrameExpectation := #[
   { functionName := "initialize", expectedOps := nearU64InputParamFrame "initial" 0 },
-  { functionName := "get_balance", expectedOps := nearInputRegisterFrame },
   { functionName := "deposit", expectedOps := nearU64InputParamFrame "amount" 0 },
   { functionName := "charge_fee", expectedOps := nearU64InputParamFrame "gross" 0 },
   {
     functionName := "charge_fee"
     expectedOps := nearU64ParamLoadFrame "fee_bps" 8
   },
-  { functionName := "get_net_value", expectedOps := nearInputRegisterFrame },
-  { functionName := "release", expectedOps := nearU64InputParamFrame "amount" 0 },
-  { functionName := "snapshot", expectedOps := nearInputRegisterFrame }
+  { functionName := "release", expectedOps := nearU64InputParamFrame "amount" 0 }
 ]
 
 def nearValueVaultContextHostFrameExpectations : Array WasmHostFrameExpectation := #[
@@ -703,14 +698,12 @@ def counterArtifactSurfaceObligation : ArtifactSurfaceObligation := {
   name := "Counter.EmitWat.artifact-surface"
   module := ProofForge.IR.Examples.Counter.module
   requiredImports := #[
-    "input",
     "read_register",
     "storage_read",
     "storage_write",
     "value_return"
   ]
   requiredImportSignatures := #[
-    { functionName := "input", params := #[.i64] },
     { functionName := "read_register", params := #[.i64, .i64] },
     { functionName := "storage_read", params := #[.i64, .i64, .i64], results := #[.i64] },
     {
@@ -721,9 +714,9 @@ def counterArtifactSurfaceObligation : ArtifactSurfaceObligation := {
     { functionName := "value_return", params := #[.i64, .i64] }
   ]
   requiredExports := #[
-    { exportName := "initialize", expectedCalls := #["input", "read_register", "__pf_write_u64"] },
-    { exportName := "increment", expectedCalls := #["input", "read_register", "__pf_read_u64", "__pf_write_u64"] },
-    { exportName := "get", expectedCalls := #["input", "read_register", "__pf_read_u64", "__pf_return_u64"] }
+    { exportName := "initialize", expectedCalls := #["__pf_write_u64"] },
+    { exportName := "increment", expectedCalls := #["__pf_read_u64", "__pf_write_u64"] },
+    { exportName := "get", expectedCalls := #["__pf_read_u64", "__pf_return_u64"] }
   ]
   requiredFunctions := #[
     { functionName := "__pf_read_u64", expectedCalls := #["storage_read", "read_register"] },
@@ -825,8 +818,9 @@ def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
   requiredExports := #[
     {
       exportName := "initialize"
+      -- Write-only body → `__pf_pack_begin_fresh` (no cold storage_read).
       expectedCalls := #[
-        "__pf_pack_begin", "input", "read_register", "block_index",
+        "__pf_pack_begin_fresh", "input", "read_register", "block_index",
         "__pf_pack_write_u64", "__pf_evt_log", "__pf_pack_flush"
       ]
     },
@@ -856,8 +850,9 @@ def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
     },
     {
       exportName := "snapshot"
+      -- Zero-arg query: no input prologue.
       expectedCalls := #[
-        "__pf_pack_begin", "input", "read_register", "block_index",
+        "__pf_pack_begin", "block_index",
         "__pf_pack_read_u64", "__pf_pack_write_u64",
         "__pf_evt_log", "__pf_return_u64", "__pf_pack_flush"
       ]
@@ -865,14 +860,14 @@ def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
     {
       exportName := "get_balance"
       expectedCalls := #[
-        "__pf_pack_begin", "input", "read_register",
+        "__pf_pack_begin",
         "__pf_pack_read_u64", "__pf_return_u64", "__pf_pack_flush"
       ]
     },
     {
       exportName := "get_net_value"
       expectedCalls := #[
-        "__pf_pack_begin", "input", "read_register",
+        "__pf_pack_begin",
         "__pf_pack_read_u64", "__pf_return_u64", "__pf_pack_flush"
       ]
     }

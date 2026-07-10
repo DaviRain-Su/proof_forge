@@ -31,7 +31,7 @@ def nearInputPrologue : Array Insn :=
 
 /-- Build the Borsh input prologue and load each param into a local.
 
-* **No params:** empty prologue on all bridges (no NEAR `input` residual).
+* **No params:** empty prologue on all bridges (no residual `input` / `read_register`).
 * **NEAR / Soroban:** Borsh decode via `env.input` + `read_register` (Soroban still
   imports these until a Soroban-native param ABI lands).
 * **CosmWasm:** reject non-empty params until CosmWasm message decoding lands
@@ -40,19 +40,18 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     (params : Array (String × ValueType))
     (bridge : ProofForge.Target.HostBridge := .near)
     : Except EmitError (Array Insn × Array Local) := do
-  -- NEAR (and Soroban until native ABI): always run input prologue so empty-param
-  -- entrypoints keep historical WAT (ValueVault refinement / host frames).
   -- CosmWasm: no NEAR input — empty prologue only; reject params for now.
   if bridge == .cosmWasm then
     if params.isEmpty then
       .ok (#[], #[])
     else
       err "EmitWat: entrypoint parameters are not yet lowered on HostBridge.cosmWasm (use Counter spike or zero-param entries)"
+  else if params.isEmpty then
+    -- Skip host `input` for zero-arg entrypoints (Counter initialize/increment/get,
+    -- ValueVault views). Saves a host call with no ABI payload to decode.
+    .ok (#[], #[])
   else
   let prologue : Array Insn := nearInputPrologue
-  if params.isEmpty then
-    .ok (prologue, #[])
-  else
   let result ← params.foldlM (init := (prologue, (#[] : Array Local), 0, 0))
     fun (insns, locals, offset, hslot) p =>
       let (name, vt) := p
