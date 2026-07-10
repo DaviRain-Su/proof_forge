@@ -34,13 +34,23 @@ fn main() -> Result<()> {
         ["near", "value-vault"] | ["near", "valuevault"] => {
             run_near_value_vault(&repo_root, &args)
         }
+        ["near", "fungible-token"] | ["near", "ft"] | ["near", "fungible_token"] => {
+            run_near_fungible_token(&repo_root, &args)
+        }
+        ["near", "ownable"] => run_near_ownable(&repo_root, &args),
+        ["near", "staking-vault"] | ["near", "stakingvault"] | ["near", "staking_vault"] => {
+            run_near_staking_vault(&repo_root, &args)
+        }
         ["near", other] => {
-            bail!("unknown near compare example `{other}` (known: counter, value-vault)")
+            bail!(
+                "unknown near compare example `{other}` \
+                 (known: counter, value-vault, fungible-token, ownable, staking-vault)"
+            )
         }
         [chain, ..] => bail!("unknown compare chain `{chain}` (known: near)"),
         [] => {
             print_usage();
-            bail!("missing compare target, e.g. `near counter` or `near value-vault`");
+            bail!("missing compare target, e.g. `near counter` or `near fungible-token`");
         }
     }
 }
@@ -108,7 +118,8 @@ impl Args {
 
 fn print_usage() {
     eprintln!(
-        "usage: proof-forge-testkit-compare near <counter|value-vault> \
+        "usage: proof-forge-testkit-compare near \
+         <counter|value-vault|fungible-token|ownable|staking-vault> \
          [--build-sdk] [--live] [--repeat N]\n\n\
          Colocated fixtures: testkit/compare/near/<contract>/\n\
          Sandbox harness:    testkit/compare/near/sandbox/\n\
@@ -695,12 +706,166 @@ fn hex_encode_le_u64(v: u64) -> String {
         .collect()
 }
 
+fn hex_encode_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// sha256(account_id_utf8) — matches EmitWat `callerHash` / hash account keys.
+fn near_account_hash32(account_id: &str) -> [u8; 32] {
+    sha256_bytes(account_id.as_bytes())
+}
+
+fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    // Pure-Rust SHA-256 (minimal, no extra crate) — enough for testkit keys.
+    // Algorithm matches FIPS 180-4; used for stable NEAR account → hash keys.
+    struct Sha256 {
+        h: [u32; 8],
+        len: u64,
+        buf: [u8; 64],
+        buf_len: usize,
+    }
+    impl Sha256 {
+        fn new() -> Self {
+            Self {
+                h: [
+                    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+                    0x1f83d9ab, 0x5be0cd19,
+                ],
+                len: 0,
+                buf: [0; 64],
+                buf_len: 0,
+            }
+        }
+        fn update(&mut self, data: &[u8]) {
+            for &b in data {
+                self.buf[self.buf_len] = b;
+                self.buf_len += 1;
+                self.len += 1;
+                if self.buf_len == 64 {
+                    self.compress();
+                    self.buf_len = 0;
+                }
+            }
+        }
+        fn compress(&mut self) {
+            const K: [u32; 64] = [
+                0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+                0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+                0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+                0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+                0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+                0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+                0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+                0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+                0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+                0xc67178f2,
+            ];
+            let mut w = [0u32; 64];
+            for i in 0..16 {
+                w[i] = u32::from_be_bytes([
+                    self.buf[i * 4],
+                    self.buf[i * 4 + 1],
+                    self.buf[i * 4 + 2],
+                    self.buf[i * 4 + 3],
+                ]);
+            }
+            for i in 16..64 {
+                let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+                let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+                w[i] = w[i - 16]
+                    .wrapping_add(s0)
+                    .wrapping_add(w[i - 7])
+                    .wrapping_add(s1);
+            }
+            let mut a = self.h[0];
+            let mut b = self.h[1];
+            let mut c = self.h[2];
+            let mut d = self.h[3];
+            let mut e = self.h[4];
+            let mut f = self.h[5];
+            let mut g = self.h[6];
+            let mut h = self.h[7];
+            for i in 0..64 {
+                let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+                let ch = (e & f) ^ ((!e) & g);
+                let t1 = h
+                    .wrapping_add(s1)
+                    .wrapping_add(ch)
+                    .wrapping_add(K[i])
+                    .wrapping_add(w[i]);
+                let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+                let maj = (a & b) ^ (a & c) ^ (b & c);
+                let t2 = s0.wrapping_add(maj);
+                h = g;
+                g = f;
+                f = e;
+                e = d.wrapping_add(t1);
+                d = c;
+                c = b;
+                b = a;
+                a = t1.wrapping_add(t2);
+            }
+            self.h[0] = self.h[0].wrapping_add(a);
+            self.h[1] = self.h[1].wrapping_add(b);
+            self.h[2] = self.h[2].wrapping_add(c);
+            self.h[3] = self.h[3].wrapping_add(d);
+            self.h[4] = self.h[4].wrapping_add(e);
+            self.h[5] = self.h[5].wrapping_add(f);
+            self.h[6] = self.h[6].wrapping_add(g);
+            self.h[7] = self.h[7].wrapping_add(h);
+        }
+        fn finalize(mut self) -> [u8; 32] {
+            let bit_len = self.len * 8;
+            self.update(&[0x80]);
+            while self.buf_len != 56 {
+                self.update(&[0x00]);
+            }
+            self.update(&bit_len.to_be_bytes());
+            let mut out = [0u8; 32];
+            for (i, &v) in self.h.iter().enumerate() {
+                out[i * 4..(i + 1) * 4].copy_from_slice(&v.to_be_bytes());
+            }
+            out
+        }
+    }
+    let mut s = Sha256::new();
+    s.update(data);
+    s.finalize()
+}
+
+#[derive(Default)]
+struct OfflineHostOpts<'a> {
+    inputs_hex_csv: &'a str,
+    predecessor: Option<&'a str>,
+    attached_deposit: Option<u64>,
+    repeat: u32,
+}
+
 fn run_offline_host_with_inputs(
     repo_root: &Path,
     wat_path: &Path,
     calls: &[&str],
     inputs_hex_csv: &str,
     repeat: u32,
+) -> Result<String> {
+    run_offline_host_opts(
+        repo_root,
+        wat_path,
+        calls,
+        OfflineHostOpts {
+            inputs_hex_csv,
+            predecessor: None,
+            attached_deposit: None,
+            repeat,
+        },
+    )
+}
+
+fn run_offline_host_opts(
+    repo_root: &Path,
+    wat_path: &Path,
+    calls: &[&str],
+    opts: OfflineHostOpts<'_>,
 ) -> Result<String> {
     let mut cmd = Command::new("cargo");
     cmd.current_dir(repo_root).args([
@@ -715,9 +880,18 @@ fn run_offline_host_with_inputs(
     for call in calls {
         cmd.arg(call);
     }
-    cmd.args(["--inputs-hex", inputs_hex_csv]);
-    if repeat != 1 {
-        cmd.args(["--repeat", &repeat.to_string()]);
+    if !opts.inputs_hex_csv.is_empty() {
+        cmd.args(["--inputs-hex", opts.inputs_hex_csv]);
+    }
+    if let Some(pred) = opts.predecessor {
+        cmd.args(["--predecessor-account-id", pred]);
+        cmd.args(["--signer-account-id", pred]);
+    }
+    if let Some(dep) = opts.attached_deposit {
+        cmd.args(["--attached-deposit", &dep.to_string()]);
+    }
+    if opts.repeat != 1 {
+        cmd.args(["--repeat", &opts.repeat.to_string()]);
     }
     let output = cmd.output().context("spawn offline-host")?;
     if !output.status.success() {
@@ -728,6 +902,489 @@ fn run_offline_host_with_inputs(
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Shared offline/live compare skeleton used by FT / Ownable / StakingVault.
+fn run_near_compare_generic(
+    repo_root: &Path,
+    args: &Args,
+    contract: &str,
+    fixture_rel: &str,
+    pf_source_rel: &str,
+    artifact_name: &str,
+    sdk_release_wasm: &str,
+    wat_candidates: &[&str],
+    required_entrypoints: &[&str],
+    semantic: impl FnOnce(&Path, &Path) -> Result<(String, String)>,
+    fuel_calls: &[&str],
+    fuel_inputs: &str,
+    fuel_opts: OfflineHostOpts<'_>,
+    honesty: &[&str],
+) -> Result<()> {
+    let fixture_dir = repo_root.join(fixture_rel);
+    let manifest_path = fixture_dir.join("reference-manifest.json");
+    let reference_source = fixture_dir.join("src/lib.rs");
+    let pf_source = repo_root.join(pf_source_rel);
+    ensure!(manifest_path.is_file(), "missing {}", manifest_path.display());
+    ensure!(
+        reference_source.is_file(),
+        "missing {}",
+        reference_source.display()
+    );
+    ensure!(pf_source.is_file(), "missing {}", pf_source.display());
+
+    let out_root = repo_root.join(format!("build/testkit/compare/near/{contract}"));
+    let pf_dir = out_root.join("proof-forge");
+    let sdk_dir = out_root.join("near-sdk");
+    let report_path = out_root.join("report.json");
+    if out_root.exists() {
+        fs::remove_dir_all(&out_root)?;
+    }
+    fs::create_dir_all(&pf_dir)?;
+    fs::create_dir_all(&sdk_dir)?;
+
+    println!("=== testkit-compare near/{contract}: build ProofForge ===");
+    build_proof_forge_near(repo_root, &pf_source, &pf_dir, artifact_name)?;
+
+    let wat_path = wat_candidates
+        .iter()
+        .map(|n| pf_dir.join(n))
+        .find(|p| p.is_file())
+        .with_context(|| format!("{contract} WAT not produced under {}", pf_dir.display()))?;
+    let artifact_path = pf_dir.join(artifact_name);
+    let wasm_path = wat_path.with_extension("wasm");
+    if !wasm_path.is_file() {
+        run_checked(
+            Command::new("wat2wasm")
+                .current_dir(repo_root)
+                .arg(&wat_path)
+                .arg("-o")
+                .arg(&wasm_path),
+            "wat2wasm",
+        )?;
+    }
+    ensure!(artifact_path.is_file(), "missing {}", artifact_path.display());
+
+    println!("=== testkit-compare near/{contract}: entrypoint equivalence ===");
+    check_equivalence_subset(
+        &artifact_path,
+        &reference_source,
+        required_entrypoints,
+    )?;
+
+    println!("=== testkit-compare near/{contract}: offline semantic scenario ===");
+    let (semantic_label, semantic_out) = semantic(repo_root, &wat_path)?;
+    println!("{semantic_out}");
+
+    println!(
+        "=== testkit-compare near/{contract}: offline fuel bench (repeat={}) ===",
+        args.repeat
+    );
+    let bench_started = Instant::now();
+    let mut fuel_opts = fuel_opts;
+    fuel_opts.repeat = args.repeat;
+    if fuel_opts.inputs_hex_csv.is_empty() {
+        fuel_opts.inputs_hex_csv = fuel_inputs;
+    }
+    let bench_out = run_offline_host_opts(repo_root, &wat_path, fuel_calls, fuel_opts)?;
+    let wall_ms = bench_started.elapsed().as_secs_f64() * 1000.0;
+    let fuel = parse_fuel_summary(&bench_out);
+
+    let mut sdk_built = false;
+    let mut sdk_note = "skipped (pass --build-sdk or set PROOF_FORGE_NEAR_SDK_BUILD=1)".to_string();
+    let mut sdk_wasm_bytes: Option<u64> = None;
+    let sdk_wasm_path = sdk_dir.join("contract.wasm");
+    if args.build_sdk {
+        println!("=== testkit-compare near/{contract}: build near-sdk reference wasm ===");
+        match build_near_sdk_wasm(repo_root, &fixture_dir, &sdk_dir, sdk_release_wasm) {
+            Ok(bytes) => {
+                sdk_built = true;
+                sdk_wasm_bytes = Some(bytes);
+                sdk_note = "built".to_string();
+            }
+            Err(err) => {
+                sdk_note = format!("cargo build failed: {err:#}");
+                if args.live {
+                    bail!("--live requires near-sdk wasm: {sdk_note}");
+                }
+                eprintln!("WARN: {sdk_note}");
+            }
+        }
+    }
+
+    let mut sandbox_section = json!({
+        "requested": args.live,
+        "status": if args.live { "pending" } else { "not_requested" },
+        "reportPath": null,
+        "detail": null,
+    });
+    if args.live {
+        println!("=== testkit-compare near/{contract}: NEAR Sandbox dual deploy ===");
+        ensure!(
+            sdk_built && sdk_wasm_path.is_file(),
+            "--live: near-sdk wasm missing at {}",
+            sdk_wasm_path.display()
+        );
+        let sandbox_report = out_root.join("sandbox-report.json");
+        match run_near_sandbox_dual(
+            repo_root,
+            contract,
+            &wasm_path,
+            &sdk_wasm_path,
+            &sandbox_report,
+        ) {
+            Ok(SandboxRun::Passed { report }) => {
+                println!("sandbox dual-deploy: passed (real NEAR gas)");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "passed",
+                    "reportPath": rel(repo_root, &sandbox_report),
+                    "detail": report,
+                });
+            }
+            Ok(SandboxRun::Skipped { reason }) => {
+                eprintln!("sandbox dual-deploy: SKIP — {reason}");
+                sandbox_section = json!({
+                    "requested": true,
+                    "status": "skipped",
+                    "reportPath": null,
+                    "detail": { "reason": reason },
+                });
+            }
+            Err(err) => bail!("NEAR Sandbox dual-deploy FAILED: {err:#}"),
+        }
+    }
+
+    let pf_wasm_bytes = file_len(&wasm_path)?;
+    let pf_wat_bytes = file_len(&wat_path)?;
+    let mut comparison = json!({
+        "proofForgeWasmBytes": pf_wasm_bytes,
+        "proofForgeWatBytes": pf_wat_bytes,
+        "nearSdkWasmBytes": sdk_wasm_bytes,
+    });
+    if let Some(obj) = comparison.as_object_mut() {
+        if let Some(sdk) = sdk_wasm_bytes {
+            if pf_wasm_bytes > 0 {
+                obj.insert(
+                    "nearSdkWasm_vs_proofForgeWasm_ratio".into(),
+                    json!(round3(sdk as f64 / pf_wasm_bytes as f64)),
+                );
+            }
+        }
+        if let Some(detail) = sandbox_section.get("detail") {
+            if let Some(cmp) = detail.get("comparison") {
+                obj.insert("sandbox".into(), cmp.clone());
+            }
+        }
+    }
+
+    let report = json!({
+        "schema": "proof-forge.testkit.compare.v0",
+        "chain": "near",
+        "contract": contract,
+        "fixtureDir": fixture_rel,
+        "scenario": {
+            "semantic": semantic_label,
+            "repeat": args.repeat,
+        },
+        "implementations": {
+            "proof-forge-emitwat": {
+                "source": pf_source_rel,
+                "target": "wasm-near",
+                "watPath": rel(repo_root, &wat_path),
+                "wasmPath": rel(repo_root, &wasm_path),
+                "artifactPath": rel(repo_root, &artifact_path),
+                "watBytes": pf_wat_bytes,
+                "wasmBytes": pf_wasm_bytes,
+                "wasmtimeFuel": fuel,
+                "wallClockMs": round3(wall_ms),
+            },
+            "near-sdk-rs": {
+                "source": fixture_rel,
+                "manifest": format!("{fixture_rel}/reference-manifest.json"),
+                "built": sdk_built,
+                "note": sdk_note,
+                "wasmPath": if sdk_built {
+                    Some(format!("build/testkit/compare/near/{contract}/near-sdk/contract.wasm"))
+                } else {
+                    None
+                },
+                "wasmBytes": sdk_wasm_bytes,
+            },
+        },
+        "sandbox": sandbox_section,
+        "comparison": comparison,
+        "honesty": honesty,
+    });
+    fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report)? + "\n",
+    )?;
+    println!("{}", serde_json::to_string_pretty(&comparison)?);
+    println!("wrote {}", rel(repo_root, &report_path));
+    println!("testkit-compare near/{contract}: ok");
+    Ok(())
+}
+
+fn check_equivalence_subset(
+    artifact_path: &Path,
+    reference_source: &Path,
+    required: &[&str],
+) -> Result<()> {
+    let artifact: JsonValue = serde_json::from_str(&fs::read_to_string(artifact_path)?)?;
+    let source = fs::read_to_string(reference_source)?;
+    let art_names: Vec<&str> = artifact
+        .pointer("/abi/entrypoints")
+        .and_then(|v| v.as_array())
+        .context("missing abi.entrypoints")?
+        .iter()
+        .filter_map(|e| e.get("name").and_then(|n| n.as_str()))
+        .collect();
+    for req in required {
+        ensure!(
+            art_names.iter().any(|n| n == req),
+            "artifact missing entrypoint `{req}`: {art_names:?}"
+        );
+        // sdk may use snake_case; accept either.
+        let snake = req
+            .chars()
+            .enumerate()
+            .flat_map(|(i, c)| {
+                if c.is_uppercase() {
+                    let mut v = Vec::new();
+                    if i > 0 {
+                        v.push('_');
+                    }
+                    v.push(c.to_ascii_lowercase());
+                    v
+                } else {
+                    vec![c]
+                }
+            })
+            .collect::<String>();
+        // Allow sdk snake_case, get_ prefix views, or camelCase PF names.
+        let alt_get = format!("get_{snake}");
+        ensure!(
+            source.contains(&format!("fn {req}"))
+                || source.contains(&format!("fn {snake}"))
+                || source.contains(&format!("fn {alt_get}"))
+                || source.contains(&format!("pub fn {req}"))
+                || source.contains(&format!("pub fn {snake}"))
+                || source.contains(&format!("pub fn {alt_get}")),
+            "reference source missing fn {req} (or {snake} / {alt_get})"
+        );
+    }
+    println!(
+        "equivalence ok — required entrypoints present: {}",
+        required.join(", ")
+    );
+    Ok(())
+}
+
+fn run_near_fungible_token(repo_root: &Path, args: &Args) -> Result<()> {
+    let alice = near_account_hash32("alice.testnet");
+    let bob = near_account_hash32("bob.testnet");
+    let mint = {
+        let mut v = alice.to_vec();
+        v.extend_from_slice(&100u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    let bal_a = hex_encode_bytes(&alice);
+    let bal_b = hex_encode_bytes(&bob);
+    let xfer = {
+        let mut v = bob.to_vec();
+        v.extend_from_slice(&30u64.to_le_bytes());
+        hex_encode_bytes(&v)
+    };
+    // init, ft_mint, ft_total_supply, ft_balance_of, ft_transfer, ft_balance_of, ft_balance_of
+    let inputs = format!(",{mint},,{bal_a},{xfer},{bal_a},{bal_b}");
+
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "fungible-token",
+        "testkit/compare/near/fungible-token",
+        "Examples/Backend/WasmNear/FungibleToken.lean",
+        "NearFungibleToken.near-artifact.json",
+        "pf_near_sdk_fungible_token_reference.wasm",
+        &["nearfungibletoken.wat", "NearFungibleToken.wat", "fungibletoken.wat"],
+        &[
+            "init",
+            "ft_mint",
+            "ft_transfer",
+            "ft_balance_of",
+            "ft_total_supply",
+        ],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &[
+                    "init",
+                    "ft_mint",
+                    "ft_total_supply",
+                    "ft_balance_of",
+                    "ft_transfer",
+                    "ft_balance_of",
+                    "ft_balance_of",
+                ],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=100"),
+                "expected supply/balance 100\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=70"),
+                "expected alice balance 70 after transfer\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=30"),
+                "expected bob balance 30 after transfer\n{out}"
+            );
+            Ok((
+                "init→mint(100 alice)→supply=100→bal_alice=100→xfer(30 bob)→bal 70/30".into(),
+                out,
+            ))
+        },
+        &[
+            "init",
+            "ft_mint",
+            "ft_total_supply",
+            "ft_balance_of",
+            "ft_transfer",
+            "ft_balance_of",
+            "ft_balance_of",
+        ],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "PF balance keys = sha256(account_id); sdk uses AccountId LookupMap.",
+            "Product/FungibleToken.lean is TokenSpec intent; body is Stdlib.NearFungibleToken.",
+            "Minimal NEP-141 face only (no transfer_call / NEP-145 in scenario).",
+        ],
+    )
+}
+
+fn run_near_ownable(repo_root: &Path, args: &Args) -> Result<()> {
+    let bob_u64 = u64::from_le_bytes(near_account_hash32("bob.testnet")[..8].try_into().unwrap());
+    let alice_u64 =
+        u64::from_le_bytes(near_account_hash32("alice.testnet")[..8].try_into().unwrap());
+    let bob_hex = hex_encode_le_u64(bob_u64);
+    let inputs = format!(",,{bob_hex},");
+
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "ownable",
+        "testkit/compare/near/ownable",
+        "Examples/Product/Ownable.lean",
+        "Ownable.near-artifact.json",
+        "pf_near_sdk_ownable_reference.wasm",
+        &["ownable.wat", "Ownable.wat"],
+        &["init", "owner", "transferOwnership", "renounceOwnership"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["init", "owner", "transferOwnership", "owner"],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: None,
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains(&format!("return_u64={alice_u64}")),
+                "expected owner=alice u64 after init\n{out}"
+            );
+            ensure!(
+                out.contains(&format!("return_u64={bob_u64}")),
+                "expected owner=bob u64 after transfer\n{out}"
+            );
+            Ok((
+                format!("init(alice)→owner={alice_u64}→transferOwnership(bob)→owner={bob_u64}"),
+                out,
+            ))
+        },
+        &["init", "owner", "transferOwnership", "owner"],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: None,
+            repeat: 1,
+        },
+        &[
+            "PF owner is u64 = first 8 LE bytes of sha256(predecessor_account_id).",
+            "sdk owner is AccountId; live scenario checks role transitions, not raw encodings.",
+        ],
+    )
+}
+
+fn run_near_staking_vault(repo_root: &Path, args: &Args) -> Result<()> {
+    let whex = hex_encode_le_u64(20);
+    let inputs = format!(",,,{whex},");
+
+    run_near_compare_generic(
+        repo_root,
+        args,
+        "staking-vault",
+        "testkit/compare/near/staking-vault",
+        "Examples/Product/StakingVault.lean",
+        "StakingVault.near-artifact.json",
+        "pf_near_sdk_staking_vault_reference.wasm",
+        &["stakingvault.wat", "StakingVault.wat"],
+        &["init", "deposit", "withdraw", "totalDeposits"],
+        |repo, wat| {
+            let out = run_offline_host_opts(
+                repo,
+                wat,
+                &["init", "deposit", "totalDeposits", "withdraw", "totalDeposits"],
+                OfflineHostOpts {
+                    inputs_hex_csv: &inputs,
+                    predecessor: Some("alice.testnet"),
+                    attached_deposit: Some(50),
+                    repeat: 1,
+                },
+            )?;
+            ensure!(
+                out.contains("return_u64=50"),
+                "expected totalDeposits=50 after deposit\n{out}"
+            );
+            ensure!(
+                out.contains("return_u64=30"),
+                "expected totalDeposits=30 after withdraw 20\n{out}"
+            );
+            Ok((
+                "init→deposit(50)→total=50→withdraw(20)→total=30".into(),
+                out,
+            ))
+        },
+        &["init", "deposit", "totalDeposits", "withdraw", "totalDeposits"],
+        &inputs,
+        OfflineHostOpts {
+            inputs_hex_csv: "",
+            predecessor: Some("alice.testnet"),
+            attached_deposit: Some(50),
+            repeat: 1,
+        },
+        &[
+            "PF depositor key = u64 caller projection; sdk uses AccountId map.",
+            "Attached deposit used for deposit; withdraw burns shares only in scenario.",
+        ],
+    )
 }
 
 enum SandboxRun {

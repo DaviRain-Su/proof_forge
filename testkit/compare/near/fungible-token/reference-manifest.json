@@ -1,0 +1,73 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "fungible-token",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "near-contract-standards / NEP-141 minimal face",
+    "url": "https://github.com/near/near-sdk-rs",
+    "notes": "Minimal FT surface for dual-deploy compare (init/mint/transfer/balance/supply). Not full NEP-141+145."
+  },
+  "proofForgeSource": "Examples/Backend/WasmNear/FungibleToken.lean",
+  "proofForgeProductIntent": "Examples/Product/FungibleToken.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "NearFungibleToken",
+  "state": [
+    { "name": "totalSupply", "type": "U64" },
+    { "name": "balances", "type": "Map(Hash,U64)" }
+  ],
+  "entrypoints": [
+    { "name": "init", "kind": "init", "params": [], "returns": "unit" },
+    {
+      "name": "ft_mint",
+      "kind": "call",
+      "params": [
+        { "name": "account_id", "type": "Hash|AccountId" },
+        { "name": "amount", "type": "U64" }
+      ],
+      "returns": "unit"
+    },
+    {
+      "name": "ft_transfer",
+      "kind": "call",
+      "params": [
+        { "name": "receiver_id", "type": "Hash|AccountId" },
+        { "name": "amount", "type": "U64" }
+      ],
+      "returns": "unit"
+    },
+    {
+      "name": "ft_balance_of",
+      "kind": "view",
+      "params": [{ "name": "account_id", "type": "Hash|AccountId" }],
+      "returns": "U64"
+    },
+    {
+      "name": "ft_total_supply",
+      "kind": "view",
+      "params": [],
+      "returns": "U64"
+    }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "ft_mint", "to": "alice", "amount": 100 },
+      { "call": "ft_total_supply", "expectReturnU64": 100 },
+      { "call": "ft_balance_of", "account": "alice", "expectReturnU64": 100 },
+      { "call": "ft_transfer", "to": "bob", "amount": 30, "as": "alice" },
+      { "call": "ft_balance_of", "account": "alice", "expectReturnU64": 70 },
+      { "call": "ft_balance_of", "account": "bob", "expectReturnU64": 30 }
+    ]
+  },
+  "honesty": [
+    "PF keys balances by sha256(account_id bytes); sdk uses AccountId strings.",
+    "PF event `to`/`from` fields are hash hex; sdk logs account id strings — same event names.",
+    "Product/FungibleToken.lean is TokenSpec intent; body is Stdlib.NearFungibleToken via Backend WasmNear fixture."
+  ],
+  "references": [
+    "https://nomicon.io/Standards/Tokens/FungibleToken/Core",
+    "ProofForge/Contract/Stdlib/NearFungibleToken.lean",
+    "Examples/Product/FungibleToken.lean"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "staking-vault",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "ProofForge Product/StakingVault",
+    "notes": "1:1 share vault with native deposit + per-account shares map."
+  },
+  "proofForgeSource": "Examples/Product/StakingVault.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "StakingVault",
+  "state": [
+    { "name": "totalDeposits", "type": "U64" },
+    { "name": "totalShares", "type": "U64" },
+    { "name": "shares", "type": "Map" }
+  ],
+  "entrypoints": [
+    { "name": "init", "kind": "init", "params": [], "returns": "unit" },
+    { "name": "deposit", "kind": "call", "params": [], "returns": "unit", "payable": true },
+    {
+      "name": "withdraw",
+      "kind": "call",
+      "params": [{ "name": "shareAmount", "type": "U64" }],
+      "returns": "unit"
+    }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "init" },
+      { "call": "deposit", "attached": 50, "as": "alice" },
+      { "call": "get_total_deposits", "expectReturnU64": 50 },
+      { "call": "withdraw", "shareAmount": 20, "as": "alice" },
+      { "call": "get_total_deposits", "expectReturnU64": 30 }
+    ],
+    "notes": "sdk exposes get_shares/get_total_deposits helpers for live checks; PF uses totalDeposits storage + map reads via scenario-specific views if present, else deposit/withdraw only with offline fuel."
+  },
+  "honesty": [
+    "PF maps depositor via u64 caller projection; sdk uses AccountId.",
+    "Attached deposit: PF nativeValue U64; sdk NearToken yocto cast to u64 for scenario sizes."
+  ],
+  "references": ["Examples/Product/StakingVault.lean"]
+}

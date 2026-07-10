@@ -434,8 +434,29 @@ near-compare-value-vault:
 near-compare-value-vault-live:
     cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near value-vault --live
 
-# Run Counter + ValueVault sandbox dual-deploy.
-near-compare-all-live: near-compare-live near-compare-value-vault-live
+# FungibleToken (NEP-141 minimal) offline / live.
+near-compare-fungible-token:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near fungible-token
+
+near-compare-fungible-token-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near fungible-token --live
+
+# Ownable offline / live.
+near-compare-ownable:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable
+
+near-compare-ownable-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near ownable --live
+
+# StakingVault offline / live.
+near-compare-staking-vault:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near staking-vault
+
+near-compare-staking-vault-live:
+    cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit-compare -- near staking-vault --live
+
+# Run Counter + ValueVault + Wave 1/2 contracts sandbox dual-deploy.
+near-compare-all-live: near-compare-live near-compare-value-vault-live near-compare-fungible-token-live near-compare-ownable-live near-compare-staking-vault-live
 
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare

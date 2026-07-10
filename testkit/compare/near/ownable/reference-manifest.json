@@ -1,0 +1,49 @@
+{
+  "schema": "proof-forge.near.reference-equivalence.v0",
+  "framework": "near-sdk-rs",
+  "program": "ownable",
+  "source": "src/lib.rs",
+  "upstream": {
+    "name": "OpenZeppelin-style Ownable / near-sdk access control",
+    "notes": "Owner gate aligned to ProofForge Stdlib.Ownable semantics (init/owner/transfer/renounce)."
+  },
+  "proofForgeSource": "Examples/Product/Ownable.lean",
+  "proofForgeTarget": "wasm-near",
+  "proofForgeModule": "Ownable",
+  "state": [{ "name": "owner", "type": "U64|AccountId" }],
+  "entrypoints": [
+    { "name": "init", "kind": "init", "params": [], "returns": "unit" },
+    { "name": "owner", "kind": "view", "params": [], "returns": "U64|AccountId" },
+    {
+      "name": "transferOwnership",
+      "sdkName": "transfer_ownership",
+      "kind": "call",
+      "params": [{ "name": "newOwner", "type": "U64|AccountId" }],
+      "returns": "unit"
+    },
+    {
+      "name": "renounceOwnership",
+      "sdkName": "renounce_ownership",
+      "kind": "call",
+      "params": [],
+      "returns": "unit"
+    }
+  ],
+  "scenario": {
+    "steps": [
+      { "call": "init", "as": "alice" },
+      { "call": "owner", "expectOwnerAlice": true },
+      { "call": "transferOwnership", "to": "bob", "as": "alice" },
+      { "call": "owner", "expectOwnerBob": true },
+      { "call": "renounceOwnership", "as": "bob" }
+    ]
+  },
+  "honesty": [
+    "PF stores owner as u64 = first 8 LE bytes of sha256(predecessor_account_id).",
+    "sdk stores full AccountId; views differ in encoding but scenario roles match."
+  ],
+  "references": [
+    "ProofForge/Contract/Stdlib/Ownable.lean",
+    "Examples/Product/Ownable.lean"
+  ]
+}
