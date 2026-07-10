@@ -117,8 +117,8 @@ structure TargetProfile where
   smokeTests : Array SmokeTest
 ```
 
-初始 target id（历史快照；当前阶段见 [Backend Status](../../README.md)
-和 [doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md)）：
+初始 target id（历史快照；当前阶段见 [Backend Status](../README-root.zh.md)
+和 [doc-code-sync-audit-2026-07.md](../../doc-code-sync-audit-2026-07.md)）：
 
 | Target id | 家族 | 制品 | 状态（2026-07 `main`） |
 |---|---|---|---|
@@ -135,7 +135,7 @@ structure TargetProfile where
 | `aleo-leo` | ZK / Leo | Leo package | Research spike — 仅 CLI（D-025） |
 
 未来 Research（在排期前不在注册表中）：`wasm-polkadot` (ink!)。
-参见 [decisions.md](../decisions.md)。
+参见 [decisions.md](../decisions.zh.md)。
 
 ## 能力矩阵
 
@@ -152,7 +152,7 @@ structure TargetProfile where
 | 动态映射存储 | mapping/keccak 插槽 | KV 前缀 | KV 前缀 | 账户拥有的数据或 PDA | 动态字段/表 | 表资源 | 固定容量 Psy 存储 |
 | 合约部署包 | 字节码 | Wasm | Wasm | ELF `.so` | Move 包 | Move 包 | DPN 电路 JSON + 部署 JSON |
 
-能力 id 在 [capability-registry.md](../capability-registry.md) 中是规范的。
+能力 id 在 [capability-registry.md](../capability-registry.zh.md) 中是规范的。
 下方的语义矩阵将可移植含义映射到目标机制。
 
 ## 制品元数据
@@ -300,7 +300,7 @@ Lean contract
 
 入口适配器应使用 CosmWasm region-pointer ABI。第一个实现应保持消息以 JSON 为后端，以避免在后端存在之前添加完整的 schema 编译器。
 
-**权威 SDK 与 spike 草案：** [targets/wasm-family.md](../targets/wasm-family.md)
+**权威 SDK 与 spike 草案：** [targets/wasm-family.md](../targets/wasm-family.zh.md)
 （Counter spike 章节）。请勿在此重复 SDK 定义。
 
 Zig 桥接草案：
@@ -364,7 +364,7 @@ Lean contract
 - 指令分发元数据，取代 NEAR 风格的方法导出。
 - 每个入口的显式 account schema。
 
-Solana 方法清单草案（格式：TOML v0，可能会有变动 —— 包含 account `index` 字段的完整示例见 [targets/solana-sbf.md](../targets/solana-sbf.md)）：
+Solana 方法清单草案（格式：TOML v0，可能会有变动 —— 包含 account `index` 字段的完整示例见 [targets/solana-sbf.md](../targets/solana-sbf.zh.md)）：
 
 ```toml
 [[instruction]]
@@ -486,17 +486,17 @@ Aptos 映射：
 - `increment(account: &signer)`
 - `get(addr: address): u64`
 
-Sui object POC 将在 Aptos 之后的独立切片中进行（参见 [decisions.md](../decisions.md)）。
+Sui object POC 将在 Aptos 之后的独立切片中进行（参见 [decisions.md](../decisions.zh.md)）。
 
 ## 实现阶段
 
-与 [RFC 0001](0001-multichain-platform.md) 和 [decisions.md](../decisions.md) 保持一致：
+与 [RFC 0001](0001-multichain-platform.zh.md) 和 [decisions.md](../decisions.zh.md) 保持一致：
 
 ### 阶段 1：目标注册表、可移植 IR、元数据
 
-- 添加目标 id 和能力集（[capability-registry.md](../capability-registry.md)）。
-- 按照 [portable-ir.md](../portable-ir.md) 实现可移植 IR。
-- 定义 Counter [共享场景](../shared-scenario.md)。
+- 添加目标 id 和能力集（[capability-registry.md](../capability-registry.zh.md)）。
+- 按照 [portable-ir.md](../portable-ir.zh.md) 实现可移植 IR。
+- 定义 Counter [共享场景](../shared-scenario.zh.md)。
 - 添加制品元数据 schema。
 - 保持当前 EVM 命令正常工作。
 
@@ -532,7 +532,7 @@ Sui object POC 将在 Aptos 之后的独立切片中进行（参见 [decisions.m
 
 ## 已定决策
 
-决策日志请参见 [decisions.md](../decisions.md)。关键项：
+决策日志请参见 [decisions.md](../decisions.zh.md)。关键项：
 
 - 在非 EVM spike 之前完成阶段 1。
 - 阶段 1 之后并行进行 CosmWasm 和 Solana spike。

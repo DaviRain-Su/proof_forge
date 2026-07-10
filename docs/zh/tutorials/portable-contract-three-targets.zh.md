@@ -8,7 +8,7 @@
 
 - [编写模型](../authoring-model.md)
 - [共享场景](../shared-scenario.md)
-- [Examples/Product/Counter.lean](../../Examples/Product/Counter.lean)
+- [Examples/Product/Counter.lean](../../../Examples/Product/Counter.lean)
 
 ## 你将构建什么
 

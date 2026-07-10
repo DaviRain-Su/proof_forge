@@ -2,7 +2,7 @@
 
 本目录存放 ProofForge 统一可移植入口路径的 EVM 特定 fixture：黄金 Yul 文件、Foundry 运行时冒烟测试、构造函数/代理探测，以及标准库/特定协议的组合示例。
 
-仅需更改 `--target` 即可编译的可移植示例属于 [Examples/Product](../Shared/README.md)。
+仅需更改 `--target` 即可编译的可移植示例属于 [Examples/Product](../../Examples/Product/README.md)。
 
 ## 统一入口
 
@@ -80,6 +80,6 @@ scripts/evm/foundry-smoke.sh
 
 ## 共享场景
 
-规范的共享示例位于 [Examples/Product](../Shared/README.md)。
+规范的共享示例位于 [Examples/Product](../../Examples/Product/README.md)。
 参见 [docs/shared-scenario.md](../../docs/shared-scenario.md) 了解 Counter 和 ValueVault 场景详情。
-参见 [Examples/Product/FungibleToken.lean](../Shared/FungibleToken.lean) 了解目标中立的 token-intent 示例。
+参见 [Examples/Product/FungibleToken.lean](../../Examples/Product/FungibleToken.lean) 了解目标中立的 token-intent 示例。

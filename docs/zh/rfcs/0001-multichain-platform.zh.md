@@ -141,7 +141,7 @@ proof-forge build --target move-aptos --out build/aptos
 proof-forge build --target psy-dpn --out build/psy-dpn
 ```
 
-Polkadot/ink 风格的合约 (`wasm-polkadot`) 在目标 profile 和 spike 计划确定前仍仅限 Research 阶段。参见 [decisions.md](../decisions.md)。
+Polkadot/ink 风格的合约 (`wasm-polkadot`) 在目标 profile 和 spike 计划确定前仍仅限 Research 阶段。参见 [decisions.md](../decisions.zh.md)。
 Psy/DPN (`psy-dpn`) 现在针对受限的可移植 IR 子集处于 Experimental 阶段；集成路径仍然是生成 `.psy` 源代码加 Dargo，而不是公开的类 Yul IR。
 
 当前的 `proof-forge --evm-bytecode` 模式在面向目标的 `build` 命令存在之前，仍将作为 EVM 基准。
@@ -170,9 +170,9 @@ Psy/DPN (`psy-dpn`) 现在针对受限的可移植 IR 子集处于 Experimental 
 
 - 引入目标注册表和目标标识符。
 - 将特定于 EVM 的 SDK 调用与可移植合约能力分离。
-- 定义可移植合约 IR ([spec](../portable-ir.md))和制品元数据。
-- 为不支持的目标能力添加编译时错误 ([注册表](../capability-registry.md))。
-- 定义 Counter [共享场景](../shared-scenario.md)。
+- 定义可移植合约 IR ([spec](../portable-ir.zh.md))和制品元数据。
+- 为不支持的目标能力添加编译时错误 ([注册表](../capability-registry.zh.md))。
+- 定义 Counter [共享场景](../shared-scenario.zh.md)。
 
 ### 阶段 2：并行目标 spike (CosmWasm + Solana)
 
@@ -189,7 +189,7 @@ Psy/DPN (`psy-dpn`) 现在针对受限的可移植 IR 子集处于 Experimental 
 - 通过原版 Zig + `sbpf-linker` 生成最小的 sBPF 制品。
 - 在 Mollusk 或 Solana 本地验证节点下运行。
 
-两个 spike 都使用相同的可移植 IR Counter 模块。参见 [decisions.md](../decisions.md)。
+两个 spike 都使用相同的可移植 IR Counter 模块。参见 [decisions.md](../decisions.zh.md)。
 
 ### 阶段 3：Move 家族
 

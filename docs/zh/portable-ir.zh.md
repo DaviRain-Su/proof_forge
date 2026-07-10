@@ -4,11 +4,11 @@
 
 可移植合约 IR 位于链中立的合约意图 API 与目标后端之间。它表达了链无关的业务逻辑，以及所选目标适配器将要降级的目标解析的能力效应。
 
-相关：[RFC 0001](rfcs/0001-multichain-platform.md),
-[RFC 0002](rfcs/0002-target-implementation-design.md),
-[RFC 0003](rfcs/0003-portable-ir-and-runtime.md) (详细草案),
-[能力注册表](capability-registry.md),
-[共享场景](shared-scenario.md)。
+相关：[RFC 0001](rfcs/0001-multichain-platform.zh.md),
+[RFC 0002](rfcs/0002-target-implementation-design.zh.md),
+[RFC 0003](rfcs/0003-portable-ir-and-runtime.zh.md) (详细草案),
+[能力注册表](capability-registry.zh.md),
+[共享场景](shared-scenario.zh.md)。
 
 ## 目标
 
@@ -66,7 +66,7 @@ Lean contract source
 
 ### Effect (目标解析的能力调用)
 
-- `capability`：来自 [capability-registry.md](capability-registry.md) 的 id
+- `capability`：来自 [capability-registry.md](capability-registry.zh.md) 的 id
 - `args`：可移植操作数
 - `source`：用于诊断的可选 Lean 源代码跨度
 
@@ -111,11 +111,11 @@ Lean contract source
 | 闭包 | 随 sBPF spike 待定 | 拒绝 | 拒绝 |
 | 无界循环 | 随 sBPF spike 待定 | 在 v0 中拒绝 | 拒绝；需要电路友好的有界形状 |
 
-有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.md)、[targets/move-family.md](targets/move-family.md) 和 [targets/psy-dpn.md](targets/psy-dpn.md)。
+有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.zh.md)、[targets/move-family.md](targets/move-family.zh.md) 和 [targets/psy-dpn.md](../targets/psy-dpn.md)。
 
 ## Counter IR 示例 (v0)
 
-用于 [共享场景](shared-scenario.md) 的逻辑模块：
+用于 [共享场景](shared-scenario.zh.md) 的逻辑模块：
 
 ```text
 module Counter {

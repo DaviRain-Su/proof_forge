@@ -60,7 +60,7 @@ v0 不需要原生代币转账、跨合约调用或事件（v1 中可选 `events
 | `move-aptos` | 签名者账户下的 `Counter` 资源 | `aptos move test` |
 | `psy-dpn` | Psy 存储字段，在 v0 中可能是 `Felt`/`U32` | `dargo compile` + 内存冒烟测试 |
 
-目标特定的账户 schema 和 manifest 是适配器关注点——不会隐藏在可移植 Lean 逻辑内部。有关指令 manifest 格式和 direct-assembly 路线（D-026），请参阅 [solana-sbpf-asm.md](targets/solana-sbpf-asm.md)。
+目标特定的账户 schema 和 manifest 是适配器关注点——不会隐藏在可移植 Lean 逻辑内部。有关指令 manifest 格式和 direct-assembly 路线（D-026），请参阅 [solana-sbpf-asm.md](../targets/solana-sbpf-asm.md)。
 
 ## Phase 2 验收标准
 

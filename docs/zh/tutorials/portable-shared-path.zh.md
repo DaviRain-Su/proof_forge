@@ -8,7 +8,7 @@
 
 相关：
 
-- [Examples/Product/README](../../Examples/Product/README.md)
+- [Examples/Product/README](../../../Examples/Product/README.md)
 - [三目标 Counter 深教程](portable-contract-three-targets.zh.md)
 - [编写模型](../authoring-model.zh.md) — selector 与 family-only 构造子
 - 聚合门禁：`just product`
@@ -31,7 +31,7 @@ just portable-default
 
 ## 步骤 1 — Counter
 
-**源：** [Examples/Product/Counter.lean](../../Examples/Product/Counter.lean)
+**源：** [Examples/Product/Counter.lean](../../../Examples/Product/Counter.lean)
 
 ```bash
 just portable-counter-multi-target

@@ -271,7 +271,7 @@ Aleo 只有在满足以下条件后才能离开 Research：
 ## Research 退出计划
 
 详细的设计规格（Research 退出 + Road 1 spike）见
-[docs/zh/superpowers/specs/2026-07-01-aleo-leo-design.zh.md](../../superpowers/specs/2026-07-01-aleo-leo-design.zh.md)。
+[docs/zh/superpowers/specs/2026-07-01-aleo-leo-design.zh.md](../superpowers/specs/2026-07-01-aleo-leo-design.zh.md)。
 
 该规格确定了：
 

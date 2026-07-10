@@ -6,7 +6,7 @@ Date: 2026-07-06
 
 Builds on: [RFC 0003](0003-portable-ir-and-runtime.md)（portable IR）、
 [RFC 0004](0004-evm-semantic-plan.md)（EVM semantic plan）、
-[RFC 0005](0005-solana-sbpf-assembly-backend.md)（Solana sBPF 后端）。
+[RFC 0005](../../rfcs/0005-solana-sbpf-assembly-backend.md)（Solana sBPF 后端）。
 
 ## 摘要
 
@@ -51,7 +51,7 @@ EVM 已经端到端遵循这一形状（`Backend/Evm/{Validate,Plan,Lower,IR}`�
 
 1. 每个后端都有可 review 的 plan 制品，镜像为 `just *-semantic-plan` smoke，类似于 `evm-semantic-plan`。
 2. 一个挂载点，用于承载来自
-   [`docs/formal-verification.md`](../formal-verification.md) 工作流 25
+   [`docs/formal-verification.md`](../../formal-verification.md) 工作流 25
    的跨后端 obligation（FV-2 语义增长、FV-8 ValueVault 不变式）。
 3. 一个共享的 `validate` 子集（标识符、返回路径、ownership hook），每个后端要么委托给它，要么显式覆盖，而不是每个后端各自重新发明相同的检查。
 
@@ -382,7 +382,7 @@ diagnostic 词汇是将共享 validate 面扩展到 Phase 1 四个纯 helper 之
 - `justfile`：`diagnostic-smoke` recipe 加入 `check`。
 
 **设计决策（共享类型 + typeclass，非仅 typeclass）：** 字段级审计（见
-[`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md)）表明每个后端的
+[`docs/shared-diagnostic-design.md`](../../shared-diagnostic-design.md)）表明每个后端的
 lowering/plan/emit 错误类型*已经是*同一形状——单字段
 `structure <Name> where message : String`，其 `render` 为 `err.message`。因此共享具体
 类型是合理的，而非过早抽象：仅 typeclass 契约会让 `SharedValidate` 继续返回
@@ -568,7 +568,7 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 **路径 5a —— Tier C-diff 跨后端推广（工程性）。**
 
 完整的逐后端可行性审计、抽象 replay 接口（从 `EvmReplay` 泛化）、所选下一个候选（NEAR）的字段级设计，以及延迟后端的理由，见
-[`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。摘要：
+[`docs/quint-cdiff-multi-backend-design.md`](../../quint-cdiff-multi-backend-design.md)。摘要：
 
 - **当前覆盖（2026-07-07 审计）：** 仅 EVM（`EvmReplay.lean`、`just quint-evm-backend-replay-gate`）。replay 接口是一个纯 Lean 的 trace → harness 渲染器（`renderFoundryTest`），把 ITF trace 降级为 Solidity/Foundry 测试；目标工具链（`forge`）执行它。链中立的 trace 解释（`resolveActionName`、`buildArgs`、`entrypointMap`、`buildInitialState`、`compareStates`、`itfValueToIr`）位于 `Replay.lean`，每个 shim 都复用它。
 - **所选下一个候选：NEAR。** `runtime/offline-host`（wasmtime）在树内、无需外部 RPC，其 CLI 是一个扁平参数列表（`run <wat> <exports...> --inputs-hex <...>`）。`NearReplay.lean` shim 从同一份 ITF trace 渲染该参数列表；offline-host 执行它。这比 EVM 更简单（EVM 渲染一整个 Solidity 测试文件）。本步落地的最小类型-only stub（`ProofForge/Backend/Quint/NearReplay.lean` + `Tests/Quint/NearReplaySmoke.lean` + `just quint-near-replay-smoke`）**不**接线进 CI。Step B（完整 `renderOfflineHostArgs`、spawn `quint` + offline-host 的包装测试、gate 脚本、`just quint-near-backend-replay-gate`）是后续工作。
@@ -625,7 +625,7 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
   模板）；account-model 翻译（通过 `Manifest.externalDiscriminatorBytes?` 取指令
   discriminator + 单个可写 state account + 小端 instruction-data 字节）是相对 NEAR 的主要
   额外工作。见
-  [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。
+  [`docs/quint-cdiff-multi-backend-design.md`](../../quint-cdiff-multi-backend-design.md)。
 - 路径 5b：`docs/tier-c-proof-feasibility.md`（新增 —— 本步落地）。
   **2026-07-07 落地（Phase 6a）：** `ProofForge/IR/StepSemantics.lean`、
   `Tests/IRStepSemantics.lean`、`just ir-step-semantics-smoke`（接线进 `just check`）、
@@ -702,7 +702,7 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 
   **决议（2026-07-07，Phase 3 桩落地）：** 是——在 `ProofForge.Backend.Diagnostic`
   中引入共享具体 `LoweringDiagnostic` 类型*加* `LoweringError` typeclass 契约。字段级
-  审计（见 [`docs/shared-diagnostic-design.md`](../shared-diagnostic-design.md)）表明
+  审计（见 [`docs/shared-diagnostic-design.md`](../../shared-diagnostic-design.md)）表明
   每个后端的 lowering/plan/emit 错误类型已是同一形状——单字段
   `structure <Name> where message : String`，其 `render` 为 `err.message`——故共享具体
   类型是合理的，非过早抽象。共享 `render` **只**输出 `message`，因此委托的后端看到字节
@@ -716,7 +716,7 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 ## 后续工作
 
 - **Tier A：** 按 FV-2/FV-3 增长 `IR/Semantics.lean`，使共享场景 trace obligation 覆盖每个对齐后端的 map/storage/event。
-- **Tier C-diff：** 随着每个后端 `*ModulePlan` 落地，把 Quint backend replay harness 推广到 EVM 之外（Solana 通过 Mollusk、NEAR 通过 offline-host、Psy 通过 `dargo execute`）。长期目标：每个主要后端都有一个 `just quint-<target>-backend-replay-gate`。审计 + 抽象 replay 接口 + `NearReplay` 字段级设计 + 最小 additive stub 于 2026-07-07 落地；见 [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md)。NEAR 是所选的下一个候选（stub 已落地），Solana 是第 2（stub 已落地，渲染 Rust Mollusk 测试文件），Psy 是第 3（受限于 `dargo` 此处未安装），Move-Sui/Aleo/Cloudflare 延迟（研究性 spike）。一个类型-only 的 `SolanaReplay.lean` stub（渲染 Rust Mollusk 测试文件，option (a)）于 2026-07-07 落地。见 [`docs/quint-cdiff-multi-backend-design.md`](../quint-cdiff-multi-backend-design.md) 获取逐后端可行性表、抽象 replay 接口、以及 `NearReplay`（§7）与 `SolanaReplay`（§8.1）的字段级设计。
+- **Tier C-diff：** 随着每个后端 `*ModulePlan` 落地，把 Quint backend replay harness 推广到 EVM 之外（Solana 通过 Mollusk、NEAR 通过 offline-host、Psy 通过 `dargo execute`）。长期目标：每个主要后端都有一个 `just quint-<target>-backend-replay-gate`。审计 + 抽象 replay 接口 + `NearReplay` 字段级设计 + 最小 additive stub 于 2026-07-07 落地；见 [`docs/quint-cdiff-multi-backend-design.md`](../../quint-cdiff-multi-backend-design.md)。NEAR 是所选的下一个候选（stub 已落地），Solana 是第 2（stub 已落地，渲染 Rust Mollusk 测试文件），Psy 是第 3（受限于 `dargo` 此处未安装），Move-Sui/Aleo/Cloudflare 延迟（研究性 spike）。一个类型-only 的 `SolanaReplay.lean` stub（渲染 Rust Mollusk 测试文件，option (a)）于 2026-07-07 落地。见 [`docs/quint-cdiff-multi-backend-design.md`](../../quint-cdiff-multi-backend-design.md) 获取逐后端可行性表、抽象 replay 接口、以及 `NearReplay`（§7）与 `SolanaReplay`（§8.1）的字段级设计。
 - **Tier C-proof：** 继续推进已经 pin 到 `powdr-labs/evm-semantics` 的
   opt-in EVM proof lane：完成 Counter per-entrypoint powdr `Step` obligations
   和 universal trace lift，然后把同一形状扩展到 Counter 之外。深化
@@ -730,9 +730,9 @@ Phase 5 在 Quint 验证后端作为 Tier C-diff 载体存在后，自然地拆�
 - [RFC 0002](0002-target-implementation-design.md) —— 目标 profile 与后端实现设计。
 - [RFC 0003](0003-portable-ir-and-runtime.md) —— portable IR、capability lowering、运行时 profile。
 - [RFC 0004](0004-evm-semantic-plan.md) —— EVM semantic plan 与 Yul AST 边界（本 RFC 推广的参考形状）。
-- [RFC 0005](0005-solana-sbpf-assembly-backend.md) —— Solana sBPF assembly 后端。
+- [RFC 0005](../../rfcs/0005-solana-sbpf-assembly-backend.md) —— Solana sBPF assembly 后端。
 - [`docs/portable-ir.md`](../portable-ir.md) —— 共享流水线图。
-- [`docs/formal-verification.md`](../formal-verification.md) —— FV-1..FV-8（FV-2 语义增长、FV-4 Psy 差分、FV-8 ValueVault 不变式）。
+- [`docs/formal-verification.md`](../../formal-verification.md) —— FV-1..FV-8（FV-2 语义增长、FV-4 Psy 差分、FV-8 ValueVault 不变式）。
 - [`docs/validation-gates.md`](../validation-gates.md)、[`docs/gate-status.md`](../gate-status.md) —— P0-2 EVM semantic-plan 状态。
 - `ProofForge/Backend/Evm/{Validate,Plan,Lower,IR,Refinement,YulSemantics}.lean`
 - `ProofForge/Backend/WasmHost/{IR,EmitWat,Refinement}.lean`

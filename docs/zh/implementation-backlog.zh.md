@@ -14,7 +14,7 @@
 - [能力注册表](capability-registry.md)
 - [共享场景：Counter](shared-scenario.md)
 - [RFC 0002](rfcs/0002-target-implementation-design.md)
-- [目标说明](targets/README.md)
+- [目标说明](targets-README.zh.md)
 - [验证门禁](validation-gates.md)
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
 
@@ -45,7 +45,7 @@
 | R4：capability 粒度太粗 | 当前阶段不 churn capability id；storage 已经拆成 scalar/map/array/PDA，Solana account 语义也已与 storage pattern 分离建模 | 把跨目标运行时差异交给预算和诊断义务：每个 target 必须显式拒绝不支持形状，并为支持形状锁定资源预算 |
 | R5：docs-first target notes 形成隐藏沉没成本 | 排期层面已关闭：D-045 和 target roadmap 在 Gate P0 关闭前把产品硬化限制在 `solana-sbpf-asm`、`evm`、`wasm-near` | 保留 research notes 作为库存；显式排期 Tier-1 M3/M4，而不是让旧 research notes 自动变成实现范围 |
 | R6：Lean/工具链入门摩擦 | 部分关闭：`docs/onboarding.md` 已存在并列出核心工具链和各目标工具；但 editor workspace config、templates 和 scaffolding 仍是开放 DX 工作 | 补 VS Code/Cursor workspace recommendations 和最小项目模板 |
-| R7：文档状态落后于已落地 spike（CF Workers TS、CosmWasm/Aptos golden fixtures、move-sui Counter MVP） | 已在当前 `main` 关闭：[doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md) 与 `just doc-sync-audit` | 当 registry、门禁或 Backend Status 表变化时，重新运行 advisory audit |
+| R7：文档状态落后于已落地 spike（CF Workers TS、CosmWasm/Aptos golden fixtures、move-sui Counter MVP） | 已在当前 `main` 关闭：[doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md) 与 `just doc-sync-audit` | 当 registry、门禁或 Backend Status 表变化时，重新运行 advisory audit |
 
 因此，这次评审之后的直接工程顺序是：
 
@@ -453,7 +453,7 @@
 - [x] `proof-forge-artifact.json` 记录 `target: "solana-sbpf-asm"`。
 - [x] `sbpf` 通过 `cargo install` 安装到 PATH。
 
-参考：[solana-sbpf-asm 设计文档](targets/solana-sbpf-asm.md)，[RFC 0005](rfcs/0005-solana-sbpf-assembly-backend.md)。
+参考：[solana-sbpf-asm 设计文档](../targets/solana-sbpf-asm.md)，[RFC 0005](../rfcs/0005-solana-sbpf-assembly-backend.md)。
 
 ## 工作流 7：Solana sBPF 汇编 Counter 源代码生成（阶段 1）
 
@@ -481,7 +481,7 @@
 
 超出范围（阶段 2+）：map、结构体类型、事件、有界循环、Borsh 序列化、完整的 SPL Token 数据布局、完整的实时 CPI 矩阵覆盖以及 Rust/Pinocchio 等效性。CPI 和 PDA 保持 Solana 特定 (D-027)：SDK 通过目标能力调用和 sBPF 辅助操作路由它们，而不是将它们添加到可移植 IR 中。
 
-参考：[solana-sbpf-asm design doc](targets/solana-sbpf-asm.md) § 分阶段实施计划。
+参考：[solana-sbpf-asm design doc](../targets/solana-sbpf-asm.md) § 分阶段实施计划。
 
 ### 阶段 1 进展（增量子项）
 
@@ -1146,7 +1146,7 @@
 
 ## 工作流 25：形式化验证路线图
 
-目标：根据 [formal-verification.md](formal-verification.md)，将平台的核心承诺转换为机器检查的定理。
+目标：根据 [formal-verification.md](../formal-verification.md)，将平台的核心承诺转换为机器检查的定理。
 
 任务（完整说明请参见路线图）：
 
@@ -1178,7 +1178,7 @@
 
 ## 工作流 26：统一 Rust 测试框架 (testkit)
 
-目标：根据 [RFC 0007](rfcs/0007-unified-rust-test-framework.md)，用统一的声明式场景格式和 Rust 进程内执行器取代各链分散的 shell/Node 测试桩。
+目标：根据 [RFC 0007](../rfcs/0007-unified-rust-test-framework.md)，用统一的声明式场景格式和 Rust 进程内执行器取代各链分散的 shell/Node 测试桩。
 
 任务（每个实现分支一个里程碑）：- M1：创建 `testkit/` Cargo 工作区（`core` + 场景 TOML 模型、发现、报告）；将 `runtime/offline-host` 移植到 `harness-near`（wasmtime + NEAR 宿主 shim，保留分配器计数器）；Counter 场景在 `wasm-near` 上通过；添加 `just testkit` 和一个 CI 步骤。
 - M2：在 revm 上的 `harness-evm` —— 加载发射的运行时字节码，通过 `.evm-methods` 选择器进行调度，解码返回字（return words）；Counter 在 `evm` 上通过；首次跨目标等效性断言（evm ↔ wasm-near 可观察追踪）。
@@ -1194,7 +1194,7 @@
 
 ## 工作流 27：分配器抽象统一
 
-目标：根据 [RFC 0008](rfcs/0008-allocator-abstraction.md)，每个目标绑定一个链中立分配器模型；解决工作流 24 的分配器统一决策。
+目标：根据 [RFC 0008](../rfcs/0008-allocator-abstraction.md)，每个目标绑定一个链中立分配器模型；解决工作流 24 的分配器统一决策。
 
 任务：
 
@@ -1211,7 +1211,7 @@
 
 ## 工作流 28：目标组合排序
 
-目标：执行 [target-roadmap.md](target-roadmap.md) (D-034) 中的分层组合。是门控，而非日期；每个实现分支一个里程碑。
+目标：执行 [target-roadmap.md](../target-roadmap.md) (D-034) 中的分层组合。是门控，而非日期；每个实现分支一个里程碑。
 
 **Completion-first rule（D-044，2026-07-03）：** 先按实现优先级完成三个 Tier-0 target
 —— `solana-sbpf-asm`、`evm`、`wasm-near` —— 达到完整 DoD（行为一致性以及
@@ -1263,7 +1263,7 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 
 ## 工作流 29–33: 平台硬化 (规划优先)
 
-这些来自 [2026-07 差距分析](platform-gaps-2026-07.md)。每一个都以 RFC 而非代码开始; 排序钩子列在差距文档中。
+这些来自 [2026-07 差距分析](../platform-gaps-2026-07.md)。每一个都以 RFC 而非代码开始; 排序钩子列在差距文档中。
 
 - **工作流 29 — CLI 产品界面。** RFC 0009 已接受，M1/M3 已落地：`proof-forge build|emit|check --target <id> --fixture <id>` 已通过兼容层存在，`check` 是真实验证动词，列表命令已接入，legacy flags 已具备 alias/deprecation metadata；`just cli-target-first` 现在会确保 executable callers 继续使用 target-first surface，并由 `Tests/CliTargetFirst.lean` 锁定代表性映射等价性。剩余工作是 M4：只在兼容窗口结束后删除 legacy flag zoo。
 - **工作流 30 — 版本控制和兼容性策略。** 涵盖 IR 版本规则 (与 coverage-manifest 门控挂钩)、制品/部署 schema 稳定性、仅追加的能力 id 以及 SDK 弃用策略的 RFC。
@@ -1312,7 +1312,7 @@ D-040 所要求的资源预算），然后才允许推进任何新链。逐项�
 相关文档：
 
 - [Authoring model](authoring-model.md)
-- [SDK ecosystem gaps (2026-07)](sdk-ecosystem-gaps-2026-07.md)
+- [SDK ecosystem gaps (2026-07)](../sdk-ecosystem-gaps-2026-07.md)
 - [Shared scenario](shared-scenario.md)
 - PR #11 统一 EVM 入口（legacy `Lean.Evm` / LCNF 已移除）
 
@@ -1410,7 +1410,7 @@ NEAR/Wasm 制品。现有 `portable-counter-multi-target` smoke 可以通过设�
 
 重点：把已能 lower 的 IR 能力通过 typed `contract_source` 形式暴露出来，
 让作者不必为常见 EVM 模式退回 Builder。交叉引用
-[sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md) EVM P0/P1。
+[sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md) EVM P0/P1。
 
 | ID | 任务 | 优先级 | 验收标准 |
 |---|---|---|---|
@@ -1468,7 +1468,7 @@ metadata 文件引用，以及已有的行为/预算追踪。fixture-only 路径
 当前 CS-5.3 教程切片：[tutorials/portable-contract-three-targets.md](../tutorials/portable-contract-three-targets.md)
 逐步讲解 `Examples/Product/Counter.lean` 与 ValueVault 的 build 命令、
 `just portable-counter-multi-target`、testkit parity 与 budget gate。中文镜像位于
-[docs/zh/tutorials/portable-contract-three-targets.zh.md](zh/tutorials/portable-contract-three-targets.zh.md)，
+[docs/zh/tutorials/portable-contract-three-targets.zh.md](tutorials/portable-contract-three-targets.zh.md)，
 并由 translate manifest 跟踪。
 
 ### 阶段 CS-6 — 文档与 legacy 清理
@@ -1519,7 +1519,7 @@ translate manifest 条目使 English README 变更时 `just docs-check` 保持�
   `contract_source` 模块；Builder-only EVM 示例只存在于编译器 test/fixture 路径。
 - 新开发者可写 portable contract 模块并运行
   `proof-forge build --target evm|solana-sbpf-asm|wasm-near`，无需编辑链特定源码。
-- [sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md) 中的 EVM P0 SDK blocker
+- [sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md) 中的 EVM P0 SDK blocker
   要么通过 `contract_source` 实现，要么显式 reject 并给出 diagnostic。
 - CI 覆盖 stdlib + 至少一个 multi-target 共享场景构建。
 
@@ -1530,7 +1530,7 @@ translate manifest 条目使 English README 变更时 `just docs-check` 保持�
 workstream 顺序仅保留为历史实现上下文，不能覆盖该审查中的源码身份、命令支持、
 制品诚实性或验证契约修复。
 
-工作流 1, 1.5, 2–3, 6–7 (注册表、可移植 IR、EVM 制品元数据、Solana asm) 已基本完成; 剩余的每目标细节存在于每个工作流中。后续顺序遵循 [target-roadmap.md](target-roadmap.md) (D-034) 的层级门控:
+工作流 1, 1.5, 2–3, 6–7 (注册表、可移植 IR、EVM 制品元数据、Solana asm) 已基本完成; 剩余的每目标细节存在于每个工作流中。后续顺序遵循 [target-roadmap.md](../target-roadmap.md) (D-034) 的层级门控:
 
 0. 架构收敛后续工作 (工作流 24) 以及来自形式化验证路线图 (工作流 25) 的 FV-1/FV-2。与此同时，完成差距分析中的平台硬化后续：RFC 0009 兼容窗口之后的 CLI M4 legacy-alias removal、testkit runtime error vocabulary，以及版本控制 / 部署生命周期策略 (30/32，docs-agent 并行轨道)。
 0b. **Contract Source 产品化（工作流 34）：** 统一 EVM 入口（CS-0 ✅）之后，先落地 portable authoring 边界（CS-1）、EVM stdlib 的 `contract_source` 化（CS-2），再推进 EVM SDK P0 surface（CS-3），然后才是 broader 项目 DX（CS-4）。这是 PR #11 之后的主产品轨道，并覆盖下方 SDK 生态完整性里的 EVM 条目。
@@ -1548,7 +1548,7 @@ Gate P0 关闭证明了三条主链的编译器正确性已经达到 production-
 “production-grade compiler” 不等于“开发者可以写任意合约并部署”。下一阶段硬化目标是
 **SDK 生态完整性**：确保每条主链都能覆盖真实开发者的常见合约模式，而不仅是
 Counter 和 ValueVault。完整差距分析见
-[sdk-ecosystem-gaps-2026-07.md](sdk-ecosystem-gaps-2026-07.md)。
+[sdk-ecosystem-gaps-2026-07.md](../sdk-ecosystem-gaps-2026-07.md)。
 
 **原则：** Tier-1 targets（CosmWasm、Aptos）保持冻结，直到每条主链的 P0 SDK
 blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就意味着真实开发者无法编写常见合约模式。
