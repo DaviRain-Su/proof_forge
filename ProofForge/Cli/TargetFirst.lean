@@ -216,7 +216,7 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
         legacy := legacy ++ ["--solana-sbpf-arch", arch]
     Except.ok legacy
   else if cmd == "check" then
-    Except.error "proof-forge check is not yet implemented"
+    Except.error "check is routed natively; newCommandArgsToLegacy should not be called for check"
   else
     Except.error "expected build, emit, or check"
 
