@@ -707,7 +707,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 
 | ID | Deliverable | Primary files | Acceptance | Depends | State |
 |---|---|---|---|---|---|
-| T-00 | Requirement-level standards manifests and evidence model; replace broad `Covered` claims | `docs/sdk-ecosystem-gaps-2026-07.md`, new `ProofForge/Contract/Compliance.lean`, `Tests/StandardCompliance.lean` | Stable requirement IDs cover interface, behavior and security obligations; status binds adapter version, artifact digest, oracle version and actual run result | none | pending |
+| T-00 | Requirement-level standards manifests and evidence model; replace broad `Covered` claims | `docs/sdk-ecosystem-gaps-2026-07.md`, new `ProofForge/Contract/Compliance.lean`, `Tests/StandardCompliance.lean` | Stable requirement IDs cover interface, behavior and security obligations; status binds adapter version, artifact digest, oracle version and actual run result | none | done: verified@fd137842; `just standard-compliance`, `just docs-check`, `just product` |
 | E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | pending |
 | E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | pending |
 | E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | pending |
@@ -816,17 +816,17 @@ after current branch changes are safely committed.
 `Tests/StandardCompliance.lean`; modify
 `docs/sdk-ecosystem-gaps-2026-07.md` and add `standard-compliance` to `justfile`.
 
-- [ ] Define stable standard revision and requirement IDs for interface,
+- [x] Define stable standard revision and requirement IDs for interface,
       behavior, and security obligations. Split ERC-20 MUSTs from the optional
       product profile, and split ERC-173 from the access-role profile.
-- [ ] Define run evidence that binds requirement ID, adapter ID/version,
+- [x] Define run evidence that binds requirement ID, adapter ID/version,
       artifact digest, oracle ID/version, command, status, and result digest.
-- [ ] Add failing assertions proving current ERC-721, ERC-1155, ERC-2612,
+- [x] Add failing assertions proving current ERC-721, ERC-1155, ERC-2612,
       NEP-141, and Solana Token claims are not `exact`.
-- [ ] Derive `exact` only when every applicable requirement has passing bound
+- [x] Derive `exact` only when every applicable requirement has passing bound
       evidence; derive `scoped` from an explicit subset; never trust a status
       string supplied by an adapter.
-- [ ] Run `just standard-compliance`, `just docs-check`, translation sync, and
+- [x] Run `just standard-compliance`, `just docs-check`, translation sync, and
       commit only compliance/test/doc paths.
 
 ### Task 2: X-P0-01 Executable Feature Honesty
