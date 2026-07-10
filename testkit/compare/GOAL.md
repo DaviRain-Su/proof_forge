@@ -3,7 +3,8 @@
 Copy this entire document into one long-running `/goal` session (or paste as the
 goal objective). Continuous execution charter — not a request for another plan.
 
-Status: **Active Wave 6** — Wave 0–5@1b06e795; AuthRemoteCall + AccessControl landing.
+Status: **Complete: verified@cba90680** — Wave 0–6 live matrix (19 contracts).
+Optional: UTF-8 string KV.
 Optional next: UTF-8 string KV; more product contracts.
 
 Workspace: ProofForge repo root (this tree). Branch may be feature work on
