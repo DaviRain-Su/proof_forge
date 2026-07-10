@@ -115,6 +115,8 @@ Expr	memoryArrayGet	unsupported	wasm-near IR v0 rejects memory.array.get in infe
 Effect	contextRead	lowered	lowerEffectExpr emits predecessor/current account-id or block-height reads; Hasher fixture covers userId and the context-as-statement diagnostic guards misuse.
 Effect	eventEmit	lowered	lowerEffectStmt emits near_sdk::log! with a JSON object after field-type validation; empty-name and event-as-expression diagnostics guard misuse.
 Effect	eventEmitIndexed	unsupported	wasm-near Rust sourcegen v0 rejects indexed events in lowerEffectStmt; the target profile carries eventsEmit for non-indexed events only.
+Effect	checkErc721Received	unsupported	wasm-near IR v0 rejects checkErc721Received (EVM-only IERC721Receiver callback; PF-P2-02) with an explicit diagnostic.
+Effect	checkErc1155Received	unsupported	wasm-near IR v0 rejects checkErc1155Received (EVM-only IERC1155Receiver callback; PF-P2-02) with an explicit diagnostic.
 StoragePathSegment	field	unsupported	storage paths only support a single mapKey segment in wasm-near IR v0; any field segment is rejected by inferStoragePathType/lowerStoragePathRead.
 StoragePathSegment	index	unsupported	storage paths only support a single mapKey segment in wasm-near IR v0; index segments require unsupported array storage.
 StoragePathSegment	mapKey	lowered	inferStoragePathType and lowerStoragePathRead/lowerStoragePathWrite handle a single mapKey at the map boundary; Ledger fixtures and path diagnostics cover it.

@@ -1,6 +1,6 @@
 {
   "README.md": {
-    "sha256": "f0e9ad7169b997a9846e03f1ee65c4b60b7a7da4d5037f904d1920b867cad036",
+    "sha256": "cea3bad4d7f54904c965fd579878de79e2fda5e298303b0f2dd513aaae54910d",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
     "note": "manually synced for PF-P1-02 (backend-status generated table pointer)"
@@ -115,7 +115,7 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/README.md": {
-    "sha256": "c01464c14febd41ea88f30ece437a90a2f998c7e8bc02e21364c9312028ca70c",
+    "sha256": "5a2922d2653cce4697c87451585193c44ac7fa4e659571e0a78f976417a42d72",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"

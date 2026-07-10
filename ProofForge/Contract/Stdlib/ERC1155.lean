@@ -2,10 +2,10 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-ERC-1155 core single-transfer mixin for `contract_source` composition on EVM.
-Batch operations and receiver callbacks are intentionally left for the next
-P1 slice; this module covers balances, operator approvals, mint, burn, and
-single `safeTransferFrom`.
+ERC-1155 core mixin for `contract_source` composition on EVM.
+Covers balances, operator approvals, mint, burn, single `safeTransferFrom`
+with IERC1155Receiver callback (PF-P2-02), and size-2 `safeBatchTransferFrom2`
+(fixed two ids; dynamic-array batch ABI is a later slice).
 -/
 import ProofForge.Contract.Source
 
@@ -84,6 +84,66 @@ contract_mixin ERC1155Mixin do
       fieldAsName "id" id,
       fieldAsName "value" amount
     ];
+    do ProofForge.Contract.Surface.checkErc1155Received
+      (ProofForge.Contract.Surface.ref operator)
+      (ProofForge.Contract.Surface.ref src)
+      (ProofForge.Contract.Surface.ref dst)
+      (ProofForge.Contract.Surface.ref id)
+      (ProofForge.Contract.Surface.ref amount);
+
+  -- Size-2 batch transfer (PF-P2-02 MVP). Full dynamic-array batch ABI is
+  -- a later slice; this entry exercises multi-id accounting + dual receiver
+  -- checks on EVM.
+  entry safeBatchTransferFrom2 (src : .address, dst : .address, id0 : .u64, amount0 : .u64, id1 : .u64, amount1 : .u64) do
+    let operator : .address := caller;
+    let approved : .u64 := pathRead2 operatorApprovals src operator;
+    do ProofForge.Contract.Surface.assertCondition
+      (ProofForge.Contract.Surface.boolOr
+        (ProofForge.Contract.Surface.eq (ProofForge.Contract.Surface.ref operator)
+          (ProofForge.Contract.Surface.ref src))
+        (ProofForge.Contract.Surface.ne (ProofForge.Contract.Surface.ref approved) (u64 0)))
+      "not approved";
+    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref dst) "zero recipient";
+    let fromBal0 : .u64 := pathRead2 balances src id0;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref fromBal0)
+      (ProofForge.Contract.Surface.ref amount0) "insufficient balance";
+    do pathWrite2 balances src id0 (fromBal0 -! amount0);
+    let toBal0 : .u64 := pathRead2 balances dst id0;
+    do pathWrite2 balances dst id0 (toBal0 +! amount0);
+    emit TransferSingle indexed #[
+      fieldAsName "operator" operator,
+      fieldAsName "from" src,
+      fieldAsName "to" dst
+    ] data #[
+      fieldAsName "id" id0,
+      fieldAsName "value" amount0
+    ];
+    do ProofForge.Contract.Surface.checkErc1155Received
+      (ProofForge.Contract.Surface.ref operator)
+      (ProofForge.Contract.Surface.ref src)
+      (ProofForge.Contract.Surface.ref dst)
+      (ProofForge.Contract.Surface.ref id0)
+      (ProofForge.Contract.Surface.ref amount0);
+    let fromBal1 : .u64 := pathRead2 balances src id1;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref fromBal1)
+      (ProofForge.Contract.Surface.ref amount1) "insufficient balance";
+    do pathWrite2 balances src id1 (fromBal1 -! amount1);
+    let toBal1 : .u64 := pathRead2 balances dst id1;
+    do pathWrite2 balances dst id1 (toBal1 +! amount1);
+    emit TransferSingle indexed #[
+      fieldAsName "operator" operator,
+      fieldAsName "from" src,
+      fieldAsName "to" dst
+    ] data #[
+      fieldAsName "id" id1,
+      fieldAsName "value" amount1
+    ];
+    do ProofForge.Contract.Surface.checkErc1155Received
+      (ProofForge.Contract.Surface.ref operator)
+      (ProofForge.Contract.Surface.ref src)
+      (ProofForge.Contract.Surface.ref dst)
+      (ProofForge.Contract.Surface.ref id1)
+      (ProofForge.Contract.Surface.ref amount1);
 
   entry mint (recipient : .address, id : .u64, amount : .u64) do
     let operator : .address := caller;

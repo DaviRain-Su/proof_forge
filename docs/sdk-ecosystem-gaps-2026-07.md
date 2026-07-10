@@ -25,8 +25,8 @@ gaps.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | ERC-20 | Covered | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | — |
-| ERC-721 (NFT) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Backend/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **Limitation:** `safeTransferFrom` does not invoke `onERC721Received` (documented in stdlib header) | P1 |
-| ERC-1155 (multi-token) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, and single `safeTransferFrom`; `Examples/Backend/Evm/Contracts/stdlib/ERC1155.lean` golden Yul; `foundry-smoke.sh` exercises mint/approval/transfer/burn. **Limitation:** batch operations and receiver callbacks remain open | P1 |
+| ERC-721 (NFT) | Covered | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); `Examples/Backend/Evm/Contracts/stdlib/ERC721.lean` golden Yul. **PF-P2-02:** `safeTransferFrom` invokes `onERC721Received` when `extcodesize(to) > 0` (magic `0x150b7a02`); Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}` in `scripts/evm/foundry-smoke.sh` | — |
+| ERC-1155 (multi-token) | Covered (limited) | `ProofForge/Contract/Stdlib/ERC1155.lean` stdlib mixin covers balances, operator approvals, mint, burn, single `safeTransferFrom`, and **size-2 batch** `safeBatchTransferFrom2`; `Examples/Backend/Evm/Contracts/stdlib/ERC1155.lean` golden Yul. **PF-P2-02:** receiver `onERC1155Received` + Foundry accept/reject + `testERC1155SafeBatchTransferFrom2`. **Limitation:** arbitrary-length batch arrays and `onERC1155BatchReceived` remain open | P1 |
 | ERC-4626 (vault standard) | Covered (v1 frozen) | **Call** peer: `IERC4626` / `external_vault`. **Deploy body:** `Stdlib.ERC4626` pro-rata + entry/exit feeBps + FOT vault+recipient deltas (`just product-erc4626-vault`). **v2:** fee-recipient re-measure; non-EVM vault body | — |
 | ERC-2612 (permit) | Covered (EVM) | Peer client + stdlib body + **TokenSpec `moduleFor` merges ERC20Permit** when `permit` feature set (`Tests/TokenEvm`). DOMAIN still init-set; staged `setPermitSig` | — |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
@@ -65,11 +65,11 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Custom errors (0.8.4+) | Partial | Structured revert payloads exist; no Solidity custom-error selector surface | P1 |
+| Custom errors (0.8.4+) | Covered (limited) | IR `revertWithError` + Solidity 4-byte custom-error selector surface (no-args); `scripts/evm/errors-ir-smoke.sh` `test_revertCustomError_selector` (selector `0x09caebf3`); client/metadata expose selector fields. **Limitation:** ABI-encoded custom-error *arguments* beyond selector remain open | P1 |
 | Structured events | Covered | Named events, indexed topics, aggregate data — all lowered | — |
 | Constructor args | Covered | CLI ABI-encodes static words and dynamic types (`string`/`bytes`/`uint256[]`, CS-3.4) into the initcode tail; deploy manifest records the schema; `DynamicConstructorProbe` exercises `cstring`/`cbytes`/`u256array` with `evmConstructorInitBindings`; deploy-object initcode reads the tail via `codesize()-argsSize` and binds storage at deploy time; Foundry (`foundry-smoke.sh`) and Anvil (`dynamic-constructor-anvil-smoke.sh`) positive smokes | — |
 | Storage packing | Missing | One slot per field; no packing/layout optimizer | P1 |
-| Batch operations | Missing | No multicall or ERC-1155 batch mint/transfer pattern | P1 |
+| Batch operations | Partial | ERC-1155 size-2 batch MVP (`safeBatchTransferFrom2`) + Foundry smoke (PF-P2-02). Multicall3 peer packing exists as ABI helper; general multicall product body and arbitrary-length ERC-1155 batch remain open | P1 |
 | Factory deployment | Partial | Foundry deploys init code; no reusable factory contract | P1 |
 
 ---
@@ -203,7 +203,7 @@ economics) is almost entirely missing.
 
 ## Summary: P0 blockers per chain
 
-**EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin, `safeTransferFrom` lacks `onERC721Received` as a P1), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0.
+**EVM (0 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin + `onERC721Received` PF-P2-02), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open:** none at P0. Remaining P1: arbitrary ERC-1155 batch/`onERC1155BatchReceived`, custom-error ABI args, storage packing, full multicall body.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
@@ -211,5 +211,7 @@ economics) is almost entirely missing.
 
 Total: 0 open P0 blockers across three chains (0 EVM + 0 Solana + 0 NEAR).
 All three primary chains now have zero open P0 blockers. Remaining work is
-P1 feature expansion; the latest EVM slice moves ERC-1155 single-transfer core
-out of "missing" while leaving batch operations and receiver callbacks open.
+P1 feature expansion. PF-P2-02 closed EVM receiver callbacks (`onERC721Received`,
+`onERC1155Received`), custom-error 4-byte selector surface, and ERC-1155 size-2
+batch MVP; PF-P2-03 closed EVM/Solana real peer `call_with_args → 49`. NEAR
+sandbox peer/Promise gates remain external-tool blocked.

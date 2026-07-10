@@ -48,20 +48,24 @@ def printLiteral : Literal → String
   | .scalar s => s
   | .signature s => s
 
-def printBinaryOp : BinaryOperation → String
-  | .add => "+" | .addWrapped => "+" | .and => "&&" | .bitwiseAnd => "&"
-  | .div => "/" | .divWrapped => "/" | .eq => "==" | .gte => ">=" | .gt => ">"
-  | .lte => "<=" | .lt => "<" | .mod => "%" | .mul => "*" | .mulWrapped => "*"
-  | .nand => "/* nand */" | .neq => "!=" | .nor => "/* nor */"
-  | .or => "||" | .bitwiseOr => "|" | .pow => "**" | .powWrapped => "**"
-  | .rem => "/* rem */" | .remWrapped => "/* remWrapped */"
-  | .shl => "<<" | .shlWrapped => "<<" | .shr => ">>" | .shrWrapped => ">>"
-  | .sub => "-" | .subWrapped => "-" | .xor => "^"
+/-- PF-P1-06: never emit comment placeholders for unsupported ops — fail closed. -/
+def printBinaryOp : BinaryOperation → Except LowerError String
+  | .add => .ok "+" | .addWrapped => .ok "+" | .and => .ok "&&" | .bitwiseAnd => .ok "&"
+  | .div => .ok "/" | .divWrapped => .ok "/" | .eq => .ok "==" | .gte => .ok ">=" | .gt => .ok ">"
+  | .lte => .ok "<=" | .lt => .ok "<" | .mod => .ok "%" | .mul => .ok "*" | .mulWrapped => .ok "*"
+  | .neq => .ok "!="
+  | .or => .ok "||" | .bitwiseOr => .ok "|" | .pow => .ok "**" | .powWrapped => .ok "**"
+  | .shl => .ok "<<" | .shlWrapped => .ok "<<" | .shr => .ok ">>" | .shrWrapped => .ok ">>"
+  | .sub => .ok "-" | .subWrapped => .ok "-" | .xor => .ok "^"
+  | .nand => unsupported "binary operator nand"
+  | .nor => unsupported "binary operator nor"
+  | .rem => unsupported "binary operator rem"
+  | .remWrapped => unsupported "binary operator remWrapped"
 
-def printUnaryOp : UnaryOperation → String
-  | .not => "!"
-  | .negate => "-"
-  | _ => "/* unsupported unary */"
+def printUnaryOp : UnaryOperation → Except LowerError String
+  | .not => .ok "!"
+  | .negate => .ok "-"
+  | other => unsupported s!"unary operator {repr other}"
 
 mutual
   partial def printExpression (e : Expression) : Except LowerError String :=
@@ -71,10 +75,12 @@ mutual
     | .binary b => do
         let l ← printExpression b.left
         let r ← printExpression b.right
-        .ok s!"({l} {printBinaryOp b.op} {r})"
+        let op ← printBinaryOp b.op
+        .ok s!"({l} {op} {r})"
     | .unary u => do
         let r ← printExpression u.receiver
-        .ok s!"({printUnaryOp u.op}{r})"
+        let op ← printUnaryOp u.op
+        .ok s!"({op}{r})"
     | .call c => do
         let fn := printPath c.function
         let args ← c.arguments.mapM printExpression

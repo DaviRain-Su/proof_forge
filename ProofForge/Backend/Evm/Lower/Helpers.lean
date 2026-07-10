@@ -232,6 +232,19 @@ mutual
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env field.snd))
         dataFields.foldlM (init := indexedSpecs) fun acc field => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env field.snd))
+    | .checkErc721Received a b c d => do
+        let s1 ← crosscallHelperSpecsFromExpr module env a
+        let s2 ← crosscallHelperSpecsFromExpr module env b
+        let s3 ← crosscallHelperSpecsFromExpr module env c
+        let s4 ← crosscallHelperSpecsFromExpr module env d
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs s3 s4))
+    | .checkErc1155Received a b c d e => do
+        let s1 ← crosscallHelperSpecsFromExpr module env a
+        let s2 ← crosscallHelperSpecsFromExpr module env b
+        let s3 ← crosscallHelperSpecsFromExpr module env c
+        let s4 ← crosscallHelperSpecsFromExpr module env d
+        let s5 ← crosscallHelperSpecsFromExpr module env e
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
   partial def crosscallHelperSpecsFromStoragePathSegment
       (module : Module)
@@ -547,6 +560,19 @@ mutual
         dataFieldWords.foldlM (init := indexedSpecs) fun acc words => do
           words.foldlM (init := acc) fun wordAcc word => do
             .ok (mergeCrosscallHelperSpecs wordAcc (← crosscallHelperSpecsFromExprPlan module word))
+    | .checkErc721Received a b c d => do
+        let s1 ← crosscallHelperSpecsFromExprPlan module a
+        let s2 ← crosscallHelperSpecsFromExprPlan module b
+        let s3 ← crosscallHelperSpecsFromExprPlan module c
+        let s4 ← crosscallHelperSpecsFromExprPlan module d
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs s3 s4))
+    | .checkErc1155Received a b c d e => do
+        let s1 ← crosscallHelperSpecsFromExprPlan module a
+        let s2 ← crosscallHelperSpecsFromExprPlan module b
+        let s3 ← crosscallHelperSpecsFromExprPlan module c
+        let s4 ← crosscallHelperSpecsFromExprPlan module d
+        let s5 ← crosscallHelperSpecsFromExprPlan module e
+        .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
   partial def crosscallHelperSpecsFromStmtPlan
       (module : Module) : StmtPlan → Except LowerError (Array CrosscallHelperSpec)
@@ -701,6 +727,14 @@ mutual
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr field.snd)
         dataFields.foldl (init := indexedSpecs) fun acc field =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr field.snd)
+    | .checkErc721Received a b c d =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsFromExpr a) (createHelperSpecsFromExpr b))
+          (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (createHelperSpecsFromExpr d))
+    | .checkErc1155Received a b c d e =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsFromExpr a) (createHelperSpecsFromExpr b))
+          (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (mergeCreateHelperSpecs (createHelperSpecsFromExpr d) (createHelperSpecsFromExpr e)))
 
   partial def createHelperSpecsFromStoragePathSegment : StoragePathSegment → Array CreateHelperSpec
     | .field _ => #[]
@@ -860,6 +894,14 @@ mutual
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr f.snd)
         data.foldl (init := a) fun acc f =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr f.snd)
+    | .checkErc721Received a b c d =>
+        mergeAbiPackedHelperSpecs
+          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
+          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (abiPackedHelperSpecsFromExpr d))
+    | .checkErc1155Received a b c d e =>
+        mergeAbiPackedHelperSpecs
+          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
+          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr d) (abiPackedHelperSpecsFromExpr e)))
 
   partial def abiPackedHelperSpecsFromStatement : Statement → Array AbiPackedHelperSpec
     | .letBind _ _ value | .letMutBind _ _ value | .return value =>
@@ -1109,6 +1151,14 @@ mutual
         dataFieldWords.foldl (init := indexedSpecs) fun acc words =>
           words.foldl (init := acc) fun wordAcc word =>
             mergeCreateHelperSpecs wordAcc (createHelperSpecsFromExprPlan word)
+    | .checkErc721Received a b c d =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan a) (createHelperSpecsFromExprPlan b))
+          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan c) (createHelperSpecsFromExprPlan d))
+    | .checkErc1155Received a b c d e =>
+        mergeCreateHelperSpecs
+          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan a) (createHelperSpecsFromExprPlan b))
+          (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan c) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan d) (createHelperSpecsFromExprPlan e)))
 
   partial def createHelperSpecsFromStmtPlan : StmtPlan → Array CreateHelperSpec
     | .letBind _ _ value

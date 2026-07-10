@@ -220,6 +220,10 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
+    | .checkErc721Received _ _ _ _ =>
+        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
+    | .checkErc1155Received _ _ _ _ _ =>
+        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
 
   partial def mapValueSuffix (valueType : ValueType) : String :=
     match valueType with
@@ -324,6 +328,10 @@ mutual
         .ok #[logLine]
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
+    | .checkErc721Received _ _ _ _ =>
+        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
+    | .checkErc1155Received _ _ _ _ _ =>
+        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
 
   partial def lowerStoragePathWrite (module : Module) (stateId : String) (path : Array StoragePathSegment) (value : Expr) : Except LowerError (Array String) := do
     let state ← stateDeclOf module stateId "storage path"

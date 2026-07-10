@@ -1,0 +1,328 @@
+# PF-P2-01: auth/policy capability family — Ownable product source across primary triad.
+# Semantic path: init (caller becomes owner) → transferOwnership(99) → owner == 99.
+[scenario]
+name = "ownable"
+fixture = "ownable"
+source = "Examples/Product/Ownable.lean"
+targets = ["wasm-near", "evm", "solana-sbpf-asm"]
+capabilities = ["storage.scalar", "entrypoint.external", "caller.sender", "assertions.check"]
+
+[scenario.reference.toolchain]
+revm = "41.0.0"
+mollusk = "0.13.4"
+wasmtime = "26.0.1"
+sbpf = "0.2.2"
+
+[[artifact]]
+target = "wasm-near"
+name = "wat"
+contains = [
+  '(func $init (export "init")',
+  '(func $owner (export "owner")',
+  '(func $transferOwnership (export "transferOwnership")',
+  '(func $renounceOwnership (export "renounceOwnership")',
+]
+
+[[artifact]]
+target = "wasm-near"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "wasm-near"
+
+[[artifact.json]]
+path = "fixture"
+equals = "ownable"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "sourceModule"
+equals = "Ownable"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "caller.sender"
+
+[[artifact.json]]
+path = "capabilities"
+contains = "storage.scalar"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 4
+
+[[artifact.json]]
+path = "validation.emitWat"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.wat2wasm"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.wat"
+artifact = "wat"
+
+[[artifact.file]]
+path = "artifacts.deployManifest"
+artifact = "deploy-manifest"
+
+[[artifact]]
+target = "wasm-near"
+name = "deploy-manifest"
+
+[[artifact.json]]
+path = "kind"
+kind = "string"
+equals = "proof-forge-wasm-near-deploy-manifest"
+
+[[artifact.json]]
+path = "fixture"
+equals = "ownable"
+
+[[artifact]]
+target = "evm"
+name = "yul"
+contains = [
+  'object "Ownable"',
+  'function f_Ownable_init',
+  'function f_Ownable_owner',
+  'function f_Ownable_transferOwnership',
+  'function f_Ownable_renounceOwnership',
+  'caller()',
+]
+
+[[artifact]]
+target = "evm"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "evm"
+
+[[artifact.json]]
+path = "fixture"
+equals = "Ownable"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "caller.sender"
+
+[[artifact.json]]
+path = "capabilities"
+contains = "storage.scalar"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 4
+
+[[artifact.json]]
+path = "validation.solcStrictAssembly"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.bytecodeGeneration"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.yul"
+artifact = "yul"
+
+[[artifact.file]]
+path = "artifacts.bytecode"
+artifact = "bytecode"
+
+[[artifact.file]]
+path = "artifacts.initCode"
+artifact = "init-code"
+
+[[artifact.file]]
+path = "artifacts.deployManifest"
+artifact = "deploy-manifest"
+
+[[artifact]]
+target = "evm"
+name = "deploy-manifest"
+
+[[artifact.json]]
+path = "kind"
+kind = "string"
+equals = "proof-forge-evm-deploy-manifest"
+
+[[artifact.json]]
+path = "contractName"
+kind = "string"
+equals = "Ownable"
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "sbpf-asm"
+contains = [
+  'sol_init',
+  'sol_owner',
+  'sol_transferOwnership',
+  'sol_renounceOwnership',
+  'solana.context.userId: sha256(account[0] full 32-byte pubkey)',
+]
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "manifest"
+contains = [
+  'name = "ownable"',
+  'name = "init"',
+  'name = "owner"',
+  'name = "transferOwnership"',
+  'name = "authority"',
+]
+
+[[artifact.toml]]
+path = "target"
+kind = "string"
+equals = "solana-sbpf-asm"
+
+[[artifact.toml]]
+path = "program.name"
+kind = "string"
+equals = "ownable"
+
+[[artifact.toml]]
+path = "instruction"
+kind = "array"
+non_empty = true
+length = 4
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "solana-sbpf-asm"
+
+[[artifact.json]]
+path = "fixture"
+equals = "Ownable"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "caller.sender"
+
+[[artifact.json]]
+path = "validation.manifestGeneration"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.source"
+artifact = "source"
+
+[[artifact.file]]
+path = "artifacts.sbpfAsm"
+artifact = "sbpf-asm"
+
+[[artifact.file]]
+path = "artifacts.manifestToml"
+artifact = "manifest"
+
+[[artifact.file]]
+path = "artifacts.solanaIdl"
+artifact = "idl"
+
+[[artifact.file]]
+path = "artifacts.solanaClientTs"
+artifact = "client"
+
+[[artifact.jsonArtifact]]
+path = "solanaIdl"
+artifact = "idl"
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "idl"
+
+[[artifact.json]]
+path = "schema"
+kind = "string"
+equals = "proof-forge.solana.idl.v0"
+
+[[artifact.json]]
+path = "name"
+equals = "Ownable"
+
+[[artifact.json]]
+path = "instructions"
+kind = "array"
+non_empty = true
+length = 4
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "client"
+contains = [
+  'export const IDL = ',
+  'encodeInstructionData',
+  'createInstruction',
+]
+
+# Shared semantic steps: portable owner handle becomes 99 after transfer.
+[[step]]
+call = "init"
+
+[[step]]
+call = "transferOwnership"
+[[step.arg]]
+u64 = 99
+
+[[step]]
+call = "owner"
+[step.expect.return]
+u64 = 99

@@ -16,8 +16,10 @@ chain-specific APIs in Shared business logic.
   After apply: nearCrosscallStrings = #["callee.example.near", "remote_call"]
 ```
 
-EVM / Solana ignore the string pool (handles are numeric); only Wasm-NEAR /
-Soroban materialize the pool into host call arguments.
+Wasm-NEAR / Soroban materialize the pool into host call arguments. EVM (PF-P2-03)
+also applies the map: host values that are `0x…` addresses become CALL targets
+via `ProtocolMaterialize.resolveEvmTargetExpr`; method names still map through
+`resolveEvmMethodExpr` / known selectors.
 -/
 import Init.Data.Array.Basic
 import Init.Data.String.Basic

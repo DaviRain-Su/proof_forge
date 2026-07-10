@@ -234,6 +234,15 @@ mutual
     | .eventEmit name fields
     | .eventEmitIndexed name fields _ =>
         fields.foldl (fun acc field => collectExprEvents acc field.snd) (pushUnique events name)
+    | .checkErc721Received operator fromAddr toAddr tokenId =>
+        collectExprEvents
+          (collectExprEvents
+            (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) tokenId
+    | .checkErc1155Received operator fromAddr toAddr id amount =>
+        collectExprEvents
+          (collectExprEvents
+            (collectExprEvents
+              (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) id) amount
     | .storageScalarRead _
     | .storageDynamicArrayPop _
     | .storageStructFieldRead _ _

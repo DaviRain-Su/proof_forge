@@ -76,7 +76,7 @@ spike 后，才会从 docs-only 状态恢复。
 
 | 目标 | 家族 | 当前边界 |
 |---|---|---|
-| [Stellar Soroban](targets/stellar-soroban.zh.md) | Wasm host | CosmWasm 证明 host-adapter split 后才打开。 |
+| [Stellar Soroban](targets/stellar-soroban.zh.md) | Counter MVP（PF-P3-02 六门） | `just soroban-promotion`；auth/TTL/Stellar CLI 为后续。 |
 | [Internet Computer](targets/internet-computer.zh.md) | Wasm host | 需要 Wasm-host split，再加 async/inter-canister design note。 |
 | [Algorand AVM](targets/algorand-avm.zh.md) | Source package generation | 停在后续 sourcegen-lane exit 之后。 |
 | [Cardano Plutus/Aiken](targets/cardano-plutus-aiken.zh.md) | eUTXO validator sourcegen | 停在后续 sourcegen-lane exit 之后。 |

@@ -13,3 +13,6 @@ testkit/compare/**/target/
 scripts/__pycache__/
 .DS_Store
 .nvimlog
+
+# NEAR sandbox peer smoke build
+scripts/near/sandbox-peer-smoke/target/

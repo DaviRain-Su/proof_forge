@@ -29,6 +29,27 @@ artifact-bundle:
 preflight-l2:
     lake env lean --run Tests/PreflightL2.lean
 
+# PF-P1-06: Leo printer rejects unsupported AST ops (no comment placeholders).
+leo-printer-fail-closed:
+    lake env lean --run Tests/LeoPrinterFailClosed.lean
+
+# PF-P1-05: contract_source DSL arity + version surface + Solana Surface isolation.
+source-dsl-arity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lake env lean --run Tests/SourceDslArity.lean
+    python3 - <<'PY'
+    from pathlib import Path
+    src = Path("ProofForge/Contract/Source.lean").read_text()
+    assert "import ProofForge.Solana.Surface" not in src
+    assert "import ProofForge.Solana\n" not in src and "import ProofForge.Solana\r" not in src
+    assert "Solana.Surface" not in src
+    sol = Path("ProofForge/Contract/Source/Solana.lean").read_text()
+    assert "import ProofForge.Solana.Surface" in sol
+    assert "trySolanaEntryStmt" in sol
+    print("source-dsl isolation: ok")
+    PY
+
 # Regenerate docs/generated/backend-status.md from --list-targets --json.
 backend-status-gen:
     python3 scripts/docs/generate-backend-status.py
@@ -269,6 +290,10 @@ solana-source-elf:
 # PF-P0-04: Soroban uses its own TargetProfile / sidecar (not NEAR).
 soroban-profile:
     scripts/cli/soroban-profile-smoke.sh
+
+# PF-P3-02: six-gate promotion smoke for wasm-stellar-soroban (Counter fragment).
+soroban-promotion:
+    scripts/cli/soroban-promotion-smoke.sh
 
 # PF-P0-08: default Wasm build fails without wat2wasm; --format wat is intermediate.
 wat2wasm-fail-closed:
@@ -626,6 +651,12 @@ near-compare-all-live: near-compare-live near-compare-value-vault-live near-comp
 near-compare-counter: near-compare
 near-benchmark-counter: near-compare
 
+# PF-P2-02/P2-03: near-sandbox real peer RemoteCall.call_with_args → 49 + storage_usage.
+# Requires `near-sandbox` on PATH (or ~/.near/near-sandbox-*/near-sandbox).
+near-sandbox-peer:
+    scripts/near/sandbox-peer-smoke.sh
+
+
 # Build the shared portable Counter to EVM, Solana sBPF, and NEAR/Wasm from one source file.
 portable-counter-multi-target:
     scripts/portable/counter-multi-target.sh
@@ -969,14 +1000,19 @@ portable-solana-accounts:
 backend: solana-lean
     @echo "backend: solana-lean ok (use solana-light / emitwat-ci-smoke / evm-* for more)"
 
+# PF-P2-01: every Examples/Product/*.lean must be in catalog.json
+product-catalog:
+    python3 scripts/portable/check-product-catalog.py
+
 # Primary product gate: Product sources × multi-target materialize matrix.
 # Docs: docs/product-sdk.md · Examples/Product/README.md
 product:
+    just product-catalog
     just portable-default
     just product-matrix
     just portable-counter-multi-target
     just portable-remote-call-multi-target
-    @echo "product: ok (matrix · counter · remote)"
+    @echo "product: ok (catalog · matrix · counter · remote)"
 
 # Wave β: Product TokenSpec on wasm-near — NEP-141 plan + FT body WAT (one health path).
 product-token-near:
@@ -1063,6 +1099,10 @@ quint-ir-model-gate:
 testkit:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run
 
+# PF-P2-01 CI policy: skips and single-target "parity" are failures.
+testkit-deny-skip:
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --deny-skip
+
 # List RFC 0007 testkit scenarios.
 testkit-list:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- list
@@ -1076,9 +1116,21 @@ testkit-budget-gate:
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario counter
     CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario value-vault
 
+# PF-P2-01 map/array family: ArrayExample shared semantic returns on EVM/Solana/NEAR.
+testkit-array-example:
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario array-example
+
+# PF-P2-01 auth/policy family: Ownable init → transferOwnership → owner.
+testkit-ownable:
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario ownable
+
+# PF-P2-01 remote family: RemoteCall initialize + crosscall artifact checks.
+testkit-remote-call:
+    CAST="${CAST:-$HOME/.foundry/bin/cast}" cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --scenario remote-call
+
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build product target-registry target-backend target-support artifact-bundle preflight-l2 contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
+check: build product target-registry target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke wasm-cosmwasm-host-smoke wasm-soroban-host-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-coverage psy-diagnostics psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate aleo-leo-codegen-smoke
 
 # Check generated Psy golden sources that CI tracks without requiring dargo.
 psy-golden-sources:

@@ -17,6 +17,7 @@ import Examples.Product.AuthRemoteCall
 import Examples.Product.Counter
 import Examples.Product.HostEnvProbe
 import Examples.Product.ExternalTokenTransfer
+import Examples.Product.ExternalVault
 import Examples.Product.FeeToken
 import Examples.Product.FungibleToken
 import Examples.Product.Ownable
@@ -150,9 +151,11 @@ def testRemote : IO Unit := do
   let remote := Examples.Product.RemoteCall.module
   let authRemote := Examples.Product.AuthRemoteCall.module
   let extFt := Examples.Product.ExternalTokenTransfer.module
+  let extVault := Examples.Product.ExternalVault.module
   assertFourHost "RemoteCall" remote
   assertFourHost "AuthRemoteCall" authRemote
   assertFourHost "ExternalTokenTransfer" extFt
+  assertFourHost "ExternalVault" extVault
   require (extFt.nearCrosscallStrings.any (· == "ft_transfer"))
     "ExternalTokenTransfer registers protocol method ft_transfer"
   -- EVM CALL (product sources are name-only; pin selectors for Yul emit only)

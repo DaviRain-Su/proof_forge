@@ -567,6 +567,10 @@ mutual
     | n + 1, .eventEmit _ fields => fields.toList.all (fun f => exprFC n f.snd)
     | n + 1, .eventEmitIndexed _ fields1 fields2 =>
         fields1.toList.all (fun f => exprFC n f.snd) && fields2.toList.all (fun f => exprFC n f.snd)
+    | n + 1, .checkErc721Received a b c d =>
+        exprFC n a && exprFC n b && exprFC n c && exprFC n d
+    | n + 1, .checkErc1155Received a b c d e =>
+        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e
 
   /-- Shallow + depth wrapper for `Effect`. -/
   def effectFC (n : Nat) (eff : Effect) : Bool :=
@@ -700,7 +704,8 @@ which `moduleInCoveredFragment` checks modules stay within):
 
 **Effect — gap (excluded):** `storageArrayRead`/`Write`/
 `StructFieldRead`/`StructFieldWrite`, `storageDynamicArrayPush`/`Pop`,
-`memoryArraySet`, `storagePathRead`/`Write`/`AssignOp`.
+`memoryArraySet`, `storagePathRead`/`Write`/`AssignOp`,
+`checkErc721Received`/`checkErc1155Received` (EVM host callbacks; PF-P2-02).
 
 **Statement — covered:** `letBind`/`letMutBind`, `assign`/`assignOp`, `effect`,
 `assert`/`assertEq`, `revert`/`revertWithError`, `ifElse`, `boundedFor` (U5.2),

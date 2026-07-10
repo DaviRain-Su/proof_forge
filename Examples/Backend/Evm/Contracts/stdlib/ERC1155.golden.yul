@@ -34,6 +34,13 @@ object "ERC1155" {
       f_ERC1155_safeTransferFrom(calldataload(4), calldataload(36), calldataload(68), calldataload(100))
       return(0, 0)
     }
+    case 0xdacd30d8 {
+      if lt(calldatasize(), 196) {
+        revert(0, 0)
+      }
+      f_ERC1155_safeBatchTransferFrom2(calldataload(4), calldataload(36), calldataload(68), calldataload(100), calldataload(132), calldataload(164))
+      return(0, 0)
+    }
     case 0x156e29f6 {
       if lt(calldatasize(), 100) {
         revert(0, 0)
@@ -118,6 +125,138 @@ object "ERC1155" {
         mstore(0, id)
         mstore(32, amount)
         log4(0, 64, _topic0, _indexed_topic0, _indexed_topic1, _indexed_topic2)
+      }
+      {
+        if iszero(iszero(extcodesize(dst))) {
+          mstore(0, shl(224, 4063915617))
+          mstore(4, operator)
+          mstore(36, src)
+          mstore(68, id)
+          mstore(100, amount)
+          mstore(132, 160)
+          mstore(164, 0)
+          let __pf_erc1155_ok := call(gas(), dst, 0, 0, 196, 0, 32)
+          if iszero(__pf_erc1155_ok) {
+            revert(0, 0)
+          }
+          if lt(returndatasize(), 32) {
+            revert(0, 0)
+          }
+          let __pf_erc1155_magic := mload(0)
+          if iszero(eq(__pf_erc1155_magic, shl(224, 4063915617))) {
+            revert(0, 0)
+          }
+        }
+      }
+    }
+    function f_ERC1155_safeBatchTransferFrom2(src, dst, id0, amount0, id1, amount1) {
+      let operator := caller()
+      let approved := sload(__proof_forge_map_slot(__proof_forge_map_slot(1, src), operator))
+      if iszero(or(eq(operator, src), iszero(eq(approved, 0)))) {
+        revert(0, 0)
+      }
+      if iszero(iszero(eq(dst, 0))) {
+        revert(0, 0)
+      }
+      let fromBal0 := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, src), id0))
+      if iszero(iszero(lt(fromBal0, amount0))) {
+        revert(0, 0)
+      }
+      {
+        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, src), id0)
+        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, src), id0)
+        sstore(_slot, __pf_checked_sub(fromBal0, amount0))
+        sstore(_presence_slot, 1)
+      }
+      let toBal0 := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, dst), id0))
+      {
+        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, dst), id0)
+        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, dst), id0)
+        sstore(_slot, __pf_checked_add(toBal0, amount0))
+        sstore(_presence_slot, 1)
+      }
+      {
+        mstore(0, 38196372293521921434662571559482110217816123204105828618894700137794298538350)
+        mstore(32, 52564060266569530381556813907571567292663703373687215552951033558997877653504)
+        let _topic0 := keccak256(0, 50)
+        let _indexed_topic0 := operator
+        let _indexed_topic1 := src
+        let _indexed_topic2 := dst
+        mstore(0, id0)
+        mstore(32, amount0)
+        log4(0, 64, _topic0, _indexed_topic0, _indexed_topic1, _indexed_topic2)
+      }
+      {
+        if iszero(iszero(extcodesize(dst))) {
+          mstore(0, shl(224, 4063915617))
+          mstore(4, operator)
+          mstore(36, src)
+          mstore(68, id0)
+          mstore(100, amount0)
+          mstore(132, 160)
+          mstore(164, 0)
+          let __pf_erc1155_ok := call(gas(), dst, 0, 0, 196, 0, 32)
+          if iszero(__pf_erc1155_ok) {
+            revert(0, 0)
+          }
+          if lt(returndatasize(), 32) {
+            revert(0, 0)
+          }
+          let __pf_erc1155_magic := mload(0)
+          if iszero(eq(__pf_erc1155_magic, shl(224, 4063915617))) {
+            revert(0, 0)
+          }
+        }
+      }
+      let fromBal1 := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, src), id1))
+      if iszero(iszero(lt(fromBal1, amount1))) {
+        revert(0, 0)
+      }
+      {
+        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, src), id1)
+        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, src), id1)
+        sstore(_slot, __pf_checked_sub(fromBal1, amount1))
+        sstore(_presence_slot, 1)
+      }
+      let toBal1 := sload(__proof_forge_map_slot(__proof_forge_map_slot(0, dst), id1))
+      {
+        let _slot := __proof_forge_map_slot(__proof_forge_map_slot(0, dst), id1)
+        let _presence_slot := __proof_forge_map_presence_slot(__proof_forge_map_slot(0, dst), id1)
+        sstore(_slot, __pf_checked_add(toBal1, amount1))
+        sstore(_presence_slot, 1)
+      }
+      {
+        mstore(0, 38196372293521921434662571559482110217816123204105828618894700137794298538350)
+        mstore(32, 52564060266569530381556813907571567292663703373687215552951033558997877653504)
+        let _topic0 := keccak256(0, 50)
+        let _indexed_topic0 := operator
+        let _indexed_topic1 := src
+        let _indexed_topic2 := dst
+        mstore(0, id1)
+        mstore(32, amount1)
+        log4(0, 64, _topic0, _indexed_topic0, _indexed_topic1, _indexed_topic2)
+      }
+      {
+        if iszero(iszero(extcodesize(dst))) {
+          mstore(0, shl(224, 4063915617))
+          mstore(4, operator)
+          mstore(36, src)
+          mstore(68, id1)
+          mstore(100, amount1)
+          mstore(132, 160)
+          mstore(164, 0)
+          let __pf_erc1155_ok := call(gas(), dst, 0, 0, 196, 0, 32)
+          if iszero(__pf_erc1155_ok) {
+            revert(0, 0)
+          }
+          if lt(returndatasize(), 32) {
+            revert(0, 0)
+          }
+          let __pf_erc1155_magic := mload(0)
+          if iszero(eq(__pf_erc1155_magic, shl(224, 4063915617))) {
+            revert(0, 0)
+          }
+        }
       }
     }
     function f_ERC1155_mint(recipient, id, amount) {

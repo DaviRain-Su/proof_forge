@@ -9,10 +9,11 @@ Current scope:
 - scenario discovery from `testkit/scenarios/*.toml`
 - scenario manifest validation that rejects empty or duplicate target ids and
   artifact checks for targets not declared by the scenario
-- optional scenario `source = "Examples/Product/*.lean"` inputs. Counter and
-  ValueVault now build from the same chain-neutral `.lean contract_source`
-  modules through `proof-forge build --target ... --root .` before each harness
-  executes target-native artifacts; fixture-only emission remains for focused
+- optional scenario `source = "Examples/Product/*.lean"` inputs. Counter,
+  ValueVault, ArrayExample (map/array), Ownable (auth/policy), and RemoteCall
+  (crosscall) build from the same chain-neutral `.lean contract_source` modules
+  through `proof-forge build --target ... --root .` before each harness executes
+  target-native artifacts; fixture-only emission remains for focused
   compiler/runtime cases such as diagnostics and allocator probes
 - typed scalar scenario args (`u64`, `u32`, `bool`) that each harness encodes
   into its native ABI (`Borsh`/little-endian input for `wasm-near`, ABI words
@@ -30,17 +31,18 @@ Current scope:
 - scenario-declared negative diagnostics through `[[diagnostic]]` entries;
   the first diagnostic-only scenario verifies that Solana rejects portable
   `crosscall.invoke` without a declared peer (PortableHonesty empty-peer fail-closed)
-- `wasm-near` Counter and ValueVault execution through the existing
-  deterministic `runtime/offline-host` wasmtime host, using WAT and metadata
-  produced from shared `contract_source`
-- `evm` Counter and ValueVault execution through an in-process `revm` harness
-  that consumes target-first bytecode/Yul/metadata builds, loads artifact
-  metadata selectors, and executes the same scenario steps as EVM transactions
-  when Foundry `cast` is available for selector hydration
-- `solana-sbpf-asm` Counter and ValueVault execution through `mollusk-svm`
-  when `sbpf` and `solana-keygen` are available, using assembly, manifest, IDL,
-  TypeScript client, source, and metadata artifacts emitted from shared
-  `contract_source`
+- `wasm-near` Counter, ValueVault, ArrayExample, and Ownable execution through
+  the existing deterministic `runtime/offline-host` wasmtime host, using WAT and
+  metadata produced from shared `contract_source`
+- `evm` Counter, ValueVault, ArrayExample, and Ownable execution through an
+  in-process `revm` harness that consumes target-first bytecode/Yul/metadata
+  builds, loads artifact metadata selectors, and executes the same scenario
+  steps as EVM transactions when Foundry `cast` is available for selector
+  hydration
+- `solana-sbpf-asm` Counter and ValueVault product scenarios execute the
+  **source-built final ELF** (`artifactKind=solana-elf`, `sbpfBuild=passed`) via
+  Mollusk (PF-P2-02); ArrayExample, Ownable, and RemoteCall still use
+  intermediate assembly + harness scaffold when appropriate
 - normalized observable trace parity across every selected target that ran
 - `just testkit` and a CI gate
 

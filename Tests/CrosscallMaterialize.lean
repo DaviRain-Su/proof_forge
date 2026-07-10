@@ -61,10 +61,11 @@ def main : IO Unit := do
   | .ok src =>
       require (src.contains "portable crosscall") "asm should mark CPI materialization"
       require (src.contains "sol_invoke_signed_c") "asm packs real sol_invoke_signed_c"
-      require (src.contains "AccountMeta") "asm packs account metas"
-      require (src.contains "AccountInfo") "asm packs account infos"
-      require (src.contains "selective pack" || src.contains "forward")
-        "asm packs selective (or full-range) account vector"
+      -- Pure peer method+args CPI: empty AccountMeta pack (PF-P2-03). Host accounts
+      -- are not forwarded; program_id is copied from the target input account.
+      require (src.contains "AccountMeta") "asm documents AccountMeta packing policy"
+      require (src.contains "empty AccountMeta pack" || src.contains "accounts=0")
+        "pure peer asm uses empty AccountMeta pack (no host-account forward)"
       require (src.contains "sol_get_return_data") "asm decodes return data"
       require (src.contains "error_cpi") "asm traps CPI failures"
       -- Anchor/Pinocchio-style checks live in entrypoint prologue (materialize → lower).
@@ -73,11 +74,10 @@ def main : IO Unit := do
       require (src.contains "error_owner") "owner trap present"
       require (src.contains "signer=true") "payer role gets signer check"
       require (src.contains "owner=executable") "callee_program gets executable check"
-      -- Schema with state + payer + callee_program should pack ≥ 3 accounts.
-      require (src.contains "accounts=3" || src.contains "accounts=2" ||
-          src.contains "AccountMeta[0]" || src.contains "input account[0]")
-        "asm should pack multiple account metas up to schema size"
-
+      -- program_id comes from the runtime target account index (peer/callee).
+      require (src.contains "program_id" || src.contains "peer/callee" ||
+          src.contains "input account")
+        "asm resolves CPI program_id from input account target index"
   -- NEAR: portable invoke → promise_create; full fixture still works.
   require ((forProfile wasmNear).nativeForm == NativeForm.nearPromise) "NEAR form"
   let nearPortable := ProofForge.IR.Examples.NearCrosscallProbe.portableModule

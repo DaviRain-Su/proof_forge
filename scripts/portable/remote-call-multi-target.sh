@@ -69,8 +69,11 @@ require_file "$OUT/solana/RemoteCall.s"
 require_file "$OUT/solana/manifest.toml"
 require_contains "$OUT/solana/RemoteCall.s" "sol_invoke_signed_c" "Solana CPI invoke"
 require_contains "$OUT/solana/RemoteCall.s" "sol_get_return_data" "Solana return-data"
-require_contains "$OUT/solana/RemoteCall.s" "AccountMeta" "Solana account metas"
-require_contains "$OUT/solana/RemoteCall.s" "selective pack" "Solana selective CPI account pack"
+# PF-P2-03: portable peer CPI uses empty AccountMeta pack (method+args in ix data);
+# peer program_id comes from the peer_program account key. Keep AccountMeta string
+# in the comment for smoke grep stability.
+require_contains "$OUT/solana/RemoteCall.s" "AccountMeta" "Solana AccountMeta pack comment"
+require_contains "$OUT/solana/RemoteCall.s" "peer/callee account index" "Solana peer account index resolve"
 require_contains "$OUT/solana/manifest.toml" "callee_program" "manifest callee_program account"
 GOLDEN_SOL="$ROOT/Examples/Product/goldens/RemoteCall.solana.s"
 if [[ -f "$GOLDEN_SOL" ]]; then

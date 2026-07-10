@@ -13,6 +13,10 @@ object "EvmErrorsProbe" {
       f_EvmErrorsProbe_revertWithErrorRef()
       return(0, 0)
     }
+    case 0xc5159795 {
+      f_EvmErrorsProbe_revertCustomError()
+      return(0, 0)
+    }
     case 0x0ff6ea62 {
       if lt(calldatasize(), 36) {
         revert(0, 0)
@@ -57,6 +61,10 @@ object "EvmErrorsProbe" {
       mstore(64, 3)
       mstore(96, 0x4534320000000000000000000000000000000000000000000000000000000000)
       revert(0, 128)
+    }
+    function f_EvmErrorsProbe_revertCustomError() {
+      mstore(0, shl(224, 164293619))
+      revert(0, 4)
     }
     function f_EvmErrorsProbe_guardedRevert(condition) {
       if iszero(condition) {

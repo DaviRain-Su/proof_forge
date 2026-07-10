@@ -1,15 +1,15 @@
 # Target lowering interface
 
-Status: **Historical Phase 0 design; implementation table is stale**
+Status: **Current (PF-P1-06 refresh)** — stage contract + live module map
 
-Date: 2026-07-06
+Date: 2026-07-10 (originally 2026-07-06 Phase 0 design)
 
-Current source: [Multi-chain Vision Gap Audit (2026-07-10)](multi-chain-gap-audit-2026-07-10.md).
-Since this page was written, `SolanaModulePlan` and `NearModulePlan` have
-landed, although neither full plan is yet the generic CLI production driver.
-Rows below that call those plans nonexistent describe the old Phase 0 state and
-must not be used as current implementation status. PF-P1-06 tracks the rewrite
-of this page after the driver boundary is settled.
+Promotion contract (PF-P1-06): **`IR → target Plan → typed AST → printer/package`**.
+Unsupported AST nodes must return structured errors (never comment placeholders).
+Primary triad CLI dispatch is registry-backed (`TargetBackend` / `TargetCliDriver`);
+per-target plan **types** stay non-isomorphic (RFC 0004 / 0014).
+
+Related audit: [Multi-chain Vision Gap Audit (2026-07-10)](multi-chain-gap-audit-2026-07-10.md).
 
 Related: [RFC 0014](rfcs/0014-unified-semantic-lowering-contract.md) (the
 contract this page elaborates), [RFC 0004](rfcs/0004-evm-semantic-plan.md)
@@ -105,7 +105,8 @@ validateModule* : IR.Module -> Except <Target>.LowerError Unit
 
 ```lean
 -- Pseudocode — real return type is per-target (EVM: Evm.Plan.ModulePlan,
--- Solana: future Solana.Plan.SolanaModulePlan, etc.).
+-- Solana: Solana.Plan.SolanaModulePlan, NEAR: WasmHost.Plan.ModulePlan /
+-- NearModulePlan, etc.).
 buildModulePlan* :
   IR.Module -> Target.CapabilityPlan -> Except <Target>.<Error> <Target>ModulePlan
 ```
@@ -119,6 +120,12 @@ buildModulePlan* :
   `ProofForge/Backend/Evm/Lower.lean` (`buildFullModulePlan`,
   `buildFullModulePlanWithTargetPlan`). The plan type is
   `ProofForge.Backend.Evm.Plan.ModulePlan`.
+- **Solana reference (landed):** `ProofForge/Backend/Solana/Plan.lean`
+  (`SolanaModulePlan`, `buildSolanaModulePlan`, `lowerModuleFromPlan`).
+- **NEAR reference (landed):** `ProofForge/Backend/WasmHost/Plan.lean`
+  (`ModulePlan`, `buildModulePlan`) and `NearModulePlan.lean`
+  (`NearModulePlan`, `buildNearModulePlan`). CLI production still primarily
+  drives through `EmitWat.lowerModule` + plan surface helpers.
 - **Must NOT:** render Yul/Wasm/sBPF text, allocate stack slots that depend
   on lowering-local state, or call the external toolchain.
 
@@ -135,15 +142,17 @@ lowerToAst :
   `lowerModuleWithPlan` (consumes `Evm.Plan.ModulePlan` →
   `Lean.Compiler.Yul.Object`).
 - **Solana reference (current):** `ProofForge/Backend/Solana/SbpfAsm.lean`
-  `lowerModuleCore` / `lowerModule` / `lowerModuleWithPlan` — today this is
-  *not* plan-driven; the plan is the ephemeral `LowerCtx` struct. Phase 2
-  makes `LowerCtx` plan-derived (see the [Solana deep-dive](#solana-deep-dive)).
+  `lowerModuleCore` / `lowerModule` / `lowerModuleWithPlan`, plus
+  `Solana/Plan.lean` `lowerModuleFromPlan` for plan-driven paths. Generic
+  CLI still often seeds `LowerCtx` from IR + `CapabilityPlan`; full plan
+  dominance is ongoing (see [Solana deep-dive](#solana-deep-dive)).
 - **NEAR reference (current):** `ProofForge/Backend/WasmHost/EmitWat.lean`
-  `lowerModule` — today goes straight IR → Wasm AST after `validateModule`;
-  Phase 3 inserts a plan layer.
+  `lowerModule` builds `WasmHost.Plan.ModulePlan` then lowers to Wasm AST.
+  `NearModulePlan` exists for inspectable NEAR-specific facts.
 - **Must NOT:** make new target-support decisions (anything that reaches
   this pass is assumed valid for the target), re-discover facts already on
-  the plan, or invoke the printer/toolchain.
+  the plan, or invoke the printer/toolchain. **Must NOT** print comment
+  placeholders for unsupported AST nodes (PF-P1-06; Leo printer is fail-closed).
 
 ### 5. `buildArtifactMetadata` — plan-driven
 
@@ -164,16 +173,18 @@ buildArtifactMetadata : <Target>ModulePlan -> ArtifactMetadata
 
 ## Per-backend invariants
 
-| Backend | Current plan module | Current validate path | AST module | Required invariants the plan must satisfy | Phase (RFC 0014) |
+| Backend | Current plan module | Current validate path | AST module | Required invariants the plan must satisfy | Status (2026-07-10) |
 |---|---|---|---|---|---|
-| **EVM** | `Backend/Evm/Plan.lean` (`ModulePlan`), `Lower.lean` (`buildFullModulePlan`) | `Backend/Evm/Validate.lean` (~1.7k LOC), `IR.validateCapabilities` | `Compiler/Yul.Object` | `plan.metadata` ↔ `Backend/Evm/Metadata.lean`; storage slots unique and stable; selector ↔ ABI param count; helper set ⊆ plan-discovered specs; crosscall/create specs deterministic | **Done** (reference) |
-| **NEAR** | **none — gap** (lowered inline in `WasmNear/IR.lean`) | `WasmNear/IR.lean` `validateModule` (rich: identifiers, state, per-entrypoint param/return/type, return-path) | `Compiler/Wasm.Module` | storage-key plan ↔ WAT exports; host imports (`storage_*`, `log`, `sha256`, `account_id`, …) match effects; ownership hook (`IR.Ownership.checkModule`) called before WAT | **Phase 3** |
-| **Psy** | `Backend/Psy/Plan.lean` (`PsyModulePlan`, metadata-only) | `Psy/IR.lean` `validateCapabilities` | `Compiler.Psy.Module` | plan ↔ `Psy/MetadataJson.lean`; storage shape plan deterministic; crosscall contract ids stable | **Phase 5** (body plans); seam align in Phase 1 |
-| **Solana** | **none — gap** (scattered: `StateLayout.lean` + `SbpfAsm.buildModuleInputSchema` + `Extension.lean`) | `SbpfAsm.lean` `validateCapabilities` only | `Solana.Asm.AstNode` | account-layout ↔ manifest ↔ asm consistency; account ordering stable across schema/manifest/asm; PDA seeds reproducible; CPI account bindings ↔ input layout; syscall summary ↔ emitted `sol_*` calls | **Phase 2** (the focus) |
+| **EVM** | `Backend/Evm/Plan.lean` (`ModulePlan`), `Lower.lean` (`buildFullModulePlan`) | `Backend/Evm/Validate.lean`, `TargetBackend.validateModule` | `Compiler/Yul.Object` | `plan.metadata` ↔ `Backend/Evm/Metadata.lean`; storage slots unique and stable; selector ↔ ABI param count; helper set ⊆ plan-discovered specs; crosscall/create specs deterministic | **Reference / production** |
+| **NEAR** | `Backend/WasmHost/Plan.lean` (`ModulePlan`), `NearModulePlan.lean` | EmitWat production path + `TargetBackend` hooks (align with EmitWat, not Rust-sourcegen-only `IR.validateModule`) | `Compiler/Wasm.Module` via EmitWat | storage-key / host-import surface ↔ WAT; ownership hook before WAT; nested mapKey supported in EmitWat | **Plan modules landed**; CLI driver still EmitWat-centric |
+| **Psy** | `Backend/Psy/Plan.lean` (`PsyModulePlan`) | `Psy/IR.lean` `validateCapabilities` | `Compiler.Psy.Module` | plan ↔ `Psy/MetadataJson.lean`; storage shape plan deterministic | **Plan + metadata**; body-plan depth varies |
+| **Solana** | `Backend/Solana/Plan.lean` (`SolanaModulePlan`) + `StateLayout` / `Extension` / `SbpfAsm` | `SbpfAsm.validateCapabilities` + plan builders | `Solana.Asm.AstNode` | account-layout ↔ manifest ↔ asm; PDA/CPI bindings stable; syscall summary ↔ `sol_*` | **Plan module landed**; generic CLI still mixes plan + LowerCtx |
+| **Leo** | IR → Leo AST (`Compiler/Leo`) | Printer fail-closed (PF-P1-06): no `/* nand */` placeholders | `Compiler/Leo.AST` | unsupported ops → `Except LowerError` | **Sourcegen spike**; printer honesty fixed |
+| **Move / CosmWasm / TS Workers** | string / spike emitters | capability / fixture gates | sourcegen | Counter/fixture honesty; not primary-triad production drivers | **Spike / MVP** (see registry `TargetSupport`) |
 
-EVM is the reference: every other row describes the *target* end-state after
-its phase lands, not the current code. Today's Solana/NEAR rows describe
-gaps.
+EVM remains the reference shape. Solana/NEAR plan **modules exist** on `main`;
+remaining work is making every CLI path consume the same plan instance that
+goldens assert (not “plans are nonexistent”).
 
 ## Solana deep-dive
 

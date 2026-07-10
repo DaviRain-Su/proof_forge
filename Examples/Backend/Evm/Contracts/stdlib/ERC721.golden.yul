@@ -96,6 +96,27 @@ object "ERC721" {
         let _indexed_topic2 := tokenId
         log4(0, 0, _topic0, _indexed_topic0, _indexed_topic1, _indexed_topic2)
       }
+      {
+        if iszero(iszero(extcodesize(recipient))) {
+          mstore(0, shl(224, 353073666))
+          mstore(4, operator)
+          mstore(36, holder)
+          mstore(68, tokenId)
+          mstore(100, 128)
+          mstore(132, 0)
+          let __pf_erc721_ok := call(gas(), recipient, 0, 0, 164, 0, 32)
+          if iszero(__pf_erc721_ok) {
+            revert(0, 0)
+          }
+          if lt(returndatasize(), 32) {
+            revert(0, 0)
+          }
+          let __pf_erc721_magic := mload(0)
+          if iszero(eq(__pf_erc721_magic, shl(224, 353073666))) {
+            revert(0, 0)
+          }
+        }
+      }
     }
     function f_ERC721_mint(recipient, tokenId) {
       if iszero(iszero(eq(recipient, 0))) {

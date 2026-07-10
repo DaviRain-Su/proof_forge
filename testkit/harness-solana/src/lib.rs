@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use anyhow::{bail, ensure, Context, Result};
+use mollusk_svm::program::create_program_account_loader_v3;
 use mollusk_svm::Mollusk;
 use proof_forge_testkit_core::{
     assert_artifact_expectations, ArtifactOutput, CallOutcome, ChainHarness, DiagnosticExpectation,
@@ -23,9 +24,16 @@ pub mod token_2022;
 const COUNTER_PROJECT_NAME: &str = "proofforge-counter";
 const VALUE_VAULT_PROJECT_NAME: &str = "proofforge-value-vault";
 const ERROR_REF_PROJECT_NAME: &str = "proofforge-error-ref";
+const ARRAY_EXAMPLE_PROJECT_NAME: &str = "proofforge-array-example";
+const OWNABLE_PROJECT_NAME: &str = "proofforge-ownable";
+const REMOTE_CALL_PROJECT_NAME: &str = "proofforge-remote-call";
 const COUNTER_DATA_LEN: usize = 8;
 const VALUE_VAULT_DATA_LEN: usize = 48;
 const ERROR_REF_DATA_LEN: usize = 8;
+/// Ownable stores a single portable u64 owner handle.
+const OWNABLE_DATA_LEN: usize = 8;
+/// RemoteCall marker is a single u64 on account[0].
+const REMOTE_CALL_MARKER_LEN: usize = 8;
 
 pub struct SolanaHarness;
 
@@ -65,6 +73,9 @@ impl ChainHarness for SolanaHarness {
             "counter" => run_counter_scenario(case, repo_root, &sbpf, &keygen),
             "value-vault" => run_value_vault_scenario(case, repo_root, &sbpf, &keygen),
             "error-ref" => run_error_ref_scenario(case, repo_root, &sbpf, &keygen),
+            "array-example" => run_array_example_scenario(case, repo_root, &sbpf, &keygen),
+            "ownable" => run_ownable_scenario(case, repo_root, &sbpf, &keygen),
+            "remote-call" => run_remote_call_scenario(case, repo_root, &sbpf, &keygen),
             fixture => {
                 bail!("solana-sbpf-asm testkit harness does not support fixture `{fixture}` yet")
             }
@@ -161,6 +172,376 @@ fn run_error_ref_scenario(
     run_state_account_scenario(case, repo_root, artifact, ERROR_REF_DATA_LEN)
 }
 
+fn run_array_example_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<HarnessRun> {
+    let artifact = build_array_example_fixture(case, repo_root, sbpf, keygen)?;
+    // ArrayExample queries declare accounts = []; the generated entrypoint
+    // parses instruction data immediately after num_accounts. Do not inject a
+    // dummy state account or the tag byte is misread and every call becomes tag 0.
+    run_accountless_scenario(case, repo_root, artifact)
+}
+
+fn run_ownable_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<HarnessRun> {
+    let artifact = build_ownable_fixture(case, repo_root, sbpf, keygen)?;
+    run_authority_state_scenario(case, repo_root, artifact, OWNABLE_DATA_LEN)
+}
+
+fn run_remote_call_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<HarnessRun> {
+    let artifact = build_remote_call_fixture(case, repo_root, sbpf, keygen)?;
+    let peer_elf = build_peer_oracle_sum_elf(repo_root, sbpf, keygen)?;
+    run_remote_call_accounts_scenario(case, repo_root, artifact, REMOTE_CALL_MARKER_LEN, &peer_elf)
+}
+
+/// Build the PF-P2-03 PeerOracleSum ELF (always returns u64 49 via set_return_data).
+fn build_peer_oracle_sum_elf(repo_root: &Path, sbpf: &str, keygen: &str) -> Result<PathBuf> {
+    let out_dir = repo_root.join("build/testkit/solana/peer-oracle-sum");
+    let asm_src = repo_root.join("Examples/Backend/Solana/fixtures/PeerOracleSum.s");
+    ensure!(
+        asm_src.exists(),
+        "missing PeerOracleSum fixture at `{}`",
+        asm_src.display()
+    );
+    let project_dir = out_dir.join("sbpf-project");
+    let project_name = "proofforge-peer-oracle-sum";
+    scaffold_sbpf_project(&project_dir, project_name, &asm_src, keygen)?;
+    let mut sbpf_build = Command::new(sbpf);
+    sbpf_build.current_dir(&project_dir).arg("build");
+    run_required(&mut sbpf_build, "sbpf build peer-oracle-sum")?;
+    // Mollusk::new appends `.so` — pass stem without extension.
+    let program_stem = project_dir.join("deploy").join(project_name);
+    ensure!(
+        program_stem.with_extension("so").exists(),
+        "peer-oracle-sum sbpf build missing `{}`",
+        program_stem.with_extension("so").display()
+    );
+    Ok(program_stem)
+}
+
+/// RemoteCall account layout: marker, payer, peer_program, system_program, callee_program.
+fn run_remote_call_accounts_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    artifact: SolanaFixtureArtifact,
+    marker_data_len: usize,
+    peer_elf_stem: &Path,
+) -> Result<HarnessRun> {
+    let mut outputs = vec![
+        ArtifactOutput {
+            name: "sbpf-asm",
+            path: &artifact.asm_path,
+        },
+        ArtifactOutput {
+            name: "manifest",
+            path: &artifact.manifest_path,
+        },
+        ArtifactOutput {
+            name: "metadata",
+            path: &artifact.metadata_path,
+        },
+    ];
+    if let Some(idl_path) = &artifact.idl_path {
+        outputs.push(ArtifactOutput {
+            name: "idl",
+            path: idl_path,
+        });
+    }
+    if let Some(client_path) = &artifact.client_path {
+        outputs.push(ArtifactOutput {
+            name: "client",
+            path: client_path,
+        });
+    }
+    if let Some(contract_spec_path) = &artifact.contract_spec_path {
+        outputs.push(ArtifactOutput {
+            name: "contract-spec",
+            path: contract_spec_path,
+        });
+    }
+    if let Some(source_path) = &artifact.source_path {
+        outputs.push(ArtifactOutput {
+            name: "source",
+            path: source_path,
+        });
+    }
+    assert_artifact_expectations(case, "solana-sbpf-asm", repo_root, &outputs)?;
+
+    let tags = load_instruction_tags(&artifact.manifest_path)?;
+    let pid = program_id(&artifact.keypair_path)?;
+    let mut mollusk = mollusk(pid, &artifact.program_path)?;
+    let marker = Address::new_unique();
+    let payer = Address::new_unique();
+    // PF-P2-03: real peer ELF (returns u64 49). Program id must match the
+    // keypair used when assembling PeerOracleSum so CPI program_id resolves.
+    let peer_keypair = peer_elf_stem
+        .parent()
+        .unwrap()
+        .join("proofforge-peer-oracle-sum-keypair.json");
+    let peer_program = program_id(&peer_keypair)?;
+    let peer_path_str = path_str(peer_elf_stem)?;
+    mollusk.add_program(&peer_program, peer_path_str);
+    let system_program = solana_system_program_id();
+    let callee_program = Address::new_unique();
+    let mut marker_account = Account::new(0, marker_data_len, &pid);
+    let peer_account = create_program_account_loader_v3(&peer_program);
+    let mut system_account = Account::new(1, 0, &system_program);
+    system_account.executable = true;
+    let mut callee_account = Account::new(0, 0, &Address::new_unique());
+    callee_account.executable = true;
+
+    let mut outcomes = Vec::new();
+    let mut sequence = 1u32;
+    for step in &case.manifest.steps {
+        if !step.applies_to_target("solana-sbpf-asm") {
+            continue;
+        }
+        let tag = tags
+            .get(&step.call)
+            .with_context(|| format!("Solana manifest does not contain call `{}`", step.call))?;
+        let mut instruction_data = vec![*tag];
+        instruction_data.extend(step.portable_input_bytes_le().with_context(|| {
+            format!(
+                "failed to encode solana-sbpf-asm instruction data for call `{}`",
+                step.call
+            )
+        })?);
+        for _ in 0..step.repeat.unwrap_or(1) {
+            let instruction = Instruction::new_with_bytes(
+                pid,
+                &instruction_data,
+                vec![
+                    AccountMeta::new(marker, false),
+                    AccountMeta::new(payer, true),
+                    AccountMeta::new_readonly(peer_program, false),
+                    AccountMeta::new_readonly(system_program, false),
+                    AccountMeta::new_readonly(callee_program, false),
+                ],
+            );
+            let result = mollusk.process_instruction(
+                &instruction,
+                &[
+                    (marker, marker_account.clone()),
+                    (payer, Account::new(1_000_000_000, 0, &system_program)),
+                    (peer_program, peer_account.clone()),
+                    (system_program, system_account.clone()),
+                    (callee_program, callee_account.clone()),
+                ],
+            );
+            let error = extract_solana_error(&result.raw_result);
+            if error.is_none() {
+                marker_account = result
+                    .get_account(&marker)
+                    .with_context(|| {
+                        format!("Solana call `{}` did not return marker account", step.call)
+                    })?
+                    .clone();
+            }
+            outcomes.push(outcome_from_mollusk_result(
+                sequence, &step.call, &result, error,
+            ));
+            sequence += 1;
+        }
+    }
+
+    Ok(HarnessRun::passed(outcomes))
+}
+
+fn solana_system_program_id() -> Address {
+    // Native system program: 11111111111111111111111111111111
+    Address::from_str_const("11111111111111111111111111111111")
+}
+
+/// Ownable-style programs: account[0]=authority (signer), account[1]=state (writable, program-owned).
+fn run_authority_state_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    artifact: SolanaFixtureArtifact,
+    state_data_len: usize,
+) -> Result<HarnessRun> {
+    let mut outputs = vec![
+        ArtifactOutput {
+            name: "sbpf-asm",
+            path: &artifact.asm_path,
+        },
+        ArtifactOutput {
+            name: "manifest",
+            path: &artifact.manifest_path,
+        },
+        ArtifactOutput {
+            name: "metadata",
+            path: &artifact.metadata_path,
+        },
+    ];
+    if let Some(idl_path) = &artifact.idl_path {
+        outputs.push(ArtifactOutput {
+            name: "idl",
+            path: idl_path,
+        });
+    }
+    if let Some(client_path) = &artifact.client_path {
+        outputs.push(ArtifactOutput {
+            name: "client",
+            path: client_path,
+        });
+    }
+    if let Some(contract_spec_path) = &artifact.contract_spec_path {
+        outputs.push(ArtifactOutput {
+            name: "contract-spec",
+            path: contract_spec_path,
+        });
+    }
+    if let Some(source_path) = &artifact.source_path {
+        outputs.push(ArtifactOutput {
+            name: "source",
+            path: source_path,
+        });
+    }
+    assert_artifact_expectations(case, "solana-sbpf-asm", repo_root, &outputs)?;
+
+    let tags = load_instruction_tags(&artifact.manifest_path)?;
+    let pid = program_id(&artifact.keypair_path)?;
+    let mollusk = mollusk(pid, &artifact.program_path)?;
+    let authority = Address::new_unique();
+    let state = Address::new_unique();
+    let mut state_account = Account::new(0, state_data_len, &pid);
+
+    let mut outcomes = Vec::new();
+    let mut sequence = 1u32;
+    for step in &case.manifest.steps {
+        let tag = tags
+            .get(&step.call)
+            .with_context(|| format!("Solana manifest does not contain call `{}`", step.call))?;
+        let mut instruction_data = vec![*tag];
+        instruction_data.extend(step.portable_input_bytes_le().with_context(|| {
+            format!(
+                "failed to encode solana-sbpf-asm instruction data for call `{}`",
+                step.call
+            )
+        })?);
+        for _ in 0..step.repeat.unwrap_or(1) {
+            let instruction = Instruction::new_with_bytes(
+                pid,
+                &instruction_data,
+                vec![
+                    AccountMeta::new_readonly(authority, true),
+                    AccountMeta::new(state, false),
+                ],
+            );
+            let result = mollusk.process_instruction(
+                &instruction,
+                &[
+                    (authority, Account::default()),
+                    (state, state_account.clone()),
+                ],
+            );
+            let error = extract_solana_error(&result.raw_result);
+            if error.is_none() {
+                state_account = result
+                    .get_account(&state)
+                    .with_context(|| {
+                        format!("Solana call `{}` did not return state account", step.call)
+                    })?
+                    .clone();
+            }
+            outcomes.push(outcome_from_mollusk_result(
+                sequence, &step.call, &result, error,
+            ));
+            sequence += 1;
+        }
+    }
+
+    Ok(HarnessRun::passed(outcomes))
+}
+
+fn run_accountless_scenario(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    artifact: SolanaFixtureArtifact,
+) -> Result<HarnessRun> {
+    let mut outputs = vec![
+        ArtifactOutput {
+            name: "sbpf-asm",
+            path: &artifact.asm_path,
+        },
+        ArtifactOutput {
+            name: "manifest",
+            path: &artifact.manifest_path,
+        },
+        ArtifactOutput {
+            name: "metadata",
+            path: &artifact.metadata_path,
+        },
+    ];
+    if let Some(idl_path) = &artifact.idl_path {
+        outputs.push(ArtifactOutput {
+            name: "idl",
+            path: idl_path,
+        });
+    }
+    if let Some(client_path) = &artifact.client_path {
+        outputs.push(ArtifactOutput {
+            name: "client",
+            path: client_path,
+        });
+    }
+    if let Some(contract_spec_path) = &artifact.contract_spec_path {
+        outputs.push(ArtifactOutput {
+            name: "contract-spec",
+            path: contract_spec_path,
+        });
+    }
+    if let Some(source_path) = &artifact.source_path {
+        outputs.push(ArtifactOutput {
+            name: "source",
+            path: source_path,
+        });
+    }
+    assert_artifact_expectations(case, "solana-sbpf-asm", repo_root, &outputs)?;
+
+    let tags = load_instruction_tags(&artifact.manifest_path)?;
+    let pid = program_id(&artifact.keypair_path)?;
+    let mollusk = mollusk(pid, &artifact.program_path)?;
+
+    let mut outcomes = Vec::new();
+    let mut sequence = 1u32;
+    for step in &case.manifest.steps {
+        let tag = tags
+            .get(&step.call)
+            .with_context(|| format!("Solana manifest does not contain call `{}`", step.call))?;
+        let mut instruction_data = vec![*tag];
+        instruction_data.extend(step.portable_input_bytes_le().with_context(|| {
+            format!(
+                "failed to encode solana-sbpf-asm instruction data for call `{}`",
+                step.call
+            )
+        })?);
+        for _ in 0..step.repeat.unwrap_or(1) {
+            let instruction = Instruction::new_with_bytes(pid, &instruction_data, vec![]);
+            let result = mollusk.process_instruction(&instruction, &[]);
+            let error = extract_solana_error(&result.raw_result);
+            outcomes.push(outcome_from_mollusk_result(
+                sequence, &step.call, &result, error,
+            ));
+            sequence += 1;
+        }
+    }
+
+    Ok(HarnessRun::passed(outcomes))
+}
+
 fn run_state_account_scenario(
     case: &ScenarioCase,
     repo_root: &Path,
@@ -203,6 +584,12 @@ fn run_state_account_scenario(
         outputs.push(ArtifactOutput {
             name: "source",
             path: source_path,
+        });
+    }
+    if let Some(elf_path) = &artifact.elf_path {
+        outputs.push(ArtifactOutput {
+            name: "elf",
+            path: elf_path,
         });
     }
     assert_artifact_expectations(case, "solana-sbpf-asm", repo_root, &outputs)?;
@@ -258,6 +645,8 @@ struct SolanaFixtureArtifact {
     client_path: Option<PathBuf>,
     contract_spec_path: Option<PathBuf>,
     source_path: Option<PathBuf>,
+    /// Present when the fixture was built as a final Solana ELF (PF-P2-02).
+    elf_path: Option<PathBuf>,
     keypair_path: PathBuf,
     program_path: PathBuf,
 }
@@ -279,17 +668,13 @@ fn build_counter_fixture(
     let asm_path = out_dir.join("Counter.s");
     let artifact_path = out_dir.join("proof-forge-artifact.json");
     if let Some(source_path) = scenario_source(case, repo_root)? {
-        build_contract_source_fixture(case, repo_root, &source_path, &asm_path, &artifact_path)?;
-        return finish_solana_fixture(
-            "Counter",
+        // PF-P2-02: product Counter runs the source-built final ELF (not harness-scaffolded asm).
+        return build_contract_source_elf_fixture(
+            case,
+            repo_root,
+            &source_path,
             &out_dir,
-            &asm_path,
-            &artifact_path,
-            COUNTER_PROJECT_NAME,
-            Some(source_path),
-            true,
-            sbpf,
-            keygen,
+            "Counter",
         );
     }
 
@@ -343,17 +728,13 @@ fn build_value_vault_fixture(
     let asm_path = out_dir.join("ValueVault.s");
     let artifact_path = out_dir.join("proof-forge-artifact.json");
     if let Some(source_path) = scenario_source(case, repo_root)? {
-        build_contract_source_fixture(case, repo_root, &source_path, &asm_path, &artifact_path)?;
-        return finish_solana_fixture(
-            "ValueVault",
+        // PF-P2-02: product ValueVault runs the source-built final ELF.
+        return build_contract_source_elf_fixture(
+            case,
+            repo_root,
+            &source_path,
             &out_dir,
-            &asm_path,
-            &artifact_path,
-            VALUE_VAULT_PROJECT_NAME,
-            Some(source_path),
-            true,
-            sbpf,
-            keygen,
+            "ValueVault",
         );
     }
 
@@ -390,6 +771,107 @@ fn build_value_vault_fixture(
     )
 }
 
+fn build_array_example_fixture(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<SolanaFixtureArtifact> {
+    let out_dir = repo_root.join("build/testkit/solana/array-example");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create `{}`", out_dir.display()))?;
+
+    let mut build = Command::new("lake");
+    build.current_dir(repo_root).args(["build", "proof-forge"]);
+    run_required(&mut build, "lake build proof-forge")?;
+
+    let asm_path = out_dir.join("ArrayExample.s");
+    let artifact_path = out_dir.join("proof-forge-artifact.json");
+    let source_path = scenario_source(case, repo_root)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "array-example requires scenario.source (Examples/Product/ArrayExample.lean)"
+        )
+    })?;
+    build_contract_source_fixture(case, repo_root, &source_path, &asm_path, &artifact_path)?;
+    finish_solana_fixture(
+        "ArrayExample",
+        &out_dir,
+        &asm_path,
+        &artifact_path,
+        ARRAY_EXAMPLE_PROJECT_NAME,
+        Some(source_path),
+        true,
+        sbpf,
+        keygen,
+    )
+}
+
+fn build_ownable_fixture(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<SolanaFixtureArtifact> {
+    let out_dir = repo_root.join("build/testkit/solana/ownable");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create `{}`", out_dir.display()))?;
+
+    let mut build = Command::new("lake");
+    build.current_dir(repo_root).args(["build", "proof-forge"]);
+    run_required(&mut build, "lake build proof-forge")?;
+
+    let asm_path = out_dir.join("Ownable.s");
+    let artifact_path = out_dir.join("proof-forge-artifact.json");
+    let source_path = scenario_source(case, repo_root)?.ok_or_else(|| {
+        anyhow::anyhow!("ownable requires scenario.source (Examples/Product/Ownable.lean)")
+    })?;
+    build_contract_source_fixture(case, repo_root, &source_path, &asm_path, &artifact_path)?;
+    finish_solana_fixture(
+        "Ownable",
+        &out_dir,
+        &asm_path,
+        &artifact_path,
+        OWNABLE_PROJECT_NAME,
+        Some(source_path),
+        true,
+        sbpf,
+        keygen,
+    )
+}
+
+fn build_remote_call_fixture(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    sbpf: &str,
+    keygen: &str,
+) -> Result<SolanaFixtureArtifact> {
+    let out_dir = repo_root.join("build/testkit/solana/remote-call");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create `{}`", out_dir.display()))?;
+
+    let mut build = Command::new("lake");
+    build.current_dir(repo_root).args(["build", "proof-forge"]);
+    run_required(&mut build, "lake build proof-forge")?;
+
+    let asm_path = out_dir.join("RemoteCall.s");
+    let artifact_path = out_dir.join("proof-forge-artifact.json");
+    let source_path = scenario_source(case, repo_root)?.ok_or_else(|| {
+        anyhow::anyhow!("remote-call requires scenario.source (Examples/Product/RemoteCall.lean)")
+    })?;
+    build_contract_source_fixture(case, repo_root, &source_path, &asm_path, &artifact_path)?;
+    finish_solana_fixture(
+        "RemoteCall",
+        &out_dir,
+        &asm_path,
+        &artifact_path,
+        REMOTE_CALL_PROJECT_NAME,
+        Some(source_path),
+        true,
+        sbpf,
+        keygen,
+    )
+}
+
 fn build_contract_source_fixture(
     case: &ScenarioCase,
     repo_root: &Path,
@@ -398,8 +880,7 @@ fn build_contract_source_fixture(
     artifact_path: &Path,
 ) -> Result<()> {
     let mut build = Command::new("lake");
-    // PF-P0-03: default Solana source build is ELF; testkit scaffolds its own
-    // sbpf package from assembly, so request the toolchain-free intermediate.
+    // Assembly intermediate for fixtures that still scaffold their own sbpf package.
     build.current_dir(repo_root).args([
         "env",
         "proof-forge",
@@ -424,6 +905,142 @@ fn build_contract_source_fixture(
         ),
     )?;
     Ok(())
+}
+
+/// PF-P2-02: default Solana source build produces final ELF + project sidecar.
+/// Testkit executes Mollusk against the source-built ELF (no re-scaffold).
+fn build_contract_source_elf_fixture(
+    case: &ScenarioCase,
+    repo_root: &Path,
+    source_path: &Path,
+    out_dir: &Path,
+    contract_name: &str,
+) -> Result<SolanaFixtureArtifact> {
+    let elf_path = out_dir.join(format!("{contract_name}.so"));
+    let artifact_path = out_dir.join("proof-forge-artifact.json");
+    let mut build = Command::new("lake");
+    build.current_dir(repo_root).args([
+        "env",
+        "proof-forge",
+        "build",
+        "--target",
+        "solana-sbpf-asm",
+        "--root",
+        ".",
+        "-o",
+        path_str(&elf_path)?,
+        "--artifact-output",
+        path_str(&artifact_path)?,
+        path_str(source_path)?,
+    ]);
+    run_required(
+        &mut build,
+        &format!(
+            "proof-forge build --target solana-sbpf-asm (ELF) for scenario `{}`",
+            case.manifest.scenario.name
+        ),
+    )?;
+    ensure!(
+        elf_path.exists(),
+        "{contract_name} Solana ELF build did not create `{}`",
+        elf_path.display()
+    );
+    ensure!(
+        artifact_path.exists(),
+        "{contract_name} Solana ELF build did not create `{}`",
+        artifact_path.display()
+    );
+
+    // Sidecar project layout from proof-forge: <stem>-sbpf-project/
+    let project_dir = out_dir.join(format!("{contract_name}-sbpf-project"));
+    let asm_path = project_dir
+        .join("src")
+        .join(contract_name)
+        .join(format!("{contract_name}.s"));
+    let manifest_path = project_dir.join("manifest.toml");
+    let idl_path = project_dir.join("proof-forge-idl.json");
+    let client_path = project_dir.join("proof-forge-client.ts");
+    // Keypair name matches the generated package (stem-sbpf-project).
+    let keypair_path = project_dir
+        .join("deploy")
+        .join(format!("{contract_name}-sbpf-project-keypair.json"));
+    let deploy_elf = project_dir
+        .join("deploy")
+        .join(format!("{contract_name}.so"));
+
+    ensure!(
+        asm_path.exists(),
+        "{contract_name} ELF build missing assembly `{}`",
+        asm_path.display()
+    );
+    ensure!(
+        manifest_path.exists(),
+        "{contract_name} ELF build missing manifest `{}`",
+        manifest_path.display()
+    );
+    ensure!(
+        idl_path.exists(),
+        "{contract_name} ELF build missing IDL `{}`",
+        idl_path.display()
+    );
+    ensure!(
+        client_path.exists(),
+        "{contract_name} ELF build missing client `{}`",
+        client_path.display()
+    );
+    ensure!(
+        keypair_path.exists(),
+        "{contract_name} ELF build missing keypair `{}`",
+        keypair_path.display()
+    );
+    // Mollusk::new appends `.so` to the program path stem. Prefer deploy/
+    // layout (name without extension); fall back to stripping the -o `.so`.
+    let program_for_mollusk = if deploy_elf.exists() {
+        project_dir.join("deploy").join(contract_name)
+    } else if elf_path.exists() {
+        // Counter.so → Counter (mollusk loads Counter.so)
+        elf_path.with_extension("")
+    } else {
+        bail!("{contract_name} ELF build missing program binary")
+    };
+    ensure!(
+        program_for_mollusk.with_extension("so").exists() || elf_path.exists(),
+        "{contract_name} ELF build missing program `{}`",
+        program_for_mollusk.display()
+    );
+    let program_path = program_for_mollusk;
+    let elf_artifact = if elf_path.exists() {
+        elf_path
+    } else {
+        deploy_elf
+    };
+
+    // Metadata must claim final ELF honestly.
+    let meta_text = fs::read_to_string(&artifact_path)
+        .with_context(|| format!("failed to read `{}`", artifact_path.display()))?;
+    ensure!(
+        meta_text.contains("\"artifactKind\": \"solana-elf\"")
+            || meta_text.contains("\"artifactKind\":\"solana-elf\""),
+        "{contract_name} metadata must claim artifactKind solana-elf"
+    );
+    ensure!(
+        meta_text.contains("\"sbpfBuild\": \"passed\"")
+            || meta_text.contains("\"sbpfBuild\":\"passed\""),
+        "{contract_name} metadata must claim sbpfBuild=passed"
+    );
+
+    Ok(SolanaFixtureArtifact {
+        asm_path,
+        manifest_path,
+        metadata_path: artifact_path,
+        idl_path: Some(idl_path),
+        client_path: Some(client_path),
+        contract_spec_path: None,
+        source_path: Some(source_path.to_path_buf()),
+        elf_path: Some(elf_artifact),
+        keypair_path,
+        program_path,
+    })
 }
 
 fn finish_solana_fixture(
@@ -496,6 +1113,7 @@ fn finish_solana_fixture(
         client_path,
         contract_spec_path: None,
         source_path,
+        elf_path: None,
         keypair_path,
         program_path,
     })
@@ -584,6 +1202,7 @@ fn build_error_ref_fixture(
         client_path: None,
         contract_spec_path: Some(contract_spec_path),
         source_path: None,
+        elf_path: None,
         keypair_path,
         program_path,
     })

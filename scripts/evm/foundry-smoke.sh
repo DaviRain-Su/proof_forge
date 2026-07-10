@@ -58,6 +58,24 @@ rebuild_constructor_init_fixture DynamicConstructorProbe "$ROOT/Examples/Backend
 rebuild_constructor_init_fixture Counter "$ROOT/Examples/Backend/Evm/Contracts/Counter.lean" \
   --evm-constructor-arg "initial=123"
 
+# PF-P2-03: RemoteCall with deploy-time peer address for real CALL peer equivalence.
+(
+  cd "$ROOT"
+  "${proof_forge[@]}" build \
+    --target evm \
+    --root . \
+    --peer "peer.callee=0x000000000000000000000000000000000000b0b0" \
+    --yul-output "$OUT_DIR/RemoteCall.peer.yul" \
+    --artifact-output "$OUT_DIR/RemoteCall.peer.proof-forge-artifact.json" \
+    -o "$OUT_DIR/RemoteCall.peer.bin" \
+    Examples/Product/RemoteCall.lean
+  # CALL target must be the peer address (0xb0b0 = 45232), method selector remote_call(uint256,uint256).
+  grep -Fq '4054714009' "$OUT_DIR/RemoteCall.peer.yul" \
+    || { echo "foundry-smoke: RemoteCall.peer.yul missing remote_call selector" >&2; exit 1; }
+  grep -Fq '45232' "$OUT_DIR/RemoteCall.peer.yul" \
+    || { echo "foundry-smoke: RemoteCall.peer.yul missing peer address word 0xb0b0=45232" >&2; exit 1; }
+)
+
 rm -rf "$FORGE_DIR"
 mkdir -p "$FORGE_DIR/test"
 
@@ -81,6 +99,49 @@ interface Vm {
     function etch(address target, bytes calldata newRuntimeBytecode) external;
     function deal(address who, uint256 newBalance) external;
     function prank(address msgSender) external;
+}
+
+/// PF-P2-02: IERC721Receiver that returns the required magic.
+contract GoodReceiver {
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+}
+
+/// PF-P2-02: IERC721Receiver that returns the wrong selector.
+contract BadReceiver {
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return bytes4(0xdeadbeef);
+    }
+}
+
+/// PF-P2-02: IERC1155Receiver that returns the required magic.
+contract Good1155Receiver {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return this.onERC1155Received.selector;
+    }
+}
+
+/// PF-P2-02: IERC1155Receiver that returns the wrong selector.
+contract Bad1155Receiver {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return bytes4(0xdeadbeef);
+    }
+}
+
+/// PF-P2-03: peer oracle for RemoteCall.call_with_args (42 + 7 = 49).
+contract PeerOracle {
+    function remote_call(uint256 a, uint256 b) external pure returns (uint256) {
+        return a + b;
+    }
 }
 
 contract ProofForgeSmokeTest {
@@ -431,6 +492,50 @@ contract ProofForgeSmokeTest {
         assertFalse(burnedOwnerOk);
     }
 
+    // PF-P2-02: IERC721Receiver accept / reject for safeTransferFrom.
+    function testERC721SafeTransferToReceiver_accepts() public {
+        address probe = address(0x7211);
+        address alice = address(0xA11CE);
+        GoodReceiver good = new GoodReceiver();
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC721Probe.bin")", probe);
+
+        vm.prank(alice);
+        (bool mintOk,) = probe.call(abi.encodeWithSignature("mint(address,uint256)", alice, uint256(2)));
+        assertTrue(mintOk);
+
+        vm.prank(alice);
+        (bool safeOk,) =
+            probe.call(abi.encodeWithSignature("safeTransferFrom(address,address,uint256)", alice, address(good), uint256(2)));
+        assertTrue(safeOk);
+
+        (bool ownerOk, bytes memory ownerResult) =
+            probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(2)));
+        assertTrue(ownerOk);
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(address(good))));
+    }
+
+    function testERC721SafeTransferToReceiver_rejects() public {
+        address probe = address(0x7212);
+        address alice = address(0xA11CE);
+        BadReceiver bad = new BadReceiver();
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC721Probe.bin")", probe);
+
+        vm.prank(alice);
+        (bool mintOk,) = probe.call(abi.encodeWithSignature("mint(address,uint256)", alice, uint256(3)));
+        assertTrue(mintOk);
+
+        vm.prank(alice);
+        (bool safeOk,) =
+            probe.call(abi.encodeWithSignature("safeTransferFrom(address,address,uint256)", alice, address(bad), uint256(3)));
+        assertFalse(safeOk);
+
+        // Ownership must remain with alice after failed safe transfer.
+        (bool ownerOk, bytes memory ownerResult) =
+            probe.call(abi.encodeWithSignature("ownerOf(uint256)", uint256(3)));
+        assertTrue(ownerOk);
+        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(alice)));
+    }
+
     function testERC1155Lifecycle() public {
         address token = address(0x1155);
         address alice = address(0xA11CE);
@@ -484,6 +589,113 @@ contract ProofForgeSmokeTest {
         vm.prank(bob);
         (bool overdraftBurnOk,) = token.call(abi.encodeWithSignature("burn(uint256,uint256)", uint256(7), uint256(31)));
         assertFalse(overdraftBurnOk);
+    }
+
+    // PF-P2-02: IERC1155Receiver accept / reject for safeTransferFrom.
+    function testERC1155SafeTransferToReceiver_accepts() public {
+        address token = address(0x11551);
+        address alice = address(0xA11CE);
+        Good1155Receiver good = new Good1155Receiver();
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC1155.bin")", token);
+
+        vm.prank(alice);
+        (bool mintOk,) = token.call(abi.encodeWithSignature("mint(address,uint256,uint256)", alice, uint256(9), uint256(50)));
+        assertTrue(mintOk);
+
+        vm.prank(alice);
+        (bool safeOk,) = token.call(
+            abi.encodeWithSignature(
+                "safeTransferFrom(address,address,uint256,uint256)", alice, address(good), uint256(9), uint256(20)
+            )
+        );
+        assertTrue(safeOk);
+
+        (bool goodBalOk, bytes memory goodBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", address(good), uint256(9)));
+        assertTrue(goodBalOk);
+        assertEq(abi.decode(goodBal, (uint256)), 20);
+
+        (, bytes memory aliceBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(9)));
+        assertEq(abi.decode(aliceBal, (uint256)), 30);
+    }
+
+    function testERC1155SafeTransferToReceiver_rejects() public {
+        address token = address(0x11552);
+        address alice = address(0xA11CE);
+        Bad1155Receiver bad = new Bad1155Receiver();
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC1155.bin")", token);
+
+        vm.prank(alice);
+        (bool mintOk,) = token.call(abi.encodeWithSignature("mint(address,uint256,uint256)", alice, uint256(11), uint256(50)));
+        assertTrue(mintOk);
+
+        vm.prank(alice);
+        (bool safeOk,) = token.call(
+            abi.encodeWithSignature(
+                "safeTransferFrom(address,address,uint256,uint256)", alice, address(bad), uint256(11), uint256(20)
+            )
+        );
+        assertFalse(safeOk);
+
+        // Balances must remain unchanged after failed safe transfer.
+        (, bytes memory aliceBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(11)));
+        assertEq(abi.decode(aliceBal, (uint256)), 50);
+        (, bytes memory badBal) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", address(bad), uint256(11)));
+        assertEq(abi.decode(badBal, (uint256)), 0);
+    }
+
+    // PF-P2-03: real peer CALL — RemoteCall.call_with_args → PeerOracle.remote_call(42,7)=49.
+    function testRemoteCallPeerEquivalence_callWithArgs() public {
+        address caller = address(0xC411);
+        // Must match --peer peer.callee=… used when building RemoteCall.peer.bin.
+        address peer = address(0xB0B0);
+        PeerOracle oracle = new PeerOracle();
+        deployRuntime(address(oracle).code, peer);
+        deployRuntime(hex"$(cat "$OUT_DIR/RemoteCall.peer.bin")", caller);
+
+        (bool ok, bytes memory ret) = caller.call(abi.encodeWithSignature("call_with_args()"));
+        assertTrue(ok);
+        assertEq(abi.decode(ret, (uint256)), 49);
+    }
+
+    // PF-P2-02: size-2 batch MVP (safeBatchTransferFrom2) to EOA.
+    function testERC1155SafeBatchTransferFrom2() public {
+        address token = address(0x11553);
+        address alice = address(0xA11CE);
+        address bob = address(0xB0B);
+        deployRuntime(hex"$(cat "$OUT_DIR/ERC1155.bin")", token);
+
+        vm.prank(alice);
+        (bool mint0Ok,) = token.call(abi.encodeWithSignature("mint(address,uint256,uint256)", alice, uint256(1), uint256(100)));
+        assertTrue(mint0Ok);
+        vm.prank(alice);
+        (bool mint1Ok,) = token.call(abi.encodeWithSignature("mint(address,uint256,uint256)", alice, uint256(2), uint256(80)));
+        assertTrue(mint1Ok);
+
+        vm.prank(alice);
+        (bool batchOk,) = token.call(
+            abi.encodeWithSignature(
+                "safeBatchTransferFrom2(address,address,uint256,uint256,uint256,uint256)",
+                alice, bob, uint256(1), uint256(30), uint256(2), uint256(20)
+            )
+        );
+        assertTrue(batchOk);
+
+        (, bytes memory alice0) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(1)));
+        assertEq(abi.decode(alice0, (uint256)), 70);
+        (, bytes memory alice1) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", alice, uint256(2)));
+        assertEq(abi.decode(alice1, (uint256)), 60);
+        (, bytes memory bob0) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", bob, uint256(1)));
+        assertEq(abi.decode(bob0, (uint256)), 30);
+        (, bytes memory bob1) =
+            token.call(abi.encodeWithSignature("balanceOf(address,uint256)", bob, uint256(2)));
+        assertEq(abi.decode(bob1, (uint256)), 20);
     }
 
     function testUUPSProxyUpgradeLifecycle() public {

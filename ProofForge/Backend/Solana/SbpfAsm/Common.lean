@@ -408,8 +408,15 @@ def accountDataSize (module : Module) (extensions : ProgramExtensions) (account 
   else
     extensionAccountDataSize extensions account
 
-def accountReserveRealloc (idx accountCount : Nat) (account : AccountEntry) : Bool :=
-  account.writable || idx + 1 == accountCount
+/-- Whether the serialized Solana input reserves `MAX_PERMITTED_DATA_INCREASE`
+after this account's data.
+
+Must stay `true` for every account: `lowerAccountScanStep` always advances by
+that padding (matching the BPF loader input format). Skipping realloc for
+read-only accounts desyncs `OWNER_DATA` / state offsets from the runtime scan
+and drops portable auth writes into non-persisted padding (PF-P2-01 Ownable). -/
+def accountReserveRealloc (_idx _accountCount : Nat) (_account : AccountEntry) : Bool :=
+  true
 
 def accountDataSizes (module : Module) (extensions : ProgramExtensions)
     (accounts : Array AccountEntry) : Array Nat :=

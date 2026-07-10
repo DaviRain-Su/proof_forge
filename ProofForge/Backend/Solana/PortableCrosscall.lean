@@ -11,9 +11,10 @@ CPI-shaped execution (general peer remote — not SPL/token-only):
 * Instruction data: little-endian method tag (u64) followed by packed u64 args
 * Program account: runtime account index = `target` (must be an executable
   program account in the transaction account list)
-* Account vector: **selective** `AccountMeta`/`AccountInfo` packing — accounts
-  that are signer, writable, `owner=program`, or `owner=executable` (callee).
-  Not every readonly spectator account. Cap `MAX_PORTABLE_CPI_ACCOUNTS`.
+* Account vector: **pure peer** CPIs use an **empty** `AccountMeta`/`AccountInfo`
+  pack (method+args in ix data; host accounts stay outer-only). When a **signer
+  PDA** is declared, selective packing of signer|writable|program|executable
+  accounts is used (cap `MAX_PORTABLE_CPI_ACCOUNTS`) together with seeds.
 * Signers: when the module declares a **signer PDA**, effective seeds pack into
   `sol_invoke_signed_c` so the program can CPI as that PDA authority (vault /
   complex contract pattern)
@@ -46,7 +47,7 @@ open ProofForge.Backend.Solana.Extension
 open ProofForge.Backend.Solana.StateLayout
 open ProofForge.Backend.Solana.Syscalls
 
-/-! ## Dedicated portable CPI frame (stack metas + heap infos)
+/-! ## Dedicated portable CPI frame (stack metas + stack infos)
 
 Does **not** reuse Extension CPI offsets so Source.Solana hand-tuned CPI keeps
 its layout.
@@ -73,11 +74,36 @@ def portableCpiMetaOffset : Nat := 128
 def portableCpiProgramIdOffset : Nat :=
   portableCpiMetaOffset + MAX_PORTABLE_CPI_ACCOUNTS * 16  -- 128+1024=1152
 def portableCpiDataOffset : Nat := portableCpiProgramIdOffset + 32  -- 1184
-/-- Absolute heap base for AccountInfo array (not r10-relative). -/
+/-- Absolute heap base for AccountInfo array (not r10-relative).
+Prefer stack packing when the selective account count fits; heap remains a
+fallback for large account sets. -/
 def portableCpiInfoHeapBase : Nat := HEAP_START_ADDRESS
+/-- Stack-relative AccountInfo array (PF-P2-03). Matches Extension CPI which
+packs infos on the frame rather than absolute heap — avoids InvalidArgument
+from address-restriction checks under current Mollusk/Agave. 16×56 = 896 B. -/
+def portableCpiInfoStackOffset : Nat := 2048
+def portableCpiInfoStackSlots : Nat := 16
+/-- Return-data byte buffer (8 bytes). Addresses are `r10 - offset`. -/
 def portableReturnDataOffset : Nat := 3200
-def portableReturnDataProgramIdOffset : Nat := 3208
-def portableTargetIndexSaveOffset : Nat := 3248
+/-- Program-id out buffer for `sol_get_return_data` (32 bytes).
+Must not overlap the return-data buffer in VM address space:
+`[r10-off, r10-off+len)`. With data at 3200/len 8, program id needs
+offset ≥ 3232 or ≤ 3192. Was 3208 → Overlapping copy (PF-P2-03). -/
+def portableReturnDataProgramIdOffset : Nat := 3240
+def portableTargetIndexSaveOffset : Nat := 3280
+
+/-- Force r3 to boolean 0/1 (Agave CPI rejects flag bytes > 1 with InvalidArgument). -/
+def booleanizeR3 (zeroLabel : String) : Array AstNode :=
+  #[
+    .instruction {
+      opcode := .jeq
+      dst := some .r3
+      imm := some (.num 0)
+      off := some (.sym zeroLabel)
+    },
+    .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 1) },
+    .label zeroLabel
+  ]
 
 /-- Store r2 (u64) into portable instruction data at word index `wordIdx`. -/
 def storeIxDataWord (wordIdx : Nat) : Array AstNode :=
@@ -149,39 +175,50 @@ def loadTargetAccountPtr : Array AstNode :=
   ]
 
 /-- After r7 holds the account start pointer, write AccountMeta at CPI slot.
-Signer/writable flags are read from the Solana input account header. -/
-def storeAccountMetaFromR7 (cpiSlot inputIndex : Nat) : Array AstNode :=
+Signer/writable flags are read from the Solana input account header and
+**booleanized to 0/1** (Agave rejects flag bytes > 1 with InvalidArgument).
+`siteTag` must be unique per CPI site so labels do not collide. -/
+def storeAccountMetaFromR7 (siteTag : String) (cpiSlot inputIndex : Nat) : Array AstNode :=
   let metaOffset := cpiSlot * 16
   let signerOff := 1
   let writableOff := 2
+  let wLab := s!"{siteTag}_meta_w{cpiSlot}"
+  let sLab := s!"{siteTag}_meta_s{cpiSlot}"
   #[
     .comment s!"portable CPI: AccountMeta[{cpiSlot}] ← input account[{inputIndex}] header flags"
   ] ++
   stackPtr .r6 portableCpiMetaOffset ++ #[
     .instruction { opcode := .add64, dst := some .r6, imm := some (.num metaOffset) },
+    -- Zero the 16-byte meta slot (padding must not leak garbage into bools).
+    -- Use `stdw` (store immediate), not `stxdw` (store register).
+    storeImm .stdw .r6 0 0,
+    storeImm .stdw .r6 8 0,
     -- key_ptr = account + ACCOUNT_HEADER_SIZE
     .instruction { opcode := .mov64, dst := some .r8, src := some .r7 },
     .instruction { opcode := .add64, dst := some .r8, imm := some (.num ACCOUNT_HEADER_SIZE) },
     storeReg .stxdw .r6 0 .r8,
-    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num writableOff) },
+    -- SolAccountMeta: is_writable @ 8, is_signer @ 9 (repr(C) order).
+    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num writableOff) }
+  ] ++ booleanizeR3 wLab ++ #[
     storeReg .stxb .r6 8 .r3,
-    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num signerOff) },
+    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num signerOff) }
+  ] ++ booleanizeR3 sLab ++ #[
     storeReg .stxb .r6 9 .r3
   ]
 
-/-- Load absolute heap address of AccountInfo[slotIdx] into `dst`. -/
-def loadHeapInfoPtr (dst : Reg) (slotIdx : Nat) : Array AstNode :=
-  #[
+/-- Load AccountInfo slot address into `dst` (stack packing, PF-P2-03). -/
+def loadInfoPtr (dst : Reg) (slotIdx : Nat) : Array AstNode :=
+  stackPtr dst portableCpiInfoStackOffset ++ #[
     .instruction {
-      opcode := .lddw
+      opcode := .add64
       dst := some dst
-      imm := some (.num (portableCpiInfoHeapBase + slotIdx * 56))
+      imm := some (.num (slotIdx * 56))
     }
   ]
 
 /-- After r7 holds the account start pointer, write SolAccountInfo at CPI slot
-on the **runtime heap** (full 64-account capacity). -/
-def storeAccountInfoFromR7 (cpiSlot inputIndex : Nat) : Array AstNode :=
+on the **stack frame** (same approach as Extension CPI). -/
+def storeAccountInfoFromR7 (siteTag : String) (cpiSlot inputIndex : Nat) : Array AstNode :=
   let signerOff := 1
   let writableOff := 2
   let executableOff := 3
@@ -190,10 +227,13 @@ def storeAccountInfoFromR7 (cpiSlot inputIndex : Nat) : Array AstNode :=
   let lamportsRel := ownerRel + PUBKEY_SIZE
   let dataLenRel := lamportsRel + U64_SIZE
   let dataStartRel := dataLenRel + U64_SIZE
+  let sLab := s!"{siteTag}_info_s{cpiSlot}"
+  let wLab := s!"{siteTag}_info_w{cpiSlot}"
+  let eLab := s!"{siteTag}_info_e{cpiSlot}"
   #[
-    .comment s!"portable CPI: AccountInfo[{cpiSlot}] @ heap+{cpiSlot * 56} ← input account[{inputIndex}]"
+    .comment s!"portable CPI: AccountInfo[{cpiSlot}] @ stack-{portableCpiInfoStackOffset}+{cpiSlot * 56} ← input account[{inputIndex}]"
   ] ++
-  loadHeapInfoPtr .r6 cpiSlot ++ #[
+  loadInfoPtr .r6 cpiSlot ++ #[
     .instruction { opcode := .mov64, dst := some .r8, src := some .r7 },
     .instruction { opcode := .add64, dst := some .r8, imm := some (.num keyRel) },
     storeReg .stxdw .r6 0 .r8,
@@ -212,20 +252,23 @@ def storeAccountInfoFromR7 (cpiSlot inputIndex : Nat) : Array AstNode :=
     storeReg .stxdw .r6 32 .r8,
     loadImm .r3 0,
     storeReg .stxdw .r6 40 .r3,
-    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num signerOff) },
+    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num signerOff) }
+  ] ++ booleanizeR3 sLab ++ #[
     storeReg .stxb .r6 48 .r3,
-    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num writableOff) },
+    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num writableOff) }
+  ] ++ booleanizeR3 wLab ++ #[
     storeReg .stxb .r6 49 .r3,
-    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num executableOff) },
+    .instruction { opcode := .ldxb, dst := some .r3, src := some .r7, off := some (.num executableOff) }
+  ] ++ booleanizeR3 eLab ++ #[
     storeReg .stxb .r6 50 .r3
   ]
 
 /-- Pack AccountMeta + AccountInfo: CPI slot `cpiSlot` from input account `inputIndex`. -/
-def packOneAccountSlot (cpiSlot inputIndex : Nat) : Array AstNode :=
+def packOneAccountSlot (siteTag : String) (cpiSlot inputIndex : Nat) : Array AstNode :=
   loadAccountPtrFixed inputIndex ++
-  storeAccountMetaFromR7 cpiSlot inputIndex ++
+  storeAccountMetaFromR7 siteTag cpiSlot inputIndex ++
   loadAccountPtrFixed inputIndex ++
-  storeAccountInfoFromR7 cpiSlot inputIndex
+  storeAccountInfoFromR7 siteTag cpiSlot inputIndex
 
 /-- Accounts relevant to portable peer CPI (not every readonly spectator). -/
 def isPortableCpiRelevantAccount (account : AccountEntry) : Bool :=
@@ -240,28 +283,29 @@ def selectPortableCpiAccountIndices (accounts : Array AccountEntry) : Array Nat 
   accounts.filterMap fun a =>
     if isPortableCpiRelevantAccount a then some a.index else none
 
-/-- Pack selected input accounts into consecutive CPI slots (capped at
-`MAX_PORTABLE_CPI_ACCOUNTS`). Metas on stack; infos on heap. -/
-def packSelectedAccounts (inputIndices : Array Nat) : Array AstNode :=
-  let n := min inputIndices.size maxPortableCpiAccounts
+/-- Pack selected input accounts into consecutive CPI slots.
+Metas + infos both on the stack frame (capped at `portableCpiInfoStackSlots`
+so AccountInfo packing fits; still well above RemoteCall's 5 accounts). -/
+def packSelectedAccounts (siteTag : String) (inputIndices : Array Nat) : Array AstNode :=
+  let n := min inputIndices.size (min maxPortableCpiAccounts portableCpiInfoStackSlots)
   let indices := inputIndices.extract 0 n
   let idxList := String.intercalate "," (indices.toList.map toString)
   let header : Array AstNode := #[
-    .comment s!"portable CPI: selective pack {n} accounts [{idxList}] (signer|writable|program|executable; max={maxPortableCpiAccounts}; infos@heap base={portableCpiInfoHeapBase})"
+    .comment s!"portable CPI: selective pack {n} accounts [{idxList}] (signer|writable|program|executable; infos@stack-{portableCpiInfoStackOffset}; max={portableCpiInfoStackSlots})"
   ]
   header ++
     (List.range n).foldl
       (fun acc slot =>
         match indices[slot]? with
-        | some inputIdx => acc ++ packOneAccountSlot slot inputIdx
+        | some inputIdx => acc ++ packOneAccountSlot siteTag slot inputIdx
         | none => acc)
       (#[] : Array AstNode)
 
 /-- Backward-compatible full-range pack (indices 0..accountCount-1). -/
-def packAllTxAccounts (accountCount : Nat) : Array AstNode :=
+def packAllTxAccounts (siteTag : String) (accountCount : Nat) : Array AstNode :=
   let n := min accountCount maxPortableCpiAccounts
   let n := if n == 0 then 1 else n
-  packSelectedAccounts ((List.range n).toArray)
+  packSelectedAccounts siteTag ((List.range n).toArray)
 
 /-- Build SolInstruction C record: program_id, N account metas, ix data. -/
 def packSolInstruction (dataLen accountCount : Nat) : Array AstNode :=
@@ -293,11 +337,12 @@ def decodeReturnDataU64 (retNoneLabel retEndLabel : String) : Array AstNode :=
     loadImm .r2 8
   ] ++
   stackPtr .r3 portableReturnDataProgramIdOffset ++ #[
-    storeImm .stxdw .r3 0 0,
-    storeImm .stxdw .r3 8 0,
-    storeImm .stxdw .r3 16 0,
-    storeImm .stxdw .r3 24 0,
-    .comment "r1=data_ptr r2=max_len=8 r3=program_id_ptr",
+    -- Zero program-id out buffer with store-immediate (`stdw`), not `stxdw`.
+    storeImm .stdw .r3 0 0,
+    storeImm .stdw .r3 8 0,
+    storeImm .stdw .r3 16 0,
+    storeImm .stdw .r3 24 0,
+    .comment "r1=data_ptr r2=max_len=8 r3=program_id_ptr (non-overlapping)",
     callSyscall sol_get_return_data,
     .instruction {
       opcode := .jlt
@@ -314,35 +359,62 @@ def decodeReturnDataU64 (retNoneLabel retEndLabel : String) : Array AstNode :=
     .label retEndLabel
   ]
 
-/-- Emit `sol_invoke_signed_c` with **selective** account packing.
-`accountIndices` are input-account indices (schema order). When empty, packs
-account 0 only (callee path). When `numSigners > 0`, `signerSeedNodes` must
-already pack the signer-seed table (`cpiSignerEntriesOffset`).
-Preserves r1 (entry input). Result in r2: first return-data u64 or 0. -/
+/-- Emit `sol_invoke_signed_c` for portable peer CPI.
+
+**Packing policy (PF-P2-03):**
+* `numSigners = 0` (pure peer method+args): **empty** AccountMeta/AccountInfo
+  vectors. Method tag + args ride in ix data; `program_id` is a stack pubkey
+  copy from the target input account. Outer host accounts (state, payer) are
+  not forwarded — PeerOracleSum-style oracles need none. Protocol/SPL CPIs
+  stay on Extension.Cpi with explicit metas.
+* `numSigners > 0` (PDA authority): **selective** pack of
+  `accountIndices` (signer|writable|program|executable) so the callee can see
+  vault/authority accounts while seeds sign as the PDA.
+
+When selective indices are empty but signers are present, packs account 0 as
+a safe floor. Preserves r1 (entry input). Result in r2: first return-data u64
+or 0. -/
 def invokeSignedC (dataLen : Nat) (accountIndices : Array Nat) (numSigners : Nat)
     (signerSeedNodes : Array AstNode) (retNoneLabel retEndLabel : String) :
     Array AstNode :=
+  let siteTag := retNoneLabel
+  let useSelective := numSigners > 0
   let indices :=
-    if accountIndices.isEmpty then #[0]
-    else accountIndices.extract 0 (min accountIndices.size maxPortableCpiAccounts)
+    if !useSelective then
+      (#[] : Array Nat)
+    else if accountIndices.isEmpty then
+      #[0]
+    else
+      accountIndices.extract 0 (min accountIndices.size
+        (min maxPortableCpiAccounts portableCpiInfoStackSlots))
   let n := indices.size
+  let packComment :=
+    if useSelective then
+      s!"selective AccountMeta pack"
+    else
+      s!"empty AccountMeta pack (pure peer method+args)"
   let signerComment :=
     if numSigners == 0 then "signers=0"
     else s!"signers={numSigners} (PDA authority)"
+  let packNodes : Array AstNode :=
+    if useSelective then
+      packSelectedAccounts siteTag indices
+    else
+      #[.comment s!"portable CPI: {packComment}; infos@stack-{portableCpiInfoStackOffset}"]
   let signerArgs : Array AstNode :=
     if numSigners == 0 then
       #[
         loadImm .r4 0,
         loadImm .r5 0,
-        .comment s!"r1=instruction_ptr r2=heap_infos_ptr r3={n} r4=0 r5=0"
+        .comment s!"r1=instruction_ptr r2=infos_ptr r3={n} r4=0 r5=0 ({packComment})"
       ]
     else
       stackPtr .r4 cpiSignerEntriesOffset ++ #[
         loadImm .r5 numSigners,
-        .comment s!"r1=instruction_ptr r2=heap_infos_ptr r3={n} r4=signer_seeds_ptr r5={numSigners}"
+        .comment s!"r1=instruction_ptr r2=infos_ptr r3={n} r4=signer_seeds_ptr r5={numSigners}"
       ]
   #[
-    .comment s!"portable crosscall → sol_invoke_signed_c (data_len={dataLen}, accounts={n}/{maxPortableCpiAccounts}, {signerComment})",
+    .comment s!"portable crosscall → sol_invoke_signed_c (data_len={dataLen}, accounts={n}/{maxPortableCpiAccounts}, {packComment}, {signerComment})",
     .instruction {
       opcode := .stxdw
       dst := some .r10
@@ -352,10 +424,10 @@ def invokeSignedC (dataLen : Nat) (accountIndices : Array Nat) (numSigners : Nat
   ] ++
   signerSeedNodes ++
   copyProgramIdFromAccountIndex ++
-  packSelectedAccounts indices ++
+  packNodes ++
   packSolInstruction dataLen n ++
   stackPtr .r1 portableCpiIxOffset ++
-  loadHeapInfoPtr .r2 0 ++ #[
+  stackPtr .r2 portableCpiInfoStackOffset ++ #[
     loadImm .r3 n
   ] ++ signerArgs ++ #[
     callSyscall sol_invoke_signed_c,
@@ -373,7 +445,6 @@ def invokeSignedC (dataLen : Nat) (accountIndices : Array Nat) (numSigners : Nat
     }
   ] ++
   decodeReturnDataU64 retNoneLabel retEndLabel
-
 structure PortableCrosscallSite where
   entrypoint : String
   argCount : Nat
@@ -439,6 +510,15 @@ where
     | .eventEmitIndexed _ ix data =>
         data.foldl (fun a f => collectFromExpr entrypoint a f.snd)
           (ix.foldl (fun a f => collectFromExpr entrypoint a f.snd) acc)
+    | .checkErc721Received a b c d =>
+        collectFromExpr entrypoint
+          (collectFromExpr entrypoint
+            (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
+    | .checkErc1155Received a b c d e =>
+        collectFromExpr entrypoint
+          (collectFromExpr entrypoint
+            (collectFromExpr entrypoint
+              (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => acc
   collectFromPath (entrypoint : String) (acc : Array PortableCrosscallSite) :
@@ -509,7 +589,7 @@ def materializationNote (module : Module) : String :=
               s!" inferredAccounts=[{names}] (authors do not pass metas; also in AccountEntry schema)"
           | .error e => s!" inferredAccounts=ERROR({e})"
     s!"portable crosscall.invoke ×{sites.size} → Solana CPI via sol_invoke_signed_c \
-(ix data; selective accounts signer|writable|program|executable up to {MAX_PORTABLE_CPI_ACCOUNTS}; \
-PDA signers when declared; return-data u64){inferNote}"
-
+(ix data; pure peer uses empty AccountMeta pack; PDA-signed CPI selectively packs \
+signer|writable|program|executable up to {MAX_PORTABLE_CPI_ACCOUNTS}; \
+return-data u64){inferNote}"
 end ProofForge.Backend.Solana.PortableCrosscall

@@ -632,6 +632,74 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         },
     )?;
 
+    // Soroban HostBridge (PF-P3-02): `_get` / `_put` share the offline storage map.
+    // `_get` returns the first 4 LE bytes as i32 (matches EmitWat `__pf_read_u64`
+    // which zero-extends i32→i64 for Counter-scale scalars). Missing key → 0.
+    linker.func_wrap(
+        "env",
+        "_get",
+        |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> Result<i32> {
+            let key = read_memory(&mut caller, key_ptr as i64, key_len as i64)?;
+            match caller.data().storage.get(&key) {
+                Some(value) if !value.is_empty() => {
+                    let mut buf = [0u8; 4];
+                    let n = value.len().min(4);
+                    buf[..n].copy_from_slice(&value[..n]);
+                    Ok(i32::from_le_bytes(buf))
+                }
+                _ => Ok(0),
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "_put",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: i32,
+         key_len: i32,
+         value_ptr: i32,
+         value_len: i32|
+         -> Result<()> {
+            let key = read_memory(&mut caller, key_ptr as i64, key_len as i64)?;
+            let value = read_memory(&mut caller, value_ptr as i64, value_len as i64)?;
+            caller.data_mut().storage.insert(key, value);
+            Ok(())
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "log_from_slice",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> Result<()> {
+            let bytes = read_memory(&mut caller, ptr as i64, len as i64)?;
+            let log = String::from_utf8_lossy(&bytes).into_owned();
+            caller.data_mut().logs.push(log);
+            Ok(())
+        },
+    )?;
+
+    // Spike honesty: offline host always authorises (matches Lean interpreter default).
+    linker.func_wrap(
+        "env",
+        "require_auth_for_args",
+        |_caller: Caller<'_, HostState>, _ptr: i32, _len: i32| -> i32 { 1 },
+    )?;
+
+    // Spike stub: record nothing extra; return handle 0 (matches WasmInterpreter).
+    linker.func_wrap(
+        "env",
+        "invoke_contract",
+        |_caller: Caller<'_, HostState>,
+         _c_len: i32,
+         _c_ptr: i32,
+         _m_len: i32,
+         _m_ptr: i32,
+         _a_len: i32,
+         _a_ptr: i32|
+         -> i32 { 0 },
+    )?;
+
     linker.func_wrap(
         "env",
         "storage_has_key",

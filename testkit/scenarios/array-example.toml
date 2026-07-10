@@ -1,0 +1,372 @@
+# PF-P2-01: map/array capability family — shared product source across primary triad.
+# Pure fixed-array queries (no storage); exercises data.fixed_array on EVM/Solana/NEAR.
+[scenario]
+name = "array-example"
+fixture = "array-example"
+source = "Examples/Product/ArrayExample.lean"
+targets = ["wasm-near", "evm", "solana-sbpf-asm"]
+capabilities = ["data.fixed_array", "entrypoint.external"]
+
+[scenario.reference.toolchain]
+revm = "41.0.0"
+mollusk = "0.13.4"
+wasmtime = "26.0.1"
+sbpf = "0.2.2"
+
+[[artifact]]
+target = "wasm-near"
+name = "wat"
+contains = [
+  '(func $sizeOf3 (export "sizeOf3")',
+  '(func $getElem (export "getElem")',
+  '(func $sumOf3 (export "sumOf3")',
+]
+
+[[artifact]]
+target = "wasm-near"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "wasm-near"
+
+[[artifact.json]]
+path = "fixture"
+equals = "arrayexample"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "sourceModule"
+equals = "ArrayExample"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "data.fixed_array"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact.json]]
+path = "abi.entrypoints[0].name"
+equals = "sizeOf3"
+
+[[artifact.json]]
+path = "abi.entrypoints[1].name"
+equals = "getElem"
+
+[[artifact.json]]
+path = "abi.entrypoints[2].name"
+equals = "sumOf3"
+
+[[artifact.json]]
+path = "validation.emitWat"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.wat2wasm"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.wat"
+artifact = "wat"
+
+[[artifact.file]]
+path = "artifacts.deployManifest"
+artifact = "deploy-manifest"
+
+[[artifact]]
+target = "wasm-near"
+name = "deploy-manifest"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "kind"
+kind = "string"
+equals = "proof-forge-wasm-near-deploy-manifest"
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "wasm-near"
+
+[[artifact.json]]
+path = "fixture"
+equals = "arrayexample"
+
+[[artifact.json]]
+path = "sourceModule"
+equals = "ArrayExample"
+
+[[artifact]]
+target = "evm"
+name = "yul"
+contains = [
+  'object "ArrayExample"',
+  'function f_ArrayExample_sizeOf3',
+  'function f_ArrayExample_getElem',
+  'function f_ArrayExample_sumOf3',
+]
+
+[[artifact]]
+target = "evm"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "evm"
+
+[[artifact.json]]
+path = "fixture"
+equals = "ArrayExample"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "data.fixed_array"
+
+[[artifact.json]]
+path = "abi.entrypoints"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact.json]]
+path = "abi.entrypoints[0].name"
+equals = "sizeOf3"
+
+[[artifact.json]]
+path = "abi.entrypoints[1].name"
+equals = "getElem"
+
+[[artifact.json]]
+path = "abi.entrypoints[2].name"
+equals = "sumOf3"
+
+[[artifact.json]]
+path = "validation.solcStrictAssembly"
+equals = "passed"
+
+[[artifact.json]]
+path = "validation.bytecodeGeneration"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.yul"
+artifact = "yul"
+
+[[artifact.file]]
+path = "artifacts.bytecode"
+artifact = "bytecode"
+
+[[artifact.file]]
+path = "artifacts.initCode"
+artifact = "init-code"
+
+[[artifact.file]]
+path = "artifacts.deployManifest"
+artifact = "deploy-manifest"
+
+[[artifact]]
+target = "evm"
+name = "deploy-manifest"
+
+[[artifact.json]]
+path = "kind"
+kind = "string"
+equals = "proof-forge-evm-deploy-manifest"
+
+[[artifact.json]]
+path = "contractName"
+kind = "string"
+equals = "ArrayExample"
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "sbpf-asm"
+contains = [
+  'sol_sizeOf3',
+  'sol_getElem',
+  'sol_sumOf3',
+  'array.get: compute element address',
+]
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "manifest"
+contains = [
+  'name = "sizeOf3"',
+  'name = "getElem"',
+  'name = "sumOf3"',
+  'name = "arrayexample"',
+]
+
+[[artifact.toml]]
+path = "target"
+kind = "string"
+equals = "solana-sbpf-asm"
+
+[[artifact.toml]]
+path = "program.name"
+kind = "string"
+equals = "arrayexample"
+
+[[artifact.toml]]
+path = "instruction"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact.toml]]
+path = "instruction[0].name"
+equals = "sizeOf3"
+
+[[artifact.toml]]
+path = "instruction[1].name"
+equals = "getElem"
+
+[[artifact.toml]]
+path = "instruction[2].name"
+equals = "sumOf3"
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "metadata"
+
+[[artifact.json]]
+path = "schemaVersion"
+kind = "integer"
+equals = 1
+
+[[artifact.json]]
+path = "target"
+kind = "string"
+equals = "solana-sbpf-asm"
+
+[[artifact.json]]
+path = "fixture"
+equals = "ArrayExample"
+
+[[artifact.json]]
+path = "sourceKind"
+equals = "contract-sdk"
+
+[[artifact.json]]
+path = "sourceModule"
+kind = "string"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+kind = "array"
+non_empty = true
+
+[[artifact.json]]
+path = "capabilities"
+contains = "data.fixed_array"
+
+[[artifact.json]]
+path = "validation.manifestGeneration"
+equals = "passed"
+
+[[artifact.file]]
+path = "artifacts.source"
+artifact = "source"
+
+[[artifact.file]]
+path = "artifacts.sbpfAsm"
+artifact = "sbpf-asm"
+
+[[artifact.file]]
+path = "artifacts.manifestToml"
+artifact = "manifest"
+
+[[artifact.file]]
+path = "artifacts.solanaIdl"
+artifact = "idl"
+
+[[artifact.file]]
+path = "artifacts.solanaClientTs"
+artifact = "client"
+
+[[artifact.jsonArtifact]]
+path = "solanaIdl"
+artifact = "idl"
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "idl"
+
+[[artifact.json]]
+path = "schema"
+kind = "string"
+equals = "proof-forge.solana.idl.v0"
+
+[[artifact.json]]
+path = "name"
+equals = "ArrayExample"
+
+[[artifact.json]]
+path = "instructions"
+kind = "array"
+non_empty = true
+length = 3
+
+[[artifact]]
+target = "solana-sbpf-asm"
+name = "client"
+contains = [
+  'export const IDL = ',
+  'encodeInstructionData',
+  'createInstruction',
+]
+
+# Shared semantic steps: fixed array [10, 20, 30]
+[[step]]
+call = "sizeOf3"
+[step.expect.return]
+u64 = 3
+
+[[step]]
+call = "getElem"
+[step.expect.return]
+u64 = 20
+
+[[step]]
+call = "sumOf3"
+[step.expect.return]
+u64 = 60

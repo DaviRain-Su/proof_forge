@@ -22,6 +22,12 @@ use serde::Deserialize;
 const CONTRACT_ADDRESS: Address = Address::with_last_byte(0xC0);
 const CALLER_ADDRESS: Address = Address::with_last_byte(0xA1);
 const CALL_GAS_LIMIT: u64 = 1_000_000;
+/// PF-P2-03 peer address: must match `--peer peer.callee=0x…b0b0` at build time
+/// and Foundry smoke (`address(0xB0B0)`).
+const PEER_ORACLE_ADDRESS: Address = Address::new([
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xb0, 0xb0,
+]);
+const PEER_ORACLE_HOST: &str = "0x000000000000000000000000000000000000b0b0";
 
 pub struct EvmHarness;
 
@@ -97,6 +103,14 @@ impl ChainHarness for EvmHarness {
             AccountInfo::from_bytecode(Bytecode::new_raw(Bytes::from(bytecode))),
         );
         db.insert_account_info(CALLER_ADDRESS, AccountInfo::default());
+        // PF-P2-03: deploy real PeerOracle at the PeerMap address for remote-call.
+        if let Some(ref peer_path) = artifact.peer_bytecode_path {
+            let peer_bc = read_bytecode(peer_path)?;
+            db.insert_account_info(
+                PEER_ORACLE_ADDRESS,
+                AccountInfo::from_bytecode(Bytecode::new_raw(Bytes::from(peer_bc))),
+            );
+        }
 
         let mut evm = Context::mainnet().with_db(db).build_mainnet();
         let mut outcomes = Vec::new();
@@ -104,6 +118,9 @@ impl ChainHarness for EvmHarness {
         let mut nonce = 0u64;
 
         for step in &case.manifest.steps {
+            if !step.applies_to_target("evm") {
+                continue;
+            }
             let selector = selectors
                 .get(&step.call)
                 .with_context(|| {
@@ -161,6 +178,8 @@ struct EvmFixtureArtifact {
     deploy_manifest_path: PathBuf,
     contract_spec_path: Option<PathBuf>,
     evm_abi_path: Option<PathBuf>,
+    /// PF-P2-03: runtime bytecode of PeerOracle when fixture is remote-call.
+    peer_bytecode_path: Option<PathBuf>,
 }
 
 fn build_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFixtureArtifact> {
@@ -168,6 +187,9 @@ fn build_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFixtureArti
         "counter" => build_counter_fixture(case, repo_root),
         "value-vault" => build_value_vault_fixture(case, repo_root),
         "error-ref" => build_error_ref_fixture(repo_root),
+        "array-example" => build_contract_source_fixture_by_name(case, repo_root, "ArrayExample"),
+        "ownable" => build_contract_source_fixture_by_name(case, repo_root, "Ownable"),
+        "remote-call" => build_remote_call_fixture(case, repo_root),
         "role-gated-token" => {
             build_contract_source_fixture_by_name(case, repo_root, "RoleGatedToken")
         }
@@ -223,6 +245,7 @@ fn build_counter_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFix
             deploy_manifest_path,
             contract_spec_path: None,
             evm_abi_path: None,
+            peer_bytecode_path: None,
         });
     }
 
@@ -269,6 +292,7 @@ fn build_counter_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFix
         deploy_manifest_path,
         contract_spec_path: None,
         evm_abi_path: None,
+        peer_bytecode_path: None,
     })
 }
 
@@ -319,6 +343,7 @@ fn build_value_vault_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<Ev
             deploy_manifest_path,
             contract_spec_path: None,
             evm_abi_path: None,
+            peer_bytecode_path: None,
         });
     }
 
@@ -368,6 +393,7 @@ fn build_value_vault_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<Ev
         deploy_manifest_path,
         contract_spec_path: None,
         evm_abi_path: None,
+        peer_bytecode_path: None,
     })
 }
 
@@ -506,10 +532,151 @@ fn build_contract_source_fixture_by_name(
             deploy_manifest_path,
             contract_spec_path: None,
             evm_abi_path: None,
+            peer_bytecode_path: None,
         });
     }
 
     bail!("{contract_name} testkit fixture requires a contract source path");
+}
+
+/// PF-P2-03: RemoteCall built with deploy-time PeerMap address + solc PeerOracle.
+fn build_remote_call_fixture(case: &ScenarioCase, repo_root: &Path) -> Result<EvmFixtureArtifact> {
+    let out_dir = repo_root.join("build/testkit/evm/remote-call");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create `{}`", out_dir.display()))?;
+
+    let build = Command::new("lake")
+        .current_dir(repo_root)
+        .args(["build", "proof-forge"])
+        .output()
+        .context("failed to build proof-forge executable")?;
+    if !build.status.success() {
+        bail!(
+            "lake build proof-forge failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+    }
+
+    let source_path = scenario_source(case, repo_root)?.ok_or_else(|| {
+        anyhow::anyhow!("remote-call requires scenario.source (Examples/Product/RemoteCall.lean)")
+    })?;
+    let bytecode_path = out_dir.join("RemoteCall.bin");
+    let yul_path = out_dir.join("RemoteCall.yul");
+    let metadata_path = out_dir.join("RemoteCall.proof-forge-artifact.json");
+    let init_code_path = out_dir.join("RemoteCall.init.bin");
+    let deploy_manifest_path = out_dir.join("RemoteCall.proof-forge-deploy.json");
+    let peer_binding = format!("peer.callee={PEER_ORACLE_HOST}");
+
+    let cast = cast_tool(repo_root)?;
+    if !command_available(&cast) {
+        bail!("cast not available for remote-call; set CAST or install Foundry");
+    }
+    let output = Command::new("lake")
+        .current_dir(repo_root)
+        .args([
+            "env",
+            "proof-forge",
+            "build",
+            "--target",
+            "evm",
+            "--root",
+            ".",
+            "--cast",
+            cast.as_str(),
+            "--peer",
+            peer_binding.as_str(),
+            "-o",
+            path_str(&bytecode_path)?,
+            "--yul-output",
+            path_str(&yul_path)?,
+            "--artifact-output",
+            path_str(&metadata_path)?,
+            path_str(&source_path)?,
+        ])
+        .output()
+        .context("failed to build RemoteCall with peer map")?;
+    if !output.status.success() {
+        bail!(
+            "RemoteCall peer EVM build failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    ensure_evm_outputs(
+        "RemoteCall",
+        &bytecode_path,
+        &metadata_path,
+        &init_code_path,
+        &deploy_manifest_path,
+    )?;
+
+    // Peer address word 0xb0b0 (= 45232) must appear in Yul CALL target.
+    let yul = fs::read_to_string(&yul_path)
+        .with_context(|| format!("read {}", yul_path.display()))?;
+    ensure!(
+        yul.contains("45232"),
+        "RemoteCall.yul missing peer address word 0xb0b0=45232 (PeerMap not applied)"
+    );
+
+    let peer_bytecode_path = compile_peer_oracle_runtime(repo_root, &out_dir)?;
+    Ok(EvmFixtureArtifact {
+        bytecode_path,
+        metadata_path,
+        yul_path,
+        init_code_path,
+        deploy_manifest_path,
+        contract_spec_path: None,
+        evm_abi_path: None,
+        peer_bytecode_path: Some(peer_bytecode_path),
+    })
+}
+
+/// Compile `Examples/Backend/Evm/fixtures/PeerOracle.sol` to runtime bytecode via solc.
+fn compile_peer_oracle_runtime(repo_root: &Path, out_dir: &Path) -> Result<PathBuf> {
+    let sol_src = repo_root.join("Examples/Backend/Evm/fixtures/PeerOracle.sol");
+    ensure!(
+        sol_src.exists(),
+        "missing PeerOracle fixture at `{}`",
+        sol_src.display()
+    );
+    let solc_out = out_dir.join("peer-oracle-solc");
+    fs::create_dir_all(&solc_out)
+        .with_context(|| format!("failed to create `{}`", solc_out.display()))?;
+    let output = Command::new("solc")
+        .args([
+            "--bin-runtime",
+            "--optimize",
+            "--optimize-runs",
+            "200",
+            path_str(&sol_src)?,
+            "-o",
+            path_str(&solc_out)?,
+            "--overwrite",
+        ])
+        .output()
+        .context("failed to run solc for PeerOracle (install solc 0.8.x)")?;
+    if !output.status.success() {
+        bail!(
+            "solc PeerOracle failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let runtime_path = solc_out.join("PeerOracle.bin-runtime");
+    ensure!(
+        runtime_path.exists(),
+        "solc did not produce `{}`",
+        runtime_path.display()
+    );
+    // Normalize to plain hex file without newlines for read_bytecode.
+    let hex = fs::read_to_string(&runtime_path)
+        .with_context(|| format!("read {}", runtime_path.display()))?
+        .split_whitespace()
+        .collect::<String>();
+    let dest = out_dir.join("PeerOracle.runtime.bin");
+    fs::write(&dest, hex).with_context(|| format!("write {}", dest.display()))?;
+    Ok(dest)
 }
 
 fn build_error_ref_fixture(repo_root: &Path) -> Result<EvmFixtureArtifact> {
@@ -603,6 +770,7 @@ fn build_error_ref_fixture(repo_root: &Path) -> Result<EvmFixtureArtifact> {
         deploy_manifest_path,
         contract_spec_path: Some(contract_spec_path),
         evm_abi_path: Some(evm_abi_path),
+        peer_bytecode_path: None,
     })
 }
 
