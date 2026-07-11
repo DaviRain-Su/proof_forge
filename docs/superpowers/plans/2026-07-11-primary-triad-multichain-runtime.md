@@ -244,7 +244,7 @@ hook ELF.
 
 | ID | Finding | Consequence |
 |---|---|---|
-| X-P0-01 | `TokenSpec` feature matrices historically validated plan labels rather than final behavior | Fail-closed routing is now enforced for cap, pause, permit, confidential transfer and storage unregister; requirement-bound promotion from `experimental` to `full` remains open |
+| X-P0-01 | `TokenSpec` feature matrices historically validated plan labels rather than final behavior | Fail-closed routing is enforced for cap, pause, permit, confidential transfer and storage unregister; promotion from `experimental` to `full` now requires a verified full-scope claim for the canonical manifest, exact adapter/version and emitted artifact digest |
 | X-P0-02 | There is no typed product route plan above target module plans | CLI, client, metadata, deploy and lowerers can independently infer different standard choices |
 | X-P0-03 | Artifact kind does not fully model generated code versus protocol transaction bundles versus hybrid output | Solana TokenSpec is either under-claimed as a plan or over-claimed as a program |
 | X-P0-04 | Portable call intent does not distinguish atomic return from scheduled callback | NEAR Promise identifiers can be mistaken for business return values |
@@ -260,8 +260,9 @@ hook ELF.
 - ERC-1155 single transfer omits the standard bytes argument, and the fixed
   two-item batch is not the standard dynamic batch or `TransferBatch` event.
 - ERC-2612 staging/front-run, replay, deadline, domain, high-s, and invalid-v
-  attacks are now covered by the atomic Foundry gate; manifest evidence binding
-  remains open.
+  attacks are covered by the atomic Foundry gate. The feature router now accepts
+  only exact canonical-manifest, adapter/version, artifact and passing-result
+  evidence; ordinary builds remain `experimental` until they supply that claim.
 - ERC-165 public mutation and forbidden-ID claims are closed; requirement-bound
   evidence promotion remains open.
 - Ownable canonical ABI/events and one-shot initialization are closed. The EVM
@@ -724,7 +725,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | N-P0-03 | Stable non-aliasing `Map<U64, Hash>` read results | `WasmHost/Map.lean`, allocator/plan/refinement tests | two retained hash reads survive later map operations and compare/store correctly in interpreter and sandbox | N-P0-01 | done: verified@4f4ccb5f; `just near-map-hash-alias`, `just near-map-hash-alias-sandbox`, `just wasm-near-plan`, `just near-plan-smoke`, `just near-target-first`, `just wasm-near-ft-transfer-call-e2e`, `just value-vault-wasm-refinement-smoke`, `just near-ft-security-sandbox`, `just product`, `just docs-check`, `just build` |
 | S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | done: verified@ab23a012; `just solana-duplicate-accounts`, `just solana-bpf-encode-smoke`, `just solana-duplicate-accounts-live`, `just solana-light`, `just product`, `just docs-check` |
 | S-P0-02 | Per-entrypoint account graph and least privilege | `Backend/Solana/Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, lowerer | unused accounts absent; signer/writable escalation tests fail closed | S-P0-01 | done: verified@315f3acd; `just solana-account-graph`, `just solana-pinocchio-reference-equivalence`, `just solana-light`, `just product`, `just docs-check`, `git diff --check`; manifest/IDL/client/plan/lowerer share entrypoint graphs, runtime counts are exact, and CPI/PDA/syscall helpers use entrypoint-local bindings |
-| X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | in_progress: fail-closed matrix and burn/unregister honesty implemented; evidence-bound promotion pending |
+| X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | done: verified@0f9ce05f; `just token-feature-matrix`, `just standard-compliance`, `just product-erc20-permit`, `just product-token-near`, `just product-token-solana`, `just token-intent-smoke`, `just product`, `just docs-check`, `just build` |
 | T-99 | Wave-T fail-closed gate | all Wave-T tests and product matrices | Every earlier Wave-T row is green or the corresponding route is rejected; evidence report records commands and digests | all earlier Wave-T rows | pending |
 
 ### Wave F - Portable numeric and principal foundations
@@ -847,7 +848,7 @@ token artifact tests.
       and Solana cap/pause/permit/confidential/unconditional burn.
 - [x] Change every unmaterialized combination to a stable fail-closed
       diagnostic before adding any new feature implementation.
-- [ ] Replace named-gate strings with verified evidence references for the
+- [x] Replace named-gate strings with verified evidence references for the
       exact adapter version and emitted artifact/bundle digest.
 - [x] Run `just token-feature-matrix`, affected target token smokes,
       `just product`, and commit.
