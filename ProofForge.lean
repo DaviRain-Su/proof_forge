@@ -12,5 +12,6 @@ public import ProofForge.Backend
 public import ProofForge.Compiler.Yul.AST
 public import ProofForge.Compiler.Yul.Printer
 public import ProofForge.Compiler.CanonicalPipeline
+public import ProofForge.Frontend
 
 public section
