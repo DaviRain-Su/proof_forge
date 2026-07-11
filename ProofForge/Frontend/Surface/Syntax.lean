@@ -28,6 +28,7 @@ inductive SurfaceLiteral
   | addressLit (s : String)
   | stringLit (s : String)
   | hashLit (s : String)
+  | bytesLit (data : ByteArray)
   deriving Repr
 
 /-- Surface-level binary arithmetic ops. -/
@@ -62,6 +63,7 @@ inductive SurfaceLValue
   | stateField (name : String)
   deriving Repr
 
+
 /-- Surface-level expressions. -/
 inductive SurfaceExpr
   | literal (lit : SurfaceLiteral)
@@ -78,6 +80,7 @@ inductive SurfaceExpr
   | hash (arg : SurfaceExpr)
   | contextRead (field : SurfaceContextField)
   | nativeValue
+  | hostCall (id : ProofForge.IR.Core.HostOpId) (args : Array SurfaceExpr)
   deriving Repr
 
 /-- Surface-level statements. -/
@@ -91,6 +94,7 @@ inductive SurfaceStmt
   | revert (message : String)
   | branch (condition : SurfaceExpr) (thenBody elseBody : Array SurfaceStmt)
   | boundedLoop (indexName : String) (start stopExclusive : Nat) (body : Array SurfaceStmt)
+  | hostCallBind (name : String) (type : SurfaceType) (id : ProofForge.IR.Core.HostOpId) (args : Array SurfaceExpr)
   | returnExpr (value : SurfaceExpr)
   | returnUnit
   deriving Repr

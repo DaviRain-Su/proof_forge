@@ -41,6 +41,7 @@ import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.HostBridge
+import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 
 namespace ProofForge.Backend.WasmHost.NearModulePlan
 
@@ -52,6 +53,7 @@ open ProofForge.Backend.WasmHost.EmitWat
 
 /-- One scalar state slot's plan: the storage key pointer in linear memory.
 Carries the `ValueType` so `Ctx.fromPlanSeed` can rebuild `StateInfo.type`
+
 (which drives `readName`/`readHashName` dispatch). -/
 structure NearStatePlan where
   id : String

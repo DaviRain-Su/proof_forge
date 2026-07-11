@@ -46,6 +46,7 @@ def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   | .hash _ => return .hash
   | .stateRead name => stateScalarType name
   | .contextRead field => return (contextFieldType (adaptContextField field))
+  | .hostCall _ _ => return .u64
   | .nativeValue => return .u128
   | .unary .neg arg => exprType arg
   | .field _ _ | .index _ _ =>
@@ -104,6 +105,15 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       return { instructions := nv.instructions ++ nhash.instructions, value := nhash.value }
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
+  | .hostCall id args =>
+    let mut allInstrs : Array Instruction := #[]
+    let mut argRefs : Array ValueRef := #[]
+    for arg in args do
+      let nv ← normalizeExpr arg
+      allInstrs := allInstrs ++ nv.instructions
+      argRefs := argRefs.push nv.value
+    let nv ← emitValueInstruction (.hostCall { id := id, args := argRefs }) .u64
+    return { instructions := allInstrs ++ nv.instructions, value := nv.value }
   | .field _ _ =>
       throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.field" "field projection not in initial fragment")
   | .index _ _ =>

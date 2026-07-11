@@ -105,7 +105,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) (iface : InterfaceContract) : Wa
   let mut usesStorageRead := false
   let mut usesStorageWrite := false
   let mut usesNativeValue := false
-  /- Scan all function instructions for storage and context usage. -/
+  let mut usesPromiseCreate := false
+  /- Scan all function instructions for storage, context, and host-call usage. -/
   for func in m.functions do
     match func.retType with
     | .unit => returnTypes := returnTypes
@@ -120,6 +121,9 @@ def coreSurface (m : ProofForge.IR.Core.Module) (iface : InterfaceContract) : Wa
           usesStorageWrite := true
           scalarWriteTypes := scalarWriteTypes.push .u64
         | .contextRead .value => usesNativeValue := true
+        | .hostCall call =>
+          if call.id.namespace_ == "near.promise" && call.id.name == "create" then
+            usesPromiseCreate := true
         | _ => pure ()
   {
     contextOps := #[]
@@ -129,8 +133,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) (iface : InterfaceContract) : Wa
     usesNativeValue
     usesStorageRead
     usesStorageWrite
-    usesPromiseApi := false
-    usesPromiseCreate := false
+    usesPromiseApi := usesPromiseCreate
+    usesPromiseCreate
     usesPromiseThen := false
     usesPromiseResults := false
     usesPromiseResultU64 := false

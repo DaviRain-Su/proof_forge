@@ -52,3 +52,4 @@ import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Backend.WasmHost.CosmWasm
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.HostOps

@@ -436,6 +436,33 @@ structure HostSemantics where
   handleCrosscall : RuntimeCrosscallRequest → LogicalState →
     Except RuntimeError (Option CoreValue × LogicalState)
 
+/-- Trace entry for a `near.promise.create@1.0.0` host call. -/
+structure NearPromiseTrace where
+  accountId : String
+  methodName : String
+  args : ByteArray
+  deposit : UInt128
+  gas : UInt64
+  promiseIndex : UInt64
+  deriving Repr, BEq
+
+/-- Reference host semantics for `near.promise.create@1.0.0`.
+Appends a `NearPromiseTrace` entry and returns the next promise index.
+Unknown versions remain errors. -/
+def nearPromiseHost (traces : Array NearPromiseTrace) (call : HostOpCall) (args : Array CoreValue) :
+    Except RuntimeError (CoreValue × Array NearPromiseTrace) :=
+  match call.id.namespace_, call.id.name, call.id.version with
+  | "near.promise", "create", { major := 1, minor := 0, patch := 0 } =>
+    if args.size != 5 then .error .argMismatch
+    else
+      match args[0]!, args[1]!, args[2]!, args[3]!, args[4]! with
+      | .string accountId, .string methodName, .bytes argBytes, .u128 deposit, .u64 gas =>
+        let idx := UInt64.ofNat traces.size
+        let trace := { accountId, methodName, args := argBytes, deposit, gas, promiseIndex := idx }
+        .ok (.u64 idx, traces.push trace)
+      | _, _, _, _, _ => .error .typeMismatch
+  | _, _, _ => .error (.unknownHostOp call.id)
+
 /- Convert a literal to its runtime value. -/
 
 def literalValue (expected : CoreType) (lit : CoreLiteral) : Except RuntimeError CoreValue :=

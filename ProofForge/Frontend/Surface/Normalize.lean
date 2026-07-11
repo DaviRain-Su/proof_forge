@@ -130,7 +130,8 @@ def normalizeSurface (contract : SurfaceContract) :
     module := mod,
     interface := interface,
     materialization := materialization,
-    requirements := requirements
+    requirements := requirements,
+    hostOpCatalog := ProofForge.IR.Core.HostOp.canonicalHostOpCatalog
   }
   match validateCanonical canonical with
   | Except.ok checked => pure { contract := checked, evidence := evidence }

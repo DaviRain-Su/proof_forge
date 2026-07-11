@@ -90,6 +90,12 @@ canonical-queue:
     lake env lean --run Tests/Canonical/QueueNormalize.lean
     lake env lean --run Tests/Canonical/QueueParity.lean
 
+# Wave 5 Task 17: NEAR promise HostOp.
+near-promise-hostop:
+    lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
+    scripts/canonical/near-promise-hostop.sh
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

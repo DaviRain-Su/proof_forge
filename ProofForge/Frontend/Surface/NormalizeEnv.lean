@@ -89,7 +89,7 @@ def adaptLiteral (lit : SurfaceLiteral) : Except SurfaceNormalizeError CoreLiter
   | .addressLit s => .ok (.addressLit s)
   | .stringLit s => .ok (.stringLit s)
   | .hashLit s => .ok (.hashLit s)
-
+  | .bytesLit data => .ok (.bytesLit data)
 /-- Core literal result type. -/
 def coreLiteralType (l : CoreLiteral) : CoreType :=
   match l with

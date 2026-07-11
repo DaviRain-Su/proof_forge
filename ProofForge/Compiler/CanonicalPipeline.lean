@@ -7,6 +7,7 @@ import ProofForge.Target.Plan
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 /-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
 exposed through the public CLI and does not modify `Target.knownIds`, backend
@@ -59,6 +60,23 @@ private def makeBundle (targetId : String) (spec : ContractSpec) (modeLabel : St
   }]
 }
 
+/-- Check that every `hostCall` instruction in a checked canonical contract has
+a handler for the given target. Returns a list of error messages for unhandled
+host calls. EVM/Solana with no handler return `missingHostOpHandler`. -/
+def checkHostOpHandlers (targetId : String) (checked : CheckedCanonicalContract) :
+    Array String :=
+  let m := checked.contract.module
+  m.functions.foldl (init := #[]) fun errs func =>
+    func.blocks.foldl (init := errs) fun errs block =>
+      block.instructions.foldl (init := errs) fun errs instr =>
+        match instr.op with
+        | .hostCall call =>
+          if ProofForge.Backend.WasmHost.NearModulePlan.HostOps.hasHandlerFor targetId call.id then
+            errs
+          else
+            errs.push s!"missingHostOpHandler: {call.id.render} on target {targetId}"
+        | _ => errs
+
 /-- Internal dual-run compile function. Not exposed via public CLI. -/
 def compileForTest
     (mode : CompilerPipeline)
@@ -80,10 +98,10 @@ def compileForTest
           match validateCanonical bundle.contract.contract with
           | .error e => pure <| .error { mode := .canonical, targetId, message := s!"validation failed: {repr e}" }
           | .ok checked =>
-              /- When the target is EVM, build the existing ModulePlan from
-              Core. This exercises the canonical plan builder. Never catch
-              canonical failure and retry legacy. -/
-              if targetId == "evm" then
+              let hostCallErrors := checkHostOpHandlers targetId checked
+              if hostCallErrors.size > 0 then
+                pure <| .error { mode := .canonical, targetId, message := String.intercalate "; " hostCallErrors.toList }
+              else if targetId == "evm" then
                 let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"EVM buildFromCore failed: {e.message}" }

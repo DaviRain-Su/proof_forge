@@ -217,7 +217,22 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       let loopBlocks ← liftExcept bodyBuilder.sealedBlocks
       modify (fun s => { s with env := { s.env with localValues := localsBefore } })
       return { blocks := loopBlocks, current := { id := contId } }
-  | .returnExpr value => do
+  | .hostCallBind name ty id args => do
+      let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds ty)
+      let mut allInstrs : Array Instruction := #[]
+      let mut argRefs : Array ValueRef := #[]
+      for arg in args do
+        let nv ← normalizeExpr arg
+        allInstrs := allInstrs ++ nv.instructions
+        argRefs := argRefs.push nv.value
+      let fb ← liftExcept (allInstrs.foldlM FunctionBuilder.emitInstr fb)
+      let vid ← freshValueId
+      let vdef := { id := vid, type := coreTy }
+      let instr := { results := #[vdef], op := .hostCall { id := id, args := argRefs } }
+      let fb ← liftExcept (fb.emitInstr instr)
+      bindLocal name { id := vid, type := coreTy }
+      return fb
+   | .returnExpr value => do
       let nv ← normalizeExpr value
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.setTerminator (.return #[nv.value]))

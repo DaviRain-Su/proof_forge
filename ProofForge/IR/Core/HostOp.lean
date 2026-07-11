@@ -88,6 +88,22 @@ def HostOpCatalog.validateCallUsage (sig : HostOpSig) :
   match sig.effectClass with
   | .pure => .error .pureEffectfulMismatch
   | .external => .ok ()
+
+/-- The canonical `near.promise.create@1.0.0` signature. -/
+def nearPromiseCreateSig : HostOpSig := {
+  id := { namespace_ := "near.promise", name := "create", version := { major := 1, minor := 0, patch := 0 } },
+  params := #[.string, .string, .bytes, .u128, .u64],
+  results := #[.u64],
+  effectClass := .external,
+  requiredCapabilities := #[.nearPromise]
+}
+
+/-- The canonical host-op catalog containing all registered host operations.
+Currently only `near.promise.create@1.0.0`. -/
+def canonicalHostOpCatalog : HostOpCatalog :=
+  match HostOpCatalog.empty.register nearPromiseCreateSig with
+  | .ok cat => cat
+  | .error _ => HostOpCatalog.empty
 end ProofForge.IR.Core.HostOp
 
 /-- Render a HostOpId as `namespace/name@major.minor.patch`. -/

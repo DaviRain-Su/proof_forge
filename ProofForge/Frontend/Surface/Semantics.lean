@@ -53,7 +53,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     | .ge => .ok (if l ≥ r then 1 else 0)
   | .contextRead _ => .ok 0  /- Context reads are opaque in reference semantics. -/
   | .nativeValue => .ok 0
-  | .hash _ => .ok 0  /- Hash is opaque in reference semantics. -/
+  | .hostCall _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
   | _ => .error "unsupported expression in reference semantics"
 
 /-- Execute a list of Surface statements. -/
@@ -101,6 +101,7 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
     | .returnExpr value => do
       let v ← evalExpr value s l
       return { s with returnValue := some v }
+    | .hostCallBind name _ _ _ => l := Std.HashMap.insert l name 0  /- Host calls are opaque. -/
     | .returnUnit => return s
   return s
 
