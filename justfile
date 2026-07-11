@@ -71,6 +71,11 @@ canonical-product:
     lake env lean --run Tests/Canonical/LegacyCoverage.lean
     python3 scripts/canonical/check-coverage.py
 
+# Wave 3B Task 12.2: materialization and diagnostic parity gate.
+canonical-materialization:
+    lake env lean --run Tests/Canonical/MaterializationParity.lean
+    lake env lean --run Tests/Canonical/DiagnosticParity.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
