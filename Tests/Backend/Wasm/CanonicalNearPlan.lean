@@ -3,6 +3,10 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Target.Plan
+import ProofForge.IR.Legacy.Adapter
+import ProofForge.IR.Examples.ValueVault
+import ProofForge.Contract.Spec
+import ProofForge.Compiler.Wasm.Printer
 
 /-! # Canonical Core → NEAR Plan Assertions
 
@@ -98,7 +102,7 @@ def counterWithReqs : CanonicalContract := {
     counterContract.module counterContract.materialization
 }
 
-def nearCapPlan : CapabilityPlan := { targetId := "wasm-near", calls := #[], metadata := #[] }
+def nearCapPlan : CapabilityPlan := { targetId := "wasm-near", calls := counterWithReqs.requirements, metadata := #[] }
 def wrongCapPlan : CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
 
 def main : IO Unit := do
@@ -125,6 +129,17 @@ def main : IO Unit := do
   /- Check 3: surface has correct storage flags. -/
   require (plan.surface.usesStorageRead) "surface should have storage read"
   require (plan.surface.usesStorageWrite) "surface should have storage write"
+  require (plan.functions.size == 3 && plan.functions.all (fun fn => !fn.blocks.isEmpty))
+    "canonical NEAR function bodies are incomplete"
+  let allOps := plan.functions.flatMap (fun fn => fn.blocks.flatMap (fun block => block.ops))
+  require (allOps.any (fun op => match op with | .loadState .. => true | _ => false)) "NEAR state load op missing"
+  require (allOps.any (fun op => match op with | .storeState .. => true | _ => false)) "NEAR state store op missing"
+  require (allOps.any (fun op => match op with | .arithmetic .. => true | _ => false)) "NEAR arithmetic op missing"
+  let wasm <- match lowerFromPlan plan with
+    | .ok wasm => pure wasm
+    | .error e => throw <| IO.userError s!"Counter plan-only Wasm lowering failed: {e.message}"
+  let wat := ProofForge.Compiler.Wasm.Printer.render wasm
+  require (wat.contains "(export \"get\")") "Counter canonical WAT lost get export"
 
   /- Check 4: evidence changes do not change the plan. -/
   let plan2 ← match buildFromCore checked nearCapPlan with
@@ -137,6 +152,34 @@ def main : IO Unit := do
   match buildFromCore checked wrongCapPlan with
   | .ok _ => throw <| IO.userError "buildFromCore should fail with wrong target"
   | .error e =>
-    require (e.message.contains "requires target") s!"wrong target error: {e.message}"
+      require (e.message.contains "requires target") s!"wrong target error: {e.message}"
+
+  match buildFromCore checked { targetId := "wasm-near", calls := #[], metadata := #[] } with
+  | .ok _ => throw <| IO.userError "NEAR buildFromCore accepted missing capabilities"
+  | .error _ => pure ()
+
+  match coreMapToNearMapPlan { id := ⟨9⟩, shape := .dynamicArray .u64 } 1024 with
+  | .ok _ => throw <| IO.userError "dynamic NEAR state silently received a placeholder layout"
+  | .error _ => pure ()
+
+  let vaultBundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy
+      (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"ValueVault adaptation failed: {repr e}"
+  let vaultCapPlan : CapabilityPlan := {
+    targetId := "wasm-near", calls := vaultBundle.contract.contract.requirements, metadata := #[]
+  }
+  let vaultPlan <- match buildFromCore vaultBundle.contract vaultCapPlan with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"ValueVault NEAR plan failed: {e.message}"
+  require (vaultPlan.layout.scalars.size == 6) "ValueVault NEAR plan lost scalar states"
+  require (vaultPlan.functions.size == 7 && vaultPlan.functions.all (fun fn => !fn.blocks.isEmpty))
+    "ValueVault NEAR plan lost function bodies"
+  let vaultWasm <- match lowerFromPlan vaultPlan with
+    | .ok wasm => pure wasm
+    | .error e => throw <| IO.userError s!"ValueVault plan-only Wasm lowering failed: {e.message}"
+  let vaultWat := ProofForge.Compiler.Wasm.Printer.render vaultWasm
+  require (vaultWat.contains "(export \"deposit\")" && vaultWat.contains "log_utf8")
+    "ValueVault canonical WAT lost entrypoint or event host call"
 
   IO.println "canonical-near-plan: ok"

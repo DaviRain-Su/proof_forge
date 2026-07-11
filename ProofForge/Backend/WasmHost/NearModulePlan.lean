@@ -42,6 +42,10 @@ import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.HostBridge
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
+import ProofForge.Backend.WasmHost.Imports
+import ProofForge.Backend.WasmHost.Scalar
+import ProofForge.Backend.WasmHost.Params
+import ProofForge.Backend.WasmHost.Event
 
 namespace ProofForge.Backend.WasmHost.NearModulePlan
 
@@ -94,6 +98,54 @@ structure NearLayoutPlan where
   stringPoolEnd : Nat
   deriving Repr, BEq
 
+structure NearValuePlan where
+  id : Nat
+  typeName : String
+  deriving Repr, BEq, Inhabited
+
+inductive NearArithmeticPlan where
+  | add | sub | mul | div | mod | bitAnd | bitOr | bitXor | shiftLeft | shiftRight
+  deriving Repr, BEq, Inhabited
+
+inductive NearComparePlan where
+  | eq | ne | lt | le | gt | ge
+  deriving Repr, BEq, Inhabited
+
+inductive NearOpPlan where
+  | literal (result : NearValuePlan) (value : Nat)
+  | boolLiteral (result : NearValuePlan) (value : Bool)
+  | loadState (result : NearValuePlan) (stateId : Nat)
+  | storeState (stateId : Nat) (value : NearValuePlan)
+  | arithmetic (result : NearValuePlan) (op : NearArithmeticPlan)
+      (checked : Bool) (lhs rhs : NearValuePlan)
+  | compare (result : NearValuePlan) (op : NearComparePlan) (lhs rhs : NearValuePlan)
+  | context (result : NearValuePlan) (field : String)
+  | log (eventName : String) (fields : Array (String × NearValuePlan))
+  | assert (condition : NearValuePlan) (errorCode : Nat)
+  deriving Repr, BEq, Inhabited
+
+inductive NearTerminatorPlan where
+  | jump (target : Nat) (args : Array NearValuePlan)
+  | branch (condition : NearValuePlan) (ifTrue ifFalse : Nat)
+  | return (values : Array NearValuePlan)
+  | revert (errorCode : Nat)
+  deriving Repr, BEq, Inhabited
+
+structure NearBlockPlan where
+  id : Nat
+  params : Array NearValuePlan
+  ops : Array NearOpPlan
+  terminator : NearTerminatorPlan
+  deriving Repr, BEq, Inhabited
+
+structure NearFunctionPlan where
+  id : Nat
+  name : String
+  params : Array NearValuePlan
+  returnType : String
+  blocks : Array NearBlockPlan
+  deriving Repr, BEq, Inhabited
+
 /-- The frozen scratch-region base addresses (constants in `EmitWat`). The seed
 makes them plan-owned so the lowering is a pure function of the plan + IR module,
 mirroring `SolanaLowerCtxSeed`. -/
@@ -116,6 +168,7 @@ structure NearModulePlan where
   irVersion : String
   surface : ModulePlan
   layout : NearLayoutPlan
+  functions : Array NearFunctionPlan := #[]
   lowerCtxSeed : NearLowerCtxSeed
   deriving Repr
 
@@ -336,5 +389,164 @@ def renderModuleFromPlan (mod : Module) (plan : NearModulePlan) :
     Except ProofForge.Backend.WasmHost.Diagnostics.EmitError String := do
   let m ← lowerModuleFromPlan mod plan
   .ok (ProofForge.Compiler.Wasm.Printer.render m)
+
+private def canonicalNearType (name : String) : ValueType :=
+  if name.endsWith "bool" then .bool else if name.endsWith "u32" then .u32 else .u64
+
+private def canonicalNearLocal (value : NearValuePlan) : ProofForge.Compiler.Wasm.Local :=
+  { name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }
+
+private def canonicalNearState? (plan : NearModulePlan) (id : Nat) : Option Layout.StateInfo :=
+  plan.layout.scalars.find? (fun state => state.id == toString id) |>.map fun state => {
+    id := state.id, type := state.type, keyPtr := state.keyPtr, keyLen := state.keyLen,
+    packOffset := state.packOffset, packed := state.packed
+  }
+
+private def canonicalNearArithmetic (ty : ValueType) : NearArithmeticPlan -> String
+  | .add => Types.widthOf ty ++ ".add" | .sub => Types.widthOf ty ++ ".sub"
+  | .mul => Types.widthOf ty ++ ".mul" | .div => Types.widthOf ty ++ ".div_u"
+  | .mod => Types.widthOf ty ++ ".rem_u" | .bitAnd => Types.widthOf ty ++ ".and"
+  | .bitOr => Types.widthOf ty ++ ".or" | .bitXor => Types.widthOf ty ++ ".xor"
+  | .shiftLeft => Types.widthOf ty ++ ".shl" | .shiftRight => Types.widthOf ty ++ ".shr_u"
+
+private def canonicalNearCompare (ty : ValueType) : NearComparePlan -> String
+  | .eq => Types.widthOf ty ++ ".eq" | .ne => Types.widthOf ty ++ ".ne"
+  | .lt => Types.widthOf ty ++ ".lt_u" | .le => Types.widthOf ty ++ ".le_u"
+  | .gt => Types.widthOf ty ++ ".gt_u" | .ge => Types.widthOf ty ++ ".ge_u"
+
+private def canonicalEventStrings (plan : NearModulePlan) : Array Layout.StringInfo := Id.run do
+  let mut strings := #[]
+  let mut ptr := Memory.STRING_BASE
+  for fn in plan.functions do
+    for block in fn.blocks do
+      for op in block.ops do
+        match op with
+        | .log event fields =>
+            for value in #[Layout.eventHeaderPoolString event] ++ fields.map (fun field => Layout.eventFieldPoolString field.fst) do
+              if !strings.any (fun entry => entry.str == value) then
+                strings := strings.push { str := value, ptr, len := value.length }
+                ptr := ptr + value.length
+        | _ => pure ()
+  strings
+
+private def lowerCanonicalNearOp (plan : NearModulePlan) (eventStrings : Array Layout.StringInfo) :
+    NearOpPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
+  | .literal result value => .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
+  | .boolLiteral result value => .ok #[.i32Const (if value then 1 else 0), .localSet s!"v{result.id}"]
+  | .loadState result stateId => do
+      let state <- match canonicalNearState? plan stateId with
+        | some state => pure state
+        | none => Diagnostics.err s!"canonical NEAR references unknown scalar state {stateId}"
+      let (insns, _) := Scalar.storageScalarReadInsns state
+      return insns ++ #[.localSet s!"v{result.id}"]
+  | .storeState stateId value => do
+      let state <- match canonicalNearState? plan stateId with
+        | some state => pure state
+        | none => Diagnostics.err s!"canonical NEAR references unknown scalar state {stateId}"
+      Scalar.storageScalarWriteInsns #[] state state.id #[.localGet s!"v{value.id}"]
+        (canonicalNearType value.typeName)
+  | .arithmetic result op checked lhs rhs =>
+      let ty := canonicalNearType result.typeName
+      let calculation := #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
+        .plain (canonicalNearArithmetic ty op), .localSet s!"v{result.id}"]
+      if !checked then .ok calculation else
+        match op with
+        | .add => .ok (calculation ++ #[.localGet s!"v{result.id}", .localGet s!"v{lhs.id}",
+            .plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }])
+        | .sub => .ok (#[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
+            .plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
+        | .div | .mod => .ok (#[.localGet s!"v{rhs.id}",
+            .plain (Types.widthOf ty ++ ".eqz"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
+        | .mul => .ok (calculation ++ #[
+            .localGet s!"v{rhs.id}", .plain (Types.widthOf ty ++ ".eqz"),
+            .if_ { insns := #[] } { insns := #[
+              .localGet s!"v{result.id}", .localGet s!"v{rhs.id}",
+              .plain (Types.widthOf ty ++ ".div_u"), .localGet s!"v{lhs.id}",
+              .plain (Types.widthOf ty ++ ".ne"),
+              .if_ { insns := #[.unreachable] } { insns := #[] }] }])
+        | _ => .ok calculation
+  | .compare result op lhs rhs =>
+      let ty := canonicalNearType lhs.typeName
+      .ok #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
+        .plain (canonicalNearCompare ty op), .localSet s!"v{result.id}"]
+  | .context result field =>
+      if field.endsWith "blockNumber" then
+        .ok #[.call "block_index", .localSet s!"v{result.id}"]
+      else if field.endsWith "blockTimestamp" then
+        .ok #[.call "block_timestamp", .localSet s!"v{result.id}"]
+      else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
+  | .assert condition _ => .ok #[.localGet s!"v{condition.id}", .plain "i32.eqz",
+      .if_ { insns := #[.unreachable] } { insns := #[] }]
+  | .log event fields => do
+      let header <- match eventStrings.find? (fun entry => entry.str == Layout.eventHeaderPoolString event) with
+        | some entry => pure entry
+        | none => Diagnostics.err s!"canonical NEAR event header `{event}` is missing"
+      let mut insns := Event.evtHeaderInsns header
+      for (field, value) in fields do
+        let key <- match eventStrings.find? (fun entry => entry.str == Layout.eventFieldPoolString field) with
+          | some entry => pure entry
+          | none => Diagnostics.err s!"canonical NEAR event field `{field}` is missing"
+        insns := insns ++ (<- Event.evtFieldInsns field key #[.localGet s!"v{value.id}"]
+          (canonicalNearType value.typeName))
+      return insns ++ Event.evtFooterInsns
+
+private def lowerCanonicalNearTerminator : NearTerminatorPlan -> Array ProofForge.Compiler.Wasm.Insn
+  | .return values => match values[0]? with
+      | some value => #[.localGet s!"v{value.id}", .call (match canonicalNearType value.typeName with
+          | .u32 => Types.returnU32Name | .bool => Types.returnBoolName | _ => Types.returnU64Name), .return_]
+      | none => #[.return_]
+  | .revert _ => #[.unreachable]
+  | .jump target _ => #[.i32Const target, .localSet "pc"]
+  | .branch condition ifTrue ifFalse => #[.localGet s!"v{condition.id}",
+      .if_ { insns := #[.i32Const ifTrue, .localSet "pc"] }
+        { insns := #[.i32Const ifFalse, .localSet "pc"] }]
+
+private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : Array Layout.StringInfo)
+    (fn : NearFunctionPlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Func := do
+  if fn.blocks.isEmpty then Diagnostics.err s!"canonical NEAR function `{fn.name}` has no blocks"
+  let values := (fn.params ++ fn.blocks.flatMap (fun block =>
+    block.params ++ block.ops.flatMap fun op => match op with
+      | .literal result _ | .boolLiteral result _ | .loadState result _ |
+        .arithmetic result .. | .compare result .. | .context result _ => #[result]
+      | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
+  let mut dispatch := #[]
+  for block in fn.blocks do
+    let mut body := #[]
+    for op in block.ops do body := body ++ (<- lowerCanonicalNearOp plan eventStrings op)
+    body := body ++ lowerCanonicalNearTerminator block.terminator
+    dispatch := dispatch ++ #[.localGet "pc", .i32Const block.id, .plain "i32.eq",
+      .if_ { insns := body } { insns := #[] }]
+  let inputParams := fn.params.map (fun value => (s!"v{value.id}", canonicalNearType value.typeName))
+  let (paramPrologue, _) <- Params.loadParams #[] inputParams
+  return {
+    name := fn.name, exportName := some fn.name
+    locals := #[{ name := "pc", type := .i32 }] ++ values.map canonicalNearLocal
+    body := { insns := paramPrologue ++ #[.i32Const fn.blocks[0]!.id, .localSet "pc",
+      .loop_ { insns := dispatch ++ #[.br 0] }] }
+  }
+
+/-- Canonical NEAR lowering boundary: consumes only the complete target plan. -/
+def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
+  unless plan.targetId == "wasm-near" do Diagnostics.err "canonical NEAR plan has wrong target"
+  let eventStrings := canonicalEventStrings plan
+  let funcs <- plan.functions.mapM (lowerCanonicalNearFunction plan eventStrings)
+  let scalarTypes := plan.layout.scalars.foldl (fun acc state =>
+    if acc.contains state.type then acc else acc.push state.type) #[]
+  let helperFuncs := scalarTypes.foldl (fun acc ty =>
+    let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty) else acc
+    if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty) else acc) #[]
+  let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func] else #[]) ++
+    (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func] else #[]) ++
+    (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc] else #[])
+  let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface
+  let imports := Imports.importsForModulePlan plan.surface defaultAllocator false
+  let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
+    #[{ offset := Memory.TRUE_PTR, bytes := "true" },
+      { offset := Memory.FALSE_PTR, bytes := "false" },
+      { offset := Memory.HEX_LUT_PTR, bytes := "0123456789abcdef" }] ++
+    (if eventStrings.isEmpty then #[] else #[{
+      offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
+    }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
+  return { imports := imports, globals := if eventStrings.isEmpty then #[] else Event.evtGlobals, funcs := helperFuncs ++ returnFuncs ++ eventHelpers ++ funcs, memory := some { min := 1 }, dataSegments := data }
 
 end ProofForge.Backend.WasmHost.NearModulePlan
