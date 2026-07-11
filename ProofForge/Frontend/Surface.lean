@@ -7,6 +7,7 @@ import ProofForge.Frontend.Surface.NormalizeStmt
 import ProofForge.Frontend.Surface.Normalize
 import ProofForge.Frontend.Surface.Semantics
 import ProofForge.Frontend.Surface.Collections.Set
+import ProofForge.Frontend.Surface.Collections.Queue
 
 /-! # Surface AST — Module Aggregator
 

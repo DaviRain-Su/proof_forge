@@ -85,6 +85,11 @@ canonical-set:
     lake env lean --run Tests/Canonical/SetNormalize.lean
     lake env lean --run Tests/Canonical/SetParity.lean
 
+# Wave 4 Task 16: Surface Queue collection.
+canonical-queue:
+    lake env lean --run Tests/Canonical/QueueNormalize.lean
+    lake env lean --run Tests/Canonical/QueueParity.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
