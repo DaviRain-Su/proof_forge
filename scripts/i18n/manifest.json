@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "e5f103d88a14e3ae0592fcd7b0527089348d6f1f5fa231a2307c5a2c7beecb88",
+    "sha256": "6714d3aad1dab1be9a0747b15e7fa5bbe0bed4c98678b920a12a86ae3cbd44c5",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity, EVM custom-error, and NEAR FT safety updates"
+    "note": "manually synced through the 2026-07-11 target-maturity, EVM custom-error, NEAR FT safety, and hash-map alias updates"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",

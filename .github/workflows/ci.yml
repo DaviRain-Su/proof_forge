@@ -213,6 +213,7 @@ jobs:
         run: |
           just near-abi-plan
           just near-abi-client
+          just near-map-hash-alias
 
       - name: Check Wasm-NEAR FT resolver safety
         run: |
@@ -394,7 +395,9 @@ jobs:
           sudo apt-get install -y wabt
 
       - name: Run NEAR FT security sandbox
-        run: just near-ft-security-sandbox
+        run: |
+          just near-ft-security-sandbox
+          just near-map-hash-alias-sandbox
 
   aleo-smoke:
     runs-on: ubuntu-latest

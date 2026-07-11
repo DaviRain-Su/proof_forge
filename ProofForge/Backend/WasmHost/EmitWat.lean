@@ -1192,9 +1192,10 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
   let locals := paramLocals ++ bodyLocals.map (fun b => { name := b.name, type := wasmTypeOf b.vt : Local })
   let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s
   let resetPrefix : Array Insn :=
-    if ctx.allocator.usesEntryReset then
+    (if ctx.usesHashAlloc then #[.i32Const HASH_HEAP, .globalSet hashPtrGlobal] else #[]) ++
+    (if ctx.allocator.usesEntryReset then
       #[.i32Const ctx.allocator.heapBase, .globalSet arrPtrGlobal]
-    else #[]
+    else #[])
   -- require_auth is Soroban-only.
   let authPrefix :=
     if ctx.bridge == ProofForge.Target.HostBridge.soroban then
@@ -1222,6 +1223,7 @@ exact same body without re-deriving the layout inline. This mirrors Solana's
 function of `(mod, modulePlan, ctx)` — it does not re-derive any layout. -/
 def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan)
     (ctx : Ctx) : Except EmitError ProofForge.Compiler.Wasm.Module := do
+  let ctx := { ctx with usesHashAlloc := modulePlanUsesHashAlloc modulePlan }
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let hasPanic := !ctx.panics.isEmpty
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic ctx.bridge

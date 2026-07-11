@@ -33,7 +33,7 @@ level）由 `proof-forge --list-targets --json` 生成到
 所有后端都在 `main` 上（"链"是目录和 target id，不是分支）。生命周期阶段见
 [docs/targets/README.md](../targets/README.md)。
 主三链 P0 后端门禁规约 (D-045) 已关闭，但 SDK 深度尚未完成：当前差距清单仍有
-**3 个开放 P0 SDK blocker**（全部在 NEAR；EVM 和 Solana 均为 0 个）。通过 portable
+**2 个开放 P0 SDK blocker**（均在 NEAR；EVM 和 Solana 均为 0 个）。通过 portable
 Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具有
 统一 SDK schema/layout 输出。三链 portable 场景
 （Counter、ValueVault）可通过 `just portable-counter-multi-target` 和
@@ -207,9 +207,8 @@ Phase 2+: 并行后端 spike                   （Solana、NEAR、Psy 已在 mai
 Phase 3:  三链 P0 后端门禁                  （完成——Counter + ValueVault
                                             在 evm + solana-sbpf-asm +
                                             wasm-near 上可移植）
-当前:     3 个开放 P0 SDK blocker——NEAR 参数化 TokenSpec runtime、
-          NEP-145 predecessor refund Promise，以及 WasmHost Map<U64, Hash>
-          scratch 结果别名问题；
+当前:     2 个开放 P0 SDK blocker——NEAR 参数化 TokenSpec runtime +
+          NEP-145 predecessor refund Promise；
           随后推进 P1 深度和形式化验证（Workstream 25）
 之后:     Move 家族（Aptos 优先）、云平台（两个以上目标达到
           Experimental 且 shared-scenario 对齐后；D-010）

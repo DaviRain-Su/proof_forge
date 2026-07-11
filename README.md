@@ -38,7 +38,7 @@ table is the PF-P1-02 contract.
 All backends live on `main` (chains are directories and target ids, not
 branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.md).
 The primary-chain P0 backend-gate covenant (D-045) is closed, but SDK depth is
-not: the current gap inventory records **3 open P0 SDK blockers** (all NEAR;
+not: the current gap inventory records **2 open P0 SDK blockers** (both NEAR;
 EVM and Solana have 0). Unified SDK schema/layout outputs exist for `evm`,
 `solana-sbpf-asm`, `wasm-near`, and `move-sui` via the portable Counter flow.
 Three-chain portable scenarios (Counter, ValueVault) compile and execute on
@@ -225,9 +225,8 @@ Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
 Phase 3:  three-chain P0 backend gates      (done — Counter + ValueVault
                                             portable on evm + solana-sbpf-asm
                                             + wasm-near)
-Current:  3 open P0 SDK blockers — NEAR parameterized TokenSpec runtime,
-          NEP-145 predecessor refund Promise, and WasmHost Map<U64, Hash>
-          scratch-result aliasing;
+Current:  2 open P0 SDK blockers — NEAR parameterized TokenSpec runtime +
+          NEP-145 predecessor refund Promise;
           then P1 depth and formal verification (Workstream 25)
 Later:    Move family expansion, cloud platform (after two+ targets reach
           Experimental with shared-scenario parity; D-010)

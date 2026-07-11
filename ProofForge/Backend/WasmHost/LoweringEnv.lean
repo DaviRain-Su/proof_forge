@@ -27,6 +27,7 @@ structure Ctx where
   structs : Array ProofForge.IR.StructDecl
   allocator : ProofForge.IR.AllocatorConfig
   entrypointAbis : Array ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan := #[]
+  usesHashAlloc : Bool := false
   /-- Host bridge selects native crosscall materialization
   (NEAR `promise_create` vs Soroban `invoke_contract`). Defaults to NEAR. -/
   bridge : ProofForge.Target.HostBridge := .near

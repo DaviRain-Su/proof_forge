@@ -6,6 +6,7 @@ import ProofForge.Compiler.Wasm.AST
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Diagnostics
+import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
@@ -19,6 +20,7 @@ open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Diagnostics
+open ProofForge.Backend.WasmHost.Hash
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
@@ -145,8 +147,9 @@ def mapReadFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near
           ] ++ mapStorageReadHostInsns 8 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                              .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .localGet "r" ] } }
       else
         { name := mapReadName vt,
@@ -201,8 +204,9 @@ def mapWriteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .nea
           ] ++ mapStorageReadHostInsns 8 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
-                              .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName
           ] ++ mapStorageWriteHostInsns 8 32 .near ++ #[
             .localGet "r" ] } }
@@ -508,8 +512,9 @@ def mapReadHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .
           ] ++ mapStorageReadHostInsns 32 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                              .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .localGet "r" ] } }
       else
         { name := mapReadHashName vt,
@@ -564,8 +569,9 @@ def mapWriteHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := 
           ] ++ mapStorageReadHostInsns 32 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
-                              .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName
           ] ++ mapStorageWriteHostInsns 32 32 .near ++ #[
             .localGet "r" ] } }

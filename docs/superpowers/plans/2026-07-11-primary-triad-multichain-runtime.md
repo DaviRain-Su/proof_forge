@@ -283,8 +283,8 @@ hook ELF.
 - Closed by N-P0-02: `NearFungibleToken` now has one-shot init, bound mint
   authority, private keyed resolver state, out-of-order callback isolation and
   refunds bounded by peer-unused, original amount and receiver balance.
-- `Map<U64, Hash>` reads return a shared scratch pointer that aliases across
-  subsequent reads/map operations; callers cannot safely retain two results.
+- Closed by N-P0-03: hash-valued U64/Hash-keyed map results allocate stable
+  copies, and affected entrypoints reset the hash bump allocator.
 - TokenSpec name, decimals, and initial supply still need complete runtime
   parameterization. Cap, pause, and permit now reject before NEAR planning.
 - External FT portable calls use zero deposit and synchronous assumptions that
@@ -721,7 +721,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | done: verified@42085290; `just evm-diagnostics`, `just evm-smoke errors`, `just evm-abi-schema`, `just contract-spec-json`, `just contract-client`, `just product`, `just docs-check`, `just build` |
 | N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | done: verified@31caf403; `just near-abi-plan`, `just near-abi-client`, `just near-abi-client-sandbox`, `just near-plan-smoke`, `just near-target-first`, `just value-vault-wasm-refinement-smoke`, `just product`, `just docs-check`, `just build` |
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | done: verified@d519249e; `just near-ft-security`, `just wasm-near-ft-transfer-call`, `just wasm-near-ft-transfer-call-e2e`, `just near-ft-security-sandbox`, `just contract-client`, `just product`, `just docs-check`, `just build` |
-| N-P0-03 | Stable non-aliasing `Map<U64, Hash>` read results | `WasmHost/Map.lean`, allocator/plan/refinement tests | two retained hash reads survive later map operations and compare/store correctly in interpreter and sandbox | N-P0-01 | pending |
+| N-P0-03 | Stable non-aliasing `Map<U64, Hash>` read results | `WasmHost/Map.lean`, allocator/plan/refinement tests | two retained hash reads survive later map operations and compare/store correctly in interpreter and sandbox | N-P0-01 | in_progress: evidence green; implementation awaiting commit |
 | S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | pending |
 | S-P0-02 | Per-entrypoint account graph and least privilege | `Backend/Solana/Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, lowerer | unused accounts absent; signer/writable escalation tests fail closed | S-P0-01 | pending |
 | X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | in_progress: fail-closed matrix and burn/unregister honesty implemented; evidence-bound promotion pending |
