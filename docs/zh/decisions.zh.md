@@ -2,7 +2,7 @@
 
 本文档记录了足以指导实现的架构决策。未决问题将保留在 RFC 和目标说明中，直到在此处得到解决。
 
-另请参阅：[评审清单 (英文)](review-checklist.md)，[评审清单 (中文)](zh/review-checklist.md)。
+另请参阅：[评审清单 (英文)](review-checklist.zh.md)，[评审清单 (中文)](review-checklist.zh.md)。
 
 ## 决策日志
 
@@ -32,7 +32,7 @@
 | D-022 | 2026-07-01 | 将 **`zcash-shielded`** 分类为文档优先的隐私 UTXO/ZK 支付 Research 候选 | Zcash 衍生自比特币，但屏蔽支持取决于 Sapling/Orchard note、nullifier、anchor、价值平衡约束、查看/披露策略以及协议定义的 ZK 证明；注册表更改需等待屏蔽 note 能力以及证明/验证边界完成评审 |
 | D-023 | 2026-07-01 | 将 **`aleo-leo`** 分类为文档优先的 Aleo ZK 应用源代码生成 Research 候选 | Aleo 程序结合了私有链下证明执行、公共链上最终化、加密记录、公共映射/存储、Aleo 指令、Aleo VM 字节码、ABI、证明者/验证者制品以及执行/部署交易；注册表更改需等待证明/最终化拆分完成评审 |
 | D-024 | 2026-07-01 | 将 Robinhood Chain 建模为 **`robinhood-chain-testnet`**，即 `evm` 下的一个 EVM 兼容链 profile，而非新的编译器目标 | Robinhood Chain 执行 EVM 兼容的 Arbitrum Orbit L2 合约；ProofForge 的 EVM 后端涵盖字节码生成，而链 profile 记录链 id、RPC、浏览器、验证器、rollup 和部署元数据 |
-| D-025 | 2026-07-01 | 添加 **`solana-sbpf-asm`** 作为探索中的新 Solana 路径（直接 sBPF 汇编代码生成）；保留 `solana-sbpf-linker` 作为备选 | 直接从可移植 IR 生成 sBPF 汇编可规避完整的 Lean Zig 运行时链接风险；blueshift-gg/sbpf 工具链处理汇编和链接。参见 [RFC 0005](rfcs/0005-solana-sbpf-assembly-backend.md) 和 [设计文档](targets/solana-sbpf-asm.md)。 |
+| D-025 | 2026-07-01 | 添加 **`solana-sbpf-asm`** 作为探索中的新 Solana 路径（直接 sBPF 汇编代码生成）；保留 `solana-sbpf-linker` 作为备选 | 直接从可移植 IR 生成 sBPF 汇编可规避完整的 Lean Zig 运行时链接风险；blueshift-gg/sbpf 工具链处理汇编和链接。参见 [RFC 0005](../rfcs/0005-solana-sbpf-assembly-backend.md) 和 [设计文档](../targets/solana-sbpf-asm.md)。 |
 | D-026 | 2026-07-01 | **采用 `solana-sbpf-asm` 作为规范的 Solana 路径；取代 `solana-sbpf-linker`** | 直接汇编路径规避了 Lean 运行时链接风险，提供了对计算单元和栈的完全控制，并镜像了 EVM/Yul 模式。`solana-sbpf-linker` 仅作为历史参考保留 —— 代码生成应以汇编路径为目标。 |
 | D-027 | 2026-07-01 | **CPI 和 PDA 效应保留在 Solana 特定层中，而非可移植 IR 中** | `cpiInvoke`、`cpiInvokeSigned` 和 `pdaDerive` 是仅限 Solana 的概念（Solana 的账户传递 CPI + PDA 派生在 EVM、Wasm 或 Move 上没有对应物）。它们属于 `ProofForge.Backend.Solana.Effects` 或 Solana SDK 模块，受 `crosscall.cpi` 和 `storage.pda` 能力的限制。可移植 IR (`ProofForge.IR.Contract.Effect`) 保持链中立 —— 仅当 ≥2 个目标家族共享相同的语义形状时才添加新的构造函数。 |
 | D-028 | 2026-07-02 | **用户合约面向链无关的 Contract Intent API；选定的目标将 intent 解析为能力计划** | 默认 SDK 界面不应暴露目标链。用户编写可移植合约 intent，然后 `--target` 选择目标适配器，该适配器将这些 intent 路由到低层级的能力实现，检查支持/运行时约束，并发射目标制品。能力 id 仍是目标适配器和 Target Extension SDK 使用的内部协议；它们不是主要的面向用户的 API。 |
@@ -41,7 +41,7 @@
 | D-031 | 2026-07-01 | 采用 **`EmitWat`**（可移植 IR → Wasm AST → WAT 文本 → `wat2wasm`）作为规范的 Wasm 家族后端；将 Rust `near-sdk-rs` 源代码生成降级为**冻结的 v0 权宜方案** | `EmitWat` 镜像了仓库内的 **可移植 IR → Yul** 渲染器 `Backend/Evm/IR.lean`（被每个 `--emit-*-ir-yul` CLI 模式使用），而*不是*独立的基于 LCNF 的 `Compiler/LCNF/EmitYul.lean`。由于可移植 IR 已经抽象了 Lean 对象（仅限 `u32`/`u64`/`bool`/`hash` 标量 + 存储效应），`EmitWat` 不需要 Lean 运行时移植、对象模型装箱或 GC —— 既避免了 Rust 路径的 `near-sdk` 宏耦合（E0119 Borsh / 缺失 `&self` 的 cargo-check 失败），也避免了阻塞先前 `EmitZig` 计划的 Lean-runtime-to-Wasm 移植。共享层：`Compiler/Wasm/AST.lean` + `Printer.lean` + IR→AST 降级（与 `Compiler/Yul/AST.lean` + `Printer.lean` 并行）；来自 `Backend/WasmHost/IR.lean` 和 `Backend/Evm/IR.lean` 的可重用验证。每条链：宿主导入 + ABI 序列化。关键 spike 风险：NEAR 参数（反）序列化（JSON/Borsh），EVM 后端不存在此问题（EVM 使用 calldata）。（从 NEAR 分支的 D-027 重新编号。） |
 | D-032 | 2026-07-01 | 批准 **`aleo-leo`** Research 退出设计：Leo 优先的 `zk-app-sourcegen` 边界、Road 1 的规范能力、制品清单 schema 以及 `leo build`/`leo test` 工具链 | Aleo 的证明/最终化拆分需要其独立的源代码生成家族，不同于 `psy-dpn` 风格的电路源代码生成；代码注册表变更仍被推迟，直到 Road 1 spike 成功并通过评审。（在 2026-07 分支合并期间从 Aleo 分支的 D-025 重新编号。） |
 | D-033 | 2026-07-01 | 添加 **`wasm-cloudflare-workers`** 作为 Research Wasm 宿主目标 | Cloudflare Workers 不是区块链，但它与 NEAR/CosmWasm 共享 Wasm 宿主后端模式；它通过使用重新解释的能力在链下运行相同的经过验证的业务逻辑，验证了可移植核心模型。（在 2026-07 分支合并期间从 Cloudflare 分支的 D-025 重新编号。） |
-| D-034 | 2026-07-02 | 采用**分层目标组合** ([target-roadmap](target-roadmap.md)) 并将 UTXO 脚本目标归类为单独的**策略家族** | 层级门控：在 `evm`/`solana-sbpf-asm`/`wasm-near` 上的共享场景一致性开启并行的 `wasm-cosmwasm` (D-006) 和 `move-aptos` (D-007)；Soroban/Sui/源代码生成目标在这些出口开启；一次最多激活一个源代码生成 spike。Bitcoin 家族目标 (`bitcoin-script-miniscript`, `bch-cashscript`, `zcash-shielded`, `kaspa-toccata`) 是支出策略生成器，而非合约执行器：它们获得策略 IR（谓词树；无存储/事件/跨调用），带有新的 `policy.*` 能力 id 和 PSBT/regtest 验证通道，而不是被强制通过合约流水线 |
+| D-034 | 2026-07-02 | 采用**分层目标组合** ([target-roadmap](../target-roadmap.md)) 并将 UTXO 脚本目标归类为单独的**策略家族** | 层级门控：在 `evm`/`solana-sbpf-asm`/`wasm-near` 上的共享场景一致性开启并行的 `wasm-cosmwasm` (D-006) 和 `move-aptos` (D-007)；Soroban/Sui/源代码生成目标在这些出口开启；一次最多激活一个源代码生成 spike。Bitcoin 家族目标 (`bitcoin-script-miniscript`, `bch-cashscript`, `zcash-shielded`, `kaspa-toccata`) 是支出策略生成器，而非合约执行器：它们获得策略 IR（谓词树；无存储/事件/跨调用），带有新的 `policy.*` 能力 id 和 PSBT/regtest 验证通道，而不是被强制通过合约流水线 |
 | D-035 | 2026-07-02 | **当前阶段完成标准：** 在开启 Tier-1 目标之前，共享场景 (Counter，然后是 ValueVault) 必须在 `evm`、`solana-sbpf-asm` 和 `wasm-near` 上通过 | 锁定当前巩固阶段的完成的定义；在满足 G0 门控之前，保持新的 Research 目标仅限文档，防止过早的能力注册表/能力变动 |
 | D-036 | 2026-07-02 | 在 IR/目标层下**统一分配器建模**为 `AllocatorModel` (策略/区域/释放)，保留 Solana `solana.allocator.*` 元数据键作为 Solana 特定的配置语法，并为 EVM 提供显式的 bump-over-scratch 绑定 | 解决工作流 24 分配器统一的开放问题；RFC 0008 定义了该三元组。持久状态模型 (EVM 存储, Solana 账户, NEAR 存储) 保持在分配器抽象之外。在所有权健全性 (FV-3) 证明经过检查的空操作合理之前，`Statement.release` 在 EVM 上保持拒绝状态 |
 | D-037 | 2026-07-02 | 将 **`wasm-cloudflare-workers`** 保留在 `wasmHost` 目标家族下作为 Research 离链宿主 | 它与 NEAR/CosmWasm 共享 Wasm 宿主后端模式 (EmitWat, 可移植核心 + 宿主桥接)；其离链状态通过阶段 (Research) 和能力集而非通过单独的家族来表达。在更多离链目标强制要求新分类之前，推迟建立独立的离链宿主家族 |
@@ -51,11 +51,11 @@
 | D-041 | 2026-07-03 | 采用可移植运行时错误模型 (`assertion_id` + 可选 `user_code`) 和统一的 `ContractSpec` 客户端 schema | 每个目标以其原生形式编码相同的错误 id (EVM revert, Solana 自定义错误, NEAR panic 负载, Psy 断言索引)；testkit 断言 `expect.error`。目标中立的 `ContractSpec` JSON 泛化了现有的 Solana IDL，并在 testkit M3 之后提供给每条链的 TS 客户端 |
 | D-042 | 2026-07-03 | 为可移植 IR、制品/部署 JSON schema、能力 id 以及 SDK/CLI 采用版本控制和兼容性策略 | IR 使用 `major.minor`，其中新的构造函数为次要变更，语义变更为主要变更；制品/部署 schema 使用整数 `schemaVersion`，并遵循宽容读取规则；能力 id 为仅追加；SDK/CLI 在 1.0 版本前后遵循类 semver 规则。RFC 0012 定义了完整策略 |
 | D-043 | 2026-07-03 | 添加 `upgradePolicy` 意图（`immutable | authority(keyRef) | governance(ref)`），并将签名保持在编译器之外 | 每个目标诚实地降级策略，或在编译时拒绝；EVM v0 仅支持 `immutable`；Solana 支持 `immutable` 和 `authority`；NEAR 支持 `immutable` 和 `authority` 作为账户密钥策略。ProofForge 仅发射未签名的交易/清单；密钥托管保留在钱包/KMS/CI 密钥中。RFC 0013 定义了完整生命周期和签名边界 |
-| D-044 | 2026-07-03 | **Tier-0 优先完成：** 在进行任何新链推进之前，按实现优先级顺序完成 `solana-sbpf-asm`、`evm`、`wasm-near`，以达到完整的 DoD——包括行为一致性*以及*资源预算（D-040） | 落实 D-035/D-040。在 Gate G0 随预算关闭之前，已落地的 Aptos/CosmWasm spike 冻结在当前的 M1/M2 状态（无注册表阶段，无 M3/M4，不启动 Tier-2）；D-045 会把该冻结延长到更严格的主三链签署 Gate P0。D-034/Workstream 28 中旧的“并行开启 Tier-1”措辞在当前阶段被此“完成优先”规则取代。参见 [target-roadmap](target-roadmap.md) Tier-0 完成检查清单和 [gate-status](gate-status.md) 以获取各标准状态。 |
-| D-045 | 2026-07-03 | **主三链完成规约：** 产品实现优先级为 `solana-sbpf-asm` → `evm`（Ethereum）→ `wasm-near`（NEAR/Wasm），这三条链必须完成 P0 后端门禁 DoD 后，任何额外链才能推进到文档优先研究或冻结 spike 维护之外 | 这是高于单个工作流的产品级排序规则。“完成”意味着在已记录 fragment 上具备 target-first 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖以及同步维护的文档；它**不等于**通用编译器正确性、稳定公共 SDK 或生产部署就绪。新目标仍可写文档优先研究说明，已落地的 Aptos/CosmWasm/Aleo/Psy/Cloudflare spike 可做 CI/安全维护，但在 [gate-status](gate-status.md) 记录主三链签署之前，不应为额外链落地新的注册表、能力、testkit 或 CI 推进。 |
-| D-046 | 2026-07-04 | **关闭 legacy EVM authoring 路线：** `ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods` 已从产品树移除（CS-0.2）；**`contract_source` → portable IR → EVM semantic plan → Yul → solc** 是唯一的 EVM 产品流水线；[RFC 0004](rfcs/0004-evm-semantic-plan.md) 为 **Accepted** | Workstream 24 / CS-6.3 收尾。应用示例使用 `contract_source` 或 stdlib 组合；Builder/`ContractSpec` fixture 仅保留在编译器测试路径。历史 RFC 仍可提及 LCNF 作为项目历史，而非受支持路线。 |
-| D-047 | 2026-07-05 | 为 **`psy-dpn` 采用两阶段 lowering**：portable IR → `ProofForge.Compiler.Psy.AST`（`Psy.Module`）→ `ProofForge.Compiler.Psy.Printer` → `.psy` 源码 | 对齐 EVM（`Compiler/Yul/AST.lean` + `Printer.lean`）和 Wasm 家族（`Compiler/Wasm/AST.lean` + `Printer.lean`）后端模式。该 AST 是一个 target-side surface AST，镜像 `.psy` 源码形式，**而非**上游 `psy-ast::Program` 的 interner/arena/checker 层。验证与形状解析留在 IR-lowering 侧；printer 是纯函数且自描述。重构后所有 Psy golden 源、55 条诊断用例以及 IR 覆盖清单均保持不变。参见 [psy-dpn](targets/psy-dpn.md) Phase B2。 |
-| D-048 | 2026-07-05 | 为 **`psy-dpn` 增加 semantic Plan 层**（`ProofForge.Backend.Psy.Plan`），将两阶段 lowering 扩展为三阶段：IR → Plan → AST → 源码 | 对齐 EVM 的 `Lower.lean` → `Plan.lean` → `IR.lean(lowerModuleWithPlan)` 分层。Plan 捕获 Psy-specific 已解析形状（storage layout 含 feltBackedU32 标记、context ops、event plans、crosscall targets、fixture-shape test body），这些之前在 AST builder 中内联解析。`buildModuleWithPlan(module, plan)` + `renderModule` 先构建 plan 再 lowering。同时新增 4 条 `memoryArray*` 诊断用例（55 → 59）。所有 Psy golden 源、59 条诊断用例及 IR 覆盖清单均保持不变。参见 [psy-dpn](targets/psy-dpn.md) Phase B3。 |
+| D-044 | 2026-07-03 | **Tier-0 优先完成：** 在进行任何新链推进之前，按实现优先级顺序完成 `solana-sbpf-asm`、`evm`、`wasm-near`，以达到完整的 DoD——包括行为一致性*以及*资源预算（D-040） | 落实 D-035/D-040。在 Gate G0 随预算关闭之前，已落地的 Aptos/CosmWasm spike 冻结在当前的 M1/M2 状态（无注册表阶段，无 M3/M4，不启动 Tier-2）；D-045 会把该冻结延长到更严格的主三链签署 Gate P0。D-034/Workstream 28 中旧的“并行开启 Tier-1”措辞在当前阶段被此“完成优先”规则取代。参见 [target-roadmap](../target-roadmap.md) Tier-0 完成检查清单和 [gate-status](gate-status.zh.md) 以获取各标准状态。 |
+| D-045 | 2026-07-03 | **主三链完成规约：** 产品实现优先级为 `solana-sbpf-asm` → `evm`（Ethereum）→ `wasm-near`（NEAR/Wasm），这三条链必须完成 P0 后端门禁 DoD 后，任何额外链才能推进到文档优先研究或冻结 spike 维护之外 | 这是高于单个工作流的产品级排序规则。“完成”意味着在已记录 fragment 上具备 target-first 构建/发射、本地执行或部署冒烟、制品/部署元数据、能力诊断、资源预算、CI 覆盖以及同步维护的文档；它**不等于**通用编译器正确性、稳定公共 SDK 或生产部署就绪。新目标仍可写文档优先研究说明，已落地的 Aptos/CosmWasm/Aleo/Psy/Cloudflare spike 可做 CI/安全维护，但在 [gate-status](gate-status.zh.md) 记录主三链签署之前，不应为额外链落地新的注册表、能力、testkit 或 CI 推进。 |
+| D-046 | 2026-07-04 | **关闭 legacy EVM authoring 路线：** `ProofForge.Evm`、LCNF `EmitYul` 和 `.evm-methods` 已从产品树移除（CS-0.2）；**`contract_source` → portable IR → EVM semantic plan → Yul → solc** 是唯一的 EVM 产品流水线；[RFC 0004](rfcs/0004-evm-semantic-plan.zh.md) 为 **Accepted** | Workstream 24 / CS-6.3 收尾。应用示例使用 `contract_source` 或 stdlib 组合；Builder/`ContractSpec` fixture 仅保留在编译器测试路径。历史 RFC 仍可提及 LCNF 作为项目历史，而非受支持路线。 |
+| D-047 | 2026-07-05 | 为 **`psy-dpn` 采用两阶段 lowering**：portable IR → `ProofForge.Compiler.Psy.AST`（`Psy.Module`）→ `ProofForge.Compiler.Psy.Printer` → `.psy` 源码 | 对齐 EVM（`Compiler/Yul/AST.lean` + `Printer.lean`）和 Wasm 家族（`Compiler/Wasm/AST.lean` + `Printer.lean`）后端模式。该 AST 是一个 target-side surface AST，镜像 `.psy` 源码形式，**而非**上游 `psy-ast::Program` 的 interner/arena/checker 层。验证与形状解析留在 IR-lowering 侧；printer 是纯函数且自描述。重构后所有 Psy golden 源、55 条诊断用例以及 IR 覆盖清单均保持不变。参见 [psy-dpn](../targets/psy-dpn.md) Phase B2。 |
+| D-048 | 2026-07-05 | 为 **`psy-dpn` 增加 semantic Plan 层**（`ProofForge.Backend.Psy.Plan`），将两阶段 lowering 扩展为三阶段：IR → Plan → AST → 源码 | 对齐 EVM 的 `Lower.lean` → `Plan.lean` → `IR.lean(lowerModuleWithPlan)` 分层。Plan 捕获 Psy-specific 已解析形状（storage layout 含 feltBackedU32 标记、context ops、event plans、crosscall targets、fixture-shape test body），这些之前在 AST builder 中内联解析。`buildModuleWithPlan(module, plan)` + `renderModule` 先构建 plan 再 lowering。同时新增 4 条 `memoryArray*` 诊断用例（55 → 59）。所有 Psy golden 源、59 条诊断用例及 IR 覆盖清单均保持不变。参见 [psy-dpn](../targets/psy-dpn.md) Phase B3。 |
 | D-049 | 2026-07-05 | **完成 Phase B3：** 引入 `BuildContext` 实现 plan-time 形状解析 + 新增 `ProofForge.Backend.Psy.Metadata` 实现 plan-driven 制品元数据 | `BuildContext`（module + StorageLayout）替代所有 AST builder 函数中的内联 `findState?`/`requireScalarState` 调用，改为对预解析 StorageLayout 的 context-based lookup。验证函数保留原始 `Module`，因为它们在 plan 构建之前运行。`Metadata.lean` 从 `PsyModulePlan` 生成 `ArtifactMetadata`（entrypoints、events、context ops、crosscalls、capabilities），对齐 EVM `Metadata.lean`。所有 Psy golden 源、59 条诊断用例及 IR 覆盖清单均保持不变。 |
 | D-050 | 2026-07-09 | **IR 保持链中立；storage binding 由 target 解析。** 可移植 IR `StateDecl` 仅为形状（`scalar`/`map`/`array` + type）—— 作者永远不声明 object/resource/slot。每个 `--target` 通过 `ProofForge.Target.StorageBinding` 映射可移植 storage（`contractGlobal` / `accountData` / `hostKeyValue` / `moveResource` / `moveObject` / `circuitMapping`）。EVM 命名的 IR 字段重命名为中性 metadata（`paramAbiWords`、`proxyPattern?`）。`ProofForge.IR.Portability` 仅按 family 分类 *constructors*（CREATE2、NEAR Promise、fallback/receive），而非 binding。**纠正**了早期草案中将 `StorageOwner` 放在 IR 上并暴露 `objectState`/`resourceState` 的做法（那会在 authoring 时强制链选择并违反 D-028）。后续：NEAR Promise 移出可移植 `Expr`、Move entrypoint 泛化、可移植 identity type vocabulary。Gate：`just ir-portability-smoke`。 | D-028 要求链中立 authoring；D-027 要求 chain-native 细节在 adapter/extension 中。Object vs resource 是 Move target 的 *lowering* 选择，而非可移植 IR 注解。 |
 | D-051 | 2026-07-10 | **EVM storage packing 是连续小标量 packing（已实现），而非每字段一 slot。** `ProofForge.Backend.Evm.Plan.storageLayout` 将相邻的 `StateDecl` 标量（`0 < byteWidth < 32`，即 bool/u8/u32/u64/u128/address）packing 到共享 32-byte slot 中，带 `byteOffset`/`byteWidth`。Runtime read/write 与 constructor initialization 使用 Solidity 兼容的低位 offset（`shift = byteOffset * 8`）；写入前按字段宽度 mask，checked 直接写入和复合赋值都拒绝超出字段宽度的值，wrapping 写入会截断且不污染邻居。全宽类型（hash）和非标量（map/array/struct/dynamic）始终开启新 slot。NEAR/WasmHost 继续使用独立的 `__pf_pack_*` key packing。该实现路径关闭 E1.3。 | 证据：`Tests/Backend/Evm/EvmPackedStorage.lean`、`scripts/evm/packed-storage-ir-smoke.sh` 与 artifact `storageLayout` 字段。产品 Counter/ValueVault 仍以单字段或 map-heavy 为主，因此 packing 多数时是潜在的；仅当产品需要 Solidity 不兼容的 packing（例如跨非相邻声明强制 packing）或 gas-waste lint 时重新审视。 |
@@ -66,7 +66,7 @@
 |---|---|---|
 | 直接编译器 | `evm` | `contract_source` / ContractSpec → portable IR → EVM 语义计划 → Yul AST/源代码 → solc |
 | EVM 兼容链 profile | `robinhood-chain-testnet` | 复用 `evm` 字节码/ABI 输出；添加 chain id、RPC、浏览器、验证器、rollup 以及部署制品元数据 |
-| Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`（链下宿主，D-033）, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031, [wasm-family](targets/wasm-family.md))；Cloudflare Workers 目前使用 TypeScript 源代码生成 |
+| Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`（链下宿主，D-033）, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031, [wasm-family](targets/wasm-family.zh.md))；Cloudflare Workers 目前使用 TypeScript 源代码生成 |
 | 二进制工具链 | `solana-sbpf-linker`, `solana-zig-fork` | Lean → 发射 Zig → bitcode → sbpf-linker（历史参考；已被 D-026 取代） |
 | sBPF 直接代码生成 | `solana-sbpf-asm` | Lean → IR → sBPF 汇编 (.s) → sbpf 工具链 → ELF（规范 D-026） |
 | 源代码生成 | `move-aptos`, `move-sui` | 可移植 IR → Move 包源代码 |
@@ -84,11 +84,11 @@
 
 ## 路线图摘要
 
-已被 [target-roadmap](target-roadmap.md) (D-034) 中的 Tier/Gate 模型、Tier-0
+已被 [target-roadmap](../target-roadmap.md) (D-034) 中的 Tier/Gate 模型、Tier-0
 优先完成规则 (D-044) 以及主三链完成规约 (D-045) **取代**。下方的历史阶段标签
 仅用于追溯；请勿将其用于调度。权威的排序是以主三链签署为第一前置门禁的
 Tier 模型（Tier 0 激活 → Gate P0 → Tier 1 → Gate G2 → …），Gate 状态在
-[gate-status](gate-status.md) 中跟踪。
+[gate-status](gate-status.zh.md) 中跟踪。
 
 ```text
 Phase 0: EVM baseline (done)
@@ -112,33 +112,33 @@ Phase 4: Cross-target shared scenario hardening   [= Gate G0, D-035/D-040/D-044]
 Phase 5: Cloud platform
 ```
 
-详细任务：[实现待办事项](implementation-backlog.md)。
+详细任务：[实现待办事项](implementation-backlog.zh.md)。
 
 ## 权威规范
 
 | 主题 | 文档 |
 |---|---|
-| 可移植合约 IR | [portable-ir.md](portable-ir.md) |
-| 能力 id | [capability-registry.md](capability-registry.md) |
-| Counter 共享场景 | [shared-scenario.md](shared-scenario.md) |
-| 目标工程形态 | [RFC 0002](rfcs/0002-target-implementation-design.md) |
-| CosmWasm SDK spike 草案 | [targets/wasm-family.md](targets/wasm-family.md) |
-| Wasm-NEAR 源代码生成目标 | [targets/wasm-near.md](targets/wasm-near.md) |
-| Cloudflare Workers 目标 | [targets/cloudflare-workers.md](targets/cloudflare-workers.md) |
-| Stellar/Soroban 候选目标 | [targets/stellar-soroban.md](targets/stellar-soroban.md) |
-| Internet Computer 候选目标 | [targets/internet-computer.md](targets/internet-computer.md) |
-| Algorand AVM 候选目标 | [targets/algorand-avm.md](targets/algorand-avm.md) |
-| Solana 指令清单 | [targets/solana-sbf.md](targets/solana-sbf.md) |
-| Cardano Plutus/Aiken 候选目标 | [targets/cardano-plutus-aiken.md](targets/cardano-plutus-aiken.md) |
-| Tezos Michelson/LIGO 候选目标 | [targets/tezos-michelson-ligo.md](targets/tezos-michelson-ligo.md) |
-| Starknet Cairo 候选目标 | [targets/starknet-cairo.md](targets/starknet-cairo.md) |
-| Aleo Leo 候选目标 | [targets/aleo-leo.md](targets/aleo-leo.md) |
-| TON TVM 候选目标 | [targets/ton-tvm.md](targets/ton-tvm.md) |
-| Bitcoin Script/Miniscript 候选目标 | [targets/bitcoin-script-miniscript.md](targets/bitcoin-script-miniscript.md) |
-| Zcash Shielded 候选目标 | [targets/zcash-shielded.md](targets/zcash-shielded.md) |
-| Bitcoin Cash CashScript 候选目标 | [targets/bitcoin-cash-cashscript.md](targets/bitcoin-cash-cashscript.md) |
-| Psy/DPN ZK 目标 | [targets/psy-dpn.md](targets/psy-dpn.md) |
-| Kaspa/Toccata 候选目标 | [targets/kaspa-toccata.md](targets/kaspa-toccata.md) |
+| 可移植合约 IR | [portable-ir.md](portable-ir.zh.md) |
+| 能力 id | [capability-registry.md](capability-registry.zh.md) |
+| Counter 共享场景 | [shared-scenario.md](shared-scenario.zh.md) |
+| 目标工程形态 | [RFC 0002](rfcs/0002-target-implementation-design.zh.md) |
+| CosmWasm SDK spike 草案 | [targets/wasm-family.md](targets/wasm-family.zh.md) |
+| Wasm-NEAR 源代码生成目标 | [targets/wasm-near.md](targets/wasm-near.zh.md) |
+| Cloudflare Workers 目标 | [targets/cloudflare-workers.md](../targets/cloudflare-workers.md) |
+| Stellar/Soroban 候选目标 | [targets/stellar-soroban.md](../targets/stellar-soroban.md) |
+| Internet Computer 候选目标 | [targets/internet-computer.md](../targets/internet-computer.md) |
+| Algorand AVM 候选目标 | [targets/algorand-avm.md](../targets/algorand-avm.md) |
+| Solana 指令清单 | [targets/solana-sbf.md](targets/solana-sbf.zh.md) |
+| Cardano Plutus/Aiken 候选目标 | [targets/cardano-plutus-aiken.md](../targets/cardano-plutus-aiken.md) |
+| Tezos Michelson/LIGO 候选目标 | [targets/tezos-michelson-ligo.md](../targets/tezos-michelson-ligo.md) |
+| Starknet Cairo 候选目标 | [targets/starknet-cairo.md](../targets/starknet-cairo.md) |
+| Aleo Leo 候选目标 | [targets/aleo-leo.md](../targets/aleo-leo.md) |
+| TON TVM 候选目标 | [targets/ton-tvm.md](../targets/ton-tvm.md) |
+| Bitcoin Script/Miniscript 候选目标 | [targets/bitcoin-script-miniscript.md](../targets/bitcoin-script-miniscript.md) |
+| Zcash Shielded 候选目标 | [targets/zcash-shielded.md](../targets/zcash-shielded.md) |
+| Bitcoin Cash CashScript 候选目标 | [targets/bitcoin-cash-cashscript.md](../targets/bitcoin-cash-cashscript.md) |
+| Psy/DPN ZK 目标 | [targets/psy-dpn.md](../targets/psy-dpn.md) |
+| Kaspa/Toccata 候选目标 | [targets/kaspa-toccata.md](../targets/kaspa-toccata.md) |
 
 ## 已取代的立场
 
@@ -150,4 +150,4 @@ Phase 5: Cloud platform
 - Move POC 同时生成 Sui 和 Aptos 包 —— Aptos 优先 (D-007)。
 - D-034 “在 Gate G0 之后并行开启 Tier-1 (cosmwasm + aptos)” —— 对于当前阶段，Tier-0 完成优先 (D-044) 和主三链完成规约 (D-045) 具有更高优先级：在将任何 Tier-1 spike 推进到超过其当前状态之前，先完成 `solana-sbpf-asm`/`evm`/`wasm-near` 的 P0 后端门禁 DoD。
 - D-039 原始的“在 Workstream 29 M1 之前不进行代码更改”措辞 —— 2026-07-03 评审发现 M1 已经落地后已修正；RFC 0009 现在为 Accepted，M1 已实现，M3/M4 仍开放。
-- decisions.md “路线图摘要” 阶段 0–5 模型 —— 已被 [target-roadmap](target-roadmap.md) (D-034) 中的 tier/gate 模型取代；保留在上方仅用于追溯。
+- decisions.md “路线图摘要” 阶段 0–5 模型 —— 已被 [target-roadmap](../target-roadmap.md) (D-034) 中的 tier/gate 模型取代；保留在上方仅用于追溯。
