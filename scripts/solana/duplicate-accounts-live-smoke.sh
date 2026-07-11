@@ -28,7 +28,7 @@ skip() { echo "SKIP: $1" >&2; exit 2; }
 
 cleanup() {
   if [ -n "$SURFPOOL_PID" ] && kill -0 "$SURFPOOL_PID" >/dev/null 2>&1; then
-    kill "$SURFPOOL_PID" >/dev/null 2>&1 || true
+    "$REPO_ROOT/scripts/solana/stop-background-process.sh" "$SURFPOOL_PID" || true
     wait "$SURFPOOL_PID" >/dev/null 2>&1 || true
   fi
 }

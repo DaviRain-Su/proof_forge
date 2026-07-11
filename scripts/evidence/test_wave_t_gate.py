@@ -195,6 +195,23 @@ class WaveTGateTest(unittest.TestCase):
                 self.assertGreaterEqual(export_at, 0)
                 self.assertGreater(cargo_at, export_at)
 
+    def test_solana_background_stop_escalates_when_term_is_ignored(self) -> None:
+        helper = REPO_ROOT / "scripts" / "solana" / "stop-background-process.sh"
+        process = subprocess.Popen(["bash", "-c", "trap '' TERM; while :; do sleep 1; done"])
+        try:
+            result = subprocess.run(
+                ["bash", str(helper), str(process.pid)],
+                text=True,
+                capture_output=True,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            process.wait(timeout=2)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
     def test_rejects_dirty_worktree_when_clean_evidence_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
