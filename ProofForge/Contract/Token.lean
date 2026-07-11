@@ -28,6 +28,7 @@ namespace ProofForge.Contract.Token
 open ProofForge.Target
 open ProofForge.Contract.FixedPoint
 open ProofForge.Contract.TokenAuth
+open ProofForge.Contract.Compliance
 
 /-- Native token **artifact** kind chosen by a target adapter.
 
@@ -966,6 +967,40 @@ def featureSupportOnTarget (targetId : String) (feature : TokenFeature) : Featur
   | "psy-dpn" | "aleo-leo" =>
       .noLane
   | _ => .noLane
+
+def featureEvidenceRequirement? (targetId : String) (feature : TokenFeature) :
+    Option (StandardManifest × AdapterRef) :=
+  match targetId with
+  | "evm" =>
+      match feature with
+      | .mintable | .burnable =>
+          some (erc20ProductProfileManifest, { id := "proof-forge.evm.erc20", version := "1" })
+      | .permit =>
+          some (erc2612Manifest, { id := "proof-forge.evm.erc2612", version := "1" })
+      | _ => none
+  | "solana-sbpf-asm" =>
+      if #[TokenFeature.mintable, .burnable].contains feature then
+        some (splTokenManifest, { id := "proof-forge.solana.spl-token", version := "1" })
+      else if #[TokenFeature.transferFee, .nonTransferable, .transferHook,
+          .metadataPointer, .defaultAccountState, .immutableOwner].contains feature then
+        some (splToken2022Manifest, { id := "proof-forge.solana.token-2022", version := "1" })
+      else
+        none
+  | "wasm-near" =>
+      if #[TokenFeature.mintable, .burnable].contains feature then
+        some (nep141Manifest, { id := "proof-forge.near.nep141", version := "1" })
+      else
+        none
+  | _ => none
+
+def featureSupportOnTargetWithEvidence (targetId : String) (feature : TokenFeature)
+    (claims : Array EvidenceClaim) : FeatureSupport :=
+  let support := featureSupportOnTarget targetId feature
+  match support, featureEvidenceRequirement? targetId feature with
+  | .experimental, some (manifest, adapter) =>
+      if claims.any (fun claim => claim.isExactFor manifest adapter) then .full
+      else .experimental
+  | _, _ => support
 
 /-- One row of the product matrix for tests/docs. -/
 structure FeatureMatrixRow where

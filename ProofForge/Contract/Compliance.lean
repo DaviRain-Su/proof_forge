@@ -90,6 +90,16 @@ inductive ClaimScope where
   | subset (requirementIds : Array String)
   deriving BEq, Repr
 
+/-- Raw evidence bundle offered by an adapter for one emitted artifact. It is
+not trusted until `EvidenceClaim.verify` succeeds. -/
+structure EvidenceClaim where
+  manifest : StandardManifest
+  adapter : AdapterRef
+  artifactDigest : String
+  scope : ClaimScope
+  evidence : Array RequirementEvidence
+  deriving BEq, Repr
+
 structure ComplianceReport where
   level : ComplianceLevel
   manifest : StandardRef
@@ -219,6 +229,25 @@ def verify (manifest : StandardManifest) (adapter : AdapterRef)
     satisfiedRequirementIds := satisfied
     evidence := evidence
   }
+
+def EvidenceClaim.verify (claim : EvidenceClaim) : Except ComplianceError ComplianceReport :=
+  ProofForge.Contract.Compliance.verify claim.manifest claim.adapter claim.artifactDigest
+    claim.scope claim.evidence
+
+/-- A support claim can promote only when all requirements of the expected
+standard pass for the exact adapter id/version and artifact digest carried by
+the evidence bundle. -/
+def EvidenceClaim.isExactFor (claim : EvidenceClaim) (manifest : StandardManifest)
+    (adapter : AdapterRef) : Bool :=
+  if claim.manifest != manifest || claim.adapter != adapter ||
+      claim.scope != .full then
+    false
+  else
+    match claim.verify with
+    | .error _ => false
+    | .ok report =>
+        report.level == .exact &&
+          report.satisfiedRequirementIds == report.applicableRequirementIds
 
 private def requirement (id : String) (kind : RequirementKind) (summary : String) : Requirement :=
   { id := id, kind := kind, summary := summary }

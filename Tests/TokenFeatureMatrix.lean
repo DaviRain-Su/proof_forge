@@ -5,17 +5,53 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Product honesty: TokenFeature × primary target support matrix.
 -/
 import ProofForge.Contract.Token
+import ProofForge.Contract.Compliance
 import ProofForge.Target.Registry
 
 open ProofForge.Contract.Token
+open ProofForge.Contract.Compliance
+open ProofForge.Contract.TokenAuth
 open ProofForge.Target
 
 def require (cond : Bool) (msg : String) : IO Unit :=
   if cond then pure () else throw (IO.userError msg)
 
+def evidenceFor (adapter : AdapterRef) (artifactDigest : String)
+    (requirement : Requirement) (status : RequirementStatus := .passed) :
+    RequirementEvidence := {
+  requirementId := requirement.id
+  adapter
+  artifactDigest
+  oracleId := "token-feature-matrix"
+  oracleVersion := "1"
+  command := s!"token-feature-matrix:{requirement.id}"
+  toolchains := #[{ id := "lean", version := Lean.versionString }]
+  status
+  runResultDigest := s!"sha256:result-{requirement.id}"
+}
+
+def exactClaim (manifest : StandardManifest) (adapter : AdapterRef)
+    (artifactDigest : String) : EvidenceClaim := {
+  manifest
+  adapter
+  artifactDigest
+  scope := .full
+  evidence := manifest.requirements.map (evidenceFor adapter artifactDigest)
+}
+
+def evmPermitAdapter : AdapterRef := {
+  id := "proof-forge.evm.erc2612"
+  version := "1"
+}
+
+def nearStorageAdapter : AdapterRef := {
+  id := "proof-forge.near.nep145"
+  version := "1"
+}
+
 def main : IO Unit := do
   let rows := primaryFeatureMatrix
-  require (rows.size == primaryTokenTargetIds.size * knownFeatureIds.size)
+  require (rows.size == ProofForge.Contract.Token.primaryTokenTargetIds.size * knownFeatureIds.size)
     s!"matrix size {rows.size}"
 
   -- No feature is `full` until requirement-bound executable evidence exists.
@@ -37,6 +73,29 @@ def main : IO Unit := do
       s!"evm planForTarget must fail for {f.id}"
   require (featureSupportOnTarget "evm" .permit == .experimental)
     "atomic EVM permit should remain experimental until compliance evidence is bound"
+  let permitClaim := exactClaim erc2612Manifest evmPermitAdapter "sha256:permit-artifact"
+  require (featureSupportOnTargetWithEvidence "evm" .permit #[permitClaim] == .full)
+    "exact ERC-2612 adapter/artifact evidence should promote permit"
+  let wrongPermitArtifact := {
+    permitClaim with artifactDigest := "sha256:different-artifact"
+  }
+  require (featureSupportOnTargetWithEvidence "evm" .permit #[wrongPermitArtifact] == .experimental)
+    "artifact-mismatched ERC-2612 evidence must not promote permit"
+  let wrongPermitAdapter := {
+    permitClaim with adapter := { id := "proof-forge.evm.other", version := "1" }
+  }
+  require (featureSupportOnTargetWithEvidence "evm" .permit #[wrongPermitAdapter] == .experimental)
+    "adapter-mismatched ERC-2612 evidence must not promote permit"
+  let forgedPermitManifest := {
+    erc2612Manifest with requirements := erc2612Manifest.requirements.take 1
+  }
+  let forgedPermitClaim := exactClaim forgedPermitManifest evmPermitAdapter
+    "sha256:permit-artifact"
+  require (featureSupportOnTargetWithEvidence "evm" .permit #[forgedPermitClaim] == .experimental)
+    "same-id manifest with missing canonical requirements must not promote permit"
+  for feature in #[TokenFeature.capped, .pausable, .confidentialTransfer] do
+    require (featureSupportOnTargetWithEvidence "evm" feature #[permitClaim] == .reject)
+      s!"unrelated evidence must not promote rejected EVM feature {feature.id}"
   require (planSucceedsForFeature evm .permit)
     "atomic EVM permit should route through the executable adapter"
   match planForTarget evm {
@@ -84,6 +143,16 @@ def main : IO Unit := do
       s!"wasm-near should reject unmaterialized {f.id}"
     require (!planSucceedsForFeature wasmNear f)
       s!"wasm-near plan must fail closed for {f.id}"
+  require (authSupportOnTargetWithEvidence "wasm-near" .storageDeposit #[] == .experimental)
+    "NEP-145 storage support must remain experimental without evidence"
+  let storageClaim := exactClaim nep145Manifest nearStorageAdapter "sha256:near-storage-artifact"
+  require (authSupportOnTargetWithEvidence "wasm-near" .storageDeposit #[storageClaim] == .full)
+    "full NEP-145 evidence should promote storage deposit/unregister support"
+  let partialStorageClaim := {
+    storageClaim with evidence := storageClaim.evidence.take 2
+  }
+  require (authSupportOnTargetWithEvidence "wasm-near" .storageDeposit #[partialStorageClaim] == .experimental)
+    "partial NEP-145 evidence must not promote unregister support"
   for f in solanaExtensionFeatures do
     require (featureSupportOnTarget "wasm-near" f == .reject)
       s!"wasm-near should reject extension {f.id}"

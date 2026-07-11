@@ -22,8 +22,11 @@ flags from TokenSpec features.
 -/
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Contract.Compliance
 
 namespace ProofForge.Contract.TokenAuth
+
+open ProofForge.Contract.Compliance
 
 /-- Divergent token authorization / permission models. -/
 inductive TokenAuthFeature where
@@ -87,6 +90,28 @@ def authSupportOnTarget (targetId : String) (feature : TokenAuthFeature) : AuthS
   | "wasm-near", .storageDeposit => .experimental
   | "wasm-near", .transferCall => .experimental
   | _, _ => .noLane
+
+def authEvidenceRequirement? (targetId : String) (feature : TokenAuthFeature) :
+    Option (StandardManifest × AdapterRef) :=
+  match targetId, feature with
+  | "evm", .allowance =>
+      some (erc20Manifest, { id := "proof-forge.evm.erc20", version := "1" })
+  | "solana-sbpf-asm", .authority =>
+      some (splTokenManifest, { id := "proof-forge.solana.spl-token", version := "1" })
+  | "wasm-near", .storageDeposit =>
+      some (nep145Manifest, { id := "proof-forge.near.nep145", version := "1" })
+  | "wasm-near", .transferCall =>
+      some (nep141Manifest, { id := "proof-forge.near.nep141", version := "1" })
+  | _, _ => none
+
+def authSupportOnTargetWithEvidence (targetId : String) (feature : TokenAuthFeature)
+    (claims : Array EvidenceClaim) : AuthSupport :=
+  let support := authSupportOnTarget targetId feature
+  match support, authEvidenceRequirement? targetId feature with
+  | .experimental, some (manifest, adapter) =>
+      if claims.any (fun claim => claim.isExactFor manifest adapter) then .full
+      else .experimental
+  | _, _ => support
 
 /-- Core ops on a primary target, **capability-gated** by mintable/burnable flags.
 

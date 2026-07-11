@@ -22,6 +22,8 @@ struct TokenPlan {
     #[serde(rename = "targetFamily")]
     target_family: String,
     standard: String,
+    #[serde(default)]
+    operations: Vec<String>,
     solana: SolanaPlan,
     #[serde(default)]
     validation: HashMap<String, String>,
@@ -192,12 +194,16 @@ fn validate_plan_shape(plan: &TokenPlan) -> Result<()> {
         "mint_to",
         "transfer_checked",
         "approve_delegate",
-        "burn",
         "revoke_delegate",
         "set_mint_authority",
     ] {
         instruction_by_name(plan, name)?;
     }
+    let burn_enabled = has_operation(plan, "spl-token.burn");
+    ensure!(
+        instruction_by_name(plan, "burn").is_ok() == burn_enabled,
+        "burn instruction presence must match the TokenSpec burnable operation"
+    );
 
     if plan.standard == "spl-token-2022" {
         ensure!(
@@ -329,13 +335,15 @@ fn validate_instruction_plan(plan: &TokenPlan) -> Result<()> {
         &["owner_ata", "delegate", "owner", "token_program"],
         "instruction.amount",
     )?;
-    assert_token_amount_instruction(
-        plan,
-        "burn",
-        "spl-token.burn",
-        &["owner_ata", "mint", "owner", "token_program"],
-        "instruction.amount",
-    )?;
+    if has_operation(plan, "spl-token.burn") {
+        assert_token_amount_instruction(
+            plan,
+            "burn",
+            "spl-token.burn",
+            &["owner_ata", "mint", "owner", "token_program"],
+            "instruction.amount",
+        )?;
+    }
 
     assert_token_instruction(plan, "transfer_checked")?;
     assert_operation(plan, "transfer_checked", "spl-token.transfer_checked")?;
@@ -514,6 +522,10 @@ fn has_extension(plan: &TokenPlan, name: &str) -> bool {
         .extensions
         .iter()
         .any(|extension| extension.extension == name)
+}
+
+fn has_operation(plan: &TokenPlan, name: &str) -> bool {
+    plan.operations.iter().any(|operation| operation == name)
 }
 
 fn assert_token_instruction(plan: &TokenPlan, name: &str) -> Result<()> {
