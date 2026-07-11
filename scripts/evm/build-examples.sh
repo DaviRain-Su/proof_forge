@@ -62,11 +62,45 @@ is_contract_source() {
   return 1
 }
 
+# Backend fixtures exercise the full Legacy EVM IR, including nested mapping
+# paths, CREATE2, and aggregate locals that are intentionally outside the
+# current canonical Core fragment. Public-route coverage is explicit: entries
+# here must compile without fallback and match canonical golden Yul. The
+# remaining fixtures continue to run through their dedicated IR/Foundry smokes
+# earlier in `evm-all`.
+canonical_public_fixtures=(
+  Counter
+  DynamicConstructorProbe
+  Ierc20Client
+  Ierc20PermitClient
+  Ierc4626Client
+  Ierc721Client
+  MulticallClient
+  Pausable
+  Permit2Client
+  ReentrancyGuard
+)
+
+is_canonical_public_fixture() {
+  local name="$1"
+  local fixture
+  for fixture in "${canonical_public_fixtures[@]}"; do
+    if [[ "$fixture" == "$name" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 failures=0
 while IFS= read -r -d '' lean_file; do
   name="$(basename "$lean_file" .lean)"
   if ! is_contract_source "$lean_file"; then
     echo "build-examples: skipping $lean_file (not a portable contract source)" >&2
+    continue
+  fi
+  if ! is_canonical_public_fixture "$name"; then
+    echo "build-examples: skipping $name (legacy-only Core gap; covered by dedicated EVM IR smoke)" >&2
     continue
   fi
   source_kind="contract-sdk"

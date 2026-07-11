@@ -35,15 +35,23 @@ object "Ierc4626Client" {
       revert(0, 0)
     }
     function f_Ierc4626Client_readShares(assets) -> __pf_result {
-      __pf_result := __proof_forge_crosscall_1(0, 3337024914, assets)
+      let v1 := 0
+      let v2 := 3337024914
+      let v3 := __proof_forge_crosscall_1(v1, v2, assets)
+      __pf_result := v3
     }
     function f_Ierc4626Client_doDeposit(assets, receiver) -> __pf_result {
-      let shares := __proof_forge_crosscall_2(0, 1851080549, assets, receiver)
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(shares, 18446744073709551615))))
-      __pf_result := shares
+      let v6 := 0
+      let v7 := 1851080549
+      let v8 := __proof_forge_crosscall_2(v6, v7, assets, receiver)
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v8, 18446744073709551615))))
+      __pf_result := v8
     }
     function f_Ierc4626Client_readTotalAssets() -> __pf_result {
-      __pf_result := __proof_forge_crosscall_0(0, 31576340)
+      let v9 := 0
+      let v10 := 31576340
+      let v11 := __proof_forge_crosscall_0(v9, v10)
+      __pf_result := v11
     }
     function __proof_forge_crosscall_1(target, selector, arg0) -> result {
       mstore(0, shl(224, selector))
