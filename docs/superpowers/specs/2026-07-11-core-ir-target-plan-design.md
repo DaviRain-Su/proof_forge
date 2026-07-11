@@ -118,8 +118,9 @@ rather than replacing them.
    target-owned handlers and semantic hooks.
 7. The public CLI continues to advertise only the existing primary target IDs:
    `evm`, `solana-sbpf-asm`, and `wasm-near`.
-8. Cutover is governed by semantic and runtime parity for Counter and
-   ValueVault, not by string or non-empty-array assertions.
+8. Counter and ValueVault establish the minimum semantic/runtime parity gate;
+   public cutover additionally requires the full existing product matrix and
+   every currently advertised primary-target fragment.
 
 ## Non-Goals
 
@@ -263,6 +264,10 @@ structure EventId where value : Nat
 structure BlockId where value : Nat
 structure ValueId where value : Nat
 
+structure ValueDef where
+  id : ValueId
+  type : CoreType
+
 structure ValueRef where
   id : ValueId
   type : CoreType
@@ -317,20 +322,29 @@ inductive PureOp
 inductive InstructionOp
   | pure (op : PureOp)
   | storageLoad (path : StorageRef)
+  | storageContains (path : StorageRef)
   | storageStore (path : StorageRef) (value : ValueRef)
+  | storageLength (root : StateId)
+  | storageResize (root : StateId) (length : ValueRef)
+  | memoryAlloc (type : CoreType) (length : ValueRef)
+  | memoryLoad (base index : ValueRef)
+  | memoryStore (base index value : ValueRef)
+  | memoryRelease (base : ValueRef)
   | contextRead (field : ContextField)
   | emit (event : EventId) (args : Array ValueRef)
   | assert (condition : ValueRef) (error : CoreErrorRef)
+  | crosscall (spec : CoreCrosscallSpec) (args : Array ValueRef)
   | hostCall (call : HostOpCall)
 
 structure Instruction where
-  results : Array ValueRef
+  results : Array ValueDef
   op : InstructionOp
 ```
 
 Every value-producing effect binds explicit result IDs. Instruction order is
-effect order. Nested expressions cannot contain storage, context, crosscall, or
-host effects.
+effect order. Nested expressions cannot contain storage, memory, context,
+crosscall, or host effects. Portable crosscall and memory semantics are fixed
+Core operations; platform-specific call forms remain typed HostOps.
 
 ### CFG and Loop Bounds
 
@@ -349,7 +363,7 @@ inductive Terminator
 
 structure Block where
   id : BlockId
-  params : Array ValueRef := #[]
+  params : Array ValueDef := #[]
   instructions : Array Instruction
   terminator : Terminator
 ```
@@ -423,8 +437,10 @@ capability resolution and after any pass that rewrites Core. It checks:
 - host-operation catalog, version, arity, type, and effect-class agreement;
 - interface and materialization references to real canonical identities.
 
-Validation returns structured diagnostics with pass name, function, block,
-instruction index, source location, and reason.
+Validation returns a structured semantic diagnostic with pass name, function,
+block, instruction index, and reason. The compiler may decorate that diagnostic
+with a source location from `CanonicalEvidence.sourceMap`; decoration cannot
+change the error tag, success/failure result, capabilities, or target output.
 
 ## Core Semantics and Preservation
 
@@ -704,6 +720,9 @@ where the required project tool is available.
 - EVM Core builder to existing `Evm.Plan` and Yul path;
 - Solana Core builder to existing `Solana.Plan` and sBPF path;
 - NEAR Core builder to existing `NearModulePlan` and Wasm path;
+- close the full existing product and coverage manifests, including
+  aggregates, storage paths, context/hash/control/error behavior, crosscalls,
+  ABI, and deployment materialization;
 - keep each public route on Legacy until its complete cutover gate passes.
 
 ### Wave 5: Independent Surface and Vertical Slices
@@ -732,6 +751,9 @@ where the required project tool is available.
 - Legacy and Core semantics produce identical state, returns, events, errors,
   and ordered effects for the approved scenario corpus;
 - the scalar-fragment preservation theorem compiles.
+- every constructor used by the existing product matrix and primary-target
+  coverage manifests is canonicalized with parity or rejected with the same or
+  a stricter public diagnostic.
 
 ### EVM
 
@@ -763,6 +785,7 @@ Run in this order:
 just product
 just canonical-core
 just canonical-parity
+just canonical-product
 just check
 git diff --check
 ```
@@ -840,14 +863,15 @@ This design is complete only when all of the following are true:
    the same validated `CanonicalBundle` boundary.
 2. Counter and ValueVault pass Core semantic equivalence and all three target
    runtime parity gates.
-3. The existing EVM, Solana, and NEAR plans are the only target plan types used
+3. The complete existing product matrix and primary-target coverage manifests
+   pass through canonical lowering without support regression.
+4. The existing EVM, Solana, and NEAR plans are the only target plan types used
    by canonical lowering.
-4. Queue and Set compile through the three existing public target IDs without
+5. Queue and Set compile through the three existing public target IDs without
    Core or target-plan constructor additions.
-5. `near.promise.create@1.0.0` succeeds on NEAR and fails closed on EVM and
+6. `near.promise.create@1.0.0` succeeds on NEAR and fails closed on EVM and
    Solana through the typed host-operation registry.
-6. Public registry and CLI target lists remain unchanged.
-7. `CanonicalEvidence` cannot affect capability resolution or target output.
-8. `just product`, canonical gates, `just check`, and
+7. Public registry and CLI target lists remain unchanged.
+8. `CanonicalEvidence` cannot affect capability resolution or target output.
+9. `just product`, canonical gates, `just check`, and
    `git diff --check` pass.
-

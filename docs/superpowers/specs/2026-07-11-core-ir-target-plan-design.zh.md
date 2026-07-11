@@ -111,8 +111,8 @@ target layout drift 是第四类问题，仓库现有 EVM、Solana、NEAR plan �
 6. 目标专属能力使用带版本和类型的 HostOp，由目标 handler 和语义 hook
    负责。
 7. public CLI 仍只宣传 `evm`、`solana-sbpf-asm`、`wasm-near`。
-8. Counter 和 ValueVault 的 semantic/runtime parity 是切换依据，不能用
-   字符串包含或数组非空替代。
+8. Counter 和 ValueVault 是最小 semantic/runtime parity gate；public
+   cutover 还必须覆盖完整现有 product matrix 和所有已宣传主目标片段。
 
 ## 非目标
 
@@ -249,6 +249,10 @@ structure EventId where value : Nat
 structure BlockId where value : Nat
 structure ValueId where value : Nat
 
+structure ValueDef where
+  id : ValueId
+  type : CoreType
+
 structure ValueRef where
   id : ValueId
   type : CoreType
@@ -303,20 +307,29 @@ inductive PureOp
 inductive InstructionOp
   | pure (op : PureOp)
   | storageLoad (path : StorageRef)
+  | storageContains (path : StorageRef)
   | storageStore (path : StorageRef) (value : ValueRef)
+  | storageLength (root : StateId)
+  | storageResize (root : StateId) (length : ValueRef)
+  | memoryAlloc (type : CoreType) (length : ValueRef)
+  | memoryLoad (base index : ValueRef)
+  | memoryStore (base index value : ValueRef)
+  | memoryRelease (base : ValueRef)
   | contextRead (field : ContextField)
   | emit (event : EventId) (args : Array ValueRef)
   | assert (condition : ValueRef) (error : CoreErrorRef)
+  | crosscall (spec : CoreCrosscallSpec) (args : Array ValueRef)
   | hostCall (call : HostOpCall)
 
 structure Instruction where
-  results : Array ValueRef
+  results : Array ValueDef
   op : InstructionOp
 ```
 
 所有 value-producing effect 必须绑定显式 result ID。instruction 顺序就是
-effect 顺序。nested expression 不能包含 storage/context/crosscall/host
-effect。
+effect 顺序。nested expression 不能包含 storage/memory/context/crosscall/
+host effect。portable crosscall 和 memory 属于固定 Core semantics；平台
+专属调用形式仍使用 typed HostOp。
 
 ### CFG 和 loop bound
 
@@ -335,7 +348,7 @@ inductive Terminator
 
 structure Block where
   id : BlockId
-  params : Array ValueRef := #[]
+  params : Array ValueDef := #[]
   instructions : Array Instruction
   terminator : Terminator
 ```
@@ -406,8 +419,10 @@ resolution 前以及每次 Core rewrite 后运行。它至少检查：
 - HostOp catalog/version/arity/type/effect class；
 - interface/materialization 对 canonical identity 的引用。
 
-diagnostic 包含 pass、function、block、instruction index、source location 和
-reason。
+validation diagnostic 包含 pass、function、block、instruction index 和
+reason。compiler 可以用 `CanonicalEvidence.sourceMap` 附加 source
+location，但 decoration 不能改变 error tag、成功/失败结果、capability 或
+target output。
 
 ## Core semantics 与 preservation
 
@@ -664,6 +679,8 @@ SurfaceError
 - Core builder -> 现有 EVM Plan -> Yul；
 - Core builder -> 现有 Solana Plan -> sBPF；
 - Core builder -> 现有 NearModulePlan -> Wasm；
+- 关闭完整现有 product/coverage manifest，包括 aggregate、storage path、
+  context/hash/control/error、crosscall、ABI 和 deployment materialization；
 - 每条 public route 在完整 gate 通过前继续用 Legacy。
 
 ### Wave 5：独立 Surface 与两个 vertical slice
@@ -690,6 +707,8 @@ SurfaceError
   artifact-affecting metadata；
 - Legacy/Core 的 state、return、event、error、ordered effect 相同；
 - scalar-fragment preservation theorem 编译通过。
+- 现有 product matrix 和主目标 coverage manifest 使用的每个 constructor
+  都完成 canonical parity，或返回相同/更严格的 public diagnostic。
 
 ### EVM
 
@@ -719,6 +738,7 @@ SurfaceError
 just product
 just canonical-core
 just canonical-parity
+just canonical-product
 just check
 git diff --check
 ```
@@ -791,13 +811,14 @@ printer 成功不代表 target validity，更不代表 runtime equivalence。
 1. Frozen Legacy adapter 和独立 Surface normalizer 产生同一
    `CanonicalBundle` 边界。
 2. Counter/ValueVault 通过 Core semantics 和三目标 runtime parity。
-3. canonical lowering 只使用现有 EVM/Solana/NEAR plan type。
-4. Queue/Set 通过现有三个 public target ID 编译，且没有修改 Core 或
+3. 完整现有 product matrix 和主目标 coverage manifest 通过 canonical
+   lowering，不发生支持回退。
+4. canonical lowering 只使用现有 EVM/Solana/NEAR plan type。
+5. Queue/Set 通过现有三个 public target ID 编译，且没有修改 Core 或
    target-plan constructor。
-5. `near.promise.create@1.0.0` 在 NEAR 成功，在 EVM/Solana 通过 typed
+6. `near.promise.create@1.0.0` 在 NEAR 成功，在 EVM/Solana 通过 typed
    registry fail closed。
-6. public registry 和 CLI target list 不变。
-7. `CanonicalEvidence` 不影响 capability resolution 和 target output。
-8. `just product`、canonical gates、`just check`、
+7. public registry 和 CLI target list 不变。
+8. `CanonicalEvidence` 不影响 capability resolution 和 target output。
+9. `just product`、canonical gates、`just check`、
    `git diff --check` 全部通过。
-

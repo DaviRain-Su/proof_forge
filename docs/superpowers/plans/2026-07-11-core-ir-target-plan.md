@@ -33,6 +33,7 @@
 | 1 | Stable Core schema, validator, semantics, Legacy inventory | Invalid programs reject; semantic anchors pass |
 | 2 | Counter/ValueVault Legacy adapter parity | State/return/event/error/effect parity |
 | 3 | Typed HostOp and existing target-plan builders | EVM, Solana, NEAR tool/runtime parity |
+| 3B | Complete existing advertised fragment | Canonical product and coverage manifests pass |
 | 4 | Independent Surface plus Queue/Set | No Core/backend diff for collection feature |
 | 5 | NEAR Promise HostOp vertical slice | NEAR success; EVM/Solana typed rejection |
 | 6 | Public-route cutover and spike removal | `just product`, `just check`, docs and diff gates |
@@ -239,7 +240,7 @@ runtime fragment is:
 | let/bind/assign/assert/revert/if/bounded loop/return | normalize |
 | structs, maps, fixed/dynamic arrays, storage paths | reject until their Core validator and semantics tasks land |
 | crosscalls and target-only receiver checks | reject until a typed portable primitive or HostOp handler exists |
-| NEAR promise constructors | reject until Task 14 |
+| NEAR promise constructors | reject until Task 17 |
 | selector/ABI/event words, allocator, constructor, upgrade/proxy, intents | materialization |
 | Quint/Lean invariants, source provenance | evidence |
 
@@ -249,7 +250,7 @@ compile until it receives a decision.
 - [ ] **Step 3: Add the freeze script**
 
 `scripts/canonical/check-legacy-freeze.sh` must fail when a diff adds a line
-matching `^[[:space:]]*|\` inside the `Expr`, `Effect`, or `Statement`
+matching `^[[:space:]]*[|]` inside the `Expr`, `Effect`, or `Statement`
 declarations without also changing `Legacy/Classification.lean`. It prints:
 
 ```text
@@ -436,8 +437,10 @@ Run passes in this order so diagnostics are deterministic:
 6. terminator and return typing;
 7. capability and HostOp references.
 
-Each error records function, block, instruction index, and source span when
-available.
+Each semantic error records function, block, instruction index, and reason.
+`decorateValidationError` may add a source span from
+`CanonicalEvidence.sourceMap`, but it cannot change the error tag or
+validation result.
 
 - [ ] **Step 4: Prove evidence isolation with deterministic output**
 
@@ -1125,3 +1128,905 @@ git add ProofForge/Backend/WasmHost/NearModulePlan/Core.lean Tests/Backend/Wasm/
 git commit -m "feat(near): build existing plan from canonical core"
 ```
 
+---
+
+## Wave 3B: Close the Existing Advertised Fragment
+
+### Task 12.1: Close Portable Data, Storage, and Control Coverage
+
+**Files:**
+- Create: `Tests/Canonical/LegacyCoverage.tsv`
+- Create: `Tests/Canonical/LegacyCoverage.lean`
+- Create: `Tests/Canonical/ProductMatrix.lean`
+- Create: `scripts/canonical/check-coverage.py`
+- Modify: `ProofForge/IR/Core/Syntax.lean`
+- Modify: `ProofForge/IR/Core/Validate.lean`
+- Modify: `ProofForge/IR/Core/Semantics.lean`
+- Modify: `ProofForge/IR/Legacy/Classification.lean`
+- Modify: `ProofForge/IR/Legacy/Adapter/Expr.lean`
+- Modify: `ProofForge/IR/Legacy/Adapter/Statement.lean`
+- Modify: `ProofForge/Backend/Evm/Plan/Core.lean`
+- Modify: `ProofForge/Backend/Solana/Plan/Core.lean`
+- Modify: `ProofForge/Backend/WasmHost/NearModulePlan/Core.lean`
+- Modify: `Tests/Canonical/Emit.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Extends the accepted canonical fragment to every portable constructor already
+  used by the product matrix and the primary-target coverage manifests.
+- Produces `canonical-product`, which runs the existing product matrix through
+  `CompilerPipeline.canonical` while public routing is still Legacy.
+
+- [ ] **Step 1: Build a failing coverage manifest**
+
+`LegacyCoverage.tsv` has one row per Legacy constructor and these columns:
+
+```text
+node_kind	constructor	disposition	core_semantics	evm	solana	near	evidence
+```
+
+`check-coverage.py` compares it with
+`Tests/Backend/Evm/EvmCoverage.tsv`,
+`Tests/Backend/Wasm/EmitWatCoverage.tsv`, the Solana tests included by
+`just solana-light`, and the sources included by `just product`. It fails
+when an advertised Legacy case has no canonical decision or test evidence.
+
+Run:
+
+```bash
+python3 scripts/canonical/check-coverage.py
+```
+
+Expected: FAIL with the first currently advertised constructor missing from the
+new manifest.
+
+- [ ] **Step 2: Implement the existing portable feature families**
+
+Close these families in Core, validation, semantics, Legacy normalization, and
+all applicable existing target plans:
+
+| Family | Required canonical behavior |
+|---|---|
+| aggregates | struct values/fields, fixed arrays, dynamic arrays, bytes/string |
+| persistent state | scalar, map presence/get/set, fixed/dynamic array, struct field, nested storage path |
+| memory | allocate, length, read, write, release, ownership errors |
+| scalar ops | mod, pow where supported, bitwise, shifts, cast, comparison, boolean |
+| control/errors | assertEq, structured revert, branch, bounded loop, supported unbounded-loop requirement |
+| events | ordinary and indexed event schemas with ordered arguments |
+
+Any operation not supported by all three targets carries a capability
+requirement and preserves the existing target-specific diagnostic. Do not
+weaken an existing reject into a placeholder implementation.
+
+- [ ] **Step 3: Run the complete product matrix in canonical shadow mode**
+
+`ProductMatrix.lean` loads the same business sources as `just product`, uses
+the same supported target matrix, and invokes
+`compileForTest .canonical`. Compare success/rejection class, artifact
+metadata, entrypoints, and diagnostics with the current public Legacy route.
+
+```make
+canonical-product:
+    lake env lean --run Tests/Canonical/ProductMatrix.lean
+    lake env lean --run Tests/Canonical/LegacyCoverage.lean
+    python3 scripts/canonical/check-coverage.py
+```
+
+- [ ] **Step 4: Run and commit**
+
+```bash
+just product
+just canonical-product
+just canonical-core
+lake build
+git diff --check
+git add Tests/Canonical/LegacyCoverage.tsv Tests/Canonical/LegacyCoverage.lean Tests/Canonical/ProductMatrix.lean scripts/canonical/check-coverage.py ProofForge/IR/Core/Syntax.lean ProofForge/IR/Core/Validate.lean ProofForge/IR/Core/Semantics.lean ProofForge/IR/Legacy/Classification.lean ProofForge/IR/Legacy/Adapter/Expr.lean ProofForge/IR/Legacy/Adapter/Statement.lean ProofForge/Backend/Evm/Plan/Core.lean ProofForge/Backend/Solana/Plan/Core.lean ProofForge/Backend/WasmHost/NearModulePlan/Core.lean Tests/Canonical/Emit.lean justfile
+git commit -m "feat(core): close portable product fragment coverage"
+```
+
+### Task 12.2: Close Context, Crosscall, ABI, and Materialization Coverage
+
+**Files:**
+- Create: `Tests/Canonical/MaterializationParity.lean`
+- Create: `Tests/Canonical/DiagnosticParity.lean`
+- Modify: `Tests/Canonical/LegacyCoverage.tsv`
+- Modify: `ProofForge/IR/Core/Syntax.lean`
+- Modify: `ProofForge/IR/Core/HostOp.lean`
+- Modify: `ProofForge/IR/Core/Validate.lean`
+- Modify: `ProofForge/IR/Core/Semantics.lean`
+- Modify: `ProofForge/IR/Canonical.lean`
+- Modify: `ProofForge/IR/Legacy/Classification.lean`
+- Modify: `ProofForge/IR/Legacy/Adapter.lean`
+- Modify: `ProofForge/Backend/Evm/Plan/Core.lean`
+- Modify: `ProofForge/Backend/Solana/Plan/Core.lean`
+- Modify: `ProofForge/Backend/WasmHost/NearModulePlan/Core.lean`
+- Modify: `ProofForge/Target/HostOpRegistry.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Closes every remaining case used by `just product`, `just evm-all`,
+  `just solana-light`, and required NEAR/EmitWat gates.
+- Preserves target-specific semantics through typed capabilities or typed
+  HostOps, never untyped payloads.
+
+- [ ] **Step 1: Write failing materialization and diagnostic parity tests**
+
+Cover:
+
+- every portable and chain-only context field currently advertised;
+- hash/hash-two-to-one and target-gated crypto;
+- portable crosscall invoke modes and return values;
+- target-specific CREATE/CREATE2, receiver checks, PDA/CPI/syscall, and NEAR
+  host forms that are currently required;
+- fallback/receive, selector/discriminator, parameter/return ABI, indexed event
+  ABI, constructor bindings, allocator, proxy/upgrade policy;
+- missing capability, unsupported target, malformed metadata, and wrong ABI
+  fail with the same or a stricter diagnostic than Legacy.
+
+- [ ] **Step 2: Normalize portable calls and register target-only operations**
+
+Portable call semantics use `InstructionOp.crosscall` and typed
+`CoreCrosscallSpec`. Target-only operations receive exact versioned HostOp
+signatures and handlers that return existing target-plan operations. A HostOp
+handler is added only when its Legacy behavior is currently advertised and its
+positive and negative tests are in this task.
+
+- [ ] **Step 3: Preserve artifact-affecting fields outside evidence**
+
+`MaterializationParity.lean` compares legacy and canonical ABI/artifact JSON
+for every product source. Constructor, allocator, selector/discriminator,
+event ABI, proxy, upgrade, and target extension data must be equal after
+normalization. Changing `CanonicalEvidence` must not change the comparison.
+
+- [ ] **Step 4: Run the full shadow gate**
+
+```bash
+just product
+just canonical-product
+just canonical-core
+scripts/canonical/evm-parity.sh
+scripts/canonical/solana-parity.sh
+scripts/canonical/near-parity.sh
+lake env lean --run Tests/Canonical/MaterializationParity.lean
+lake env lean --run Tests/Canonical/DiagnosticParity.lean
+git diff --check
+```
+
+Expected: every required current success remains a success and every current
+target rejection remains fail-closed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Tests/Canonical/MaterializationParity.lean Tests/Canonical/DiagnosticParity.lean Tests/Canonical/LegacyCoverage.tsv ProofForge/IR/Core/Syntax.lean ProofForge/IR/Core/HostOp.lean ProofForge/IR/Core/Validate.lean ProofForge/IR/Core/Semantics.lean ProofForge/IR/Canonical.lean ProofForge/IR/Legacy/Classification.lean ProofForge/IR/Legacy/Adapter.lean ProofForge/Backend/Evm/Plan/Core.lean ProofForge/Backend/Solana/Plan/Core.lean ProofForge/Backend/WasmHost/NearModulePlan/Core.lean ProofForge/Target/HostOpRegistry.lean justfile
+git commit -m "feat(core): close primary target materialization coverage"
+```
+
+---
+
+## Wave 4: Add the Independent Surface and Collections
+
+### Task 13: Define and Normalize the Independent Surface AST
+
+**Files:**
+- Create: `ProofForge/Frontend/Surface/Type.lean`
+- Create: `ProofForge/Frontend/Surface/Syntax.lean`
+- Create: `ProofForge/Frontend/Surface/Validate.lean`
+- Create: `ProofForge/Frontend/Surface/Normalize.lean`
+- Create: `ProofForge/Frontend/Surface/Semantics.lean`
+- Create: `ProofForge/Frontend/Surface.lean`
+- Create: `ProofForge/Frontend.lean`
+- Create: `Tests/Canonical/SurfaceNormalize.lean`
+- Create: `Tests/Canonical/SurfaceParity.lean`
+- Modify: `ProofForge.lean`
+
+**Interfaces:**
+- Produces:
+  `normalizeSurface : Frontend.Surface.Contract -> Except SurfaceError CanonicalBundle`.
+- Guarantees: Surface imports neither Legacy IR nor any backend/target AST.
+- Initial supported Surface fragment matches Counter and ValueVault plus typed
+  map/fixed-array primitives needed by collections.
+
+- [ ] **Step 1: Write the failing import and normalization tests**
+
+`SurfaceNormalize.lean` constructs independent Surface versions of Counter
+and ValueVault and asserts their checked canonical contracts are equal to the
+Legacy adapter outputs after removing source evidence. It also checks:
+
+- duplicate source names fail before ID assignment;
+- generated names use the reserved `$surface.` namespace;
+- ordinary user names beginning with `$surface.` are rejected;
+- effectful expressions normalize left-to-right to explicit instructions;
+- bounded loops retain `LoopBound.atMost`;
+- invalid source type, missing return, and unknown state fail.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/SurfaceNormalize.lean
+```
+
+Expected: FAIL because `ProofForge.Frontend.Surface` does not exist.
+
+- [ ] **Step 2: Define a complete independent Surface vocabulary**
+
+Define Surface-owned types for literals, types, expressions, lvalues,
+statements, structs, state, events, errors, entrypoints, interface hints,
+materialization intents, and source spans. Do not alias `IR.Expr`,
+`IR.Effect`, `IR.Statement`, or `IR.Module`.
+
+The first fragment includes:
+
+| Surface category | Constructors |
+|---|---|
+| expression | literal, local, state read, field/index, unary, arithmetic, comparison, boolean, cast, hash, context read |
+| statement | bind, mutable bind, assign, state write, emit, assert, revert, branch, bounded loop, return |
+| state | scalar, map, fixed array, dynamic array, record |
+| entrypoint | name, kind, mutability, typed params/return, body, source span |
+
+- [ ] **Step 3: Implement deterministic typecheck and normalization**
+
+Assign canonical IDs by declaration order after duplicate-name validation.
+Expression normalization uses the same `NormalizedValue` shape as the Legacy
+adapter. Surface `InterfaceIntent` and `MaterializationIntent` map to the
+checked canonical contract; spans map to evidence.
+
+The normalizer must produce byte-for-byte equal canonical contract hashes for
+equivalent Counter/ValueVault Surface and Legacy inputs.
+
+- [ ] **Step 4: Add Surface semantic parity**
+
+`SurfaceParity.lean` executes Surface reference semantics and Core semantics
+for Counter initialize/increment/get and ValueVault initialize/deposit/release.
+Compare state, returns, events, errors, and ordered effects.
+
+- [ ] **Step 5: Enforce the dependency direction**
+
+Run:
+
+```bash
+rg -n "ProofForge\.IR\.Contract|ProofForge\.Backend|ProofForge\.Compiler\.(Yul|Wasm)" ProofForge/Frontend
+```
+
+Expected: no matches.
+
+- [ ] **Step 6: Run and commit**
+
+```bash
+lake env lean --run Tests/Canonical/SurfaceNormalize.lean
+lake env lean --run Tests/Canonical/SurfaceParity.lean
+lake build
+git diff --check
+git add ProofForge/Frontend/Surface/Type.lean ProofForge/Frontend/Surface/Syntax.lean ProofForge/Frontend/Surface/Validate.lean ProofForge/Frontend/Surface/Normalize.lean ProofForge/Frontend/Surface/Semantics.lean ProofForge/Frontend/Surface.lean ProofForge/Frontend.lean Tests/Canonical/SurfaceNormalize.lean Tests/Canonical/SurfaceParity.lean ProofForge.lean
+git commit -m "feat(frontend): add independent canonical surface"
+```
+
+### Task 14: Teach Contract Loading About Versioned Surface Sources
+
+**Files:**
+- Create: `Examples/Product/Canonical/Counter.lean`
+- Create: `Examples/Product/Canonical/ValueVault.lean`
+- Create: `Tests/Canonical/SourceLoader.lean`
+- Modify: `ProofForge/Contract/Source.lean`
+- Modify: `ProofForge/Cli/ContractLoader.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `ProofForge/Contract/SdkSchema.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces source discovery for either `ContractSpec` v1 or
+  `Frontend.Surface.Contract` v2.
+- Keeps existing v1 source files and public CLI syntax working.
+
+- [ ] **Step 1: Write loader failures first**
+
+`SourceLoader.lean` requires:
+
+- existing `Examples/Product/Counter.lean` loads as Legacy v1 and canonicalizes;
+- the new canonical Counter loads as Surface v2 and canonicalizes;
+- a module exporting both source types fails with `ambiguousContractSource`;
+- a module exporting neither fails with `missingContractSource`;
+- v2 input cannot request the Legacy pipeline;
+- v1 and v2 Counter produce equal checked canonical hashes.
+
+- [ ] **Step 2: Add a tagged compiler input**
+
+```lean
+inductive LoadedContractSource
+  | legacyV1 (spec : ContractSpec)
+  | surfaceV2 (contract : Frontend.Surface.Contract)
+
+def LoadedContractSource.toCanonical :
+    LoadedContractSource -> Except CompileDiagnostic CanonicalBundle
+```
+
+`ContractLoader` discovers exactly one supported constant. It does not
+translate Surface back to Legacy. Update SDK schema to report
+`contract_source-v1` or `contract_source-v2`.
+
+- [ ] **Step 3: Add authoring fixtures without replacing product baselines**
+
+The two canonical fixtures use the same business behavior and public names as
+their product counterparts. They are test inputs under
+`Examples/Product/Canonical/`; existing required product files remain the
+public baseline until cutover.
+
+- [ ] **Step 4: Run product-first validation and commit**
+
+```bash
+just product
+lake env lean --run Tests/Canonical/SourceLoader.lean
+lake build
+git diff --check
+git add Examples/Product/Canonical/Counter.lean Examples/Product/Canonical/ValueVault.lean Tests/Canonical/SourceLoader.lean ProofForge/Contract/Source.lean ProofForge/Cli/ContractLoader.lean ProofForge/Compiler/CanonicalPipeline.lean ProofForge/Contract/SdkSchema.lean justfile
+git commit -m "feat(frontend): load versioned surface contracts"
+```
+
+### Task 15: Normalize Set Without Core or Backend Changes
+
+**Files:**
+- Create: `ProofForge/Frontend/Surface/Collections/Set.lean`
+- Create: `Examples/Product/Canonical/SetRegistry.lean`
+- Create: `Tests/Canonical/SetNormalize.lean`
+- Create: `Tests/Canonical/SetParity.lean`
+- Modify: `ProofForge/Frontend/Surface/Syntax.lean`
+- Modify: `ProofForge/Frontend/Surface/Normalize.lean`
+- Modify: `ProofForge/Frontend/Surface.lean`
+- Modify: `ProofForge/Contract/Source.lean`
+- Modify: `Tests/Canonical/Emit.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces Surface `Set<T, capacity>`, `insert`, `remove`, and
+  `contains`.
+- Normalizes to existing Core map-to-bool plus scalar cardinality.
+- Must not modify `ProofForge/IR/Core*` or `ProofForge/Backend/*`.
+
+- [ ] **Step 1: Record the no-Core/backend baseline**
+
+```bash
+git rev-parse HEAD > build/canonical/surface-boundary-base
+```
+
+- [ ] **Step 2: Write failing Set normalization and semantics tests**
+
+Check:
+
+- declaration creates `$surface.set.<id>.members : map T bool` and
+  `$surface.set.<id>.cardinality : scalar u64`;
+- capacity zero rejects;
+- insert absent key writes true and increments cardinality;
+- insert present key changes neither value nor cardinality;
+- remove present key writes false and decrements cardinality;
+- remove absent key is stable;
+- keys remain isolated;
+- generated-name collision rejects.
+
+- [ ] **Step 3: Implement Surface-only Set expansion**
+
+Set nodes exist only in Surface. Expansion emits ordinary Core storage loads,
+stores, branches, comparisons, assertions, and arithmetic through the existing
+normalizer API. It adds no Core or target-plan operation.
+
+- [ ] **Step 4: Run all three target artifacts**
+
+```bash
+just product
+lake env lean --run Tests/Canonical/SetNormalize.lean
+lake env lean --run Tests/Canonical/SetParity.lean
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target evm --fixture set-registry --out build/canonical/set/evm
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target solana-sbpf-asm --fixture set-registry --out build/canonical/set/solana
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target wasm-near --fixture set-registry --out build/canonical/set/near
+```
+
+Validate EVM Yul with solc, Solana output with the repository
+assembler/verifier, and NEAR WAT with `wat2wasm`.
+
+- [ ] **Step 5: Enforce the boundary and commit**
+
+```bash
+base=$(cat build/canonical/surface-boundary-base)
+test -z "$(git diff --name-only "$base" -- ProofForge/IR/Core.lean ProofForge/IR/Core ProofForge/Backend)"
+git diff --check
+git add ProofForge/Frontend/Surface/Collections/Set.lean Examples/Product/Canonical/SetRegistry.lean Tests/Canonical/SetNormalize.lean Tests/Canonical/SetParity.lean ProofForge/Frontend/Surface/Syntax.lean ProofForge/Frontend/Surface/Normalize.lean ProofForge/Frontend/Surface.lean ProofForge/Contract/Source.lean Tests/Canonical/Emit.lean justfile
+git commit -m "feat(frontend): normalize bounded sets to canonical storage"
+```
+
+### Task 16: Normalize Queue Without Core or Backend Changes
+
+**Files:**
+- Create: `ProofForge/Frontend/Surface/Collections/Queue.lean`
+- Create: `Examples/Product/Canonical/BoundedQueue.lean`
+- Create: `Tests/Canonical/QueueNormalize.lean`
+- Create: `Tests/Canonical/QueueParity.lean`
+- Modify: `ProofForge/Frontend/Surface/Syntax.lean`
+- Modify: `ProofForge/Frontend/Surface/Normalize.lean`
+- Modify: `ProofForge/Frontend/Surface.lean`
+- Modify: `ProofForge/Contract/Source.lean`
+- Modify: `Tests/Canonical/Emit.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces bounded FIFO `Queue<T, capacity>`, enqueue, dequeue, peek, length.
+- Normalizes to existing fixed-array and scalar Core state shapes.
+- Must not modify `ProofForge/IR/Core*` or `ProofForge/Backend/*`.
+
+- [ ] **Step 1: Record the post-Set boundary baseline**
+
+```bash
+git rev-parse HEAD > build/canonical/queue-boundary-base
+```
+
+- [ ] **Step 2: Write failing layout and FIFO tests**
+
+Check:
+
+- one Queue creates items/head/length with reserved non-colliding IDs;
+- capacity zero rejects;
+- enqueue on full queue returns the declared structured error;
+- dequeue/peek on empty queue return the declared structured error;
+- enqueue 1,2 then dequeue returns 1,2;
+- head wraps at capacity;
+- length never exceeds capacity;
+- two queues remain isolated.
+
+- [ ] **Step 3: Implement the exact ring-buffer expansion**
+
+Enqueue:
+
+1. load head and length;
+2. assert `length < capacity`;
+3. compute `index = (head + length) mod capacity` using explicit wrapping
+   arithmetic where overflow is semantically irrelevant after modulo;
+4. store the value at items[index];
+5. store `length + 1`.
+
+Dequeue:
+
+1. load head and length;
+2. assert `length > 0`;
+3. load items[head] into the result value;
+4. store `(head + 1) mod capacity`;
+5. store `length - 1`;
+6. return the previously loaded value.
+
+- [ ] **Step 4: Run product, semantic, and tri-target gates**
+
+```bash
+just product
+lake env lean --run Tests/Canonical/QueueNormalize.lean
+lake env lean --run Tests/Canonical/QueueParity.lean
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target evm --fixture bounded-queue --out build/canonical/queue/evm
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target solana-sbpf-asm --fixture bounded-queue --out build/canonical/queue/solana
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target wasm-near --fixture bounded-queue --out build/canonical/queue/near
+```
+
+Run the same target artifact validators used in Task 15.
+
+- [ ] **Step 5: Enforce the boundary and commit**
+
+```bash
+base=$(cat build/canonical/queue-boundary-base)
+test -z "$(git diff --name-only "$base" -- ProofForge/IR/Core.lean ProofForge/IR/Core ProofForge/Backend)"
+git diff --check
+git add ProofForge/Frontend/Surface/Collections/Queue.lean Examples/Product/Canonical/BoundedQueue.lean Tests/Canonical/QueueNormalize.lean Tests/Canonical/QueueParity.lean ProofForge/Frontend/Surface/Syntax.lean ProofForge/Frontend/Surface/Normalize.lean ProofForge/Frontend/Surface.lean ProofForge/Contract/Source.lean Tests/Canonical/Emit.lean justfile
+git commit -m "feat(frontend): normalize bounded queues to canonical storage"
+```
+
+---
+
+## Wave 5: Prove the HostOp Boundary
+
+### Task 17: Implement `near.promise.create@1.0.0`
+
+**Files:**
+- Create: `ProofForge/Frontend/Surface/Host/Near.lean`
+- Create: `ProofForge/Backend/WasmHost/NearModulePlan/HostOps.lean`
+- Create: `Tests/Canonical/NearPromiseHostOp.lean`
+- Create: `Tests/Backend/Wasm/CanonicalNearPromise.lean`
+- Create: `scripts/canonical/near-promise-hostop.sh`
+- Modify: `ProofForge/IR/Core/HostOp.lean`
+- Modify: `ProofForge/IR/Core/Semantics.lean`
+- Modify: `ProofForge/Frontend/Surface/Syntax.lean`
+- Modify: `ProofForge/Frontend/Surface/Normalize.lean`
+- Modify: `ProofForge/Backend/WasmHost/NearModulePlan/Core.lean`
+- Modify: `ProofForge/Backend/WasmHost/NearModulePlan.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `Tests/Canonical/Emit.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Registers exact ID `near.promise.create@1.0.0`.
+- Signature:
+  `[string, string, bytes, u128, u64] -> [u64]`.
+- Effect class: `external`; capability: `nearPromise`.
+- NEAR handler returns `Array NearOpPlan`; EVM and Solana have no handler.
+
+- [ ] **Step 1: Write the failing typed-call tests**
+
+`NearPromiseHostOp.lean` checks the exact catalog signature and rejects:
+
+- missing gas argument;
+- `u64` deposit instead of `u128`;
+- wrong result type;
+- version `1.0.1`;
+- call without `nearPromise`;
+- call resolved for EVM;
+- call resolved for Solana.
+
+`CanonicalNearPromise.lean` initially fails because NEAR has no handler.
+
+- [ ] **Step 2: Add Surface construction and normalization**
+
+`Frontend.Surface.Host.Near.promiseCreate` accepts account ID, method name,
+serialized args, deposit, gas, and a result local. Normalization emits one
+`hostCall` instruction whose result is `u64`. It does not add a generic
+string payload or target AST.
+
+- [ ] **Step 3: Add reference semantics**
+
+The Core host semantics for the test environment appends:
+
+```lean
+structure NearPromiseTrace where
+  accountId : String
+  methodName : String
+  args : ByteArray
+  deposit : BitVec 128
+  gas : UInt64
+  promiseIndex : UInt64
+```
+
+and returns the next promise index. Unknown versions remain errors.
+
+- [ ] **Step 4: Add the NEAR plan handler**
+
+Register one `HostOpHandler NearOpPlan` under target `wasm-near`. It lowers
+to the existing `promise_create` import plan and result capture. The handler
+must consume the exact signature and cannot emit `Wasm.Insn`.
+
+- [ ] **Step 5: Run positive and negative target gates**
+
+```bash
+lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
+scripts/canonical/near-promise-hostop.sh
+just wasm-near-plan
+just near-plan-smoke
+just wasm-near-ft-transfer-call-e2e
+git diff --check
+```
+
+The script runs `wat2wasm` and the offline host. The EVM and Solana negative
+tests must report `missingHostOpHandler`, not a generic unsupported node.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ProofForge/Frontend/Surface/Host/Near.lean ProofForge/Backend/WasmHost/NearModulePlan/HostOps.lean Tests/Canonical/NearPromiseHostOp.lean Tests/Backend/Wasm/CanonicalNearPromise.lean scripts/canonical/near-promise-hostop.sh ProofForge/IR/Core/HostOp.lean ProofForge/IR/Core/Semantics.lean ProofForge/Frontend/Surface/Syntax.lean ProofForge/Frontend/Surface/Normalize.lean ProofForge/Backend/WasmHost/NearModulePlan/Core.lean ProofForge/Backend/WasmHost/NearModulePlan.lean ProofForge/Compiler/CanonicalPipeline.lean Tests/Canonical/Emit.lean justfile
+git commit -m "feat(near): lower typed promise create host operation"
+```
+
+---
+
+## Wave 6: Promote Existing Targets and Remove the Spike
+
+### Task 18: Cut Over `evm` Without Fallback
+
+**Files:**
+- Create: `Tests/Canonical/EvmPublicRoute.lean`
+- Modify: `ProofForge/Target/BackendRegistry.lean`
+- Modify: `ProofForge/Cli/TargetDriver.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Public `evm` build/check/emit uses canonical normalization and existing
+  `Evm.Plan`.
+- Legacy EVM remains callable only from dual-run tests.
+
+- [ ] **Step 1: Write a route test**
+
+Compile product Counter and ValueVault through the public target ID and compare
+their artifact hashes with explicit canonical mode. Inject an unsupported Core
+operation and assert the public route returns the same canonical diagnostic; it
+must not retry the Legacy backend.
+
+- [ ] **Step 2: Switch the route and run product-first gates**
+
+```bash
+just product
+just canonical-product
+lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+scripts/canonical/evm-parity.sh
+just evm-all
+just check
+git diff --check
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add Tests/Canonical/EvmPublicRoute.lean ProofForge/Target/BackendRegistry.lean ProofForge/Cli/TargetDriver.lean ProofForge/Compiler/CanonicalPipeline.lean justfile
+git commit -m "feat(evm): promote canonical pipeline on public target"
+```
+
+### Task 19: Cut Over `solana-sbpf-asm` Without Fallback
+
+**Files:**
+- Create: `Tests/Canonical/SolanaPublicRoute.lean`
+- Modify: `ProofForge/Target/BackendRegistry.lean`
+- Modify: `ProofForge/Cli/TargetDriver.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Public Solana build/check/emit uses canonical normalization and existing
+  `SolanaModulePlan`.
+
+- [ ] **Step 1: Write public-route parity and fail-closed tests**
+
+Compare public and explicit canonical artifacts for Counter/ValueVault and
+verify an unsupported operation does not invoke Legacy lowering.
+
+- [ ] **Step 2: Switch and run gates**
+
+```bash
+just product
+just canonical-product
+lake env lean --run Tests/Canonical/SolanaPublicRoute.lean
+scripts/canonical/solana-parity.sh
+just solana-light
+just check
+git diff --check
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add Tests/Canonical/SolanaPublicRoute.lean ProofForge/Target/BackendRegistry.lean ProofForge/Cli/TargetDriver.lean ProofForge/Compiler/CanonicalPipeline.lean justfile
+git commit -m "feat(solana): promote canonical pipeline on public target"
+```
+
+### Task 20: Cut Over `wasm-near` Without Fallback
+
+**Files:**
+- Create: `Tests/Canonical/NearPublicRoute.lean`
+- Modify: `ProofForge/Target/BackendRegistry.lean`
+- Modify: `ProofForge/Cli/TargetDriver.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Public NEAR build/check/emit uses canonical normalization and the existing
+  `NearModulePlan`.
+
+- [ ] **Step 1: Write public-route parity and fail-closed tests**
+
+Compare public and explicit canonical Counter/ValueVault artifacts, validate
+Wasm, and verify unsupported operations do not invoke Legacy EmitWat.
+
+- [ ] **Step 2: Switch and run gates**
+
+```bash
+just product
+just canonical-product
+lake env lean --run Tests/Canonical/NearPublicRoute.lean
+scripts/canonical/near-parity.sh
+just emitwat-ci-smoke
+just near-target-first
+just wasm-near-host-smoke
+just near-offline-host-transaction
+just check
+git diff --check
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add Tests/Canonical/NearPublicRoute.lean ProofForge/Target/BackendRegistry.lean ProofForge/Cli/TargetDriver.lean ProofForge/Compiler/CanonicalPipeline.lean justfile
+git commit -m "feat(near): promote canonical pipeline on public target"
+```
+
+### Task 21: Delete Parallel Spike Plans and Enforce the Boundary
+
+**Files:**
+- Create: `scripts/canonical/check-boundary.sh`
+- Create: `Tests/Canonical/Boundary.lean`
+- Delete: `ProofForge/Backend/Evm/CorePlan.lean`
+- Delete: `ProofForge/Backend/Evm/CoreLower.lean`
+- Delete: `ProofForge/Backend/Solana/CorePlan.lean`
+- Delete: `ProofForge/Backend/Solana/CoreLower.lean`
+- Delete: `ProofForge/Backend/WasmHost/CorePlan.lean`
+- Delete: `ProofForge/Backend/WasmHost/CoreLower.lean`
+- Delete: `ProofForge/Target/CoreBackend.lean`
+- Delete: `ProofForge/Cli/CoreBackend.lean`
+- Delete: `Tests/EvmCoreSmoke.lean`
+- Delete: `Tests/SolanaCoreSmoke.lean`
+- Delete: `Tests/WasmHostCoreSmoke.lean`
+- Modify: `ProofForge/Backend/Evm.lean`
+- Modify: `ProofForge/Backend/Solana.lean`
+- Modify: `ProofForge/Backend/WasmHost.lean`
+- Modify: `ProofForge/Target.lean`
+- Modify: `ProofForge/Cli.lean`
+- Modify: `lakefile.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces `canonical-boundary`, a required static architecture gate.
+- Removes all duplicate target plan/lower types and structural-only smokes.
+
+- [ ] **Step 1: Write the boundary script and see it fail**
+
+The script fails on any of:
+
+```text
+public target id ending in -core
+backend importing ProofForge.Frontend.Surface
+canonical target builder importing ProofForge.IR.Contract
+target plan declaration containing Yul.Statement, AstNode, or Wasm.Insn
+legacy constructor change without classification change
+remaining EvmCorePlan, SolanaCorePlan, or WasmCorePlan declaration
+```
+
+Run `scripts/canonical/check-boundary.sh`; expected failure names the current
+parallel spike files.
+
+- [ ] **Step 2: Delete the spike and update exports**
+
+Delete only the files listed above. Preserve the canonical modules and legacy
+dual-run baseline functions. Remove the `core-ir-smoke` Lake executable and
+all obsolete just recipes.
+
+- [ ] **Step 3: Add the architecture gate to `just check`**
+
+```make
+canonical-boundary:
+    scripts/canonical/check-boundary.sh
+```
+
+Add `canonical-boundary`, `canonical-core`, and `canonical-parity` to the
+backend-heavy section after required `product`.
+
+- [ ] **Step 4: Run and commit**
+
+```bash
+just product
+just canonical-boundary
+just canonical-core
+just canonical-parity
+just canonical-product
+lake build
+git diff --check
+git add scripts/canonical/check-boundary.sh Tests/Canonical/Boundary.lean ProofForge/Backend/Evm/CorePlan.lean ProofForge/Backend/Evm/CoreLower.lean ProofForge/Backend/Solana/CorePlan.lean ProofForge/Backend/Solana/CoreLower.lean ProofForge/Backend/WasmHost/CorePlan.lean ProofForge/Backend/WasmHost/CoreLower.lean ProofForge/Target/CoreBackend.lean ProofForge/Cli/CoreBackend.lean Tests/EvmCoreSmoke.lean Tests/SolanaCoreSmoke.lean Tests/WasmHostCoreSmoke.lean ProofForge/Backend/Evm.lean ProofForge/Backend/Solana.lean ProofForge/Backend/WasmHost.lean ProofForge/Target.lean ProofForge/Cli.lean lakefile.lean justfile
+git commit -m "refactor(core): remove parallel target plan spike"
+```
+
+### Task 22: Final CI, Documentation, and Rollback Window
+
+**Files:**
+- Modify: `.github/workflows/ci.yml`
+- Modify: `.woodpecker.yml`
+- Modify: `README.md`
+- Modify: `docs/architecture.md`
+- Modify: `docs/backend-interface.md`
+- Modify: `docs/validation-gates.md`
+- Modify: `docs/zh/architecture.zh.md`
+- Modify: `docs/zh/backend-interface.zh.md`
+- Modify: `docs/zh/validation-gates.zh.md`
+- Modify: `docs/generated/backend-status.md` only through its generator
+- Modify: `docs/INDEX.md`
+- Modify: `docs/zh/INDEX.zh.md`
+- Modify: `justfile`
+
+**Interfaces:**
+- CI runs product first, then canonical semantic/parity/boundary gates, then
+  the existing backend-heavy and repository checks.
+- Documentation reports only validated public capabilities.
+- Legacy dual-run functions remain test-only for one release window.
+
+- [ ] **Step 1: Add CI in product-first order**
+
+GitHub and Woodpecker must execute:
+
+```text
+just product
+just canonical-core
+just canonical-parity
+just canonical-product
+just canonical-boundary
+just check
+```
+
+Do not add live Surfpool/Pinocchio to required default CI.
+
+- [ ] **Step 2: Update architecture and validation documentation**
+
+Document:
+
+- Legacy v1 versus Surface v2 input;
+- Canonical contract versus non-semantic evidence;
+- logical state and target allocation ownership;
+- exact HostOp failure rules;
+- Queue/Set expansion;
+- the three existing public target IDs and their canonical implementation;
+- one-release test-only rollback window;
+- external tool/runtime gates.
+
+Do not describe the removed `*-core` targets or skeleton output as supported.
+
+- [ ] **Step 3: Regenerate status and run i18n checks**
+
+```bash
+python3 scripts/docs/generate-backend-status.py
+scripts/i18n/check-sync.sh
+just docs-check
+git diff --check
+```
+
+- [ ] **Step 4: Run the complete final gate**
+
+```bash
+just product
+just canonical-core
+just canonical-parity
+just canonical-product
+just canonical-boundary
+just check
+git diff --check
+```
+
+Expected: all required local gates pass. Optional live-network gates may report
+their documented skip when tools are unavailable.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add .github/workflows/ci.yml .woodpecker.yml README.md docs/architecture.md docs/backend-interface.md docs/validation-gates.md docs/zh/architecture.zh.md docs/zh/backend-interface.zh.md docs/zh/validation-gates.zh.md docs/generated/backend-status.md docs/INDEX.md docs/zh/INDEX.zh.md justfile
+git commit -m "ci(core): require canonical parity before backend suites"
+```
+
+---
+
+## Per-Target Promotion Checklist
+
+A public target is switched only when every item in its column is true:
+
+| Gate | EVM | Solana | NEAR |
+|---|---:|---:|---:|
+| Counter plan semantic assertions | required | required | required |
+| ValueVault multi-state assertions | required | required | required |
+| unsupported Core op fail-closed | required | required | required |
+| evidence-independent plan/artifact | required | required | required |
+| external syntax/assembler validation | solc | encoder/verifier | wat2wasm |
+| runtime state/return/event/error parity | Foundry/Anvil | sBPF executor | offline host |
+| existing target aggregate | `just evm-all` | `just solana-light` | EmitWat/NEAR gates |
+| public route has no Legacy fallback | required | required | required |
+
+## Plan Self-Review
+
+- **Spec coverage:** Legacy freeze, independent Surface, checked Core,
+  logical storage, ANF/CFG, loop bounds, materialization ownership,
+  evidence isolation, semantics, preservation, typed HostOps, existing plan
+  reuse, complete current product/coverage closure, Queue/Set, per-target
+  parity, public-ID stability, rollback, and CI all map to tasks above.
+- **Placeholder scan:** the plan contains no deferred implementation marker;
+  each task names its files, expected initial failure, implementation contract,
+  validation commands, and commit boundary.
+- **Type consistency:** `normalizeSurface` and `adaptLegacy` both return
+  `CanonicalBundle`; validation produces `CheckedCanonicalContract`; all
+  target `buildFromCore` functions consume that checked value plus
+  `CapabilityPlan`; HostOp handlers return existing target-plan operations.
+- **Boundary consistency:** only target plans allocate physical storage;
+  Surface collections cannot modify Core/backends; evidence is excluded from
+  capability and plan APIs; no public pipeline target is introduced.
+- **Execution safety:** every commit stages explicit paths, product gates run
+  first for authoring changes, and optional live Solana tools are not required.
+
+## Execution Handoff
+
+Execute strictly in task order. Wave 0 repairs public truthfulness; Waves 1-2
+establish the semantic boundary; Wave 3 must reach all three runtime parity
+gates before Wave 4 adds syntax that Legacy cannot express. Promote targets one
+at a time and retain the frozen Legacy baseline only for the documented
+one-release rollback window.
