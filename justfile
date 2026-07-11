@@ -65,6 +65,12 @@ canonical-near-plan:
     lake env lean --run Tests/Backend/Wasm/CanonicalNearPlan.lean
     bash scripts/canonical/near-parity.sh
 
+# Wave 3B Task 12.1: canonical product matrix and coverage gate.
+canonical-product:
+    lake env lean --run Tests/Canonical/ProductMatrix.lean
+    lake env lean --run Tests/Canonical/LegacyCoverage.lean
+    python3 scripts/canonical/check-coverage.py
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
