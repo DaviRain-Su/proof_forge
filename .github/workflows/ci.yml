@@ -274,6 +274,9 @@ jobs:
       - name: Run atomic ERC-2612 permit attacks
         run: just product-erc20-permit
 
+      - name: Run Wave-T fail-closed evidence gate
+        run: just wave-t-gate
+
       - name: Run Anvil deploy smoke
         run: just evm-anvil-deploy
 

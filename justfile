@@ -556,6 +556,16 @@ standard-compliance:
     lake build ProofForge.Contract.Compliance
     lake env lean --run Tests/StandardCompliance.lean
 
+# Unit-test and run the fail-closed Wave-T evidence aggregator.
+wave-t-gate-test:
+    python3 scripts/evidence/test_wave_t_gate.py
+
+wave-t-gate: wave-t-gate-test
+    python3 scripts/evidence/wave_t_gate.py \
+      --manifest scripts/evidence/wave-t-gates.json \
+      --output build/evidence/wave-t.json \
+      --repo-root .
+
 # Canonical EVM signature/selector schema and fail-closed mismatch validation.
 evm-abi-schema:
     lake env lean --run Tests/EvmAbiSchema.lean
