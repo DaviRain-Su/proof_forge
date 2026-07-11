@@ -159,8 +159,23 @@ def inputAccountFieldPtr (dst : Reg) (layout : AccountInputLayout) (absOff : Nat
   ]
 
 def lowerAccountScanStep (labelPrefix : String) (idx : Nat) : Array AstNode :=
+  let uniqueLabel := s!"{labelPrefix}_account_scan_{idx}_unique"
   let alignedLabel := s!"{labelPrefix}_account_scan_{idx}_aligned"
-  stackPtr .r6 accountPtrTableOffset ++ #[
+  let doneLabel := s!"{labelPrefix}_account_scan_{idx}_done"
+  #[
+    .instruction { opcode := .ldxb, dst := some .r4, src := some .r3, off := some (.num 0) },
+    .instruction { opcode := .jeq, dst := some .r4, imm := some (.num 0xff), off := some (.sym uniqueLabel) },
+    .instruction { opcode := .jge, dst := some .r4, imm := some (.num idx), off := some (.sym "error_duplicate_account") },
+    .instruction { opcode := .lsh64, dst := some .r4, imm := some (.num 3) }
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
+    .instruction { opcode := .add64, dst := some .r6, src := some .r4 },
+    .instruction { opcode := .ldxdw, dst := some .r4, src := some .r6, off := some (.num 0) }
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
+    .instruction { opcode := .stxdw, dst := some .r6, off := some (.num (idx * 8)), src := some .r4 },
+    .instruction { opcode := .add64, dst := some .r3, imm := some (.num U64_SIZE) },
+    .instruction { opcode := .ja, off := some (.sym doneLabel) },
+    .label uniqueLabel
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
     .instruction { opcode := .stxdw, dst := some .r6, off := some (.num (idx * 8)), src := some .r3 },
     .instruction { opcode := .ldxdw, dst := some .r4, src := some .r3, off := some (.num 80) },
     .instruction { opcode := .add64, dst := some .r3, imm := some (.num 88) },
@@ -173,7 +188,8 @@ def lowerAccountScanStep (labelPrefix : String) (idx : Nat) : Array AstNode :=
     .instruction { opcode := .mov64, dst := some .r6, imm := some (.num 8) },
     .instruction { opcode := .sub64, dst := some .r6, src := some .r5 },
     .instruction { opcode := .add64, dst := some .r3, src := some .r6 },
-    .label alignedLabel
+    .label alignedLabel,
+    .label doneLabel
   ]
 
 def lowerAccountPtrTableSetup (labelPrefix : String) (accountCount : Nat) : Array AstNode :=

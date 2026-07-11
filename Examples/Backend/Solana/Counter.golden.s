@@ -12,6 +12,20 @@ entrypoint:
   ; scan Solana input account pointers into current stack frame
   mov64 r3, r1
   add64 r3, 8
+  ldxb r4, [r3+0]
+  jeq r4, 255, entrypoint_account_scan_0_unique
+  jge r4, 0, error_duplicate_account
+  lsh64 r4, 3
+  mov64 r6, r10
+  sub64 r6, 3488
+  add64 r6, r4
+  ldxdw r4, [r6+0]
+  mov64 r6, r10
+  sub64 r6, 3488
+  stxdw [r6+0], r4
+  add64 r3, 8
+  ja entrypoint_account_scan_0_done
+entrypoint_account_scan_0_unique:
   mov64 r6, r10
   sub64 r6, 3488
   stxdw [r6+0], r3
@@ -27,6 +41,7 @@ entrypoint:
   sub64 r6, r5
   add64 r3, r6
 entrypoint_account_scan_0_aligned:
+entrypoint_account_scan_0_done:
   mov64 r9, r3
   add64 r9, 8
   stxdw [r10-4008], r9
@@ -193,6 +208,10 @@ error_owner:
 
 error_instruction_data:
   mov64 r0, 9
+  exit
+
+error_duplicate_account:
+  mov64 r0, 13
   exit
 
 error_pda_bump:

@@ -364,7 +364,9 @@ jobs:
         run: just build
 
       - name: Run Solana Pinocchio live equivalence
-        run: just solana-pinocchio-live-equivalence
+        run: |
+          just solana-pinocchio-live-equivalence
+          just solana-duplicate-accounts-live
 
   near-sandbox-smoke:
     runs-on: ubuntu-latest
