@@ -121,6 +121,10 @@ inductive SolanaOpPlan where
       (key : SolanaValuePlan)
   | storeMap (stateId : Nat) (absOff capacity keyByteSize valueByteSize : Nat)
       (key value : SolanaValuePlan)
+  | loadArray (result : SolanaValuePlan) (stateId : Nat) (absOff capacity elementByteSize : Nat)
+      (index : SolanaValuePlan)
+  | storeArray (stateId : Nat) (absOff capacity elementByteSize : Nat)
+      (index value : SolanaValuePlan)
   | arithmetic (result : SolanaValuePlan) (op : SolanaArithmeticPlan)
       (checked : Bool) (lhs rhs : SolanaValuePlan)
   | compare (result : SolanaValuePlan) (op : SolanaComparePlan)
@@ -525,6 +529,40 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
       unless byteSize == 8 do throw { message := s!"canonical Solana store width {byteSize} is unsupported" }
       .ok #[canonicalLoadValue value .r2,
         .instruction { opcode := .stxdw, dst := some .r1, src := some .r2, off := some (.num absOff) }]
+  | .loadArray result _ absOff capacity elementByteSize index => do
+      unless elementByteSize == 8 do
+        throw { message := s!"canonical Solana array element width {elementByteSize} is unsupported" }
+      let fail := s!"core_array_load_{fnId}_{blockId}_{opIndex}_bounds"
+      let done := s!"core_array_load_{fnId}_{blockId}_{opIndex}_done"
+      .ok #[
+        canonicalLoadValue index .r2,
+        .instruction { opcode := .jge, dst := some .r2, imm := some (.num capacity), off := some (.sym fail) },
+        .instruction { opcode := .mul64, dst := some .r2, imm := some (.num elementByteSize) },
+        .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
+        .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
+        .instruction { opcode := .ldxdw, dst := some .r4, src := some .r3, off := some (.num absOff) },
+        canonicalStoreValue result .r4,
+        .instruction { opcode := .ja, off := some (.sym done) },
+        .label fail,
+        .instruction { opcode := .ja, off := some (.sym "assert_fail") },
+        .label done]
+  | .storeArray _ absOff capacity elementByteSize index value => do
+      unless elementByteSize == 8 do
+        throw { message := s!"canonical Solana array element width {elementByteSize} is unsupported" }
+      let fail := s!"core_array_store_{fnId}_{blockId}_{opIndex}_bounds"
+      let done := s!"core_array_store_{fnId}_{blockId}_{opIndex}_done"
+      .ok #[
+        canonicalLoadValue index .r2,
+        .instruction { opcode := .jge, dst := some .r2, imm := some (.num capacity), off := some (.sym fail) },
+        .instruction { opcode := .mul64, dst := some .r2, imm := some (.num elementByteSize) },
+        .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
+        .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
+        canonicalLoadValue value .r4,
+        .instruction { opcode := .stxdw, dst := some .r3, src := some .r4, off := some (.num absOff) },
+        .instruction { opcode := .ja, off := some (.sym done) },
+        .label fail,
+        .instruction { opcode := .ja, off := some (.sym "assert_fail") },
+        .label done]
   | .loadMap result _ absOff capacity keyByteSize valueByteSize key => do
       unless keyByteSize == 8 && valueByteSize == 1 do
         throw { message := "canonical Solana Set map requires u64 keys and bool values" }
@@ -678,6 +716,7 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
 
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
   | .literal result _ | .boolLiteral result _ | .loadState result .. | .loadMap result .. |
+    .loadArray result .. |
     .arithmetic result .. | .compare result .. | .context result _ => #[result]
   | _ => #[]
 

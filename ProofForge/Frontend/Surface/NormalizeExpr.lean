@@ -46,6 +46,7 @@ def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   | .hash _ => return .hash
   | .stateRead name => stateScalarType name
   | .mapRead name _ => return (← stateMapTypes name).2
+  | .arrayRead name _ => stateArrayType name
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ => return .u64
   | .nativeValue => return .u128
@@ -115,6 +116,21 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
           resultType := valueType }) valueType
       return {
         instructions := normalizedKey.instructions ++ loaded.instructions,
+        value := loaded.value }
+  | .arrayRead name index =>
+      let stateId ← lookupState name
+      let elementType ← stateArrayType name
+      let normalizedIndex ← normalizeExpr index
+      unless normalizedIndex.value.type == .u64 do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedIndex.value.type))
+      let loaded ← emitValueInstruction
+        (.storageLoad {
+          root := stateId,
+          path := #[.index normalizedIndex.value],
+          resultType := elementType }) elementType
+      return {
+        instructions := normalizedIndex.instructions ++ loaded.instructions,
         value := loaded.value }
   | .contextRead field =>
       let coreField := adaptContextField field

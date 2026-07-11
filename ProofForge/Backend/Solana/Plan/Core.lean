@@ -89,9 +89,11 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
       | _ => pure 0
     let valueByteSize ← match decl.shape with
       | .map _ value _ => coreScalarByteSize value
+      | .fixedArray element _ => coreScalarByteSize element
       | _ => pure 0
     let capacity := match decl.shape with
       | .map _ _ capacity => capacity.getD 0
+      | .fixedArray _ length => length
       | _ => 0
     fields := fields.push {
       id := toString decl.id.value
@@ -203,13 +205,15 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan) (instr : 
       match ref.path with
       | #[] => return .loadState (<- resultPlan instr) ref.root.value field.absOff field.byteSize
       | #[.mapKey key] => return .loadMap (<- resultPlan instr) ref.root.value field.absOff field.capacity field.keyByteSize field.valueByteSize (valuePlan key)
-      | _ => throw { message := "Solana canonical storage supports one mapKey segment" }
+      | #[.index index] => return .loadArray (<- resultPlan instr) ref.root.value field.absOff field.capacity field.valueByteSize (valuePlan index)
+      | _ => throw { message := "Solana canonical storage supports one mapKey or index segment" }
   | .storageStore ref value =>
       let field <- stateField fields ref.root
       match ref.path with
       | #[] => return .storeState ref.root.value field.absOff field.byteSize (valuePlan value)
       | #[.mapKey key] => return .storeMap ref.root.value field.absOff field.capacity field.keyByteSize field.valueByteSize (valuePlan key) (valuePlan value)
-      | _ => throw { message := "Solana canonical storage supports one mapKey segment" }
+      | #[.index index] => return .storeArray ref.root.value field.absOff field.capacity field.valueByteSize (valuePlan index) (valuePlan value)
+      | _ => throw { message := "Solana canonical storage supports one mapKey or index segment" }
   | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
   | .emit event args => return .log event.value (args.map valuePlan)
   | .assert condition error => return .assert (valuePlan condition) error.id.value

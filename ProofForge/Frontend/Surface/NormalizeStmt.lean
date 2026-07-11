@@ -72,6 +72,8 @@ def revertErrorRef (message : String) : SurfaceM CoreErrorRef := do
 /-- Register an assert error and return its CoreErrorRef. -/
 def assertErrorRef (message : String) : SurfaceM CoreErrorRef := do
   let s ← get
+  if let some declaration := s.env.errorDecls.find? (fun error => error.name == message) then
+    return { id := declaration.id, args := #[] }
   let id := ⟨s.env.nextErrorId⟩
   modify (fun st => { st with env := { st.env with
     errorDecls := st.env.errorDecls.push {
@@ -142,6 +144,25 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
           root := stateId,
           path := #[.mapKey normalizedKey.value],
           resultType := valueType } normalizedValue.value }
+  | .arrayWrite name index value => do
+      let stateId ← lookupState name
+      let elementType ← stateArrayType name
+      let normalizedIndex ← normalizeExpr index
+      unless normalizedIndex.value.type == .u64 do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedIndex.value.type))
+      let normalizedValue ← normalizeExpr value
+      unless normalizedValue.value.type == elementType do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr elementType)
+          (reprStr normalizedValue.value.type))
+      let instructions := normalizedIndex.instructions ++ normalizedValue.instructions
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept <| fb.emitInstr {
+        results := #[],
+        op := .storageStore {
+          root := stateId,
+          path := #[.index normalizedIndex.value],
+          resultType := elementType } normalizedValue.value }
   | .emit eventName args => do
       let eventId ← lookupEvent eventName
       let mut argRefs : Array ValueRef := #[]

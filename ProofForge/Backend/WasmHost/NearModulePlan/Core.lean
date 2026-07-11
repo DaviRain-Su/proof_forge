@@ -119,12 +119,14 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .storageLoad _ =>
           usesStorageRead := true
           match instr.op with
-          | .storageLoad { path := #[.mapKey _], .. } => pure ()
+          | .storageLoad { path := #[.mapKey _], .. }
+          | .storageLoad { path := #[.index _], .. } => pure ()
           | _ => scalarReadTypes := scalarReadTypes.push .u64
         | .storageStore _ _ =>
           usesStorageWrite := true
           match instr.op with
-          | .storageStore { path := #[.mapKey _], .. } _ => scalarWriteTypes := scalarWriteTypes
+          | .storageStore { path := #[.mapKey _], .. } _
+          | .storageStore { path := #[.index _], .. } _ => scalarWriteTypes := scalarWriteTypes
           | _ => scalarWriteTypes := scalarWriteTypes.push .u64
         | .contextRead .value => usesNativeValue := true
         | .contextRead .blockNumber => contextOps := contextOps.push .checkpointId
@@ -151,15 +153,20 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesStorageWrite
     u64IndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
       block.instructions.filterMap fun instruction => match instruction.op with
-        | .storageLoad { path := #[.mapKey _], resultType, .. } => some (coreTypeToValueType resultType)
+        | .storageLoad { path := #[.mapKey _], resultType, .. }
+        | .storageLoad { path := #[.index _], resultType, .. } => some (coreTypeToValueType resultType)
         | _ => none))
     u64IndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
       block.instructions.filterMap fun instruction => match instruction.op with
-        | .storageStore { path := #[.mapKey _], resultType, .. } _ => some (coreTypeToValueType resultType)
+        | .storageStore { path := #[.mapKey _], resultType, .. } _
+        | .storageStore { path := #[.index _], resultType, .. } _ => some (coreTypeToValueType resultType)
         | _ => none))
     usesU64IndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .storageLoad { path := #[.mapKey _], .. } | .storageStore { path := #[.mapKey _], .. } _ => true
+        | .storageLoad { path := #[.mapKey _], .. }
+        | .storageLoad { path := #[.index _], .. }
+        | .storageStore { path := #[.mapKey _], .. } _
+        | .storageStore { path := #[.index _], .. } _ => true
         | _ => false
     usesPromiseApi := usesPromiseCreate
     usesPromiseCreate
@@ -234,13 +241,15 @@ private def lowerNearOp (iface : InterfaceContract) (instr : Instruction) : Exce
   | .storageLoad ref =>
       match ref.path with
       | #[] => return .loadState (<- nearResult instr) ref.root.value
-      | #[.mapKey key] => return .loadMap (<- nearResult instr) ref.root.value (nearValue key)
-      | _ => throw { message := "NEAR canonical storage supports one mapKey segment" }
+      | #[.mapKey key] | #[.index key] =>
+          return .loadMap (<- nearResult instr) ref.root.value (nearValue key)
+      | _ => throw { message := "NEAR canonical storage supports one mapKey or index segment" }
   | .storageStore ref value =>
       match ref.path with
       | #[] => return .storeState ref.root.value (nearValue value)
-      | #[.mapKey key] => return .storeMap ref.root.value (nearValue key) (nearValue value)
-      | _ => throw { message := "NEAR canonical storage supports one mapKey segment" }
+      | #[.mapKey key] | #[.index key] =>
+          return .storeMap ref.root.value (nearValue key) (nearValue value)
+      | _ => throw { message := "NEAR canonical storage supports one mapKey or index segment" }
   | .contextRead field => return .context (<- nearResult instr) (reprStr field)
   | .emit event args =>
       let decl <- match iface.events.find? (fun decl => decl.eventId == event) with

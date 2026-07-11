@@ -213,7 +213,8 @@ def coreStorageLayout (module : Core.Module) (materialization : MaterializationC
       | .map keyType valueType capacity =>
           pure (StateKind.map (coreTypeToValueType keyType) (capacity.getD 0),
             coreTypeToValueType valueType)
-      | .fixedArray .. => throw { message := "fixed-array state is not yet materialized by the EVM Core plan" }
+      | .fixedArray element length =>
+          pure (StateKind.array length, coreTypeToValueType element)
       | .dynamicArray .. => throw { message := "dynamic-array state is not yet materialized by the EVM Core plan" }
       | .record .. => throw { message := "record state is not yet materialized by the EVM Core plan" }
     states := states.push {
@@ -295,7 +296,11 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
           (.effect (.storageMapGet (← lookupStateName env path.root) (← valueExpr env key)))]
-      | _ => .error { message := "EVM Core plan supports only one mapKey storage-load segment" }
+      | #[.index index] =>
+        let vt := coreTypeToValueType path.resultType
+        .ok #[StmtPlan.letBind (resultName instr) vt
+          (.effect (.storageArrayRead (← lookupStateName env path.root) (← valueExpr env index)))]
+      | _ => .error { message := "EVM Core plan supports one mapKey or index storage-load segment" }
   | .storageStore path value => do
       match path.path with
       | #[] =>
@@ -304,7 +309,10 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       | #[.mapKey key] =>
         .ok #[StmtPlan.effect (.storageMapSet (← lookupStateName env path.root)
           (← valueExpr env key) (← valueExpr env value))]
-      | _ => .error { message := "EVM Core plan supports only one mapKey storage-store segment" }
+      | #[.index index] =>
+        .ok #[StmtPlan.effect (.storageArrayWrite (← lookupStateName env path.root)
+          (← valueExpr env index) (← valueExpr env value))]
+      | _ => .error { message := "EVM Core plan supports one mapKey or index storage-store segment" }
   | .contextRead field => do
       let resultType ← match instr.results[0]? with
         | some result => pure (coreTypeToValueType result.type)
@@ -581,8 +589,14 @@ def buildFromCore (checked : CheckedCanonicalContract)
     block.instructions.any fun instruction => match instruction.op with
       | .storageStore { path := #[.mapKey _], .. } _ => true
       | _ => false
+  let usesArrayAccess := m.functions.any fun function => function.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .storageLoad { path := #[.index _], .. }
+      | .storageStore { path := #[.index _], .. } _ => true
+      | _ => false
   let helpers :=
     (if usesCheckedWidth then #[Helper.checkedWidth] else #[]) ++
+    (if usesArrayAccess then #[Helper.arraySlot] else #[]) ++
     (if usesMapRead || usesMapWrite then #[Helper.mapSlot] else #[]) ++
     (if usesMapWrite then #[Helper.mapPresenceSlot, Helper.mapWrite] else #[])
   let mut crosscalls := #[]

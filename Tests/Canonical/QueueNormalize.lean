@@ -1,75 +1,114 @@
 import ProofForge.Frontend.Surface
-import ProofForge.Frontend.Surface.Collections.Queue
+import Examples.Product.Canonical.BoundedQueue
+import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
+import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
 
-/-! # Queue Normalize Test
-
-Checks that Surface Queue declarations expand to Core state declarations
-with the correct generated names and shapes.
--/
+/-! Task 16 structural normalization and target materialization for bounded queues. -/
 
 open ProofForge.Frontend.Surface
+open ProofForge.IR.Core
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
-def testQueue : SurfaceQueueDecl := { id := 0, elementType := .u64, capacity := 10 }
+def testQueue := Examples.Product.Canonical.BoundedQueue.queue
+def queueContract := Examples.Product.Canonical.BoundedQueue.contract
 
-def queueContract : SurfaceContract := {
-  name := "BoundedQueue",
-  structs := #[],
-  state := testQueue.expand.toList.toArray,
-  events := #[],
-  errors := #[],
+def evmDeclarationContext : ProofForge.IR.Module := {
+  name := "BoundedQueue"
+  state := #[
+    { id := testQueue.itemsName, kind := .array 3, type := .u64 },
+    { id := testQueue.headName, kind := .scalar, type := .u64 },
+    { id := testQueue.lengthName, kind := .scalar, type := .u64 }]
   entrypoints := #[
-    { name := "initialize", kind := .function, mutability := .call,
-      params := #[], retType := .unit,
-      body := #[
-        .stateWrite "$surface.queue.0.head" (.literal (.u64Lit 0)),
-        .stateWrite "$surface.queue.0.length" (.literal (.u64Lit 0))
-      ]
-    },
-    { name := "getLength", kind := .function, mutability := .view,
-      params := #[], retType := .u64,
-      body := #[
-        .returnExpr (.stateRead "$surface.queue.0.length")
-      ]
-    }
-  ],
-  constructorParams := #[],
-  constructorBindings := #[],
-  intents := #[]
+    { name := "initialize", selector? := some "8129fc1c", body := #[] },
+    { name := "enqueue", selector? := some "a2e62045", params := #[("value", .u64)], body := #[] },
+    { name := "dequeue", selector? := some "2e17de78", returns := .u64, body := #[] },
+    { name := "peek", selector? := some "59e02dd7", mutability := .view, returns := .u64, body := #[] },
+    { name := "length", selector? := some "1f7b6d32", mutability := .view, returns := .u64, body := #[] }]
 }
 
 def main : IO Unit := do
-  /- Check 1: Queue expands to three state declarations. -/
+  IO.FS.createDirAll "build/canonical/queue/evm"
+  IO.FS.createDirAll "build/canonical/queue/solana"
+  IO.FS.createDirAll "build/canonical/queue/near"
   let expanded := testQueue.expand
-  require (expanded.size == 3) "Queue should expand to 3 state declarations"
-  require (expanded[0]!.name == "$surface.queue.0.items") "items name mismatch"
-  require (expanded[1]!.name == "$surface.queue.0.head") "head name mismatch"
-  require (expanded[2]!.name == "$surface.queue.0.length") "length name mismatch"
-
-  /- Check 2: Capacity zero rejects. -/
+  require (expanded.size == 3) "Queue expansion size"
+  require (expanded.all (fun state => state.generated)) "Queue expansion provenance"
+  match expanded[0]!.kind with
+  | .fixedArray .u64 3 => pure ()
+  | shape => throw <| IO.userError s!"wrong Queue items shape: {repr shape}"
   match SurfaceQueueDecl.validate { id := 1, elementType := .u64, capacity := 0 } with
-  | Except.error _ => pure ()
-  | Except.ok _ => throw <| IO.userError "Capacity zero should reject"
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "zero-capacity Queue accepted"
 
-  /- Check 3: Valid capacity accepts. -/
-  match SurfaceQueueDecl.validate testQueue with
-  | Except.ok _ => pure ()
-  | Except.error e => throw <| IO.userError s!"Valid queue should accept: {e}"
+  let bundle ← match normalizeSurface queueContract with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"Queue normalization failed: {repr e}"
+  require (bundle.contract.contract.module.state.size == 3) "Core Queue state count"
+  let enqueue ← match bundle.contract.contract.module.functions[1]? with
+    | some function => pure function
+    | none => throw <| IO.userError "Queue enqueue function missing"
+  let dequeue ← match bundle.contract.contract.module.functions[2]? with
+    | some function => pure function
+    | none => throw <| IO.userError "Queue dequeue function missing"
+  let hasIndexWrite := enqueue.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with
+    | .storageStore { path := #[.index _], .. } _ => true
+    | _ => false
+  let hasIndexRead := dequeue.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with
+    | .storageLoad { path := #[.index _], .. } => true
+    | _ => false
+  require hasIndexWrite "Queue enqueue emitted no Core indexed write"
+  require hasIndexRead "Queue dequeue emitted no Core indexed read"
+  require (enqueue.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with | .assert _ error => error.id.value == 0 | _ => false)
+    "QueueFull identity was not preserved"
+  require (dequeue.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with | .assert _ error => error.id.value == 1 | _ => false)
+    "QueueEmpty identity was not preserved"
 
-  /- Check 4: Contract with expanded queue state normalizes. -/
-  match normalizeSurface queueContract with
-  | Except.ok bundle =>
-    require (bundle.contract.contract.module.state.size == 3)
-      "Module should have 3 state declarations"
-    require (bundle.contract.contract.module.functions.size == 2)
-      "Module should have 2 functions"
-  | Except.error e => throw <| IO.userError s!"Queue contract normalize failed: {repr e}"
+  let evmCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "evm", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let evmPlan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract evmCapabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"EVM rejected Queue Core: {e.message}"
+  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan evmDeclarationContext evmPlan with
+  | .ok yul => IO.FS.writeFile "build/canonical/queue/evm/contract.yul" yul
+  | .error e => throw <| IO.userError s!"EVM Queue lowering failed: {e.message}"
 
-  /- Check 5: Generated names use $surface.queue. prefix. -/
-  require (testQueue.itemsName.startsWith "$surface.queue.") "items name should use $surface.queue. prefix"
-  require (testQueue.headName.startsWith "$surface.queue.") "head name should use $surface.queue. prefix"
-  require (testQueue.lengthName.startsWith "$surface.queue.") "length name should use $surface.queue. prefix"
+  let solanaCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "solana-sbpf-asm", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let solanaPlan ← match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract solanaCapabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"Solana rejected Queue Core: {e.message}"
+  match ProofForge.Backend.Solana.Plan.lowerFromPlan solanaPlan with
+  | .ok nodes =>
+      IO.FS.writeFile "build/canonical/queue/solana/contract.s"
+        (ProofForge.Backend.Solana.Asm.renderNodes nodes)
+  | .error e => throw <| IO.userError s!"Solana Queue lowering failed: {e.message}"
 
+  let nearCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "wasm-near", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let nearPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore bundle.contract nearCapabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"NEAR rejected Queue Core: {e.message}"
+  match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan nearPlan with
+  | .ok module =>
+      IO.FS.writeFile "build/canonical/queue/near/contract.wat"
+        (ProofForge.Compiler.Wasm.Printer.render module)
+  | .error e => throw <| IO.userError s!"NEAR Queue lowering failed: {e.message}"
+
+  let spoofed : SurfaceContract := { queueContract with
+    state := #[{ name := "$surface.queue.0.items", kind := .fixedArray .u64 3 }] }
+  match normalizeSurface spoofed with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "user-authored reserved Queue state accepted"
+  let collision : SurfaceContract := { queueContract with state := testQueue.expand ++ testQueue.expand }
+  match normalizeSurface collision with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "generated Queue name collision accepted"
   IO.println "queue-normalize: ok"

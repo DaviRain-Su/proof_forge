@@ -259,6 +259,12 @@ def stateMapTypes (name : String) : SurfaceM (CoreType × CoreType) := do
   | .map keyType valueType _ => return (keyType, valueType)
   | _ => throw (SurfaceNormalizeError.typeMismatch "map" "non-map state")
 
+def stateArrayType (name : String) : SurfaceM CoreType := do
+  let shape ← lookupStateShape name
+  match shape with
+  | .fixedArray element _ | .dynamicArray element => return element
+  | _ => throw (SurfaceNormalizeError.typeMismatch "array" "non-array state")
+
 /-- Build a resolved Surface environment from a SurfaceContract.
 Identifiers are assigned deterministically in declaration order. -/
 def buildEnv (contract : SurfaceContract) : Except SurfaceNormalizeError SurfaceEnv := do

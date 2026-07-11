@@ -18,8 +18,10 @@ open ProofForge.IR.Core
 structure SurfaceRuntimeState where
   storage : Std.HashMap String Nat
   maps : Std.HashMap String (Array (Nat × Nat)) := {}
+  arrays : Std.HashMap String (Array Nat) := {}
   events : Array (String × Array Nat)
   reverted : Bool := false
+  error : Option String := none
   returnValue : Option Nat := none
   deriving Repr
 
@@ -60,6 +62,12 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     let key ← evalExpr key st locals
     let entries := st.maps.get? name |>.getD #[]
     return (entries.find? (fun entry => entry.1 == key)).map (fun entry => entry.2) |>.getD 0
+  | .arrayRead name index => do
+    let index ← evalExpr index st locals
+    let entries := st.arrays.get? name |>.getD #[]
+    match entries[index]? with
+    | some value => return value
+    | none => .error s!"arrayOutOfBounds: {name}[{index}]"
   | .arith op checked lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
@@ -109,15 +117,21 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
         | some index => entries.set! index (key, value)
         | none => entries.push (key, value)
       s := { s with maps := s.maps.insert name entries }
+    | .arrayWrite name index value => do
+      let index ← evalExpr index s l
+      let value ← evalExpr value s l
+      let entries := s.arrays.get? name |>.getD #[]
+      if index >= entries.size then .error s!"arrayOutOfBounds: {name}[{index}]"
+      s := { s with arrays := s.arrays.insert name (entries.set! index value) }
     | .emit name args => do
       let mut vals := #[]
       for arg in args do
         vals := vals.push (← evalExpr arg s l)
       s := { s with events := s.events.push (name, vals.toList.toArray) }
-    | .assert cond _ => do
+    | .assert cond message => do
       let v ← evalExpr cond s l
-      if v == 0 then s := { s with reverted := true }
-    | .revert _ => s := { s with reverted := true }
+      if v == 0 then s := { s with reverted := true, error := some message }
+    | .revert message => s := { s with reverted := true, error := some message }
     | .branch cond thenBody elseBody => do
       let v ← evalExpr cond s l
       if v ≠ 0 then
@@ -146,6 +160,12 @@ def runEntrypoint (contract : SurfaceContract) (entrypointName : String)
   | none => .error s!"unknown entrypoint: {entrypointName}"
   let locals : Std.HashMap String Nat :=
     ep.params.toList.zip args.toList |>.foldl (fun m (p, a) => m.insert p.name a) {}
-  execStmts ep.body initialState locals
+  let initializedArrays := contract.state.foldl (fun arrays declaration =>
+    match declaration.kind with
+    | .fixedArray _ length =>
+        if arrays.contains declaration.name then arrays
+        else arrays.insert declaration.name (Array.mk (List.replicate length 0))
+    | _ => arrays) initialState.arrays
+  execStmts ep.body { initialState with arrays := initializedArrays } locals
 
 end ProofForge.Frontend.Surface

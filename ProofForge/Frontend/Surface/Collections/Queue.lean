@@ -56,10 +56,19 @@ def SurfaceQueueDecl.validate (q : SurfaceQueueDecl) : Except String Unit :=
 -/
 def SurfaceQueueDecl.enqueueStmts (q : SurfaceQueueDecl) (value : SurfaceExpr) :
     Array SurfaceStmt :=
+  let head := s!"$surface.queue.{q.id}.enqueue.head"
+  let length := s!"$surface.queue.{q.id}.enqueue.length"
+  let index := s!"$surface.queue.{q.id}.enqueue.index"
   #[
+    .bind head .u64 (.stateRead q.headName),
+    .bind length .u64 (.stateRead q.lengthName),
+    .assert (.compare .lt (.local length) (.literal (.u64Lit q.capacity))) "QueueFull",
+    .bind index .u64 (.arith .mod false
+      (.arith .add false (.local head) (.local length)) (.literal (.u64Lit q.capacity))),
+    .arrayWrite q.itemsName (.local index) value,
     .stateWrite q.lengthName
       (.arith .add true
-        (.stateRead q.lengthName)
+        (.local length)
         (.literal (.u64Lit 1)))
   ]
 
@@ -71,22 +80,33 @@ def SurfaceQueueDecl.enqueueStmts (q : SurfaceQueueDecl) (value : SurfaceExpr) :
 -/
 def SurfaceQueueDecl.dequeueStmts (q : SurfaceQueueDecl) :
     Array SurfaceStmt :=
+  let head := s!"$surface.queue.{q.id}.dequeue.head"
+  let length := s!"$surface.queue.{q.id}.dequeue.length"
+  let value := s!"$surface.queue.{q.id}.dequeue.value"
   #[
-    .stateWrite q.lengthName
-      (.arith .sub true
-        (.stateRead q.lengthName)
-        (.literal (.u64Lit 1))),
+    .bind head .u64 (.stateRead q.headName),
+    .bind length .u64 (.stateRead q.lengthName),
+    .assert (.compare .gt (.local length) (.literal (.u64Lit 0))) "QueueEmpty",
+    .bind value q.elementType (.arrayRead q.itemsName (.local head)),
     .stateWrite q.headName
       (.arith .mod true
         (.arith .add true
-          (.stateRead q.headName)
+          (.local head)
           (.literal (.u64Lit 1)))
-        (.literal (.u64Lit q.capacity)))
+        (.literal (.u64Lit q.capacity))),
+    .stateWrite q.lengthName
+      (.arith .sub true (.local length) (.literal (.u64Lit 1))),
+    .returnExpr (.local value)
   ]
 
 /-- Build expression for `peek`: reads items[head] (simplified to head scalar read). -/
 def SurfaceQueueDecl.peekExpr (q : SurfaceQueueDecl) : SurfaceExpr :=
-  .stateRead q.headName
+  .arrayRead q.itemsName (.stateRead q.headName)
+
+def SurfaceQueueDecl.peekStmts (q : SurfaceQueueDecl) : Array SurfaceStmt :=
+  #[
+    .assert (.compare .gt (.stateRead q.lengthName) (.literal (.u64Lit 0))) "QueueEmpty",
+    .returnExpr q.peekExpr]
 
 /-- Build expression for `length`: reads the length scalar. -/
 def SurfaceQueueDecl.lengthExpr (q : SurfaceQueueDecl) : SurfaceExpr :=
