@@ -181,6 +181,20 @@ class WaveTGateTest(unittest.TestCase):
         woodpecker_setup = (REPO_ROOT / "scripts" / "ci" / "woodpecker-setup.sh").read_text(encoding="utf-8")
         self.assertIn("scripts/near/install-sandbox-ci.sh", woodpecker_setup)
 
+    def test_near_sandbox_gates_pin_the_checked_binary_before_cargo(self) -> None:
+        scripts = [
+            "scripts/near/abi-client-sandbox-smoke.sh",
+            "scripts/near/ft-security-sandbox-smoke.sh",
+            "scripts/near/map-hash-alias-sandbox-smoke.sh",
+        ]
+        for relative in scripts:
+            with self.subTest(script=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                export_at = text.find("export NEAR_SANDBOX_BIN_PATH=")
+                cargo_at = text.find("cargo run")
+                self.assertGreaterEqual(export_at, 0)
+                self.assertGreater(cargo_at, export_at)
+
     def test_rejects_dirty_worktree_when_clean_evidence_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
