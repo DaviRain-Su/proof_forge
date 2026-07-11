@@ -1688,3 +1688,18 @@ ci-install-script:
 # Check for whitespace errors before committing.
 diff-check:
     git diff --check
+
+# Core IR experimental targets
+core-ir-build:
+    lake build
+
+core-evm-smoke:
+    lake env proof-forge check --target evm-core --root . Examples/Product/Counter.lean
+
+core-solana-smoke:
+    lake env proof-forge check --target solana-sbpf-asm-core --root . Examples/Product/Counter.lean
+
+core-wasm-smoke:
+    lake env proof-forge check --target wasm-near-core --root . Examples/Product/Counter.lean
+
+core-product: core-ir-build core-evm-smoke core-solana-smoke core-wasm-smoke
