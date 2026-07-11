@@ -5,6 +5,7 @@ import Lean.Util.Path
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token
 import ProofForge.Frontend.Surface
+import ProofForge.Compiler.CanonicalPipeline
 
 namespace ProofForge.Cli.ContractLoader
 
@@ -93,10 +94,7 @@ private def resolveSpecConstName (env : Environment) (modName : Name) : Option N
   (candidateSpecNames modName).find? fun candidate =>
     env.constants.contains candidate && isContractSpecConst env candidate
 
-/-- Tagged compiler input: either a Legacy v1 ContractSpec or a Surface v2 contract. -/
-inductive LoadedContractSource
-  | legacyV1 (spec : ProofForge.Contract.ContractSpec)
-  | surfaceV2 (contract : ProofForge.Frontend.Surface.SurfaceContract)
+abbrev LoadedContractSource := ProofForge.Compiler.LoadedContractSource
 
 /-- Candidate names for Surface v2 `contract` constant. -/
 private def candidateSurfaceNames (modName : Name) : List Name :=
@@ -132,11 +130,11 @@ unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
       throw <| IO.userError s!"module `{modName}` exports neither ContractSpec (v1) nor SurfaceContract (v2); missingContractSource"
   | some constName, none =>
       match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
-      | .ok spec => pure (LoadedContractSource.legacyV1 spec)
+      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.legacyV1 spec)
       | .error msg => throw <| IO.userError msg
   | none, some constName =>
       match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
-      | .ok contract => pure (LoadedContractSource.surfaceV2 contract)
+      | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.surfaceV2 contract)
       | .error msg => throw <| IO.userError msg
 
 unsafe def loadSource

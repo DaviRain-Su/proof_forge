@@ -10,6 +10,8 @@ remains the public source until cutover.
 
 open ProofForge.Frontend.Surface
 
+namespace Examples.Product.Canonical.Counter
+
 def contract : SurfaceContract := {
   name := "Counter"
   structs := #[]
@@ -41,5 +43,17 @@ def contract : SurfaceContract := {
   ]
   constructorParams := #[]
   constructorBindings := #[]
-  intents := #[]
+  intents := #[
+    { kind := .module, label := "Counter" },
+    { kind := .state, label := "count" },
+    { kind := .entrypoint, label := "initialize" },
+    { kind := .entrypoint, label := "increment" },
+    { kind := .entrypoint, label := "get" },
+    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar }
+  ]
 }
+
+end Examples.Product.Canonical.Counter

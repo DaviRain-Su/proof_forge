@@ -1,80 +1,80 @@
-import ProofForge.Frontend.Surface
-import ProofForge.IR.Legacy.Adapter
-import ProofForge.IR.Canonical
+import ProofForge.Cli.ContractLoader
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.Source
 import ProofForge.Contract.SdkSchema
 
-/-! # Source Loader Test
+/-! Task 14 end-to-end versioned source loading tests. -/
 
-Checks that the LoadedContractSource type correctly distinguishes
-v1 Legacy and v2 Surface sources, and that both normalize to
-CanonicalBundle.
--/
-
-open ProofForge.Frontend.Surface
-open ProofForge.IR.Legacy.Adapter
-open ProofForge.IR.Canonical
-open ProofForge.Contract.SdkSchema
+open ProofForge.Compiler
+open ProofForge.Cli.ContractLoader
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
-/-- Surface Counter fixture. -/
-def surfaceCounter : SurfaceContract := {
-  name := "Counter",
-  structs := #[],
-  state := #[{ name := "count", kind := .scalar .u64 }],
-  events := #[],
-  errors := #[],
-  entrypoints := #[
-    { name := "initialize", kind := .function, mutability := .call,
-      params := #[], retType := .unit,
-      body := #[.stateWrite "count" (.literal (.u64Lit 0))] }
-  , { name := "increment", kind := .function, mutability := .call,
-      params := #[], retType := .unit,
-      body := #[.stateWrite "count"
-          (.arith .add true (.stateRead "count") (.literal (.u64Lit 1)))] }
-  , { name := "get", kind := .function, mutability := .view,
-      params := #[], retType := .u64,
-      body := #[.returnExpr (.stateRead "count")] }
-  ],
-  constructorParams := #[],
-  constructorBindings := #[],
-  intents := #[],
-}
+unsafe def load (path : String) : IO ProofForge.Compiler.LoadedContractSource :=
+  loadSource path (some ".") none
 
-def main : IO Unit := do
-  /- Check 1: Surface v2 normalizes to CanonicalBundle. -/
-  match normalizeSurface surfaceCounter with
-  | Except.ok bundle =>
-    require (bundle.contract.contract.module.name == "Counter")
-      "Surface v2 module name mismatch"
-    require (bundle.contract.contract.module.functions.size == 3)
-      "Surface v2 function count mismatch"
-  | Except.error e => throw <| IO.userError s!"Surface v2 normalize failed: {repr e}"
+unsafe def expectLoadError (path expected : String) : IO Unit := do
+  try
+    let _ ← load path
+    throw <| IO.userError s!"{path}: expected `{expected}`"
+  catch error =>
+    unless error.toString.contains expected do
+      throw <| IO.userError s!"{path}: wrong diagnostic: {error}"
 
-  /- Check 2: Surface v2 normalizer is fail-closed on unknown state. -/
-  let badContract := { surfaceCounter with
-    state := #[{ name := "count", kind := .scalar .u64 }],
-    entrypoints := #[
-      { name := "get", kind := .function, mutability := .view,
-        params := #[], retType := .u64,
-        body := #[.returnExpr (.stateRead "nonexistent")] }
-    ] }
-  match normalizeSurface badContract with
-  | Except.ok _ => throw <| IO.userError "Unknown state should fail"
-  | Except.error _ => pure ()
+def canonicalize (source : ProofForge.Compiler.LoadedContractSource) : IO ProofForge.IR.Canonical.CanonicalBundle :=
+  match source.toCanonical .canonical with
+  | Except.ok bundle => pure bundle
+  | Except.error diagnostic => throw <| IO.userError diagnostic.message
 
-  /- Check 3: SdkSchema reports both source versions. -/
-  require (ProofForge.Contract.SdkSchema.sourceVersionV1 == "contract_source-v1")
-    "v1 version string mismatch"
-  require (ProofForge.Contract.SdkSchema.sourceVersionV2 == "contract_source-v2")
-    "v2 version string mismatch"
+unsafe def main : IO Unit := do
+  let legacyCounter ← load "Examples/Product/Counter.lean"
+  match legacyCounter with
+  | .legacyV1 _ => pure ()
+  | .surfaceV2 _ => throw <| IO.userError "legacy Counter discovered as Surface v2"
 
-  /- Check 4: Source.lean reports both source versions. -/
-  require (ProofForge.Contract.Source.sourceDslVersion == "contract_source-v1")
-    "Source.sourceDslVersion mismatch"
-  require (ProofForge.Contract.Source.sourceSurfaceVersion == "contract_source-v2")
-    "Source.sourceSurfaceVersion mismatch"
+  let surfaceCounter ← load "Examples/Product/Canonical/Counter.lean"
+  match surfaceCounter with
+  | .surfaceV2 _ => pure ()
+  | .legacyV1 _ => throw <| IO.userError "canonical Counter discovered as Legacy v1"
+
+  let legacyBundle ← canonicalize legacyCounter
+  let surfaceBundle ← canonicalize surfaceCounter
+  require (legacyBundle.contract == surfaceBundle.contract)
+    s!"v1 and v2 Counter checked canonical contracts differ:\nlegacy={repr legacyBundle.contract.contract}\nsurface={repr surfaceBundle.contract.contract}"
+  match surfaceCounter.toCanonical .legacy with
+  | Except.error diagnostic =>
+      require (diagnostic.message.contains "cannot request the Legacy pipeline")
+        "wrong Surface-v2/Legacy diagnostic"
+  | Except.ok _ => throw <| IO.userError "Surface v2 accepted the Legacy pipeline"
+
+  let legacyVault ← canonicalize (← load "Examples/Product/ValueVault.lean")
+  let surfaceVault ← canonicalize (← load "Examples/Product/Canonical/ValueVault.lean")
+  require (surfaceVault.contract.contract.module.state.size == 6) "Surface ValueVault state drift"
+  require (surfaceVault.contract.contract.module.functions.size == 7) "Surface ValueVault entrypoint drift"
+  require (surfaceVault.contract.contract.module.events.size == 5) "Surface ValueVault event drift"
+  require (legacyVault.contract.contract.module == surfaceVault.contract.contract.module)
+    s!"Surface ValueVault Core module differs from product ValueVault:\nlegacy={repr legacyVault.contract.contract.module}\nsurface={repr surfaceVault.contract.contract.module}"
+  require (legacyVault.contract.contract.interface == surfaceVault.contract.contract.interface)
+    "Surface ValueVault interface differs from product ValueVault"
+
+  let fixtureDir := "build/canonical/source-loader"
+  IO.FS.createDirAll fixtureDir
+  let ambiguousPath := fixtureDir ++ "/Ambiguous.lean"
+  IO.FS.writeFile ambiguousPath <|
+    "import ProofForge.Contract.Spec\n" ++
+    "import ProofForge.IR.Examples.Counter\n" ++
+    "import Examples.Product.Canonical.Counter\n" ++
+    "def spec : ProofForge.Contract.ContractSpec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module\n" ++
+    "def contract := Examples.Product.Canonical.Counter.contract\n"
+  let missingPath := fixtureDir ++ "/Missing.lean"
+  IO.FS.writeFile missingPath "def marker : Nat := 1\n"
+  expectLoadError ambiguousPath "ambiguousContractSource"
+  expectLoadError missingPath "missingContractSource"
+
+  require (ProofForge.Contract.SdkSchema.sourceVersionV1 == "contract_source-v1") "SDK v1 version"
+  require (ProofForge.Contract.SdkSchema.sourceVersionV2 == "contract_source-v2") "SDK v2 version"
+  require (ProofForge.Contract.Source.sourceDslVersion == "contract_source-v1") "Source v1 version"
+  require (ProofForge.Contract.Source.sourceSurfaceVersion == "contract_source-v2") "Source v2 version"
 
   IO.println "source-loader: ok"

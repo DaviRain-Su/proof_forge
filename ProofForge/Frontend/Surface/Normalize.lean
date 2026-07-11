@@ -120,6 +120,14 @@ def buildEvidence (contract : SurfaceContract) : CanonicalEvidence :=
     legacyClassification := #[]
   }
 
+private def moduleUsesHostOps (mod : Module) : Bool :=
+  mod.functions.any fun function =>
+    function.blocks.any fun block =>
+      block.instructions.any fun instruction =>
+        match instruction.op with
+        | .hostCall _ => true
+        | _ => false
+
 /-- Normalize a Surface contract to a CanonicalBundle.
 This assigns canonical IDs by declaration order and maps all Surface
 constructs to Core IR types. -/
@@ -141,7 +149,8 @@ def normalizeSurface (contract : SurfaceContract) :
     interface := interface,
     materialization := materialization,
     requirements := requirements,
-    hostOpCatalog := ProofForge.IR.Core.HostOp.canonicalHostOpCatalog
+    hostOpCatalog := if moduleUsesHostOps mod then
+      ProofForge.IR.Core.HostOp.canonicalHostOpCatalog else .empty
   }
   match validateCanonical canonical with
   | Except.ok checked => pure { contract := checked, evidence := evidence }
