@@ -149,6 +149,7 @@ mutual
     | storageMapGet (stateId : Name) (key : Expr)
     | storageMapInsert (stateId : Name) (key value : Expr)
     | storageMapSet (stateId : Name) (key value : Expr)
+    | storageMapDelete (stateId : Name) (key : Expr)
     | storageArrayRead (stateId : Name) (index : Expr) (feltBackedU32 : Bool)
     | storageArrayStructFieldRead (stateId : Name) (index : Expr) (fieldName : Name)
     | storageStructFieldRead (stateId : Name) (fieldName : Name)
@@ -168,6 +169,7 @@ mutual
     | storagePathAssignOp (stateId : Name) (path : Array StoragePathSegment) (op : AssignOp) (value : Expr)
     | storageMapInsert (stateId : Name) (key value : Expr)
     | storageMapSet (stateId : Name) (key value : Expr)
+    | storageMapDelete (stateId : Name) (key : Expr)
     | eventEmit (name : String) (fields : Array (Name × Expr))
     deriving Repr
 

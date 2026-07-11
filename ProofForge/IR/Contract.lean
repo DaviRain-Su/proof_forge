@@ -146,7 +146,21 @@ inductive Literal where
   | bool (value : Bool)
   | hash4 (a b c d : Nat)
   | address (value : Nat)
-  deriving BEq, Repr
+  | bytes (value : ByteArray)
+  | string (value : String)
+  deriving BEq
+
+instance : Repr Literal where
+  reprPrec n _ := match n with
+  | .u8 v => s!"Literal.u8 {v}"
+  | .u128 v => s!"Literal.u128 {v}"
+  | .u32 v => s!"Literal.u32 {v}"
+  | .u64 v => s!"Literal.u64 {v}"
+  | .bool v => s!"Literal.bool {v}"
+  | .hash4 a b c d => s!"Literal.hash4 {a} {b} {c} {d}"
+  | .address v => s!"Literal.address {v}"
+  | .bytes ba => s!"Literal.bytes ({ba.size} bytes)"
+  | .string s => s!"Literal.string {repr s}"
 
 inductive AssignOp where
   | add
@@ -172,6 +186,8 @@ mutual
     | chainId
     | gasPrice
     | gasLeft
+    | prepaidGas
+    | usedGas
     | baseFee
     | prevRandao
     | randomSeed
@@ -275,6 +291,7 @@ mutual
     | storageMapGet (stateId : String) (key : Expr)
     | storageMapInsert (stateId : String) (key value : Expr)
     | storageMapSet (stateId : String) (key value : Expr)
+    | storageMapDelete (stateId : String) (key : Expr)
     | storageArrayRead (stateId : String) (index : Expr)
     | storageArrayWrite (stateId : String) (index value : Expr)
     | storageArrayStructFieldRead (stateId : String) (index : Expr) (fieldName : String)
@@ -298,12 +315,12 @@ mutual
     code, CALL `onERC1155Received(operator,from,id,value,"")` and require
     magic return. Non-EVM targets must reject honestly. -/
     | checkErc1155Received (operator fromAddr toAddr id amount : Expr)
-    /-- EVM ERC-1155 size-2 batch receiver check (E1.2): if `to` has code, CALL
-    `onERC1155BatchReceived(operator,from,[id0,id1],[amount0,amount1],"")` and
-    require magic return. Fixed size-2 (dynamic-length batch ABI later).
+    /-- EVM ERC-1155 dynamic batch receiver check (E1.2): if `to` has code, CALL
+    `onERC1155BatchReceived(operator,from,ids,amounts,"")` and require magic return.
+    `ids` and `amounts` are `Expr.arrayLit .u256 ...` expressions.
     Non-EVM targets must reject honestly. -/
     | checkErc1155BatchReceived
-        (operator fromAddr toAddr id0 amount0 id1 amount1 : Expr)
+        (operator fromAddr toAddr ids amounts : Expr)
     deriving Repr, BEq
 
   inductive StoragePathSegment where
@@ -323,6 +340,8 @@ def ContextField.name : ContextField → String
   | .chainId => "chainId"
   | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
+  | .prepaidGas => "prepaidGas"
+  | .usedGas => "usedGas"
   | .baseFee => "baseFee"
   | .prevRandao => "prevRandao"
   | .randomSeed => "randomSeed"
@@ -333,7 +352,7 @@ def ContextField.name : ContextField → String
 def ContextField.capability : ContextField → ProofForge.Target.Capability
   | .userId | .userIdHash | .origin => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
 /-! ### Context field portability + HostEnv mapping (D-050 / gap-analysis step 1)
 
@@ -354,6 +373,8 @@ def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.Host
   | .chainId => .chainId
   | .gasPrice => .gasPrice
   | .gasLeft => .gasOrComputeBudgetLeft
+  | .prepaidGas => .nearPrepaidGas
+  | .usedGas => .nearUsedGas
   | .baseFee => .baseFee
   | .prevRandao | .randomSeed => .randomness
   | .origin => .txOrigin
@@ -397,6 +418,7 @@ structure ErrorRef where
   solidityArgExprs : Array Expr := #[]
   deriving Repr
 
+/-- Manual `BEq` for `ErrorRef`, including the runtime argument expressions. -/
 instance : BEq ErrorRef where
   beq a b :=
     a.assertionId == b.assertionId &&
@@ -526,6 +548,7 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .storageMapGet _ _ => .storageMap
   | .storageMapInsert _ _ _ => .storageMap
   | .storageMapSet _ _ _ => .storageMap
+  | .storageMapDelete _ _ => .storageMap
   | .storageArrayRead _ _ => .storageArray
   | .storageArrayWrite _ _ _ => .storageArray
   | .storageArrayStructFieldRead _ _ _ => .storageArray
@@ -555,7 +578,7 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .eventEmitIndexed _ _ _ => .eventsEmit
   | .checkErc721Received _ _ _ _ => .crosscallInvoke
   | .checkErc1155Received _ _ _ _ _ => .crosscallInvoke
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ => .crosscallInvoke
+  | .checkErc1155BatchReceived _ _ _ _ _ => .crosscallInvoke
 
 mutual
   partial def Expr.capabilities : Expr → Array ProofForge.Target.Capability
@@ -654,6 +677,7 @@ mutual
     | .storageMapGet _ key => key.capabilities
     | .storageMapInsert _ key value => key.capabilities ++ value.capabilities
     | .storageMapSet _ key value => key.capabilities ++ value.capabilities
+    | .storageMapDelete _ key => key.capabilities
     | .storageArrayRead _ index => index.capabilities
     | .storageArrayWrite _ index value => index.capabilities ++ value.capabilities
     | .storageArrayStructFieldRead _ index _ => #[.dataStruct] ++ index.capabilities
@@ -677,9 +701,9 @@ mutual
     | .checkErc1155Received operator fromAddr toAddr id amount =>
         operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
           id.capabilities ++ amount.capabilities
-    | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 =>
+    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
         operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
-          id0.capabilities ++ amount0.capabilities ++ id1.capabilities ++ amount1.capabilities
+          ids.capabilities ++ amounts.capabilities
 
   partial def StoragePathSegment.capabilities : StoragePathSegment → Array ProofForge.Target.Capability
     | .field _ => #[.dataStruct]

@@ -22,7 +22,8 @@ This document is the executable handoff for work after the current checkpoint.
 Checkpoint branch and base:
 
 - Branch: `feat/primary-triad-runtime-execution`
-- Base: `origin/main@ad8f2e86`
+- Original base: `origin/main@ad8f2e86`
+- Upstream integrated before PR: `origin/main@e8806d20`
 - Last implementation checkpoint: `ca0d8e25`
 - Worktree: `.worktrees/primary-triad-runtime`
 
@@ -67,6 +68,20 @@ Focused regressions fixed while exercising the aggregate:
   skip as a pass.
 - `token_plan_smoke` validates burn instructions according to the actual
   operation list rather than requiring burn for every token.
+
+The PR branch also integrates upstream Batch B/C work through `e8806d20`,
+including dynamic ERC-1155 batch IR, NEAR U128/gas/storage primitives, Solana
+control-flow and arithmetic coverage, NEAR/Metaplex NFT stdlib primitives, and
+cross-target refinement extensions. These are useful implementation inputs;
+they do not by themselves close the router-backed `E-03`, `N-07`, `S-06`, or
+cross-target product rows below.
+
+Upstream `e8806d20` was an empty commit whose message claimed EVM upgrade-policy
+honesty had been restored. During integration this branch reinstated the actual
+fail-closed behavior: portable `UpgradePolicy.authority keyRef` remains rejected
+until `keyRef` is bound to runtime authorization. The explicit UUPS fixture
+`admin` constructor argument is documented separately from that portable
+policy.
 
 ## 3. Current Evidence
 

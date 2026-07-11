@@ -97,5 +97,7 @@ def lowerContextExprPlan :
   | .epochHeight => .ok (#[.call "epoch_height"], .u64)
   | .randomSeed => .ok (#[.call ctxRandomSeedName], .hash)
   | .origin => .ok (#[.call ctxSignerName], .u64)
+  | .prepaidGas => .ok (#[.call "prepaid_gas"], .u64)
+  | .usedGas => .ok (#[.call "used_gas"], .u64)
 
 end ProofForge.Backend.WasmHost.Context

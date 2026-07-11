@@ -444,6 +444,46 @@ partial def lowerStmt (ctx : LowerCtx) (stmt : IR.Statement) : Except LowerError
       .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 0) },
       .instruction { opcode := .exit }
     ], ctx')
+  | .revert message =>
+    if message.isEmpty then
+      .ok (#[
+        .comment "control.revert",
+        .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 7) },
+        .instruction { opcode := .exit }
+      ], ctx)
+    else
+      .ok (#[
+        .comment s!"control.revert: {message}",
+        .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 7) },
+        .instruction { opcode := .exit }
+      ], ctx)
+  | .revertWithError errorRef =>
+    let customError := 4294967296 + errorRef.assertionId.toNat
+    .ok (#[
+      .comment s!"control.revertWithError error={errorRef.assertionId}",
+      .instruction { opcode := .mov64, dst := some .r0, imm := some (.num customError) },
+      .instruction { opcode := .exit }
+    ], ctx)
+  | .whileLoop cond body => do
+    let (loopStart, ctx) := ctx.freshLabel
+    let (loopEnd, ctx) := ctx.freshLabel
+    let (cn, ctx) ← lowerExpr ctx cond
+    let mut nodes : Array AstNode := #[
+      .comment "control.whileLoop",
+      .label loopStart
+    ] ++ cn ++ #[
+      .instruction { opcode := .jeq, dst := some .r2, imm := some (.num 0), off := some (.sym loopEnd) }
+    ]
+    let mut ctx := ctx
+    for stmt in body do
+      let (sn, ctx') ← lowerStmt ctx stmt
+      nodes := nodes.append sn
+      ctx := ctx'
+    nodes := nodes ++ #[
+      .instruction { opcode := .ja, off := some (.sym loopStart) },
+      .label loopEnd
+    ]
+    .ok (nodes, ctx)
   | _ => .error { message := "unsupported statement in Phase 1" }
 
 end ProofForge.Backend.Solana.SbpfAsm

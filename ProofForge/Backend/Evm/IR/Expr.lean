@@ -500,6 +500,8 @@ mutual
         lowerEffectExprThroughPlan module env (.storageMapContains stateId key)
     | .storageMapGet stateId key =>
         lowerEffectExprThroughPlan module env (.storageMapGet stateId key)
+    | .storageMapDelete stateId key =>
+        lowerEffectExprThroughPlan module env (.storageMapDelete stateId key)
     | .storageMapInsert stateId key value =>
         lowerEffectExprThroughPlan module env (.storageMapInsert stateId key value)
     | .storageMapSet stateId key value =>
@@ -538,7 +540,7 @@ mutual
         .error { message := "checkErc721Received is a statement effect, not an expression" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def lowerPlanEffectExpr
@@ -571,6 +573,7 @@ mutual
         .error { message := "storage.scalar.assign_op is a statement effect, not an expression" }
     | .contextRead field =>
         ProofForge.Backend.Evm.ToYul.contextExprPlan
+          toYulError
           (fun exprPlan => lowerExprPlanExpr module env exprPlan)
           field
     | .storageMapContains stateId key => do
@@ -630,6 +633,13 @@ mutual
           target
           key
           value
+    | .storageMapDeleteTarget target key =>
+        ProofForge.Backend.Evm.ToYul.mapGetTargetExpr
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          { rootSlot := target.rootSlot }
+          key
     | .storageArrayRead stateId index => do
         match ProofForge.Backend.Evm.Lower.arrayReadTargetPlan? module stateId with
         | some target =>
@@ -1082,6 +1092,35 @@ partial def lowerMapWriteStmtPlan
   | none =>
       .error { message := "EVM StmtPlan-to-Yul map write lowering produced no statements" }
 
+partial def lowerMapDeleteStmtPlan
+    (module : Module)
+    (env : TypeEnv)
+    (stateId : String)
+    (key : ProofForge.IR.Expr) : Except LowerError Lean.Compiler.Yul.Statement := do
+  let effectPlan ←
+    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
+        (.storageMapDelete stateId key) with
+    | .ok plan => .ok plan
+    | .error err => .error { message := err.message }
+  let statements ←
+    match effectPlan with
+    | .storageMapDeleteTarget .. =>
+        ProofForge.Backend.Evm.ToYul.mapWriteTargetEffectStmtPlanStatements
+          toYulError
+          (fun expr => lowerExpr module env expr)
+          (lowerPlanEffectExpr module env)
+          (.effect effectPlan)
+    | _ =>
+        .error { message := "EVM Lower.buildEffectPlan map delete did not produce storageMapDeleteTarget" }
+  match statements[0]? with
+  | some statement =>
+      if statements.size == 1 then
+        .ok statement
+      else
+        .error { message := s!"EVM StmtPlan-to-Yul map delete lowering produced {statements.size} statements, expected 1" }
+  | none =>
+      .error { message := "EVM StmtPlan-to-Yul map delete lowering produced no statements" }
+
 partial def lowerArrayWriteStmtPlan
     (module : Module)
     (env : TypeEnv)
@@ -1425,11 +1464,11 @@ partial def lowerScalarStorageEffectStmtPlan
 def lowerErc1155BatchReceiverStmtPlan
     (module : Module)
     (env : TypeEnv)
-    (operator fromAddr toAddr id0 amount0 id1 amount1 : ProofForge.IR.Expr) :
+    (operator fromAddr toAddr ids amounts : ProofForge.IR.Expr) :
     Except LowerError Lean.Compiler.Yul.Statement := do
   let effectPlan ←
     match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-        (.checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1) with
+        (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts) with
     | .ok plan => .ok plan
     | .error err => .error { message := err.message }
   let statements ←
@@ -1450,6 +1489,8 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
       .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ =>
       .error { message := "storage.map.get must be used as an expression" }
+  | .storageMapDelete stateId key =>
+      lowerMapDeleteStmtPlan module env stateId key
   | .storageMapInsert stateId key value =>
       lowerMapWriteStmtPlan module env stateId (fun stateId key value => .storageMapInsert stateId key value) key value
   | .storageMapSet stateId key value =>
@@ -1505,7 +1546,7 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
           operatorYul fromYul toYul idYul amountYul
       .ok (.block { statements := stmts })
 
-  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 =>
+  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
       lowerErc1155BatchReceiverStmtPlan
-        module env operator fromAddr toAddr id0 amount0 id1 amount1
+        module env operator fromAddr toAddr ids amounts
 end ProofForge.Backend.Evm.IR

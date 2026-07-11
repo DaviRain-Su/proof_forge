@@ -1,3 +1,4 @@
+import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.WasmInterpreter
@@ -86,4 +87,11 @@ def main : IO Unit := do
       require (message.contains "does not support dynamic")
         "unsupported NEAR codec must return an actionable build error"
   | .ok _ => throw <| IO.userError "unsupported dynamic NEAR codec did not fail closed"
+  let bareCtx := { (ProofForge.Backend.WasmHost.ModuleAssembly.loweringCtxForModule echoModule .near) with
+    entrypointAbis := #[] }
+  match ProofForge.Backend.WasmHost.EmitWat.lowerEntrypoint bareCtx echoEntrypoint with
+  | .error error =>
+      require (error.message.contains "missing NEAR ABI plan")
+        "a bare context with empty entrypointAbis must reject lowerEntrypoint"
+  | .ok _ => throw <| IO.userError "lowerEntrypoint accepted a context with no NEAR ABI plan"
   IO.println "near-abi-plan: ok"

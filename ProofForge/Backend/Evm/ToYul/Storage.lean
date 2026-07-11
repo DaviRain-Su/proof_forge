@@ -368,6 +368,34 @@ def mapWriteTargetEffectStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul planned map write lowering expected effect")
 
+def mapDeleteTargetEffectPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .storageMapDeleteTarget target key => do
+      let keyExpr ← exprPlanExpr mkError lowerExpr lowerEffect key
+      let valueSlot := helperCall Helper.mapSlot #[slotExpr target.rootSlot, keyExpr]
+      let presenceSlot := helperCall Helper.mapPresenceSlot #[slotExpr target.rootSlot, keyExpr]
+      .ok #[
+        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[valueSlot, Lean.Compiler.Yul.Expr.num 0]),
+        .exprStmt (Lean.Compiler.Yul.builtin "sstore" #[presenceSlot, Lean.Compiler.Yul.Expr.num 0])
+      ]
+  | _ =>
+      .error (mkError "EVM EffectPlan-to-Yul planned map delete lowering expected storageMapDeleteTarget")
+
+def mapDeleteTargetEffectStmtPlanStatements
+    {ε : Type}
+    (mkError : String → ε)
+    (lowerExpr : Expr → Except ε Lean.Compiler.Yul.Expr)
+    (lowerEffect : EffectPlan → Except ε Lean.Compiler.Yul.Expr) :
+    StmtPlan → Except ε (Array Lean.Compiler.Yul.Statement)
+  | .effect effect =>
+      mapDeleteTargetEffectPlanStatements mkError lowerExpr lowerEffect effect
+  | _ =>
+      .error (mkError "EVM StmtPlan-to-Yul planned map delete lowering expected effect")
+
 def arrayWriteEffectPlanStatements
     {ε : Type}
     (mkError : String → ε)

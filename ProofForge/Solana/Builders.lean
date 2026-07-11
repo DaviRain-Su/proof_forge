@@ -932,4 +932,100 @@ def invokeAssociatedTokenCreate (name funding account wallet mint : String)
     (tokenProgramName := tokenProgramName)
     (signerSeeds := signerSeeds))
 
+/-- Stake Program CPI builders -/
+def stakeDelegateStake (name stakeAccount voteAccount clockSysvar
+    stakeHistorySysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (stakeDelegateStakeCall name stakeAccount voteAccount clockSysvar
+    stakeHistorySysvar stakerAuthority (signerSeeds := signerSeeds))
+
+def invokeStakeDelegateStake (name stakeAccount voteAccount clockSysvar
+    stakeHistorySysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (stakeDelegateStakeCall name stakeAccount voteAccount clockSysvar
+    stakeHistorySysvar stakerAuthority (signerSeeds := signerSeeds))
+
+def stakeDeactivate (name stakeAccount clockSysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (stakeDeactivateCall name stakeAccount clockSysvar stakerAuthority
+    (signerSeeds := signerSeeds))
+
+def invokeStakeDeactivate (name stakeAccount clockSysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (stakeDeactivateCall name stakeAccount clockSysvar stakerAuthority
+    (signerSeeds := signerSeeds))
+
+def stakeWithdraw (name stakeAccount destination clockSysvar
+    stakeHistorySysvar withdrawerAuthority lamportsSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (stakeWithdrawCall name stakeAccount destination clockSysvar
+    stakeHistorySysvar withdrawerAuthority lamportsSource (signerSeeds := signerSeeds))
+
+def invokeStakeWithdraw (name stakeAccount destination clockSysvar
+    stakeHistorySysvar withdrawerAuthority lamportsSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (stakeWithdrawCall name stakeAccount destination clockSysvar
+    stakeHistorySysvar withdrawerAuthority lamportsSource (signerSeeds := signerSeeds))
+
+/-- Vote Program CPI builders -/
+def voteVote (name voteAccount slotHashesSysvar voterAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (voteVoteCall name voteAccount slotHashesSysvar voterAuthority
+    (signerSeeds := signerSeeds))
+
+def invokeVoteVote (name voteAccount slotHashesSysvar voterAuthority : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (voteVoteCall name voteAccount slotHashesSysvar voterAuthority
+    (signerSeeds := signerSeeds))
+
+/-- Config Program CPI builders -/
+def configCreate (name payer configAccount systemProgramName : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (configCreateCall name payer configAccount systemProgramName
+    (signerSeeds := signerSeeds))
+
+def invokeConfigCreate (name payer configAccount systemProgramName : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (configCreateCall name payer configAccount systemProgramName
+    (signerSeeds := signerSeeds))
+
+/-- Metaplex Token Metadata CPI builders -/
+def metaplexCreateMetadata (name metadataAccount mint mintAuthority
+    payer metadataSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (metaplexCreateMetadataCall name metadataAccount mint mintAuthority
+    payer metadataSource (signerSeeds := signerSeeds))
+
+def invokeMetaplexCreateMetadata (name metadataAccount mint mintAuthority
+    payer metadataSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (metaplexCreateMetadataCall name metadataAccount mint mintAuthority
+    payer metadataSource (signerSeeds := signerSeeds))
+
+def metaplexUpdateMetadata (name metadataAccount updateAuthority
+    metadataSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.ModuleM Unit :=
+  cpi (metaplexUpdateMetadataCall name metadataAccount updateAuthority
+    metadataSource (signerSeeds := signerSeeds))
+
+def invokeMetaplexUpdateMetadata (name metadataAccount updateAuthority
+    metadataSource : String)
+    (signerSeeds : Array String := #[]) :
+    ProofForge.Contract.Builder.EntryM Unit :=
+  cpiEntry (metaplexUpdateMetadataCall name metadataAccount updateAuthority
+    metadataSource (signerSeeds := signerSeeds))
+
 end ProofForge.Solana

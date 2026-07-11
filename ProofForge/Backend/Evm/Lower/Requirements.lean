@@ -45,7 +45,7 @@ mutual
     | .blockHash blockNumber =>
         exprPlanUsesCheckedArithmetic blockNumber
     | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
-    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+    | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         false
 
   partial def storageSlotExprPlanUsesCheckedArithmetic : StorageSlotExprPlan → Bool
@@ -163,6 +163,8 @@ mutual
     | .storageMapContainsTarget _ key
     | .storageMapGet _ key
     | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
     | .storageArrayStructFieldRead _ key _
@@ -228,8 +230,8 @@ mutual
           exprPlanUsesCheckedArithmetic c || exprPlanUsesCheckedArithmetic d ||
           exprPlanUsesCheckedArithmetic e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].any exprPlanUsesCheckedArithmetic
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].any exprPlanUsesCheckedArithmetic
 
   partial def stmtPlanUsesCheckedArithmetic : StmtPlan → Bool
     | .letBind _ _ value
@@ -445,7 +447,7 @@ mutual
     | .blockHash blockNumber =>
         localArrayHelperRequirementsFromExprPlan blockNumber
     | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
-    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+    | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         emptyLocalArrayHelperRequirements
 
   partial def localArrayHelperRequirementsFromAbiValuePlan :
@@ -584,6 +586,8 @@ mutual
     | .storageMapContainsTarget _ key
     | .storageMapGet _ key
     | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
     | .storageArrayStructFieldRead _ key _
@@ -659,8 +663,8 @@ mutual
               (localArrayHelperRequirementsFromExprPlan d)))
           (localArrayHelperRequirementsFromExprPlan e)
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl
           (init := emptyLocalArrayHelperRequirements) fun acc expr =>
             mergeLocalArrayHelperRequirements acc
               (localArrayHelperRequirementsFromExprPlan expr)
@@ -819,7 +823,7 @@ mutual
     | .userIdHash =>
         #[.hashWord]
     | .userId | .contractId | .checkpointId | .timestamp | .chainId
-    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+    | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         #[]
 
   partial def plannedHelpersFromAbiValuePlan : AbiValuePlan → HelperSet
@@ -949,7 +953,9 @@ mutual
     | .storageMapContainsTarget _ key =>
         HelperSet.insert (plannedHelpersFromExprPlan key) .mapPresenceSlot
     | .storageMapGet _ key
-    | .storageMapGetTarget _ key =>
+    | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key =>
         HelperSet.insert (plannedHelpersFromExprPlan key) .mapSlot
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
@@ -1034,8 +1040,8 @@ mutual
             (mergeHelperSets (plannedHelpersFromExprPlan c) (plannedHelpersFromExprPlan d)))
           (plannedHelpersFromExprPlan e)
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeHelperSets acc (plannedHelpersFromExprPlan expr)
 
   partial def plannedHelpersFromStmtPlan : StmtPlan → HelperSet
@@ -1097,6 +1103,8 @@ def contextFieldFromContextExprPlan : ContextExprPlan → ContextField
   | .chainId => .chainId
   | .gasPrice => .gasPrice
   | .gasLeft => .gasLeft
+  | .prepaidGas => .prepaidGas
+  | .usedGas => .usedGas
   | .baseFee => .baseFee
   | .prevRandao => .prevRandao
   | .origin => .origin
@@ -1250,6 +1258,8 @@ mutual
     | .storageMapContainsTarget _ key
     | .storageMapGet _ key
     | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
     | .storageArrayStructFieldRead _ key _
@@ -1314,8 +1324,8 @@ mutual
           contextOpsFromExprPlan c ++ contextOpsFromExprPlan d ++
           contextOpsFromExprPlan e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeContextPlans acc (contextOpsFromExprPlan expr)
 
   partial def contextOpsFromStmtPlan : StmtPlan → Array ContextPlan

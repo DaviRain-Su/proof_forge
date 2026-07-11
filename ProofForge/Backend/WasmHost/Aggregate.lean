@@ -91,8 +91,7 @@ mutual
     match eff with
     | .storageScalarWrite _ v => collectArrayLitsExpr v
     | .storageScalarAssignOp _ _ v => collectArrayLitsExpr v
-    | .storageMapContains _ k => collectArrayLitsExpr k
-    | .storageMapGet _ k => collectArrayLitsExpr k
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectArrayLitsExpr k
     | .storageMapInsert _ k v | .storageMapSet _ k v => collectArrayLitsExpr k ++ collectArrayLitsExpr v
     | .storageArrayRead _ i => collectArrayLitsExpr i
     | .storageArrayWrite _ i v => collectArrayLitsExpr i ++ collectArrayLitsExpr v
@@ -116,9 +115,9 @@ mutual
     | .checkErc1155Received a b c d e =>
         collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
           collectArrayLitsExpr d ++ collectArrayLitsExpr e
-    | .checkErc1155BatchReceived a b c d e f g =>
+    | .checkErc1155BatchReceived a b c d e =>
         collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
-          collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f ++ collectArrayLitsExpr g
+          collectArrayLitsExpr d ++ collectArrayLitsExpr e
     | .storageScalarRead _ => #[]
 
   partial def collectStructLitsExpr (e : Expr) : Array String :=
@@ -178,7 +177,7 @@ mutual
   partial def collectStructLitsEffect (eff : Effect) : Array String :=
     match eff with
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v => collectStructLitsExpr v
-    | .storageMapContains _ k | .storageMapGet _ k => collectStructLitsExpr k
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectStructLitsExpr k
     | .storageMapInsert _ k v | .storageMapSet _ k v => collectStructLitsExpr k ++ collectStructLitsExpr v
     | .storageArrayRead _ i => collectStructLitsExpr i
     | .storageArrayWrite _ i v => collectStructLitsExpr i ++ collectStructLitsExpr v
@@ -202,9 +201,9 @@ mutual
     | .checkErc1155Received a b c d e =>
         collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
           collectStructLitsExpr d ++ collectStructLitsExpr e
-    | .checkErc1155BatchReceived a b c d e f g =>
+    | .checkErc1155BatchReceived a b c d e =>
         collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
-          collectStructLitsExpr d ++ collectStructLitsExpr e ++ collectStructLitsExpr f ++ collectStructLitsExpr g
+          collectStructLitsExpr d ++ collectStructLitsExpr e
     | .storageScalarRead _ => #[]
 end
 

@@ -121,6 +121,8 @@ def leoLiteral : IR.Literal → ProofForge.Compiler.Leo.AST.Literal
   | .bool value => .boolean value
   | .address value => .address (toString value)
   | .hash4 _ _ _ _ => .none
+  | .bytes _ => .none
+  | .string _ => .none
 
 /-! ### Operator mapping -/
 
@@ -250,7 +252,7 @@ mutual
     | .storageScalarRead _ | .storageDynamicArrayPop _ | .storageStructFieldRead _ _ => {}
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value
     | .storageDynamicArrayPush _ value | .storageStructFieldWrite _ _ value => analyzeExpr value
-    | .storageMapContains _ key | .storageMapGet _ key | .storageArrayRead _ key
+    | .storageMapContains _ key | .storageMapGet _ key | .storageMapDelete _ key | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ => analyzeExpr key
     | .storageMapInsert _ key value | .storageMapSet _ key value
     | .storageArrayWrite _ key value | .storageArrayStructFieldWrite _ key _ value =>
@@ -272,9 +274,9 @@ mutual
     | .checkErc1155Received a b c d e =>
         ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
           (analyzeExpr d)).merge (analyzeExpr e)
-    | .checkErc1155BatchReceived a b c d e f g =>
-        (#[a, b, c, d, e, f, g].foldl
-          (fun facts expr => facts.merge (analyzeExpr expr)) {})
+    | .checkErc1155BatchReceived a b c d e =>
+        ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
+          (analyzeExpr d)).merge (analyzeExpr e)
 
   partial def analyzePath (path : Array StoragePathSegment) : ExprFacts :=
     path.foldl (fun acc segment =>
@@ -326,7 +328,7 @@ def mapContextField (field : ContextField) : Except LowerError (ValueType × Exp
 def effectIsWrite (e : Effect) : Bool :=
   match e with
   | .storageScalarWrite .. | .storageScalarAssignOp ..
-  | .storageMapInsert .. | .storageMapSet ..
+  | .storageMapInsert .. | .storageMapSet .. | .storageMapDelete ..
   | .storageArrayWrite .. | .storageArrayStructFieldWrite ..
   | .storageDynamicArrayPush .. | .storageDynamicArrayPop ..
   | .memoryArraySet ..

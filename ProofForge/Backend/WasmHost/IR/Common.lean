@@ -170,8 +170,8 @@ def ensureType (context : String) (expected actual : ValueType) : Except LowerEr
 
 def ensureNumericType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
-  | .u32 | .u64 => .ok ()
-  | other => .error { message := s!"{context} expected numeric `U32` or `U64`, got `{other.name}`" }
+  | .u32 | .u64 | .u128 => .ok ()
+  | other => .error { message := s!"{context} expected numeric `U32`, `U64`, or `U128`, got `{other.name}`" }
 
 def ensureSameNumericType (operator : String) (lhs rhs : ValueType) : Except LowerError ValueType := do
   ensureNumericType s!"{operator} left operand" lhs
@@ -181,8 +181,8 @@ def ensureSameNumericType (operator : String) (lhs rhs : ValueType) : Except Low
 def ensureEqType (context : String) (type : ValueType) : Except LowerError Unit :=
   match type with
   | .unit => .error { message := s!"{context} does not support Unit equality" }
-  | .bool | .u8 | .u32 | .u64 | .hash | .address => .ok ()
-  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
+  | .bool | .u8 | .u32 | .u64 | .u128 | .hash | .address => .ok ()
+  | .fixedArray _ _ | .structType _ | .bytes | .string | .array _ =>
       .error { message := s!"{context} does not support `{type.name}` equality in wasm-near IR v0" }
 
 def ensureCastType (source target : ValueType) : Except LowerError Unit :=
@@ -193,6 +193,10 @@ def ensureCastType (source target : ValueType) : Except LowerError Unit :=
   | .bool, .u64 => .ok ()
   | .bool, .u32 => .ok ()
   | .u64, .bool => .ok ()
+  | .u64, .u128 => .ok ()
+  | .u32, .u128 => .ok ()
+  | .u128, .u64 => .ok ()
+  | .u128, .u32 => .ok ()
   | source, target =>
       .error { message := s!"cast from `{source.name}` to `{target.name}` is not supported by wasm-near IR v0" }
 
@@ -329,23 +333,25 @@ def validateIdentifiers (module : Module) : Except LowerError Unit := do
 def validateEntrypointParameters (entrypoint : Entrypoint) : Except LowerError Unit := do
   for param in entrypoint.params do
     match param.snd with
-    | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
-        .error { message := s!"entrypoint `{entrypoint.name}` parameter `{param.fst}` uses `{param.snd.name}`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address" }
-    | .u8 | .u32 | .u64 | .bool | .hash | .address => pure ()
+    | .unit | .fixedArray _ _ | .structType _ | .array _ =>
+        .error { message := s!"entrypoint `{entrypoint.name}` parameter `{param.fst}` uses `{param.snd.name}`; wasm-near IR v0 ABI parameters must use U32, U64, U128, Bool, Hash, Address, Bytes, or String" }
+    | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string => pure ()
 
 def validateEntrypointReturn (entrypoint : Entrypoint) : Except LowerError Unit :=
   match entrypoint.returns with
-  | .unit | .u8 | .u32 | .u64 | .bool | .hash | .address => pure ()
-  | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
-      .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}`; wasm-near IR v0 supports only Unit, U32, U64, Bool, Hash, and Address" }
+  | .unit | .u8 | .u32 | .u64 | .u128 | .bool | .hash | .address | .bytes | .string => pure ()
+  | .fixedArray _ _ | .structType _ | .array _ =>
+      .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}`; wasm-near IR v0 supports only Unit, U8, U32, U64, U128, Bool, Hash, Address, Bytes, and String" }
 
 mutual
   partial def inferExprType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
     | .literal (.u32 _) => .ok .u32
     | .literal (.u64 _) => .ok .u64
-    | .literal (.u128 _) => .error { message := "wasm-near IR v0 does not support U128 literals" }
+    | .literal (.u128 _) => .ok .u128
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.bytes _) => .ok .bytes
+    | .literal (.string _) => .ok .string
     | .literal (.u8 _) => .ok .u8
     | .literal (.address _) => .ok .address
     | .local name =>
@@ -447,6 +453,10 @@ mutual
         let (keyType, valueType) ← mapStateTypes module stateId
         ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
         .ok valueType
+    | .storageMapDelete stateId key => do
+        let (keyType, valueType) ← mapStateTypes module stateId
+        ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
+        .ok valueType
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
@@ -495,7 +505,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def inferStoragePathType (module : Module) (env : TypeEnv) (stateId : String) (path : Array StoragePathSegment) : Except LowerError ValueType := do
@@ -584,6 +594,9 @@ mutual
         .error { message := "storage.map.contains must be used as an expression" }
     | .storageMapGet _ _ =>
         .error { message := "storage.map.get must be used as an expression" }
+    | .storageMapDelete stateId key => do
+        let (keyType, _) ← mapStateTypes module stateId
+        ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
@@ -640,7 +653,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported by wasm-near" }
   partial def validateStatements (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) (statements : Array Statement) : Except LowerError TypeEnv :=
     statements.foldlM (init := env) fun acc stmt =>

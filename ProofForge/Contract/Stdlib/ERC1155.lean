@@ -140,10 +140,10 @@ contract_mixin ERC1155Mixin do
       (ProofForge.Contract.Surface.ref operator)
       (ProofForge.Contract.Surface.ref src)
       (ProofForge.Contract.Surface.ref dst)
-      (ProofForge.Contract.Surface.ref id0)
-      (ProofForge.Contract.Surface.ref amount0)
-      (ProofForge.Contract.Surface.ref id1)
-      (ProofForge.Contract.Surface.ref amount1);
+      (ProofForge.IR.Expr.arrayLit .u64
+        #[ProofForge.Contract.Surface.ref id0, ProofForge.Contract.Surface.ref id1])
+      (ProofForge.IR.Expr.arrayLit .u64
+        #[ProofForge.Contract.Surface.ref amount0, ProofForge.Contract.Surface.ref amount1]);
 
   entry mint (recipient : .address, id : .u64, amount : .u64) do
     let operator : .address := caller;
