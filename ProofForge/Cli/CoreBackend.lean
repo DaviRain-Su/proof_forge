@@ -34,7 +34,11 @@ def renderValidationError (e : ProofForge.IR.Core.Error.ValidationError) : Strin
   reprStr e
 
 /-- Build a contract_source module through the EVM core-IR plan lane and emit
-a Yul object under `build/evm-core/`. -/
+a Yul object under `build/evm-core/`.
+
+Marked `unsafe` because it calls `ContractLoader.loadSpec`, which runs the
+Lean frontend on the input module and therefore needs the unsafe
+`Environment`/`IO` interface used by the CLI loader. -/
 unsafe def compileEvmCoreYul (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | throw <| IO.userError "proof-forge build --target evm-core requires a contract_source .lean input"
@@ -54,7 +58,10 @@ unsafe def compileEvmCoreYul (opts : CliOptions) : IO UInt32 := do
   return 0
 
 /-- Build a contract_source module through the Solana core-IR plan lane and emit
-sBPF assembly under `build/solana-core/`. -/
+sBPF assembly under `build/solana-core/`.
+
+Marked `unsafe` because it calls `ContractLoader.loadSpec`; see
+`compileEvmCoreYul` for the rationale. -/
 unsafe def compileSolanaCoreSbpf (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | throw <| IO.userError "proof-forge build --target solana-sbpf-asm-core requires a contract_source .lean input"
@@ -74,7 +81,10 @@ unsafe def compileSolanaCoreSbpf (opts : CliOptions) : IO UInt32 := do
   return 0
 
 /-- Build a contract_source module through the Wasm-host core-IR plan lane and
-emit WAT under `build/wasm-core/`. -/
+emit WAT under `build/wasm-core/`.
+
+Marked `unsafe` because it calls `ContractLoader.loadSpec`; see
+`compileEvmCoreYul` for the rationale. -/
 unsafe def compileWasmCoreWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | throw <| IO.userError "proof-forge build --target wasm-near-core requires a contract_source .lean input"

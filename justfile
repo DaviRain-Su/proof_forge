@@ -1696,10 +1696,19 @@ core-ir-build:
 core-evm-smoke:
     lake env proof-forge build --target evm-core --root . -o build/evm-core Examples/Product/Counter.lean
 
+core-evm-smoke-vault:
+    lake env proof-forge build --target evm-core --root . -o build/evm-core Examples/Product/ValueVault.lean
+
 core-solana-smoke:
     lake env proof-forge build --target solana-sbpf-asm-core --root . -o build/solana-core Examples/Product/Counter.lean
+
+core-solana-smoke-vault:
+    lake env proof-forge build --target solana-sbpf-asm-core --root . -o build/solana-core Examples/Product/ValueVault.lean
 
 core-wasm-smoke:
     lake env proof-forge build --target wasm-near-core --root . -o build/wasm-core Examples/Product/Counter.lean
 
-core-product: core-ir-build core-evm-smoke core-solana-smoke core-wasm-smoke
+core-wasm-smoke-vault:
+    lake env proof-forge build --target wasm-near-core --root . -o build/wasm-core Examples/Product/ValueVault.lean
+
+core-product: core-ir-build core-evm-smoke core-evm-smoke-vault core-solana-smoke core-solana-smoke-vault core-wasm-smoke core-wasm-smoke-vault

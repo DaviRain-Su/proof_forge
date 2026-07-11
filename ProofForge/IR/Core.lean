@@ -1,9 +1,8 @@
+import ProofForge.IR.Prelude
+
 namespace ProofForge.IR.Core
 
 abbrev UInt128 := BitVec 128
-
-instance : Repr ByteArray where
-  reprPrec ba _ := s!"ByteArray[{ba.size}]"
 
 inductive CoreType
   | unit | bool | u8 | u32 | u64 | u128
@@ -77,6 +76,7 @@ inductive CoreExpr
   | cast (fromTy toTy : CoreType) (arg : CoreExpr)
   | hash (arg : CoreExpr)
   | contextRead (kind : ContextKind)
+  | storageRead (path : StoragePath)
   | crosscall (spec : CrosscallSpec) (args : List CoreExpr)
   | hostOpStub (op : HostOpId) (args : List CoreExpr)
   deriving BEq, Repr

@@ -363,10 +363,10 @@ def wasmNearCore : TargetProfile := {
     maturity := .experimental
     inputModes := #[.contractSource]
     commands := #[.build, .check]
-    outputStages := #[.intermediate, .finalDeployable]
+    outputStages := #[.intermediate]
     validationLevel := .package
     supportedFragment :=
-      "portable IR → WasmCorePlan → WAT intermediate → wat2wasm Wasm final; mirrors wasm-near capability surface"
+      "portable IR → WasmCorePlan → WAT intermediate; wat2wasm final stage is not yet invoked by the CLI"
     toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
   }
 }
