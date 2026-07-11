@@ -2,6 +2,7 @@ import ProofForge.IR.Core
 import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Target.Plan
 open ProofForge.IR.Core
 open ProofForge.IR.Canonical
@@ -110,4 +111,11 @@ def main : IO Unit := do
       require (plan.entrypoints.size == 1) "evidence isolation: Solana entrypoint count changed"
   | .error e =>
       throw <| IO.userError s!"evidence isolation: Solana buildFromCore failed: {e.message}"
+  let nearCapPlan : ProofForge.Target.CapabilityPlan :=
+    { targetId := "wasm-near", calls := #[], metadata := #[] }
+  match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked nearCapPlan with
+  | .ok plan =>
+      require (plan.layout.scalars.size == 1) "evidence isolation: NEAR scalar count changed"
+  | .error e =>
+      throw <| IO.userError s!"evidence isolation: NEAR buildFromCore failed: {e.message}"
   IO.println "canonical-evidence-isolation: ok"

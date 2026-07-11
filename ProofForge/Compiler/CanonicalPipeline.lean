@@ -6,7 +6,7 @@ import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
-
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
 /-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
 exposed through the public CLI and does not modify `Target.knownIds`, backend
@@ -92,6 +92,11 @@ def compileForTest
                 let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"Solana buildFromCore failed: {e.message}" }
+                | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
+              else if targetId == "wasm-near" then
+                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
+                match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+                | .error e => pure <| .error { mode := .canonical, targetId, message := s!"NEAR buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else
                 pure <| .ok (makeBundle targetId spec "canonical")

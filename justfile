@@ -60,6 +60,11 @@ canonical-solana-plan:
     lake env lean --run Tests/Backend/Solana/CanonicalPlan.lean
     bash scripts/canonical/solana-parity.sh
 
+# Wave 3 Task 12: canonical Core to existing NEAR plan gate.
+canonical-near-plan:
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPlan.lean
+    bash scripts/canonical/near-parity.sh
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
