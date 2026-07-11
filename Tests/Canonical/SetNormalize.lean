@@ -1,78 +1,57 @@
 import ProofForge.Frontend.Surface
-import ProofForge.Frontend.Surface.Collections.Set
+import Examples.Product.Canonical.SetRegistry
 
-/-! # Set Normalize Test
-
-Checks that Surface Set declarations expand to Core state declarations
-with the correct generated names and shapes.
--/
+/-! Task 15 structural normalization tests for bounded Surface sets. -/
 
 open ProofForge.Frontend.Surface
+open ProofForge.IR.Core
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
-/-- A Set with element type u64 and capacity 100. -/
-def testSet : SurfaceSetDecl := { id := 0, elementType := .u64, capacity := 100 }
-
-/-- A Surface contract with a Set embedded as expanded state. -/
-def setContract : SurfaceContract := {
-  name := "SetRegistry",
-  structs := #[],
-  state := testSet.expand.toList.toArray,
-  events := #[],
-  errors := #[],
-  entrypoints := #[
-    { name := "initialize", kind := .function, mutability := .call,
-      params := #[], retType := .unit,
-      body := #[
-        .stateWrite "$surface.set.0.cardinality" (.literal (.u64Lit 0))
-      ]
-    },
-    { name := "getCardinality", kind := .function, mutability := .view,
-      params := #[], retType := .u64,
-      body := #[
-        .returnExpr (.stateRead "$surface.set.0.cardinality")
-      ]
-    }
-  ],
-  constructorParams := #[],
-  constructorBindings := #[],
-  intents := #[]
-}
+def testSet := Examples.Product.Canonical.SetRegistry.registry
+def setContract := Examples.Product.Canonical.SetRegistry.contract
 
 def main : IO Unit := do
-  /- Check 1: Set expands to two state declarations. -/
   let expanded := testSet.expand
-  require (expanded.size == 2) "Set should expand to 2 state declarations"
-  require (expanded[0]!.name == "$surface.set.0.members")
-    "members name mismatch"
-  require (expanded[1]!.name == "$surface.set.0.cardinality")
-    "cardinality name mismatch"
-
-  /- Check 2: Capacity zero rejects. -/
+  require (expanded.size == 2) "Set expansion size"
+  require (expanded[0]!.name == testSet.membersName && expanded[0]!.generated) "members name/provenance"
+  require (expanded[1]!.name == testSet.cardinalityName && expanded[1]!.generated) "cardinality name/provenance"
+  match expanded[0]!.kind with
+  | .map .u64 .bool (some 100) => pure ()
+  | shape => throw <| IO.userError s!"wrong members shape: {repr shape}"
   match SurfaceSetDecl.validate { id := 1, elementType := .u64, capacity := 0 } with
-  | Except.error _ => pure ()
-  | Except.ok _ => throw <| IO.userError "Capacity zero should reject"
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "zero-capacity Set accepted"
 
-  /- Check 3: Valid capacity accepts. -/
-  match SurfaceSetDecl.validate testSet with
-  | Except.ok _ => pure ()
-  | Except.error e => throw <| IO.userError s!"Valid set should accept: {e}"
+  let bundle ← match normalizeSurface setContract with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"Set normalization failed: {repr e}"
+  require (bundle.contract.contract.module.state.size == 2) "Core Set state count"
+  let insert ← match bundle.contract.contract.module.functions[1]? with
+    | some function => pure function
+    | none => throw <| IO.userError "Set insert function missing"
+  let hasMapRead := insert.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with
+    | .storageLoad { path := #[.mapKey _], .. } => true
+    | _ => false
+  let hasMapWrite := insert.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with
+    | .storageStore { path := #[.mapKey _], .. } _ => true
+    | _ => false
+  require hasMapRead "Set insert emitted no Core map read"
+  require hasMapWrite "Set insert emitted no Core map write"
+  require (insert.blocks.any fun block => match block.terminator with | .branch _ _ _ => true | _ => false)
+    "Set insert emitted no idempotency branch"
 
-  /- Check 4: Contract with expanded set state normalizes. -/
-  match normalizeSurface setContract with
-  | Except.ok bundle =>
-    require (bundle.contract.contract.module.state.size == 2)
-      "Module should have 2 state declarations"
-    require (bundle.contract.contract.module.functions.size == 2)
-      "Module should have 2 functions"
-  | Except.error e => throw <| IO.userError s!"Set contract normalize failed: {repr e}"
-
-  /- Check 5: Generated names use $surface.set. prefix. -/
-  let membersName := testSet.membersName
-  let cardName := testSet.cardinalityName
-  require (membersName.startsWith "$surface.set.") "members name should use $surface.set. prefix"
-  require (cardName.startsWith "$surface.set.") "cardinality name should use $surface.set. prefix"
+  let spoofed : SurfaceContract := { setContract with
+    state := #[{ name := "$surface.set.7.members", kind := .map .u64 .bool (some 1) }] }
+  match normalizeSurface spoofed with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "user-authored reserved Set state accepted"
+  let collision : SurfaceContract := { setContract with state := testSet.expand ++ testSet.expand }
+  match normalizeSurface collision with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "generated Set name collision accepted"
 
   IO.println "set-normalize: ok"

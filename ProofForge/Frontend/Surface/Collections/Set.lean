@@ -32,9 +32,9 @@ a map T bool for membership and a scalar u64 for cardinality. -/
 def SurfaceSetDecl.expand (s : SurfaceSetDecl) : Array SurfaceStateDecl :=
   #[
     { name := s.membersName,
-      kind := .map s.elementType .bool (some s.capacity) },
+      kind := .map s.elementType .bool (some s.capacity), generated := true },
     { name := s.cardinalityName,
-      kind := .scalar .u64 }
+      kind := .scalar .u64, generated := true }
   ]
 
 /-- Validate a Set declaration: capacity must be positive. -/
@@ -46,36 +46,32 @@ def SurfaceSetDecl.validate (s : SurfaceSetDecl) : Except String Unit :=
 /-- Build a `stateRead` expression for set membership check. -/
 def SurfaceSetDecl.containsExpr (s : SurfaceSetDecl) (key : SurfaceExpr) :
     SurfaceExpr :=
-  .stateRead s.membersName
+  .mapRead s.membersName key
 
 /-- Build statements for `insert key`: check if key exists, if not write true
 and increment cardinality. -/
 def SurfaceSetDecl.insertStmts (s : SurfaceSetDecl) (key : SurfaceExpr) :
     Array SurfaceStmt :=
-  -- Simplified: always write true and increment (the normalizer handles
-  -- the actual Core CFG with branch logic for idempotent insert).
-  -- For now, we emit stateWrite for the map (with key) and increment
-  -- cardinality. The key is bound in the calling context.
   #[
-    .stateWrite s.membersName (.literal (.boolLit true)),
-    .stateWrite s.cardinalityName
-      (.arith .add true
-        (.stateRead s.cardinalityName)
-        (.literal (.u64Lit 1)))
+    .branch (s.containsExpr key) #[] #[
+      .mapWrite s.membersName key (.literal (.boolLit true)),
+      .stateWrite s.cardinalityName
+        (.arith .add true
+          (.stateRead s.cardinalityName)
+          (.literal (.u64Lit 1)))]
   ]
 
 /-- Build statements for `remove key`: check if key exists, if so write false
 and decrement cardinality. -/
 def SurfaceSetDecl.removeStmts (s : SurfaceSetDecl) (key : SurfaceExpr) :
     Array SurfaceStmt :=
-  -- Simplified: always write false and decrement (the normalizer handles
-  -- the actual Core CFG with branch logic for idempotent remove).
   #[
-    .stateWrite s.membersName (.literal (.boolLit false)),
-    .stateWrite s.cardinalityName
-      (.arith .sub true
-        (.stateRead s.cardinalityName)
-        (.literal (.u64Lit 1)))
+    .branch (s.containsExpr key) #[
+      .mapWrite s.membersName key (.literal (.boolLit false)),
+      .stateWrite s.cardinalityName
+        (.arith .sub true
+          (.stateRead s.cardinalityName)
+          (.literal (.u64Lit 1)))] #[]
   ]
 
 end ProofForge.Frontend.Surface

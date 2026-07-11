@@ -36,11 +36,11 @@ a fixedArray for items, a scalar u64 for head, and a scalar u64 for length. -/
 def SurfaceQueueDecl.expand (q : SurfaceQueueDecl) : Array SurfaceStateDecl :=
   #[
     { name := q.itemsName,
-      kind := .fixedArray q.elementType q.capacity },
+      kind := .fixedArray q.elementType q.capacity, generated := true },
     { name := q.headName,
-      kind := .scalar .u64 },
+      kind := .scalar .u64, generated := true },
     { name := q.lengthName,
-      kind := .scalar .u64 }
+      kind := .scalar .u64, generated := true }
   ]
 
 /-- Validate a Queue declaration: capacity must be positive. -/

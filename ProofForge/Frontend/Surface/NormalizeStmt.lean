@@ -125,6 +125,23 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
         throw (SurfaceNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
       let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
       liftExcept (fb.emitInstr instr)
+  | .mapWrite name key value => do
+      let stateId ← lookupState name
+      let (keyType, valueType) ← stateMapTypes name
+      let normalizedKey ← normalizeExpr key
+      unless normalizedKey.value.type == keyType do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+      let normalizedValue ← normalizeExpr value
+      unless normalizedValue.value.type == valueType do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr valueType) (reprStr normalizedValue.value.type))
+      let instructions := normalizedKey.instructions ++ normalizedValue.instructions
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept <| fb.emitInstr {
+        results := #[],
+        op := .storageStore {
+          root := stateId,
+          path := #[.mapKey normalizedKey.value],
+          resultType := valueType } normalizedValue.value }
   | .emit eventName args => do
       let eventId ← lookupEvent eventName
       let mut argRefs : Array ValueRef := #[]

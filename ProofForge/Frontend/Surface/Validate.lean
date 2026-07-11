@@ -29,11 +29,13 @@ def validateSurface (contract : SurfaceContract) : Except SurfaceError Unit := d
   checkUniqueNames (contract.events.map (·.name)) "event"
   checkUniqueNames (contract.errors.map (·.name)) "error"
   checkUniqueNames (contract.entrypoints.map (·.name)) "entrypoint"
-  /- Allow $surface.set. and $surface.queue. generated names; reject other $surface. prefixes. -/
   for s in contract.state do
     if s.name.startsWith "$surface." then
-      unless s.name.startsWith "$surface.set." || s.name.startsWith "$surface.queue." do
+      unless s.generated &&
+          (s.name.startsWith "$surface.set." || s.name.startsWith "$surface.queue.") do
         .error { message := s!"user state name starts with reserved prefix: {s.name}" }
+    else if s.generated then
+      .error { message := s!"generated state name is outside the reserved namespace: {s.name}" }
   for ep in contract.entrypoints do
     if ep.name.startsWith "$surface." then
       .error { message := s!"user entrypoint name starts with reserved prefix: {ep.name}" }

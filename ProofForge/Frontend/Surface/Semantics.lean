@@ -17,6 +17,7 @@ open ProofForge.IR.Core
 /-- A simple runtime state for Surface reference semantics. -/
 structure SurfaceRuntimeState where
   storage : Std.HashMap String Nat
+  maps : Std.HashMap String (Array (Nat × Nat)) := {}
   events : Array (String × Array Nat)
   reverted : Bool := false
   returnValue : Option Nat := none
@@ -55,6 +56,10 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     | some v => .ok v | none => .error s!"unbound local: {name}"
   | .stateRead name => match Std.HashMap.get? st.storage name with
     | some v => .ok v | none => .error s!"missing state: {name}"
+  | .mapRead name key => do
+    let key ← evalExpr key st locals
+    let entries := st.maps.get? name |>.getD #[]
+    return (entries.find? (fun entry => entry.1 == key)).map (fun entry => entry.2) |>.getD 0
   | .arith op checked lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
@@ -96,6 +101,14 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
     | .stateWrite name value => do
       let v ← evalExpr value s l
       s := { s with storage := Std.HashMap.insert s.storage name v }
+    | .mapWrite name key value => do
+      let key ← evalExpr key s l
+      let value ← evalExpr value s l
+      let entries := s.maps.get? name |>.getD #[]
+      let entries := match entries.findIdx? (fun entry => entry.1 == key) with
+        | some index => entries.set! index (key, value)
+        | none => entries.push (key, value)
+      s := { s with maps := s.maps.insert name entries }
     | .emit name args => do
       let mut vals := #[]
       for arg in args do

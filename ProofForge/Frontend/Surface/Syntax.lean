@@ -69,6 +69,7 @@ inductive SurfaceExpr
   | literal (lit : SurfaceLiteral)
   | local (name : String)
   | stateRead (stateName : String)
+  | mapRead (stateName : String) (key : SurfaceExpr)
   | field (base : SurfaceExpr) (fieldName : String)
   | index (base : SurfaceExpr) (idx : SurfaceExpr)
   | unary (op : SurfaceUnaryOp) (arg : SurfaceExpr)
@@ -89,6 +90,7 @@ inductive SurfaceStmt
   | mutBind (name : String) (type : SurfaceType) (value : SurfaceExpr)
   | assign (target : SurfaceLValue) (value : SurfaceExpr)
   | stateWrite (stateName : String) (value : SurfaceExpr)
+  | mapWrite (stateName : String) (key value : SurfaceExpr)
   | emit (eventName : String) (args : Array SurfaceExpr)
   | assert (condition : SurfaceExpr) (message : String)
   | revert (message : String)
@@ -111,6 +113,7 @@ inductive SurfaceStateKind
 structure SurfaceStateDecl where
   name : String
   kind : SurfaceStateKind
+  generated : Bool := false
   deriving Repr, Inhabited
 
 /-- Surface-level event field. -/
