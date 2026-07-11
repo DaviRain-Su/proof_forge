@@ -1201,6 +1201,10 @@ solana-web3-compat:
 # Run all Solana gates that are safe for default CI.
 solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-auto-materialize primary-materialize crosscall-materialize solana-web3-compat solana-pinocchio-reference-equivalence solana-sbpf-exec-smoke solana-sbpf-genericity-smoke solana-counter-sbpf-regression solana-refinement-smoke solana-bpf-encode-smoke solana-duplicate-accounts solana-account-graph
 
+# Strict Wave-T variant: build the optional ValueVault ELF instead of allowing a skip.
+wave-t-solana-light:
+    PROOF_FORGE_VALUE_VAULT_ELF=1 just solana-light
+
 # Check shared-vs-target example topology.
 examples-topology:
     python3 scripts/examples/check-topology.py

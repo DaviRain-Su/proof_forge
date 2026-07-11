@@ -58,7 +58,7 @@ PRODUCTION_GATE_SPECS = [
     ("S-P0-01", "solana-duplicate-account-live", ("just", "solana-duplicate-accounts-live")),
     ("S-P0-02", "solana-entrypoint-account-graph", ("just", "solana-account-graph")),
     ("S-P0-02", "solana-pinocchio-reference-equivalence", ("just", "solana-pinocchio-reference-equivalence")),
-    ("S-P0-02", "solana-wave-light", ("just", "solana-light")),
+    ("S-P0-02", "solana-wave-light", ("just", "wave-t-solana-light")),
     ("X-P0-01", "token-feature-matrix", ("just", "token-feature-matrix")),
     ("T-99", "product-primary-triad", ("just", "product")),
     ("T-99", "product-solana-token", ("just", "product-token-solana")),

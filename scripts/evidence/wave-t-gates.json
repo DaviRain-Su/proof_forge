@@ -162,7 +162,7 @@
       "taskId": "S-P0-02",
       "implementationCommit": "315f3acd6c8d44397f9be69f7a84a0e58771990c",
       "oracle": { "id": "solana-wave-light", "version": "1" },
-      "command": ["just", "solana-light"]
+      "command": ["just", "wave-t-solana-light"]
     },
     {
       "taskId": "X-P0-01",

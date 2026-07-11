@@ -5589,7 +5589,7 @@ def testScalarAssertPlanToYul : IO Unit := do
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      (fun _ => #[revertStmt])
+      (fun _ => .ok #[revertStmt])
       (ProofForge.Backend.Evm.Plan.StmtPlan.assert
         (.builtin "gt" #[.local "n", .literalWord 0])
         "positive"
@@ -5602,7 +5602,7 @@ def testScalarAssertPlanToYul : IO Unit := do
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      (fun _ => #[revertStmt])
+      (fun _ => .ok #[revertStmt])
       (ProofForge.Backend.Evm.Plan.StmtPlan.assertEq
         (.local "n")
         (.literalWord 1)
@@ -6144,7 +6144,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directEmptyRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun _ => #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
+      (fun _ => .ok #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revert ""))
     "stmt plan empty revert helper"
   require (directEmptyRevertStmts.size == 1) "stmt plan empty revert helper statement count"
@@ -6156,7 +6156,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directMessageRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun _ => #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
+      (fun _ => .ok #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revert "boom"))
     "stmt plan message revert helper"
   require (directMessageRevertStmts.size >= 2) "stmt plan message revert helper statement count"
@@ -6168,7 +6168,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directErrorRefRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun ref => #[
+      (fun ref => .ok #[
         Lean.Compiler.Yul.Statement.exprStmt
           (Lean.Compiler.Yul.Expr.id s!"error_ref_{ref.assertionId.toNat}")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revertWithError
