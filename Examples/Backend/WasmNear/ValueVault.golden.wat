@@ -6,6 +6,7 @@
   (import "env" "input" (func $input (param i64)))
   (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (import "env" "block_index" (func $block_index (result i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
   (global $evt_ptr (mut i32) (i32.const 42000))
   (func $__pf_read_u64 (param $kp i32) (param $kl i32) (result i64) (local $found i64) (local $r i64)
     i64.const 0
@@ -210,6 +211,14 @@
     i64.const 0
     call $input
     i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
+    i64.const 0
     i64.const 44000
     call $read_register
     i32.const 44000
@@ -263,6 +272,14 @@
   (func $deposit (export "deposit") (local $amount i64) (local $current i64) (local $next i64) (local $ops i64) (local $next_ops i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register
@@ -324,6 +341,14 @@
   (func $charge_fee (export "charge_fee") (local $gross i64) (local $fee_bps i64) (local $fee i64) (local $net i64) (local $current i64) (local $next i64) (local $current_fees i64) (local $next_fees i64) (local $ops i64) (local $next_ops i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 16
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register
@@ -415,6 +440,14 @@
   (func $release (export "release") (local $amount i64) (local $current i64) (local $next i64) (local $released_before i64) (local $released_next i64) (local $ops i64) (local $next_ops i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register
