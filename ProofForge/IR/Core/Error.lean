@@ -3,6 +3,7 @@ namespace ProofForge.IR.Core.Error
 inductive ElabError
   | unsupported (node : String)
   | typeMismatch (expected : String) (actual : String)
+  | unknownState (name : String)
   | other (msg : String)
   deriving Repr
 

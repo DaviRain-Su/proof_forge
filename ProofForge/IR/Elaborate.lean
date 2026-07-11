@@ -22,12 +22,11 @@ def flatten (xss : List (List α)) : List α :=
   xss.foldr List.append []
 
 /-- Look up the storage slot index for a state variable name. Unknown names
-fall back to slot `0` so elaboration stays total for Counter/ValueVault-style
-modules; a later validation pass can reject references to undeclared state. -/
-def stateSlot (stateSlots : List (String × Nat)) (name : String) : Nat :=
+now surface as `ElabError.unknownState` instead of silently using slot `0`. -/
+def stateSlot (stateSlots : List (String × Nat)) (name : String) : Except ElabError Nat :=
   match stateSlots.find? (fun (n, _) => n == name) with
-  | some (_, idx) => idx
-  | none => 0
+  | some (_, idx) => .ok idx
+  | none => .error (.unknownState name)
 
 /-- Map a Surface IR `ValueType` to the chain-neutral Core IR `CoreType`. -/
 def elaborateType (t : ValueType) : Except ElabError CoreType :=
@@ -108,7 +107,7 @@ maps declared state-variable names to their target-neutral scalar slot index. -/
     -- Surface IR represents storage reads and context reads as effects. In
     -- expression position we lift them to the corresponding Core expression so
     -- target lowering can emit the actual load/context read.
-    | .effect (.storageScalarRead id) => .ok (.storageRead (.scalar (stateSlot stateSlots id)))
+    | .effect (.storageScalarRead id) => do .ok (.storageRead (.scalar (← stateSlot stateSlots id)))
     | .effect (.contextRead field) => do .ok (.contextRead (← elaborateContextField field))
     | .effect other => .error (.unsupported s!"effect-in-expr {repr other}")
     | other => .error (.unsupported s!"expr {repr other}")
@@ -116,11 +115,12 @@ maps declared state-variable names to their target-neutral scalar slot index. -/
   /-- Elaborate a Surface IR `Effect` into a Core IR `CoreEffect`. -/
   partial def elaborateEffect (stateSlots : List (String × Nat)) (eff : Effect) : Except ElabError CoreEffect :=
     match eff with
-    | .storageScalarRead id => .ok (.storageRead (.scalar (stateSlot stateSlots id)))
-    | .storageScalarWrite id value => do .ok (.storageWrite (.scalar (stateSlot stateSlots id)) (← elaborateExpr stateSlots value))
+    | .storageScalarRead id => do .ok (.storageRead (.scalar (← stateSlot stateSlots id)))
+    | .storageScalarWrite id value => do .ok (.storageWrite (.scalar (← stateSlot stateSlots id)) (← elaborateExpr stateSlots value))
     | .storageScalarAssignOp id op value => do
-        let rhs := CoreExpr.binary (← assignOpToBinaryOp op) (.storageRead (.scalar (stateSlot stateSlots id))) (← elaborateExpr stateSlots value)
-        .ok (.storageWrite (.scalar (stateSlot stateSlots id)) rhs)
+        let slot ← stateSlot stateSlots id
+        let rhs := CoreExpr.binary (← assignOpToBinaryOp op) (.storageRead (.scalar slot)) (← elaborateExpr stateSlots value)
+        .ok (.storageWrite (.scalar slot) rhs)
     | .eventEmit name fields => do
         let args ← fields.toList.mapM (fun (_, e) => elaborateExpr stateSlots e)
         .ok (.eventEmit name args)
@@ -156,7 +156,7 @@ where
   elaborateLValue (stateSlots : List (String × Nat)) (target : Expr) : Except ElabError LValue :=
     match target with
     | .local name => .ok (.local name)
-    | .effect (.storageScalarRead id) => .ok (.storage (.scalar (stateSlot stateSlots id)))
+    | .effect (.storageScalarRead id) => do .ok (.storage (.scalar (← stateSlot stateSlots id)))
     | other => .error (.unsupported s!"lvalue {repr other}")
 
 /-- Elaborate a Surface IR `Module` into a Core IR `CoreModule`.
