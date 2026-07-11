@@ -5,8 +5,9 @@ import ProofForge.Contract.Spec
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
 import ProofForge.Backend.Evm.Plan.Core
-/-! # Internal Canonical Dual-Run Harness
+import ProofForge.Backend.Solana.Plan.Core
 
+/-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
 exposed through the public CLI and does not modify `Target.knownIds`, backend
 registry, or release packaging.
@@ -86,6 +87,11 @@ def compileForTest
                 let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"EVM buildFromCore failed: {e.message}" }
+                | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
+              else if targetId == "solana-sbpf-asm" then
+                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
+                match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
+                | .error e => pure <| .error { mode := .canonical, targetId, message := s!"Solana buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else
                 pure <| .ok (makeBundle targetId spec "canonical")

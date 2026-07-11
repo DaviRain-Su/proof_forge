@@ -1,6 +1,7 @@
 import ProofForge.IR.Core
 import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Target.Plan
 open ProofForge.IR.Core
 open ProofForge.IR.Canonical
@@ -90,15 +91,23 @@ def main : IO Unit := do
   require (capabilityRequirements bundleA == capabilityRequirements bundleB)
     "evidence changed capabilities"
   require (bundleA.evidence != bundleB.evidence) "evidence did not differ"
-  /- Evidence changes must not affect the EVM ModulePlan. Both bundles
-  share the same checked contract, so building the plan from either
-  must produce the same storage layout size and entrypoint count. -/
-  let capPlan : ProofForge.Target.CapabilityPlan :=
+  /- Evidence changes must not affect the EVM or Solana ModulePlan. Both
+  bundles share the same checked contract, so building the plan from
+  either must produce the same storage layout size and entrypoint count. -/
+  let evmCapPlan : ProofForge.Target.CapabilityPlan :=
     { targetId := "evm", calls := #[], metadata := #[] }
-  match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked evmCapPlan with
   | .ok plan =>
-      require (plan.storage.states.size == 1) "evidence isolation: storage size changed"
-      require (plan.entrypoints.size == 1) "evidence isolation: entrypoint count changed"
+      require (plan.storage.states.size == 1) "evidence isolation: EVM storage size changed"
+      require (plan.entrypoints.size == 1) "evidence isolation: EVM entrypoint count changed"
   | .error e =>
-      throw <| IO.userError s!"evidence isolation: buildFromCore failed: {e.message}"
+      throw <| IO.userError s!"evidence isolation: EVM buildFromCore failed: {e.message}"
+  let solanaCapPlan : ProofForge.Target.CapabilityPlan :=
+    { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked solanaCapPlan with
+  | .ok plan =>
+      require (plan.stateFields.size == 1) "evidence isolation: Solana state field count changed"
+      require (plan.entrypoints.size == 1) "evidence isolation: Solana entrypoint count changed"
+  | .error e =>
+      throw <| IO.userError s!"evidence isolation: Solana buildFromCore failed: {e.message}"
   IO.println "canonical-evidence-isolation: ok"

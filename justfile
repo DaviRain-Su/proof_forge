@@ -55,6 +55,11 @@ canonical-evm-plan:
     lake env lean --run Tests/Backend/Evm/CanonicalPlan.lean
     bash scripts/canonical/evm-parity.sh
 
+# Wave 3 Task 11: canonical Core to existing Solana plan gate.
+canonical-solana-plan:
+    lake env lean --run Tests/Backend/Solana/CanonicalPlan.lean
+    bash scripts/canonical/solana-parity.sh
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
