@@ -115,9 +115,30 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
 
 /-- Build a default account plan for a Solana program.
 Phase 1: single account (account 0) holding all state. -/
-def coreDefaultAccounts (dataSize : Nat) : Array SolanaAccountPlan :=
-  #[{ name := "program_state", index := 0, signer := false, writable := true,
-      owner := "BPFLoaderUpgradeable", dataSize }]
+def coreDefaultAccounts (dataSize : Nat) (hasCrosscall : Bool) : Array SolanaAccountPlan :=
+  let state : SolanaAccountPlan := {
+    name := "program_state"
+    index := 0
+    signer := false
+    writable := true
+    owner := "BPFLoaderUpgradeable"
+    dataSize := dataSize }
+  if hasCrosscall then
+    #[state,
+      { name := "payer", index := 1, signer := true, writable := true, owner := "any", dataSize := 0 },
+      { name := "peer_program", index := 2, signer := false, writable := false,
+        owner := "executable", dataSize := 0 },
+      { name := "system_program", index := 3, signer := false, writable := false,
+        owner := "executable", dataSize := 0 },
+      { name := "callee_program", index := 4, signer := false, writable := false,
+        owner := "executable", dataSize := 0 }]
+  else #[state]
+
+private def coreHasCrosscall (m : ProofForge.IR.Core.Module) : Bool :=
+  m.functions.any fun fn => fn.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .crosscall .. => true
+      | _ => false
 
 /-- Build an empty extensions plan. -/
 def coreEmptyExtensions : SolanaExtensionPlan := SolanaExtensionPlan.empty
@@ -125,12 +146,15 @@ def coreEmptyExtensions : SolanaExtensionPlan := SolanaExtensionPlan.empty
 /-- Build an empty lower context seed. The canonical builder does not
 store Legacy `StructDecl`, `StateDecl`, or `Module`. The lowering for
 canonical plans must reconstruct its context from the plan fields only. -/
-def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan) : SolanaLowerCtxSeed := {
+def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
+    (accounts : Array SolanaAccountPlan) : SolanaLowerCtxSeed := {
   stateFieldOffsets := stateFields.map (fun f => (f.id, f.absOff))
   structs := #[]
   stateDecls := #[]
-  inputLayout := { accounts := #[], instructionDataLenOff := 0, instructionDataOff := 0 }
-  manifestAccounts := #[]
+  inputLayout := computeInputLayoutWithReallocFlags (accounts.map fun account => (account.dataSize, false))
+  manifestAccounts := accounts.map fun account => {
+    name := account.name, index := account.index, signer := account.signer,
+    writable := account.writable, owner := account.owner }
   extensions := {}
 }
 
@@ -189,12 +213,22 @@ private def arithmeticPlan : ArithmeticOp -> SolanaArithmeticPlan
 private def comparePlan : CompareOp -> SolanaComparePlan
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
 
-private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan) (instr : Instruction) : Except PlanError SolanaOpPlan := do
+private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
+    (events : Array InterfaceEvent) (calleeAccountIndex : Nat)
+    (instr : Instruction) : Except PlanError SolanaOpPlan := do
   match instr.op with
   | .pure (.literal (.boolLit value)) => return .boolLiteral (<- resultPlan instr) value
   | .pure (.literal (.u8Lit value)) | .pure (.literal (.u32Lit value)) |
     .pure (.literal (.u64Lit value)) | .pure (.literal (.u128Lit value)) =>
       return .literal (<- resultPlan instr) value
+  | .pure (.literal (.addressLit value)) =>
+      match value.toNat? with
+      | some word => return .literal (<- resultPlan instr) word
+      | none => throw { message := "non-numeric address literals are not yet materialized by the Solana Core plan" }
+  | .pure (.literal (.stringLit value)) =>
+      match value.toNat? with
+      | some word => return .literal (<- resultPlan instr) word
+      | none => throw { message := "non-numeric string literals are not yet materialized by the Solana Core plan" }
   | .pure (.arithmetic op mode lhs rhs) =>
       return .arithmetic (<- resultPlan instr) (arithmeticPlan op) (mode == .checked)
         (valuePlan lhs) (valuePlan rhs)
@@ -215,8 +249,17 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan) (instr : 
       | #[.index index] => return .storeArray ref.root.value field.absOff field.capacity field.valueByteSize (valuePlan index) (valuePlan value)
       | _ => throw { message := "Solana canonical storage supports one mapKey or index segment" }
   | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
-  | .emit event args => return .log event.value (args.map valuePlan)
+  | .emit event args =>
+      let eventName ← match events.find? (fun declaration => declaration.eventId == event) with
+        | some declaration => pure declaration.name
+        | none => throw { message := s!"unknown Solana event {event.value}" }
+      return .log event.value eventName (args.map valuePlan)
   | .assert condition error => return .assert (valuePlan condition) error.id.value
+  | .crosscall spec args =>
+      unless spec.mode == .invoke do
+        throw { message := s!"Solana canonical crosscall mode `{repr spec.mode}` is unsupported" }
+      return .portableCrosscall (<- resultPlan instr) calleeAccountIndex
+        (valuePlan spec.method) (args.map valuePlan)
   | op => throw { message := s!"unsupported canonical Solana operation `{repr op}`" }
 
 private def lowerTerminatorPlan : Terminator -> SolanaTerminatorPlan
@@ -226,12 +269,12 @@ private def lowerTerminatorPlan : Terminator -> SolanaTerminatorPlan
   | .revert error => .revert error.id.value
 
 private def lowerFunctionPlan (fields : Array SolanaStateFieldPlan)
-    (iface : InterfaceContract) (fn : Function) : Except PlanError SolanaFunctionPlan := do
+    (calleeAccountIndex : Nat) (iface : InterfaceContract) (fn : Function) : Except PlanError SolanaFunctionPlan := do
   let ep <- match iface.entrypoints.find? (fun ep => ep.functionId == fn.id) with
     | some ep => pure ep
     | none => throw { message := s!"missing Solana interface entrypoint for function {fn.id.value}" }
   let blocks <- fn.blocks.mapM fun block => do
-    let ops <- block.instructions.mapM (lowerInstructionPlan fields)
+    let ops <- block.instructions.mapM (lowerInstructionPlan fields iface.events calleeAccountIndex)
     return {
       id := block.id.value
       params := block.params.map (fun p => { id := p.id.value, typeName := coreTypeToSolanaName p.type })
@@ -271,11 +314,13 @@ def buildFromCore (checked : CheckedCanonicalContract)
     entrypoints := entrypoints.push epPlan
     tag := tag + 1
   /- Build accounts and extensions. -/
-  let accounts := coreDefaultAccounts dataSize
+  let hasCrosscall := coreHasCrosscall m
+  let accounts := coreDefaultAccounts dataSize hasCrosscall
   let extensions := coreEmptyExtensions
   /- Build lower context seed from resolved plan fields. -/
-  let seed := coreLowerCtxSeed stateFields
-  let functions <- m.functions.mapM (lowerFunctionPlan stateFields iface)
+  let seed := coreLowerCtxSeed stateFields accounts
+  let calleeAccountIndex := if hasCrosscall then 4 else 0
+  let functions <- m.functions.mapM (lowerFunctionPlan stateFields calleeAccountIndex iface)
   .ok {
     targetId := "solana-sbpf-asm"
     artifactKind := "solana-elf"

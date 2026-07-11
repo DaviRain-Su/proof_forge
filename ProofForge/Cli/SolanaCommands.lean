@@ -195,7 +195,8 @@ def compileSolanaElf (opts : CliOptions) : IO UInt32 := do
 
 def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
     (fallbackProjectName fixture : String) (spec : ProofForge.Contract.ContractSpec)
-    (sourcePath? : Option FilePath := none) (leanElaborated : Bool := false) :
+    (sourcePath? : Option FilePath := none) (leanElaborated : Bool := false)
+    (canonical : Bool := false) :
     IO UInt32 := do
   let output := opts.output?.getD defaultOutput
   let projectName := match output.fileName with
@@ -208,15 +209,19 @@ def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
-  match ProofForge.Compiler.runCanonicalValidationGate "solana-sbpf-asm" spec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError e
+  let canonicalAsm? ← if canonical then
+      match renderCanonicalSpecSolanaAsm spec with
+      | .ok source => pure (some source)
+      | .error error => throw <| IO.userError error
+    else pure none
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec projectName spec with
   | .ok pkg =>
       for file in pkg.files do
         let path := packagePath projectDir file.path
-        writeTextFile path file.contents
+        writeTextFile path (match canonicalAsm? with
+          | some source => if file.path == pkg.asmPath then source else file.contents
+          | none => file.contents)
         IO.println s!"wrote {path}"
 
       let asmSrc := packagePath projectDir pkg.asmPath
@@ -316,7 +321,7 @@ unsafe def compileContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
   let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
   let base := leanBaseName input
   let defaultOut := siblingPath input s!"{base}.so"
-  compileSolanaSpecElf opts defaultOut base base spec (some input) true
+  compileSolanaSpecElf opts defaultOut base base spec (some input) true true
 
 def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
     (fixture : String) (spec : ProofForge.Contract.ContractSpec) : IO UInt32 := do
@@ -325,9 +330,6 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
-  match ProofForge.Compiler.runCanonicalValidationGate "solana-sbpf-asm" spec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError e
   match ProofForge.Backend.Solana.SbpfAsm.renderModuleWithPlan spec.module plan with
   | .ok source =>
       if let some parent := output.parent then
@@ -399,8 +401,8 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
       IO.FS.writeFile metadataOutput (metadata ++ "\n")
       IO.println s!"wrote {metadataOutput}"
       return 0
-  | .error err =>
-      throw <| IO.userError err.render
+  | .error error =>
+      throw <| IO.userError error.render
 
 def compileSolanaSystemCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts

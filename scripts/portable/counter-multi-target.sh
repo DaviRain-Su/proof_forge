@@ -43,7 +43,7 @@ echo "portable-counter: Solana sBPF"
   -o "$OUT/Counter.s" \
   --artifact-output "$OUT/Counter.solana-artifact.json" \
   "$SOURCE"
-diff -u Examples/Backend/Solana/Counter.golden.s "$OUT/Counter.s"
+diff -u Examples/Backend/Solana/Counter.canonical.golden.s "$OUT/Counter.s"
 diff -u Examples/Backend/Solana/Counter.manifest.toml "$OUT/manifest.toml"
 
 echo "portable-counter: NEAR/Wasm"

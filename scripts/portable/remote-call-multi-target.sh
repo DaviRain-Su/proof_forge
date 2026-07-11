@@ -75,7 +75,7 @@ require_contains "$OUT/solana/RemoteCall.s" "sol_get_return_data" "Solana return
 require_contains "$OUT/solana/RemoteCall.s" "AccountMeta" "Solana AccountMeta pack comment"
 require_contains "$OUT/solana/RemoteCall.s" "peer/callee account index" "Solana peer account index resolve"
 require_contains "$OUT/solana/manifest.toml" "callee_program" "manifest callee_program account"
-GOLDEN_SOL="$ROOT/Examples/Product/goldens/RemoteCall.solana.s"
+GOLDEN_SOL="$ROOT/Examples/Product/goldens/RemoteCall.canonical.solana.s"
 if [[ -f "$GOLDEN_SOL" ]]; then
   diff -u "$GOLDEN_SOL" "$OUT/solana/RemoteCall.s" \
     || fail "Solana asm drifted from Examples/Product/goldens/RemoteCall.solana.s"

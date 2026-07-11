@@ -10,16 +10,21 @@ import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Canonical
 import ProofForge.Target
+import ProofForge.Cli.SolanaArtifacts
+import ProofForge.Cli.SolanaCommands
+import ProofForge.Cli.Options
+import ProofForge.Cli.ContractSourceArtifacts
+import ProofForge.Cli.ContractLoader
+import ProofForge.Solana.Examples.SystemCpi
 
 /-! # Solana Public Route Test
 
-Verifies that the canonical validation gate runs on the `solana-sbpf-asm`
-public route:
+Verifies that the canonical pipeline owns the `solana-sbpf-asm` public route:
 
-- `runCanonicalValidationGate` succeeds for Counter and ValueVault.
+- Public and explicit canonical artifacts match.
 - A Surface contract with a `near.promise.create` hostCall reports
   `missingHostOpHandler` on `solana-sbpf-asm`.
-- The gate is advisory when `adaptLegacy` fails (adapter coverage gap).
+- Adapter and intent-only CPI failures are terminal.
 - `buildFromCore` produces a valid Solana `SolanaModulePlan` for Counter.
 -/
 
@@ -29,6 +34,7 @@ open ProofForge.Backend.Solana.Plan.Core
 open ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 open ProofForge.Frontend.Surface
 open ProofForge.IR.Core.HostOp
+open ProofForge.Cli
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -64,19 +70,30 @@ def promiseContract : SurfaceContract := {
   intents := #[]
 }
 
-def main : IO Unit := do
+unsafe def main : IO Unit := do
   let counterSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.Counter.module)
   let vaultSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.ValueVault.module)
 
-  /- Check 1: gate succeeds for Counter (product contract, adapter covers it). -/
-  match runCanonicalValidationGate "solana-sbpf-asm" counterSpec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"Counter canonical gate failed: {e}"
-
-  /- Check 2: gate succeeds for ValueVault. -/
-  match runCanonicalValidationGate "solana-sbpf-asm" vaultSpec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"ValueVault canonical gate failed: {e}"
+  /- Checks 1-2: public assembly is the explicit canonical artifact. -/
+  let out := System.FilePath.mk "build/canonical/solana-public/Counter.s"
+  let input := System.FilePath.mk "Examples/Product/Counter.lean"
+  let opts : CliOptions := {
+    output? := some out
+    input? := some input
+    root? := some (System.FilePath.mk ".")
+  }
+  discard <| compileContractSourceSbpf opts
+  let publicCounter ← IO.FS.readFile out
+  let loadedCounter ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? none
+  let canonicalCounter ← match renderCanonicalSpecSolanaAsm loadedCounter with
+    | .ok source => pure source
+    | .error error => throw <| IO.userError error
+  require (publicCounter == canonicalCounter && !publicCounter.isEmpty)
+    "public Counter assembly differs from explicit canonical materialization"
+  let canonicalVault ← match renderCanonicalSpecSolanaAsm vaultSpec with
+    | .ok source => pure source
+    | .error error => throw <| IO.userError error
+  require (!canonicalVault.isEmpty) "canonical ValueVault assembly is empty"
 
   /- Check 3: buildFromCore produces a valid Solana plan for Counter. -/
   match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
@@ -106,8 +123,7 @@ def main : IO Unit := do
   let nearErrors := checkHostOpHandlers "wasm-near" surfaceBundle.contract
   require (nearErrors.size == 0) "NEAR should not report missingHostOpHandler"
 
-  /- Check 6: gate is advisory when adaptLegacy fails (adapter coverage gap).
-  Use an IR module with an unbound release that the adapter cannot handle. -/
+  /- Check 6: adapter failure is terminal; public routing cannot retry Legacy. -/
   let unsupportedModule : ProofForge.IR.Module := {
     name := "UnsupportedAdapter"
     state := #[]
@@ -118,8 +134,17 @@ def main : IO Unit := do
     }]
   }
   let unsupportedSpec := ContractSpec.fromIR unsupportedModule
-  match runCanonicalValidationGate "solana-sbpf-asm" unsupportedSpec with
-  | .ok () => pure ()  /- advisory: adaptLegacy failed, gate passes -/
-  | .error e => throw <| IO.userError s!"gate should be advisory on adapter failure, got: {e}"
+  match renderCanonicalSpecSolanaAsm unsupportedSpec with
+  | .error error =>
+      require (error.contains "canonical: adapt failed")
+        s!"public Solana route changed canonical rejection: {error}"
+  | .ok _ => throw <| IO.userError "public Solana route accepted unsupported Legacy input"
+
+  /- Check 7: intent-only CPI cannot silently disappear in canonical output. -/
+  match renderCanonicalSpecSolanaAsm ProofForge.Solana.Examples.SystemCpi.spec with
+  | .error error =>
+      require (error.contains "intent-only Solana CPI")
+        s!"CPI fail-closed diagnostic changed: {error}"
+  | .ok _ => throw <| IO.userError "canonical public route silently dropped Solana CPI intents"
 
   IO.println "solana-public-route: ok"

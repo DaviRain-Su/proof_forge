@@ -32,6 +32,7 @@ import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.StateLayout
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.BpfEncode
+import ProofForge.Backend.Solana.PortableCrosscall
 
 namespace ProofForge.Backend.Solana.Plan
 
@@ -130,8 +131,10 @@ inductive SolanaOpPlan where
   | compare (result : SolanaValuePlan) (op : SolanaComparePlan)
       (lhs rhs : SolanaValuePlan)
   | context (result : SolanaValuePlan) (field : String)
-  | log (eventId : Nat) (args : Array SolanaValuePlan)
+  | log (eventId : Nat) (eventName : String) (args : Array SolanaValuePlan)
   | assert (condition : SolanaValuePlan) (errorCode : Nat)
+  | portableCrosscall (result : SolanaValuePlan) (calleeAccountIndex : Nat)
+      (method : SolanaValuePlan) (args : Array SolanaValuePlan)
   deriving Repr, Inhabited, BEq
 
 inductive SolanaTerminatorPlan where
@@ -520,6 +523,24 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
   | .boolLiteral result value => .ok #[
       .instruction { opcode := .mov64, dst := some .r2, imm := some (.num (if value then 1 else 0)) },
       canonicalStoreValue result .r2]
+  | .portableCrosscall result calleeAccountIndex method args => do
+      let site := s!"core_cpi_{fnId}_{blockId}_{opIndex}"
+      let mut nodes : Array AstNode := #[
+        .comment s!"portable peer handle -> peer/callee account index {calleeAccountIndex}",
+        .instruction { opcode := .mov64, dst := some .r2, imm := some (.num calleeAccountIndex) }]
+      nodes := nodes.push (.instruction {
+        opcode := .stxdw
+        dst := some .r10
+        off := some (.num PortableCrosscall.portableTargetIndexSaveOffset)
+        src := some .r2 })
+      nodes := nodes.push (canonicalLoadValue method .r2)
+      nodes := nodes ++ PortableCrosscall.storeIxDataWord 0
+      for i in [:args.size] do
+        nodes := nodes.push (canonicalLoadValue args[i]! .r2)
+        nodes := nodes ++ PortableCrosscall.storeIxDataWord (i + 1)
+      nodes := nodes ++ PortableCrosscall.invokeSignedC ((args.size + 1) * 8) #[] 0 #[]
+        s!"{site}_return_none" s!"{site}_return_end"
+      .ok (nodes.push (canonicalStoreValue result .r2))
   | .loadState result _ absOff byteSize => do
       unless byteSize == 8 do throw { message := s!"canonical Solana load width {byteSize} is unsupported" }
       .ok #[
@@ -666,8 +687,8 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
         .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num valueOff) },
         canonicalStoreValue result .r2,
         .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
-  | .log event args => do
-      let mut nodes := #[]
+  | .log event eventName args => do
+      let mut nodes := #[.comment s!"solana.event.emit {eventName} (event_id={event})"]
       for arg in args do
         nodes := nodes ++ #[canonicalLoadValue arg .r3,
           .instruction { opcode := .stxdw, dst := some .r10, off := some (.num 400), src := some .r1 },
@@ -717,7 +738,8 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
   | .literal result _ | .boolLiteral result _ | .loadState result .. | .loadMap result .. |
     .loadArray result .. |
-    .arithmetic result .. | .compare result .. | .context result _ => #[result]
+    .arithmetic result .. | .compare result .. | .context result _ |
+    .portableCrosscall result .. => #[result]
   | _ => #[]
 
 /-- Canonical lowering boundary: consumes only the complete target plan. -/
@@ -731,6 +753,8 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     if declaredValues.any (fun value => canonicalValueOffset value > 384) then
       throw { message := s!"canonical Solana function `{fn.name}` exceeds the 512-byte stack plan" }
   let mut nodes : Array AstNode := #[.sectionDecl .text, .globalDecl "entrypoint", .label "entrypoint"]
+  let hasPortableCrosscall := plan.functions.any fun fn => fn.blocks.any fun block =>
+    block.ops.any fun op => match op with | .portableCrosscall .. => true | _ => false
   nodes := nodes ++ SbpfAsm.lowerInstructionDataPointerSetup plan.accounts.size ++ #[
     .instruction { opcode := .ldxb, dst := some .r2, src := some entryInstructionDataReg, off := some (.num 0) }]
   for i in [:plan.functions.size] do
@@ -758,6 +782,10 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
     .label "error_map_capacity",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit }]
+  if hasPortableCrosscall then
+    nodes := nodes ++ #[.label "error_cpi",
+      .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 8) },
+      .instruction { opcode := .exit }]
   match BpfEncode.toBpfBin nodes with
   | .ok _ => pure nodes
   | .error e => throw { message := s!"canonical Solana verifier rejected plan: {e.render}" }

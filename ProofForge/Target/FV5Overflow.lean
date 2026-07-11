@@ -10,14 +10,13 @@ namespace ProofForge.Target
 module sets `overflowChecked := true`, it declares the `arith.checked`
 capability (Solidity-0.8-style revert-on-overflow). The platform's core
 "reject rather than silently change semantics" promise then requires that such
-a module can **only** resolve to a target profile that also declares
-`arith.checked` — currently EVM only. Solana (sBPF) and NEAR (Wasm) lower to
-native wrapping arithmetic and do **not** declare `arith.checked`.
+a module can only resolve to a target profile that declares `arith.checked`.
+All three primary targets now declare and materialize that capability.
 
 These `native_decide` theorems pin that gate:
 
 - A checked-overflow module resolves on EVM (`.ok`).
-- The same checked-overflow module is **rejected** on Solana and NEAR.
+- The same checked-overflow module resolves on Solana and NEAR.
 
 This is the FV-5 capability-gate half: it makes the cross-target overflow
 divergence a *rejected* mismatch rather than a silent behavioral difference.
@@ -30,10 +29,15 @@ namespace FV5Overflow
 open ProofForge.IR
 
 /-- The canonical Counter module with `overflowChecked := true`. This is the
-fixture for the FV-5 gate: it declares `arith.checked` and must therefore be
-rejected on Solana/NEAR. -/
+fixture for the FV-5 gate: it declares `arith.checked`. -/
 def checkedCounterModule : Module :=
   { ProofForge.IR.Examples.Counter.module with overflowChecked := true }
+
+/-- Keep the capability-intent view synchronized with the replaced module. -/
+def checkedCounterSpec : ProofForge.Contract.ContractSpec :=
+  { ProofForge.Contract.Examples.Counter.spec with
+    module := checkedCounterModule
+    intents := ProofForge.Contract.intentsFromIR checkedCounterModule }
 
 /-- `checkedCounterModule` declares the `arith.checked` capability. -/
 theorem checkedCounterModule_declares_arith_checked :
@@ -43,26 +47,17 @@ theorem checkedCounterModule_declares_arith_checked :
 /-- A checked-overflow module resolves to `.ok` on EVM (EVM declares
 `arith.checked`). -/
 theorem checkedCounterModule_resolves_on_evm :
-    resolveSpecCheckedBy evm { ProofForge.Contract.Examples.Counter.spec with
-        module := checkedCounterModule } = true := by
+    resolveSpecCheckedBy evm checkedCounterSpec = true := by
   native_decide
 
-/-- A checked-overflow module is **rejected** on Solana (Solana does not
-declare `arith.checked`); resolution yields `.error`. -/
-theorem checkedCounterModule_rejected_on_solana :
-    (match resolveSpec solanaSbpfAsm
-        { ProofForge.Contract.Examples.Counter.spec with
-          module := checkedCounterModule } with
-     | .ok _ => false | .error _ => true) = true := by
+/-- Solana declares and materializes checked arithmetic. -/
+theorem checkedCounterModule_resolves_on_solana :
+    resolveSpecCheckedBy solanaSbpfAsm checkedCounterSpec = true := by
   native_decide
 
-/-- A checked-overflow module is **rejected** on NEAR (NEAR does not declare
-`arith.checked`); resolution yields `.error`. -/
-theorem checkedCounterModule_rejected_on_near :
-    (match resolveSpec wasmNear
-        { ProofForge.Contract.Examples.Counter.spec with
-          module := checkedCounterModule } with
-     | .ok _ => false | .error _ => true) = true := by
+/-- NEAR declares and materializes checked arithmetic. -/
+theorem checkedCounterModule_resolves_on_near :
+    resolveSpecCheckedBy wasmNear checkedCounterSpec = true := by
   native_decide
 
 end FV5Overflow

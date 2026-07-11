@@ -74,7 +74,7 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
-  match ProofForge.Backend.Solana.SbpfAsm.renderModuleWithPlan spec.module plan with
+  match renderCanonicalSpecSolanaAsm spec with
   | .ok source =>
       if let some parent := output.parent then
         IO.FS.createDirAll parent
@@ -196,8 +196,8 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
           ]
           #[("typescript", clientOutput)]
       return 0
-  | .error err =>
-      throw <| IO.userError err.render
+  | .error error =>
+      throw <| IO.userError error
 
 unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?

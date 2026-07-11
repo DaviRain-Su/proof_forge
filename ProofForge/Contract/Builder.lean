@@ -109,7 +109,7 @@ def entrypointMetadata (name : String) : TargetMetadata := {
 
 def scopeEntryIntent (entrypointName : String) (intent : Intent) : Intent := {
   intent with
-  kind := .entrypoint
+  kind := if intent.capability?.isSome then .capability else .entrypoint
   metadata := intent.metadata.push (entrypointMetadata entrypointName)
 }
 
