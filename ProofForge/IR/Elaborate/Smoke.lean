@@ -8,7 +8,7 @@ import ProofForge.IR.Examples.ValueVault
 namespace ProofForge.IR.Elaborate.Smoke
 
 open ProofForge.IR
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.IR.Core.Error
 
 /-- Round-trip smoke for the Counter surface → Core elaboration path. -/

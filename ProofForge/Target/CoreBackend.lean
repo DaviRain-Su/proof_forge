@@ -6,9 +6,9 @@ import ProofForge.Target.Backend
 
 namespace ProofForge.Target.CoreBackend
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.IR.Elaborate
-open ProofForge.IR.Core.Validate
+open ProofForge.IR.Legacy.Validate
 open ProofForge.Target
 
 /-- Configuration for a `-core` experimental backend that lowers portable IR

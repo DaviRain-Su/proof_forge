@@ -2,7 +2,7 @@ import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.WasmHost.CorePlan
 import ProofForge.Backend.WasmHost.CoreLower
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.Backend.WasmHost.CorePlan
 open ProofForge.Backend.WasmHost.CoreLower
 

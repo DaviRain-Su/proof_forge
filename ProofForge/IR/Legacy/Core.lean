@@ -1,6 +1,6 @@
 import ProofForge.IR.Prelude
 
-namespace ProofForge.IR.Core
+namespace ProofForge.IR.Legacy.Core
 
 abbrev UInt128 := BitVec 128
 
@@ -139,4 +139,4 @@ structure CoreModule where
   events : List CoreEvent
   deriving Repr
 
-end ProofForge.IR.Core
+end ProofForge.IR.Legacy.Core

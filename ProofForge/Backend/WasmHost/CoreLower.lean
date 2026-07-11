@@ -9,7 +9,7 @@ open ProofForge.Compiler.Wasm
 /-- Map the portable Core IR type vocabulary to a Wasm value type.
 This is a Task-9 skeleton mapping: complex/unsupported types default to `i32`
 so the module can still be assembled; future tasks will refine the mapping. -/
-def coreTypeToWasmValType : ProofForge.IR.Core.CoreType → ValType
+def coreTypeToWasmValType : ProofForge.IR.Legacy.Core.CoreType → ValType
   | .unit => .i32
   | .bool => .i32
   | .u8 => .i32

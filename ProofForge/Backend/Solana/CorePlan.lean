@@ -17,7 +17,7 @@ import ProofForge.Backend.Solana.Asm
 
 namespace ProofForge.Backend.Solana.CorePlan
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 
 structure AccountPlan where
   name : String

@@ -1,4 +1,16 @@
+import ProofForge.IR.Core.Id
+
 namespace ProofForge.IR.Core.Error
+
+/- Source locations are retained in `CanonicalEvidence.sourceMap`; validation
+produces structured diagnostics and decoration adds a span without changing
+semantics. -/
+
+structure SourceLocation where
+  file : String
+  line : Nat
+  column : Nat
+  deriving Repr, BEq
 
 /- Surface → Core elaboration errors. Used by the legacy spike elaborator and
 the future independent Surface normalizer. -/
@@ -10,28 +22,45 @@ inductive ElabError
   | other (msg : String)
   deriving Repr
 
-/- Canonical Core validation errors. These cover the checks performed by
-`validateCanonical` on the typed ANF/CFG representation. -/
+/- Canonical Core validation error tags. Each error records its tag, the pass
+that produced it, the semantic node where it occurred, and a reason. -/
 
-inductive ValidationError
-  | duplicateName (name : String)
-  | unknownType (name : String)
-  | uninitializedState (name : String)
-  | duplicateId (kind : String) (id : String)
-  | unknownState (id : String)
-  | unknownFunction (id : String)
-  | unknownBlock (id : String)
-  | unknownValue (id : String)
-  | unknownEvent (id : String)
-  | typeMismatch (expected : String) (actual : String)
-  | invalidStoragePath (reason : String)
-  | invalidLoopBound (reason : String)
-  | unboundedLoop (block : String)
-  | missingReturn (function : String)
-  | useBeforeDefinition (id : String)
-  | invalidTerminator (reason : String)
-  | other (msg : String)
-  deriving Repr
+inductive ValidationErrorTag
+  | duplicateId
+  | unknownReference
+  | literalOutOfRange
+  | invalidDominance
+  | typeMismatch
+  | invalidStoragePath
+  | missingLoopBound
+  | invalidReturn
+  | invalidInterface
+  | invalidMaterialization
+  deriving BEq, Repr
+
+structure ValidationError where
+  tag : ValidationErrorTag
+  pass : String
+  function : Option ProofForge.IR.Core.FunctionId
+  block : Option ProofForge.IR.Core.BlockId
+  instruction : Option Nat
+  sourceLocation : Option SourceLocation
+  reason : String
+  deriving Repr, BEq
+
+def ValidationError.mkSimple (tag : ValidationErrorTag) (pass : String)
+    (reason : String) : ValidationError := {
+  tag := tag
+  pass := pass
+  function := none
+  block := none
+  instruction := none
+  sourceLocation := none
+  reason := reason
+}
+
+def ValidationError.withLocation (loc : SourceLocation) (e : ValidationError) :
+    ValidationError := { e with sourceLocation := some loc }
 
 /- Capability and target-plan resolution errors. -/
 

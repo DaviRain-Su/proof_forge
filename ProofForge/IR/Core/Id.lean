@@ -10,11 +10,11 @@ structure EventId where value : Nat
 structure BlockId where value : Nat
 structure ValueId where value : Nat
 
-deriving instance BEq, Repr, Inhabited for TypeId
-deriving instance BEq, Repr, Inhabited for StateId
-deriving instance BEq, Repr, Inhabited for FunctionId
-deriving instance BEq, Repr, Inhabited for EventId
-deriving instance BEq, Repr, Inhabited for BlockId
-deriving instance BEq, Repr, Inhabited for ValueId
+deriving instance BEq, Repr, Inhabited, Hashable for TypeId
+deriving instance BEq, Repr, Inhabited, Hashable for StateId
+deriving instance BEq, Repr, Inhabited, Hashable for FunctionId
+deriving instance BEq, Repr, Inhabited, Hashable for EventId
+deriving instance BEq, Repr, Inhabited, Hashable for BlockId
+deriving instance BEq, Repr, Inhabited, Hashable for ValueId
 
 end ProofForge.IR.Core

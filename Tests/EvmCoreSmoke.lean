@@ -3,7 +3,7 @@ import ProofForge.Backend.Evm.CorePlan
 import ProofForge.Backend.Evm.CoreLower
 import ProofForge.Compiler.Yul.Printer
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.Backend.Evm.CorePlan
 open ProofForge.Backend.Evm.CoreLower
 

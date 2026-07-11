@@ -2,22 +2,25 @@ import ProofForge.IR.Legacy.Core
 import ProofForge.IR.Core.Error
 import Std
 
-namespace ProofForge.IR.Core.Validate
+namespace ProofForge.IR.Legacy.Validate
 
-open ProofForge.IR.Core ProofForge.IR.Core.Error
+open ProofForge.IR.Legacy.Core
+open ProofForge.IR.Core.Error
 
 def validateModule (m : CoreModule) : Except ValidationError Unit := do
   -- Check duplicate state names
   let mut seen : Std.HashSet String := {}
   for s in m.state do
     if seen.contains s.name then
-      .error (.duplicateName s.name)
+      .error <| ValidationError.mkSimple .duplicateId "legacy-symbol-uniqueness"
+        s!"duplicate state name: {s.name}"
     seen := seen.insert s.name
   -- Check duplicate entrypoint names
   for e in m.entrypoints do
     if seen.contains e.name then
-      .error (.duplicateName e.name)
+      .error <| ValidationError.mkSimple .duplicateId "legacy-symbol-uniqueness"
+        s!"duplicate entrypoint name: {e.name}"
     seen := seen.insert e.name
   .ok ()
 
-end ProofForge.IR.Core.Validate
+end ProofForge.IR.Legacy.Validate

@@ -5,7 +5,7 @@ import ProofForge.IR.Core.Error
 namespace ProofForge.IR.Elaborate
 
 open ProofForge.IR
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.IR.Core.Error
 
 /-- Inhabited instances so that partial recursive elaborators over the mutual

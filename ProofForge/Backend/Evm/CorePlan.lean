@@ -3,7 +3,7 @@ import ProofForge.Compiler.Yul.AST
 
 namespace ProofForge.Backend.Evm.CorePlan
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open Lean.Compiler.Yul
 
 structure StorageSlotPlan where

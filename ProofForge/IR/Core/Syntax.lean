@@ -131,6 +131,6 @@ structure Module where
   state : Array StateDecl := #[]
   functions : Array Function := #[]
   events : Array Event := #[]
-  deriving Repr
+  deriving BEq, Repr, Inhabited
 
 end ProofForge.IR.Core

@@ -17,7 +17,8 @@ import ProofForge.IR.Legacy.Validate
 import ProofForge.IR.Elaborate
 
 open System
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
+open ProofForge.IR.Legacy.Validate
 
 namespace ProofForge.Cli
 
@@ -46,7 +47,7 @@ unsafe def compileEvmCoreYul (opts : CliOptions) : IO UInt32 := do
   let core ← match ProofForge.IR.Elaborate.elaborateModule spec.module with
     | .ok core => pure core
     | .error err => throw <| IO.userError s!"core IR elaboration failed: {renderElabError err}"
-  match Validate.validateModule core with
+  match validateModule core with
   | .error err => throw <| IO.userError s!"core IR validation failed: {renderValidationError err}"
   | .ok () => pure ()
   let plan := ProofForge.Backend.Evm.CorePlan.buildEvmCorePlan core
@@ -69,7 +70,7 @@ unsafe def compileSolanaCoreSbpf (opts : CliOptions) : IO UInt32 := do
   let core ← match ProofForge.IR.Elaborate.elaborateModule spec.module with
     | .ok core => pure core
     | .error err => throw <| IO.userError s!"core IR elaboration failed: {renderElabError err}"
-  match Validate.validateModule core with
+  match validateModule core with
   | .error err => throw <| IO.userError s!"core IR validation failed: {renderValidationError err}"
   | .ok () => pure ()
   let plan := ProofForge.Backend.Solana.CorePlan.buildSolanaCorePlan core
@@ -92,7 +93,7 @@ unsafe def compileWasmCoreWat (opts : CliOptions) : IO UInt32 := do
   let core ← match ProofForge.IR.Elaborate.elaborateModule spec.module with
     | .ok core => pure core
     | .error err => throw <| IO.userError s!"core IR elaboration failed: {renderElabError err}"
-  match Validate.validateModule core with
+  match validateModule core with
   | .error err => throw <| IO.userError s!"core IR validation failed: {renderValidationError err}"
   | .ok () => pure ()
   let plan := ProofForge.Backend.WasmHost.CorePlan.buildWasmCorePlan core

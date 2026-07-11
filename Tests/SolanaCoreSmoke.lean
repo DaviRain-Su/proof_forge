@@ -10,7 +10,7 @@ import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.Solana.CorePlan
 import ProofForge.Backend.Solana.CoreLower
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.Backend.Solana.CorePlan
 open ProofForge.Backend.Solana.CoreLower
 

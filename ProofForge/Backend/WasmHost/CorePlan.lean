@@ -3,7 +3,7 @@ import ProofForge.Compiler.Wasm.AST
 
 namespace ProofForge.Backend.WasmHost.CorePlan
 
-open ProofForge.IR.Core
+open ProofForge.IR.Legacy.Core
 open ProofForge.Compiler
 
 structure MemoryPlan where
