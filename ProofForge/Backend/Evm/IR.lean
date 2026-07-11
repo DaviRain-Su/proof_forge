@@ -32,10 +32,19 @@ open ProofForge.Backend.Evm.ToYul
 open ProofForge.Backend.Evm.Lower
 open ProofForge.Backend.Evm.Plan
 
+partial def stmtPlanAlwaysReturns : ProofForge.Backend.Evm.Plan.StmtPlan → Bool
+  | .return _ => true
+  | .ifElse _ thenBody elseBody =>
+      thenBody.any stmtPlanAlwaysReturns && elseBody.any stmtPlanAlwaysReturns
+  | .letBind .. | .letMutBind .. | .assign .. | .assignOp .. | .effect ..
+  | .assert .. | .assertEq .. | .release .. | .revert .. | .revertWithError ..
+  | .boundedFor .. => false
+
 def lowerEntrypointWithPlan
     (module : Module)
     (entrypoint : Entrypoint)
-    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (allowLegacyFallback : Bool := true) :
     Except LowerError Lean.Compiler.Yul.Statement := do
   if entrypointPlan.name != entrypoint.name then
     .error {
@@ -49,16 +58,20 @@ def lowerEntrypointWithPlan
   | _ =>
       if entrypoint.kind == .fallback || entrypoint.kind == .receive then
         .error { message := s!"entrypoint `{entrypoint.name}` is a fallback/receive and must return unit" }
-      else if statementsAlwaysReturn entrypoint.body then
+      else if (!allowLegacyFallback && entrypointPlan.body.any stmtPlanAlwaysReturns) ||
+          (allowLegacyFallback && statementsAlwaysReturn entrypoint.body) then
         pure ()
       else
         .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}` but does not return on every control-flow path" }
   validateEntrypointTypes module entrypoint
   let body ←
-    match ← lowerEntrypointBodyWithPlan? module entrypoint entrypointPlan with
+    match ← lowerEntrypointBodyWithPlan? module entrypoint entrypointPlan allowLegacyFallback with
     | some plannedBody => .ok plannedBody
     | none =>
-        lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
+        if allowLegacyFallback then
+          lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
+        else
+          .error { message := s!"canonical EVM entrypoint plan for `{entrypoint.name}` could not be lowered without Legacy fallback" }
   let dynamicParamAliases :=
     entrypointPlan.params.foldl
       (fun acc param =>
@@ -487,7 +500,8 @@ def plannedCheckedArithmeticHelperFunctions (plan : ProofForge.Backend.Evm.Plan.
 
 def plannedCheckedWidthHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
-  if ProofForge.Backend.Evm.Lower.entrypointsUseCheckedWidthHelper plan.entrypoints then
+  if plan.helpers.contains .checkedWidth ||
+      ProofForge.Backend.Evm.Lower.entrypointsUseCheckedWidthHelper plan.entrypoints then
     #[ProofForge.Backend.Evm.ToYul.checkedWidthHelperFunction]
   else
     #[]
@@ -504,13 +518,14 @@ def plannedCreateHelperFunctions
 
 def lowerEntrypointsWithPlan
     (module : Module)
-    (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (allowLegacyFallback : Bool := true) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) := do
   let (idx, functions) ← module.entrypoints.foldlM (init := (0, #[])) fun acc entrypoint => do
     let (idx, functions) := acc
     match entrypoints[idx]? with
     | some entrypointPlan => do
-        let function ← lowerEntrypointWithPlan module entrypoint entrypointPlan
+        let function ← lowerEntrypointWithPlan module entrypoint entrypointPlan allowLegacyFallback
         .ok (idx + 1, functions.push function)
     | none =>
         .error {
@@ -550,11 +565,16 @@ def lowerEntrypointsBestEffort
 
 def lowerModuleWithPlan
     (module : Module)
-    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
+    (allowLegacyEntrypointFallback : Bool := true) :
     Except LowerError Lean.Compiler.Yul.Object := do
   validateStructs module
   validateState module
-  let functions ← lowerEntrypointsBestEffort module plan.entrypoints
+  let functions ←
+    if allowLegacyEntrypointFallback then
+      lowerEntrypointsBestEffort module plan.entrypoints
+    else
+      lowerEntrypointsWithPlan module plan.entrypoints false
   let dispatch ←
     if dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints then
       dispatchBlockWithPlan module plan.dispatch
@@ -611,6 +631,34 @@ def lowerModuleWithPlan
     name := module.name
     code := { statements := #[dispatch] ++ functions ++ helpers }
   }
+
+/-- Canonical cutover entrypoint. The legacy module is a declaration/type
+context only; executable bodies, dispatch, storage layout, events, and helper
+requirements must all be complete in `plan`. Unlike `lowerModuleWithPlan`, this
+function never selects a legacy reconstruction fallback. -/
+def lowerCanonicalModuleWithPlan
+    (module : Module)
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    Except LowerError Lean.Compiler.Yul.Object := do
+  unless plan.name == module.name do
+    throw ({ message := s!"canonical EVM plan/module name mismatch: `{plan.name}` vs `{module.name}`" } : LowerError)
+  unless entrypointBodyPlanIsComplete module plan.entrypoints do
+    throw ({ message := "canonical EVM plan has incomplete entrypoint bodies" } : LowerError)
+  unless dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints do
+    throw ({ message := "canonical EVM plan has incomplete dispatch metadata" } : LowerError)
+  unless plan.entrypoints.map (·.name) == module.entrypoints.map (·.name) do
+    throw ({ message := "canonical EVM plan entrypoint order differs from the declaration context" } : LowerError)
+  unless plan.storage.states.map (·.id) == module.state.map (·.id) do
+    throw ({ message := "canonical EVM plan storage symbols differ from the declaration context" } : LowerError)
+  let abiPacked := ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
+  unless abiPacked.isEmpty do
+    throw ({ message := "canonical EVM plan does not yet own ABI-packed helper metadata" } : LowerError)
+  lowerModuleWithPlan module plan false
+
+def renderCanonicalModuleWithPlan
+    (module : Module)
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : Except LowerError String := do
+  .ok (Lean.Compiler.Yul.Printer.render (← lowerCanonicalModuleWithPlan module plan))
 
 /-- Build the full EVM semantic plan for `module` before lowering to Yul.
 

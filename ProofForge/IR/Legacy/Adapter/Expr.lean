@@ -60,7 +60,7 @@ def adaptLiteral (l : Literal) : Except CanonicalizeError CoreLiteral :=
       else .error (CanonicalizeError.literalOutOfRange "u128" (toString n))
   | .bool b => .ok (.boolLit b)
   | .hash4 _ _ _ _ => .error (CanonicalizeError.unsupportedConstructor "Literal.hash4" "hash4 literal not in initial fragment")
-  | .address _ => .error (CanonicalizeError.unsupportedConstructor "Literal.address" "address literal not in initial fragment")
+  | .address n => .ok (.addressLit (toString n))
 
 /- Core literal result type. -/
 
@@ -111,6 +111,7 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .effect (.storageScalarRead name) => stateScalarType name
   | .effect (.contextRead field) => contextFieldType <$> liftExcept (adaptContextField field)
   | .hash _ | .hashTwoToOne _ _ => return .hash
+  | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
   | _ => throw (CanonicalizeError.typeMismatch "known" "unknown expression type")
 
@@ -357,8 +358,40 @@ def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.eip712PermitDigest" "EIP-712 permit digest not in initial fragment")
   | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallAbiPacked" "crosscall ABI packing not in initial fragment")
-  | .crosscallInvoke _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvoke" "crosscall invoke not in initial fragment")
+  | .crosscallInvoke target method args => do
+      let normalizedTarget ← normalizeExpr target
+      let normalizedMethod ← match method with
+        | .literal (.address n) | .literal (.u64 n) | .literal (.u32 n) |
+            .literal (.u8 n) | .literal (.u128 n) =>
+            emitValueInstruction (.pure (.literal (.stringLit (toString n)))) .string
+        | _ => normalizeExpr method
+      let mut instructions := normalizedTarget.instructions ++ normalizedMethod.instructions
+      let mut argRefs := #[]
+      let mut paramTypes := #[]
+      for arg in args do
+        let normalizedArg ← match arg with
+          | .literal literal =>
+              let coreLiteral ← liftExcept (adaptLiteral literal)
+              emitValueInstruction (.pure (.literal coreLiteral)) (coreLiteralType coreLiteral)
+          | .local name =>
+              let value ← lookupLocal name
+              pure { instructions := #[], value }
+          | _ => throw (CanonicalizeError.unsupportedConstructor
+              (exprTag arg) "portable crosscall arguments currently support only scalar literals and locals")
+        instructions := instructions ++ normalizedArg.instructions
+        argRefs := argRefs.push normalizedArg.value
+        paramTypes := paramTypes.push normalizedArg.value.type
+      let normalizedCall ← emitValueInstruction (.crosscall {
+        mode := .invoke
+        target := normalizedTarget.value
+        method := normalizedMethod.value
+        paramTypes
+        returnType := .u64
+      } argRefs) .u64
+      return {
+        instructions := instructions ++ normalizedCall.instructions
+        value := normalizedCall.value
+      }
   | .crosscallInvokeTyped _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeTyped" "typed crosscall invoke not in initial fragment")
   | .crosscallInvokeValueTyped _ _ _ _ _ =>

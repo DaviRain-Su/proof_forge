@@ -73,7 +73,7 @@ def classifyLiteral : Literal → LegacyDecision
   | .u64 _ => payloadDecision "Literal.u64" .normalize "canonical-core" "u64 literal is range checked during normalization"
   | .bool _ => payloadDecision "Literal.bool" .normalize "canonical-core" "boolean literal maps to canonical Core"
   | .hash4 _ _ _ _ => payloadDecision "Literal.hash4" .reject "canonical-core" "hash4 literal is outside the initial adapter fragment"
-  | .address _ => payloadDecision "Literal.address" .reject "canonical-core" "numeric address literal is outside the initial adapter fragment"
+  | .address _ => payloadDecision "Literal.address" .normalize "canonical-core" "numeric address handle maps to CoreType.address"
 
 def classifyAssignOp : AssignOp → LegacyDecision
   | .add => payloadDecision "AssignOp.add" .normalize "canonical-core" "addition assignment maps to canonical arithmetic"
@@ -695,9 +695,9 @@ def classifyExpr : Expr → LegacyDecision
         reason := "ABI-packed crosscall rejected until a typed portable primitive or HostOp handler exists" }
   | .crosscallInvoke _ _ _ =>
       { nodeTag := "Expr.crosscallInvoke"
-        disposition := .reject
-        owner := "target-plan-crosscall"
-        reason := "dynamic crosscall rejected until a typed portable primitive or HostOp handler exists" }
+        disposition := .preserve
+        owner := "canonical-core"
+        reason := "portable invoke maps to typed CoreCrosscallSpec with u64 return" }
   | .crosscallInvokeTyped _ _ _ _ =>
       { nodeTag := "Expr.crosscallInvokeTyped"
         disposition := .reject

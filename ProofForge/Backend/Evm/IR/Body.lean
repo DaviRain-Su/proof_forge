@@ -1133,7 +1133,8 @@ end
 def lowerEntrypointBodyWithPlan?
     (module : Module)
     (entrypoint : Entrypoint)
-    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (swallowLoweringErrors : Bool := true) :
     Except LowerError (Option (Array Lean.Compiler.Yul.Statement)) := do
   if entrypointPlan.body.isEmpty && !entrypoint.body.isEmpty then
     .ok none
@@ -1146,7 +1147,8 @@ def lowerEntrypointBodyWithPlan?
         false
         entrypointPlan.body with
     | .ok (body, _) => .ok (some body)
-    | .error _ => .ok none
+    | .error error =>
+        if swallowLoweringErrors then .ok none else .error error
   else
     .ok none
 

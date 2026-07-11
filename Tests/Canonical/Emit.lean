@@ -2,6 +2,8 @@ import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
+import ProofForge.Cli.Evm
+import ProofForge.Cli.EvmArtifacts
 
 /-! # Internal Canonical Emit Test Harness
 
@@ -53,14 +55,24 @@ def main (args : List String) : IO UInt32 := do
     | "canonical" => CompilerPipeline.canonical
     | _ => CompilerPipeline.legacy
   let spec ← fixtureSpec parsed.fixture
+  let dir := System.FilePath.mk parsed.outDir
+  IO.FS.createDirAll dir
+  if parsed.target == "evm" then
+    let yul ← match mode with
+      | .legacy =>
+          match ProofForge.Cli.Evm.renderYul spec.module with
+          | .ok yul => pure yul
+          | .error error => throw <| IO.userError s!"legacy EVM emit failed: {error.message}"
+      | .canonical =>
+          match ProofForge.Cli.renderCanonicalSpecEvmYul spec with
+          | .ok yul => pure yul
+          | .error message => throw <| IO.userError message
+    IO.FS.writeFile (dir / "contract.yul") (yul ++ "\n")
   match ← compileForTest mode parsed.target spec with
   | .error diag => do
     IO.eprintln s!"compile failed: {repr diag}"
     return 1
   | .ok bundle => do
-    /- Write a minimal artifact manifest. -/
-    let dir := System.FilePath.mk parsed.outDir
-    IO.FS.createDirAll dir
     let manifestPath := dir / "manifest.json"
     let manifest := "{\"target\":\"" ++ bundle.targetId ++ "\",\"fixture\":\"" ++ parsed.fixture ++ "\",\"pipeline\":\"" ++ parsed.pipeline ++ "\",\"outputs\":" ++ toString bundle.outputs.size ++ "}"
     IO.FS.writeFile manifestPath manifest

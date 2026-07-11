@@ -3,6 +3,12 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.Plan.Storage
+import ProofForge.Backend.Evm.IR
+import ProofForge.Compiler.Yul.Printer
+import ProofForge.IR.Legacy.Adapter
+import ProofForge.IR.Examples.Counter
+import ProofForge.IR.Examples.ValueVault
+import ProofForge.Contract.Spec
 import ProofForge.Target.Plan
 
 /-! # Canonical Core → EVM Plan Assertions
@@ -82,13 +88,13 @@ def counterContract : CanonicalContract := {
     entrypoints := #[
       { functionId := ⟨0⟩, name := "initialize", kind := .function,
         mutability := .call, params := #[], retType := .unit,
-        selector? := some "0xdeadbeef" },
+        selector? := some "deadbeef" },
       { functionId := ⟨1⟩, name := "increment", kind := .function,
         mutability := .call, params := #[], retType := .unit,
-        selector? := some "0xfeedface" },
+        selector? := some "feedface" },
       { functionId := ⟨2⟩, name := "get", kind := .function,
         mutability := .view, params := #[], retType := .u64,
-        selector? := some "0xc0ffee00" }
+        selector? := some "c0ffee00" }
     ]
     events := #[]
     errors := #[]
@@ -111,6 +117,20 @@ def counterContractWithReqs : CanonicalContract := {
 def emptyCapPlan : CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
 
 def wrongTargetCapPlan : CapabilityPlan := { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
+
+def checkedFromSpec (spec : ProofForge.Contract.ContractSpec) : IO CheckedCanonicalContract := do
+  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"canonical adapter failed: {repr error}"
+  match validateCanonical bundle.contract.contract with
+  | .ok checked => pure checked
+  | .error error => throw <| IO.userError s!"canonical validation failed: {repr error}"
+
+def renderWithCanonicalPlan (module : ProofForge.IR.Module) (plan : ModulePlan) : IO String := do
+  let object ← match ProofForge.Backend.Evm.IR.lowerCanonicalModuleWithPlan module plan with
+    | .ok object => pure object
+    | .error error => throw <| IO.userError s!"canonical EVM plan did not render: {error.message}"
+  pure (Lean.Compiler.Yul.Printer.render object)
 
 /-- A contract with an unsupported instruction (hostCall). -/
 def unsupportedContract : CanonicalContract := {
@@ -146,7 +166,94 @@ def unsupportedContract : CanonicalContract := {
   requirements := #[]
 }
 
+def addressLiteralContract : CanonicalContract := {
+  unsupportedContract with
+  module := {
+    unsupportedContract.module with
+    name := "AddressLiteral"
+    functions := #[{
+      id := ⟨0⟩, params := #[], retType := .address, entry := ⟨0⟩,
+      blocks := #[{
+        id := ⟨0⟩, params := #[],
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .address⟩], .pure (.literal (.addressLit "0x0000000000000000000000000000000000000001"))⟩
+        ],
+        terminator := .return #[{ id := ⟨0⟩, type := .address }]
+      }]
+    }]
+  }
+  interface := {
+    contractName := "AddressLiteral"
+    entrypoints := #[{
+      functionId := ⟨0⟩, name := "run", kind := .function,
+      mutability := .view, params := #[], retType := .address,
+      selector? := some "01020304"
+    }]
+  }
+}
+
+def multiBlockContract : CanonicalContract := {
+  unsupportedContract with
+  module := {
+    unsupportedContract.module with
+    name := "MultiBlock"
+    functions := #[{
+      id := ⟨0⟩, params := #[], retType := .u64, entry := ⟨0⟩,
+      blocks := #[
+        { id := ⟨0⟩, params := #[], instructions := #[], terminator := .jump ⟨1⟩ #[] },
+        { id := ⟨1⟩, params := #[], instructions := #[
+            ⟨#[⟨⟨0⟩, .u64⟩], .pure (.literal (.u64Lit 1))⟩
+          ], terminator := .return #[{ id := ⟨0⟩, type := .u64 }] }
+      ]
+    }]
+  }
+  interface := {
+    contractName := "MultiBlock"
+    entrypoints := #[{
+      functionId := ⟨0⟩, name := "run", kind := .function,
+      mutability := .view, params := #[], retType := .u64,
+      selector? := some "01020304"
+    }]
+  }
+}
+
 def main : IO Unit := do
+  let realCounterChecked ← checkedFromSpec
+    (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module)
+  let realCounterPlan ← match buildFromCore realCounterChecked emptyCapPlan with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"real Counter plan failed: {error.message}"
+  require (realCounterPlan.storage.states.map (·.id) == #["count"])
+    s!"canonical state symbol did not reach the EVM plan: {repr (realCounterPlan.storage.states.map (·.id))}"
+  let counterYul ← renderWithCanonicalPlan ProofForge.IR.Examples.Counter.module realCounterPlan
+  require (counterYul.contains "object \"Counter\"")
+    "canonical Counter plan did not produce a Yul object"
+  require (counterYul.contains
+      "__pf_checked_width(__pf_checked_add(__pf_checked_width(v1, 18446744073709551615)")
+    "canonical u64 checked addition lost its narrow-width overflow guard"
+
+  let realVaultChecked ← checkedFromSpec
+    (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module)
+  let realVaultPlan ← match buildFromCore realVaultChecked emptyCapPlan with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"real ValueVault plan failed: {error.message}"
+  require (realVaultPlan.storage.states.map (·.id) ==
+      #["balance", "released", "fees", "last_value", "last_checkpoint", "operations"])
+    "ValueVault canonical state symbols changed"
+  let depositPlan ← match realVaultPlan.entrypoints.find? (·.name == "deposit") with
+    | some plan => pure plan
+    | none => throw <| IO.userError "canonical ValueVault deposit plan missing"
+  require ((reprStr depositPlan.body).contains "local \"amount\"")
+    "canonical parameter ValueId was not resolved to its ABI local"
+  let initializedEvent ← match realVaultPlan.events.find? (·.name == "VaultInitialized") with
+    | some event => pure event
+    | none => throw <| IO.userError "canonical VaultInitialized event plan missing"
+  require (initializedEvent.signature == "VaultInitialized(uint64,uint64)")
+    s!"canonical event signature used field names instead of ABI types: {initializedEvent.signature}"
+  let vaultYul ← renderWithCanonicalPlan ProofForge.IR.Examples.ValueVault.module realVaultPlan
+  require (vaultYul.contains "object \"ValueVault\"")
+    "canonical ValueVault plan did not produce a Yul object"
+
   /- Validate the counter contract. -/
   let counterChecked ← match validateCanonical counterContractWithReqs with
     | .ok c => pure c
@@ -211,5 +318,44 @@ def main : IO Unit := do
       | .ok _ => throw <| IO.userError "buildFromCore should fail with unsupported op"
       | .error _ => pure ()
   | .error _ => pure ()
+
+  /- Check 8: malformed EVM selectors are rejected by the target plan. -/
+  let badSelectorContract := { counterContractWithReqs with
+    interface := { counterContractWithReqs.interface with
+      entrypoints := counterContractWithReqs.interface.entrypoints.mapIdx fun idx ep =>
+        if idx == 0 then { ep with selector? := some "0xdeadbeef" } else ep } }
+  let badSelectorChecked ← match validateCanonical badSelectorContract with
+    | .ok checked => pure checked
+    | .error e => throw <| IO.userError s!"bad-selector fixture did not validate: {repr e}"
+  match buildFromCore badSelectorChecked emptyCapPlan with
+  | .ok _ => throw <| IO.userError "buildFromCore accepted a malformed EVM selector"
+  | .error e =>
+      require (e.message.contains "invalid EVM selector") s!"bad selector error: {e.message}"
+
+  /- Check 9: unsupported literals fail instead of silently materializing zero. -/
+  let addressChecked ← match validateCanonical {
+      addressLiteralContract with
+      requirements := deriveCapabilityRequirements
+        addressLiteralContract.module addressLiteralContract.materialization
+    } with
+    | .ok checked => pure checked
+    | .error e => throw <| IO.userError s!"address literal fixture did not validate: {repr e}"
+  match buildFromCore addressChecked emptyCapPlan with
+  | .ok _ => throw <| IO.userError "buildFromCore silently materialized an address literal"
+  | .error e =>
+      require (e.message.contains "address literals") s!"address literal error: {e.message}"
+
+  /- Check 10: CFG control flow fails closed until it has a real lowering. -/
+  let multiBlockChecked ← match validateCanonical {
+      multiBlockContract with
+      requirements := deriveCapabilityRequirements
+        multiBlockContract.module multiBlockContract.materialization
+    } with
+    | .ok checked => pure checked
+    | .error e => throw <| IO.userError s!"multi-block fixture did not validate: {repr e}"
+  match buildFromCore multiBlockChecked emptyCapPlan with
+  | .ok _ => throw <| IO.userError "buildFromCore ignored multi-block CFG control flow"
+  | .error e =>
+      require (e.message.contains "CFG control flow") s!"multi-block error: {e.message}"
 
   IO.println "canonical-evm-plan: ok"

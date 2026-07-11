@@ -23,22 +23,31 @@ for fixture in $FIXTURES; do
     --out "$OUT_BASE/core-$fixture"
 done
 
-# Compile canonical Yul artifacts with solc if available
-if command -v solc &> /dev/null; then
-  SOLC_OUT="$OUT_BASE/solc"
-  mkdir -p "$SOLC_OUT"
-  for fixture in $FIXTURES; do
-    YUL_FILE="$OUT_BASE/core-$fixture/contract.yul"
-    if [ -f "$YUL_FILE" ]; then
-      echo "=== Compiling canonical $fixture Yul ==="
-      solc --strict-assembly --bin --overwrite -o "$SOLC_OUT" "$YUL_FILE" || \
-        echo "WARNING: solc failed for $fixture (expected for partial Core builder)"
-    else
-      echo "WARNING: $YUL_FILE not found (canonical Yul emission not yet complete)"
-    fi
-  done
-else
-  echo "solc not found; skipping Yul compilation"
-fi
+command -v solc >/dev/null 2>&1 || {
+  echo "solc is required for canonical EVM parity" >&2
+  exit 1
+}
 
-echo "=== EVM canonical parity check complete ==="
+SOLC_OUT="$OUT_BASE/solc"
+mkdir -p "$SOLC_OUT"
+for fixture in $FIXTURES; do
+  LEGACY_YUL="$OUT_BASE/legacy-$fixture/contract.yul"
+  CORE_YUL="$OUT_BASE/core-$fixture/contract.yul"
+  test -s "$LEGACY_YUL" || {
+    echo "missing legacy EVM artifact: $LEGACY_YUL" >&2
+    exit 1
+  }
+  test -s "$CORE_YUL" || {
+    echo "missing canonical EVM artifact: $CORE_YUL" >&2
+    exit 1
+  }
+  echo "=== Compiling legacy $fixture Yul ==="
+  solc --strict-assembly --bin "$LEGACY_YUL" > "$SOLC_OUT/legacy-$fixture.txt"
+  echo "=== Compiling canonical $fixture Yul ==="
+  solc --strict-assembly --bin "$CORE_YUL" > "$SOLC_OUT/core-$fixture.txt"
+done
+
+echo "=== Running EVM canonical runtime parity ==="
+bash "$ROOT/scripts/canonical/evm-runtime-parity.sh"
+
+echo "=== EVM canonical parity gate complete ==="

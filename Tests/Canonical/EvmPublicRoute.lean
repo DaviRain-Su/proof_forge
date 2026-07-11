@@ -1,6 +1,8 @@
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
+import Examples.Product.RemoteCall
+import Examples.Backend.Evm.Contracts.stdlib.Pausable
 import ProofForge.Contract.Spec
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.IR.Legacy.Adapter
@@ -9,14 +11,16 @@ import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
 import ProofForge.IR.Core.HostOp
+import ProofForge.Cli.EvmArtifacts
+import ProofForge.Cli.Options
 
 /-! # EVM Public Route Test
 
-Verifies that the public `evm` target route uses canonical normalization
+Verifies that the public `evm` target route materializes canonical output
 without fallback:
-- Counter and ValueVault compile successfully via the canonical pipeline.
-- The canonical gate (adaptLegacy → validateCanonical → buildFromCore) is
-  mandatory: no retry of legacy on canonical failure.
+- Counter and ValueVault public Yul equals explicit canonical Yul.
+- An adapter rejection is returned by the public route instead of invoking the
+  Legacy renderer.
 - A hostCall to near.promise.create on EVM returns missingHostOpHandler
   (the canonical gate fails; legacy renderYul is never reached).
 - The canonical and legacy paths produce identical diagnostics for valid
@@ -29,9 +33,14 @@ open ProofForge.Backend.Evm.Plan.Core
 open ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 open ProofForge.Frontend.Surface
 open ProofForge.IR.Core.HostOp
+open ProofForge.Cli
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
+
+def withoutSelectors (module : ProofForge.IR.Module) : ProofForge.IR.Module :=
+  { module with entrypoints := module.entrypoints.map (fun entrypoint =>
+      { entrypoint with selector? := none }) }
 
 /-- A Surface contract with a near.promise.create hostCall — unsupported on EVM. -/
 def promiseContract : SurfaceContract := {
@@ -60,28 +69,72 @@ def promiseContract : SurfaceContract := {
   intents := #[]
 }
 
+def unsupportedAdapterModule : ProofForge.IR.Module := {
+  name := "UnsupportedAdapter"
+  state := #[]
+  entrypoints := #[{
+    name := "run"
+    selector? := none
+    body := #[.release "unbound"]
+  }]
+}
+
 def main : IO Unit := do
-  let counterSpec := ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
-  let vaultSpec := ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
+  let counterSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.Counter.module)
+  let vaultSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.ValueVault.module)
+  let remoteSpec := ContractSpec.fromIR (withoutSelectors Examples.Product.RemoteCall.module)
+  let pausableSpec := ContractSpec.fromIR (withoutSelectors Pausable.module)
+  let cast := match ← IO.getEnv "HOME" with
+    | some home => home ++ "/.foundry/bin/cast"
+    | none => "cast"
+  let opts : CliOptions := { cast }
 
-  /- Check 1: Counter canonical EVM succeeds. -/
-  match ← compileForTest .canonical "evm" counterSpec with
-  | .error diag => throw <| IO.userError s!"Counter canonical EVM failed: {repr diag}"
-  | .ok bundle =>
-    require (bundle.targetId == "evm") "bundle target should be evm"
+  /- Checks 1-2: public rendering is the explicit canonical artifact, not a
+  validation sidecar followed by Legacy rendering. -/
+  let (publicCounterYul, _) ← renderContractSpecEvmYul opts counterSpec
+  let hydratedCounter ← hydrateEvmSelectors cast counterSpec.module
+  let canonicalCounterYul ← match renderCanonicalSpecEvmYul { counterSpec with module := hydratedCounter } with
+    | .ok yul => pure yul
+    | .error message => throw <| IO.userError message
+  require (publicCounterYul == canonicalCounterYul && !publicCounterYul.isEmpty)
+    "public Counter Yul differs from explicit canonical materialization"
 
-  /- Check 2: ValueVault canonical EVM succeeds. -/
-  match ← compileForTest .canonical "evm" vaultSpec with
-  | .error diag => throw <| IO.userError s!"ValueVault canonical EVM failed: {repr diag}"
-  | .ok _ => pure ()
+  let (publicVaultYul, _) ← renderContractSpecEvmYul opts vaultSpec
+  let hydratedVault ← hydrateEvmSelectors cast vaultSpec.module
+  let canonicalVaultYul ← match renderCanonicalSpecEvmYul { vaultSpec with module := hydratedVault } with
+    | .ok yul => pure yul
+    | .error message => throw <| IO.userError message
+  require (publicVaultYul == canonicalVaultYul && !publicVaultYul.isEmpty)
+    "public ValueVault Yul differs from explicit canonical materialization"
 
-  /- Check 3: Legacy EVM also succeeds (parity for valid contracts). -/
-  match ← compileForTest .legacy "evm" counterSpec with
-  | .error diag => throw <| IO.userError s!"Counter legacy EVM failed: {repr diag}"
-  | .ok _ => pure ()
+  let (publicRemoteYul, _) ← renderContractSpecEvmYul opts remoteSpec
+  let hydratedRemote ← hydrateEvmSelectors cast remoteSpec.module
+  let canonicalRemoteYul ← match renderCanonicalSpecEvmYul { remoteSpec with module := hydratedRemote } with
+    | .ok yul => pure yul
+    | .error message => throw <| IO.userError message
+  require (publicRemoteYul == canonicalRemoteYul)
+    "public RemoteCall Yul differs from explicit canonical materialization"
+  require (publicRemoteYul.contains "function __proof_forge_crosscall_0")
+    "canonical RemoteCall omitted its zero-argument CALL helper"
+  require (publicRemoteYul.contains "function __proof_forge_crosscall_2")
+    "canonical RemoteCall omitted its two-argument CALL helper"
+
+  let (publicPausableYul, _) ← renderContractSpecEvmYul opts pausableSpec
+  require (!publicPausableYul.contains "mstore(32, 64)")
+    "canonical assertFallback changed a plain revert into an encoded error envelope"
+
+  /- Check 3: an adapter coverage gap is terminal on the public route. -/
+  let unsupportedSpec := ContractSpec.fromIR unsupportedAdapterModule
+  let rejectionMessage ← try
+    let _ ← renderContractSpecEvmYul opts unsupportedSpec
+    pure ""
+  catch error =>
+    pure (toString error)
+  require (rejectionMessage.contains "canonical: adapt failed")
+    s!"public EVM route did not expose the canonical adapter rejection: {rejectionMessage}"
 
   /- Check 4: buildFromCore produces a valid EVM ModulePlan for Counter. -/
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy { counterSpec with module := hydratedCounter } with
   | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
   | .ok bundle =>
     match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with

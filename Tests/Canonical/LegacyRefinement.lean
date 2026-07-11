@@ -35,4 +35,4 @@ example : legacyScalarFragmentB (ContractSpec.fromIR whileLoopModule) = false :=
 
 end Tests.Canonical.LegacyRefinement
 
-#check ProofForge.IR.Legacy.Refinement.adaptLegacy_preserves_scalar_fragment
+#check ProofForge.IR.Legacy.Refinement.observableRelation_of_match

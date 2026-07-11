@@ -52,18 +52,31 @@ def coreLiteralType : CoreLiteral → ValueType
   | .stringLit _ => .string
   | .hashLit _ => .hash
 
-/-- Map a Core literal to an EVM ExprPlan literal. -/
-def coreLiteralToExprPlan : CoreLiteral → ExprPlan
-  | .unitLit => .literalWord 0
-  | .boolLit b => .literalWord (if b then 1 else 0)
-  | .u8Lit n => .literalWord n
-  | .u32Lit n => .literalWord n
-  | .u64Lit n => .literalWord n
-  | .u128Lit n => .literalWord n
-  | .addressLit _ => .literalWord 0
-  | .bytesLit _ => .literalWord 0
-  | .stringLit _ => .literalWord 0
-  | .hashLit _ => .literalWord 0
+/-- Map a Core literal to an EVM expression. Dynamic and identity literals
+must not be replaced with zero while their target representation is pending. -/
+def coreLiteralToExprPlan : CoreLiteral → Except PlanError ExprPlan
+  | .unitLit => .ok (.literalWord 0)
+  | .boolLit b => .ok (.literalWord (if b then 1 else 0))
+  | .u8Lit n => .ok (.literalWord n)
+  | .u32Lit n => .ok (.literalWord n)
+  | .u64Lit n => .ok (.literalWord n)
+  | .u128Lit n => .ok (.literalWord n)
+  | .addressLit value =>
+      match value.toNat? with
+      | some word => .ok (.literalWord word)
+      | none => .error { message := "non-numeric address literals are not yet materialized by the EVM Core plan" }
+  | .bytesLit _ => .error { message := "bytes literals are not yet materialized by the EVM Core plan" }
+  | .stringLit value =>
+      match value.toNat? with
+      | some word => .ok (.literalWord word)
+      | none => .error { message := "non-numeric string literals are not yet materialized by the EVM Core plan" }
+  | .hashLit _ => .error { message := "hash literals are not yet materialized by the EVM Core plan" }
+
+private def coreLiteralPlanType : CoreLiteral → Except PlanError ValueType
+  | .stringLit value =>
+      if value.toNat?.isSome then .ok .u64
+      else .error { message := "non-numeric string literals are not yet materialized by the EVM Core plan" }
+  | literal => .ok (coreLiteralType literal)
 
 /-- Map a Core arithmetic op to the EVM assign op. -/
 def coreArithToAssignOp : ArithmeticOp → AssignOp
@@ -78,14 +91,39 @@ def coreArithToAssignOp : ArithmeticOp → AssignOp
   | .shl => .shiftLeft
   | .shr => .shiftRight
 
+private def coreNarrowArithmeticPlan
+    (op : ArithmeticOp)
+    (mode : OverflowMode)
+    (type : CoreType)
+    (lhs rhs : ExprPlan) : Except PlanError ExprPlan := do
+  let assignOp := coreArithToAssignOp op
+  let byteWidth := (coreTypeToValueType type).byteWidth
+  if byteWidth == 0 then
+    throw { message := "EVM Core arithmetic has no scalar result width" }
+  if byteWidth >= 32 then
+    return .checkedArith assignOp lhs rhs (mode == .checked) none
+  let mask := ExprPlan.literalWord ((2 ^ (byteWidth * 8)) - 1)
+  match op with
+  | .add | .sub | .mul =>
+      if mode == .checked then
+        let bound (value : ExprPlan) := ExprPlan.helperCall .checkedWidth #[value, mask]
+        return bound (.checkedArith assignOp (bound lhs) (bound rhs) true none)
+      else
+        return .builtin "and" #[.checkedArith assignOp lhs rhs false none, mask]
+  | .shl =>
+      throw { message := "narrow shift-left arithmetic is not yet materialized by the EVM Core plan" }
+  | .div | .mod | .and | .or | .xor | .shr =>
+      return .checkedArith assignOp lhs rhs (mode == .checked) none
+
 /-- Map a Core compare op to the EVM builtin name. -/
-def coreCompareToBuiltin : CompareOp → String
-  | .eq => "eq"
-  | .ne => "ne"
-  | .lt => "lt"
-  | .le => "le"
-  | .gt => "gt"
-  | .ge => "ge"
+private def isEvmSelector (selector : String) : Bool :=
+  selector.length == 8 && selector.toList.all (fun ch =>
+    "0123456789abcdefABCDEF".toList.contains ch)
+
+private def coreAbiTypeSupported : CoreType → Bool
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .hash => true
+  | .bytes | .string | .fixedArray .. | .array .. | .memoryRef .. |
+      .structType .. => false
 
 /-- Map a Core context field to the EVM context expr plan.
 `msg.value` maps to `ExprPlan.nativeValue`, not a context field — returned
@@ -103,6 +141,40 @@ private def resultName (instr : Instruction) : String :=
   match instr.results[0]? with
   | some r => s!"v{r.id.value}"
   | none => "_"
+
+structure CorePlanEnv where
+  values : Array (ValueId × String) := #[]
+  stateNames : Array (StateId × String) := #[]
+  events : Array (EventId × EventPlan) := #[]
+  errors : Array (ErrorId × Option ProofForge.IR.ErrorRef) := #[]
+
+private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
+  match env.values.find? (fun entry => entry.fst == id) with
+  | some entry => .ok entry.snd
+  | none => .error { message := s!"EVM Core plan references unknown value {id.value}" }
+
+private def valueExpr (env : CorePlanEnv) (value : ValueRef) : Except PlanError ExprPlan := do
+  .ok (.local (← lookupValueName env value.id))
+
+private def lookupStateName (env : CorePlanEnv) (id : StateId) : Except PlanError String :=
+  match env.stateNames.find? (fun entry => entry.fst == id) with
+  | some entry => .ok entry.snd
+  | none => .error { message := s!"EVM Core plan references unknown state symbol {id.value}" }
+
+private def lookupEventPlan (env : CorePlanEnv) (id : EventId) : Except PlanError EventPlan :=
+  match env.events.find? (fun entry => entry.fst == id) with
+  | some entry => .ok entry.snd
+  | none => .error { message := s!"EVM Core plan references unknown event {id.value}" }
+
+private def lookupErrorRef (env : CorePlanEnv) (id : ErrorId) : Except PlanError (Option ProofForge.IR.ErrorRef) :=
+  match env.errors.find? (fun entry => entry.fst == id) with
+  | some entry => .ok entry.snd
+  | none => .error { message := s!"EVM Core plan references unknown error {id.value}" }
+
+private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : CorePlanEnv :=
+  let values := instr.results.foldl
+    (fun values result => values.push (result.id, s!"v{result.id.value}")) env.values
+  { env with values }
 
 /-- Compute the slot span for a Core state declaration.
 Mirrors the existing `stateSlotSpan` logic: scalar/map/dynamicArray = 1,
@@ -128,109 +200,164 @@ def coreStateSlotSpan (m : Core.Module) (decl : Core.StateDecl) : Nat :=
 Logical StateId values are assigned slots in declaration order (0, 1, 2, ...).
 The `StateKind` and slot span are preserved from the Core `StateShape` so
 downstream helper discovery and Yul slot math work correctly. -/
-def coreStorageLayout (module : Core.Module) : StorageLayout := {
-  states := module.state.mapIdx fun idx decl =>
-    let vt : ValueType := match decl.shape with
-      | .scalar ty => coreTypeToValueType ty
-      | .map _ vty _ => coreTypeToValueType vty
-      | .fixedArray elem _ => coreTypeToValueType elem
-      | .dynamicArray elem => coreTypeToValueType elem
-      | .record tid =>
-          match module.structs.find? (fun s => s.id == tid) with
-          | some s =>
-              match s.fields[0]? with
-              | some f => coreTypeToValueType f.type
-              | none => .u64
-          | none => .u64
-    let kind : StateKind := match decl.shape with
-      | .scalar _ => StateKind.scalar
-      | .map kty _ cap => StateKind.map (coreTypeToValueType kty) (cap.getD 0)
-      | .fixedArray _ len => StateKind.array len
-      | .dynamicArray _ => StateKind.dynamicArray
-      | .record _ => StateKind.scalar
-    { id := toString decl.id.value, slot := idx,
-      span := coreStateSlotSpan module decl, kind, type := vt }
-}
+def coreStorageLayout (module : Core.Module) (materialization : MaterializationContract) :
+    Except PlanError StorageLayout := do
+  let mut states := #[]
+  let mut slot := 0
+  for decl in module.state do
+    let symbol ← match materialization.stateSymbols.find? (fun symbol => symbol.stateId == decl.id) with
+      | some symbol => pure symbol
+      | none => throw { message := s!"missing EVM state symbol for Core state {decl.id.value}" }
+    let (kind, type) ← match decl.shape with
+      | .scalar type => pure (StateKind.scalar, coreTypeToValueType type)
+      | .map .. => throw { message := "map state is not yet materialized by the EVM Core plan" }
+      | .fixedArray .. => throw { message := "fixed-array state is not yet materialized by the EVM Core plan" }
+      | .dynamicArray .. => throw { message := "dynamic-array state is not yet materialized by the EVM Core plan" }
+      | .record .. => throw { message := "record state is not yet materialized by the EVM Core plan" }
+    states := states.push {
+      id := symbol.name
+      slot
+      span := coreStateSlotSpan module decl
+      kind
+      type
+    }
+    slot := slot + 1
+  return { states }
 
 /-- Map a Core instruction op to EVM StmtPlan entries.
 Scalar load/store, context read, arithmetic, event emit, assert, and return
 are mapped. Unsupported ops fail closed. -/
-def coreInstructionToStmtPlans (instr : Instruction) :
+def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
     Except PlanError (Array StmtPlan) :=
   match instr.op with
-  | .pure (.literal lit) =>
-      .ok #[StmtPlan.letBind (resultName instr) (coreLiteralType lit)
-        (coreLiteralToExprPlan lit)]
-  | .pure (.unary op arg) =>
-      let argExpr := .local s!"v{arg.id.value}"
+  | .pure (.literal lit) => do
+      .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
+        (← coreLiteralToExprPlan lit)]
+  | .pure (.unary op arg) => do
+      let argExpr ← valueExpr env arg
       match op with
       | .not => .ok #[StmtPlan.letBind (resultName instr) .bool
-        (.builtin "not" #[argExpr])]
-      | .neg => .ok #[StmtPlan.letBind (resultName instr) .u64
-        (.builtin "sub" #[.literalWord 0, argExpr])]
-  | .pure (.arithmetic op mode lhs rhs) =>
-      let lhsExpr := .local s!"v{lhs.id.value}"
-      let rhsExpr := .local s!"v{rhs.id.value}"
-      let checked := mode == .checked
+        (.builtin "iszero" #[argExpr])]
+      | .neg => do
+          let resultType := coreTypeToValueType arg.type
+          let byteWidth := resultType.byteWidth
+          if byteWidth == 0 || byteWidth >= 32 then
+            throw { message := "unary negation type is not yet materialized by the EVM Core plan" }
+          let mask := ExprPlan.literalWord ((2 ^ (byteWidth * 8)) - 1)
+          .ok #[StmtPlan.letBind (resultName instr) resultType
+            (.builtin "and" #[.builtin "sub" #[.literalWord 0, argExpr], mask])]
+  | .pure (.arithmetic op mode lhs rhs) => do
+      let lhsExpr ← valueExpr env lhs
+      let rhsExpr ← valueExpr env rhs
       /- Result type follows the operand type (both sides must agree in
       well-typed Core). -/
       let vt := coreTypeToValueType lhs.type
-      .ok #[StmtPlan.letBind (resultName instr) vt
-        (.checkedArith (coreArithToAssignOp op) lhsExpr rhsExpr checked none)]
-  | .pure (.compare op lhs rhs) =>
-      let lhsExpr := .local s!"v{lhs.id.value}"
-      let rhsExpr := .local s!"v{rhs.id.value}"
+      let result := StmtPlan.letBind (resultName instr) vt
+        (← coreNarrowArithmeticPlan op mode lhs.type lhsExpr rhsExpr)
+      match op with
+      | .div | .mod =>
+          .ok #[
+            StmtPlan.assert
+              (.builtin "iszero" #[.builtin "iszero" #[rhsExpr]])
+              "division by zero"
+              none,
+            result
+          ]
+      | _ => .ok #[result]
+  | .pure (.compare op lhs rhs) => do
+      let lhsExpr ← valueExpr env lhs
+      let rhsExpr ← valueExpr env rhs
+      let expr := match op with
+        | .eq => .builtin "eq" #[lhsExpr, rhsExpr]
+        | .ne => .builtin "iszero" #[.builtin "eq" #[lhsExpr, rhsExpr]]
+        | .lt => .builtin "lt" #[lhsExpr, rhsExpr]
+        | .le => .builtin "iszero" #[.builtin "gt" #[lhsExpr, rhsExpr]]
+        | .gt => .builtin "gt" #[lhsExpr, rhsExpr]
+        | .ge => .builtin "iszero" #[.builtin "lt" #[lhsExpr, rhsExpr]]
       .ok #[StmtPlan.letBind (resultName instr) .bool
-        (.builtin (coreCompareToBuiltin op) #[lhsExpr, rhsExpr])]
-  | .pure (.cast toType arg) =>
+        expr]
+  | .pure (.cast toType arg) => do
       let vt := coreTypeToValueType toType
       .ok #[StmtPlan.letBind (resultName instr) vt
-        (.cast (.local s!"v{arg.id.value}") vt)]
-  | .pure (.hash arg) =>
+        (.cast (← valueExpr env arg) vt)]
+  | .pure (.hash arg) => do
       .ok #[StmtPlan.letBind (resultName instr) .hash
-        (.hash (.local s!"v{arg.id.value}"))]
-  | .storageLoad path =>
+        (.hash (← valueExpr env arg))]
+  | .storageLoad path => do
       if !path.path.isEmpty then
         .error { message := "storageLoad with non-scalar path not yet supported in EVM Core plan builder" }
       else
-        let sid := path.root.value
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
-          (.storageLoad (.scalarSlot sid))]
-  | .storageStore path value =>
+          (.effect (.storageScalarRead (← lookupStateName env path.root)))]
+  | .storageStore path value => do
       if !path.path.isEmpty then
         .error { message := "storageStore with non-scalar path not yet supported in EVM Core plan builder" }
       else
-        let sid := path.root.value
-        .ok #[StmtPlan.effect (.storageScalarWrite (toString sid)
-          (.local s!"v{value.id.value}"))]
-  | .contextRead field =>
+        .ok #[StmtPlan.effect (.storageScalarWrite (← lookupStateName env path.root)
+          (← valueExpr env value))]
+  | .contextRead field => do
+      let resultType ← match instr.results[0]? with
+        | some result => pure (coreTypeToValueType result.type)
+        | none => throw { message := "contextRead is missing its Core result" }
       match coreContextToPlan? field with
       | some ctxPlan =>
-          .ok #[StmtPlan.letBind (resultName instr) .u64 (.context ctxPlan)]
+          .ok #[StmtPlan.letBind (resultName instr) resultType (.context ctxPlan)]
       | none =>
           /- `.value` has no ContextExprPlan variant; it maps to
           `ExprPlan.nativeValue`. -/
-          .ok #[StmtPlan.letBind (resultName instr) .u64 .nativeValue]
-  | .emit event args =>
-      let eventPlan := EventPlan.mk s!"event{event.value}" s!"Event{event.value}()" #[]
-      let dataFields := args.map fun a => AbiValuePlan.expr (.local s!"v{a.id.value}")
-      .ok #[StmtPlan.effect (.eventEmit eventPlan dataFields)]
-  | .assert cond error =>
-      /- Core's CoreErrorRef has `id : ErrorId` and `args : Array ValueRef`.
-      The EVM StmtPlan.assert wants an `Option ProofForge.IR.ErrorRef`, which
-      has `assertionId : UInt32` and `userCode? : Option String`. We map the
-      Core error id (a Nat) to `assertionId` as a UInt32. -/
-      let errRef : ProofForge.IR.ErrorRef := {
-        assertionId := UInt32.ofNat error.id.value
-        userCode? := none
-      }
-      .ok #[StmtPlan.assert (.local s!"v{cond.id.value}")
-        s!"assertion failed" (some errRef)]
+          .ok #[StmtPlan.letBind (resultName instr) resultType .nativeValue]
+  | .emit event args => do
+      let eventPlan ← lookupEventPlan env event
+      if eventPlan.fields.size != args.size then
+        throw { message := s!"event {event.value} argument count does not match its interface schema" }
+      let mut indexedFields := #[]
+      let mut dataFields := #[]
+      for idx in [:args.size] do
+        let value := AbiValuePlan.expr (← valueExpr env args[idx]!)
+        if eventPlan.fields[idx]!.indexed then
+          indexedFields := indexedFields.push value
+        else
+          dataFields := dataFields.push value
+      if indexedFields.isEmpty then
+        .ok #[StmtPlan.effect (.eventEmit eventPlan dataFields)]
+      else
+        .ok #[StmtPlan.effect (.eventEmitIndexed eventPlan indexedFields dataFields)]
+  | .assert cond error => do
+      /- Resolve the Core error identity through canonical materialization.
+      Fallback errors remain plain reverts; envelope/custom forms carry the
+      exact source-facing code and Solidity encoding. -/
+      .ok #[StmtPlan.assert (← valueExpr env cond)
+        s!"assertion failed" (← lookupErrorRef env error.id)]
   | .hostCall _ =>
       .error { message := "hostCall not yet supported in EVM Core plan builder" }
-  | .crosscall _ _ =>
-      .error { message := "crosscall not yet supported in EVM Core plan builder" }
+  | .crosscall spec args => do
+      if spec.gas.isSome then
+        throw { message := "crosscall gas override is not yet materialized by the EVM Core plan" }
+      if spec.returnType == .unit then
+        throw { message := "unit crosscall is not yet materialized by the EVM Core plan" }
+      unless coreAbiTypeSupported spec.returnType do
+        throw { message := "crosscall return type is not yet materialized by the EVM Core plan" }
+      let mode ← match spec.mode, spec.value with
+        | .invoke, none => pure CrosscallMode.call
+        | .invoke, some _ => pure CrosscallMode.callValue
+        | .staticInvoke, none => pure CrosscallMode.staticcall
+        | .delegateInvoke, none => pure CrosscallMode.delegatecall
+        | .staticInvoke, some _ | .delegateInvoke, some _ =>
+            throw { message := "static/delegate crosscall cannot carry value" }
+      let mut argPlans := #[]
+      for arg in args do
+        unless coreAbiTypeSupported arg.type && arg.type != .unit do
+          throw { message := "crosscall argument type is not yet materialized by the EVM Core plan" }
+        argPlans := argPlans.push (CrosscallArgWordPlan.expr (← valueExpr env arg))
+      let callValue? ← spec.value.mapM (valueExpr env)
+      .ok #[StmtPlan.letBind (resultName instr) (coreTypeToValueType spec.returnType)
+        (.crosscall mode
+          (← valueExpr env spec.target)
+          (← valueExpr env spec.method)
+          callValue?
+          argPlans
+          (coreTypeToValueType spec.returnType))]
   | .storageContains _ =>
       .error { message := "storageContains not yet supported in EVM Core plan builder" }
   | .storageLength _ =>
@@ -249,45 +376,118 @@ def coreInstructionToStmtPlans (instr : Instruction) :
 /-- Map a Core function to EVM entrypoint plan entries (body statements).
 Only the entry block is mapped for the initial fragment; control flow
 mapping (branches, loops) will be added as needed. -/
-def coreFunctionToStmtPlans (func : Function) : Except PlanError (Array StmtPlan) := do
+def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanError (Array StmtPlan) := do
+  let block ← match func.blocks[0]? with
+    | some block => pure block
+    | none => throw { message := s!"function {func.id.value} has no entry block" }
+  if func.blocks.size != 1 || block.id != func.entry then
+    throw { message := s!"function {func.id.value} uses CFG control flow not yet materialized by the EVM Core plan" }
+  if !block.params.isEmpty then
+    throw { message := s!"function {func.id.value} entry block parameters are not yet materialized by the EVM Core plan" }
   let mut stmts := #[]
-  for block in func.blocks do
-    if block.id == func.entry then
-      for instr in block.instructions do
-        let ss ← coreInstructionToStmtPlans instr
-        stmts := stmts ++ ss
-      /- Map the terminator: return produces a return stmt. -/
-      match block.terminator with
-      | .return vals =>
-          if vals.isEmpty then
-            stmts := stmts.push (StmtPlan.return (.literalWord 0))
-          else
-            stmts := stmts.push (StmtPlan.return (.local s!"v{vals[0]!.id.value}"))
-      | _ => pure () -- other terminators handled in control-flow mapping
-      break
-  .ok stmts
+  let mut currentEnv := env
+  for instr in block.instructions do
+    let ss ← coreInstructionToStmtPlans currentEnv instr
+    stmts := stmts ++ ss
+    currentEnv := bindInstructionResults currentEnv instr
+  match block.terminator with
+  | .return vals =>
+      if vals.size > 1 then
+        throw { message := s!"function {func.id.value} returns multiple Core values not yet materialized by EVM" }
+      else if vals.isEmpty then
+        pure ()
+      else
+        stmts := stmts.push (StmtPlan.return (← valueExpr currentEnv vals[0]!))
+  | .jump .. | .branch .. =>
+      throw { message := s!"function {func.id.value} control-flow terminator is not yet materialized by the EVM Core plan" }
+  | .revert _ =>
+      throw { message := s!"function {func.id.value} structured revert terminator is not yet materialized by the EVM Core plan" }
+  return stmts
 
 /-- Map a Core InterfaceEntrypoint to an EVM EntrypointPlan. -/
-def coreEntrypointToPlan (m : Core.Module) (ep : InterfaceEntrypoint) :
+def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv) (ep : InterfaceEntrypoint) :
     Except PlanError EntrypointPlan := do
   /- Find the Core function by functionId. -/
   match m.functions.find? (fun f => f.id == ep.functionId) with
   | none => .error { message := s!"entrypoint {ep.name} references unknown function {ep.functionId.value}" }
   | some func =>
-      let body ← coreFunctionToStmtPlans func
-      let selector := ep.selector?.getD ""
+      let selector ← match ep.selector? with
+        | some selector => pure selector
+        | none => throw { message := s!"entrypoint {ep.name} is missing its EVM selector" }
+      unless isEvmSelector selector do
+        throw { message := s!"entrypoint {ep.name} has invalid EVM selector `{selector}`" }
+      for param in ep.params do
+        unless coreAbiTypeSupported param.type do
+          throw { message := s!"entrypoint {ep.name} parameter `{param.name}` has an EVM ABI type not yet materialized by the Core plan" }
+      unless coreAbiTypeSupported ep.retType do
+        throw { message := s!"entrypoint {ep.name} return type is not yet materialized by the EVM Core plan" }
+      let valueNames := ep.params.foldl
+        (fun values param => values.push (param.valueId, param.name)) baseEnv.values
+      let body ← coreFunctionToStmtPlans { baseEnv with values := valueNames } func
       let params := ep.params.mapIdx fun idx p =>
         { name := p.name, type := coreTypeToValueType p.type,
-          abiWord? := none, wordTypes := #[coreTypeToValueType p.type],
+          abiWord? := p.abiWord?, wordTypes := #[coreTypeToValueType p.type],
           headWordIndex := idx, localNames := #[p.name] : AbiParamPlan }
       let returnType := coreTypeToValueType ep.retType
       .ok {
         name := ep.name
         selector
         params
-        returns := { returnType, wordTypes := #[returnType], localNames := #[] }
+        returns := {
+          returnType
+          wordTypes := if returnType == .unit then #[] else #[returnType]
+          localNames := returnLocalNames returnType (if returnType == .unit then #[] else #[returnType])
+        }
         body
       }
+
+private def coreEventAbiType (field : InterfaceEventField) : Except PlanError String :=
+  match field.abiWord? with
+  | some abiType => .ok abiType
+  | none =>
+      match field.type with
+      | .u8 => .ok "uint8"
+      | .u32 => .ok "uint32"
+      | .u64 => .ok "uint64"
+      | .u128 => .ok "uint128"
+      | .bool => .ok "bool"
+      | .hash => .ok "bytes32"
+      | .address => .ok "address"
+      | .bytes => .ok "bytes"
+      | .string => .ok "string"
+      | _ => .error { message := s!"event field {field.name} has an EVM ABI type not yet materialized by the Core plan" }
+
+private def coreEventToPlan (event : InterfaceEvent) : Except PlanError EventPlan := do
+  let abiTypes ← event.fields.mapM coreEventAbiType
+  let fields := event.fields.map fun field =>
+    EventFieldPlan.mk field.name (coreTypeToValueType field.type) field.indexed
+  return EventPlan.mk event.name
+    s!"{event.name}({String.intercalate "," abiTypes.toList})" fields
+
+private def coreErrorPlans
+    (interface : InterfaceContract)
+    (materialization : MaterializationContract) :
+    Except PlanError (Array (ErrorId × Option ProofForge.IR.ErrorRef)) := do
+  let mut errors := #[]
+  for encoding in materialization.errorEncodings do
+    let interfaceError ← match interface.errors.find? (·.errorId == encoding.errorId) with
+      | some error => pure error
+      | none => throw { message := s!"missing EVM interface error {encoding.errorId.value}" }
+    let errorRef? := match encoding.form with
+      | .assertFallback | .revertMessage => none
+      | .proofForgeEnvelope => some {
+          assertionId := UInt32.ofNat interfaceError.code
+          userCode? := interfaceError.userCode?
+        }
+      | .solidityCustom => some {
+          assertionId := UInt32.ofNat interfaceError.code
+          userCode? := interfaceError.userCode?
+          soliditySelector? := encoding.soliditySelector?
+          solidityArgWords := encoding.solidityArgWords
+          solidityArgTypes := encoding.solidityArgTypes
+        }
+    errors := errors.push (encoding.errorId, errorRef?)
+  return errors
 
 /-- Build an EVM ModulePlan from a checked canonical contract.
 This reuses the existing ModulePlan structure — no parallel plan types. -/
@@ -299,32 +499,71 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let m := checked.contract.module
   let iface := checked.contract.interface
   /- Build storage layout from Core state declarations. -/
-  let storage := coreStorageLayout m
+  let storage ← coreStorageLayout m checked.contract.materialization
+  let events ← iface.events.mapM coreEventToPlan
+  let errors ← coreErrorPlans iface checked.contract.materialization
+  let baseEnv : CorePlanEnv := {
+    stateNames := checked.contract.materialization.stateSymbols.map
+      (fun symbol => (symbol.stateId, symbol.name))
+    events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
+    errors
+  }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]
   for ep in iface.entrypoints do
-    let epPlan ← coreEntrypointToPlan m ep
+    let epPlan ← coreEntrypointToPlan m baseEnv ep
     entrypoints := entrypoints.push epPlan
-  /- Build event plans from interface. -/
-  let events := iface.events.map fun ev =>
-    EventPlan.mk ev.name
-      (s!"{ev.name}({String.intercalate "," (ev.fields.map (fun f => f.name)).toList})")
-      (ev.fields.map fun f => EventFieldPlan.mk f.name (coreTypeToValueType f.type) f.indexed)
   /- Determine if any entrypoint uses checked arithmetic. -/
-  let usesCheckedArithmetic := entrypoints.any fun ep =>
-    ep.body.any fun s => match s with
-      | .letBind _ _ (.checkedArith _ _ _ true _) => true
-      | _ => false
+  let usesCheckedArithmetic := m.functions.any fun function =>
+    function.blocks.any fun block =>
+      block.instructions.any fun instruction =>
+        match instruction.op with
+        | .pure (.arithmetic op .checked _ _) =>
+            match op with
+            | .add | .sub | .mul => true
+            | _ => false
+        | _ => false
+  let usesCheckedWidth := m.functions.any fun function =>
+    function.blocks.any fun block =>
+      block.instructions.any fun instruction =>
+        match instruction.op with
+        | .pure (.arithmetic op .checked lhs _) =>
+            match op with
+            | .add | .sub | .mul =>
+                (coreTypeToValueType lhs.type).byteWidth < 32
+            | _ => false
+        | _ => false
+  let mut crosscalls := #[]
+  for function in m.functions do
+    for block in function.blocks do
+      for instruction in block.instructions do
+        match instruction.op with
+        | .crosscall spec args =>
+            let mode := match spec.mode, spec.value with
+              | .invoke, none => CrosscallMode.call
+              | .invoke, some _ => CrosscallMode.callValue
+              | .staticInvoke, _ => CrosscallMode.staticcall
+              | .delegateInvoke, _ => CrosscallMode.delegatecall
+            let returnType := coreTypeToValueType spec.returnType
+            let helper : CrosscallHelperSpec := {
+              arity := args.size
+              returnType
+              wordTypes := if returnType == .unit then #[] else #[returnType]
+              mode
+            }
+            unless crosscalls.contains helper do
+              crosscalls := crosscalls.push helper
+        | _ => pure ()
   .ok {
     name := iface.contractName
     targetPlan := capPlan
     storage
-    helpers := #[]
+    helpers := if usesCheckedWidth then #[.checkedWidth] else #[]
     mapAssignOps := #[]
     entrypoints
     dispatch := { entrypoints, default := .revert }
     events
-    crosscalls := #[]
+    crosscalls
     creates := #[]
     localArrayGetLengths := #[]
     nestedLocalArrayGetShapes := #[]

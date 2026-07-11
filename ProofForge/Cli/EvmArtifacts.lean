@@ -29,6 +29,27 @@ open System
 
 namespace ProofForge.Cli
 
+/-- Materialize a hydrated EVM contract exclusively through canonical Core and
+the existing EVM semantic plan. Every failure is terminal; this function has no
+legacy fallback. -/
+def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except String String := do
+  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+    | .ok bundle => .ok bundle
+    | .error error => .error s!"canonical: adapt failed: {repr error}"
+  let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
+    | .ok checked => .ok checked
+    | .error error => .error s!"canonical: validation failed: {repr error}"
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := ProofForge.Target.evm.id
+    calls := checked.contract.requirements
+  }
+  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
+    | .ok plan => .ok plan
+    | .error error => .error s!"canonical: EVM plan failed: {error.message}"
+  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan spec.module plan with
+  | .ok yul => .ok yul
+  | .error error => .error s!"canonical: EVM render failed: {error.message}"
+
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
   -- Fail closed on upgrade/proxy honesty before codegen (same gate as
@@ -42,28 +63,13 @@ def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.Con
       spec.module spec.constructorParams spec.constructorInitBindings opts.evmConstructorArgsHex with
   | .error err => throw <| IO.userError err.render
   | .ok () => pure ()
-  /- Canonical validation gate: adaptLegacy → validateCanonical → buildFromCore.
-  If adaptLegacy succeeds, the canonical path is mandatory: no fallback to
-  legacy on validateCanonical or buildFromCore failure. If adaptLegacy fails
-  (product constructs not yet in the canonical adapter), the legacy path
-  continues — the gate is advisory until the adapter reaches full coverage. -/
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
-  | .error _ => pure ()  /- adapter coverage gap; legacy path proceeds -/
-  | .ok bundle =>
-      match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
-      | .error e => throw <| IO.userError s!"canonical: validation failed: {repr e}"
-      | .ok checked =>
-          let capPlan : ProofForge.Target.CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
-          match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
-          | .error e => throw <| IO.userError s!"canonical: EVM plan failed: {e.message}"
-          | .ok _ => pure ()
   -- PF-P2-03: apply deploy-time peer map so logical peer ids become `0x…`
   -- host addresses (and method pool strings stay for selector resolve).
   let module0 := ProofForge.Target.PeerMap.applyToModule spec.module opts.peerMap
   let module ← hydrateEvmSelectors opts.cast module0
-  match ProofForge.Cli.Evm.renderYul module with
+  match renderCanonicalSpecEvmYul { spec with module := module } with
   | .ok yul => return (yul, module)
-  | .error err => throw <| IO.userError err.render
+  | .error message => throw <| IO.userError message
 
 def solcVersion? (solc : String) : IO (Option String) := do
   try

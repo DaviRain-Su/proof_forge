@@ -48,7 +48,8 @@ canonical-core:
     lake env lean --run Tests/Canonical/CoreSemantics.lean
     lake env lean --run Tests/Canonical/LegacyAdapter.lean
     lake env lean --run Tests/Canonical/LegacyParity.lean
-    lake env lean Tests/Canonical/LegacyRefinement.lean
+    lake env lean -DwarningAsError=true Tests/Canonical/LegacyRefinement.lean
+    lake env lean -DwarningAsError=true ProofForge/IR/Legacy/Refinement.lean
 
 # Wave 3 Task 10: canonical Core to existing EVM plan gate.
 canonical-evm-plan:
