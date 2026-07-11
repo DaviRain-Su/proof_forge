@@ -6,9 +6,9 @@ namespace ProofForge.IR.Legacy
 /--! Disposition of a legacy IR node in the canonical-core migration.
 
 A `LegacyDisposition` records what the migration plan intends to do with a
-specific `Expr`, `Effect`, `Statement`, or `ContractSpec` field.  It is part of
-the Wave 0 "freeze and classify" contract: before the adapter can accept a
-legacy node, that node must have an explicit decision and an owner. -/
+legacy constructor or `ContractSpec` field. It is part of the Wave 0 "freeze
+and classify" contract: before the adapter can accept a legacy node, that node
+must have an explicit decision and an owner. -/
 inductive LegacyDisposition
   | preserve
   | normalize
@@ -43,6 +43,80 @@ structure LegacySpecFieldDecision where
   owner : String
   reason : String
   deriving BEq, Repr
+
+private def payloadDecision (nodeTag : String) (disposition : LegacyDisposition)
+    (owner reason : String) : LegacyDecision :=
+  { nodeTag, disposition, owner, reason }
+
+/- Payload classifiers are deliberately constructor-exhaustive. Outer-node
+classifiers must not hide schema growth in nested legacy inductives. -/
+
+def classifyValueType : ValueType → LegacyDecision
+  | .unit => payloadDecision "ValueType.unit" .normalize "canonical-core" "unit type maps to CoreType.unit"
+  | .bool => payloadDecision "ValueType.bool" .normalize "canonical-core" "boolean type maps to CoreType.bool"
+  | .u8 => payloadDecision "ValueType.u8" .normalize "canonical-core" "u8 type maps to CoreType.u8"
+  | .u32 => payloadDecision "ValueType.u32" .normalize "canonical-core" "u32 type maps to CoreType.u32"
+  | .u64 => payloadDecision "ValueType.u64" .normalize "canonical-core" "u64 type maps to CoreType.u64"
+  | .u128 => payloadDecision "ValueType.u128" .normalize "canonical-core" "u128 type maps to CoreType.u128"
+  | .address => payloadDecision "ValueType.address" .normalize "canonical-core" "portable identity maps to CoreType.address"
+  | .bytes => payloadDecision "ValueType.bytes" .normalize "canonical-core" "bytes type maps to CoreType.bytes"
+  | .string => payloadDecision "ValueType.string" .normalize "canonical-core" "string type maps to CoreType.string"
+  | .hash => payloadDecision "ValueType.hash" .normalize "canonical-core" "hash type maps to CoreType.hash"
+  | .fixedArray _ _ => payloadDecision "ValueType.fixedArray" .normalize "canonical-core-arrays" "fixed array shape maps recursively to canonical Core"
+  | .structType _ => payloadDecision "ValueType.structType" .reject "canonical-core-structs" "named struct references are outside the initial adapter fragment"
+  | .array _ => payloadDecision "ValueType.array" .normalize "canonical-core-arrays" "dynamic array shape maps recursively to canonical Core"
+
+def classifyLiteral : Literal → LegacyDecision
+  | .u8 _ => payloadDecision "Literal.u8" .normalize "canonical-core" "u8 literal is range checked during normalization"
+  | .u128 _ => payloadDecision "Literal.u128" .normalize "canonical-core" "u128 literal is range checked during normalization"
+  | .u32 _ => payloadDecision "Literal.u32" .normalize "canonical-core" "u32 literal is range checked during normalization"
+  | .u64 _ => payloadDecision "Literal.u64" .normalize "canonical-core" "u64 literal is range checked during normalization"
+  | .bool _ => payloadDecision "Literal.bool" .normalize "canonical-core" "boolean literal maps to canonical Core"
+  | .hash4 _ _ _ _ => payloadDecision "Literal.hash4" .reject "canonical-core" "hash4 literal is outside the initial adapter fragment"
+  | .address _ => payloadDecision "Literal.address" .reject "canonical-core" "numeric address literal is outside the initial adapter fragment"
+
+def classifyAssignOp : AssignOp → LegacyDecision
+  | .add => payloadDecision "AssignOp.add" .normalize "canonical-core" "addition assignment maps to canonical arithmetic"
+  | .sub => payloadDecision "AssignOp.sub" .normalize "canonical-core" "subtraction assignment maps to canonical arithmetic"
+  | .mul => payloadDecision "AssignOp.mul" .normalize "canonical-core" "multiplication assignment maps to canonical arithmetic"
+  | .div => payloadDecision "AssignOp.div" .normalize "canonical-core" "division assignment maps to canonical arithmetic"
+  | .mod => payloadDecision "AssignOp.mod" .normalize "canonical-core" "modulo assignment maps to canonical arithmetic"
+  | .bitAnd => payloadDecision "AssignOp.bitAnd" .normalize "canonical-core" "bitwise-and assignment maps to canonical arithmetic"
+  | .bitOr => payloadDecision "AssignOp.bitOr" .normalize "canonical-core" "bitwise-or assignment maps to canonical arithmetic"
+  | .bitXor => payloadDecision "AssignOp.bitXor" .normalize "canonical-core" "bitwise-xor assignment maps to canonical arithmetic"
+  | .shiftLeft => payloadDecision "AssignOp.shiftLeft" .normalize "canonical-core" "left-shift assignment maps to canonical arithmetic"
+  | .shiftRight => payloadDecision "AssignOp.shiftRight" .normalize "canonical-core" "right-shift assignment maps to canonical arithmetic"
+
+def classifyStoragePathSegment : StoragePathSegment → LegacyDecision
+  | .field _ => payloadDecision "StoragePathSegment.field" .reject "canonical-core-storage-paths" "record-field paths are outside the initial adapter fragment"
+  | .index _ => payloadDecision "StoragePathSegment.index" .reject "canonical-core-storage-paths" "array-index paths are outside the initial adapter fragment"
+  | .mapKey _ => payloadDecision "StoragePathSegment.mapKey" .reject "canonical-core-storage-paths" "map-key paths are outside the initial adapter fragment"
+
+def classifyContextField : ContextField → LegacyDecision
+  | .userId => payloadDecision "ContextField.userId" .normalize "canonical-core" "caller identity maps to canonical sender context"
+  | .userIdHash => payloadDecision "ContextField.userIdHash" .reject "canonical-core-context" "hashed caller identity is outside the initial adapter fragment"
+  | .contractId => payloadDecision "ContextField.contractId" .normalize "canonical-core" "contract identity maps to canonical contract address context"
+  | .checkpointId => payloadDecision "ContextField.checkpointId" .normalize "canonical-core" "checkpoint maps to canonical block number context"
+  | .timestamp => payloadDecision "ContextField.timestamp" .normalize "canonical-core" "timestamp maps to canonical block timestamp context"
+  | .epochHeight => payloadDecision "ContextField.epochHeight" .reject "canonical-core-context" "epoch height is outside the initial adapter fragment"
+  | .chainId => payloadDecision "ContextField.chainId" .reject "canonical-core-context" "chain id is outside the initial adapter fragment"
+  | .gasPrice => payloadDecision "ContextField.gasPrice" .reject "canonical-core-context" "gas price is outside the initial adapter fragment"
+  | .gasLeft => payloadDecision "ContextField.gasLeft" .reject "canonical-core-context" "gas-left is outside the initial adapter fragment"
+  | .baseFee => payloadDecision "ContextField.baseFee" .reject "canonical-core-context" "base fee is outside the initial adapter fragment"
+  | .prevRandao => payloadDecision "ContextField.prevRandao" .reject "canonical-core-context" "previous randomness is outside the initial adapter fragment"
+  | .randomSeed => payloadDecision "ContextField.randomSeed" .reject "canonical-core-context" "random seed is outside the initial adapter fragment"
+  | .origin => payloadDecision "ContextField.origin" .reject "canonical-core-context" "transaction origin is outside the initial adapter fragment"
+  | .coinbase => payloadDecision "ContextField.coinbase" .reject "canonical-core-context" "block producer identity is outside the initial adapter fragment"
+  | .blockHash _ => payloadDecision "ContextField.blockHash" .reject "canonical-core-context" "historical block hash is outside the initial adapter fragment"
+
+def classifyEntrypointKind : EntrypointKind → LegacyDecision
+  | .function => payloadDecision "EntrypointKind.function" .preserve "canonical-interface" "normal function dispatch kind is preserved"
+  | .fallback => payloadDecision "EntrypointKind.fallback" .preserve "canonical-interface" "fallback dispatch kind is preserved"
+  | .receive => payloadDecision "EntrypointKind.receive" .preserve "canonical-interface" "receive dispatch kind is preserved"
+
+def classifyEntrypointMutability : EntrypointMutability → LegacyDecision
+  | .call => payloadDecision "EntrypointMutability.call" .preserve "canonical-interface" "state-mutating invocation metadata is preserved"
+  | .view => payloadDecision "EntrypointMutability.view" .preserve "canonical-interface" "read-only invocation metadata is preserved"
 
 /--! Classify a legacy `Effect` constructor.
 
@@ -328,9 +402,9 @@ def classifyExpr : Expr → LegacyDecision
         reason := "scalar modulo is in the initial accepted runtime fragment" }
   | .pow _ _ =>
       { nodeTag := "Expr.pow"
-        disposition := .normalize
+        disposition := .reject
         owner := "canonical-core"
-        reason := "scalar power is in the initial accepted runtime fragment" }
+        reason := "scalar power rejected: Core has no exact exponentiation primitive" }
   | .bitAnd _ _ =>
       { nodeTag := "Expr.bitAnd"
         disposition := .normalize
@@ -393,14 +467,14 @@ def classifyExpr : Expr → LegacyDecision
         reason := "scalar greater-or-equal is in the initial accepted runtime fragment" }
   | .boolAnd _ _ =>
       { nodeTag := "Expr.boolAnd"
-        disposition := .normalize
+        disposition := .reject
         owner := "canonical-core"
-        reason := "boolean and is in the initial accepted runtime fragment" }
+        reason := "boolean and rejected: Core lacks a logical boolean operator (use bitAnd for 1-bit values)" }
   | .boolOr _ _ =>
       { nodeTag := "Expr.boolOr"
-        disposition := .normalize
+        disposition := .reject
         owner := "canonical-core"
-        reason := "boolean or is in the initial accepted runtime fragment" }
+        reason := "boolean or rejected: Core lacks a logical boolean operator (use bitOr for 1-bit values)" }
   | .boolNot _ =>
       { nodeTag := "Expr.boolNot"
         disposition := .normalize
@@ -418,9 +492,9 @@ def classifyExpr : Expr → LegacyDecision
         reason := " cryptographic hash materialized to target plan" }
   | .hashTwoToOne _ _ =>
       { nodeTag := "Expr.hashTwoToOne"
-        disposition := .materialization
+        disposition := .reject
         owner := "target-plan-abi"
-        reason := "two-to-one hash combiner materialized to target plan" }
+        reason := "two-to-one hash combiner rejected: Core has no two-input hash primitive" }
   | .ecrecover _ _ _ _ =>
       { nodeTag := "Expr.ecrecover"
         disposition := .materialization
@@ -511,6 +585,50 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .normalize
         owner := "canonical-core"
         reason := "effect expression wrapper is in the initial accepted runtime fragment" }
+
+/- Representative payload values exercise every payload classifier. Exhaustive
+matching in each classifier, rather than these sample arrays, is the schema
+growth guard. -/
+
+def valueTypeInventory : Array ValueType := #[
+  .unit, .bool, .u8, .u32, .u64, .u128, .address, .bytes, .string, .hash,
+  .fixedArray .u8 1, .structType "S", .array .u8
+]
+
+def literalInventory : Array Literal := #[
+  .u8 0, .u128 0, .u32 0, .u64 0, .bool false, .hash4 0 0 0 0, .address 0
+]
+
+def assignOpInventory : Array AssignOp := #[
+  .add, .sub, .mul, .div, .mod, .bitAnd, .bitOr, .bitXor, .shiftLeft, .shiftRight
+]
+
+def storagePathSegmentInventory : Array StoragePathSegment := #[
+  .field "field", .index (.literal (.u32 0)), .mapKey (.literal (.u32 0))
+]
+
+def contextFieldInventory : Array ContextField := #[
+  .userId, .userIdHash, .contractId, .checkpointId, .timestamp, .epochHeight,
+  .chainId, .gasPrice, .gasLeft, .baseFee, .prevRandao, .randomSeed, .origin,
+  .coinbase, .blockHash (.literal (.u64 0))
+]
+
+def entrypointKindInventory : Array EntrypointKind := #[
+  .function, .fallback, .receive
+]
+
+def entrypointMutabilityInventory : Array EntrypointMutability := #[
+  .call, .view
+]
+
+def allPayloadDecisions : Array LegacyDecision :=
+  valueTypeInventory.map classifyValueType ++
+  literalInventory.map classifyLiteral ++
+  assignOpInventory.map classifyAssignOp ++
+  storagePathSegmentInventory.map classifyStoragePathSegment ++
+  contextFieldInventory.map classifyContextField ++
+  entrypointKindInventory.map classifyEntrypointKind ++
+  entrypointMutabilityInventory.map classifyEntrypointMutability
 
 /--! Representative expression for every `Expr` constructor.
 
@@ -619,8 +737,10 @@ def statementInventory : Array Statement := #[
 
 /--! All constructor decisions.
 
-Every current `Expr`, `Effect`, and `Statement` constructor appears exactly once. -/
+Every current payload, `Expr`, `Effect`, and `Statement` constructor has a
+representative decision. Exhaustive classifier matches enforce schema growth. -/
 def allDecisions : Array LegacyDecision :=
+  allPayloadDecisions ++
   exprInventory.map classifyExpr ++
   effectInventory.map classifyEffect ++
   statementInventory.map classifyStatement
@@ -629,55 +749,54 @@ def allDecisions : Array LegacyDecision :=
 def allNodeTags : Array String :=
   allDecisions.map (·.nodeTag)
 
-/--! Decisions for every `ContractSpec` field. -/
-def contractSpecFieldDecisions : Array LegacySpecFieldDecision := #[
-  { field := "name"
-    disposition := .preserve
-    owner := "canonical-core"
-    reason := "contract name metadata preserved by canonical core" },
-  { field := "module"
-    disposition := .preserve
-    owner := "canonical-core"
-    reason := "IR module preserved by canonical core" },
-  { field := "intents"
-    disposition := .materialization
-    owner := "target-plan"
-    reason := "intents materialized to target plan" },
-  { field := "upgradePolicy?"
-    disposition := .materialization
-    owner := "evm-adapter"
-    reason := "upgrade policy materialized by EVM adapter" },
-  { field := "proxyPattern?"
-    disposition := .materialization
-    owner := "evm-adapter"
-    reason := "proxy pattern materialized by EVM adapter" },
-  { field := "constructorParams"
-    disposition := .materialization
-    owner := "evm-adapter"
-    reason := "constructor parameters materialized by EVM adapter" },
-  { field := "constructorInitBindings"
-    disposition := .materialization
-    owner := "evm-adapter"
-    reason := "constructor init bindings materialized by EVM adapter" },
-  { field := "quintInvariants"
-    disposition := .evidence
-    owner := "fv-quint"
-    reason := "Quint invariants are verification evidence" },
-  { field := "quintLiveness"
-    disposition := .evidence
-    owner := "fv-quint"
-    reason := "Quint liveness properties are verification evidence" },
-  { field := "leanInvariants"
-    disposition := .evidence
-    owner := "fv-lean"
-    reason := "Lean invariants are verification evidence" }
-]
-
 /--! Classify the fields of a `ContractSpec`.
 
-The classification depends only on the field schema, not on the concrete spec
-values, so the argument is ignored. -/
-def classifySpecFields (_spec : ProofForge.Contract.ContractSpec) : Array LegacySpecFieldDecision :=
-  contractSpecFieldDecisions
+The full positional structure pattern is intentional: adding even a defaulted
+field to `ContractSpec` makes this definition fail to compile until the field
+receives an explicit decision here. This is the single source of the field
+inventory; tests inspect its output rather than maintaining another name list. -/
+def classifySpecFields : ProofForge.Contract.ContractSpec → Array LegacySpecFieldDecision
+  | ⟨_, _, _, _, _, _, _, _, _, _⟩ => #[
+      { field := "name"
+        disposition := .preserve
+        owner := "canonical-core"
+        reason := "contract name metadata preserved by canonical core" },
+      { field := "module"
+        disposition := .preserve
+        owner := "canonical-core"
+        reason := "IR module preserved by canonical core" },
+      { field := "intents"
+        disposition := .materialization
+        owner := "target-plan"
+        reason := "intents materialized to target plan" },
+      { field := "upgradePolicy?"
+        disposition := .materialization
+        owner := "evm-adapter"
+        reason := "upgrade policy materialized by EVM adapter" },
+      { field := "proxyPattern?"
+        disposition := .materialization
+        owner := "evm-adapter"
+        reason := "proxy pattern materialized by EVM adapter" },
+      { field := "constructorParams"
+        disposition := .materialization
+        owner := "evm-adapter"
+        reason := "constructor parameters materialized by EVM adapter" },
+      { field := "constructorInitBindings"
+        disposition := .materialization
+        owner := "evm-adapter"
+        reason := "constructor init bindings materialized by EVM adapter" },
+      { field := "quintInvariants"
+        disposition := .evidence
+        owner := "fv-quint"
+        reason := "Quint invariants are verification evidence" },
+      { field := "quintLiveness"
+        disposition := .evidence
+        owner := "fv-quint"
+        reason := "Quint liveness properties are verification evidence" },
+      { field := "leanInvariants"
+        disposition := .evidence
+        owner := "fv-lean"
+        reason := "Lean invariants are verification evidence" }
+    ]
 
 end ProofForge.IR.Legacy
