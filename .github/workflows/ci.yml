@@ -161,6 +161,11 @@ jobs:
       - name: Check target registry
         run: just target-registry
 
+      - name: Check canonical IR foundation
+        run: |
+          just legacy-freeze
+          just canonical-foundation
+
       - name: Check ContractSpec JSON schema
         run: just contract-spec-json
 

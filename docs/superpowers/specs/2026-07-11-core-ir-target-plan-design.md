@@ -116,8 +116,9 @@ rather than replacing them.
    growing parallel `CorePlan` architectures.
 6. Target-specific capabilities use typed and versioned host operations with
    target-owned handlers and semantic hooks.
-7. The public CLI continues to advertise only the existing primary target IDs:
-   `evm`, `solana-sbpf-asm`, and `wasm-near`.
+7. The public CLI continues to advertise the existing ten registry IDs. Only
+   `evm`, `solana-sbpf-asm`, and `wasm-near` are primary `contract_source`
+   compilers; canonical/legacy pipeline variants are never separate targets.
 8. Counter and ValueVault establish the minimum semantic/runtime parity gate;
    public cutover additionally requires the full existing product matrix and
    every currently advertised primary-target fragment.
