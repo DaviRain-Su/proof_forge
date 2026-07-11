@@ -62,7 +62,7 @@ PRODUCTION_GATE_SPECS = [
     ("X-P0-01", "token-feature-matrix", ("just", "token-feature-matrix")),
     ("T-99", "product-primary-triad", ("just", "product")),
     ("T-99", "product-solana-token", ("just", "product-token-solana")),
-    ("T-99", "wave-static-baseline", ("just", "check")),
+    ("T-99", "wave-static-baseline", ("just", "wave-t-check")),
 ]
 PRODUCTION_TOOL_IDS = {
     "git", "python", "lean", "lake", "just", "forge", "solc", "cargo", "wat2wasm", "node",

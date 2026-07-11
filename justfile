@@ -1205,6 +1205,10 @@ solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-s
 wave-t-solana-light:
     PROOF_FORGE_VALUE_VAULT_ELF=1 just solana-light
 
+# Strict Wave-T baseline: propagate the no-skip Solana ELF requirement through check.
+wave-t-check:
+    PROOF_FORGE_VALUE_VAULT_ELF=1 just check
+
 # Check shared-vs-target example topology.
 examples-topology:
     python3 scripts/examples/check-topology.py

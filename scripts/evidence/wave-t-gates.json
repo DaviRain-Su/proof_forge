@@ -188,7 +188,7 @@
       "taskId": "T-99",
       "implementationCommit": "HEAD",
       "oracle": { "id": "wave-static-baseline", "version": "1" },
-      "command": ["just", "check"]
+      "command": ["just", "wave-t-check"]
     }
   ],
   "artifacts": [
