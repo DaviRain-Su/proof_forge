@@ -50,6 +50,11 @@ canonical-core:
     lake env lean --run Tests/Canonical/LegacyParity.lean
     lake env lean Tests/Canonical/LegacyRefinement.lean
 
+# Wave 3 Task 10: canonical Core to existing EVM plan gate.
+canonical-evm-plan:
+    lake env lean --run Tests/Backend/Evm/CanonicalPlan.lean
+    bash scripts/canonical/evm-parity.sh
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

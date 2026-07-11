@@ -4,7 +4,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
-
+import ProofForge.Backend.Evm.Plan.Core
 /-! # Internal Canonical Dual-Run Harness
 
 This module provides an internal-only dual-run compiler pipeline. It is not
@@ -78,6 +78,16 @@ def compileForTest
       | .ok bundle =>
           match validateCanonical bundle.contract.contract with
           | .error e => pure <| .error { mode := .canonical, targetId, message := s!"validation failed: {repr e}" }
-          | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
+          | .ok checked =>
+              /- When the target is EVM, build the existing ModulePlan from
+              Core. This exercises the canonical plan builder. Never catch
+              canonical failure and retry legacy. -/
+              if targetId == "evm" then
+                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
+                match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+                | .error e => pure <| .error { mode := .canonical, targetId, message := s!"EVM buildFromCore failed: {e.message}" }
+                | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
+              else
+                pure <| .ok (makeBundle targetId spec "canonical")
 
 end ProofForge.Compiler
