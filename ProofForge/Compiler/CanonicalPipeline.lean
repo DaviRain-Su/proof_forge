@@ -4,6 +4,8 @@ import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
+import ProofForge.Target.Adapter
+import ProofForge.Target.Registry
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
@@ -85,12 +87,11 @@ def compileForTest
     IO (Except CompileDiagnostic ArtifactBundle) := do
   match mode with
   | .legacy =>
-      match adaptLegacy spec with
-      | .error e => pure <| .error { mode := .legacy, targetId, message := s!"adapt failed: {repr e}" }
-      | .ok bundle =>
-          match validateCanonical bundle.contract.contract with
-          | .error e => pure <| .error { mode := .legacy, targetId, message := s!"validation failed: {repr e}" }
-          | .ok _ => pure <| .ok (makeBundle targetId spec "legacy")
+      -- The legacy artifact renderer is invoked by `Tests/Canonical/Emit`.
+      -- Keep this branch independent of the canonical adapter.
+      match ProofForge.Target.find? targetId with
+      | none => pure <| .error { mode := .legacy, targetId, message := "unknown target" }
+      | some _ => pure <| .ok (makeBundle targetId spec "legacy")
   | .canonical =>
       match adaptLegacy spec with
       | .error e => pure <| .error { mode := .canonical, targetId, message := s!"adapt failed: {repr e}" }
@@ -98,25 +99,35 @@ def compileForTest
           match validateCanonical bundle.contract.contract with
           | .error e => pure <| .error { mode := .canonical, targetId, message := s!"validation failed: {repr e}" }
           | .ok checked =>
+              let profile <- match ProofForge.Target.find? targetId with
+                | some profile => pure profile
+                | none => return .error { mode := .canonical, targetId, message := "unknown target" }
+              let rawPlan : CapabilityPlan := {
+                targetId, calls := checked.contract.requirements, metadata := #[]
+              }
+              let capPlan <- match requireCapabilityPlan profile rawPlan with
+                | .ok plan => pure plan
+                | .error diagnostic =>
+                    return .error { mode := .canonical, targetId, message := diagnostic.render }
               let hostCallErrors := checkHostOpHandlers targetId checked
               if hostCallErrors.size > 0 then
                 pure <| .error { mode := .canonical, targetId, message := String.intercalate "; " hostCallErrors.toList }
               else if targetId == "evm" then
-                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"EVM buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else if targetId == "solana-sbpf-asm" then
-                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"Solana buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else if targetId == "wasm-near" then
-                let capPlan : CapabilityPlan := { targetId, calls := #[], metadata := #[] }
                 match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"NEAR buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else
-                pure <| .ok (makeBundle targetId spec "canonical")
+                pure <| .error {
+                  mode := .canonical, targetId,
+                  message := "canonical buildFromCore is unavailable for this target"
+                }
 
 end ProofForge.Compiler

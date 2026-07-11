@@ -1,5 +1,7 @@
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target.Registry
+import ProofForge.IR.Examples.Counter
+import ProofForge.Contract.Spec
 
 open ProofForge.Compiler
 open ProofForge.Target
@@ -22,5 +24,13 @@ def main : IO Unit := do
     "wasm-cloudflare-workers", "wasm-stellar-soroban", "move-aptos", "move-sui",
     "psy-dpn", "aleo-leo"]
   require (knownIds == expected) s!"unexpected knownIds: {knownIds}"
+
+  let counter := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
+  match <- compileForTest .legacy "not-a-target" counter with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "legacy pipeline accepted an unknown target"
+  match <- compileForTest .canonical "not-a-target" counter with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "canonical pipeline accepted an unknown target"
 
   IO.println "pipeline-mode: ok"
