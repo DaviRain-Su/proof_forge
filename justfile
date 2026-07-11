@@ -26,6 +26,10 @@ build-test-deps:
 target-registry:
     lake env lean --run Tests/TargetRegistry.lean
 
+# Wave 0 Task 2: fail if IR.Contract gained constructors without a classification update.
+legacy-freeze:
+    scripts/canonical/check-legacy-freeze.sh
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
