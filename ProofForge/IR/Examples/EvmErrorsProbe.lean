@@ -91,8 +91,9 @@ def entryRevertCustomErrorArgs : Entrypoint := {
     Entrypoint selector is `revertCustomErrorRuntimeArgs(uint64,uint64)`. -/
 def entryRevertCustomErrorRuntimeArgs : Entrypoint := {
   name := "revertCustomErrorRuntimeArgs"
-  selector? := some "2b0e1c0d"  -- cast sig revertCustomErrorRuntimeArgs(uint64,uint64)
+  selector? := some "071d5f52"  -- cast sig revertCustomErrorRuntimeArgs(uint64,uint64)
   params := #[("available", .u64), ("required", .u64)]
+  paramAbiWords := #[some "uint64", some "uint64"]
   returns := .unit
   body := #[
     .revertWithError {

@@ -747,6 +747,10 @@ mutual
         ensureType "assert condition" .bool (← inferExprType module env condition)
         if let some ref := errorRef? then
           validateSolidityErrorRef "assert" ref
+          for ((abiType, expr), index) in
+              (ref.solidityArgTypes.zip ref.solidityArgExprs).zipIdx do
+            validateSolidityRuntimeArgType "assert" index abiType
+              (← inferExprType module env expr)
         .ok env
     | .assertEq lhs rhs _ errorRef? => do
         let lhsType ← inferExprType module env lhs
@@ -755,12 +759,20 @@ mutual
         ensureEqType "assert_eq" lhsType
         if let some ref := errorRef? then
           validateSolidityErrorRef "assert_eq" ref
+          for ((abiType, expr), index) in
+              (ref.solidityArgTypes.zip ref.solidityArgExprs).zipIdx do
+            validateSolidityRuntimeArgType "assert_eq" index abiType
+              (← inferExprType module env expr)
         .ok env
     | .release _ =>
         .error { message := "release statements are not supported by IR EVM v0" }
     | .revert _ => .ok env
     | .revertWithError ref => do
         validateSolidityErrorRef "revertWithError" ref
+        for ((abiType, expr), index) in
+            (ref.solidityArgTypes.zip ref.solidityArgExprs).zipIdx do
+          validateSolidityRuntimeArgType "revertWithError" index abiType
+            (← inferExprType module env expr)
         .ok env
     | .ifElse condition thenBody elseBody => do
         ensureType "if condition" .bool (← inferExprType module env condition)

@@ -629,6 +629,46 @@ def customErrorUint256RangeModule : Module :=
     solidityArgWords := #[(2 : Nat) ^ 256]
   }
 
+def customErrorMixedArgModesModule : Module :=
+  customErrorModule "BadCustomErrorMixedModes" {
+    assertionId := 1
+    userCode? := some "BadError"
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint64"]
+    solidityArgWords := #[1]
+    solidityArgExprs := #[.literal (.u64 1)]
+  }
+
+def customErrorRuntimeTypeMismatchModule : Module :=
+  selectedModule "BadCustomErrorRuntimeType" {
+    name := "bad"
+    selector? := some "deadbeef"
+    params := #[("value", .u64)]
+    returns := .unit
+    body := #[.revertWithError {
+      assertionId := 1
+      userCode? := some "BadError"
+      soliditySelector? := some "deadbeef"
+      solidityArgTypes := #["bool"]
+      solidityArgExprs := #[.local "value"]
+    }]
+  }
+
+def customErrorRuntimeRangeMismatchModule : Module :=
+  selectedModule "BadCustomErrorRuntimeRange" {
+    name := "bad"
+    selector? := some "deadbeef"
+    params := #[("value", .u64)]
+    returns := .unit
+    body := #[.revertWithError {
+      assertionId := 1
+      userCode? := some "BadError"
+      soliditySelector? := some "deadbeef"
+      solidityArgTypes := #["uint32"]
+      solidityArgExprs := #[.local "value"]
+    }]
+  }
+
 def renderError? (module : Module) : Option String :=
   match ProofForge.Backend.Evm.IR.renderModule module with
   | .ok _ => none
@@ -964,6 +1004,21 @@ def cases : Array (String × Module × String) := #[
     "custom error uint256 range",
     customErrorUint256RangeModule,
     s!"revertWithError Solidity custom-error arg 0 value `{(2 : Nat) ^ 256}` exceeds `uint256` range"
+  ),
+  (
+    "custom error arg modes are exclusive",
+    customErrorMixedArgModesModule,
+    "revertWithError Solidity custom-error static and runtime arg modes are mutually exclusive"
+  ),
+  (
+    "custom error runtime type mismatch",
+    customErrorRuntimeTypeMismatchModule,
+    "revertWithError Solidity custom-error runtime arg 0 type `U64` is incompatible with `bool`"
+  ),
+  (
+    "custom error runtime range mismatch",
+    customErrorRuntimeRangeMismatchModule,
+    "revertWithError Solidity custom-error runtime arg 0 type `U64` may exceed `uint32` range"
   )
 ]
 
@@ -1020,11 +1075,33 @@ def checkCustomErrorRuntimeYul : IO Bool := do
         IO.eprintln s!"evm-diagnostics: FAILED: runtime custom-error layout (revertSize={hasRevertSize})"
       pure ok
 
+def checkErrorRefExpressionEquality : IO Bool := do
+  let left : ErrorRef := {
+    assertionId := 9
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint64"]
+    solidityArgExprs := #[.local "available"]
+  }
+  let right : ErrorRef := {
+    assertionId := 9
+    soliditySelector? := some "deadbeef"
+    solidityArgTypes := #["uint64"]
+    solidityArgExprs := #[.local "required"]
+  }
+  let ok := left != right
+  if ok then
+    IO.println "evm-diagnostics: ok: ErrorRef compares runtime expressions structurally"
+  else
+    IO.eprintln "evm-diagnostics: FAILED: distinct runtime expressions compare equal"
+  pure ok
+
 def main : IO UInt32 := do
   let mut failures : Nat := 0
   if !(← checkCustomErrorStaticYul) then
     failures := failures + 1
   if !(← checkCustomErrorRuntimeYul) then
+    failures := failures + 1
+  if !(← checkErrorRefExpressionEquality) then
     failures := failures + 1
   for (name, module, expected) in cases do
     let ok ← checkCase name module expected

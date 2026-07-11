@@ -207,8 +207,8 @@ Phase 2+: 并行后端 spike                   （Solana、NEAR、Psy 已在 mai
 Phase 3:  三链 P0 后端门禁                  （完成——Counter + ValueVault
                                             在 evm + solana-sbpf-asm +
                                             wasm-near 上可移植）
-当前:     3 个开放 P0 SDK blocker——EVM typed runtime custom-error args；
-          NEAR 参数化 TokenSpec runtime + NEP-145 refund guard；
+当前:     2 个开放 P0 SDK blocker——NEAR 参数化 TokenSpec runtime +
+          NEP-145 predecessor refund Promise；
           随后推进 P1 深度和形式化验证（Workstream 25）
 之后:     Move 家族（Aptos 优先）、云平台（两个以上目标达到
           Experimental 且 shared-scenario 对齐后；D-010）

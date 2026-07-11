@@ -278,13 +278,13 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 ## Summary: P0 blockers per chain
 
-**EVM (1 open P0, 5 closed):** ERC-20 (closed — stdlib mixin + compose), ERC-721 NFT (closed — stdlib mixin + `onERC721Received` PF-P2-02), ERC-165 (closed — stdlib mixin), AccessControl roles (closed — stdlib mixin), Constructor dynamic args (closed — CS-3.4 runtime init + Foundry/Anvil smokes). **Open P0:** typed runtime custom-error args through the EVM target plan. Remaining P1: arbitrary-length ERC-1155 dynamic batch ABI, custom-error dynamic args / standard ABI entries, and full multicall body. E1.2 closes only the fixed size-2 receiver path; D-051 closes storage packing.
+**EVM (0 open P0, 6 closed):** ERC-20, ERC-721 receiver behavior, immutable ERC-165, separated standard/portable access profiles, dynamic constructor args, and typed runtime custom-error arguments are closed at the implementation level. Runtime error args now enforce static/runtime exclusivity, inferred IR-to-ABI type/range compatibility, structural equality, selector/schema parity, and exact Foundry revert payloads. Remaining P1: arbitrary-length ERC-1155 dynamic batch ABI, dynamic custom-error args / standard ABI entries, and full multicall body. Standards compliance remains requirement-evidence-bound rather than inferred from this P0 count.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
 **NEAR (2 open P0, 4 closed):** **Open:** TokenSpec must produce one parameterized runtime artifact; storage withdrawal still needs the 1-yocto guard and predecessor refund Promise. Promise materialization, signer_account_id, attached_deposit, and aggregate ABI have executable coverage; richer callbacks remain P1.
 
-Total: 3 open P0 blockers across three chains (1 EVM + 0 Solana + 2 NEAR).
+Total: 2 open P0 blockers across three chains (0 EVM + 0 Solana + 2 NEAR).
 Remaining work includes these product-path P0 gaps plus P1 feature expansion.
 PF-P2-02 closed EVM receiver callbacks (`onERC721Received`,
 `onERC1155Received`), custom-error 4-byte selector surface, and ERC-1155 size-2

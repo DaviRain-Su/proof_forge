@@ -225,8 +225,8 @@ Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
 Phase 3:  three-chain P0 backend gates      (done — Counter + ValueVault
                                             portable on evm + solana-sbpf-asm
                                             + wasm-near)
-Current:  3 open P0 SDK blockers — EVM typed runtime custom-error args;
-          NEAR parameterized TokenSpec runtime + NEP-145 refund guard;
+Current:  2 open P0 SDK blockers — NEAR parameterized TokenSpec runtime +
+          NEP-145 predecessor refund Promise;
           then P1 depth and formal verification (Workstream 25)
 Later:    Move family expansion, cloud platform (after two+ targets reach
           Experimental with shared-scenario parity; D-010)

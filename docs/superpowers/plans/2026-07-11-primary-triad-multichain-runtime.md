@@ -69,7 +69,7 @@ surfaces.
 
 At plan creation, the branch already contains committed work at `bbc4fb9d`:
 
-- EVM runtime custom-error expression arguments (partially closed; see E-P0-04).
+- EVM runtime custom-error expression arguments (initial slice later completed by E-P0-04).
 - NEAR TokenSpec source auto-detection.
 - A one-yocto guard for one NEAR storage-withdraw path.
 
@@ -270,9 +270,9 @@ hook ELF.
   equivalence and evidence promotion remain open.
 - ERC-4626 lacks full share-token allowance/delegated exit behavior, a defined
   live `totalAssets` policy, full-precision math, and atomic initialization.
-- Runtime custom-error expressions at `bbc4fb9d` still need inferred type/range
-  checks, static/runtime mutual exclusion, complete equality, and runtime
-  payload tests.
+- Runtime custom-error expressions now enforce inferred type/range checks,
+  static/runtime mutual exclusion, structural equality, selector/schema parity,
+  and exact native revert payload tests.
 - Entrypoint mutability cannot express payable/nonpayable/pure accurately.
 
 ### 4.3 NEAR P0 findings
@@ -715,7 +715,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | done: verified@71bdfa71; `just evm-abi-schema`, `just portable-counter-multi-target`, `just evm-foundry` |
 | E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | done: verified@e3aef6d6; `just product-erc20-permit`, `just evm-foundry`, `just evm-anvil-deploy`, `just product` |
 | E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | done: verified@8951ca62; `just evm-standard-identity`, `just portable-auth-materialize`, `just contract-client`, `just evm-foundry`, `just product`, `just docs-check`, `just build` |
-| E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | in_progress: initial expression lowering committed at bbc4fb9d |
+| E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | in_progress: implementation and local Foundry evidence green; commit/evidence binding pending |
 | N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | pending |
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | pending |
 | S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | pending |
@@ -882,7 +882,7 @@ Execute as two commits with disjoint ownership where possible.
 - [x] E-P0-03: make the ERC-165 set immutable/generated, force `0xffffffff`
       false, implement ERC-173 ABI/event behavior, separate role-profile
       requirements, and reject repeat initialization.
-- [ ] E-P0-04: add runtime custom-error inferred-type/range validation,
+- [x] E-P0-04: add runtime custom-error inferred-type/range validation,
       static/runtime mutual exclusion, complete equality, and exact Foundry
       payload assertions.
 - [ ] Run their focused tests, `just evm-foundry`, `just product`, and commit
