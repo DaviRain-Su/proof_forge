@@ -277,8 +277,9 @@ hook ELF.
 
 ### 4.3 NEAR P0 findings
 
-- Generated Wasm entrypoints decode Borsh while the generated TypeScript client
-  sends and parses JSON.
+- Closed by N-P0-01: one per-entrypoint Borsh plan now drives generated Wasm
+  input validation and TypeScript client encoding/decoding; unsupported dynamic
+  schemas fail client/build generation.
 - `NearFungibleToken` is not NEP-141-compatible and has repeatable init,
   unrestricted mint, non-private resolver, one global pending-transfer slot,
   and incomplete refund bounds.
@@ -716,7 +717,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | done: verified@e3aef6d6; `just product-erc20-permit`, `just evm-foundry`, `just evm-anvil-deploy`, `just product` |
 | E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | done: verified@8951ca62; `just evm-standard-identity`, `just portable-auth-materialize`, `just contract-client`, `just evm-foundry`, `just product`, `just docs-check`, `just build` |
 | E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | done: verified@42085290; `just evm-diagnostics`, `just evm-smoke errors`, `just evm-abi-schema`, `just contract-spec-json`, `just contract-client`, `just product`, `just docs-check`, `just build` |
-| N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | pending |
+| N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | in_progress: evidence green; implementation awaiting commit |
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | pending |
 | S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | pending |
 | S-P0-02 | Per-entrypoint account graph and least privilege | `Backend/Solana/Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, lowerer | unused accounts absent; signer/writable escalation tests fail closed | S-P0-01 | pending |
@@ -894,9 +895,9 @@ Execute as two commits with disjoint ownership where possible.
 `Return.lean`, `ProofForge/Contract/Client.lean`,
 `Stdlib/NearFungibleToken.lean`, and nearest plan/sandbox tests.
 
-- [ ] N-P0-01: reproduce the generated-client JSON versus generated-Wasm Borsh
+- [x] N-P0-01: reproduce the generated-client JSON versus generated-Wasm Borsh
       mismatch with a nonzero argument and non-unit result.
-- [ ] Add a per-entrypoint `NearAbiPlan`; make Wasm and client consume it and
+- [x] Add a per-entrypoint `NearAbiPlan`; make Wasm and client consume it and
       validate input length/schema.
 - [ ] N-P0-02: add repeat-init, attacker-mint, direct-callback, concurrent
       transfer-call, and refund-bound attack tests; implement one-shot init,

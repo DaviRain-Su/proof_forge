@@ -186,7 +186,8 @@ account-space, initialization-order, and authority requirements remain
 The NEAR/Wasm backend has the shallowest SDK surface of the primary triad.
 EmitWat covers scalar/map state, events, hash, context, control flow, arrays,
 and many product sources — but NEP economics, full Promise peer execution, and
-rich Borsh aggregates remain the main depth gaps.
+dynamic Borsh values and full target-native identity/amount widths remain main
+depth gaps.
 
 ### N1.1 product × wasm-near inventory (2026-07-10)
 
@@ -209,7 +210,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 **Gap classes for N1 (ordered):**
 
 1. **TokenSpec CLI UX** — bare `build` on TokenSpec modules throws ContractSpec missing; authors need a single documented path (N1.3).
-2. **Aggregate Borsh** — multi-param scalar i64 works; struct/bytes/string ABI still limited (N1.2).
+2. **Dynamic Borsh** — one authoritative plan now drives Wasm and generated clients for fixed-width values; bytes/string remain unsupported (N1.2).
 3. **Promise peer correctness** — materialize exists; sandbox/offline peer returns need N1.4.
 4. **NEP-141/145 product depth** — plan+WAT exist; full FT lifecycle + storage deposit economics still shallow (N1.3/N1.5).
 5. **Budget honesty** — offline `wasmtimeFuel*` only; real `nearGas` from sandbox (N1.6).
@@ -218,7 +219,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Entrypoint ABI (Borsh params + returns) | Partial (N1.2) | Multi-u64 + **flat struct / fixedArray** params+returns via EmitWat Borsh (`just emitwat-aggregate-abi`); dynamic `bytes`/`string` still fail-closed | P1 remain: dynamic bytes/string |
+| Entrypoint ABI (Borsh params + returns) | Partial (N1.2) | `NearAbiPlan` is authoritative for Wasm input validation and generated TypeScript encoding/decoding. `just near-abi-plan` checks malformed input and unsupported-schema rejection; `just near-abi-client-sandbox` proves generated `echo(42n) -> 42n` through raw RPC on near-sandbox. Flat struct/fixedArray are supported; dynamic `bytes`/`string` fail closed | P1 remain: dynamic bytes/string |
 | State storage (scalar/map/hash) | Covered | storage_read/write/has_key lowered; product maps OK | — |
 | Generic events via log_utf8 | Covered | EmitWat event lowering + offline host | — |
 | Cross-contract calls (Promise API) | Partial (N1.4) | Host imports + materialize; **offline** `just near-remote-call-offline-peer` (`call_with_args → 49`); **testkit** `just testkit-remote-call` includes NEAR peer observation (N1.4 closed: offline-host materializes promise_create/return → 49 alongside EVM/Solana peers); **sandbox** `just near-sandbox-peer` real PeerOracle; IR semantics remain sum stub (not a peer VM; see `docs/formal-verification.md` § Crosscall honesty) | P1 remain: richer multi-hop peer simulation |

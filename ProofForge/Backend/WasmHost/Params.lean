@@ -8,6 +8,7 @@ import ProofForge.Backend.WasmHost.ArrayHeap
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Memory
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.HostBridge
@@ -20,13 +21,20 @@ open ProofForge.Backend.WasmHost.ArrayHeap
 open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Diagnostics
 open ProofForge.Backend.WasmHost.Memory
+open ProofForge.Backend.WasmHost.NearAbiPlan
 open ProofForge.Backend.WasmHost.Struct
 open ProofForge.Backend.WasmHost.Types
 
 /-! Entrypoint parameter decoding helpers for EmitWat. -/
 
 /-- NEAR Borsh input prologue: `env.input` → register → INPUT_BUF. -/
-def nearInputPrologue : Array Insn :=
+def nearInputPrologue (expectedBytes : Nat) : Array Insn :=
+  #[.i64Const 0, .call "input",
+    .i64Const 0, .call "register_len", .i64Const expectedBytes, .plain "i64.ne",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
+
+def rawInputPrologue : Array Insn :=
   #[.i64Const 0, .call "input", .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
 
 /-- Build the Borsh input prologue and load each param into a local.
@@ -38,8 +46,12 @@ def nearInputPrologue : Array Insn :=
   (Counter spike path does not use IR params). -/
 def loadParams (structs : Array ProofForge.IR.StructDecl)
     (params : Array (String × ValueType))
+    (abiPlan : EntrypointPlan)
     (bridge : ProofForge.Target.HostBridge := .near)
     : Except EmitError (Array Insn × Array Local) := do
+  let plannedParams := abiPlan.params.map fun param => (param.name?.getD "", param.type)
+  if abiPlan.name.isEmpty || plannedParams != params then
+    err s!"EmitWat: entrypoint `{abiPlan.name}` NEAR ABI plan does not match its parameter signature"
   -- CosmWasm: no NEAR input — empty prologue only; reject params for now.
   if bridge == .cosmWasm then
     if params.isEmpty then
@@ -51,7 +63,10 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     -- ValueVault views). Saves a host call with no ABI payload to decode.
     .ok (#[], #[])
   else
-  let prologue : Array Insn := nearInputPrologue
+  if abiPlan.inputCodec != .borsh || abiPlan.inputByteWidth == 0 then
+    err s!"EmitWat: entrypoint `{abiPlan.name}` has an invalid NEAR input codec plan"
+  let prologue : Array Insn :=
+    if bridge == .near then nearInputPrologue abiPlan.inputByteWidth else rawInputPrologue
   let result ← params.foldlM (init := (prologue, (#[] : Array Local), 0, 0))
     fun (insns, locals, offset, hslot) p =>
       let (name, vt) := p

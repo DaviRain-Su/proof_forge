@@ -93,6 +93,20 @@ def boolReturningCallSpec : ContractSpec := ContractSpec.fromIR {
   entrypoints := #[boolReturningCallEntrypoint]
 }
 
+def nearU64RoundTripEntrypoint : ProofForge.IR.Entrypoint := {
+  name := "echo"
+  mutability := .view
+  params := #[("value", .u64)]
+  «returns» := .u64
+  body := #[.return (.local "value")]
+}
+
+def nearU64RoundTripSpec : ContractSpec := ContractSpec.fromIR {
+  name := "NearU64RoundTrip"
+  state := #[]
+  entrypoints := #[nearU64RoundTripEntrypoint]
+}
+
 def testEvmWrapperErrors : IO Unit := do
   let wrapper ← renderEvm errorRefSpec "ErrorRefProbe"
   require (contains wrapper "export const ERRORS = [{\"assertionId\": 1")
@@ -215,8 +229,8 @@ def testNearViewAndCallEntrypoints : IO Unit := do
     "NEAR Counter wrapper should expose view options"
   require (contains wrapper "export async function get(options: NearViewOptions = {}): Promise<bigint>")
     "NEAR Counter wrapper should type get() as view call with options"
-  require (contains wrapper "account.viewFunction({")
-    "NEAR Counter wrapper should use viewFunction for read-only entrypoints"
+  require (contains wrapper "nearViewFunctionBorsh({")
+    "NEAR Counter wrapper should use the planned Borsh view transport"
   require (contains wrapper "methodName: \"get\"")
     "NEAR Counter wrapper should pass the view method name"
   require (contains wrapper "...options")
@@ -225,8 +239,8 @@ def testNearViewAndCallEntrypoints : IO Unit := do
     "NEAR Counter wrapper should type initialize() as mutating call with options"
   require (contains wrapper "export async function increment(options: NearCallOptions = {}): Promise<void>")
     "NEAR Counter wrapper should type increment() as mutating call with options"
-  require (contains wrapper "account.functionCall({")
-    "NEAR Counter wrapper should use functionCall for mutating entrypoints"
+  require (contains wrapper "nearFunctionCallBorsh({")
+    "NEAR Counter wrapper should use the planned Borsh call transport"
   require (contains wrapper "gas: options.gas")
     "NEAR Counter wrapper should forward gas options"
   require (contains wrapper "attachedDeposit: options.attachedDeposit ?? options.deposit")
@@ -251,14 +265,41 @@ def testReturnValueDoesNotImplyView : IO Unit := do
   let nearWrapper := ProofForge.Contract.Client.nearEntrypointWrapper ftTransferCall
   require (contains nearWrapper "options: NearCallOptions = {}")
     "NEAR ft_transfer_call must expose call options despite returning U64"
-  require (contains nearWrapper "account.functionCall({")
-    "NEAR ft_transfer_call must use functionCall despite returning U64"
-  require (contains nearWrapper "Promise<Awaited<ReturnType<Account[\"functionCall\"]>>>")
+  require (contains nearWrapper "nearFunctionCallBorsh({")
+    "NEAR ft_transfer_call must use the Borsh call transport despite returning U64"
+  require (contains nearWrapper "Promise<unknown>")
     "NEAR ft_transfer_call must return the real execution outcome"
-  require (contains nearWrapper "return await account.functionCall({")
+  require (contains nearWrapper "return await nearFunctionCallBorsh({")
     "NEAR ft_transfer_call must return its functionCall execution outcome"
-  require (!contains nearWrapper "account.viewFunction({")
+  require (!contains nearWrapper "nearViewFunctionBorsh({")
     "NEAR ft_transfer_call must never be emitted as a view"
+
+def testNearClientUsesContractBorshCodec : IO Unit := do
+  let wrapper := ProofForge.Contract.Client.renderNearWrapper nearU64RoundTripSpec
+  require (contains wrapper "encodeNearBorshArgs")
+    "NEAR client must encode arguments with the contract codec plan"
+  require (contains wrapper "decodeNearBorshU64")
+    "NEAR client must decode scalar results with the contract codec plan"
+  require (!contains wrapper "args: {\"value\": value}")
+    "NEAR Borsh contract client must not send a JSON argument object"
+
+  let unsupportedEntrypoint : ProofForge.IR.Entrypoint := {
+    name := "echo_bytes"
+    mutability := .view
+    params := #[("value", ProofForge.IR.ValueType.bytes)]
+    «returns» := ProofForge.IR.ValueType.bytes
+    body := #[]
+  }
+  let unsupportedSpec := ProofForge.Contract.ContractSpec.fromIR {
+    name := "UnsupportedDynamicNearClient"
+    state := #[]
+    entrypoints := #[unsupportedEntrypoint]
+  }
+  match ProofForge.Contract.Client.renderNearWrapperChecked unsupportedSpec with
+  | .error message =>
+      require (contains message "does not support dynamic")
+        "unsupported NEAR client codec must report an actionable error"
+  | .ok _ => throw <| IO.userError "unsupported NEAR client codec did not fail closed"
 
 def testAbiWordControlsTypescriptParameterType : IO Unit := do
   let wrapper ← renderEvm addressOverrideSpec "AddressOverrideProbe"
@@ -320,6 +361,7 @@ def main : IO UInt32 := do
   testEvmAbiUsesCanonicalAggregateTypes
   testEvmAbiRejectsUnknownStruct
   testNearViewAndCallEntrypoints
+  testNearClientUsesContractBorshCodec
   testReturnValueDoesNotImplyView
   testAbiWordControlsTypescriptParameterType
   testAbiWordControlsTypescriptReturnType

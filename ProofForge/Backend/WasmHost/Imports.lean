@@ -188,6 +188,7 @@ def importsForModulePlan
   let nearFamily :=
     baseImports ++ ctxImportsForModulePlan plan ++ promiseCtxImportsForModulePlan plan ++
       promiseResultImportsForModulePlan plan ++
+      (if plan.usesInputParams then #[registerLenImport] else #[]) ++
       (if plan.usesU64IndexedContains || plan.usesHashIndexedContains then
         #[storageHasKeyImport]
       else

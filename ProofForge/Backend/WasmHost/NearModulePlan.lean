@@ -37,6 +37,7 @@ diff pins the layout artifact).
 import ProofForge.IR.Contract
 import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
@@ -48,6 +49,7 @@ open ProofForge.IR
 open ProofForge.Backend.WasmHost.Types
 open ProofForge.Target.HostBridge
 open ProofForge.Backend.WasmHost.Plan
+open ProofForge.Backend.WasmHost.NearAbiPlan
 open ProofForge.Backend.WasmHost.EmitWat
 
 /-- One scalar state slot's plan: the storage key pointer in linear memory.
@@ -113,6 +115,7 @@ structure NearModulePlan where
   artifactKind : String
   irVersion : String
   surface : ModulePlan
+  entrypointAbis : Array EntrypointPlan
   layout : NearLayoutPlan
   lowerCtxSeed : NearLowerCtxSeed
   deriving Repr
@@ -165,6 +168,9 @@ reuses the exact `EmitWat` layout functions so the plan is byte-compatible with
 the current inline `Ctx`. -/
 def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
   let surface ← buildModulePlan mod
+  let entrypointAbis ← match buildModulePlans mod with
+    | .ok plans => pure plans
+    | .error message => .error { message }
   let scalars := buildScalars mod
   let maps := buildMaps mod
   let strsInfos := stringPool mod
@@ -178,6 +184,7 @@ def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
     artifactKind := "wasm-wat",
     irVersion := "portable-ir-v0",
     surface := surface,
+    entrypointAbis := entrypointAbis,
     layout := {
       scalars := scalars,
       maps := maps,
@@ -218,6 +225,9 @@ def renderSurfaceBool (label : String) (b : Bool) : String :=
 def renderSurfaceTypes (label : String) (ts : Array ValueType) : String :=
   s!"  {label}: [{String.intercalate ", " (ts.toList.map renderValueType)}]"
 
+def renderEntrypointAbi (abi : EntrypointPlan) : String :=
+  s!"  {abi.name}: input={abi.inputCodec.id}/{abi.inputByteWidth} output={abi.outputCodec.id}/{abi.outputByteWidth} return={abi.returnType.name}"
+
 /-- Render the plan as a stable, diff-friendly text artifact. The format mirrors
 `SolanaModulePlan.render`: simple key-value lines so small plan changes produce
 readable golden diffs. -/
@@ -252,6 +262,10 @@ def NearModulePlan.render (plan : NearModulePlan) : String :=
     renderSurfaceTypes "hashIndexedReadTypes" surf.hashIndexedReadTypes,
     renderSurfaceTypes "hashIndexedWriteTypes" surf.hashIndexedWriteTypes,
     renderSurfaceTypes "returnTypes" surf.returnTypes,
+    renderSurfaceBool "usesInputParams" surf.usesInputParams,
+    "entrypointAbis:",
+    plan.entrypointAbis.map renderEntrypointAbi
+      |>.foldl (fun acc s => acc ++ if acc.isEmpty then s else "\n" ++ s) "",
     "layout:",
     s!"  stringPoolEnd: {renderNat plan.layout.stringPoolEnd}",
     "  scalars:",
@@ -290,7 +304,8 @@ Solana's `locals`/`nextLabel`), so the whole `Ctx` is reconstructable from the
 plan. The frozen scratch-region base addresses in the seed are carried for the
 plan artifact's inspectability but are not needed for `Ctx` reconstruction (the
 absolute pointers are baked into the layout arrays). -/
-def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitWat.Ctx :=
+def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
+    (entrypointAbis : Array EntrypointPlan := #[]) : EmitWat.Ctx :=
   let pack := layout.scalars.any (fun s => s.packed)
   let packSize :=
     layout.scalars.foldl (init := 0) fun acc s =>
@@ -310,6 +325,7 @@ def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitW
       { str := e.str, ptr := e.ptr, len := e.len : EmitWat.StringInfo })
     structs := seed.structs
     allocator := seed.allocator
+    entrypointAbis := entrypointAbis
     packScalars := pack
     packSize := packSize
   }
@@ -325,7 +341,7 @@ pools first so the plan path rejects oversize scratch exactly as the lowering
 entry does. -/
 def lowerModuleFromPlan (mod : Module) (plan : NearModulePlan) :
     Except ProofForge.Backend.WasmHost.Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
-  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout
+  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout plan.entrypointAbis
   EmitWat.validateScratchCapacities mod ctx.strings ctx.panics ctx.crosscallStrings
   EmitWat.lowerModuleCoreWithCtx mod plan.surface ctx
 

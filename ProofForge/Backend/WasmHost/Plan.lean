@@ -9,6 +9,7 @@ structure ModulePlan where
   scalarReadTypes : Array ValueType
   scalarWriteTypes : Array ValueType
   returnTypes : Array ValueType
+  usesInputParams : Bool
   usesNativeValue : Bool
   usesStorageRead : Bool
   usesStorageWrite : Bool
@@ -55,6 +56,7 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     scalarReadTypes := surface.scalarReadTypes
     scalarWriteTypes := surface.scalarWriteTypes
     returnTypes := surface.returnTypes
+    usesInputParams := module.entrypoints.any (fun entrypoint => !entrypoint.params.isEmpty)
     usesNativeValue := surface.usesNativeValue
     usesStorageRead := surface.usesStorageRead
     usesStorageWrite := surface.usesStorageWrite

@@ -26,6 +26,11 @@ surface:
   hashIndexedReadTypes: []
   hashIndexedWriteTypes: []
   returnTypes: [U64]
+  usesInputParams: true
+entrypointAbis:
+  storage_lifecycle: input=borsh/0 output=borsh/8 return=U64
+  read_value: input=borsh/8 output=borsh/8 return=U64
+  write_value: input=borsh/16 output=borsh/0 return=Unit
 layout:
   stringPoolEnd: 43000
   scalars:

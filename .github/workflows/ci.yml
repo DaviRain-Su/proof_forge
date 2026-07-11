@@ -209,6 +209,11 @@ jobs:
       - name: Run Wasm-NEAR target-first smoke
         run: just near-target-first
 
+      - name: Check Wasm-NEAR ABI and generated client codec parity
+        run: |
+          just near-abi-plan
+          just near-abi-client
+
       - name: Run Wasm-NEAR aggregate and honesty gates
         run: |
           just emitwat-aggregate-abi
