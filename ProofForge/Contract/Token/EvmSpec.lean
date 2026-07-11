@@ -40,8 +40,7 @@ private def canonicalSelector? (name : String) : Option String :=
   | "permit" => some "d505accf"
   | "nonces" => some "7ecebe00"
   | "DOMAIN_SEPARATOR" => some "3644e515"
-  | "initDomain" => some "a1b2c3d4"
-  | "setPermitSig" => some "b2c3d4e5"
+  | "initDomain" => some "3c0ad216"
   | _ => none
 
 def withCanonicalSelectors (module : Module) : Module :=
@@ -53,9 +52,9 @@ def withCanonicalSelectors (module : Module) : Module :=
 def permitAddonModule : Module :=
   let m := ProofForge.Contract.Stdlib.ERC20Permit.module
   let permitStateIds : Array String :=
-    #["nonces", "domainSeparator", "permitV", "permitR", "permitS"]
+    #["nonces", "domainSeparator"]
   let permitEntryNames : Array String :=
-    #["nonces", "DOMAIN_SEPARATOR", "initDomain", "setPermitSig", "permit"]
+    #["nonces", "DOMAIN_SEPARATOR", "initDomain", "permit"]
   {
     name := "ERC20PermitAddon"
     state := m.state.filter (fun s => permitStateIds.contains s.id)

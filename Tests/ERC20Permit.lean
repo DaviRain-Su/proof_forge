@@ -18,7 +18,17 @@ def main : IO UInt32 := do
   require (m.entrypoints.any (·.name == "permit")) "has permit"
   require (m.entrypoints.any (·.name == "nonces")) "has nonces"
   require (m.entrypoints.any (·.name == "DOMAIN_SEPARATOR")) "has DOMAIN_SEPARATOR"
-  require (m.entrypoints.any (·.name == "setPermitSig")) "has setPermitSig"
+  require (!(m.entrypoints.any (·.name == "setPermitSig")))
+    "atomic permit must not expose signature staging"
+  require (!(m.state.any (fun s => #["permitV", "permitR", "permitS"].contains s.id)))
+    "atomic permit must not persist caller-controlled signature components"
+  let some permit := m.entrypoints.find? (·.name == "permit")
+    | throw <| IO.userError "missing permit entrypoint"
+  require (permit.params.map (·.2) == #[.u64, .u64, .u64, .u64, .u8, .hash, .hash])
+    s!"permit IR carriers are not canonical: {reprStr permit.params}"
+  require (permit.paramAbiWords ==
+      #[some "address", some "address", none, none, none, some "bytes32", some "bytes32"])
+    s!"permit ABI words are not canonical: {reprStr permit.paramAbiWords}"
   require (m.state.any (fun s => s.id == "nonces")) "nonces map"
   require (m.state.any (fun s => s.id == "domainSeparator")) "domain sep"
 

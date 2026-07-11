@@ -169,7 +169,7 @@ match standards behavior, not duplicate the full catalog indiscriminately.
 |---|---|---|---|
 | Fungible token | [ERC-20](https://eips.ethereum.org/EIPS/eip-20) | Core transfer/allowance/event shape exists, but amounts are commonly narrowed below `uint256` | Close every ERC-20 MUST-level ABI/behavior requirement with a full-width amount policy |
 | Fungible product profile | ERC-20 optional metadata plus [OZ ERC20](https://docs.openzeppelin.com/contracts/5.x/api/token/erc20) interoperability | Metadata and authority policies are incomplete | Separately require optional name/symbol/decimals, mint authority, cap/pause policy, and SafeERC20 behavior; do not call these ERC-20 MUSTs |
-| Permit | [ERC-2612](https://eips.ethereum.org/EIPS/eip-2612), [EIP-712](https://eips.ethereum.org/EIPS/eip-712) | Public `setPermitSig` plus a second four-argument call is not atomic ERC-2612 and conflicts with the advertised selector | Replace with canonical seven-argument permit and security checks |
+| Permit | [ERC-2612](https://eips.ethereum.org/EIPS/eip-2612), [EIP-712](https://eips.ethereum.org/EIPS/eip-712) | Canonical seven-argument atomic route now exists with replay/deadline/domain/low-s/v attacks; compliance evidence is not yet bound | Bind exact adapter/artifact/runtime evidence before promotion from `experimental` |
 | NFT | [ERC-721](https://eips.ethereum.org/EIPS/eip-721) | Transfer subset only | Add mandatory balance/approval/operator/ERC-165 behavior and canonical address ABI |
 | Multi-token | [ERC-1155](https://eips.ethereum.org/EIPS/eip-1155) | Single-transfer subset plus a custom fixed-size-two batch | Dynamic batch ABI, `TransferBatch`, `balanceOfBatch`, standard receiver data and ERC-165 |
 | Interface discovery | [ERC-165](https://eips.ethereum.org/EIPS/eip-165) | Public mutable registration permits false claims | Immutable/generated interface set; `0xffffffff` must be false |
@@ -259,8 +259,9 @@ hook ELF.
   surfaces; `ownerOf` metadata is not canonical address ABI.
 - ERC-1155 single transfer omits the standard bytes argument, and the fixed
   two-item batch is not the standard dynamic batch or `TransferBatch` event.
-- ERC-2612 currently has a two-transaction signature staging design while
-  advertising the canonical permit selector. It is overwrite/front-run prone.
+- ERC-2612 staging/front-run, replay, deadline, domain, high-s, and invalid-v
+  attacks are now covered by the atomic Foundry gate; manifest evidence binding
+  remains open.
 - ERC-165 registration is publicly mutable and permits forbidden interface
   claims.
 - Ownable/AccessControl ABI, events, role-admin, and one-shot initialization do

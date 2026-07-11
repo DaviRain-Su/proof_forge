@@ -164,6 +164,21 @@ def ecrecoverHelperFunction : Lean.Compiler.Yul.Statement :=
     #[{ name := "result" }]
     {
       statements := #[
+        -- EIP-2 low-s and canonical ECDSA recovery-id checks. Invalid values
+        -- fail before the precompile so every ecrecover consumer is non-malleable.
+        revertIfStatement (Lean.Compiler.Yul.builtin "and" #[
+          Lean.Compiler.Yul.builtin "iszero" #[
+            Lean.Compiler.Yul.builtin "eq" #[Lean.Compiler.Yul.Expr.id "v", Lean.Compiler.Yul.Expr.num 27]
+          ],
+          Lean.Compiler.Yul.builtin "iszero" #[
+            Lean.Compiler.Yul.builtin "eq" #[Lean.Compiler.Yul.Expr.id "v", Lean.Compiler.Yul.Expr.num 28]
+          ]
+        ]),
+        revertIfStatement (Lean.Compiler.Yul.builtin "gt" #[
+          Lean.Compiler.Yul.Expr.id "s",
+          Lean.Compiler.Yul.Expr.num
+            0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0
+        ]),
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
           Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.id "digest"]),
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
@@ -212,14 +227,15 @@ def eip712PermitDigestHelperFunction : Lean.Compiler.Yul.Statement :=
         .assignment #["digest"]
           (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 192]),
         -- "\x19\x01" ‖ domainSeparator ‖ structHash
+        -- mstore places 0x1901 at bytes 30..31; domain and struct hash follow
+        -- at bytes 32 and 64. Hash exactly the 66-byte EIP-191 envelope.
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
-          Lean.Compiler.Yul.Expr.num 0,
-          Lean.Compiler.Yul.Expr.num 0x1901000000000000000000000000000000000000000000000000000000000000
+          Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0x1901
         ]),
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.id "domainSeparator"]),
         .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.id "digest"]),
         .assignment #["digest"]
-          (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 66])
+          (Lean.Compiler.Yul.builtin "keccak256" #[Lean.Compiler.Yul.Expr.num 30, Lean.Compiler.Yul.Expr.num 66])
       ]
     }
 

@@ -88,6 +88,16 @@ def main : IO UInt32 := do
   require (permitMod.entrypoints.any (·.name == "permit")) "permit entry present"
   require (permitMod.entrypoints.any (·.name == "nonces")) "nonces entry present"
   require (permitMod.state.any (fun s => s.id == "nonces")) "nonces state"
+  require (!(permitMod.entrypoints.any (·.name == "setPermitSig"))) "no signature staging entry"
+  require (!(permitMod.state.any (fun s => #["permitV", "permitR", "permitS"].contains s.id)))
+    "no signature staging state"
+  let some permitEntry := permitMod.entrypoints.find? (·.name == "permit")
+    | throw <| IO.userError "permit entry missing"
+  require (permitEntry.selector? == some "d505accf") "canonical seven-arg permit selector"
+  require (permitEntry.params.size == 7) "permit must have seven atomic arguments"
+  let some domainInit := permitMod.entrypoints.find? (·.name == "initDomain")
+    | throw <| IO.userError "initDomain entry missing"
+  require (domainInit.selector? == some "3c0ad216") "canonical initDomain(bytes32) selector"
   require (permitMod.capabilities.any (· == .cryptoEcrecover)) "crypto.ecrecover cap"
   match ProofForge.Backend.Evm.IR.renderModule permitMod with
   | .error e => throw <| IO.userError s!"permit token Yul: {e.message}"

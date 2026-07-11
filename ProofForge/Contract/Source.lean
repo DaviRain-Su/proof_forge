@@ -270,6 +270,8 @@ scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ide
 scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
+scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " do" ppLine entryStmt* : contractItem
+scoped syntax "entry " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
@@ -277,6 +279,7 @@ scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ", " ide
 scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
+scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ", " ident " : " term ")" " returns" "(" term ")" " do" ppLine entryStmt* : contractItem
 
 scoped syntax "let " ident " : " term " := " term ";" : entryStmt
 scoped syntax ident " := " term ";" : entryStmt
@@ -610,6 +613,28 @@ def mkEntry6 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
                   (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4, $p5, $p6] $retTy)
                   $body)))))))
 
+def mkEntry7 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
+    (p2 : TSyntax `ident) (t2 : TSyntax `term) (p3 : TSyntax `ident) (t3 : TSyntax `term)
+    (p4 : TSyntax `ident) (t4 : TSyntax `term) (p5 : TSyntax `ident) (t5 : TSyntax `term)
+    (p6 : TSyntax `ident) (t6 : TSyntax `term) (p7 : TSyntax `ident) (t7 retTy : TSyntax `term)
+    (isView : Bool)
+    (stmts : Array (TSyntax `entryStmt))
+    (ext : EntryStmtExt := noEntryStmtExt) : MacroM (TSyntax `term) := do
+  let nameLit := identNameLit name
+  let body ← lowerEntryBody stmts ext
+  let entryFn ← surfaceEntryFn isView
+  mkParamLet p1 t1
+    (← mkParamLet p2 t2
+      (← mkParamLet p3 t3
+        (← mkParamLet p4 t4
+          (← mkParamLet p5 t5
+            (← mkParamLet p6 t6
+              (← mkParamLet p7 t7
+                (← `($entryFn
+                    (ProofForge.Contract.Surface.method $nameLit
+                      #[$p1, $p2, $p3, $p4, $p5, $p6, $p7] $retTy)
+                    $body))))))))
+
 structure LoweredItem where
   action? : Option (TSyntax `term) := none
   binder : TSyntax `term → MacroM (TSyntax `term) := fun body => pure body
@@ -763,6 +788,10 @@ def lowerItem (item : TSyntax `contractItem)
       return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 (← `(.unit)) false stmts entryExt) }
   | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term) returns($retTy:term) do $stmts:entryStmt*) =>
       return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy false stmts entryExt) }
+  | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term, $p7:ident : $t7:term) do $stmts:entryStmt*) =>
+      return { action? := some (← mkEntry7 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 p7 t7 (← `(.unit)) false stmts entryExt) }
+  | `(contractItem| entry $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term, $p7:ident : $t7:term) returns($retTy:term) do $stmts:entryStmt*) =>
+      return { action? := some (← mkEntry7 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 p7 t7 retTy false stmts entryExt) }
   | `(contractItem| query $name:ident returns($retTy:term) do $stmts:entryStmt*) =>
       return { action? := some (← mkEntry0 name retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term) returns($retTy:term) do $stmts:entryStmt*) =>
@@ -777,10 +806,12 @@ def lowerItem (item : TSyntax `contractItem)
       return { action? := some (← mkEntry5 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 retTy true stmts entryExt) }
   | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term) returns($retTy:term) do $stmts:entryStmt*) =>
       return { action? := some (← mkEntry6 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 retTy true stmts entryExt) }
+  | `(contractItem| query $name:ident ($p1:ident : $t1:term, $p2:ident : $t2:term, $p3:ident : $t3:term, $p4:ident : $t4:term, $p5:ident : $t5:term, $p6:ident : $t6:term, $p7:ident : $t7:term) returns($retTy:term) do $stmts:entryStmt*) =>
+      return { action? := some (← mkEntry7 name p1 t1 p2 t2 p3 t3 p4 t4 p5 t5 p6 t6 p7 t7 retTy true stmts entryExt) }
   | _ =>
       Macro.throwErrorAt item
         s!"unsupported contract source item (dsl {sourceDslVersion}); \
-check entry arity (0–6 params), item syntax, or import ProofForge.Contract.Source.Solana"
+check entry arity (0–7 params), item syntax, or import ProofForge.Contract.Source.Solana"
 
 def lowerContractItems (items : Array (TSyntax `contractItem))
     (entryExt : EntryStmtExt := noEntryStmtExt)

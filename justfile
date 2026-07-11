@@ -1247,8 +1247,10 @@ product-protocol-vault:
 product-erc4626-vault:
     scripts/portable/erc4626-vault-smoke.sh
 
-# Wave ε Layer C: ERC20Permit body (EVM ecrecover precompile + EIP-712 digest).
+# Atomic ERC-2612 body, schema, and Foundry attack matrix.
 product-erc20-permit:
+    lake env lean --run Tests/ERC20Permit.lean
+    lake env lean --run Tests/TokenEvm.lean
     scripts/portable/erc20-permit-smoke.sh
 
 # Product multi-target Lean matrix (all Product contracts × primary hosts).
@@ -1683,6 +1685,7 @@ github-build-test:
     just evm-ir-smokes
     just evm-build-examples
     just evm-foundry
+    just product-erc20-permit
     just evm-anvil-deploy
     just evm-dynamic-constructor-anvil
     just portable-counter-multi-target

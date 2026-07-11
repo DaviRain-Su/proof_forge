@@ -149,13 +149,12 @@ def TokenSpec.needsToken2022 (spec : TokenSpec) : Bool :=
 Product policy (T2.2 / D-W2-EvmFee): Solana Token-2022-shaped extensions are
 **not** lowered into the generated ERC-20 contract (use Solana target).
 
-EIP-2612 `permit`, capped, and pausable remain rejected until the TokenSpec
-adapter materializes their complete behavior. Standalone stdlib experiments do
-not make the product route compliant.
+EIP-2612 `permit` is materialized atomically by the TokenSpec adapter. Capped
+and pausable remain rejected until their complete behavior is emitted.
 
-Core ERC-20 TokenSpec lane on EVM: mintable / burnable. -/
+Core ERC-20 TokenSpec lane on EVM: mintable / burnable / permit. -/
 def TokenSpec.evmUnsupportedFeatures (spec : TokenSpec) : Array TokenFeature :=
-  #[.capped, .pausable, .permit, .transferFee, .nonTransferable,
+  #[.capped, .pausable, .transferFee, .nonTransferable,
     .confidentialTransfer, .transferHook,
     .metadataPointer, .defaultAccountState, .immutableOwner].filter spec.hasFeature
 
@@ -365,7 +364,7 @@ def validateEvmTokenFeatures (spec : TokenSpec) : Except String Unit := do
       .error <|
         "target `evm` TokenSpec product policy rejects feature(s) " ++
         String.intercalate ", " (ids.map (fun id => s!"`{id}`")) ++
-        "; ERC-20 lane currently materializes mintable/burnable only. " ++
+        "; ERC-20 lane currently materializes mintable/burnable/permit only. " ++
         "Use `--target solana-sbpf-asm` for Token-2022-shaped extensions " ++
         "(`transfer_fee`, `non_transferable`, …), or drop the feature"
 
@@ -947,7 +946,7 @@ def featureSupportOnTarget (targetId : String) (feature : TokenFeature) : Featur
       if TokenSpec.evmUnsupportedFeatures { name := "", symbol := "", decimals := 0, features := #[feature] }
           |>.contains feature then
         .reject
-      else if #[TokenFeature.mintable, .burnable].contains feature then
+      else if #[TokenFeature.mintable, .burnable, .permit].contains feature then
         .experimental
       else
         .reject

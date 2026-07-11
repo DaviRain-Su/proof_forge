@@ -12,6 +12,16 @@ contract_source FiveParamProbe do
 
 end Examples.Product.FiveParamProbe
 
+namespace Examples.Product.SevenParamProbe
+
+open ProofForge.Contract.Source
+
+contract_source SevenParamProbe do
+  entry seven (a : .u64, b : .u64, c : .u64, d : .u64, e : .u64, f : .u64, g : .u64) returns(.u64) do
+    return g;
+
+end Examples.Product.SevenParamProbe
+
 namespace ProofForge.Tests.SourceDslArity
 
 open Examples.Product.FiveParamProbe
@@ -31,7 +41,14 @@ def main : IO UInt32 := do
       require (ep.params.size == 5) s!"expected 5 params, got {ep.params.size}"
       require (ep.returns == ProofForge.IR.ValueType.u64) "return type u64"
   | _ => throw <| IO.userError "expected exactly one entrypoint"
-  IO.println "SourceDslArity: ok (5-param entry + dsl version)"
+  let seven := Examples.Product.SevenParamProbe.module.entrypoints
+  require (seven.size == 1) "SevenParamProbe should declare one entry"
+  match seven.toList with
+  | [ep] =>
+      require (ep.name == "seven") "seven-param entry name"
+      require (ep.params.size == 7) s!"expected 7 params, got {ep.params.size}"
+  | _ => throw <| IO.userError "expected exactly one seven-param entrypoint"
+  IO.println "SourceDslArity: ok (5/7-param entries + dsl version)"
   return 0
 
 end ProofForge.Tests.SourceDslArity

@@ -4,20 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 # Layer C — EIP-2612 ERC20Permit mixin (EVM)
 
-`nonces`, `DOMAIN_SEPARATOR`, signature staging, and `permit`.
+`nonces`, `DOMAIN_SEPARATOR`, and atomic `permit`.
 
 **Host gate:** `crypto.ecrecover` (EVM-only). Solana/NEAR reject at preflight.
 
-## API shape
-
-`contract_source` entry arity is capped; signature components are staged:
-
-```lean
-setPermitSig(v, r, s);
-permit(holder, spender, value, deadline);
-```
-
-DOMAIN_SEPARATOR is set via `initDomain(sep)` (author supplies EIP-712 domain hash).
+`permit(owner,spender,value,deadline,v,r,s)` is the canonical atomic EIP-2612
+surface. DOMAIN_SEPARATOR is initialized once via `initDomain(sep)`.
 -/
 import ProofForge.Contract.Source
 
@@ -40,21 +32,9 @@ def balances : MapRef :=
 def allowances : MapRef :=
   { id := "allowances", keyType := .u64, valueType := .u64 }
 
-def permitV : ScalarRef :=
-  ProofForge.Contract.Surface.slot "permitV" .u64
-
-def permitR : ScalarRef :=
-  ProofForge.Contract.Surface.slot "permitR" .hash
-
-def permitS : ScalarRef :=
-  ProofForge.Contract.Surface.slot "permitS" .hash
-
 contract_mixin ERC20PermitMixin do
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar domainSeparatorSlot
-  use ProofForge.Contract.Surface.scalar permitV
-  use ProofForge.Contract.Surface.scalar permitR
-  use ProofForge.Contract.Surface.scalar permitS
   use ProofForge.Contract.Surface.mapState balances
   use ProofForge.Contract.Surface.mapState allowances
   use ProofForge.Contract.Surface.mapState noncesMap
@@ -68,15 +48,15 @@ contract_mixin ERC20PermitMixin do
     return domainSeparatorSlot;
 
   entry initDomain (sep : .hash) do
+    do ProofForge.Contract.Surface.requireEq
+      (ProofForge.Contract.Surface.read domainSeparatorSlot)
+      (ProofForge.Contract.Surface.hash4 0 0 0 0) "domain already initialized";
+    do ProofForge.Contract.Surface.requireNe
+      (ProofForge.Contract.Surface.ref sep)
+      (ProofForge.Contract.Surface.hash4 0 0 0 0) "zero domain";
     domainSeparatorSlot := sep;
 
-  entry setPermitSig (v : .u64, r : .hash, s : .hash) do
-    permitV := v;
-    permitR := r;
-    permitS := s;
-
-  entry permit (holder : .address, spender : .address, value : .u64, deadline : .u64)
-      returns(.bool) do
+  entry permit (holder : .address, spender : .address, value : .u64, deadline : .u64, v : .u8, r : .bytes32, s : .bytes32) do
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref holder)
       "zero owner";
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref spender)
@@ -95,9 +75,9 @@ contract_mixin ERC20PermitMixin do
     let recovered : .u64 :=
       ProofForge.Contract.Surface.ecrecover
         (ProofForge.Contract.Surface.ref digest)
-        (ProofForge.Contract.Surface.read permitV)
-        (ProofForge.Contract.Surface.read permitR)
-        (ProofForge.Contract.Surface.read permitS);
+        (ProofForge.Contract.Surface.cast (ProofForge.Contract.Surface.ref v) .u64)
+        (ProofForge.Contract.Surface.ref r)
+        (ProofForge.Contract.Surface.ref s);
     do ProofForge.Contract.Surface.requireEq
       (ProofForge.Contract.Surface.ref recovered)
       (ProofForge.Contract.Surface.ref holder)
@@ -111,7 +91,6 @@ contract_mixin ERC20PermitMixin do
     ] data #[
       fieldAsName "value" value
     ];
-    return boolLit true;
 
 contract_source ERC20Permit do
   use mixin

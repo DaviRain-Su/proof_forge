@@ -257,6 +257,9 @@ jobs:
       - name: Run Foundry smoke tests
         run: just evm-foundry
 
+      - name: Run atomic ERC-2612 permit attacks
+        run: just product-erc20-permit
+
       - name: Run Anvil deploy smoke
         run: just evm-anvil-deploy
 

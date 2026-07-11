@@ -25,7 +25,7 @@ def main : IO Unit := do
       s!"evm should mark implemented {f.id} experimental"
     require (planSucceedsForFeature evm f)
       s!"evm planForTarget should succeed for {f.id}"
-  for f in #[TokenFeature.capped, .pausable, .permit] do
+  for f in #[TokenFeature.capped, .pausable] do
     require (featureSupportOnTarget "evm" f == .reject)
       s!"evm should reject unmaterialized {f.id}"
     require (!planSucceedsForFeature evm f)
@@ -35,11 +35,16 @@ def main : IO Unit := do
       s!"evm should reject {f.id}"
     require (!planSucceedsForFeature evm f)
       s!"evm planForTarget must fail for {f.id}"
+  require (featureSupportOnTarget "evm" .permit == .experimental)
+    "atomic EVM permit should remain experimental until compliance evidence is bound"
+  require (planSucceedsForFeature evm .permit)
+    "atomic EVM permit should route through the executable adapter"
   match planForTarget evm {
     name := "P", symbol := "P", decimals := 18, features := #[.permit]
   } with
-  | .ok _ => throw (IO.userError "EVM must reject staged/non-compliant permit")
-  | .error e => require (e.contains "permit") s!"permit reject names feature: {e}"
+  | .error e => throw (IO.userError s!"atomic EVM permit should plan: {e}")
+  | .ok plan =>
+      require (plan.operations.contains "erc20.permit") "permit operation missing"
   match planForTarget evm {
     name := "Fee", symbol := "FEE", decimals := 9, features := #[.transferFee]
   } with
