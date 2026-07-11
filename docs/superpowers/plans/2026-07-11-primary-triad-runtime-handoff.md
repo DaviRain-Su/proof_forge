@@ -155,14 +155,16 @@ worker-cgroup: gate2 SKIP memory backend unavailable on this host
 The aggregate did not reach skip evaluation because scalar safety failed first.
 After T99-01, this marker will still make production evidence fail.
 
-Choose and document one honest solution:
+Chosen solution: **Split the unrelated worker-resource gate from the Wave-T
+command while still running ordinary `just check` as a separate required CI
+result.**
 
-- Run final release evidence on a pinned Linux runner where the memory backend
-  is available and assert that gate 2 actually executes; or
-- Split the unrelated worker-resource gate from the Wave-T command while still
-  running ordinary `just check` as a separate required CI result.
-
-Do not rename `SKIP` to hide it and do not allow skips in the evidence parser.
+- `wave-t-check` now delegates to a new `wave-t-baseline` target that runs the
+  same dependency list as `just check` minus `worker-limits` and `worker-cgroup`.
+- `worker-limits` and `worker-cgroup` remain in the ordinary `just check` CI
+  result, which CI runs as a separate required job.
+- The `SKIP` marker is not renamed or hidden; the evidence parser still rejects
+  skips. The worker-resource gates are simply outside the Wave-T scoped report.
 
 Acceptance: the full Wave-T log contains no skip/missing-tool marker, and the
 resource-limit gate either executes or is explicitly outside the scoped report.
