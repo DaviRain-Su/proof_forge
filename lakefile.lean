@@ -72,3 +72,7 @@ lean_lib SolanaRefinement where
 lean_exe «proof-forge» where
   root := `ProofForge.Cli
   supportInterpreter := true
+
+lean_exe «core-ir-smoke» where
+  root := `Tests.CoreIRSmoke
+  supportInterpreter := true
