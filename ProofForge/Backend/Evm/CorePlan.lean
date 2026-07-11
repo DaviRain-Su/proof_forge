@@ -8,16 +8,13 @@ open Lean.Compiler.Yul
 
 structure StorageSlotPlan where
   path : StoragePath
-  slotExpr : Yul.Expr
-  deriving Repr
+  slotExpr : Expr
 
 structure ExprPlan where
-  expr : Yul.Expr
-  deriving Repr
+  expr : Expr
 
 structure StmtPlan where
-  stmts : List Yul.Statement
-  deriving Repr
+  stmts : List Statement
 
 -- Placeholder event plan; refine in Task 5.
 structure EventPlan where
@@ -29,20 +26,18 @@ structure EntrypointPlan where
   name : String
   selector : UInt32
   params : List (String × CoreType)
-  body : List Yul.Statement
-  deriving Repr
+  body : List Statement
 
 structure EvmCorePlan where
   moduleName : String
   stateSlots : List StorageSlotPlan
   entrypoints : List EntrypointPlan
   events : List EventPlan
-  constructor : Option (List Yul.Statement)
-  deriving Repr
+  constructor : Option (List Statement)
 
 def buildEvmCorePlan (m : CoreModule) : EvmCorePlan :=
-  let stateSlots := m.state.enum.map fun (i, _s) =>
-    { path := StoragePath.scalar i, slotExpr := Yul.Expr.num i }
+  let stateSlots := m.state.zipIdx.map fun (_s, i) =>
+    { path := StoragePath.scalar i, slotExpr := Expr.num i }
   let entrypoints := m.entrypoints.map fun e =>
     { name := e.name
     , selector := 0 -- TODO: compute selector from signature in Task 5
