@@ -11,66 +11,156 @@ open ProofForge.IR.Canonical
 open ProofForge.Contract
 open ProofForge.Target
 
-/- Convert a legacy `EntrypointKind` to its canonical string identifier. -/
+/- Closed legacy-to-canonical policy mappings. -/
 
-def adaptEntrypointKind (kind : EntrypointKind) : String :=
+def adaptEntrypointKind (kind : EntrypointKind) : InterfaceEntrypointKind :=
   match kind with
-  | .function => "function"
-  | .fallback => "fallback"
-  | .receive => "receive"
+  | .function => .function
+  | .fallback => .fallback
+  | .receive => .receive
 
-/- Convert a legacy `ConstructorInitBinding` to a canonical constructor binding.
-The deploy-time value is not statically known; the binding records the target
-state and a unit placeholder resolved by materialization. -/
+def adaptMutability (mutability : EntrypointMutability) : InterfaceMutability :=
+  match mutability with
+  | .call => .call
+  | .view => .view
+
+def adaptConstructorBindingKind (kind : ConstructorInitKind) : ConstructorBindingKind :=
+  match kind with
+  | .scalarU64 => .scalarU64
+  | .addressWord => .addressWord
+  | .addressKeccak => .addressKeccak
+  | .stringLength => .stringLength
+  | .stringKeccak => .stringKeccak
+  | .bytesLength => .bytesLength
+  | .bytesKeccak => .bytesKeccak
+  | .arrayLength => .arrayLength
+  | .arraySumU64 => .arraySumU64
+
+def adaptUpgradePolicy : ProofForge.Contract.UpgradePolicy → CanonicalUpgradePolicy
+  | .immutable => .immutable
+  | .authority keyRef => .authority keyRef
+  | .governance ref => .governance ref
+
+def adaptProxyPattern : ProofForge.Contract.ProxyPattern → CanonicalProxyPattern
+  | .uups => .uups
+  | .transparent => .transparent
+
+def adaptModuleProxyPattern (pattern? : Option String) :
+    Except CanonicalizeError (Option CanonicalProxyPattern) :=
+  match pattern? with
+  | none => .ok none
+  | some "uups" => .ok (some .uups)
+  | some "transparent" => .ok (some .transparent)
+  | some pattern => .error <| CanonicalizeError.unsupportedConstructor
+      "Module.proxyPattern?" s!"unknown proxy pattern `{pattern}`"
+
+def adaptErrorEncodingForm : RegisteredErrorForm → ErrorEncodingForm
+  | .assertFallback => .assertFallback
+  | .revertMessage => .revertMessage
+  | .proofForgeEnvelope => .proofForgeEnvelope
+  | .solidityCustom => .solidityCustom
+
+/- Convert a legacy constructor binding without dropping the named parameter or
+typed initialization operation. -/
 
 def adaptConstructorBinding (env : AdapterEnv) (b : ConstructorInitBinding) : Except CanonicalizeError ConstructorBinding := do
   match Std.HashMap.get? env.stateIds b.stateId with
   | some (stateId, _) =>
-      .ok { stateId := stateId, value := .unitLit }
+      .ok {
+        stateId := stateId
+        paramName := b.paramName
+        kind := adaptConstructorBindingKind b.kind
+      }
   | none =>
       .error (CanonicalizeError.unknownState b.stateId)
 
 /- Map the legacy `ContractSpec` fields into the canonical materialization
 contract. All artifact-affecting metadata is preserved. -/
 
-def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv) : Except CanonicalizeError MaterializationContract := do
+def adaptStateSymbols (m : Module) (env : AdapterEnv) :
+    Except CanonicalizeError (Array StateDisplaySymbol) :=
+  m.state.mapM (fun state =>
+    match Std.HashMap.get? env.stateIds state.id with
+    | some (stateId, _) => .ok { stateId := stateId, name := state.id }
+    | none => .error (CanonicalizeError.unknownState state.id))
+
+def adaptTypeLayouts (m : Module) (env : AdapterEnv) :
+    Except CanonicalizeError (Array TypeLayoutMetadata) :=
+  m.structs.mapM (fun declaration =>
+    match Std.HashMap.get? env.typeIds declaration.name with
+    | none => .error (CanonicalizeError.unknownType declaration.name)
+    | some typeId => .ok {
+        typeId := typeId
+        name := declaration.name
+        isPublic := declaration.isPublic
+        deriveStorage := declaration.deriveStorage
+        fields := declaration.fields.mapIdx (fun index field => {
+          fieldId := ⟨index⟩
+          name := field.id
+          isPublic := field.isPublic
+        })
+      })
+
+def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
+    (interface : InterfaceContract) (registeredErrors : Array RegisteredError) :
+    Except CanonicalizeError MaterializationContract := do
   let bindings ← spec.constructorInitBindings.mapM (adaptConstructorBinding env)
-  let upgradePolicy := spec.upgradePolicy?.map (·.kind)
-  let proxyPattern? := spec.proxyPattern?.map (·.kind)
+  let moduleProxyPattern? ← adaptModuleProxyPattern spec.module.proxyPattern?
   let constructorParams : Array ProofForge.IR.Canonical.ConstructorParam :=
     spec.constructorParams.map (fun p => {
       name := p.name
       abiType := p.abiType
     })
+  let stateSymbols ← adaptStateSymbols spec.module env
+  let typeLayouts ← adaptTypeLayouts spec.module env
+  let intents : Array MaterializationIntent := spec.intents.map (fun intent => {
+    kind := intent.kind
+    label := intent.label
+    capability? := intent.capability?
+    metadata := intent.metadata
+  })
+  let eventEncodings : Array EventEncoding := interface.events.map (fun event => {
+    eventId := event.eventId
+    fields := event.fields.filterMap (fun field => field.abiWord?.map (fun abiWord => {
+      fieldId := field.fieldId
+      abiWord := abiWord
+    }))
+  })
+  let errorEncodings : Array ErrorEncoding := registeredErrors.map (fun error => {
+    errorId := error.id
+    form := adaptErrorEncodingForm error.form
+    soliditySelector? := error.soliditySelector?
+    solidityArgWords := error.solidityArgWords
+    solidityArgTypes := error.solidityArgTypes
+  })
   return {
     constructorBindings := bindings,
     constructorParams := constructorParams,
-    allocatorRequirement := none,
-    upgradePolicy := upgradePolicy,
-    proxyPattern? := proxyPattern?,
-    intents := spec.intents
+    allocator := spec.module.allocator,
+    upgradePolicy? := spec.upgradePolicy?.map adaptUpgradePolicy,
+    proxyPattern? := spec.proxyPattern?.map adaptProxyPattern,
+    moduleProxyPattern? := moduleProxyPattern?,
+    nearHostStrings := spec.module.nearCrosscallStrings,
+    stateSymbols := stateSymbols,
+    typeLayouts := typeLayouts,
+    intents := intents,
+    eventEncodings := eventEncodings,
+    errorEncodings := errorEncodings
   }
 
-/- Map legacy entrypoint metadata into the canonical interface contract. -/
+/- Event catalogue extracted from source traversal. Field ordering is canonical:
+indexed fields first, followed by data fields. Every occurrence of a named
+event must agree before a Core declaration or interface schema is produced. -/
 
-def adaptInterface (m : Module) (env : AdapterEnv) : Except CanonicalizeError InterfaceContract := do
-  let entrypoints ← m.entrypoints.mapM (fun ep => do
-    match Std.HashMap.get? env.functionIds ep.name with
-    | some fid =>
-        let params ← ep.params.mapM (fun (_, ty) => adaptType ty)
-        let retType ← adaptType ep.returns
-        .ok {
-          functionId := fid,
-          kind := adaptEntrypointKind ep.kind,
-          mutatesState := ep.mutability == EntrypointMutability.call,
-          params := params,
-          retType := retType
-        }
-    | none => .error (CanonicalizeError.unknownFunction ep.name))
-  let dispatchHints := m.entrypoints.filterMap (·.selector?)
-  return { entrypoints := entrypoints, dispatchHints := dispatchHints }
+structure SourceEventField where
+  name : String
+  indexed : Bool
+  deriving Repr, BEq
 
-/- Scan all statements for emitted event names. -/
+structure SourceEventSite where
+  name : String
+  fields : Array SourceEventField
+  deriving Repr, BEq
 
 def collectEventNamesStmt (stmt : Statement) (acc : Array String) : Array String :=
   match stmt with
@@ -87,17 +177,60 @@ def collectEventNames (m : Module) : Array String :=
   m.entrypoints.foldl (fun acc ep =>
     ep.body.foldl (fun a stmt => collectEventNamesStmt stmt a) acc) #[]
 
+private def collectEventSitesStmt (stmt : Statement)
+    (sites : Array SourceEventSite) : Array SourceEventSite :=
+  match stmt with
+  | .effect (.eventEmit name fields) => sites.push {
+      name := name
+      fields := fields.map (fun field => { name := field.fst, indexed := false })
+    }
+  | .effect (.eventEmitIndexed name indexedFields dataFields) => sites.push {
+      name := name
+      fields :=
+        indexedFields.map (fun field => { name := field.fst, indexed := true }) ++
+        dataFields.map (fun field => { name := field.fst, indexed := false })
+    }
+  | .ifElse _ thenBody elseBody =>
+      let sites := thenBody.foldl (fun acc nested => collectEventSitesStmt nested acc) sites
+      elseBody.foldl (fun acc nested => collectEventSitesStmt nested acc) sites
+  | .boundedFor _ _ _ body | .whileLoop _ body =>
+      body.foldl (fun acc nested => collectEventSitesStmt nested acc) sites
+  | _ => sites
+
+private def collectEventSites (m : Module) : Array SourceEventSite :=
+  m.entrypoints.foldl (fun sites ep =>
+    ep.body.foldl (fun acc stmt => collectEventSitesStmt stmt acc) sites) #[]
+
+private def sourceEventFields (m : Module) (name : String) :
+    Except CanonicalizeError (Array SourceEventField) := do
+  let sites := (collectEventSites m).filter (·.name == name)
+  let fields ← match sites[0]? with
+    | some site => pure site.fields
+    | none => throw (CanonicalizeError.unknownEvent name)
+  for site in sites do
+    unless site.fields == fields do
+      throw <| CanonicalizeError.conflictingEventSchema name
+        "field names, order, or indexed flags differ across emit sites"
+  if fields.any (·.name.isEmpty) then
+    throw <| CanonicalizeError.conflictingEventSchema name "event field name is empty"
+  if fields.map (·.name) |>.foldl (fun seen field =>
+      if seen.1.contains field then (seen.1, true) else (seen.1.push field, seen.2))
+      (#[], false) |>.2 then
+    throw <| CanonicalizeError.conflictingEventSchema name "duplicate event field name"
+  return fields
+
 private def findEventArgTypes (functions : Array Function) (eventId : EventId) :
-    Option (Array CoreType) :=
+    Array (Array CoreType) :=
   Id.run do
+    let mut schemas := #[]
     for function in functions do
       for block in function.blocks do
         for instruction in block.instructions do
           match instruction.op with
           | .emit emittedId args =>
-              if emittedId == eventId then return some (args.map (·.type))
+              if emittedId == eventId then schemas := schemas.push (args.map (·.type))
           | _ => pure ()
-    return none
+    return schemas
 
 /- Build all canonical event declarations discovered in the module. -/
 
@@ -105,19 +238,122 @@ def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Even
   let names := collectEventNames m
   names.mapM (fun name => do
     let eventId ← lookupEvent name
-    let types ← match findEventArgTypes functions eventId with
+    let schemas := findEventArgTypes functions eventId
+    let types ← match schemas[0]? with
       | some types => pure types
       | none => throw (CanonicalizeError.unknownEvent name)
+    for schema in schemas do
+      unless schema == types do
+        throw <| CanonicalizeError.conflictingEventSchema name
+          "field types differ across normalized emit sites"
+    let sourceFields ← liftExcept (sourceEventFields m name)
+    unless sourceFields.size == types.size do
+      throw <| CanonicalizeError.conflictingEventSchema name
+        "source field count differs from normalized Core arguments"
     let coreFields ← types.mapIdxM (fun index type =>
       pure { id := ⟨index⟩, type := type })
     return { id := eventId, fields := coreFields })
+
+private def validateEventAbiWords (m : Module) : Except CanonicalizeError Unit := do
+  for override in m.eventAbiWords do
+    let fields ← sourceEventFields m override.eventName
+    unless fields.any (·.name == override.fieldName) do
+      throw <| CanonicalizeError.conflictingEventSchema override.eventName
+        s!"ABI override references unknown field `{override.fieldName}`"
+    unless (m.eventAbiWords.filter (fun candidate =>
+        candidate.eventName == override.eventName &&
+        candidate.fieldName == override.fieldName)).size == 1 do
+      throw <| CanonicalizeError.conflictingEventSchema override.eventName
+        s!"duplicate ABI override for field `{override.fieldName}`"
+
+private def eventAbiWord? (m : Module) (eventName fieldName : String) : Option String :=
+  (m.eventAbiWords.find? (fun override =>
+    override.eventName == eventName && override.fieldName == fieldName)).map (·.abiWord)
+
+def adaptInterface (spec : ContractSpec) (module : Core.Module) (env : AdapterEnv)
+    (registeredErrors : Array RegisteredError) : Except CanonicalizeError InterfaceContract := do
+  let m := spec.module
+  validateEventAbiWords m
+  let entrypoints ← m.entrypoints.mapM (fun ep => do
+    if ep.paramAbiWords.size > ep.params.size then
+      throw <| CanonicalizeError.unsupportedConstructor "Entrypoint.paramAbiWords"
+        s!"entrypoint `{ep.name}` has more ABI overrides than parameters"
+    let fid ← match Std.HashMap.get? env.functionIds ep.name with
+      | some fid => pure fid
+      | none => throw (CanonicalizeError.unknownFunction ep.name)
+    let function ← match module.functions.find? (·.id == fid) with
+      | some function => pure function
+      | none => throw (CanonicalizeError.unknownFunction ep.name)
+    let params ← ep.params.mapIdxM (fun index param => do
+      let (name, ty) := param
+      let coreType ← adaptType env.typeIds ty
+      let valueId ← match function.params[index]? with
+        | some value => pure value.id
+        | none => throw (CanonicalizeError.typeMismatch
+            "Core function parameter" s!"missing parameter {index} in `{ep.name}`")
+      let abiWord? := match ep.paramAbiWords[index]? with
+        | some abiWord? => abiWord?
+        | none => none
+      return { valueId := valueId, name := name, type := coreType, abiWord? := abiWord? })
+    let retType ← adaptType env.typeIds ep.returns
+    return {
+      functionId := fid
+      name := ep.name
+      kind := adaptEntrypointKind ep.kind
+      mutability := adaptMutability ep.mutability
+      selector? := ep.selector?
+      params := params
+      retType := retType
+    })
+  let events ← (collectEventNames m).mapM (fun name => do
+    let eventId ← match Std.HashMap.get? env.eventIds name with
+      | some eventId => pure eventId
+      | none => throw (CanonicalizeError.unknownEvent name)
+    let declaration ← match module.events.find? (·.id == eventId) with
+      | some declaration => pure declaration
+      | none => throw (CanonicalizeError.unknownEvent name)
+    let sourceFields ← sourceEventFields m name
+    let fields ← sourceFields.mapIdxM (fun index sourceField =>
+      match declaration.fields[index]? with
+      | none => throw <| CanonicalizeError.conflictingEventSchema name
+          "interface field has no matching Core declaration"
+      | some field => pure {
+          fieldId := field.id
+          name := sourceField.name
+          type := field.type
+          indexed := sourceField.indexed
+          abiWord? := eventAbiWord? m name sourceField.name
+        })
+    return { eventId := eventId, name := name, fields := fields })
+  let errors ← registeredErrors.mapM (fun error => do
+    let declaration ← match module.errors.find? (·.id == error.id) with
+      | some declaration => pure declaration
+      | none => throw (CanonicalizeError.conflictingErrorSchema error.name
+          "registered error has no matching Core declaration")
+    return {
+      errorId := error.id
+      namespace_ := error.namespace_
+      coreName := declaration.name
+      name := error.name
+      userCode? := error.userCode?
+      code := error.code
+      message := error.message
+      params := declaration.params
+    })
+  return {
+    contractName := spec.name
+    entrypoints := entrypoints
+    events := events
+    errors := errors
+  }
 
 /- Adapt a legacy struct declaration to canonical form. -/
 
 def adaptStruct (decl : StructDecl) : AdapterM Struct := do
   let id ← lookupType decl.name
+  let typeIds := (← get).env.typeIds
   let fields ← decl.fields.mapIdxM (fun index f => do
-    let ty ← liftExcept (adaptType f.type)
+    let ty ← liftExcept (adaptType typeIds f.type)
     return {
       id := ⟨index⟩
       type := ty
@@ -134,13 +370,14 @@ def adaptStruct (decl : StructDecl) : AdapterM Struct := do
 def adaptFunction (ep : Entrypoint) : AdapterM Function := do
   resetLocals
   let fid ← lookupFunction ep.name
+  let typeIds := (← get).env.typeIds
   let params ← ep.params.mapM (fun (name, ty) => do
-    let coreTy ← liftExcept (adaptType ty)
+    let coreTy ← liftExcept (adaptType typeIds ty)
     let vid ← freshValueId
     let vdef := { id := vid, type := coreTy }
     bindLocal name { id := vid, type := coreTy }
     return vdef)
-  let retType ← liftExcept (adaptType ep.returns)
+  let retType ← liftExcept (adaptType typeIds ep.returns)
   let (blocks, entryId) ← normalizeBody ep.body retType
   return { id := fid, params := params, retType := retType, blocks := blocks, entry := entryId }
 
@@ -150,7 +387,7 @@ def adaptModuleM (m : Module) : AdapterM Core.Module := do
   let structs ← m.structs.mapM adaptStruct
   let state ← m.state.mapM (fun s => do
     let id ← lookupState s.id
-    let shape ← liftExcept (adaptStateShape s)
+    let shape ← liftExcept (adaptStateShape (← get).env.typeIds s)
     return { id := id, shape := shape })
   let functions ← m.entrypoints.mapM adaptFunction
   let events ← adaptEvents m functions
@@ -177,9 +414,16 @@ verification annotations. -/
 def adaptEvidence (spec : ContractSpec) : CanonicalEvidence := {
   sourceMap := { entries := #[] },
   verification := {
-    invariants := spec.quintInvariants.map (·.fst) ++ spec.leanInvariants.map (·.fst),
-    liveness := spec.quintLiveness.map (·.fst)
+    quintInvariants := spec.quintInvariants.map (fun (name, body) =>
+      { name := name, body := body }),
+    quintLiveness := spec.quintLiveness.map (fun (name, body) =>
+      { name := name, body := body }),
+    leanInvariants := spec.leanInvariants.map (fun (name, body) =>
+      { name := name, body := body })
   },
+  intentSources := spec.intents.mapIdx (fun intentIndex intent =>
+    intent.source?.map (fun source => { intentIndex := intentIndex, source := source }))
+    |>.filterMap id,
   legacyClassification :=
     (classifySpecFields spec).map (fun d => {
       nodeTag := d.field,
@@ -187,11 +431,6 @@ def adaptEvidence (spec : ContractSpec) : CanonicalEvidence := {
       reason := d.reason
     })
 }
-
-/- Convert a `Capability` to a `CapabilityCall` used by the canonical contract. -/
-
-def capabilityRequirements (m : Module) : Array CapabilityCall :=
-  m.capabilities.map (fun c => CapabilityCall.fromCapability c)
 
 /- Main entry point: adapt a legacy `ContractSpec` into a checked canonical
 bundle. Fails closed on any unsupported constructor, unmapped field, or
@@ -201,20 +440,22 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
   checkSpecFieldClassification spec
   let env ← buildEnv spec.module
   let st := AdapterState.ofEnv env
-  let (module, _) ← StateT.run (adaptModuleM spec.module) st
-  let interface ← adaptInterface spec.module env
-  let materialization ← adaptMaterialization spec env
+  let (module, finalSt) ← StateT.run (adaptModuleM spec.module) st
+  let registeredErrors := finalSt.env.registeredErrors
+  let interface ← adaptInterface spec module finalSt.env registeredErrors
+  let materialization ← adaptMaterialization spec finalSt.env interface registeredErrors
   let evidence := adaptEvidence spec
-  let requirements := capabilityRequirements spec.module
+  let requirements := ProofForge.IR.Canonical.deriveCapabilityRequirements
+    module materialization
   let canonical : CanonicalContract := {
-    schemaVersion := 0,
+    schemaVersion := canonicalSchemaVersion,
     module := module,
     interface := interface,
     materialization := materialization,
     requirements := requirements
   }
   match validateCanonical canonical with
-  | .error e => throw (CanonicalizeError.other (reprStr e))
+  | .error e => throw (CanonicalizeError.validation e)
   | .ok checked =>
       return { contract := checked, evidence := evidence }
 

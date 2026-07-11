@@ -26,6 +26,7 @@ inductive ElabError
 that produced it, the semantic node where it occurred, and a reason. -/
 
 inductive ValidationErrorTag
+  | unsupportedSchemaVersion
   | duplicateId
   | unknownReference
   | literalOutOfRange

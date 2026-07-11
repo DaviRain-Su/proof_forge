@@ -93,13 +93,18 @@ private def changedOuterLocal? (outer candidate : Std.HashMap String ValueRef) :
 
 /- Default error reference for unconditional reverts. -/
 
-def defaultRevertError : AdapterM CoreErrorRef := do
-  let id ← registerError "legacy" "Revert" 0
+def fallbackError (message : String) (form : RegisteredErrorForm) : AdapterM CoreErrorRef := do
+  let id ← registerError "legacy" "Revert" none 0 message form
   return { id := id, args := #[] }
 
-def errorRefOf (r : ErrorRef) : AdapterM CoreErrorRef := do
+def errorRefOf (message : String) (r : ErrorRef) : AdapterM CoreErrorRef := do
   let name := r.userCode?.getD s!"Error{r.assertionId}"
-  let id ← registerError "legacy" name r.assertionId.toNat
+  let form := if r.soliditySelector?.isSome then
+      RegisteredErrorForm.solidityCustom
+    else
+      RegisteredErrorForm.proofForgeEnvelope
+  let id ← registerError "legacy" name r.userCode? r.assertionId.toNat message
+    form (r.soliditySelector?.map String.toLower) r.solidityArgWords r.solidityArgTypes
   return { id := id, args := #[] }
 
 /- Normalize a legacy `Effect` into the function builder. -/
@@ -138,6 +143,17 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
       let fb ← liftExcept (instrs.foldlM FunctionBuilder.emitInstr fb)
       let instr := { results := #[], op := .emit eventId args }
       liftExcept (fb.emitInstr instr)
+  | .eventEmitIndexed name indexedFields dataFields => do
+      let eventId ← lookupEvent name
+      let mut args : Array ValueRef := #[]
+      let mut instrs : Array Instruction := #[]
+      for (_, e) in indexedFields ++ dataFields do
+        let nv ← normalizeExpr e
+        instrs := instrs ++ nv.instructions
+        args := args.push nv.value
+      let fb ← liftExcept (instrs.foldlM FunctionBuilder.emitInstr fb)
+      let instr := { results := #[], op := .emit eventId args }
+      liftExcept (fb.emitInstr instr)
   | .contextRead field => do
       let coreField ← liftExcept (adaptContextField field)
       let resultType := contextFieldType coreField
@@ -152,7 +168,7 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
 def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : CoreType) : AdapterM FunctionBuilder :=
   match stmt with
   | .letBind name ty value => do
-      let coreTy ← liftExcept (adaptType ty)
+      let coreTy ← liftExcept (adaptType (← get).env.typeIds ty)
       let nv ← normalizeExpr value
       unless nv.value.type == coreTy do
         throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
@@ -160,7 +176,7 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
   | .letMutBind name ty value => do
-      let coreTy ← liftExcept (adaptType ty)
+      let coreTy ← liftExcept (adaptType (← get).env.typeIds ty)
       let nv ← normalizeExpr value
       unless nv.value.type == coreTy do
         throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
@@ -211,15 +227,15 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
           return fb
       | other => throw (CanonicalizeError.invalidLValue s!"assign-op target {repr other}")
   | .effect eff => normalizeEffect fb eff
-  | .assert cond _msg errorRef? => do
+  | .assert cond message errorRef? => do
       let nv ← normalizeExpr cond
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let error ← match errorRef? with
-        | some r => errorRefOf r
-        | none => defaultRevertError
+        | some r => errorRefOf message r
+        | none => fallbackError message .assertFallback
       let instr := { results := #[], op := .assert nv.value error }
       liftExcept (fb.emitInstr instr)
-  | .assertEq lhs rhs _msg errorRef? => do
+  | .assertEq lhs rhs message errorRef? => do
       let nl ← normalizeExpr lhs
       let nr ← normalizeExpr rhs
       let nc ← emitValueInstruction (.pure (.compare .eq nl.value nr.value)) .bool
@@ -227,15 +243,15 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let fb ← liftExcept (nr.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nc.instructions.foldlM FunctionBuilder.emitInstr fb)
       let error ← match errorRef? with
-        | some r => errorRefOf r
-        | none => defaultRevertError
+        | some r => errorRefOf message r
+        | none => fallbackError message .assertFallback
       let instr := { results := #[], op := .assert nc.value error }
       liftExcept (fb.emitInstr instr)
-  | .revert _msg => do
-      let error ← defaultRevertError
+  | .revert message => do
+      let error ← fallbackError message .revertMessage
       liftExcept (fb.setTerminator (.revert error))
   | .revertWithError ref => do
-      let error ← errorRefOf ref
+      let error ← errorRefOf (ref.userCode?.getD "revertWithError") ref
       liftExcept (fb.setTerminator (.revert error))
   | .release _ =>
       throw (CanonicalizeError.unsupportedConstructor "Statement.release"

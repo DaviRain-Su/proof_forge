@@ -105,7 +105,7 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .add lhs _ _ | .sub lhs _ _ | .mul lhs _ _ | .div lhs _ | .mod lhs _ | .pow lhs _
   | .bitAnd lhs _ | .bitOr lhs _ | .bitXor lhs _ | .shiftLeft lhs _ | .shiftRight lhs _ =>
       exprType lhs
-  | .cast _ targetType => liftExcept (adaptType targetType)
+  | .cast _ targetType => liftExcept (adaptType (← get).env.typeIds targetType)
   | .eq _ _ | .ne _ _ | .lt _ _ | .le _ _ | .gt _ _ | .ge _ _
   | .boolAnd _ _ | .boolOr _ _ | .boolNot _ => return .bool
   | .effect (.storageScalarRead name) => stateScalarType name
@@ -313,7 +313,7 @@ def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       return { instructions := nv.instructions ++ nnot.instructions, value := nnot.value }
   | .cast value targetType =>
       let nv ← normalizeExpr value
-      let coreTy ← liftExcept (adaptType targetType)
+      let coreTy ← liftExcept (adaptType (← get).env.typeIds targetType)
       let ncast ← emitValueInstruction (.pure (.cast coreTy nv.value)) coreTy
       return { instructions := nv.instructions ++ ncast.instructions, value := ncast.value }
   | .effect (.storageScalarRead name) =>

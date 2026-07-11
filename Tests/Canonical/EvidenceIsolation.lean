@@ -4,7 +4,7 @@ import ProofForge.IR.Canonical
 open ProofForge.IR.Core
 open ProofForge.IR.Canonical
 
-def sharedContract : CanonicalContract := {
+def sharedContractBase : CanonicalContract := {
     schemaVersion := 1
     module := {
       name := "EvidenceIsolation"
@@ -26,18 +26,36 @@ def sharedContract : CanonicalContract := {
         }]
       }]
     }
-    interface := { entrypoints := #[{
-      functionId := ⟨0⟩, kind := "view", mutatesState := false,
-      params := #[], retType := .u64
-    }] }
-    materialization := { constructorBindings := #[⟨⟨0⟩, .u64Lit 0⟩] }
+    interface := {
+      contractName := "EvidenceIsolation"
+      entrypoints := #[{
+        functionId := ⟨0⟩, name := "get", kind := .function,
+        mutability := .view, params := #[], retType := .u64
+      }]
+    }
+    materialization := {
+      constructorParams := #[{ name := "initial", abiType := "uint64" }]
+      constructorBindings := #[{
+        stateId := ⟨0⟩, paramName := "initial", kind := .scalarU64
+      }]
+      stateSymbols := #[{ stateId := ⟨0⟩, name := "count" }]
+    }
     requirements := #[]
+}
+
+def sharedContract : CanonicalContract := {
+  sharedContractBase with
+  requirements := deriveCapabilityRequirements
+    sharedContractBase.module sharedContractBase.materialization
 }
 
 def evidenceA : CanonicalEvidence :=
   emptyEvidence
     |>.withSourceMap { entries := #[⟨⟨0⟩, some ⟨0⟩, some 0, ⟨"A.lean", 1, 1⟩⟩] }
-    |>.withVerification { invariants := #["invA"], liveness := #[] }
+    |>.withVerification {
+      quintInvariants := #[{ name := "invA", body := "count >= 0" }]
+    }
+    |>.withIntentSources #[{ intentIndex := 0, source := "A.lean:1" }]
     |>.withLegacyClassification #[{
       nodeTag := "state"
       decision := "preserve"
@@ -47,7 +65,11 @@ def evidenceA : CanonicalEvidence :=
 def evidenceB : CanonicalEvidence :=
   emptyEvidence
     |>.withSourceMap { entries := #[⟨⟨0⟩, some ⟨0⟩, some 0, ⟨"B.lean", 99, 42⟩⟩] }
-    |>.withVerification { invariants := #["invB"], liveness := #["liveB"] }
+    |>.withVerification {
+      quintInvariants := #[{ name := "invB", body := "count <= max" }]
+      quintLiveness := #[{ name := "liveB", body := "eventually count = 0" }]
+    }
+    |>.withIntentSources #[{ intentIndex := 0, source := "B.lean:99" }]
     |>.withLegacyClassification #[{
       nodeTag := "state"
       decision := "preserve"

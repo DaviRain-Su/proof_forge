@@ -137,16 +137,71 @@ def exampleModule : Module := {
   errors := #[schemaError]
 }
 
-def contractOf (m : Module) : CanonicalContract := {
-  schemaVersion := 0
-  module := m
-  interface := { entrypoints := m.functions.map (fun f => {
-    functionId := f.id, kind := "function", mutatesState := true,
-    params := f.params.map (·.type), retType := f.retType
-  }) }
-  materialization := {}
-  requirements := #[]
+def materializationOf (m : Module) : MaterializationContract := {
+  stateSymbols := m.state.map (fun declaration => {
+    stateId := declaration.id
+    name := s!"state_{declaration.id.value}"
+  })
+  typeLayouts := m.structs.map (fun declaration => {
+    typeId := declaration.id
+    name := s!"type_{declaration.id.value}"
+    isPublic := true
+    deriveStorage := false
+    fields := declaration.fields.map (fun field => {
+      fieldId := field.id
+      name := s!"field_{field.id.value}"
+      isPublic := true
+    })
+  })
+  eventEncodings := m.events.map (fun event => { eventId := event.id, fields := #[] })
+  errorEncodings := m.errors.map (fun error => {
+    errorId := error.id
+    form := .proofForgeEnvelope
+  })
 }
+
+def contractOf (m : Module) : CanonicalContract :=
+  let materialization := materializationOf m
+  {
+    schemaVersion := canonicalSchemaVersion
+    module := m
+    interface := {
+    contractName := m.name
+    entrypoints := m.functions.map (fun f => {
+      functionId := f.id
+      name := s!"function_{f.id.value}"
+      kind := .function
+      mutability := .call
+      params := f.params.mapIdx (fun index param => {
+        valueId := param.id
+        name := s!"arg_{index}"
+        type := param.type
+      })
+      retType := f.retType
+    })
+    events := m.events.map (fun event => {
+      eventId := event.id
+      name := s!"event_{event.id.value}"
+      fields := event.fields.map (fun field => {
+        fieldId := field.id
+        name := s!"field_{field.id.value}"
+        type := field.type
+      })
+    })
+    errors := m.errors.map (fun error => {
+      errorId := error.id
+      namespace_ := error.namespace_
+      coreName := error.name
+      name := error.name
+      userCode? := none
+      code := error.code
+      message := ""
+      params := error.params
+    })
+    }
+    materialization := materialization
+    requirements := deriveCapabilityRequirements m materialization
+  }
 
 def literalOverflowModule : Module := {
   name := "LiteralOverflow"

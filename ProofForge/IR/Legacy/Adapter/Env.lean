@@ -10,6 +10,7 @@ namespace ProofForge.IR.Legacy.Adapter
 
 open ProofForge.IR
 open ProofForge.IR.Core
+open ProofForge.IR.Core.Error
 
 /- Errors produced by the fail-closed legacy adapter. Every unsupported or
 unclassified construct is reported explicitly; no wildcard fallback exists. -/
@@ -21,6 +22,8 @@ inductive CanonicalizeError
   | unknownState (name : String)
   | unknownFunction (name : String)
   | unknownEvent (name : String)
+  | conflictingEventSchema (name : String) (reason : String)
+  | conflictingErrorSchema (name : String) (reason : String)
   | unknownType (name : String)
   | unboundLocal (name : String)
   | typeMismatch (expected : String) (actual : String)
@@ -28,7 +31,32 @@ inductive CanonicalizeError
   | invalidLValue (desc : String)
   | terminatedBlock (desc : String)
   | unboundedLoop (reason : String)
+  | validation (error : ValidationError)
   | other (msg : String)
+  deriving Repr, BEq
+
+inductive RegisteredErrorForm where
+  | assertFallback
+  | revertMessage
+  | proofForgeEnvelope
+  | solidityCustom
+  deriving Repr, BEq
+
+/-- Complete source error site retained until the canonical interface and
+materialization envelopes are assembled. `coreName` is unique even when the
+same source-facing custom error is used with different static argument words. -/
+structure RegisteredError where
+  id : ErrorId
+  namespace_ : String
+  coreName : String
+  name : String
+  userCode? : Option String
+  code : Nat
+  message : String
+  form : RegisteredErrorForm
+  soliditySelector? : Option String
+  solidityArgWords : Array Nat
+  solidityArgTypes : Array String
   deriving Repr, BEq
 
 /- Resolved symbol tables and identifier supplies. State entries store the
@@ -40,8 +68,8 @@ structure AdapterEnv where
   stateIds : Std.HashMap String (StateId × StateShape)
   functionIds : Std.HashMap String FunctionId
   eventIds : Std.HashMap String EventId
-  errorIds : Std.HashMap (String × String) ErrorId
   errorDecls : Array ErrorDecl
+  registeredErrors : Array RegisteredError
   overflowMode : OverflowMode
   localValues : Std.HashMap String ValueRef
   nextTypeId : Nat
@@ -101,20 +129,43 @@ def freshErrorId : AdapterM ErrorId := do
   modify (fun s => { s with env := { s.env with nextErrorId := id + 1 } })
   return ⟨id⟩
 
-def registerError (namespace_ name : String) (code : Nat) : AdapterM ErrorId := do
+def registerError (namespace_ name : String) (userCode? : Option String)
+    (code : Nat) (message : String) (form : RegisteredErrorForm)
+    (soliditySelector? : Option String := none)
+    (solidityArgWords : Array Nat := #[])
+    (solidityArgTypes : Array String := #[]) : AdapterM ErrorId := do
   let s ← get
-  match Std.HashMap.get? s.env.errorIds (namespace_, name) with
-  | some id => return id
+  match s.env.registeredErrors.find? (fun error =>
+      error.namespace_ == namespace_ && error.name == name &&
+      error.userCode? == userCode? && error.code == code &&
+      error.message == message && error.form == form &&
+      error.soliditySelector? == soliditySelector? &&
+      error.solidityArgWords == solidityArgWords &&
+      error.solidityArgTypes == solidityArgTypes) with
+  | some error => return error.id
   | none =>
     let id ← freshErrorId
+    let coreName := s!"{name}#{id.value}"
     modify (fun s => { s with
       env := { s.env with
-        errorIds := s.env.errorIds.insert (namespace_, name) id,
         errorDecls := s.env.errorDecls.push {
           id := id,
           namespace_ := namespace_,
-          name := name,
+          name := coreName,
           code := code
+        },
+        registeredErrors := s.env.registeredErrors.push {
+          id := id,
+          namespace_ := namespace_,
+          coreName := coreName,
+          name := name,
+          userCode? := userCode?,
+          code := code,
+          message := message,
+          form := form,
+          soliditySelector? := soliditySelector?,
+          solidityArgWords := solidityArgWords,
+          solidityArgTypes := solidityArgTypes
         }
       }
     })
@@ -158,7 +209,8 @@ def resetLocals : AdapterM Unit :=
 
 /- Map a legacy `ValueType` to the canonical `CoreType`. -/
 
-def adaptType (t : ValueType) : Except CanonicalizeError CoreType :=
+def adaptType (typeIds : Std.HashMap String TypeId) (t : ValueType) :
+    Except CanonicalizeError CoreType :=
   match t with
   | .unit => .ok .unit
   | .bool => .ok .bool
@@ -170,19 +222,25 @@ def adaptType (t : ValueType) : Except CanonicalizeError CoreType :=
   | .bytes => .ok .bytes
   | .string => .ok .string
   | .hash => .ok .hash
-  | .fixedArray e n => do .ok (.fixedArray (← adaptType e) n)
-  | .structType n => .error (CanonicalizeError.unsupportedConstructor "ValueType.structType" s!"struct types not in initial fragment ({n})")
-  | .array e => do .ok (.array (← adaptType e))
+  | .fixedArray e n => do .ok (.fixedArray (← adaptType typeIds e) n)
+  | .structType name =>
+      match Std.HashMap.get? typeIds name with
+      | some typeId => .ok (.structType typeId)
+      | none => .error (CanonicalizeError.unknownType name)
+  | .array e => do .ok (.array (← adaptType typeIds e))
 
 /- Map a legacy `StateDecl` to a canonical `StateShape`. The result is purely
 logical; no target allocation information is introduced. -/
 
-def adaptStateShape (decl : StateDecl) : Except CanonicalizeError StateShape :=
+def adaptStateShape (typeIds : Std.HashMap String TypeId) (decl : StateDecl) :
+    Except CanonicalizeError StateShape :=
   match decl.kind with
-  | .scalar => do .ok (.scalar (← adaptType decl.type))
-  | .map keyType _ => do .ok (.map (← adaptType keyType) (← adaptType decl.type) none)
-  | .array length => do .ok (.fixedArray (← adaptType decl.type) length)
-  | .dynamicArray => do .ok (.dynamicArray (← adaptType decl.type))
+  | .scalar => do .ok (.scalar (← adaptType typeIds decl.type))
+  | .map keyType capacity => do
+      .ok (.map (← adaptType typeIds keyType)
+        (← adaptType typeIds decl.type) (some capacity))
+  | .array length => do .ok (.fixedArray (← adaptType typeIds decl.type) length)
+  | .dynamicArray => do .ok (.dynamicArray (← adaptType typeIds decl.type))
 
 private def pushEventName (names : Array String) (name : String) : Array String :=
   if names.contains name then names else names.push name
@@ -211,8 +269,8 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     stateIds := {},
     functionIds := {},
     eventIds := {},
-    errorIds := {},
     errorDecls := #[],
+    registeredErrors := #[],
     overflowMode := if m.overflowChecked then .checked else .wrapping,
     localValues := {},
     nextTypeId := 0,
@@ -226,7 +284,7 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     env := { env with typeIds := env.typeIds.insert struct.name id, nextTypeId := env.nextTypeId + 1 }
   for state in m.state do
     let id := ⟨env.nextStateId⟩
-    let shape ← adaptStateShape state
+    let shape ← adaptStateShape env.typeIds state
     env := { env with stateIds := env.stateIds.insert state.id (id, shape), nextStateId := env.nextStateId + 1 }
   for ep in m.entrypoints do
     let id := ⟨env.nextFunctionId⟩

@@ -4,6 +4,7 @@ import ProofForge.IR.Canonical
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Error
 open ProofForge.IR.Canonical
+open ProofForge.Target
 
 /- Base valid canonical contract. All negative variants mutate this. -/
 
@@ -39,14 +40,42 @@ def baseModule : Module := {
 }
 
 def baseInterface : InterfaceContract := {
+  contractName := "CoreValidate"
   entrypoints := #[{
-    functionId := ⟨0⟩, kind := "call", mutatesState := true,
-    params := #[.u64], retType := .u64
+    functionId := ⟨0⟩
+    name := "entry"
+    kind := .function
+    mutability := .call
+    params := #[{ valueId := ⟨0⟩, name := "value", type := .u64 }]
+    retType := .u64
+  }]
+  events := #[{
+    eventId := ⟨5⟩
+    name := "Value"
+    fields := #[{ fieldId := ⟨30⟩, name := "value", type := .u64 }]
   }]
 }
 
 def baseMaterialization : MaterializationContract := {
-  constructorBindings := #[⟨⟨0⟩, .u64Lit 0⟩]
+  constructorParams := #[{ name := "initial", abiType := "uint64" }]
+  constructorBindings := #[{
+    stateId := ⟨0⟩, paramName := "initial", kind := .scalarU64
+  }]
+  stateSymbols := #[
+    { stateId := ⟨0⟩, name := "count" },
+    { stateId := ⟨1⟩, name := "balances" },
+    { stateId := ⟨2⟩, name := "bytes" },
+    { stateId := ⟨3⟩, name := "values" },
+    { stateId := ⟨4⟩, name := "record" }
+  ]
+  typeLayouts := #[{
+    typeId := ⟨10⟩
+    name := "Record"
+    isPublic := true
+    deriveStorage := false
+    fields := #[{ fieldId := ⟨20⟩, name := "value", isPublic := true }]
+  }]
+  eventEncodings := #[{ eventId := ⟨5⟩, fields := #[] }]
 }
 
 def baseContract : CanonicalContract := {
@@ -54,8 +83,79 @@ def baseContract : CanonicalContract := {
   module := baseModule
   interface := baseInterface
   materialization := baseMaterialization
-  requirements := #[]
+  requirements := deriveCapabilityRequirements baseModule baseMaterialization
 }
+
+def syncEnvelope (contract : CanonicalContract) : CanonicalContract :=
+  let module := contract.module
+  let materialization : MaterializationContract := {
+    contract.materialization with
+    stateSymbols := module.state.map (fun state => {
+      stateId := state.id
+      name := s!"state_{state.id.value}"
+    })
+    typeLayouts := module.structs.map (fun declaration => {
+      typeId := declaration.id
+      name := s!"type_{declaration.id.value}"
+      isPublic := true
+      deriveStorage := false
+      fields := declaration.fields.map (fun field => {
+        fieldId := field.id
+        name := s!"field_{field.id.value}"
+        isPublic := true
+      })
+    })
+    eventEncodings := module.events.map (fun event => {
+      eventId := event.id
+      fields := #[]
+    })
+    errorEncodings := module.errors.map (fun error => {
+      errorId := error.id
+      form := .proofForgeEnvelope
+    })
+  }
+  { contract with
+    interface := {
+      contractName := module.name
+      entrypoints := module.functions.map (fun function => {
+        functionId := function.id
+        name := s!"function_{function.id.value}"
+        kind := .function
+        mutability := .call
+        params := function.params.mapIdx (fun index param => {
+          valueId := param.id
+          name := s!"arg_{index}"
+          type := param.type
+        })
+        retType := function.retType
+      })
+      events := module.events.map (fun event => {
+        eventId := event.id
+        name := s!"event_{event.id.value}"
+        fields := event.fields.map (fun field => {
+          fieldId := field.id
+          name := s!"field_{field.id.value}"
+          type := field.type
+        })
+      })
+      errors := module.errors.map (fun error => {
+        errorId := error.id
+        namespace_ := error.namespace_
+        coreName := error.name
+        name := error.name
+        userCode? := none
+        code := error.code
+        message := ""
+        params := error.params
+      })
+    }
+    materialization := materialization
+    requirements := deriveCapabilityRequirements module materialization
+  }
+
+def withDerivedRequirements (contract : CanonicalContract) : CanonicalContract :=
+  { contract with requirements :=
+      deriveCapabilityRequirements contract.module contract.materialization }
 
 def expectError (tag : ValidationErrorTag) (c : CanonicalContract) : IO Unit := do
   match validateCanonical c with
@@ -321,9 +421,10 @@ def invalidReturnContract : CanonicalContract := {
 def invalidInterfaceContract : CanonicalContract := {
   baseContract with
   interface := {
+    baseInterface with
     entrypoints := #[{
-      functionId := ⟨99⟩, kind := "call", mutatesState := true,
-      params := #[], retType := .unit
+      functionId := ⟨99⟩, name := "missing", kind := .function,
+      mutability := .call, params := #[], retType := .unit
     }]
   }
 }
@@ -333,8 +434,259 @@ def invalidInterfaceContract : CanonicalContract := {
 def invalidMaterializationContract : CanonicalContract := {
   baseContract with
   materialization := {
-    constructorBindings := #[⟨⟨99⟩, .u64Lit 0⟩]
+    baseMaterialization with
+    constructorBindings := #[{
+      stateId := ⟨99⟩, paramName := "initial", kind := .scalarU64
+    }]
   }
+}
+
+def unsupportedSchemaContract : CanonicalContract := {
+  baseContract with schemaVersion := canonicalSchemaVersion + 1
+}
+
+def mismatchedInterfaceParamContract : CanonicalContract := {
+  baseContract with
+  interface := {
+    baseInterface with
+    entrypoints := #[{
+      baseInterface.entrypoints[0]! with
+      params := #[{ valueId := ⟨99⟩, name := "value", type := .u64 }]
+    }]
+  }
+}
+
+def invalidReceiveContract : CanonicalContract := {
+  baseContract with
+  interface := {
+    baseInterface with
+    entrypoints := #[{
+      baseInterface.entrypoints[0]! with
+      kind := .receive
+      selector? := some "01020304"
+    }]
+  }
+}
+
+def incompleteStateSymbolsContract : CanonicalContract := {
+  baseContract with
+  materialization := { baseMaterialization with stateSymbols := #[] }
+}
+
+def unknownConstructorParamContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    constructorBindings := #[{
+      stateId := ⟨0⟩, paramName := "missing", kind := .scalarU64
+    }]
+  }
+}
+
+def unsupportedConstructorAbiContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    constructorParams := #[{ name := "initial", abiType := "tuple" }]
+  }
+}
+
+def mismatchedConstructorAbiContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    constructorBindings := #[{
+      stateId := ⟨0⟩, paramName := "initial", kind := .stringLength
+    }]
+  }
+}
+
+def mismatchedConstructorStateContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    constructorParams := #[{ name := "initial", abiType := "string" }]
+    constructorBindings := #[{
+      stateId := ⟨0⟩, paramName := "initial", kind := .stringKeccak
+    }]
+  }
+}
+
+def specOnlyProxyContract : CanonicalContract := {
+  baseContract with
+  materialization := { baseMaterialization with proxyPattern? := some .uups }
+}
+
+def moduleOnlyProxyContract : CanonicalContract := {
+  baseContract with
+  materialization := { baseMaterialization with moduleProxyPattern? := some .uups }
+}
+
+def capabilityIntentWithoutCapabilityContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    intents := #[{ kind := .capability, label := "emit", capability? := none }]
+  }
+}
+
+def nonCapabilityIntentWithCapabilityContract : CanonicalContract := {
+  baseContract with
+  materialization := {
+    baseMaterialization with
+    intents := #[{
+      kind := .module, label := "module", capability? := some .eventsEmit
+    }]
+  }
+}
+
+def leakingRequirementContract : CanonicalContract := {
+  baseContract with
+  requirements := #[CapabilityCall.fromCapability .storageScalar (some "Secret.lean:1")]
+}
+
+def missingStorageRequirementsContract : CanonicalContract := {
+  baseContract with requirements := #[]
+}
+
+def emitOnlyModule : Module := {
+  name := "EmitOnly"
+  events := #[{ id := ⟨0⟩, fields := #[{ id := ⟨0⟩, type := .u64 }] }]
+  functions := #[{
+    id := ⟨0⟩
+    params := #[]
+    retType := .unit
+    entry := ⟨0⟩
+    blocks := #[{
+      id := ⟨0⟩
+      instructions := #[
+        ⟨#[⟨⟨0⟩, .u64⟩], .pure (.literal (.u64Lit 7))⟩,
+        ⟨#[], .emit ⟨0⟩ #[{ id := ⟨0⟩, type := .u64 }]⟩
+      ]
+      terminator := .return #[]
+    }]
+  }]
+}
+
+def missingEmitRequirementsContract : CanonicalContract :=
+  { syncEnvelope { baseContract with module := emitOnlyModule, materialization := {} } with
+    requirements := #[] }
+
+def storageOnlyModule : Module := {
+  name := "StorageOnly"
+  state := #[{ id := ⟨0⟩, shape := .scalar .u64 }]
+  functions := #[{
+    id := ⟨0⟩
+    params := #[{ id := ⟨0⟩, type := .u64 }]
+    retType := .unit
+    entry := ⟨0⟩
+    blocks := #[{
+      id := ⟨0⟩
+      instructions := #[⟨#[], .storageStore {
+        root := ⟨0⟩, resultType := .u64
+      } { id := ⟨0⟩, type := .u64 }⟩]
+      terminator := .return #[]
+    }]
+  }]
+}
+
+def storageCallContract : CanonicalContract :=
+  syncEnvelope { baseContract with module := storageOnlyModule, materialization := {} }
+
+def viewStorageContract : CanonicalContract :=
+  let contract := storageCallContract
+  { contract with interface := {
+      contract.interface with
+      entrypoints := contract.interface.entrypoints.map (fun entrypoint =>
+        { entrypoint with mutability := .view })
+    } }
+
+def crosscallModule : Module := {
+  name := "CrosscallOnly"
+  functions := #[{
+    id := ⟨0⟩
+    params := #[{ id := ⟨0⟩, type := .address }, { id := ⟨1⟩, type := .string }]
+    retType := .unit
+    entry := ⟨0⟩
+    blocks := #[{
+      id := ⟨0⟩
+      instructions := #[⟨#[], .crosscall {
+        mode := .invoke
+        target := { id := ⟨0⟩, type := .address }
+        method := { id := ⟨1⟩, type := .string }
+        returnType := .unit
+      } #[]⟩]
+      terminator := .return #[]
+    }]
+  }]
+}
+
+def crosscallCallContract : CanonicalContract :=
+  syncEnvelope { baseContract with module := crosscallModule, materialization := {} }
+
+def missingCrosscallRequirementsContract : CanonicalContract :=
+  { crosscallCallContract with requirements := #[] }
+
+def viewInvokeContract : CanonicalContract :=
+  let contract := crosscallCallContract
+  { contract with interface := {
+      contract.interface with
+      entrypoints := contract.interface.entrypoints.map (fun entrypoint =>
+        { entrypoint with mutability := .view })
+    } }
+
+def customErrorContract (abiType : String) (word : Nat) : CanonicalContract :=
+  let module : Module := { baseModule with errors := #[{
+    id := ⟨0⟩, namespace_ := "test", name := "Custom", code := 1
+  }] }
+  let synced := syncEnvelope { baseContract with module := module }
+  let materialization := { synced.materialization with errorEncodings := #[{
+    errorId := ⟨0⟩
+    form := .solidityCustom
+    soliditySelector? := some "deadbeef"
+    solidityArgWords := #[word]
+    solidityArgTypes := #[abiType]
+  }] }
+  withDerivedRequirements { synced with materialization := materialization }
+
+def unsupportedCustomErrorTypeContract : CanonicalContract :=
+  customErrorContract "string" 0
+
+def unsupportedUint16CustomErrorContract : CanonicalContract :=
+  customErrorContract "uint16" 0
+
+def overflowingUint8CustomErrorContract : CanonicalContract :=
+  customErrorContract "uint8" 256
+
+def overflowingAddressCustomErrorContract : CanonicalContract :=
+  customErrorContract "address" (2 ^ 160)
+
+def overflowingBoolCustomErrorContract : CanonicalContract :=
+  customErrorContract "bool" 2
+
+def mismatchedEventSchemaContract : CanonicalContract := {
+  baseContract with
+  interface := {
+    baseInterface with
+    events := #[{
+      eventId := ⟨5⟩
+      name := "Value"
+      fields := #[{ fieldId := ⟨30⟩, name := "value", type := .bool }]
+    }]
+  }
+}
+
+def internalFunction : Function := {
+  id := ⟨99⟩
+  params := #[]
+  retType := .unit
+  entry := ⟨99⟩
+  blocks := #[{ id := ⟨99⟩, instructions := #[], terminator := .return #[] }]
+}
+
+def internalFunctionSubsetContract : CanonicalContract := {
+  baseContract with
+  module := { baseModule with functions := baseModule.functions.push internalFunction }
 }
 
 /- Duplicate block ID inside one function. -/
@@ -394,9 +746,10 @@ def duplicateValueIdContract : CanonicalContract := {
 def unknownFunctionRefContract : CanonicalContract := {
   baseContract with
   interface := {
+    baseInterface with
     entrypoints := #[{
-      functionId := ⟨99⟩, kind := "call", mutatesState := true,
-      params := #[], retType := .unit
+      functionId := ⟨99⟩, name := "missing", kind := .function,
+      mutability := .call, params := #[], retType := .unit
     }]
   }
 }
@@ -985,6 +1338,37 @@ def main : IO Unit := do
   expectError .invalidReturn invalidReturnContract
   expectError .invalidInterface invalidInterfaceContract
   expectError .invalidMaterialization invalidMaterializationContract
+  expectErrorPass .unsupportedSchemaVersion "schema-version" unsupportedSchemaContract
+  expectError .invalidInterface mismatchedInterfaceParamContract
+  expectError .invalidInterface invalidReceiveContract
+  expectError .invalidMaterialization incompleteStateSymbolsContract
+  expectError .invalidMaterialization unknownConstructorParamContract
+  expectError .invalidMaterialization unsupportedConstructorAbiContract
+  expectError .invalidMaterialization mismatchedConstructorAbiContract
+  expectError .invalidMaterialization mismatchedConstructorStateContract
+  expectError .invalidMaterialization specOnlyProxyContract
+  expectError .invalidMaterialization moduleOnlyProxyContract
+  expectError .invalidMaterialization capabilityIntentWithoutCapabilityContract
+  expectError .invalidMaterialization nonCapabilityIntentWithCapabilityContract
+  expectErrorPass .invalidMaterialization "capability" leakingRequirementContract
+  expectErrorPass .invalidMaterialization "capability" missingStorageRequirementsContract
+  expectErrorPass .invalidMaterialization "capability" missingEmitRequirementsContract
+  expectErrorPass .invalidMaterialization "capability" missingCrosscallRequirementsContract
+  expectError .invalidInterface viewStorageContract
+  expectError .invalidInterface viewInvokeContract
+  expectError .invalidMaterialization unsupportedCustomErrorTypeContract
+  expectError .invalidMaterialization unsupportedUint16CustomErrorContract
+  expectError .invalidMaterialization overflowingUint8CustomErrorContract
+  expectError .invalidMaterialization overflowingAddressCustomErrorContract
+  expectError .invalidMaterialization overflowingBoolCustomErrorContract
+  unless moduleCapabilities emitOnlyModule == #[.eventsEmit] do
+    throw <| IO.userError s!"emit-only capabilities changed: {repr (moduleCapabilities emitOnlyModule)}"
+  unless moduleCapabilities storageOnlyModule == #[.storageScalar] do
+    throw <| IO.userError s!"storage-only capabilities changed: {repr (moduleCapabilities storageOnlyModule)}"
+  unless moduleCapabilities crosscallModule == #[.dataDynamicBytes, .crosscallInvoke] do
+    throw <| IO.userError s!"crosscall capabilities changed: {repr (moduleCapabilities crosscallModule)}"
+  expectError .invalidInterface mismatchedEventSchemaContract
+  expectOk "internal Core function omitted from public interface" internalFunctionSubsetContract
   expectErrorContext .duplicateId "symbol-uniqueness" (some ⟨0⟩) (some ⟨0⟩) none
     duplicateBlockIdContract
   expectErrorContext .duplicateId "symbol-uniqueness" (some ⟨0⟩) (some ⟨0⟩) (some 0)
@@ -995,7 +1379,7 @@ def main : IO Unit := do
   expectError .typeMismatch forgedValueRefTypeContract
   expectError .invalidDominance siblingNonDominatingUseContract
   expectError .typeMismatch forgedBlockArgumentContract
-  expectOk "reordered acyclic CFG" reorderedAcyclicContract
+  expectOk "reordered acyclic CFG" (syncEnvelope reorderedAcyclicContract)
   expectError .unknownReference unusedUnknownRecordContract
   expectError .invalidStoragePath wrongMapKeyTypeContract
   expectError .invalidReturn wrongReturnArityContract
@@ -1006,7 +1390,7 @@ def main : IO Unit := do
   expectErrorPass .typeMismatch "terminator" branchTargetParameterContract
   expectErrorPass .invalidStoragePath "state-shape" incompleteAggregatePathContract
   expectErrorPass .unknownReference "state-shape" unknownFunctionTypeContract
-  expectOk "diamond with jump-provided join parameter" validDiamondContract
-  expectOk "bounded loop" validBoundedLoopContract
+  expectOk "diamond with jump-provided join parameter" (syncEnvelope validDiamondContract)
+  expectOk "bounded loop" (syncEnvelope validBoundedLoopContract)
   expectErrorPass .missingLoopBound "cfg" mixedBoundedUnboundedCycleContract
   IO.println "canonical-core-validate: ok"
