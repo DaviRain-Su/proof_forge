@@ -1,20 +1,13 @@
-import ProofForge.Backend.Evm.CorePlan
-import ProofForge.Backend.Evm.CoreLower
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.Validate
-import ProofForge.Backend.Solana.CorePlan
-import ProofForge.Backend.Solana.CoreLower
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.SbpfAsm
-import ProofForge.Backend.WasmHost.CorePlan
-import ProofForge.Backend.WasmHost.CoreLower
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.IR
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Compiler.Yul.Printer
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.Backend
-import ProofForge.Target.CoreBackend
 import ProofForge.Target.HostBridge
 import ProofForge.Target.Registry
 
