@@ -106,6 +106,26 @@ private def collectFunctionIds (m : Module) : Std.HashSet FunctionId :=
 private def collectEventIds (m : Module) : Std.HashSet EventId :=
   m.events.foldl (fun s e => s.insert e.id) {}
 
+private def coreTypeReferences : CoreType → Array TypeId
+  | .fixedArray element _ | .array element => coreTypeReferences element
+  | .structType typeId => #[typeId]
+  | _ => #[]
+
+private def checkCoreTypeReferences (m : Module) (ty : CoreType)
+    (context : String) (function : Option FunctionId := none)
+    (block : Option BlockId := none) (instruction : Option Nat := none) :
+    Except ValidationError Unit := do
+  for typeId in coreTypeReferences ty do
+    unless m.structs.any (·.id == typeId) do
+      .error <| error .unknownReference "state-shape" function block instruction
+        s!"{context} references unknown struct type {repr typeId}"
+
+private def stateShapeTypes : StateShape → Array CoreType
+  | .scalar value => #[value]
+  | .map key value _ => #[key, value]
+  | .fixedArray element _ | .dynamicArray element => #[element]
+  | .record typeId => #[.structType typeId]
+
 /- Pass 1: globally unique type, state, function, event, block, and value
 identities. -/
 
@@ -125,14 +145,30 @@ def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
   checkUnique .duplicateId "function" (m.functions.map (·.id))
   checkUnique .duplicateId "event" (m.events.map (·.id))
   for f in m.functions do
-    checkUnique .duplicateId s!"block in function {repr f.id}"
-      (f.blocks.map (·.id))
-    let mut valueIds := f.params.map (·.id)
+    let mut blockIds : Std.HashSet BlockId := {}
     for b in f.blocks do
-      valueIds := valueIds ++ b.params.map (·.id)
-      for i in b.instructions do
-        valueIds := valueIds ++ i.results.map (·.id)
-    checkUnique .duplicateId s!"value in function {repr f.id}" valueIds
+      if blockIds.contains b.id then
+        .error <| error .duplicateId "symbol-uniqueness" (some f.id) (some b.id) none
+          s!"duplicate block in function {repr f.id}: {repr b.id}"
+      blockIds := blockIds.insert b.id
+    let mut valueIds : Std.HashSet ValueId := {}
+    for param in f.params do
+      if valueIds.contains param.id then
+        .error <| error .duplicateId "symbol-uniqueness" (some f.id) none none
+          s!"duplicate function parameter value: {repr param.id}"
+      valueIds := valueIds.insert param.id
+    for b in f.blocks do
+      for param in b.params do
+        if valueIds.contains param.id then
+          .error <| error .duplicateId "symbol-uniqueness" (some f.id) (some b.id) none
+            s!"duplicate block parameter value: {repr param.id}"
+        valueIds := valueIds.insert param.id
+      for idx in [:b.instructions.size] do
+        for result in b.instructions[idx]!.results do
+          if valueIds.contains result.id then
+            .error <| error .duplicateId "symbol-uniqueness" (some f.id) (some b.id) (some idx)
+              s!"duplicate instruction result value: {repr result.id}"
+          valueIds := valueIds.insert result.id
 
 /- Pass 2: state-shape reference resolution. Every storage root must exist and
 path segments must match the declared shape. -/
@@ -186,12 +222,14 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
       | .field _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
           s!"field access on non-record state {repr path.root}"
-    let resultShapeType := match shape with
-      | .scalar t => t
-      | _ => .unit
-    unless resultShapeType == path.resultType do
-      .error <| error .typeMismatch "state-shape" (some fid) (some bid) (some idx)
-        s!"storage result type {repr path.resultType} does not match shape {repr resultShapeType}"
+    match shape with
+    | .scalar resultShapeType =>
+      unless resultShapeType == path.resultType do
+        .error <| error .typeMismatch "state-shape" (some fid) (some bid) (some idx)
+          s!"storage result type {repr path.resultType} does not match shape {repr resultShapeType}"
+    | _ =>
+      .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
+        s!"storage path for root {repr path.root} does not select a scalar leaf"
 
 /- Pass 2: state-shape reference resolution. Every storage root must exist and
 path segments must match the declared shape. This pass is intentionally
@@ -199,17 +237,29 @@ separated from instruction typing so that reference errors are reported before
 type and control-flow passes. -/
 
 def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
+  for struct in m.structs do
+    for field in struct.fields do
+      checkCoreTypeReferences m field.type s!"struct {repr struct.id} field {repr field.id}"
+  for event in m.events do
+    for field in event.fields do
+      checkCoreTypeReferences m field.type s!"event {repr event.id} field {repr field.id}"
   for decl in m.state do
-    match decl.shape with
-    | .record typeId =>
-      unless m.structs.any (·.id == typeId) do
-        .error <| ValidationError.mkSimple .unknownReference "state-shape"
-          s!"state {repr decl.id} references unknown struct type {repr typeId}"
-    | _ => pure ()
+    for ty in stateShapeTypes decl.shape do
+      checkCoreTypeReferences m ty s!"state {repr decl.id}"
   for f in m.functions do
+    for param in f.params do
+      checkCoreTypeReferences m param.type s!"function {repr f.id} parameter {repr param.id}"
+        (some f.id)
+    checkCoreTypeReferences m f.retType s!"function {repr f.id} return type" (some f.id)
     for b in f.blocks do
+      for param in b.params do
+        checkCoreTypeReferences m param.type s!"block {repr b.id} parameter {repr param.id}"
+          (some f.id) (some b.id)
       for idx in [:b.instructions.size] do
         let instr := b.instructions[idx]!
+        for result in instr.results do
+          checkCoreTypeReferences m result.type s!"instruction result {repr result.id}"
+            (some f.id) (some b.id) (some idx)
         match instr.op with
         | .storageLoad path | .storageContains path | .storageStore path _ =>
           checkStoragePath m f.id b.id idx path
@@ -266,7 +316,10 @@ private def checkCfgAndBounds (f : Function) :
   | none =>
     .error <| error .unknownReference "cfg" (some f.id) none none
       s!"entry block {repr f.entry} not found"
-  | some _ =>
+  | some entryBlock =>
+    unless entryBlock.params.isEmpty do
+      .error <| error .typeMismatch "cfg" (some f.id) (some entryBlock.id) none
+        "entry block cannot declare parameters; use function parameters for call inputs"
     let mut visited : Std.HashSet BlockId := {}
     let mut stack : Array BlockId := #[f.entry]
     while !stack.isEmpty do
@@ -614,9 +667,14 @@ private def checkTerminator (f : Function) (b : Block) :
       .error <| error .typeMismatch pass (some f.id) (some b.id) none
         s!"branch condition must be bool, got {repr condition.type}"
     for target in #[onTrue, onFalse] do
-      unless f.blocks.any (·.id == target) do
-        .error <| error .unknownReference pass (some f.id) (some b.id) none
-          s!"branch target {repr target} not found"
+      match f.blocks.find? (·.id == target) with
+      | none =>
+          .error <| error .unknownReference pass (some f.id) (some b.id) none
+            s!"branch target {repr target} not found"
+      | some targetBlock =>
+          unless targetBlock.params.isEmpty do
+            .error <| error .typeMismatch pass (some f.id) (some b.id) none
+              s!"branch target {repr target} declares {targetBlock.params.size} parameters, but branch carries no arguments"
   | .return values =>
     let expectedArity := if f.retType == .unit then 0 else 1
     unless values.size == expectedArity do

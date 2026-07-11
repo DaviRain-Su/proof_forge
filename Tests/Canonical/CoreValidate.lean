@@ -73,6 +73,19 @@ def expectErrorPass (tag : ValidationErrorTag) (pass : String)
       throw <| IO.userError
         s!"expected error tag {repr tag} in pass {pass}, got {repr e.tag} in {e.pass}: {e.reason}"
 
+def expectErrorContext (tag : ValidationErrorTag) (pass : String)
+    (function : Option FunctionId) (block : Option BlockId)
+    (instruction : Option Nat) (c : CanonicalContract) : IO Unit := do
+  match validateCanonical c with
+  | .ok _ =>
+    throw <| IO.userError
+      s!"expected located error tag {repr tag} in pass {pass}, but validation succeeded"
+  | .error e =>
+    unless e.tag == tag && e.pass == pass && e.function == function &&
+        e.block == block && e.instruction == instruction do
+      throw <| IO.userError
+        s!"unexpected error context: {repr e}"
+
 def expectOk (name : String) (c : CanonicalContract) : IO Unit := do
   match validateCanonical c with
   | .ok _ => pure ()
@@ -708,6 +721,246 @@ def invalidHostOpContract : CanonicalContract := {
   }
 }
 
+/- Entry block parameters have no incoming edge and therefore no runtime
+binding. Function inputs are represented by `Function.params`. -/
+
+def entryBlockParameterContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[⟨⟨0⟩, .u64⟩]
+        instructions := #[]
+        terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+      }]
+    }]
+  }
+}
+
+/- `branch` has no edge arguments, so neither branch target may declare block
+parameters. Such parameters would be accepted by dominance but remain unbound
+at execution time. -/
+
+def branchTargetParameterContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .bool⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .branch { id := ⟨0⟩, type := .bool } ⟨1⟩ ⟨2⟩
+        },
+        {
+          id := ⟨1⟩
+          params := #[⟨⟨1⟩, .u64⟩]
+          instructions := #[]
+          terminator := .return #[]
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[]
+          terminator := .return #[]
+        }
+      ]
+    }]
+  }
+}
+
+/- Aggregate roots cannot be loaded as scalar `.unit` values. A storage path
+must select a concrete scalar leaf before a load/store. -/
+
+def incompleteAggregatePathContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .unit⟩], .storageLoad {
+            root := ⟨1⟩
+            path := #[]
+            resultType := .unit
+          }⟩
+        ]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
+/- Every `CoreType.structType` occurrence must resolve, including function
+signatures that never otherwise touch storage. -/
+
+def unknownFunctionTypeContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .structType ⟨99⟩⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
+/- A join block parameter is valid when every predecessor supplies it through a
+`jump`; values defined in either sibling are not used directly at the join. -/
+
+def validDiamondContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .bool⟩]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .branch { id := ⟨0⟩, type := .bool } ⟨1⟩ ⟨2⟩
+        },
+        {
+          id := ⟨1⟩
+          params := #[]
+          instructions := #[⟨#[⟨⟨1⟩, .u64⟩], .pure (.literal (.u64Lit 1))⟩]
+          terminator := .jump ⟨3⟩ #[{ id := ⟨1⟩, type := .u64 }] none
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[⟨#[⟨⟨2⟩, .u64⟩], .pure (.literal (.u64Lit 2))⟩]
+          terminator := .jump ⟨3⟩ #[{ id := ⟨2⟩, type := .u64 }] none
+        },
+        {
+          id := ⟨3⟩
+          params := #[⟨⟨3⟩, .u64⟩]
+          instructions := #[]
+          terminator := .return #[{ id := ⟨3⟩, type := .u64 }]
+        }
+      ]
+    }]
+  }
+}
+
+/- A real bounded loop remains valid after the unbounded-cycle check removes
+its annotated backedge. -/
+
+def validBoundedLoopContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[⟨#[⟨⟨0⟩, .u64⟩], .pure (.literal (.u64Lit 0))⟩]
+          terminator := .jump ⟨1⟩ #[{ id := ⟨0⟩, type := .u64 }] none
+        },
+        {
+          id := ⟨1⟩
+          params := #[⟨⟨1⟩, .u64⟩]
+          instructions := #[⟨#[⟨⟨2⟩, .bool⟩], .pure (.literal (.boolLit true))⟩]
+          terminator := .branch { id := ⟨2⟩, type := .bool } ⟨2⟩ ⟨3⟩
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[
+            ⟨#[⟨⟨3⟩, .u64⟩], .pure (.literal (.u64Lit 1))⟩,
+            ⟨#[⟨⟨4⟩, .u64⟩], .pure (.arithmetic .add .wrapping
+              { id := ⟨1⟩, type := .u64 }
+              { id := ⟨3⟩, type := .u64 })⟩
+          ]
+          terminator := .jump ⟨1⟩ #[{ id := ⟨4⟩, type := .u64 }] (some (.atMost 3))
+        },
+        {
+          id := ⟨3⟩
+          params := #[]
+          instructions := #[]
+          terminator := .return #[]
+        }
+      ]
+    }]
+  }
+}
+
+/- A bounded edge elsewhere in the same SCC cannot hide a distinct unbounded
+sub-cycle. -/
+
+def mixedBoundedUnboundedCycleContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .bool⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨1⟩ #[] none
+        },
+        {
+          id := ⟨1⟩
+          params := #[]
+          instructions := #[]
+          terminator := .branch { id := ⟨0⟩, type := .bool } ⟨2⟩ ⟨3⟩
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨1⟩ #[] (some (.atMost 1))
+        },
+        {
+          id := ⟨3⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨1⟩ #[] none
+        }
+      ]
+    }]
+  }
+}
+
 def main : IO Unit := do
   expectError .duplicateId duplicateIdContract
   expectError .unknownReference unknownReferenceContract
@@ -720,8 +973,10 @@ def main : IO Unit := do
   expectError .invalidReturn invalidReturnContract
   expectError .invalidInterface invalidInterfaceContract
   expectError .invalidMaterialization invalidMaterializationContract
-  expectError .duplicateId duplicateBlockIdContract
-  expectError .duplicateId duplicateValueIdContract
+  expectErrorContext .duplicateId "symbol-uniqueness" (some ⟨0⟩) (some ⟨0⟩) none
+    duplicateBlockIdContract
+  expectErrorContext .duplicateId "symbol-uniqueness" (some ⟨0⟩) (some ⟨0⟩) (some 0)
+    duplicateValueIdContract
   expectError .invalidInterface unknownFunctionRefContract
   expectError .unknownReference unknownEventRefContract
   expectError .unknownReference unknownStructRefContract
@@ -735,4 +990,11 @@ def main : IO Unit := do
   expectErrorPass .missingLoopBound "cfg" modulePassOrderContract
   expectErrorPass .invalidReturn "terminator" hostOpAfterTerminatorContract
   expectErrorPass .unknownReference "capability-hostop" invalidHostOpContract
+  expectErrorPass .typeMismatch "cfg" entryBlockParameterContract
+  expectErrorPass .typeMismatch "terminator" branchTargetParameterContract
+  expectErrorPass .invalidStoragePath "state-shape" incompleteAggregatePathContract
+  expectErrorPass .unknownReference "state-shape" unknownFunctionTypeContract
+  expectOk "diamond with jump-provided join parameter" validDiamondContract
+  expectOk "bounded loop" validBoundedLoopContract
+  expectErrorPass .missingLoopBound "cfg" mixedBoundedUnboundedCycleContract
   IO.println "canonical-core-validate: ok"
