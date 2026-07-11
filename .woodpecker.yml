@@ -13,19 +13,27 @@
 when:
   - event: [push, pull_request]
 
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      partial: false
+      depth: 0
+
 steps:
   - name: proof-forge-product
     image: ubuntu:24.04
     commands:
-      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
       - scripts/ci/woodpecker-setup.sh
       - just product
 
   - name: proof-forge-check
     image: ubuntu:24.04
     commands:
-      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
       # Setup already ran in product step on the same workspace when sequential;
       # re-run setup for isolated step images.
       - scripts/ci/woodpecker-setup.sh
       - just check
+      - just wave-t-gate

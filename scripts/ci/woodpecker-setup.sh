@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 export DEBIAN_FRONTEND=noninteractive
-export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -16,13 +16,17 @@ apt-get install -y --no-install-recommends \
   git \
   pkg-config \
   libssl-dev \
+  libudev-dev \
   nodejs \
   npm \
+  openjdk-17-jre-headless \
+  protobuf-compiler \
   python3 \
   wabt
 
 echo "=== install Node dependencies ==="
 npm ci --ignore-scripts --no-audit --no-fund
+npm install -g @informalsystems/quint
 
 echo "=== install just ==="
 curl --proto '=https' --tlsv1.2 -sSfL https://just.systems/install.sh | bash -s -- --to /usr/local/bin --tag 1.48.0
@@ -48,8 +52,11 @@ echo "=== install Rust ==="
 curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91.0 --profile minimal
 export PATH="$HOME/.cargo/bin:$PATH"
 
-echo "=== install Solana testkit tools ==="
-scripts/solana/install-testkit-ci-tools.sh
+echo "=== install Solana live testkit tools ==="
+scripts/solana/install-pinocchio-live-ci-tools.sh
+
+echo "=== install NEAR sandbox ==="
+scripts/near/install-sandbox-ci.sh
 
 echo "=== tool versions ==="
 lean --version
@@ -64,3 +71,6 @@ wat2wasm --version
 node --version
 npm --version
 ./node_modules/.bin/tsc --version
+java -version
+quint --version
+near-sandbox --version

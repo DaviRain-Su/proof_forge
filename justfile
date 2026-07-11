@@ -562,6 +562,7 @@ wave-t-gate-test:
 
 wave-t-gate: wave-t-gate-test
     python3 scripts/evidence/wave_t_gate.py \
+      --production \
       --manifest scripts/evidence/wave-t-gates.json \
       --output build/evidence/wave-t.json \
       --repo-root .
@@ -1745,6 +1746,7 @@ github-build-test:
     just evm-build-examples
     just evm-foundry
     just product-erc20-permit
+    just wave-t-gate
     just evm-anvil-deploy
     just evm-dynamic-constructor-anvil
     just portable-counter-multi-target
