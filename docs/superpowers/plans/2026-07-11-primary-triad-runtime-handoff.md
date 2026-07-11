@@ -46,6 +46,10 @@ ledger:
 - `S-P0-01`: duplicate-aware Solana account decoding with live Surfpool proof.
 - `S-P0-02`: per-entrypoint Solana account graphs and least privilege.
 - `X-P0-01`: exact manifest/adapter/version/artifact evidence-bound feature support.
+- `T99-01`: stale scalar-safety fixture now injects the authoritative
+  `NearAbiPlan`, with a negative bare-context regression.
+- `T99-02`: the platform-dependent worker-resource checks remain in ordinary
+  `just check` but are outside the skip-free Wave-T evidence scope.
 
 The checkpoint also adds the `T-99` infrastructure:
 
@@ -86,15 +90,24 @@ policy.
 ## 3. Current Evidence
 
 The latest complete report was generated from clean source
-`ca0d8e257b195b79edf5198365933d2d5ce13184`:
+`880417b69d5893ea86c84e772c0586e94166b72d`:
 
-- Result: `24 / 25` gates passed.
-- Tools: all required tool-version probes passed.
-- Artifacts: all five were fresh, nonempty, metadata-valid, and unchanged after
-  their producing gate.
-- Sole failing gate: `wave-static-baseline` / `just wave-t-check`.
-- Failure: `just wasm-near-scalar-safety` reports
-  `EmitWat: missing NEAR ABI plan for entrypoint write_a`.
+- Result: `20 / 25` gates passed.
+- Tools: all `18 / 18` required tool-version probes passed.
+- Artifacts: all five expected artifacts were present. The report is not
+  promotable while any gate is red.
+- `just evm-all` failed because the generated dynamic ERC-1155 batch calldata
+  differs from the checked golden. The new emitter writes dynamic tails four
+  bytes before the selector-relative ABI offsets; do not accept this by blindly
+  regenerating the golden.
+- `just near-abi-client-sandbox` reached the generated client but failed because
+  the RPC adapter returned a shape for which `response.result` was undefined.
+- `just near-ft-security-sandbox` and `just near-map-hash-alias-sandbox` were
+  rejected by NEAR with `PrepareError(Deserialization)`. Both emitted modules
+  contain multi-value `(result i64 i64)` U128 helpers, and
+  `wasm-validate --disable-multi-value` reproduces the incompatibility.
+- `just wave-t-check` reached the Rust testkit and failed the Solana Counter
+  compute budget: baseline `56`, allowed `58`, observed `70`.
 
 Artifact SHA-256 values:
 
@@ -103,7 +116,7 @@ Artifact SHA-256 values:
 | ERC-2612 contract metadata | `proof-forge.evm.erc2612@1` | `75bd5d6ab21134c927c7a87e2c7192936c8e13d47680a89d40be5e5e97395c3b` |
 | ERC-2612 creation bytecode | `proof-forge.evm.erc2612@1` | `7ba8b02a77f9e6311c17c0355cf8009369d071eb57e331485fd5312235262fb5` |
 | NEP-141 product plan | `proof-forge.near.nep141@1` | `d1a5a2aa07f7d476bb34ec522a6f0f8e4691336732a37916865aa4fe0c2efd50` |
-| NEP-141 WAT | `proof-forge.near.nep141@1` | `ed9699a1d5f3c7e487ce002efdbd9da9e2a3eaad67792f85bd8a9682e1d5b146` |
+| NEP-141 WAT | `proof-forge.near.nep141@1` | `9c20975b121977750c8cf09c0e4f39bf902f7b3e2f734559e0d246d1265119c4` |
 | SPL Token plan | `proof-forge.solana.spl-token@1` | `06920170e33402ba89104ccf7722132025cdd1e32d3ab87fcdf275ef5ccc969d` |
 
 The report is ignored build output at `build/evidence/wave-t.json`; CI uploads it
@@ -113,61 +126,59 @@ with `build/evidence/wave-t-logs/`.
 
 Execute these tasks in order. Do not start `R-03` before the barrier in Task 4.
 
-### T99-01: Repair The Stale NEAR Scalar-Safety Fixture
+### T99-03A: Restore ERC-1155 Dynamic Batch ABI Correctness
 
-Root cause:
-
-- `lowerEntrypoint` now correctly requires an authoritative ABI plan.
-- `Tests/Backend/Wasm/WasmNearScalarSafety.lean` constructs a low-level `Ctx`
-  through `loweringCtxForModule`, whose `entrypointAbis` is empty.
-- The production `renderModule` path already builds and injects the plans.
-
-Required change:
-
-1. In `testPartialWriteUsesConservativeLoad`, call
-   `NearAbiPlan.buildModulePlans twoScalarModule`.
-2. Inject the result with `entrypointAbis := plans` before calling
-   `lowerEntrypoint`.
-3. Keep the existing packed-scalar assertions unchanged.
-4. Add a negative assertion in `Tests/NearAbiPlan.lean` proving a bare context
-   still rejects with `missing NEAR ABI plan`.
-
-Do not add an implicit zero-argument fallback and do not weaken
-`EmitWat.lowerEntrypoint`.
+The merged dynamic batch emitter currently writes array tails at byte `160`
+while its ABI head stores offset `160` relative to the argument block beginning
+after the four-byte selector. The first tail therefore belongs at byte `164`.
+Preserve the dynamic array design, repair every selector-relative tail offset,
+and add an exact receiver calldata/runtime assertion. Do not update the golden
+until the canonical ABI oracle passes.
 
 Acceptance:
 
 ```sh
-just wasm-near-scalar-safety
-just near-abi-plan
-just near-plan-smoke
+just evm-build-examples
+just evm-semantic-plan
+just evm-foundry
 git diff --check
 ```
 
-### T99-02: Make The Final Baseline Truly Skip-Free
+### T99-03B: Emit NEAR-Compatible U128 And Normalize RPC Results
 
-On macOS the last run also printed:
+1. Replace Wasm multi-value U128 helpers with an MVP-compatible convention,
+   such as caller-provided result memory or inline locals. Do not narrow U128.
+2. Add `wasm-validate --disable-multi-value` to the NEAR artifact gate so an
+   unsupported proposal fails before deployment.
+3. Capture the raw sandbox JSON-RPC response in the ABI-client regression and
+   normalize the provider boundary exactly once. Accept both supported provider
+   shapes only when the response is type-checked; do not silently treat missing
+   result bytes as an empty value.
 
-```text
-worker-cgroup: gate2 SKIP memory backend unavailable on this host
+Acceptance:
+
+```sh
+just near-abi-client-sandbox
+just near-ft-security-sandbox
+just near-map-hash-alias-sandbox
+just near-abi-plan
+just near-plan-smoke
 ```
 
-The aggregate did not reach skip evaluation because scalar safety failed first.
-After T99-01, this marker will still make production evidence fail.
+### T99-03C: Audit The Solana Counter Compute Regression
 
-Chosen solution: **Split the unrelated worker-resource gate from the Wave-T
-command while still running ordinary `just check` as a separate required CI
-result.**
+Compare the testkit instruction/trace delta that moved `initialize` from `56`
+to `70` compute units after Batch B/C. Optimize or remove accidental work when
+the extra instructions are not semantically required. Update the baseline only
+after the emitted instruction delta is reviewed and the new cost is intentional.
 
-- `wave-t-check` now delegates to a new `wave-t-baseline` target that runs the
-  same dependency list as `just check` minus `worker-limits` and `worker-cgroup`.
-- `worker-limits` and `worker-cgroup` remain in the ordinary `just check` CI
-  result, which CI runs as a separate required job.
-- The `SKIP` marker is not renamed or hidden; the evidence parser still rejects
-  skips. The worker-resource gates are simply outside the Wave-T scoped report.
+Acceptance:
 
-Acceptance: the full Wave-T log contains no skip/missing-tool marker, and the
-resource-limit gate either executes or is explicitly outside the scoped report.
+```sh
+just testkit
+just solana-light
+just product
+```
 
 ### CI-HYGIENE-01: Bound EVM Anvil Cleanup
 
@@ -188,9 +199,9 @@ test "$before" = "$after"
 Do not kill Anvil instances whose cwd/parentage does not belong to the active
 test run.
 
-### T99-03: Close And Record Wave T
+### T99-04: Close And Record Wave T
 
-1. Commit T99-01/T99-02 and ensure the worktree is clean.
+1. Commit T99-03A/B/C and ensure the worktree is clean.
 2. Run `just wave-t-gate` once without interruption.
 3. Require `25 / 25`, all tools passed, five artifacts present, no integrity
    failure, and `source.dirty == false`.
@@ -202,8 +213,9 @@ test run.
 
 ## 5. Foundation And Router Queue
 
-After T99-01 can run, these tasks may proceed in isolated worktrees. Keep shared
-IR migrations separate and rebase before integration.
+T99-01 and T99-02 are closed. Foundation and route-type tasks may proceed in
+isolated worktrees while T99-03 is repaired, but keep shared IR migrations
+separate and merge current `origin/main` before integration.
 
 | Order | Task | Deliverable | Required acceptance |
 |---|---|---|---|
@@ -247,15 +259,17 @@ Use the following as the next long-running instruction:
 Continue ProofForge's primary-triad runtime plan from
 docs/superpowers/plans/2026-07-11-primary-triad-runtime-handoff.md.
 
-Work from feat/primary-triad-runtime-execution and rebase on current origin/main
-before editing. Preserve all user changes and use an isolated worktree.
+Work from feat/primary-triad-runtime-execution and merge current origin/main
+before editing. Preserve all user changes and use isolated worktrees.
 
-First close T99-01 and T99-02 with TDD. Do not weaken the mandatory NEAR ABI
-plan, evidence matching, clean-worktree requirement, artifact freshness, or
-skip detection. Run focused gates, commit each root-cause fix separately, then
-run one uninterrupted `just wave-t-gate` on a clean commit. Require 25/25 gates,
-all tool probes, five bound artifact digests, and independent review before
-marking T-99 done.
+First close T99-03A, T99-03B, T99-03C, and CI-HYGIENE-01 with TDD. Do not
+regenerate the ERC-1155 golden before canonical ABI runtime proof; do not emit
+Wasm multi-value functions for NEAR; do not rebaseline Solana compute without a
+reviewed instruction delta. Preserve mandatory NearAbiPlan checks, exact
+evidence matching, clean-worktree enforcement, artifact freshness, and skip
+detection. Commit each root-cause fix separately, then run one uninterrupted
+`just wave-t-gate` on a clean commit. Require 25/25 gates, all tool probes, five
+bound artifact digests, and independent review before marking T-99 done.
 
 After T-99, execute F-01/F-02 and R-01/R-02 according to the dependency table.
 Do not start R-03 until T-99, F-01, F-02, R-01, and R-02 are all verified.
@@ -267,6 +281,7 @@ is recorded with exact reproduction evidence.
 
 ## 8. PR Policy For This Checkpoint
 
-Publish this checkpoint as a Draft PR. It is expected to show the known T-99
-failure until T99-01/T99-02 are completed. Do not mark ready or merge while the
-required Wave-T CI step is red. Keep the worktree and branch for follow-up.
+Publish this checkpoint as a Draft PR. It is expected to show the five T-99
+failures recorded above until T99-03A/B/C are completed. Do not mark ready or
+merge while the required Wave-T CI step is red. Keep the worktree and branch for
+follow-up.
