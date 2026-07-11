@@ -104,32 +104,6 @@ def nearBackend : TargetBackend := {
   ensurePackage? := some nearEnsurePackage
 }
 
-/-! ### Core IR + target plan decoupling backends (Task 10, experimental) -/
-
-def evmCoreBackend : TargetBackend :=
-  CoreBackend.mkCoreBackend
-    { profile := evmCore
-    , buildPlan := ProofForge.Backend.Evm.CorePlan.buildEvmCorePlan
-    , lowerToCode := ProofForge.Backend.Evm.CoreLower.lowerEvmCorePlan
-    , printCode := Lean.Compiler.Yul.Printer.render
-    }
-
-def solanaCoreBackend : TargetBackend :=
-  CoreBackend.mkCoreBackend
-    { profile := solanaSbpfAsmCore
-    , buildPlan := ProofForge.Backend.Solana.CorePlan.buildSolanaCorePlan
-    , lowerToCode := ProofForge.Backend.Solana.CoreLower.lowerSolanaCorePlan
-    , printCode := fun nodes => ProofForge.Backend.Solana.Asm.renderNodes nodes.toArray
-    }
-
-def wasmHostCoreBackend : TargetBackend :=
-  CoreBackend.mkCoreBackend
-    { profile := wasmNearCore
-    , buildPlan := ProofForge.Backend.WasmHost.CorePlan.buildWasmCorePlan
-    , lowerToCode := ProofForge.Backend.WasmHost.CoreLower.lowerWasmCorePlan
-    , printCode := ProofForge.Compiler.Wasm.Printer.render
-    }
-
 def primaryTriadBackends : Array TargetBackend := #[
   evmBackend,
   solanaBackend,
@@ -148,12 +122,6 @@ def backendForProfile (profile : TargetProfile) : TargetBackend :=
     solanaBackend
   else if profile.id == "wasm-near" then
     nearBackend
-  else if profile.id == "evm-core" then
-    evmCoreBackend
-  else if profile.id == "solana-sbpf-asm-core" then
-    solanaCoreBackend
-  else if profile.id == "wasm-near-core" then
-    wasmHostCoreBackend
   else
     TargetBackend.ofProfile profile
 
