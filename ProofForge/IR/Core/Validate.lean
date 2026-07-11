@@ -636,6 +636,7 @@ private def referencedValueRefs (op : InstructionOp) : Array ValueRef :=
     | .compare _ lhs rhs => #[lhs, rhs]
     | .cast _ arg => #[arg]
     | .hash arg => #[arg]
+    | .hashTwoToOne lhs rhs => #[lhs, rhs]
   | .storageLoad path => storagePathValueRefs path
   | .storageContains path => storagePathValueRefs path
   | .storageStore path value =>
@@ -779,6 +780,10 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
     unless (arg.type == .hash || arg.type == .address) && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"hash input must be hash/address and result hash, got {repr arg.type} -> {repr r.type}"
+  | .hashTwoToOne lhs rhs, #[r] =>
+    unless lhs.type == .hash && rhs.type == .hash && r.type == .hash do
+      .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
+        "hashTwoToOne expects two hash operands and a hash result"
   | _, _ =>
     .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
       s!"pure operation produced {results.size} results, expected 1"
@@ -791,6 +796,7 @@ private def expectedResultCount (op : InstructionOp) : Nat :=
   | .pure (.compare _ _ _) => 1
   | .pure (.cast _ _) => 1
   | .pure (.hash _) => 1
+  | .pure (.hashTwoToOne _ _) => 1
   | .storageLoad _ => 1
   | .storageContains _ => 1
   | .storageStore _ _ => 0
@@ -903,9 +909,10 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     match instr.results with
     | #[r] =>
       let expected := match field with
-        | .sender | .contractAddress => .address
+        | .sender | .origin | .contractAddress => .address
+        | .randomSeed => .hash
         | .value => .u128
-        | .blockNumber | .blockTimestamp | .gas => .u64
+        | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
       unless r.type == expected do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"contextRead {repr field} result must be {repr expected}, got {repr r.type}"
@@ -930,12 +937,20 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
         s!"assert condition must be bool, got {repr condition.type}"
     checkErrorRef m f b (some idx) errorRef
   | .crosscall spec args =>
-    unless spec.target.type == .address do
+    let targetTypeOk : Bool := match spec.mode with
+      | .nearPoolInvoke | .nearPromiseThen =>
+          spec.target.type == .u32 || spec.target.type == .u64
+      | _ => spec.target.type == .address
+    unless targetTypeOk do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-        s!"crosscall target must be address, got {repr spec.target.type}"
-    unless validCrosscallMethodType spec.method.type do
+        s!"crosscall target type is invalid for {repr spec.mode}: got {repr spec.target.type}"
+    let methodTypeOk : Bool := match spec.mode with
+      | .nearPoolInvoke | .nearPromiseThen =>
+          spec.method.type == .u32 || spec.method.type == .u64 || spec.method.type == .address
+      | _ => validCrosscallMethodType spec.method.type
+    unless methodTypeOk do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-        s!"crosscall method must be string, bytes, or hash, got {repr spec.method.type}"
+        s!"crosscall method type is invalid for {repr spec.mode}: got {repr spec.method.type}"
     match spec.gas with
     | some gas => unless gas.type == .u64 do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
@@ -943,9 +958,12 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     | none => pure ()
     match spec.value with
     | some value =>
-        unless value.type == .u128 do
+        let valueTypeOk : Bool := match spec.mode with
+          | .nearPoolInvoke | .nearPromiseThen => value.type == .u64 || value.type == .u128
+          | _ => value.type == .u128
+        unless valueTypeOk do
           .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-            s!"crosscall value must be u128, got {repr value.type}"
+            s!"crosscall value type is invalid for {repr spec.mode}: got {repr value.type}"
         if spec.mode == .staticInvoke || spec.mode == .delegateInvoke then
           .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
             "static/delegate crosscall cannot carry value"

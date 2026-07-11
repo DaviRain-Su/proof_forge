@@ -99,7 +99,7 @@ else
 fi
 [[ -n "$WAT" && -f "$WAT" ]] || fail "NEAR WAT not written under $OUT/near"
 require_contains "$WAT" "promise_create" "NEAR promise_create materialization"
-GOLDEN_NEAR="$ROOT/Examples/Product/goldens/RemoteCall.near.wat"
+GOLDEN_NEAR="$ROOT/Examples/Product/goldens/RemoteCall.canonical.near.wat"
 if [[ -f "$GOLDEN_NEAR" ]]; then
   diff -u "$GOLDEN_NEAR" "$WAT" \
     || fail "NEAR WAT drifted from Examples/Product/goldens/RemoteCall.near.wat"

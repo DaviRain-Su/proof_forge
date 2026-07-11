@@ -2,6 +2,7 @@ import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
+import ProofForge.Contract.Stdlib.NearFungibleToken
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Frontend.Surface
@@ -10,18 +11,21 @@ import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Canonical
 import ProofForge.Target
+import ProofForge.Cli.ContractSourceArtifacts
+import ProofForge.Cli.ContractLoader
+import ProofForge.Cli.Options
 
 /-! # NEAR Public Route Test
 
-Verifies that the canonical validation gate runs on the `wasm-near`
-public route:
+Verifies that the canonical pipeline owns the `wasm-near` public route:
 
-- `runCanonicalValidationGate` succeeds for Counter and ValueVault.
+- Public and explicit canonical Counter artifacts match and produce valid Wasm.
+- ValueVault and portable RemoteCall materialize through NearModulePlan.
 - A Surface contract with a `near.promise.create` hostCall does NOT report
   `missingHostOpHandler` on `wasm-near` (handler exists).
 - The same contract DOES report `missingHostOpHandler` on `evm` and
   `solana-sbpf-asm` (no handler there).
-- The gate is advisory when `adaptLegacy` fails (adapter coverage gap).
+- Adapter failures are terminal and cannot retry Legacy EmitWat.
 - `buildFromCore` produces a valid NEAR `NearModulePlan` for Counter.
 -/
 
@@ -31,6 +35,7 @@ open ProofForge.Backend.WasmHost.NearModulePlan.Core
 open ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 open ProofForge.Frontend.Surface
 open ProofForge.IR.Core.HostOp
+open ProofForge.Cli
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -66,19 +71,55 @@ def promiseContract : SurfaceContract := {
   intents := #[]
 }
 
-def main : IO Unit := do
+unsafe def main : IO Unit := do
   let counterSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.Counter.module)
   let vaultSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.ValueVault.module)
 
-  /- Check 1: gate succeeds for Counter (product contract, adapter covers it). -/
-  match runCanonicalValidationGate "wasm-near" counterSpec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"Counter canonical gate failed: {e}"
+  /- Checks 1-2: public Counter WAT is the explicit canonical artifact and
+  the public final build produces a non-empty Wasm binary. -/
+  let out := System.FilePath.mk "build/canonical/near-public"
+  let input := System.FilePath.mk "Examples/Product/Counter.lean"
+  let opts : CliOptions := {
+    output? := some out
+    input? := some input
+    root? := some (System.FilePath.mk ".")
+    targetId? := some "wasm-near"
+  }
+  discard <| compileContractSourceEmitWat opts
+  let publicWat ← IO.FS.readFile (out / "counter.wat")
+  let wasmBytes ← IO.FS.readBinFile (out / "counter.wasm")
+  let loadedCounter ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? none
+  let canonicalCounter ← match renderCanonicalSpecNearWat loadedCounter with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error
+  require (publicWat == canonicalCounter && !publicWat.isEmpty)
+    "public Counter WAT differs from explicit canonical materialization"
+  require (!wasmBytes.isEmpty) "public Counter Wasm is empty"
 
-  /- Check 2: gate succeeds for ValueVault. -/
-  match runCanonicalValidationGate "wasm-near" vaultSpec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"ValueVault canonical gate failed: {e}"
+  let canonicalVault ← match renderCanonicalSpecNearWat vaultSpec with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error
+  require (!canonicalVault.isEmpty) "canonical ValueVault WAT is empty"
+
+  let remoteInput := System.FilePath.mk "Examples/Product/RemoteCall.lean"
+  let remoteSpec ← ProofForge.Cli.ContractLoader.loadSpec remoteInput opts.root? none
+  let canonicalRemote ← match renderCanonicalSpecNearWat remoteSpec with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error
+  require (canonicalRemote.contains "promise_create" && canonicalRemote.contains "promise_return")
+    "canonical portable RemoteCall did not materialize a returned NEAR Promise"
+
+  let fungibleTokenSpec := ContractSpec.fromIR
+    (withoutSelectors ProofForge.Contract.Stdlib.NearFungibleToken.module)
+  let canonicalFungibleToken ← match renderCanonicalSpecNearWat fungibleTokenSpec with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error
+  require (canonicalFungibleToken.contains "promise_create")
+    "canonical NearFungibleToken omitted promise_create"
+  require (canonicalFungibleToken.contains "promise_then")
+    "canonical NearFungibleToken omitted promise_then"
+  require (canonicalFungibleToken.contains "__pf_promise_result_u64")
+    "canonical NearFungibleToken omitted promise-result U64 decoding"
 
   /- Check 3: buildFromCore produces a valid NEAR plan for Counter. -/
   match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
@@ -115,8 +156,7 @@ def main : IO Unit := do
   require (solanaErrors.any (·.contains "missingHostOpHandler"))
     "Solana error should contain missingHostOpHandler"
 
-  /- Check 6: gate is advisory when adaptLegacy fails (adapter coverage gap).
-  Use an IR module with an unbound release that the adapter cannot handle. -/
+  /- Check 6: adapter failure is terminal; public routing cannot retry Legacy. -/
   let unsupportedModule : ProofForge.IR.Module := {
     name := "UnsupportedAdapter"
     state := #[]
@@ -127,8 +167,10 @@ def main : IO Unit := do
     }]
   }
   let unsupportedSpec := ContractSpec.fromIR unsupportedModule
-  match runCanonicalValidationGate "wasm-near" unsupportedSpec with
-  | .ok () => pure ()  /- advisory: adaptLegacy failed, gate passes -/
-  | .error e => throw <| IO.userError s!"gate should be advisory on adapter failure, got: {e}"
+  match renderCanonicalSpecNearWat unsupportedSpec with
+  | .error error =>
+      require (error.contains "canonical: adapt failed")
+        s!"public NEAR route changed canonical rejection: {error}"
+  | .ok _ => throw <| IO.userError "public NEAR route accepted unsupported Legacy input"
 
   IO.println "near-public-route: ok"

@@ -1,4 +1,5 @@
 import ProofForge.IR.Legacy.Adapter.Env
+import ProofForge.IR.Core.HostOp
 
 namespace ProofForge.IR.Legacy.Adapter
 
@@ -407,9 +408,14 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       let nv ← normalizeExpr preimage
       let nhash ← emitValueInstruction (.pure (.hash nv.value)) .hash
       return { instructions := nv.instructions ++ nhash.instructions, value := nhash.value }
-  | .hashTwoToOne _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.hashTwoToOne"
-        "Core has no two-input hash primitive")
+  | .hashTwoToOne lhs rhs =>
+      let normalizedLhs ← normalizeExpr lhs
+      let normalizedRhs ← normalizeExpr rhs
+      let hashed ← emitValueInstruction
+        (.pure (.hashTwoToOne normalizedLhs.value normalizedRhs.value)) .hash
+      return {
+        instructions := normalizedLhs.instructions ++ normalizedRhs.instructions ++ hashed.instructions
+        value := hashed.value }
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
   | .arrayLit _ _ =>
@@ -482,15 +488,58 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate2" "crosscall create2 not in initial fragment")
   | .crosscallNamed _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallNamed" "named crosscall not in initial fragment")
-  | .nearCrosscallInvokePool _ _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.nearCrosscallInvokePool" "NEAR crosscall invoke pool not in initial fragment")
-  | .nearPromiseThen _ _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseThen" "NEAR promise then not in initial fragment")
+  | .nearCrosscallInvokePool accountIndex methodIndex args deposit => do
+      let account ← normalizeExpr accountIndex
+      let method ← normalizeExpr methodIndex
+      let normalizedDeposit ← normalizeExpr deposit
+      let mut instructions := account.instructions ++ method.instructions ++ normalizedDeposit.instructions
+      let mut argRefs := #[]
+      let mut paramTypes := #[]
+      for arg in args do
+        let normalizedArg ← normalizeExpr arg
+        instructions := instructions ++ normalizedArg.instructions
+        argRefs := argRefs.push normalizedArg.value
+        paramTypes := paramTypes.push normalizedArg.value.type
+      let call ← emitValueInstruction (.crosscall {
+        mode := .nearPoolInvoke
+        target := account.value
+        method := method.value
+        value := some normalizedDeposit.value
+        paramTypes
+        returnType := .u64
+      } argRefs) .u64
+      return { instructions := instructions ++ call.instructions, value := call.value }
+  | .nearPromiseThen parentPromise callbackMethod args deposit => do
+      let parent ← normalizeExpr parentPromise
+      let method ← normalizeExpr callbackMethod
+      let normalizedDeposit ← normalizeExpr deposit
+      let mut instructions := parent.instructions ++ method.instructions ++ normalizedDeposit.instructions
+      let mut argRefs := #[]
+      let mut paramTypes := #[]
+      for arg in args do
+        let normalizedArg ← normalizeExpr arg
+        instructions := instructions ++ normalizedArg.instructions
+        argRefs := argRefs.push normalizedArg.value
+        paramTypes := paramTypes.push normalizedArg.value.type
+      let call ← emitValueInstruction (.crosscall {
+        mode := .nearPromiseThen
+        target := parent.value
+        method := method.value
+        value := some normalizedDeposit.value
+        paramTypes
+        returnType := .u64
+      } argRefs) .u64
+      return { instructions := instructions ++ call.instructions, value := call.value }
   | .nearPromiseResultsCount =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultsCount" "NEAR promise results count not in initial fragment")
   | .nearPromiseResultStatus _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultStatus" "NEAR promise result status not in initial fragment")
-  | .nearPromiseResultU64 _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultU64" "NEAR promise result u64 not in initial fragment")
+  | .nearPromiseResultU64 index => do
+      let normalizedIndex ← normalizeExpr index
+      let result ← emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearPromiseResultU64Sig.id
+        args := #[normalizedIndex.value]
+      }) .u64
+      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
 
 end ProofForge.IR.Legacy.Adapter

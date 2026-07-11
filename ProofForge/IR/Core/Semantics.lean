@@ -705,6 +705,7 @@ def evalPureOp (env : Env) (resultType : CoreType) (op : PureOp) : Except Runtim
   | .compare op lhs rhs => evalCompare op (← evalRef env lhs) (← evalRef env rhs)
   | .cast to arg => evalCast to (← evalRef env arg)
   | .hash _ => .error .unsupportedHash
+  | .hashTwoToOne _ _ => .error .unsupportedHash
 
 /- Storage cell accessors used by path read/write. -/
 
@@ -1220,6 +1221,15 @@ def execInstruction (host : HostSemantics) (module : Module) (env : Env) (state 
   | .pure (.hash arg) =>
     let argValue ← evalRef env arg
     let value ← host.handleHash argValue
+    let env' ← bindResults module instr.results #[value] env
+    .ok (env', state, trace)
+  | .pure (.hashTwoToOne lhs rhs) =>
+    let lhsValue ← evalRef env lhs
+    let rhsValue ← evalRef env rhs
+    let preimage ← match lhsValue, rhsValue with
+      | .hash left, .hash right => .ok (.hash (left ++ right))
+      | _, _ => .error .typeMismatch
+    let value ← host.handleHash preimage
     let env' ← bindResults module instr.results #[value] env
     .ok (env', state, trace)
   | .pure op =>

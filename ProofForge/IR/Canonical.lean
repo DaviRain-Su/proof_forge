@@ -317,14 +317,16 @@ private def stateShapeCapabilities : StateShape → Array Capability
 
 private def pureOpCapabilities : PureOp → Array Capability
   | .arithmetic _ .checked _ _ => #[.checkedArithmetic]
-  | .hash _ => #[.cryptoHash]
+  | .hash _ | .hashTwoToOne _ _ => #[.cryptoHash]
   | .literal _ | .unary _ _ | .arithmetic _ .wrapping _ _ |
       .compare _ _ _ | .cast _ _ => #[]
 
 private def contextCapabilities : ContextField → Array Capability
   | .sender => #[.callerSender]
   | .value => #[.valueNative]
-  | .blockNumber | .blockTimestamp | .gas => #[.envBlock]
+  | .blockNumber | .blockTimestamp | .epochHeight | .gas => #[.envBlock]
+  | .randomSeed => #[.cryptoHash]
+  | .origin => #[.callerSender]
   | .contractAddress => #[.accountExplicit]
 
 private def instructionCapabilities (instruction : Instruction) : Array Capability :=

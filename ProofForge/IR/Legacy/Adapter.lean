@@ -452,7 +452,8 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
     module := module,
     interface := interface,
     materialization := materialization,
-    requirements := requirements
+    requirements := requirements,
+    hostOpCatalog := ProofForge.IR.Core.HostOp.canonicalHostOpCatalog
   }
   match validateCanonical canonical with
   | .error e => throw (CanonicalizeError.validation e)

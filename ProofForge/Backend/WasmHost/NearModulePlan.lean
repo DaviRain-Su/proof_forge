@@ -47,6 +47,10 @@ import ProofForge.Backend.WasmHost.Map
 import ProofForge.Backend.WasmHost.Scalar
 import ProofForge.Backend.WasmHost.Params
 import ProofForge.Backend.WasmHost.Event
+import ProofForge.Backend.WasmHost.Hash
+import ProofForge.Backend.WasmHost.Crosscall
+import ProofForge.Backend.WasmHost.Promise
+import ProofForge.Backend.WasmHost.Context
 
 namespace ProofForge.Backend.WasmHost.NearModulePlan
 
@@ -62,6 +66,7 @@ Carries the `ValueType` so `Ctx.fromPlanSeed` can rebuild `StateInfo.type`
 (which drives `readName`/`readHashName` dispatch). -/
 structure NearStatePlan where
   id : String
+  coreId? : Option Nat := none
   type : ValueType
   keyPtr : Nat
   keyLen : Nat
@@ -73,6 +78,7 @@ structure NearStatePlan where
 the key/value `ValueType`s so `Ctx.fromPlanSeed` can rebuild `MapInfo`. -/
 structure NearMapPlan where
   id : String
+  coreId? : Option Nat := none
   keyType : ValueType
   valueType : ValueType
   prefixPtr : Nat
@@ -122,11 +128,21 @@ inductive NearOpPlan where
   | arithmetic (result : NearValuePlan) (op : NearArithmeticPlan)
       (checked : Bool) (lhs rhs : NearValuePlan)
   | compare (result : NearValuePlan) (op : NearComparePlan) (lhs rhs : NearValuePlan)
+  | hashTwoToOne (result : NearValuePlan) (lhs rhs : NearValuePlan)
+  | hash (result value : NearValuePlan)
+  | cast (result value : NearValuePlan)
   | context (result : NearValuePlan) (field : String)
   | log (eventName : String) (fields : Array (String × NearValuePlan))
   | assert (condition : NearValuePlan) (errorCode : Nat)
   | promiseCreate (result : NearValuePlan) (accountId methodName : String)
       (args : ByteArray) (deposit gas : Nat)
+  | portableCrosscall (result : NearValuePlan) (accountId methodName : String)
+      (args : ByteArray) (deposit gas : Nat)
+  | promiseCreatePool (result : NearValuePlan) (accountIndex methodIndex : NearValuePlan)
+      (args : Array NearValuePlan) (deposit : NearValuePlan)
+  | promiseThen (result : NearValuePlan) (parent methodIndex : NearValuePlan)
+      (args : Array NearValuePlan) (deposit : NearValuePlan)
+  | promiseResultU64 (result index : NearValuePlan)
   deriving Repr, BEq, Inhabited
 
 inductive NearTerminatorPlan where
@@ -396,13 +412,16 @@ def renderModuleFromPlan (mod : Module) (plan : NearModulePlan) :
   .ok (ProofForge.Compiler.Wasm.Printer.render m)
 
 private def canonicalNearType (name : String) : ValueType :=
-  if name.endsWith "bool" then .bool else if name.endsWith "u32" then .u32 else .u64
+  if name.endsWith "bool" then .bool
+  else if name.endsWith "u32" then .u32
+  else if name.endsWith "hash" then .hash
+  else .u64
 
 private def canonicalNearLocal (value : NearValuePlan) : ProofForge.Compiler.Wasm.Local :=
   { name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }
 
 private def canonicalNearState? (plan : NearModulePlan) (id : Nat) : Option Layout.StateInfo :=
-  plan.layout.scalars.find? (fun state => state.id == toString id) |>.map fun state => {
+  plan.layout.scalars.find? (fun state => state.coreId? == some id) |>.map fun state => {
     id := state.id, type := state.type, keyPtr := state.keyPtr, keyLen := state.keyLen,
     packOffset := state.packOffset, packed := state.packed
   }
@@ -441,13 +460,40 @@ private def canonicalPromiseStrings (plan : NearModulePlan) : Array Layout.Strin
     for block in fn.blocks do
       for op in block.ops do
         match op with
-        | .promiseCreate _ accountId methodName _ _ _ =>
+        | .promiseCreate _ accountId methodName _ _ _
+        | .portableCrosscall _ accountId methodName _ _ _ =>
             for value in #[accountId, methodName] do
               if !strings.any (fun entry => entry.str == value) then
                 strings := strings.push { str := value, ptr, len := value.length }
                 ptr := ptr + value.length
         | _ => pure ()
   strings
+
+private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn := Id.run do
+  let mut insns := #[.call Crosscall.crosscallArgsStartName, .i32Const 0x5b,
+    .call Crosscall.crosscallArgsPutcName]
+  for index in [:args.size] do
+    if index > 0 then
+      insns := insns ++ #[.i32Const 0x2c, .call Crosscall.crosscallArgsPutcName]
+    let arg := args[index]!
+    if arg.typeName.endsWith "bool" then
+      insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPutboolName]
+    else if arg.typeName.endsWith "hash" then
+      insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPuthashName]
+    else
+      insns := insns ++ #[.localGet s!"v{arg.id}"]
+      if canonicalNearType arg.typeName == .u32 then
+        insns := insns ++ #[.plain "i64.extend_i32_u"]
+      insns := insns ++ #[.call Crosscall.crosscallArgsPutu64Name]
+  insns ++ #[.i32Const 0x5d, .call Crosscall.crosscallArgsPutcName]
+
+private def canonicalNearI64 (value : NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn :=
+  #[.localGet s!"v{value.id}"] ++
+    (if canonicalNearType value.typeName == .u32 then #[.plain "i64.extend_i32_u"] else #[])
+
+private def canonicalDepositPtr (deposit : NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn :=
+  #[.i32Const Memory.RET_BUF] ++ canonicalNearI64 deposit ++ #[.store "i64.store" 0,
+    .i32Const (Memory.RET_BUF + 8), .i64Const 0, .store "i64.store" 0]
 
 private def lowerCanonicalNearOp (plan : NearModulePlan)
     (eventStrings promiseStrings : Array Layout.StringInfo) :
@@ -467,7 +513,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       Scalar.storageScalarWriteInsns #[] state state.id #[.localGet s!"v{value.id}"]
         (canonicalNearType value.typeName)
   | .loadMap result stateId key => do
-      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.id == toString stateId) with
+      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.coreId? == some stateId) with
         | some entry => pure entry
         | none => Diagnostics.err s!"canonical NEAR references unknown map state {stateId}"
       let mapInfo : Layout.MapInfo := {
@@ -477,7 +523,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       let (instructions, _) := Map.mapReadValueInsns mapInfo #[.localGet s!"v{key.id}"] readCall
       return instructions ++ #[.localSet s!"v{result.id}"]
   | .storeMap stateId key value => do
-      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.id == toString stateId) with
+      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.coreId? == some stateId) with
         | some entry => pure entry
         | none => Diagnostics.err s!"canonical NEAR references unknown map state {stateId}"
       let mapInfo : Layout.MapInfo := {
@@ -509,13 +555,41 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         | _ => .ok calculation
   | .compare result op lhs rhs =>
       let ty := canonicalNearType lhs.typeName
+      if ty == .hash && (op == .eq || op == .ne) then
+        .ok (#[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}", .call Hash.hashEqName] ++
+          (if op == .ne then #[.plain "i32.eqz"] else #[]) ++ #[.localSet s!"v{result.id}"])
+      else
+        .ok #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
+          .plain (canonicalNearCompare ty op), .localSet s!"v{result.id}"]
+  | .hashTwoToOne result lhs rhs =>
       .ok #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
-        .plain (canonicalNearCompare ty op), .localSet s!"v{result.id}"]
+        .call Hash.hashTwoName, .localSet s!"v{result.id}"]
+  | .hash result value =>
+      if value.typeName.endsWith "address" then
+        .ok #[.call Context.ctxUserHashName, .localSet s!"v{result.id}"]
+      else
+        .ok #[.localGet s!"v{value.id}", .call Hash.hashSName,
+          .localSet s!"v{result.id}"]
+  | .cast result value =>
+      .ok (canonicalNearI64 value ++ #[.localSet s!"v{result.id}"])
   | .context result field =>
       if field.endsWith "blockNumber" then
         .ok #[.call "block_index", .localSet s!"v{result.id}"]
       else if field.endsWith "blockTimestamp" then
         .ok #[.call "block_timestamp", .localSet s!"v{result.id}"]
+      else if field.endsWith "epochHeight" then
+        .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
+      else if field.endsWith "randomSeed" then
+        .ok #[.call Context.ctxRandomSeedName, .localSet s!"v{result.id}"]
+      else if field.endsWith "origin" then
+        .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
+      else if field.endsWith "value" then
+        .ok #[.i64Const Memory.RET_BUF, .call "attached_deposit",
+          .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
+      else if field.endsWith "sender" then
+        .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
+      else if field.endsWith "contractAddress" then
+        .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
       else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
   | .assert condition _ => .ok #[.localGet s!"v{condition.id}", .plain "i32.eqz",
       .if_ { insns := #[.unreachable] } { insns := #[] }]
@@ -553,11 +627,64 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
         .i64Const Memory.RET_BUF, .i64Const gas,
         .call "promise_create", .localSet s!"v{result.id}"]
+  | .portableCrosscall result accountId methodName args deposit gas => do
+      let account ← match promiseStrings.find? (fun entry => entry.str == accountId) with
+        | some entry => pure entry
+        | none => Diagnostics.err "canonical NEAR crosscall account id is missing from the data plan"
+      let method ← match promiseStrings.find? (fun entry => entry.str == methodName) with
+        | some entry => pure entry
+        | none => Diagnostics.err "canonical NEAR crosscall method name is missing from the data plan"
+      let mut argStores := #[]
+      for index in [:args.size] do
+        argStores := argStores ++ #[
+          .i32Const (Memory.CROSSCALL_BUF + index),
+          .i32Const args[index]!.toNat,
+          .store "i32.store8" 0]
+      let wordMod := 18446744073709551616
+      return argStores ++ #[
+        .i32Const Memory.RET_BUF, .i64Const (deposit % wordMod), .store "i64.store" 0,
+        .i32Const (Memory.RET_BUF + 8), .i64Const (deposit / wordMod), .store "i64.store" 0,
+        .i64Const account.len, .i64Const account.ptr,
+        .i64Const method.len, .i64Const method.ptr,
+        .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
+        .i64Const Memory.RET_BUF, .i64Const gas,
+        .call "promise_create", .localSet s!"v{result.id}",
+        .localGet s!"v{result.id}", .call "promise_return"]
+  | .promiseCreatePool result accountIndex methodIndex args deposit =>
+      return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
+        canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolLenName] ++
+        canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolPtrName] ++
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName,
+          .globalGet Crosscall.crosscallPtrGlobal, .i32Const Memory.CROSSCALL_BUF,
+          .plain "i32.sub", .plain "i64.extend_i32_u", .i64Const Memory.CROSSCALL_BUF,
+          .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
+          .call "promise_create", .localSet s!"v{result.id}"]
+  | .promiseThen result parent methodIndex args deposit =>
+      return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
+        canonicalNearI64 parent ++ #[.call Promise.promiseCurrentAccountName,
+          .i32Const Memory.CTX_BUF, .plain "i64.extend_i32_u"] ++
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName,
+          .globalGet Crosscall.crosscallPtrGlobal, .i32Const Memory.CROSSCALL_BUF,
+          .plain "i32.sub", .plain "i64.extend_i32_u", .i64Const Memory.CROSSCALL_BUF,
+          .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
+          .call "promise_then", .localSet s!"v{result.id}",
+          .localGet s!"v{result.id}", .call "promise_return"]
+  | .promiseResultU64 result index =>
+      return canonicalNearI64 index ++ #[.call Promise.promiseResultU64Name,
+        .localSet s!"v{result.id}"]
 
 private def lowerCanonicalNearTerminator : NearTerminatorPlan -> Array ProofForge.Compiler.Wasm.Insn
   | .return values => match values[0]? with
-      | some value => #[.localGet s!"v{value.id}", .call (match canonicalNearType value.typeName with
-          | .u32 => Types.returnU32Name | .bool => Types.returnBoolName | _ => Types.returnU64Name), .return_]
+      | some value =>
+          if value.typeName == "promiseReturn" then #[.return_]
+          else match canonicalNearType value.typeName with
+            | .hash => #[.i64Const 32, .localGet s!"v{value.id}", .plain "i64.extend_i32_u",
+                .call "value_return", .return_]
+            | .u32 => #[.localGet s!"v{value.id}", .call Types.returnU32Name, .return_]
+            | .bool => #[.localGet s!"v{value.id}", .call Types.returnBoolName, .return_]
+            | _ => #[.localGet s!"v{value.id}", .call Types.returnU64Name, .return_]
       | none => #[.return_]
   | .revert _ => #[.unreachable]
   | .jump target _ => #[.i32Const target, .localSet "pc"]
@@ -571,8 +698,10 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
       | .literal result _ | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
-        .arithmetic result .. | .compare result .. | .context result _ |
-        .promiseCreate result .. => #[result]
+        .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
+        .context result _ |
+        .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |
+        .promiseThen result .. | .promiseResultU64 result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let mut dispatch := #[]
   let promiseStrings := canonicalPromiseStrings plan
@@ -603,9 +732,20 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let scalarTypes := plan.layout.scalars.foldl (fun acc state =>
     if acc.contains state.type then acc else acc.push state.type) #[]
   let helperFuncs := scalarTypes.foldl (fun acc ty =>
-    let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty) else acc
-    if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty) else acc) #[]
-  let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface
+    if ty == .hash then acc else
+      let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty) else acc
+      if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty) else acc) #[]
+  let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface ++
+    Map.mapHashHelperFuncsForModulePlan plan.surface
+  let hashHelpers := Hash.hashExprHelperFuncsForModulePlan plan.surface
+  let hashStorageHelpers := Hash.hashStorageHelperFuncsForModulePlan plan.surface
+  let crosscallHelpers := Crosscall.crosscallArgsHelperFuncsForModulePlan plan.surface ++
+    (if plan.surface.usesCrosscallArgs then
+      Crosscall.crosscallPoolHelperFuncs (plan.layout.crosscallStrings.map fun entry =>
+        { str := entry.str, ptr := entry.ptr, len := entry.len })
+    else #[])
+  let promiseHelpers := Promise.promiseHelperFuncsForModulePlan plan.surface
+  let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc] else #[])
@@ -619,7 +759,19 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     (if eventStrings.isEmpty then #[] else #[{
       offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
     }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
-    promiseStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
-  return { imports := imports, globals := if eventStrings.isEmpty then #[] else Event.evtGlobals, funcs := helperFuncs ++ mapHelpers ++ returnFuncs ++ eventHelpers ++ funcs, memory := some { min := 1 }, dataSegments := data }
+    promiseStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
+    (if plan.surface.usesCrosscallArgs then
+      plan.layout.crosscallStrings.map (fun entry =>
+        { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
+    else #[])
+  return {
+    imports := imports
+    globals := (if Hash.modulePlanUsesHashAlloc plan.surface then #[Hash.hashPtrGlobalDecl] else #[]) ++
+      (if eventStrings.isEmpty then #[] else Event.evtGlobals) ++
+      Crosscall.crosscallGlobalsForModulePlan plan.surface
+    funcs := helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
+      returnFuncs ++ eventHelpers ++ funcs
+    memory := some { min := 1 }
+    dataSegments := data }
 
 end ProofForge.Backend.WasmHost.NearModulePlan

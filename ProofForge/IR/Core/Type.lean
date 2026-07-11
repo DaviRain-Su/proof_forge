@@ -75,7 +75,8 @@ inductive CompareOp
 /- Context fields that every target plan must support or reject explicitly. -/
 
 inductive ContextField
-  | sender | value | blockNumber | blockTimestamp | gas | contractAddress
+  | sender | value | blockNumber | blockTimestamp | epochHeight | randomSeed
+  | origin | gas | contractAddress
   deriving BEq, DecidableEq, Repr
 
 /- Reference to a structured error declared in the module's error schema. -/

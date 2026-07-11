@@ -20,6 +20,7 @@ open ProofForge.Target
 they are consumed by the plan builder to set surface flags and import names. -/
 inductive NearOpPlan
   | promiseCreate
+  | promiseResultU64
   deriving Repr, BEq
 
 instance : Inhabited NearOpPlan := ⟨.promiseCreate⟩
@@ -31,12 +32,24 @@ def promiseCreateId : HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
+def promiseResultU64Id : HostOpId := {
+  namespace_ := "near.promise",
+  name := "result_u64",
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
 /-- A registry with only the `near.promise.create@1.0.0` handler. -/
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
-  HostOpRegistry.register (HostOpRegistry.empty NearOpPlan) {
+  do
+  let registry ← HostOpRegistry.register (HostOpRegistry.empty NearOpPlan) {
     targetId := "wasm-near",
     id := promiseCreateId,
     lower := #[NearOpPlan.promiseCreate]
+  }
+  HostOpRegistry.register registry {
+    targetId := "wasm-near",
+    id := promiseResultU64Id,
+    lower := #[NearOpPlan.promiseResultU64]
   }
 
 /-- Check whether a host-op ID has a handler for `wasm-near`. -/

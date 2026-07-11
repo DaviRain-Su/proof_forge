@@ -844,7 +844,7 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let (is, src) ← lowerExpr ctx env value
     let extra ←
-      match src, target with
+      if src == target then .ok #[] else match src, target with
       | .u32, .u64 => .ok #[.plain "i64.extend_i32_u"]
       | .u64, .u32 => .ok #[.plain "i32.wrap_i64"]
       | .u32, .bool => .ok #[.i32Const 0, .plain "i32.ne"]

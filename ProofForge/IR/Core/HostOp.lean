@@ -98,11 +98,21 @@ def nearPromiseCreateSig : HostOpSig := {
   requiredCapabilities := #[.nearPromise]
 }
 
+def nearPromiseResultU64Sig : HostOpSig := {
+  id := { namespace_ := "near.promise", name := "result_u64", version := { major := 1, minor := 0, patch := 0 } },
+  params := #[.u64],
+  results := #[.u64],
+  effectClass := .external,
+  requiredCapabilities := #[.nearPromise]
+}
+
 /-- The canonical host-op catalog containing all registered host operations.
 Currently only `near.promise.create@1.0.0`. -/
 def canonicalHostOpCatalog : HostOpCatalog :=
   match HostOpCatalog.empty.register nearPromiseCreateSig with
-  | .ok cat => cat
+  | .ok cat => match cat.register nearPromiseResultU64Sig with
+    | .ok cat => cat
+    | .error _ => HostOpCatalog.empty
   | .error _ => HostOpCatalog.empty
 end ProofForge.IR.Core.HostOp
 

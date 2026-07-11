@@ -46,25 +46,44 @@ def coreTypeToValueType : CoreType → ValueType
 /-- Build a NearStatePlan from a Core scalar state declaration.
 NEAR stores scalars as UTF-8 key strings in the host key-value store.
 The key pointer is the string pool offset for the state id string. -/
-def coreScalarToNearStatePlan (decl : Core.StateDecl) (keyPtr : Nat) : Except PlanError NearStatePlan := do
-  let idStr := toString decl.id.value
+def coreScalarToNearStatePlan (decl : Core.StateDecl) (name : String)
+    (keyPtr : Nat) : Except PlanError NearStatePlan := do
   let vt <- match decl.shape with
     | .scalar ty => pure (coreTypeToValueType ty)
     | _ => throw { message := s!"NEAR scalar layout received non-scalar state {decl.id.value}" }
-  return { id := idStr, type := vt, keyPtr, keyLen := idStr.length }
+  return {
+    id := name
+    coreId? := some decl.id.value
+    type := vt
+    keyPtr := keyPtr
+    keyLen := name.length }
 
 /-- Build a NearMapPlan from a Core map/array state declaration.
 NEAR stores maps as `id ++ ":"` prefixed keys. -/
-def coreMapToNearMapPlan (decl : Core.StateDecl) (prefixPtr : Nat) : Except PlanError NearMapPlan := do
-  let idStr := toString decl.id.value
+def coreMapToNearMapPlan (decl : Core.StateDecl) (name : String)
+    (prefixPtr : Nat) : Except PlanError NearMapPlan := do
   match decl.shape with
   | .map kty vty (some _) =>
       let keyType := coreTypeToValueType kty
       let valueType := coreTypeToValueType vty
-      return { id := idStr, keyType := keyType, valueType := valueType, prefixPtr := prefixPtr, prefixLen := idStr.length + 1, isArray := false }
+      return {
+        id := name
+        coreId? := some decl.id.value
+        keyType := keyType
+        valueType := valueType
+        prefixPtr := prefixPtr
+        prefixLen := name.length + 1
+        isArray := false }
   | .fixedArray elem _ =>
       let valueType := coreTypeToValueType elem
-      return { id := idStr, keyType := .u64, valueType := valueType, prefixPtr := prefixPtr, prefixLen := idStr.length + 1, isArray := true }
+      return {
+        id := name
+        coreId? := some decl.id.value
+        keyType := .u64
+        valueType := valueType
+        prefixPtr := prefixPtr
+        prefixLen := name.length + 1
+        isArray := true }
   | .map _ _ none => throw { message := "NEAR map state requires a finite capacity contract" }
   | .dynamicArray _ => throw { message := "NEAR dynamic array layout requires an allocator plan" }
   | _ => throw { message := s!"unsupported NEAR state shape for {decl.id.value}" }
@@ -80,20 +99,28 @@ private def dedupValueTypes (types : Array ValueType) : Array ValueType :=
 /-- Build the NEAR layout plan from Core state declarations.
 Scalar states get sequential key pointers; map/array states get
 sequential prefix pointers after the scalar key region. -/
-def coreLayout (m : ProofForge.IR.Core.Module) : Except PlanError NearLayoutPlan := do
+def coreLayout (m : ProofForge.IR.Core.Module)
+    (materialization : MaterializationContract) : Except PlanError NearLayoutPlan := do
   let mut scalars := #[]
   let mut maps := #[]
   let mut keyPtr := 0  /- Simplified: key strings at offset 0+ -/
   let mut prefixPtr := 1024  /- Prefix strings start at 1024+ -/
   for decl in m.state do
+    let symbol ← match materialization.stateSymbols.find? (fun symbol => symbol.stateId == decl.id) with
+      | some symbol => pure symbol
+      | none => throw { message := s!"missing NEAR state symbol for Core state {decl.id.value}" }
     if isScalarShape decl.shape then
-      scalars := scalars.push (<- coreScalarToNearStatePlan decl keyPtr)
-      keyPtr := keyPtr + (toString decl.id.value).length + 1
+      scalars := scalars.push (<- coreScalarToNearStatePlan decl symbol.name keyPtr)
+      keyPtr := keyPtr + symbol.name.length + 1
     else
-      maps := maps.push (<- coreMapToNearMapPlan decl prefixPtr)
-      prefixPtr := prefixPtr + (toString decl.id.value).length + 2
-  /- Build empty string/panic/crosscall pools for the initial fragment. -/
-  return { scalars := scalars, maps := maps, strings := #[], panics := #[], crosscallStrings := #[], stringPoolEnd := prefixPtr }
+      maps := maps.push (<- coreMapToNearMapPlan decl symbol.name prefixPtr)
+      prefixPtr := prefixPtr + symbol.name.length + 2
+  let mut crosscallStrings := #[]
+  let mut crosscallPtr := ProofForge.Backend.WasmHost.Memory.CROSSCALL_STRING_BASE
+  for value in materialization.nearHostStrings do
+    crosscallStrings := crosscallStrings.push { str := value, ptr := crosscallPtr, len := value.length }
+    crosscallPtr := crosscallPtr + value.length
+  return { scalars := scalars, maps := maps, strings := #[], panics := #[], crosscallStrings, stringPoolEnd := prefixPtr }
 
 /-- Build the WasmHost.Plan.ModulePlan surface from Core.
 Maps Core interface and module features to the existing surface flags. -/
@@ -117,21 +144,26 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     for block in func.blocks do
       for instr in block.instructions do
         match instr.op with
-        | .storageLoad _ =>
+        | .storageLoad ref =>
           usesStorageRead := true
           match instr.op with
           | .storageLoad { path := #[.mapKey _], .. }
           | .storageLoad { path := #[.index _], .. } => pure ()
-          | _ => scalarReadTypes := scalarReadTypes.push .u64
-        | .storageStore _ _ =>
+          | _ => scalarReadTypes := scalarReadTypes.push (coreTypeToValueType ref.resultType)
+        | .storageStore ref value =>
           usesStorageWrite := true
           match instr.op with
           | .storageStore { path := #[.mapKey _], .. } _
           | .storageStore { path := #[.index _], .. } _ => scalarWriteTypes := scalarWriteTypes
-          | _ => scalarWriteTypes := scalarWriteTypes.push .u64
+          | _ => scalarWriteTypes := scalarWriteTypes.push (coreTypeToValueType value.type)
         | .contextRead .value => usesNativeValue := true
+        | .contextRead .sender => contextOps := contextOps.push .userId |>.push .userIdHash
+        | .contextRead .contractAddress => contextOps := contextOps.push .contractId
         | .contextRead .blockNumber => contextOps := contextOps.push .checkpointId
         | .contextRead .blockTimestamp => contextOps := contextOps.push .timestamp
+        | .contextRead .epochHeight => contextOps := contextOps.push .epochHeight
+        | .contextRead .randomSeed => contextOps := contextOps.push .randomSeed
+        | .contextRead .origin => contextOps := contextOps.push .origin
         | .emit event _ =>
           usesEventApi := true
           match m.events.find? (fun decl => decl.id == event) with
@@ -141,8 +173,9 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
                 usesEventNumeric := true
           | none => pure ()
         | .hostCall call =>
-          if call.id.namespace_ == "near.promise" && call.id.name == "create" then
-            usesPromiseCreate := true
+          if call.id == HostOps.promiseCreateId then usesPromiseCreate := true
+        | .crosscall spec _ =>
+          if spec.mode == .nearPromiseThen then pure () else usesPromiseCreate := true
         | _ => pure ()
   {
     contextOps
@@ -154,47 +187,98 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesStorageWrite
     u64IndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
       block.instructions.filterMap fun instruction => match instruction.op with
-        | .storageLoad { path := #[.mapKey _], resultType, .. }
+        | .storageLoad { path := #[.mapKey key], resultType, .. } =>
+            if key.type == .hash then none else some (coreTypeToValueType resultType)
         | .storageLoad { path := #[.index _], resultType, .. } => some (coreTypeToValueType resultType)
         | _ => none))
     u64IndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
       block.instructions.filterMap fun instruction => match instruction.op with
-        | .storageStore { path := #[.mapKey _], resultType, .. } _
+        | .storageStore { path := #[.mapKey key], resultType, .. } _ =>
+            if key.type == .hash then none else some (coreTypeToValueType resultType)
         | .storageStore { path := #[.index _], resultType, .. } _ => some (coreTypeToValueType resultType)
         | _ => none))
     usesU64IndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .storageLoad { path := #[.mapKey _], .. }
-        | .storageLoad { path := #[.index _], .. }
-        | .storageStore { path := #[.mapKey _], .. } _
+        | .storageLoad { path := #[.mapKey key], .. } => key.type != .hash
+        | .storageLoad { path := #[.index _], .. } => true
+        | .storageStore { path := #[.mapKey key], .. } _ => key.type != .hash
         | .storageStore { path := #[.index _], .. } _ => true
         | _ => false
     usesPromiseApi := usesPromiseCreate
     usesPromiseCreate
-    usesPromiseThen := false
-    usesPromiseResults := false
-    usesPromiseResultU64 := false
-    usesPromiseReturn := false
-    usesPromiseReceiverAccount := false
-    usesCrosscallArgs := false
-    usesCrosscallHash := false
-    usesFmtU64 := false
+    usesPromiseThen := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
+    usesPromiseResults := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .hostCall call => call.id == HostOps.promiseResultU64Id | _ => false
+    usesPromiseResultU64 := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .hostCall call => call.id == HostOps.promiseResultU64Id | _ => false
+    usesPromiseReturn := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .invoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
+        | _ => false
+    usesPromiseReceiverAccount := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
+    usesCrosscallArgs := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .nearPoolInvoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
+        | _ => false
+    usesCrosscallHash := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .nearPoolInvoke, .. } args | .crosscall { mode := .nearPromiseThen, .. } args =>
+            args.any (fun arg => arg.type == .hash)
+        | _ => false
+    usesFmtU64 := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .crosscall { mode := .nearPoolInvoke, .. } args | .crosscall { mode := .nearPromiseThen, .. } args =>
+            args.any (fun arg => arg.type == .u8 || arg.type == .u32 || arg.type == .u64 || arg.type == .u128)
+        | _ => false
     usesEventApi
     usesEventNumeric
     usesEventBool
-    usesEventHash := false
-    hashIndexedReadTypes := #[]
-    hashIndexedWriteTypes := #[]
-    usesHashIndexedBuildKey := false
+    usesEventHash := m.events.any fun event => event.fields.any (fun field => field.type == .hash)
+    hashIndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+        | .storageLoad { path := #[.mapKey key], resultType, .. } =>
+            if key.type == .hash then some (coreTypeToValueType resultType) else none
+        | _ => none))
+    hashIndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+        | .storageStore { path := #[.mapKey key], resultType, .. } _ =>
+            if key.type == .hash then some (coreTypeToValueType resultType) else none
+        | _ => none))
+    usesHashIndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .storageLoad { path := #[.mapKey key], .. }
+        | .storageStore { path := #[.mapKey key], .. } _ => key.type == .hash
+        | _ => false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
     usesHashMake := false
-    usesHashPreimage := false
-    usesHashTwoToOne := false
-    usesHashEq := false
+    usesHashPreimage := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.hash _) => true | _ => false
+    usesHashTwoToOne := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.hashTwoToOne ..) => true
+        | _ => false
+    usesHashEq := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.compare op lhs _) => lhs.type == .hash && (op == .eq || op == .ne)
+        | _ => false
     usesPowU32 := false
     usesPowU64 := false
-    usesMemcpy := false
+    usesMemcpy := !usesEventApi && m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.hashTwoToOne ..) => true
+        | .storageLoad { path := #[.mapKey key], .. }
+        | .storageStore { path := #[.mapKey key], .. } _ => key.type == .hash
+        | .crosscall { mode := .nearPoolInvoke, .. } args
+        | .crosscall { mode := .nearPromiseThen, .. } args => args.any (fun arg => arg.type == .hash)
+        | _ => false
     arrayLitShapes := #[]
     arrayEqShapes := #[]
     structLitNames := #[]
@@ -222,6 +306,21 @@ private def literalFor (literals : Array (ValueId × CoreLiteral)) (value : Valu
   | some entry => .ok entry.snd
   | none => .error { message := s!"canonical NEAR HostOp argument {value.id.value} must be a literal" }
 
+private def literalIndex (literal : CoreLiteral) : Except PlanError Nat :=
+  match literal with
+  | .addressLit value | .stringLit value =>
+      match value.toNat? with
+      | some index => .ok index
+      | none => .error { message := "canonical NEAR crosscall handle must be numeric" }
+  | .u8Lit value | .u32Lit value | .u64Lit value | .u128Lit value => .ok value
+  | _ => .error { message := "canonical NEAR crosscall handle has an unsupported type" }
+
+private def crosscallJsonLiteral (literal : CoreLiteral) : Except PlanError String :=
+  match literal with
+  | .boolLit value => .ok (if value then "true" else "false")
+  | .u8Lit value | .u32Lit value | .u64Lit value | .u128Lit value => .ok (toString value)
+  | _ => .error { message := "canonical NEAR crosscall arguments currently require scalar literals" }
+
 private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
   | .add => .add | .sub => .sub | .mul => .mul | .div => .div | .mod => .mod
   | .and => .bitAnd | .or => .bitOr | .xor => .bitXor | .shl => .shiftLeft | .shr => .shiftRight
@@ -229,7 +328,7 @@ private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
 private def nearCompare : CompareOp -> NearComparePlan
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
 
-private def lowerNearOp (iface : InterfaceContract)
+private def lowerNearOp (iface : InterfaceContract) (materialization : MaterializationContract)
     (literals : Array (ValueId × CoreLiteral)) (instr : Instruction) :
     Except PlanError NearOpPlan := do
   match instr.op with
@@ -251,6 +350,12 @@ private def lowerNearOp (iface : InterfaceContract)
         (nearValue lhs) (nearValue rhs)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- nearResult instr) (nearCompare op) (nearValue lhs) (nearValue rhs)
+  | .pure (.hash value) =>
+      return .hash (<- nearResult instr) (nearValue value)
+  | .pure (.cast _ value) =>
+      return .cast (<- nearResult instr) (nearValue value)
+  | .pure (.hashTwoToOne lhs rhs) =>
+      return .hashTwoToOne (<- nearResult instr) (nearValue lhs) (nearValue rhs)
   | .storageLoad ref =>
       match ref.path with
       | #[] => return .loadState (<- nearResult instr) ref.root.value
@@ -279,32 +384,74 @@ private def lowerNearOp (iface : InterfaceContract)
       let handler ← match registry.lookup "wasm-near" call.id with
         | some handler => pure handler
         | none => throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
-      unless handler.lower == #[HostOps.NearOpPlan.promiseCreate] do
-        throw { message := s!"invalid HostOp plan for {call.id.render}" }
-      unless call.id == HostOps.promiseCreateId do
+      if call.id == HostOps.promiseCreateId then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseCreate] do
+          throw { message := s!"invalid HostOp plan for {call.id.render}" }
+        unless call.args.size == 5 do
+          throw { message := "near.promise.create@1.0.0 requires five arguments" }
+        let account ← literalFor literals call.args[0]!
+        let method ← literalFor literals call.args[1]!
+        let args ← literalFor literals call.args[2]!
+        let deposit ← literalFor literals call.args[3]!
+        let gas ← literalFor literals call.args[4]!
+        match account, method, args, deposit, gas with
+        | .stringLit accountId, .stringLit methodName, .bytesLit payload,
+            .u128Lit deposit, .u64Lit gas =>
+            return .promiseCreate (<- nearResult instr) accountId methodName payload deposit gas
+        | _, _, _, _, _ =>
+            throw { message := "near.promise.create@1.0.0 literal argument types do not match its signature" }
+      else if call.id == HostOps.promiseResultU64Id then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseResultU64] do
+          throw { message := s!"invalid HostOp plan for {call.id.render}" }
+        unless call.args.size == 1 do
+          throw { message := "near.promise.result_u64@1.0.0 requires one argument" }
+        return .promiseResultU64 (<- nearResult instr) (nearValue call.args[0]!)
+      else
         throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
-      unless call.args.size == 5 do
-        throw { message := "near.promise.create@1.0.0 requires five arguments" }
-      let account ← literalFor literals call.args[0]!
-      let method ← literalFor literals call.args[1]!
-      let args ← literalFor literals call.args[2]!
-      let deposit ← literalFor literals call.args[3]!
-      let gas ← literalFor literals call.args[4]!
-      match account, method, args, deposit, gas with
-      | .stringLit accountId, .stringLit methodName, .bytesLit payload,
-          .u128Lit deposit, .u64Lit gas =>
-          return .promiseCreate (<- nearResult instr) accountId methodName payload deposit gas
-      | _, _, _, _, _ =>
-          throw { message := "near.promise.create@1.0.0 literal argument types do not match its signature" }
+  | .crosscall spec args =>
+      match spec.mode with
+      | .invoke =>
+        let targetIndex ← literalFor literals spec.target >>= literalIndex
+        let methodIndex ← literalFor literals spec.method >>= literalIndex
+        let accountId ← match materialization.nearHostStrings[targetIndex]? with
+          | some value => pure value
+          | none => throw { message := s!"canonical NEAR crosscall target handle {targetIndex} is out of range" }
+        let methodName ← match materialization.nearHostStrings[methodIndex]? with
+          | some value => pure value
+          | none => throw { message := s!"canonical NEAR crosscall method handle {methodIndex} is out of range" }
+        let encodedArgs ← args.mapM fun argument =>
+          literalFor literals argument >>= crosscallJsonLiteral
+        let payload := ("[" ++ String.intercalate "," encodedArgs.toList ++ "]").toUTF8
+        let result := { (<- nearResult instr) with typeName := "promiseReturn" }
+        return .portableCrosscall result accountId methodName payload 0
+          ProofForge.Backend.WasmHost.Memory.crosscallDefaultGas
+      | .nearPoolInvoke =>
+        let deposit ← match spec.value with
+          | some value => pure value
+          | none => throw { message := "NEAR pool invoke requires a deposit" }
+        return .promiseCreatePool (<- nearResult instr) (nearValue spec.target)
+          (nearValue spec.method) (args.map nearValue) (nearValue deposit)
+      | .nearPromiseThen =>
+        let deposit ← match spec.value with
+          | some value => pure value
+          | none => throw { message := "NEAR promise_then requires a deposit" }
+        let result := { (<- nearResult instr) with typeName := "promiseReturn" }
+        return .promiseThen result (nearValue spec.target) (nearValue spec.method)
+          (args.map nearValue) (nearValue deposit)
+      | mode => throw { message := s!"canonical NEAR crosscall mode `{repr mode}` is unsupported" }
   | op => throw { message := s!"unsupported canonical NEAR operation `{repr op}`" }
 
-private def lowerNearTerminator : Terminator -> NearTerminatorPlan
+private def lowerNearTerminator (promiseReturnIds : Array ValueId) : Terminator -> NearTerminatorPlan
   | .jump target args _ => .jump target.value (args.map nearValue)
   | .branch condition onTrue onFalse => .branch (nearValue condition) onTrue.value onFalse.value
-  | .return values => .return (values.map nearValue)
+  | .return values => .return (values.map fun value =>
+      if promiseReturnIds.contains value.id then
+        { (nearValue value) with typeName := "promiseReturn" }
+      else nearValue value)
   | .revert error => .revert error.id.value
 
-private def lowerNearFunction (iface : InterfaceContract) (fn : Function) : Except PlanError NearFunctionPlan := do
+private def lowerNearFunction (iface : InterfaceContract)
+    (materialization : MaterializationContract) (fn : Function) : Except PlanError NearFunctionPlan := do
   let ep <- match iface.entrypoints.find? (fun ep => ep.functionId == fn.id) with
     | some ep => pure ep
     | none => throw { message := s!"missing NEAR interface entrypoint {fn.id.value}" }
@@ -312,12 +459,17 @@ private def lowerNearFunction (iface : InterfaceContract) (fn : Function) : Exce
     match instruction.results, instruction.op with
     | #[result], .pure (.literal literal) => some (result.id, literal)
     | _, _ => none
+  let promiseReturnIds := fn.blocks.flatMap fun block => block.instructions.filterMap fun instruction =>
+    match instruction.results, instruction.op with
+    | #[result], .crosscall { mode := .invoke, .. } _
+    | #[result], .crosscall { mode := .nearPromiseThen, .. } _ => some result.id
+    | _, _ => none
   let blocks <- fn.blocks.mapM fun block => do
-    let ops <- block.instructions.mapM (lowerNearOp iface literals)
+    let ops <- block.instructions.mapM (lowerNearOp iface materialization literals)
     return {
       id := block.id.value
       params := block.params.map (fun p => { id := p.id.value, typeName := reprStr p.type })
-      ops, terminator := lowerNearTerminator block.terminator
+      ops, terminator := lowerNearTerminator promiseReturnIds block.terminator
     }
   return {
     id := fn.id.value, name := ep.name
@@ -338,10 +490,10 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let m := checked.contract.module
   let iface := checked.contract.interface
   /- Build layout from Core state declarations. -/
-  let layout <- coreLayout m
+  let layout <- coreLayout m checked.contract.materialization
   /- Build surface from Core module and interface. -/
   let surface := coreSurface m
-  let functions <- m.functions.mapM (lowerNearFunction iface)
+  let functions <- m.functions.mapM (lowerNearFunction iface checked.contract.materialization)
   .ok {
     moduleName := iface.contractName
     targetId := "wasm-near"

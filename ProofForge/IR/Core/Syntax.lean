@@ -9,6 +9,8 @@ inductive CoreCrosscallMode
   | invoke
   | staticInvoke
   | delegateInvoke
+  | nearPoolInvoke
+  | nearPromiseThen
   deriving BEq, DecidableEq, Repr, Inhabited
 
 structure CoreCrosscallSpec where
@@ -51,6 +53,7 @@ inductive PureOp
   | compare (op : CompareOp) (lhs rhs : ValueRef)
   | cast (to : CoreType) (arg : ValueRef)
   | hash (arg : ValueRef)
+  | hashTwoToOne (lhs rhs : ValueRef)
   deriving BEq, Repr
 
 /- Instructions are the unit of effect in Core. Every value-producing effect

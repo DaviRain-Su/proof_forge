@@ -40,7 +40,7 @@ contract_source StorageDeposit do
     return mapRead storageDeposits account_id;
 
   entry storage_deposit (account_id : .hash) do
-    let amount : .u64 := nativeValue;
+    let amount : .u64 := ProofForge.Contract.Surface.cast nativeValue .u64;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref amount)
       (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small";
     let previous : .u64 := mapRead storageDeposits account_id;

@@ -158,7 +158,7 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "NEAR buildFromCore accepted missing capabilities"
   | .error _ => pure ()
 
-  match coreMapToNearMapPlan { id := ⟨9⟩, shape := .dynamicArray .u64 } 1024 with
+  match coreMapToNearMapPlan { id := ⟨9⟩, shape := .dynamicArray .u64 } "items" 1024 with
   | .ok _ => throw <| IO.userError "dynamic NEAR state silently received a placeholder layout"
   | .error _ => pure ()
 

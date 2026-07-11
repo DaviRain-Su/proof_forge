@@ -27,6 +27,34 @@ open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
 
+/-- Materialize a NEAR contract exclusively through canonical Core and the
+existing semantic NearModulePlan. Failures are terminal; there is no Legacy
+EmitWat fallback. -/
+def renderCanonicalSpecNearWat (spec : ProofForge.Contract.ContractSpec)
+    (peerMap : ProofForge.Target.PeerMap.Map := ProofForge.Target.PeerMap.identity) :
+    Except String String := do
+  let adaptedSpec := { spec with
+    module := ProofForge.Target.PeerMap.applyToModule spec.module peerMap }
+  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy adaptedSpec with
+    | .ok bundle => .ok bundle
+    | .error error => .error s!"canonical: adapt failed: {repr error}"
+  let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
+    | .ok checked => .ok checked
+    | .error error => .error s!"canonical: validation failed: {repr error}"
+  let targetPlan ← match ProofForge.Target.resolveSpec ProofForge.Target.wasmNear spec with
+    | .ok plan => .ok plan
+    | .error error => .error error.render
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := "wasm-near", calls := checked.contract.requirements,
+    metadata := targetPlan.metadata }
+  let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capabilityPlan with
+    | .ok plan => .ok plan
+    | .error error => .error s!"canonical: NEAR plan failed: {error.message}"
+  let wasm ← match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan with
+    | .ok wasm => .ok wasm
+    | .error error => .error s!"canonical: NEAR lowering failed: {error.message}"
+  return ProofForge.Compiler.Wasm.Printer.render wasm
+
 unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
@@ -227,14 +255,25 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     match ProofForge.Target.resolveSpec profile spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
-  match ProofForge.Compiler.runCanonicalValidationGate profile.id spec with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError e
-  compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
-    moduleName := spec.name
-    path? := some input.toString
-    kind := "contract-sdk"
-    leanElaborated := true
-  }
+  if profile.id == "wasm-near" then
+    let wat ← match renderCanonicalSpecNearWat spec opts.peerMap with
+      | .ok wat => pure wat
+      | .error error => throw <| IO.userError error
+    let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug wat
+      (requireWasm := emitWatRequireWasm opts')
+    writeEmitWatArtifactMetadata opts' profile.id fixtureSlug {
+      moduleName := spec.name
+      path? := some input.toString
+      kind := "contract-sdk"
+      leanElaborated := true
+    } spec.module outputDir watPath wasmPath?
+    return 0
+  else
+    compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
+      moduleName := spec.name
+      path? := some input.toString
+      kind := "contract-sdk"
+      leanElaborated := true
+    }
 
 end ProofForge.Cli

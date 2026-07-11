@@ -132,6 +132,21 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (arithRef.instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.emitInstr storeInstr)
+  | .storageMapSet stateName key value => do
+      let stateId ← lookupState stateName
+      let (keyType, valueType) ← stateMapTypes stateName
+      let normalizedKey ← normalizeExpr key
+      let normalizedValue ← normalizeExpr value
+      unless normalizedKey.value.type == keyType do
+        throw (CanonicalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+      unless normalizedValue.value.type == valueType do
+        throw (CanonicalizeError.typeMismatch (reprStr valueType) (reprStr normalizedValue.value.type))
+      let fb ← liftExcept (normalizedKey.instructions.foldlM FunctionBuilder.emitInstr fb)
+      let fb ← liftExcept (normalizedValue.instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .storageStore {
+        root := stateId
+        path := #[.mapKey normalizedKey.value]
+        resultType := valueType } normalizedValue.value })
   | .eventEmit name fields => do
       let eventId ← lookupEvent name
       let mut args : Array ValueRef := #[]

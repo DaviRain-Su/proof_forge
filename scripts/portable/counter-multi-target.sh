@@ -51,7 +51,7 @@ echo "portable-counter: NEAR/Wasm"
   -o "$OUT/near" \
   --artifact-output "$OUT/Counter.near-artifact.json" \
   "$SOURCE"
-diff -u Examples/Backend/WasmNear/Counter.golden.wat "$OUT/near/counter.wat"
+diff -u Examples/Backend/WasmNear/Counter.canonical.golden.wat "$OUT/near/counter.wat"
 
 python3 scripts/near/validate-emitwat-metadata.py \
   "$OUT/Counter.near-artifact.json" \

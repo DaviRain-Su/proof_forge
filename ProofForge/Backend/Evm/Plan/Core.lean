@@ -135,6 +135,9 @@ def coreContextToPlan? : Core.ContextField → Option ContextExprPlan
   | .sender => some .userId
   | .blockNumber => some .checkpointId
   | .blockTimestamp => some .timestamp
+  | .epochHeight => none
+  | .randomSeed => some .prevRandao
+  | .origin => some .origin
   | .gas => some .gasLeft
   | .contractAddress => some .contractId
   | .value => none  -- handled via ExprPlan.nativeValue, not a context field
@@ -289,6 +292,9 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
   | .pure (.hash arg) => do
       .ok #[StmtPlan.letBind (resultName instr) .hash
         (.hash (← valueExpr env arg))]
+  | .pure (.hashTwoToOne lhs rhs) => do
+      .ok #[StmtPlan.letBind (resultName instr) .hash
+        (.hashTwoToOne (← valueExpr env lhs) (← valueExpr env rhs))]
   | .storageLoad path => do
       match path.path with
       | #[] =>
@@ -324,9 +330,12 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       | some ctxPlan =>
           .ok #[StmtPlan.letBind (resultName instr) resultType (.context ctxPlan)]
       | none =>
+        if field == .value then
           /- `.value` has no ContextExprPlan variant; it maps to
           `ExprPlan.nativeValue`. -/
           .ok #[StmtPlan.letBind (resultName instr) resultType .nativeValue]
+        else
+          .error { message := s!"EVM Core plan does not support context field `{repr field}`" }
   | .emit event args => do
       let eventPlan ← lookupEventPlan env event
       if eventPlan.fields.size != args.size then
@@ -365,6 +374,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         | .delegateInvoke, none => pure CrosscallMode.delegatecall
         | .staticInvoke, some _ | .delegateInvoke, some _ =>
             throw { message := "static/delegate crosscall cannot carry value" }
+        | .nearPoolInvoke, _ | .nearPromiseThen, _ =>
+            throw { message := "NEAR promise crosscall modes are unsupported by the EVM Core plan" }
       let mut argPlans := #[]
       for arg in args do
         unless coreAbiTypeSupported arg.type && arg.type != .unit do
@@ -613,6 +624,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
               | .invoke, some _ => CrosscallMode.callValue
               | .staticInvoke, _ => CrosscallMode.staticcall
               | .delegateInvoke, _ => CrosscallMode.delegatecall
+              | .nearPoolInvoke, _ | .nearPromiseThen, _ => CrosscallMode.call
             let returnType := coreTypeToValueType spec.returnType
             let helper : CrosscallHelperSpec := {
               arity := args.size

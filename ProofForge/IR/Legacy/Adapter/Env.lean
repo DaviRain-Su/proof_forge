@@ -307,15 +307,19 @@ def adaptContextField (field : ProofForge.IR.ContextField) : Except Canonicalize
   | .contractId => .ok .contractAddress
   | .checkpointId => .ok .blockNumber
   | .timestamp => .ok .blockTimestamp
+  | .epochHeight => .ok .epochHeight
+  | .randomSeed => .ok .randomSeed
+  | .origin => .ok .origin
   | other => .error (CanonicalizeError.unsupportedConstructor s!"ContextField.{other.name}" "context field not in initial fragment")
 
 /- Result type of a canonical context read. -/
 
 def contextFieldType (field : ProofForge.IR.Core.ContextField) : CoreType :=
   match field with
-  | .sender | .contractAddress => .address
+  | .sender | .origin | .contractAddress => .address
+  | .randomSeed => .hash
   | .value => .u128
-  | .blockNumber | .blockTimestamp | .gas => .u64
+  | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
 
 /- Construct an empty `AdapterState` from an environment. -/
 

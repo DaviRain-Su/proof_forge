@@ -133,9 +133,10 @@ def adaptContextField (field : SurfaceContextField) : ContextField :=
 /-- Result type of a Core context read. -/
 def contextFieldType (field : ContextField) : CoreType :=
   match field with
-  | .sender | .contractAddress => .address
+  | .sender | .origin | .contractAddress => .address
+  | .randomSeed => .hash
   | .value => .u128
-  | .blockNumber | .blockTimestamp | .gas => .u64
+  | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
 
 /- Convert a Surface constructor binding kind to Canonical. -/
 def adaptCtorKind (kind : SurfaceConstructorBindingKind) :
