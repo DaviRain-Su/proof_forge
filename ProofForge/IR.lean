@@ -1,3 +1,6 @@
+import ProofForge.IR.Core
+import ProofForge.IR.Core.Error
+import ProofForge.IR.Elaborate
 import ProofForge.IR.Contract
 import ProofForge.IR.Portability
 import ProofForge.IR.CounterSemantics
