@@ -1,1187 +1,1127 @@
-# Core IR + Target Plan Decoupling Layer Implementation Plan
+# Canonical Core IR and Target-Plan Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Introduce a stable Core IR and per-target CorePlan/CoreLower modules so that new syntax sugar and SDK abstractions only change the elaboration layer, while target backends operate on a fixed set of semantic primitives.
+**Goal:** Replace the current fail-open Core API spike with one checked Canonical Core boundary, migrate the three primary targets through their existing plan types, then prove the boundary with Queue/Set normalization and a typed NEAR HostOp.
 
-**Architecture:** Insert Core IR between the existing Surface IR (`ProofForge/IR/Contract.lean`) and the three target backends. Add a Surface → Core elaboration pass, then add new `CorePlan`/`CoreLower` modules for EVM, Solana, and WasmHost that run in parallel with existing backends. Wire experimental CLI target ids (`evm-core`, `solana-sbpf-asm-core`, `wasm-near-core`) without disturbing the existing targets.
+**Architecture:** Frozen Legacy `ContractSpec` and the new independent `Frontend.Surface` both normalize to `CanonicalBundle`; only `CheckedCanonicalContract` and a resolved `CapabilityPlan` reach the existing EVM, Solana, and NEAR target plans. Target allocation stays in those plans, every pass returns `Except`, and public target IDs do not change.
 
-**Tech Stack:** Lean 4, Lake, `proof-forge` CLI, solc, Foundry, sbpf toolchain, wat2wasm, `just`.
+**Tech Stack:** Lean 4, Lake, ProofForge compiler/CLI, `just`, solc/Foundry/Anvil, the repository sBPF assembler/encoder/executor, wabt `wat2wasm`, and the NEAR offline host.
 
 ## Global Constraints
 
-- Existing EVM/Solana/NEAR backends remain untouched in Phase 1.
-- All new modules must compile with `lake build`.
-- Experimental target ids: `evm-core`, `solana-sbpf-asm-core`, `wasm-near-core`.
-- Phase 1 does not implement the `hostOp` registry; only the `hostOpStub` type position is reserved.
-- First product smokes must cover `Counter` and `ValueVault`.
-- Follow existing file naming and module conventions in `ProofForge/IR/` and `ProofForge/Backend/`.
-- Prefer small, focused files; if an existing file has grown unwieldy, split it in the plan rather than appending.
+- Public target IDs remain `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `wasm-stellar-soroban`, `move-aptos`, `move-sui`, `psy-dpn`, and `aleo-leo`; `quint` remains CLI-only.
+- Never register `evm-core`, `solana-sbpf-asm-core`, or `wasm-near-core`.
+- `ProofForge.IR.Contract` is frozen. New syntax cannot add a constructor or field there.
+- Core storage uses logical `StateId` and `StateShape`; physical slots, offsets, account indices, and KV prefixes are target-plan data.
+- Core is typed ANF/CFG. Every value-producing effect has explicit results and every CFG cycle preserves its loop-bound requirement.
+- `CanonicalEvidence` is absent from capability and plan-builder signatures and cannot affect emitted code.
+- Reuse `Evm.Plan.ModulePlan`, `Solana.Plan.SolanaModulePlan`, and `NearModulePlan.NearModulePlan`; do not add parallel target plan types.
+- Normalize, validate, capability resolution, HostOp resolution, plan, lower, render, and artifact validation all fail closed.
+- Queue and Set do not add Core or target-plan constructors.
+- Run `just product` before backend-heavy gates whenever authoring or portable behavior changes.
+- Live Surfpool/Pinocchio gates remain optional because their tools are not installed in the default environment.
+- The worktree may contain unrelated user changes. Inspect `git status --short`, stage only paths listed by the current task, never run `git add -A`, and never revert unrelated changes.
 
 ---
 
-## File Structure
+## Delivery Map
 
-### New files
+| Wave | Deliverable | Promotion gate |
+|---|---|---|
+| 0 | Honest registry and internal-only migration lane | Public registry exact; no fail-open Core target |
+| 1 | Stable Core schema, validator, semantics, Legacy inventory | Invalid programs reject; semantic anchors pass |
+| 2 | Counter/ValueVault Legacy adapter parity | State/return/event/error/effect parity |
+| 3 | Typed HostOp and existing target-plan builders | EVM, Solana, NEAR tool/runtime parity |
+| 4 | Independent Surface plus Queue/Set | No Core/backend diff for collection feature |
+| 5 | NEAR Promise HostOp vertical slice | NEAR success; EVM/Solana typed rejection |
+| 6 | Public-route cutover and spike removal | `just product`, `just check`, docs and diff gates |
+
+## File Ownership
+
+### Canonical Core
 
 | File | Responsibility |
 |---|---|
-| `ProofForge/IR/Core.lean` | Core IR AST: `CoreType`, `CoreExpr`, `CoreEffect`, `CoreStmt`, `CoreModule`, plus supporting types. |
-| `ProofForge/IR/Core/Error.lean` | Core IR error types: `ElabError`, `ValidationError`, `CapabilityError`. |
-| `ProofForge/IR/Elaborate.lean` | `elaborateModule` and per-constructor elaborators: Surface IR → Core IR. |
-| `ProofForge/IR/Elaborate/Smoke.lean` | Roundtrip smoke fixtures for elaboration (Counter/ValueVault fragments). |
-| `ProofForge/Backend/Evm/CorePlan.lean` | Core IR → `EvmCorePlan` (storage slots, dispatcher, Yul function plan). |
-| `ProofForge/Backend/Evm/CoreLower.lean` | `EvmCorePlan` → `Yul.Object`. |
-| `ProofForge/Backend/Solana/CorePlan.lean` | Core IR → `SolanaCorePlan` (account layout, instruction data, CPI, syscalls). |
-| `ProofForge/Backend/Solana/CoreLower.lean` | `SolanaCorePlan` → `List AstNode`. |
-| `ProofForge/Backend/WasmHost/CorePlan.lean` | Core IR → `WasmCorePlan` (memory layout, host imports, function plan). |
-| `ProofForge/Backend/WasmHost/CoreLower.lean` | `WasmCorePlan` → `Wasm.Module`. |
-| `ProofForge/Target/CoreBackend.lean` | Shared `coreBackend` helpers and `TargetPlan` type wiring. |
-| `Tests/CoreIRSmoke.lean` | Build/structural smoke for Core IR AST. |
-| `Tests/CoreElabSmoke.lean` | Elaboration smoke for Counter/ValueVault. |
-| `Tests/EvmCoreSmoke.lean` | EVM Core path smoke. |
-| `Tests/SolanaCoreSmoke.lean` | Solana Core path smoke. |
-| `Tests/WasmHostCoreSmoke.lean` | WasmHost Core path smoke. |
+| `ProofForge/IR/Core/Id.lean` | Resolved canonical IDs and symbol table keys |
+| `ProofForge/IR/Core/Type.lean` | Core types, literals, arithmetic/error policies |
+| `ProofForge/IR/Core/Storage.lean` | Logical state shapes and typed paths |
+| `ProofForge/IR/Core/HostOp.lean` | HostOp ID, version, signature, call, catalog |
+| `ProofForge/IR/Core/Syntax.lean` | ANF instructions, CFG blocks, functions, module |
+| `ProofForge/IR/Core/Validate.lean` | Type, dominance, CFG, storage, HostOp validation |
+| `ProofForge/IR/Core/Semantics.lean` | Executable small-step Core semantics |
+| `ProofForge/IR/Core/Semantics/Lemmas.lean` | Storage and arithmetic proof anchors |
+| `ProofForge/IR/Core.lean` | Imports the focused Core modules only |
+| `ProofForge/IR/Canonical.lean` | Canonical contract, materialization, evidence, checked wrapper |
 
-### Modified files
+### Inputs
 
-| File | Change |
+| File | Responsibility |
 |---|---|
-| `ProofForge/IR.lean` | Export `ProofForge.IR.Core` and `ProofForge.IR.Elaborate`. |
-| `ProofForge/Backend/Evm.lean` | Export `ProofForge.Backend.Evm.CorePlan` and `ProofForge.Backend.Evm.CoreLower`. |
-| `ProofForge/Backend/Solana.lean` | Export `ProofForge.Backend.Solana.CorePlan` and `ProofForge.Backend.Solana.CoreLower`. |
-| `ProofForge/Backend/WasmHost.lean` | Export `ProofForge.Backend.WasmHost.CorePlan` and `ProofForge.Backend.WasmHost.CoreLower`. |
-| `ProofForge/Target/Registry.lean` | Add experimental target ids and `TargetProfile` entries. |
-| `ProofForge/Target/BackendRegistry.lean` | Wire `evmCoreBackend`, `solanaCoreBackend`, `wasmHostCoreBackend`. |
-| `ProofForge/Cli/TargetDriver.lean` | Register build/emit handlers for `-core` targets. |
-| `lakefile.lean` | Add test executable/library entries if needed. |
-| `justfile` | Add `core-ir-*` and `core-product` recipes. |
+| `ProofForge/IR/Legacy/Classification.lean` | Exhaustive Legacy constructor and field policy |
+| `ProofForge/IR/Legacy/Adapter.lean` | `ContractSpec -> CanonicalBundle` |
+| `ProofForge/IR/Legacy/Refinement.lean` | Observable relation and preservation lemmas |
+| `ProofForge/Frontend/Surface/Type.lean` | Independent Surface types and IDs |
+| `ProofForge/Frontend/Surface/Syntax.lean` | Independent Surface AST |
+| `ProofForge/Frontend/Surface/Normalize.lean` | Surface typecheck and Core normalization |
+| `ProofForge/Frontend/Surface/Semantics.lean` | Surface observable semantics for normalization checks |
+| `ProofForge/Frontend/Surface.lean` | Surface exports |
+| `ProofForge/Frontend.lean` | Frontend exports |
+
+### Target Integration
+
+| File | Responsibility |
+|---|---|
+| `ProofForge/Target/HostOpRegistry.lean` | Typed target-handler registry |
+| `ProofForge/Compiler/CanonicalPipeline.lean` | Internal legacy/canonical dual-run API |
+| `ProofForge/Backend/Evm/Plan/Core.lean` | Checked Core to existing EVM `ModulePlan` |
+| `ProofForge/Backend/Solana/Plan/Core.lean` | Checked Core to existing `SolanaModulePlan` |
+| `ProofForge/Backend/WasmHost/NearModulePlan/Core.lean` | Checked Core to existing `NearModulePlan` |
+| `Tests/Canonical/Emit.lean` | Internal artifact emitter for parity scripts |
+| `scripts/canonical/check-boundary.sh` | Mechanical dependency/public-ID checks |
 
 ---
 
-## Task 1: Core IR AST scaffolding
+## Wave 0: Restore an Honest Boundary
+
+### Task 1: Remove Public Core Target Claims
 
 **Files:**
-- Create: `ProofForge/IR/Core.lean`
-- Create: `ProofForge/IR/Core/Error.lean`
-- Modify: `ProofForge/IR.lean`
-- Test: `lake build`
-
-**Interfaces:**
-- Produces: `ProofForge.IR.Core.CoreType`, `CoreExpr`, `CoreEffect`, `CoreStmt`, `CoreModule`, and supporting types (`CoreLiteral`, `UnaryOp`, `BinaryOp`, `ContextKind`, `CrosscallSpec`, `StoragePath`, `LValue`, `CoreStruct`, `CoreStateDecl`, `CoreEntrypoint`, `CoreEvent`, `HostOpId`).
-- Produces: `ProofForge.IR.Core.Error.ElabError`, `ValidationError`, `CapabilityError`.
-
-- [ ] **Step 1: Create `ProofForge/IR/Core.lean` with the AST skeleton**
-
-```lean
-namespace ProofForge.IR.Core
-
-inductive CoreType
-  | unit | bool | u8 | u32 | u64 | u128
-  | address
-  | bytes | string | hash
-  | fixedArray (element : CoreType) (length : Nat)
-  | array (element : CoreType)
-  | structType (name : String)
-  deriving BEq, Repr
-
-inductive CoreLiteral
-  | unitLit
-  | boolLit (b : Bool)
-  | u8Lit  (n : UInt8)
-  | u32Lit (n : UInt32)
-  | u64Lit (n : UInt64)
-  | u128Lit (n : UInt128)
-  | addressLit (s : String)
-  | bytesLit (b : ByteArray)
-  | stringLit (s : String)
-  | hashLit (s : String)
-  deriving BEq, Repr
-
-inductive UnaryOp
-  | not | neg
-  deriving BEq, Repr
-
-inductive BinaryOp
-  | add | sub | mul | div | mod
-  | eq | ne | lt | le | gt | ge
-  | and | or | xor | shl | shr
-  deriving BEq, Repr
-
-inductive ContextKind
-  | sender | value | blockNumber | blockTimestamp | gas | contractAddress
-  deriving BEq, Repr
-
-structure CrosscallSpec where
-  family : String
-  gas : Option CoreExpr
-  value : Option CoreExpr
-  deriving BEq, Repr
-
-inductive StoragePath
-  | scalar (slot : Nat)
-  | mapKey (slot : Nat) (key : CoreExpr)
-  | arrayIndex (slot : Nat) (idx : CoreExpr)
-  | field (base : StoragePath) (field : String)
-  deriving BEq, Repr
-
-inductive LValue
-  | local (name : String)
-  | storage (path : StoragePath)
-  | memory (base : CoreExpr) (offset : Nat) (ty : CoreType)
-  deriving BEq, Repr
-
--- Phase 2 extension point; keep opaque in Phase 1.
-def HostOpId := String
-  deriving BEq, Repr
-
-inductive CoreExpr
-  | literal (val : CoreLiteral)
-  | local (name : String)
-  | fieldAccess (base : CoreExpr) (field : String)
-  | arrayIndex (base : CoreExpr) (index : CoreExpr)
-  | unary (op : UnaryOp) (arg : CoreExpr)
-  | binary (op : BinaryOp) (lhs rhs : CoreExpr)
-  | cast (from to : CoreType) (arg : CoreExpr)
-  | hash (arg : CoreExpr)
-  | contextRead (kind : ContextKind)
-  | crosscall (spec : CrosscallSpec) (args : List CoreExpr)
-  | hostOpStub (op : HostOpId) (args : List CoreExpr)
-  deriving BEq, Repr
-
-inductive CoreEffect
-  | storageRead  (path : StoragePath)
-  | storageWrite (path : StoragePath) (val : CoreExpr)
-  | memoryRead   (base : CoreExpr) (offset : Nat) (ty : CoreType)
-  | memoryWrite  (base : CoreExpr) (offset : Nat) (val : CoreExpr)
-  | eventEmit    (name : String) (args : List CoreExpr)
-  | contextReadEffect (kind : ContextKind)
-  | crosscallEffect (spec : CrosscallSpec) (args : List CoreExpr)
-  | assert       (cond : CoreExpr) (msg : Option String)
-  | revert       (msg : Option String)
-  | hostOpStubEffect (op : HostOpId) (args : List CoreExpr)
-  deriving BEq, Repr
-
-inductive CoreStmt
-  | letBind    (name : String) (ty : CoreType) (val : CoreExpr)
-  | letMutBind (name : String) (ty : CoreType) (val : CoreExpr)
-  | assign     (lhs : LValue) (rhs : CoreExpr)
-  | assignOp   (lhs : LValue) (op : BinaryOp) (rhs : CoreExpr)
-  | effect     (e : CoreEffect)
-  | ifElse     (cond : CoreExpr) (thenBranch elseBranch : List CoreStmt)
-  | boundedFor (iter : String) (bound : CoreExpr) (body : List CoreStmt)
-  | whileLoop  (cond : CoreExpr) (body : List CoreStmt)
-  | return     (val : CoreExpr)
-  deriving BEq, Repr
-
-structure CoreStruct where
-  name : String
-  fields : List (String × CoreType)
-  deriving BEq, Repr
-
-structure CoreStateDecl where
-  name : String
-  ty : CoreType
-  initializer : Option CoreExpr
-  deriving BEq, Repr
-
-structure CoreEntrypoint where
-  name : String
-  params : List (String × CoreType)
-  retTy : CoreType
-  body : List CoreStmt
-  deriving BEq, Repr
-
-structure CoreEvent where
-  name : String
-  fields : List (String × CoreType)
-  deriving BEq, Repr
-
-structure CoreModule where
-  name : String
-  structs : List CoreStruct
-  state : List CoreStateDecl
-  entrypoints : List CoreEntrypoint
-  events : List CoreEvent
-  deriving Repr
-
-end ProofForge.IR.Core
-```
-
-- [ ] **Step 2: Create `ProofForge/IR/Core/Error.lean`**
-
-```lean
-namespace ProofForge.IR.Core.Error
-
-inductive ElabError
-  | unsupported (node : String)
-  | typeMismatch (expected : String) (actual : String)
-  | other (msg : String)
-  deriving Repr
-
-inductive ValidationError
-  | duplicateName (name : String)
-  | unknownType (name : String)
-  | uninitializedState (name : String)
-  | other (msg : String)
-  deriving Repr
-
-inductive CapabilityError
-  | unsupported (target : String) (construct : String)
-  deriving Repr
-
-end ProofForge.IR.Core.Error
-```
-
-- [ ] **Step 3: Modify `ProofForge/IR.lean` to export Core IR**
-
-Add to the import/export list:
-
-```lean
-import ProofForge.IR.Core
-import ProofForge.IR.Core.Error
-import ProofForge.IR.Elaborate
-```
-
-(Note: `ProofForge.IR.Elaborate` does not exist yet; create a stub in Step 4 if the build fails.)
-
-- [ ] **Step 4: Run build**
-
-Run: `lake build`
-Expected: PASS (Core IR AST compiles).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add ProofForge/IR/Core.lean ProofForge/IR/Core/Error.lean ProofForge/IR.lean
-git commit -m "feat(ir): add Core IR AST and error types"
-```
-
----
-
-## Task 2: Core IR structural validation + smoke tests
-
-**Files:**
-- Create: `ProofForge/IR/Core/Validate.lean`
-- Create: `Tests/CoreIRSmoke.lean`
-- Modify: `lakefile.lean` (add `Tests/CoreIRSmoke` as a test if needed)
-- Test: `lake env lean --run Tests/CoreIRSmoke.lean`
-
-**Interfaces:**
-- Consumes: `CoreModule` from Task 1.
-- Produces: `ProofForge.IR.Core.Validate.validateModule : CoreModule → Except ValidationError Unit`.
-
-- [ ] **Step 1: Create `ProofForge/IR/Core/Validate.lean`**
-
-```lean
-namespace ProofForge.IR.Core.Validate
-
-open ProofForge.IR.Core ProofForge.IR.Core.Error
-
-def validateModule (m : CoreModule) : Except ValidationError Unit := do
-  -- Check duplicate state names
-  let mut seen : Std.HashSet String := {}
-  for s in m.state do
-    if seen.contains s.name then
-      .error (.duplicateName s.name)
-    seen := seen.insert s.name
-  -- Check duplicate entrypoint names
-  for e in m.entrypoints do
-    if seen.contains e.name then
-      .error (.duplicateName e.name)
-    seen := seen.insert e.name
-  .ok ()
-
-end ProofForge.IR.Core.Validate
-```
-
-- [ ] **Step 2: Create `Tests/CoreIRSmoke.lean`**
-
-```lean
-import ProofForge.IR.Core
-import ProofForge.IR.Core.Validate
-
-open ProofForge.IR.Core
-open ProofForge.IR.Core.Validate
-
-def counterCoreModule : CoreModule :=
-  { name := "Counter"
-  , structs := []
-  , state := [ { name := "count", ty := .u64, initializer := .some (.literal (.u64Lit 0)) } ]
-  , entrypoints :=
-      [ { name := "increment", params := [], retTy := .unit
-        , body := [ .effect (.storageWrite (.scalar 0) (.binary .add (.literal (.u64Lit 1)) (.local "count"))) ]
-        }
-      ]
-  , events := []
-  }
-
-def main : IO UInt32 := do
-  match validateModule counterCoreModule with
-  | .ok () =>
-    IO.println "CoreIRSmoke OK"
-    return 0
-  | .error e =>
-    IO.println s!"CoreIRSmoke FAIL: {repr e}"
-    return 1
-```
-
-- [ ] **Step 3: Run smoke**
-
-Run: `lake env lean --run Tests/CoreIRSmoke.lean`
-Expected: `CoreIRSmoke OK`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ProofForge/IR/Core/Validate.lean Tests/CoreIRSmoke.lean lakefile.lean
-git commit -m "test(ir): add Core IR validation smoke"
-```
-
----
-
-## Task 3: Surface → Core elaboration for Counter/ValueVault
-
-**Files:**
-- Create: `ProofForge/IR/Elaborate.lean`
-- Create: `ProofForge/IR/Elaborate/Smoke.lean`
-- Create: `Tests/CoreElabSmoke.lean`
-- Modify: `ProofForge/IR.lean`
-- Test: `lake env lean --run Tests/CoreElabSmoke.lean`
-
-**Interfaces:**
-- Consumes: `ProofForge.IR.Contract.Module` and `CoreModule` from Task 1.
-- Produces: `ProofForge.IR.Elaborate.elaborateModule : IR.Module → Except ElabError CoreModule`.
-
-- [ ] **Step 1: Create `ProofForge/IR/Elaborate.lean` with a partial elaborator**
-
-Implement enough to cover Counter and ValueVault. Start with a function that pattern-matches the Surface IR and returns Core IR, returning `ElabError.unsupported` for unhandled nodes.
-
-```lean
-namespace ProofForge.IR.Elaborate
-
-open ProofForge.IR.Contract
-open ProofForge.IR.Core
-open ProofForge.IR.Core.Error
-
-def elaborateType (t : ValueType) : Except ElabError CoreType :=
-  match t with
-  | .unit => .ok .unit
-  | .bool => .ok .bool
-  | .u8  => .ok .u8
-  | .u32 => .ok .u32
-  | .u64 => .ok .u64
-  | .u128 => .ok .u128
-  | .address => .ok .address
-  | .bytes => .ok .bytes
-  | .string => .ok .string
-  | .hash => .ok .hash
-  | .fixedArray e n => do .ok (.fixedArray (← elaborateType e) n)
-  | .array e => do .ok (.array (← elaborateType e))
-  | .structType n => .ok (.structType n)
-  | other => .error (.unsupported s!"type {repr other}")
-
-def elaborateExpr (e : Expr) : Except ElabError CoreExpr :=
-  match e with
-  | .literal l =>
-    match l with
-    | .nat n => .ok (.literal (.u64Lit n.toUInt64)) -- simplistic; refine per type later
-    | .bool b => .ok (.literal (.boolLit b))
-    | .string s => .ok (.literal (.stringLit s))
-    | _ => .error (.unsupported s!"literal {repr l}")
-  | .local name => .ok (.local name)
-  | .fieldAccess base field => do .ok (.fieldAccess (← elaborateExpr base) field)
-  | .arrayIndex base idx => do .ok (.arrayIndex (← elaborateExpr base) (← elaborateExpr idx))
-  | .binary op lhs rhs => do .ok (.binary (← elaborateBinOp op) (← elaborateExpr lhs) (← elaborateExpr rhs))
-  | _ => .error (.unsupported s!"expr {repr e}")
-where
-  elaborateBinOp : Expr.BinOp → Except ElabError BinaryOp
-    | .add => .ok .add
-    | .sub => .ok .sub
-    | .eq  => .ok .eq
-    | .lt  => .ok .lt
-    | other => .error (.unsupported s!"binop {repr other}")
-
-partial def elaborateStmt (s : Statement) : Except ElabError (List CoreStmt) :=
-  match s with
-  | .letBind name ty val => do
-      pure [ .letBind name (← elaborateType ty) (← elaborateExpr val) ]
-  | .assign lhs rhs => do
-      pure [ .assign (← elaborateLValue lhs) (← elaborateExpr rhs) ]
-  | .effect e => do
-      pure [ .effect (← elaborateEffect e) ]
-  | .ifElse cond thenSt elseSt => do
-      pure [ .ifElse (← elaborateExpr cond) (← thenSt.toList.mapM elaborateStmt).bind id (← elseSt.toList.mapM elaborateStmt).bind id ]
-  | .return val => do
-      pure [ .return (← elaborateExpr val) ]
-  | _ => .error (.unsupported s!"stmt {repr s}")
-where
-  elaborateLValue : LValue → Except ElabError Core.LValue
-    | .local name => .ok (.local name)
-    | .storageAccess acc => .ok (.storage (← elaborateStorageAccess acc))
-    | other => .error (.unsupported s!"lvalue {repr other}")
-  elaborateStorageAccess : StorageAccess → Except ElabError StoragePath
-    | .identifier name => .ok (.scalar 0) -- placeholder: resolve name to slot in plan layer
-    | other => .error (.unsupported s!"storage access {repr other}")
-  elaborateEffect : Effect → Except ElabError CoreEffect
-    | .storageWrite acc val => do .ok (.storageWrite (← elaborateStorageAccess acc) (← elaborateExpr val))
-    | .storageRead acc => do .ok (.storageRead (← elaborateStorageAccess acc))
-    | .eventEmit name args => do .ok (.eventEmit name (← args.mapM elaborateExpr))
-    | .assert cond => do .ok (.assert (← elaborateExpr cond) .none)
-    | .revert msg => .ok (.revert msg)
-    | other => .error (.unsupported s!"effect {repr other}")
-
-def elaborateModule (m : IR.Module) : Except ElabError CoreModule := do
-  let state ← m.state.mapM fun s => do
-    pure { name := s.name, ty := (← elaborateType s.ty), initializer := s.initializer.mapM elaborateExpr }
-  let entrypoints ← m.entrypoints.mapM fun e => do
-    pure { name := e.name
-         , params := e.params.map fun p => (p.name, (← elaborateType p.ty))
-         , retTy := (← elaborateType e.retTy)
-         , body := (← e.body.toList.mapM elaborateStmt).bind id
-         }
-  pure
-    { name := m.name
-    , structs := [] -- TODO: elaborate structs when needed
-    , state := state
-    , entrypoints := entrypoints
-    , events := []
-    }
-
-end ProofForge.IR.Elaborate
-```
-
-(The exact `ProofForge.IR.Contract` constructors will differ; adjust names and shapes to match the real `Contract.lean` definitions.)
-
-- [ ] **Step 2: Create `Tests/CoreElabSmoke.lean`**
-
-```lean
-import ProofForge.IR.Contract
-import ProofForge.IR.Elaborate
-
-open ProofForge.IR.Elaborate
-
-def main : IO UInt32 := do
-  let m := -- load a minimal Counter surface module fixture
-    { name := "Counter"
-    , state := [ { name := "count", ty := .u64, initializer := .some (.literal (.nat 0)) } ]
-    , entrypoints := [ { name := "increment", params := [], retTy := .unit, body := #[] } ]
-    , structs := []
-    , events := []
-    }
-  match elaborateModule m with
-  | .ok core =>
-    IO.println s!"CoreElabSmoke OK: {core.name}"
-    return 0
-  | .error e =>
-    IO.println s!"CoreElabSmoke FAIL: {repr e}"
-    return 1
-```
-
-- [ ] **Step 3: Run smoke**
-
-Run: `lake env lean --run Tests/CoreElabSmoke.lean`
-Expected: `CoreElabSmoke OK: Counter`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ProofForge/IR/Elaborate.lean Tests/CoreElabSmoke.lean
-git commit -m "feat(ir): add Surface → Core elaboration and smoke"
-```
-
----
-
-## Task 4: EVM CorePlan
-
-**Files:**
-- Create: `ProofForge/Backend/Evm/CorePlan.lean`
-- Modify: `ProofForge/Backend/Evm.lean`
-- Test: `lake build`
-
-**Interfaces:**
-- Consumes: `CoreModule` from Task 1.
-- Produces: `ProofForge.Backend.Evm.CorePlan.EvmCorePlan`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/Evm/CorePlan.lean`**
-
-```lean
-namespace ProofForge.Backend.Evm.CorePlan
-
-open ProofForge.IR.Core
-
-structure StorageSlotPlan where
-  path : StoragePath
-  slotExpr : Yul.Expr
-  deriving Repr
-
-structure ExprPlan where
-  expr : Yul.Expr
-  deriving Repr
-
-structure StmtPlan where
-  stmts : List Yul.Statement
-  deriving Repr
-
-structure EntrypointPlan where
-  name : String
-  selector : UInt32
-  params : List (String × CoreType)
-  body : List Yul.Statement
-  deriving Repr
-
-structure EvmCorePlan where
-  moduleName : String
-  stateSlots : List StorageSlotPlan
-  entrypoints : List EntrypointPlan
-  events : List EventPlan
-  constructor : Option (List Yul.Statement)
-  deriving Repr
-
--- Placeholder event plan; refine in Task 5.
-structure EventPlan where
-  name : String
-  topicCount : Nat
-  deriving Repr
-
-end ProofForge.Backend.Evm.CorePlan
-```
-
-- [ ] **Step 2: Implement `buildEvmCorePlan`**
-
-Add a function that assigns storage slots to state variables and builds per-entrypoint plans. Keep it minimal for Counter/ValueVault.
-
-```lean
-def buildEvmCorePlan (m : CoreModule) : EvmCorePlan :=
-  let stateSlots := m.state.enum.map fun (i, s) =>
-    { path := StoragePath.scalar i, slotExpr := Yul.Expr.literal i.toUInt256 }
-  let entrypoints := m.entrypoints.map fun e =>
-    { name := e.name
-    , selector := 0 -- TODO: compute selector from signature in Task 5
-    , params := e.params
-    , body := []    -- TODO: lower body in Task 5
-    }
-  { moduleName := m.name
-  , stateSlots := stateSlots
-  , entrypoints := entrypoints
-  , events := []
-  , constructor := .none
-  }
-```
-
-- [ ] **Step 3: Export from `ProofForge/Backend/Evm.lean`**
-
-Add:
-
-```lean
-import ProofForge.Backend.Evm.CorePlan
-```
-
-- [ ] **Step 4: Run build**
-
-Run: `lake build`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add ProofForge/Backend/Evm/CorePlan.lean ProofForge/Backend/Evm.lean
-git commit -m "feat(evm): add EvmCorePlan data structure"
-```
-
----
-
-## Task 5: EVM CoreLower + Yul output
-
-**Files:**
-- Create: `ProofForge/Backend/Evm/CoreLower.lean`
-- Create: `Tests/EvmCoreSmoke.lean`
-- Modify: `ProofForge/Backend/Evm.lean`
-- Test: `lake env lean --run Tests/EvmCoreSmoke.lean`
-
-**Interfaces:**
-- Consumes: `EvmCorePlan` from Task 4.
-- Produces: `ProofForge.Backend.Evm.CoreLower.lowerEvmCorePlan : EvmCorePlan → Yul.Object`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/Evm/CoreLower.lean`**
-
-```lean
-namespace ProofForge.Backend.Evm.CoreLower
-
-open ProofForge.Backend.Evm.CorePlan
-open ProofForge.Compiler.Yul
-
-def lowerEntrypoint (ep : EntrypointPlan) : Yul.FunctionDefinition :=
-  { name := ep.name
-  , args := ep.params.map Prod.fst
-  , rettype := []
-  , body := ep.body
-  }
-
-def lowerEvmCorePlan (p : EvmCorePlan) : Yul.Object :=
-  { name := p.moduleName
-  , code :=
-    { functions := p.entrypoints.map lowerEntrypoint
-    , statements := []
-    }
-  , subObjects := []
-  , data := []
-  }
-
-end ProofForge.Backend.Evm.CoreLower
-```
-
-- [ ] **Step 2: Create `Tests/EvmCoreSmoke.lean`**
-
-```lean
-import ProofForge.IR.Core
-import ProofForge.Backend.Evm.CorePlan
-import ProofForge.Backend.Evm.CoreLower
-import ProofForge.Compiler.Yul.Printer
-
-open ProofForge.IR.Core
-open ProofForge.Backend.Evm.CorePlan
-open ProofForge.Backend.Evm.CoreLower
-
-def counterModule : CoreModule :=
-  { name := "Counter"
-  , structs := []
-  , state := [ { name := "count", ty := .u64, initializer := .some (.literal (.u64Lit 0)) } ]
-  , entrypoints := [ { name := "increment", params := [], retTy := .unit, body := [] } ]
-  , events := []
-  }
-
-def main : IO UInt32 := do
-  let plan := buildEvmCorePlan counterModule
-  let yul := lowerEvmCorePlan plan
-  let rendered := renderObject yul
-  if rendered.contains "Counter" then
-    IO.println "EvmCoreSmoke OK"
-    return 0
-  else
-    IO.println "EvmCoreSmoke FAIL"
-    return 1
-```
-
-- [ ] **Step 3: Run smoke**
-
-Run: `lake env lean --run Tests/EvmCoreSmoke.lean`
-Expected: `EvmCoreSmoke OK`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ProofForge/Backend/Evm/CoreLower.lean Tests/EvmCoreSmoke.lean
-git commit -m "feat(evm): add EvmCorePlan → Yul lowering and smoke"
-```
-
----
-
-## Task 6: Solana CorePlan skeleton
-
-**Files:**
-- Create: `ProofForge/Backend/Solana/CorePlan.lean`
-- Modify: `ProofForge/Backend/Solana.lean`
-- Test: `lake build`
-
-**Interfaces:**
-- Consumes: `CoreModule` from Task 1.
-- Produces: `ProofForge.Backend.Solana.CorePlan.SolanaCorePlan`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/Solana/CorePlan.lean`**
-
-```lean
-namespace ProofForge.Backend.Solana.CorePlan
-
-open ProofForge.IR.Core
-
-structure AccountPlan where
-  name : String
-  isMutable : Bool
-  deriving Repr
-
-structure EntrypointPlan where
-  name : String
-  params : List (String × CoreType)
-  body : List Asm.AstNode
-  deriving Repr
-
-structure SolanaCorePlan where
-  moduleName : String
-  accounts : List AccountPlan
-  stateLayout : List (String × Nat)
-  entrypoints : List EntrypointPlan
-  deriving Repr
-
-end ProofForge.Backend.Solana.CorePlan
-```
-
-- [ ] **Step 2: Implement `buildSolanaCorePlan` skeleton**
-
-```lean
-def buildSolanaCorePlan (m : CoreModule) : SolanaCorePlan :=
-  { moduleName := m.name
-  , accounts := [ { name := "data", isMutable := true } ]
-  , stateLayout := m.state.enum.map fun (i, s) => (s.name, i * 8)
-  , entrypoints := m.entrypoints.map fun e =>
-      { name := e.name, params := e.params, body := [] }
-  }
-```
-
-- [ ] **Step 3: Export from `ProofForge/Backend/Solana.lean`**
-
-Add:
-
-```lean
-import ProofForge.Backend.Solana.CorePlan
-```
-
-- [ ] **Step 4: Run build**
-
-Run: `lake build`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add ProofForge/Backend/Solana/CorePlan.lean ProofForge/Backend/Solana.lean
-git commit -m "feat(solana): add SolanaCorePlan skeleton"
-```
-
----
-
-## Task 7: Solana CoreLower skeleton
-
-**Files:**
-- Create: `ProofForge/Backend/Solana/CoreLower.lean`
-- Create: `Tests/SolanaCoreSmoke.lean`
-- Modify: `ProofForge/Backend/Solana.lean`
-- Test: `lake env lean --run Tests/SolanaCoreSmoke.lean`
-
-**Interfaces:**
-- Consumes: `SolanaCorePlan` from Task 6.
-- Produces: `ProofForge.Backend.Solana.CoreLower.lowerSolanaCorePlan : SolanaCorePlan → List Asm.AstNode`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/Solana/CoreLower.lean`**
-
-```lean
-namespace ProofForge.Backend.Solana.CoreLower
-
-open ProofForge.Backend.Solana.CorePlan
-open ProofForge.Backend.Solana.Asm
-
-def lowerSolanaCorePlan (p : SolanaCorePlan) : List AstNode :=
-  [ .section ".text"
-  , .global p.moduleName
-  ] ++ p.entrypoints.flatMap (fun _ => [ .nop ])
-
-end ProofForge.Backend.Solana.CoreLower
-```
-
-- [ ] **Step 2: Create `Tests/SolanaCoreSmoke.lean`**
-
-```lean
-import ProofForge.IR.Core
-import ProofForge.Backend.Solana.CorePlan
-import ProofForge.Backend.Solana.CoreLower
-
-open ProofForge.IR.Core
-open ProofForge.Backend.Solana.CorePlan
-
-def main : IO UInt32 := do
-  let m : CoreModule :=
-    { name := "Counter"
-    , structs := []
-    , state := [ { name := "count", ty := .u64, initializer := .some (.literal (.u64Lit 0)) } ]
-    , entrypoints := [ { name := "increment", params := [], retTy := .unit, body := [] } ]
-    , events := []
-    }
-  let plan := buildSolanaCorePlan m
-  let asm := lowerSolanaCorePlan plan
-  if asm.length > 0 then
-    IO.println "SolanaCoreSmoke OK"
-    return 0
-  else
-    IO.println "SolanaCoreSmoke FAIL"
-    return 1
-```
-
-- [ ] **Step 3: Run smoke**
-
-Run: `lake env lean --run Tests/SolanaCoreSmoke.lean`
-Expected: `SolanaCoreSmoke OK`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ProofForge/Backend/Solana/CoreLower.lean Tests/SolanaCoreSmoke.lean
-git commit -m "feat(solana): add SolanaCorePlan → asm skeleton and smoke"
-```
-
----
-
-## Task 8: WasmHost CorePlan skeleton
-
-**Files:**
-- Create: `ProofForge/Backend/WasmHost/CorePlan.lean`
-- Modify: `ProofForge/Backend/WasmHost.lean`
-- Test: `lake build`
-
-**Interfaces:**
-- Consumes: `CoreModule` from Task 1.
-- Produces: `ProofForge.Backend.WasmHost.CorePlan.WasmCorePlan`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/WasmHost/CorePlan.lean`**
-
-```lean
-namespace ProofForge.Backend.WasmHost.CorePlan
-
-open ProofForge.IR.Core
-
-structure MemoryPlan where
-  stateOffset : Nat
-  stateSize : Nat
-  deriving Repr
-
-structure FunctionPlan where
-  name : String
-  params : List (String × CoreType)
-  retTy : CoreType
-  body : List Wasm.Instr
-  deriving Repr
-
-structure WasmCorePlan where
-  moduleName : String
-  memory : MemoryPlan
-  functions : List FunctionPlan
-  imports : List Wasm.Import
-  deriving Repr
-
-end ProofForge.Backend.WasmHost.CorePlan
-```
-
-- [ ] **Step 2: Implement `buildWasmCorePlan` skeleton**
-
-```lean
-def buildWasmCorePlan (m : CoreModule) : WasmCorePlan :=
-  { moduleName := m.name
-  , memory := { stateOffset := 0, stateSize := m.state.length * 8 }
-  , functions := m.entrypoints.map fun e =>
-      { name := e.name, params := e.params, retTy := e.retTy, body := [] }
-  , imports := []
-  }
-```
-
-- [ ] **Step 3: Export from `ProofForge/Backend/WasmHost.lean`**
-
-Add:
-
-```lean
-import ProofForge.Backend.WasmHost.CorePlan
-```
-
-- [ ] **Step 4: Run build**
-
-Run: `lake build`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add ProofForge/Backend/WasmHost/CorePlan.lean ProofForge/Backend/WasmHost.lean
-git commit -m "feat(wasm): add WasmCorePlan skeleton"
-```
-
----
-
-## Task 9: WasmHost CoreLower skeleton
-
-**Files:**
-- Create: `ProofForge/Backend/WasmHost/CoreLower.lean`
-- Create: `Tests/WasmHostCoreSmoke.lean`
-- Modify: `ProofForge/Backend/WasmHost.lean`
-- Test: `lake env lean --run Tests/WasmHostCoreSmoke.lean`
-
-**Interfaces:**
-- Consumes: `WasmCorePlan` from Task 8.
-- Produces: `ProofForge.Backend.WasmHost.CoreLower.lowerWasmCorePlan : WasmCorePlan → Wasm.Module`.
-
-- [ ] **Step 1: Create `ProofForge/Backend/WasmHost/CoreLower.lean`**
-
-```lean
-namespace ProofForge.Backend.WasmHost.CoreLower
-
-open ProofForge.Backend.WasmHost.CorePlan
-open ProofForge.Compiler.Wasm
-
-def lowerWasmCorePlan (p : WasmCorePlan) : Module :=
-  { name := p.moduleName
-  , funcs := p.functions.map fun f =>
-      { name := f.name
-      , params := f.params.map (fun p => (p.1, valueTypeName p.2))
-      , ret := valueTypeName f.retTy
-      , locals := []
-      , body := f.body
-      }
-  , imports := p.imports
-  , exports := p.functions.map fun f => { name := f.name, kind := .func f.name }
-  , memory := .some { min := 1 }
-  }
-
-end ProofForge.Backend.WasmHost.CoreLower
-```
-
-- [ ] **Step 2: Create `Tests/WasmHostCoreSmoke.lean`**
-
-```lean
-import ProofForge.IR.Core
-import ProofForge.Backend.WasmHost.CorePlan
-import ProofForge.Backend.WasmHost.CoreLower
-
-open ProofForge.IR.Core
-open ProofForge.Backend.WasmHost.CorePlan
-
-def main : IO UInt32 := do
-  let m : CoreModule :=
-    { name := "Counter"
-    , structs := []
-    , state := [ { name := "count", ty := .u64, initializer := .some (.literal (.u64Lit 0)) } ]
-    , entrypoints := [ { name := "increment", params := [], retTy := .unit, body := [] } ]
-    , events := []
-    }
-  let plan := buildWasmCorePlan m
-  let wasm := lowerWasmCorePlan plan
-  if wasm.funcs.length > 0 then
-    IO.println "WasmHostCoreSmoke OK"
-    return 0
-  else
-    IO.println "WasmHostCoreSmoke FAIL"
-    return 1
-```
-
-- [ ] **Step 3: Run smoke**
-
-Run: `lake env lean --run Tests/WasmHostCoreSmoke.lean`
-Expected: `WasmHostCoreSmoke OK`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ProofForge/Backend/WasmHost/CoreLower.lean Tests/WasmHostCoreSmoke.lean
-git commit -m "feat(wasm): add WasmCorePlan → Wasm.Module skeleton and smoke"
-```
-
----
-
-## Task 10: Target registry + CLI wiring
-
-**Files:**
-- Create: `ProofForge/Target/CoreBackend.lean`
+- Create: `Tests/Canonical/RegistryBoundary.lean`
 - Modify: `ProofForge/Target/Registry.lean`
 - Modify: `ProofForge/Target/BackendRegistry.lean`
 - Modify: `ProofForge/Cli/TargetDriver.lean`
-- Test: `lake env proof-forge --list-targets` shows `evm-core`, `solana-sbpf-asm-core`, `wasm-near-core`
+- Modify: `justfile`
+- Test: `Tests/TargetRegistry.lean`
 
 **Interfaces:**
-- Consumes: `EvmCorePlan`, `SolanaCorePlan`, `WasmCorePlan` and their lowerers.
-- Produces: `TargetBackend` instances for the three `-core` targets.
+- Consumes: current target registry and CLI driver tables.
+- Produces: exact public registry with no pipeline-variant target and no fail-open `core-product` recipe.
 
-- [ ] **Step 1: Create `ProofForge/Target/CoreBackend.lean`**
+- [ ] **Step 1: Write the failing registry boundary test**
 
 ```lean
-namespace ProofForge.Target.CoreBackend
+import ProofForge.Target.Registry
 
-open ProofForge.IR.Core
-open ProofForge.IR.Elaborate
-open ProofForge.IR.Core.Validate
 open ProofForge.Target
 
-structure CoreBackendConfig (Plan Code : Type) where
-  family : TargetFamily
-  buildPlan : CoreModule → Plan
-  lowerToCode : Plan → Code
-  printCode : Code → String
-  artifactKind : ArtifactKind
+def expectedIds : Array String := #[
+  "evm",
+  "solana-sbpf-asm",
+  "wasm-near",
+  "wasm-cosmwasm",
+  "wasm-cloudflare-workers",
+  "wasm-stellar-soroban",
+  "move-aptos",
+  "move-sui",
+  "psy-dpn",
+  "aleo-leo"
+]
 
-def mkCoreBackend (cfg : CoreBackendConfig Plan Code) : TargetBackend :=
-  { validateModule? := fun m =>
-      match elaborateModule m with
-      | .error e => .error (.other (repr e))
-      | .ok core =>
-        match validateModule core with
-        | .error e => .error (.other (repr e))
-        | .ok () => .ok ()
-  , ensurePlan? := fun m =>
-      match elaborateModule m with
-      | .error e => .error (.other (repr e))
-      | .ok core => .ok (cfg.buildPlan core)
-  , ensurePackage? := fun plan _ =>
-      let code := cfg.lowerToCode plan
-      .ok { artifact := cfg.printCode code, metadata := "" }
-  }
+def require (condition : Bool) (message : String) : IO Unit :=
+  if condition then pure () else throw <| IO.userError message
 
-end ProofForge.Target.CoreBackend
+def main : IO Unit := do
+  require (knownIds == expectedIds) s!"unexpected public targets: {knownIds}"
+  require (!knownIds.any (·.endsWith "-core")) "pipeline target leaked into registry"
+  IO.println "canonical-registry-boundary: ok"
 ```
 
-- [ ] **Step 2: Add experimental target profiles in `ProofForge/Target/Registry.lean`**
+- [ ] **Step 2: Run the test and confirm the current spike fails**
 
-Add entries to `TargetProfile.all`:
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/RegistryBoundary.lean
+```
+
+Expected: FAIL because at least one public ID ends with `-core`.
+
+- [ ] **Step 3: Remove the three Core profiles and dispatch entries**
+
+Delete the Core profile values and their entries from `allIncludingDeprecated`,
+`BackendRegistry`, and the CLI driver table. Remove the fail-open
+`core-product` and `core-*-smoke` recipes. Keep the implementation files
+temporarily compiled so later tasks can replace them without hiding work.
+
+- [ ] **Step 4: Run registry and documentation truthfulness gates**
+
+```bash
+lake env lean --run Tests/Canonical/RegistryBoundary.lean
+just target-registry
+just target-backend
+just target-support
+just registry-command
+git diff --check
+```
+
+Expected: all commands pass and generated backend status remains unchanged.
+
+- [ ] **Step 5: Commit only the registry-boundary files**
+
+```bash
+git add Tests/Canonical/RegistryBoundary.lean ProofForge/Target/Registry.lean ProofForge/Target/BackendRegistry.lean ProofForge/Cli/TargetDriver.lean justfile
+git commit -m "fix(target): keep canonical pipeline internal"
+```
+
+### Task 2: Freeze and Classify Legacy IR
+
+**Files:**
+- Create: `ProofForge/IR/Legacy/Classification.lean`
+- Create: `Tests/Canonical/LegacyInventory.lean`
+- Create: `scripts/canonical/check-legacy-freeze.sh`
+- Modify: `ProofForge/IR.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces: `LegacyDisposition`, `LegacyDecision`, exhaustive
+  `classifyExpr`, `classifyEffect`, `classifyStatement`, and
+  `classifySpecFields`.
+- Guarantees: every current Legacy constructor has an owner before the adapter
+  can accept it.
+
+- [ ] **Step 1: Add a failing inventory test**
 
 ```lean
-{ id := "evm-core"
-, family := .evm
-, maturity := .experimental
-, inputModes := [.contractSource]
-, defaultArtifactKinds := [.yul]
-, supportedArtifactKinds := [.yul, .binRuntime]
-, ...
-}
+import ProofForge.IR.Legacy.Classification
+
+open ProofForge.IR.Legacy
+
+def require (condition : Bool) (message : String) : IO Unit :=
+  if condition then pure () else throw <| IO.userError message
+
+def main : IO Unit := do
+  require (allDecisions.all fun decision => decision.reason.trim != "")
+    "legacy decision without reason"
+  require (allDecisions.all fun decision => decision.owner.trim != "")
+    "legacy decision without owner"
+  require (allNodeTags.eraseDups.size == allNodeTags.size)
+    "duplicate legacy node tag"
+  require (contractSpecFieldDecisions.map (·.field) == expectedContractSpecFields)
+    "ContractSpec field inventory drift"
+  IO.println "canonical-legacy-inventory: ok"
 ```
 
-(Similarly for `solana-sbpf-asm-core` and `wasm-near-core`.)
+Run:
 
-- [ ] **Step 3: Wire backends in `ProofForge/Target/BackendRegistry.lean`**
+```bash
+lake env lean --run Tests/Canonical/LegacyInventory.lean
+```
+
+Expected: FAIL because the classification module does not exist.
+
+- [ ] **Step 2: Define the classification contract**
 
 ```lean
-def evmCoreBackend : TargetBackend :=
-  CoreBackend.mkCoreBackend
-    { family := .evm
-    , buildPlan := Evm.CorePlan.buildEvmCorePlan
-    , lowerToCode := Evm.CoreLower.lowerEvmCorePlan
-    , printCode := fun obj => Yul.Printer.renderObject obj
-    , artifactKind := .yul
-    }
+inductive LegacyDisposition
+  | preserve
+  | normalize
+  | materialization
+  | evidence
+  | reject
+  deriving BEq, Repr
 
-def solanaCoreBackend : TargetBackend := ...
-def wasmHostCoreBackend : TargetBackend := ...
+structure LegacyDecision where
+  nodeTag : String
+  disposition : LegacyDisposition
+  owner : String
+  reason : String
+  deriving BEq, Repr
 ```
 
-- [ ] **Step 4: Register CLI handlers in `ProofForge/Cli/TargetDriver.lean`**
+Use an explicit match arm for every current constructor. The initial accepted
+runtime fragment is:
 
-Map the new target ids to the new backends in the driver registry.
+| Legacy group | Initial disposition |
+|---|---|
+| fixed-width literals, local, scalar arithmetic/comparison/boolean | preserve/normalize |
+| scalar read/write/assign-op, context read, event emit | normalize |
+| let/bind/assign/assert/revert/if/bounded loop/return | normalize |
+| structs, maps, fixed/dynamic arrays, storage paths | reject until their Core validator and semantics tasks land |
+| crosscalls and target-only receiver checks | reject until a typed portable primitive or HostOp handler exists |
+| NEAR promise constructors | reject until Task 14 |
+| selector/ABI/event words, allocator, constructor, upgrade/proxy, intents | materialization |
+| Quint/Lean invariants, source provenance | evidence |
 
-- [ ] **Step 5: Run CLI check**
+Do not use wildcard match arms. A new constructor must make this module fail to
+compile until it receives a decision.
 
-Run: `lake env proof-forge --list-targets`
-Expected: output contains `evm-core`, `solana-sbpf-asm-core`, `wasm-near-core`.
+- [ ] **Step 3: Add the freeze script**
+
+`scripts/canonical/check-legacy-freeze.sh` must fail when a diff adds a line
+matching `^[[:space:]]*|\` inside the `Expr`, `Effect`, or `Statement`
+declarations without also changing `Legacy/Classification.lean`. It prints:
+
+```text
+legacy-freeze: IR.Contract changed without classification update
+```
+
+Add a `legacy-freeze` recipe, but do not add it to `just check` until the
+current branch passes it.
+
+- [ ] **Step 4: Run the inventory and freeze tests**
+
+```bash
+lake env lean --run Tests/Canonical/LegacyInventory.lean
+just legacy-freeze
+lake build
+git diff --check
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add ProofForge/IR/Legacy/Classification.lean Tests/Canonical/LegacyInventory.lean scripts/canonical/check-legacy-freeze.sh ProofForge/IR.lean justfile
+git commit -m "refactor(ir): freeze and classify legacy contract IR"
+```
+
+---
+
+## Wave 1: Build the Canonical Core
+
+### Task 3: Replace the Spike AST with Logical Typed Core
+
+**Files:**
+- Create: `ProofForge/IR/Core/Id.lean`
+- Create: `ProofForge/IR/Core/Type.lean`
+- Create: `ProofForge/IR/Core/Storage.lean`
+- Create: `ProofForge/IR/Core/Syntax.lean`
+- Rewrite: `ProofForge/IR/Core.lean`
+- Create: `Tests/Canonical/CoreSchema.lean`
+- Modify: `ProofForge/IR/Core/Error.lean`
+
+**Interfaces:**
+- Produces: `TypeId`, `StateId`, `FunctionId`, `EventId`, `BlockId`,
+  `ValueId`, `ValueDef`, `ValueRef`, `CoreType`, `StateShape`,
+  `StorageRef`, `Instruction`, `Terminator`, `Block`, `Function`,
+  and `Module`.
+- Removes: numeric storage slots, nested effectful expressions, string HostOp
+  stubs, and statement-tree control flow from canonical Core.
+
+- [ ] **Step 1: Write schema tests that the spike cannot satisfy**
+
+The test constructs six distinct logical state declarations, verifies that two
+`StateId` values cannot alias by layout number, and checks:
+
+```lean
+def checkedAdd : InstructionOp :=
+  .pure (.arithmetic .add .checked
+    { id := ⟨0⟩, type := .u64 }
+    { id := ⟨1⟩, type := .u64 })
+
+def wrappingAdd : InstructionOp :=
+  .pure (.arithmetic .add .wrapping
+    { id := ⟨0⟩, type := .u64 }
+    { id := ⟨1⟩, type := .u64 })
+
+#eval checkedAdd != wrappingAdd
+```
+
+It also constructs scalar, map, fixed-array, dynamic-array, and record
+`StateShape` values and a storage path rooted at `StateId`, never at `Nat`.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/CoreSchema.lean
+```
+
+Expected: FAIL because the required modules and types do not exist.
+
+- [ ] **Step 2: Implement the ID, type, and storage modules**
+
+Use separate `ValueDef` and `ValueRef`:
+
+```lean
+structure ValueDef where
+  id : ValueId
+  type : CoreType
+  deriving BEq, Repr
+
+structure ValueRef where
+  id : ValueId
+  type : CoreType
+  deriving BEq, Repr
+```
+
+`StorageRef.root` is `StateId`; `StorageSegment` contains typed
+`mapKey`, `index`, and resolved `FieldId`. No Core file may define
+`slot : Nat`, `accountOffset`, or `keyPtr`.
+
+- [ ] **Step 3: Implement ANF/CFG syntax**
+
+`Instruction.results : Array ValueDef`. Effectful loads, context reads, and
+HostOps use those results. `Block.params : Array ValueDef`. Every block has
+one `Terminator`. `Terminator.jump` carries `Option LoopBound`; a cycle
+without one is invalid.
+
+- [ ] **Step 4: Run schema and build gates**
+
+```bash
+lake env lean --run Tests/Canonical/CoreSchema.lean
+lake build
+rg -n "slot : Nat|accountOffset|keyPtr" ProofForge/IR/Core
+git diff --check
+```
+
+Expected: test/build pass and `rg` returns no matches.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add ProofForge/IR/Core.lean ProofForge/IR/Core/Id.lean ProofForge/IR/Core/Type.lean ProofForge/IR/Core/Storage.lean ProofForge/IR/Core/Syntax.lean ProofForge/IR/Core/Error.lean Tests/Canonical/CoreSchema.lean
+git commit -m "refactor(core): define logical typed ANF and CFG"
+```
+
+### Task 4: Add Canonical Contract Ownership and Full Validation
+
+**Files:**
+- Create: `ProofForge/IR/Canonical.lean`
+- Rewrite: `ProofForge/IR/Core/Validate.lean`
+- Create: `Tests/Canonical/CoreValidate.lean`
+- Create: `Tests/Canonical/EvidenceIsolation.lean`
+- Modify: `ProofForge/IR.lean`
+
+**Interfaces:**
+- Produces: `CanonicalContract`, `CanonicalEvidence`,
+  `CanonicalBundle`, `CheckedCanonicalContract`, and
+  `validateCanonical : CanonicalContract -> Except ValidationError CheckedCanonicalContract`.
+- Guarantees: plan builders receive a checked runtime/materialization contract
+  and never receive evidence.
+
+- [ ] **Step 1: Write the failing negative-validation matrix**
+
+`Tests/Canonical/CoreValidate.lean` must use a helper
+`expectError : ValidationErrorTag -> CanonicalContract -> IO Unit` and cover:
+
+| Invalid input | Expected tag |
+|---|---|
+| duplicate state/value/block ID | `duplicateId` |
+| unknown struct/state/function/event | `unknownReference` |
+| literal outside fixed-width range | `literalOutOfRange` |
+| use before definition or non-dominating definition | `invalidDominance` |
+| wrong operand/result/block-argument type | `typeMismatch` |
+| map key on scalar or wrong map key type | `invalidStoragePath` |
+| array index with non-integer type | `invalidStoragePath` |
+| CFG cycle without `LoopBound` | `missingLoopBound` |
+| return arity/type mismatch | `invalidReturn` |
+| interface references unknown function | `invalidInterface` |
+| constructor binding references unknown state | `invalidMaterialization` |
+
+Run and expect a missing API failure:
+
+```bash
+lake env lean --run Tests/Canonical/CoreValidate.lean
+```
+
+- [ ] **Step 2: Define canonical ownership**
+
+`CanonicalContract` contains `Core.Module`, `InterfaceContract`,
+`MaterializationContract`, and typed capability requirements.
+`CanonicalEvidence` contains only source maps, verification annotations, and
+Legacy classification evidence. Do not place selector, ABI, constructor,
+upgrade, proxy, allocator, or capability data in evidence.
+
+- [ ] **Step 3: Implement validation in fixed order**
+
+Run passes in this order so diagnostics are deterministic:
+
+1. symbol uniqueness and declaration tables;
+2. state-shape and interface/materialization references;
+3. CFG shape, reachability, and cycle bounds;
+4. dominance and value environments;
+5. instruction input/result typing;
+6. terminator and return typing;
+7. capability and HostOp references.
+
+Each error records function, block, instruction index, and source span when
+available.
+
+- [ ] **Step 4: Prove evidence isolation with deterministic output**
+
+`Tests/Canonical/EvidenceIsolation.lean` creates two bundles with identical
+`CheckedCanonicalContract` and different evidence, then verifies:
+
+```lean
+require (bundleA.contract == bundleB.contract) "contract changed"
+require (capabilityRequirements bundleA.contract ==
+  capabilityRequirements bundleB.contract) "evidence changed capabilities"
+```
+
+The target artifact equality check is added per backend in Tasks 8-10.
+
+- [ ] **Step 5: Run and commit**
+
+```bash
+lake env lean --run Tests/Canonical/CoreValidate.lean
+lake env lean --run Tests/Canonical/EvidenceIsolation.lean
+lake build
+git diff --check
+git add ProofForge/IR/Canonical.lean ProofForge/IR/Core/Validate.lean Tests/Canonical/CoreValidate.lean Tests/Canonical/EvidenceIsolation.lean ProofForge/IR.lean
+git commit -m "feat(core): validate canonical contract ownership"
+```
+
+### Task 5: Add Executable Core Semantics and Proof Anchors
+
+**Files:**
+- Create: `ProofForge/IR/Core/Semantics.lean`
+- Create: `ProofForge/IR/Core/Semantics/Lemmas.lean`
+- Create: `Tests/Canonical/CoreSemantics.lean`
+- Create: `Tests/Canonical/CoreSemanticsProofs.lean`
+- Modify: `ProofForge/IR/Core.lean`
+
+**Interfaces:**
+- Produces: `CoreValue`, `LogicalState`, `Machine`, `ObservableTrace`,
+  `HostSemantics`, and fuel-bounded `execute`.
+- Produces proof anchors: `write_read_same`, `write_read_other`,
+  `map_key_separation`, `array_index_separation`.
+
+- [ ] **Step 1: Write failing semantic scenarios**
+
+Cover all of these in `Tests/Canonical/CoreSemantics.lean`:
+
+- two logical scalar states remain isolated;
+- wrapping `u8 255 + 1` returns zero;
+- checked `u8 255 + 1` returns overflow error;
+- divide by zero, failed assert, and explicit revert have distinct errors;
+- map keys and array indices remain isolated;
+- array out-of-bounds fails;
+- branch and block arguments select the correct return;
+- bounded loop consumes the declared number of iterations;
+- a missing HostSemantics binding fails instead of returning a default.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/CoreSemantics.lean
+```
+
+Expected: FAIL because Core semantics does not exist.
+
+- [ ] **Step 2: Implement a total fuel-bounded machine**
+
+`execute` validates first and returns:
+
+```lean
+def execute
+    (host : HostSemantics)
+    (fuel : Nat)
+    (contract : CheckedCanonicalContract)
+    (entrypoint : FunctionId)
+    (args : Array CoreValue)
+    (state : LogicalState) :
+    Except RuntimeError ExecutionResult
+```
+
+Do not use `partial def` for execution. Missing state defaults are derived
+from the declared Core type; never hard-code `.u64 0`.
+
+- [ ] **Step 3: Add the four storage lemmas and arithmetic examples**
+
+`Tests/Canonical/CoreSemanticsProofs.lean` imports the lemma module and
+contains `example` proofs for same-path read-after-write, different-state
+isolation, map-key isolation, array-index isolation, and checked/wrapping
+distinction.
+
+- [ ] **Step 4: Run and commit**
+
+```bash
+lake env lean --run Tests/Canonical/CoreSemantics.lean
+lake env lean Tests/Canonical/CoreSemanticsProofs.lean
+lake build
+git diff --check
+git add ProofForge/IR/Core/Semantics.lean ProofForge/IR/Core/Semantics/Lemmas.lean Tests/Canonical/CoreSemantics.lean Tests/Canonical/CoreSemanticsProofs.lean ProofForge/IR/Core.lean
+git commit -m "feat(core): define executable canonical semantics"
+```
+
+---
+
+## Wave 2: Adapt Legacy Programs Without Losing Semantics
+
+### Task 6: Implement the Fail-Closed Legacy Adapter
+
+**Files:**
+- Create: `ProofForge/IR/Legacy/Adapter/Env.lean`
+- Create: `ProofForge/IR/Legacy/Adapter/Expr.lean`
+- Create: `ProofForge/IR/Legacy/Adapter/Statement.lean`
+- Create: `ProofForge/IR/Legacy/Adapter.lean`
+- Rewrite: `ProofForge/IR/Elaborate.lean` as a deprecated facade
+- Create: `Tests/Canonical/LegacyAdapter.lean`
+- Modify: `ProofForge/IR/Legacy/Classification.lean`
+- Modify: `ProofForge/IR.lean`
+
+**Interfaces:**
+- Produces:
+  `adaptLegacy : ContractSpec -> Except CanonicalizeError CanonicalBundle`.
+- Consumes: the exhaustive classification from Task 2 and Core builder types
+  from Tasks 3-4.
+- Initial accepted fragment: every construct used by the real Counter and
+  ValueVault fixtures.
+
+- [ ] **Step 1: Write failing adapter assertions against real fixtures**
+
+`Tests/Canonical/LegacyAdapter.lean` must adapt:
+
+```lean
+def counterSpec : ContractSpec :=
+  ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
+
+def vaultSpec : ContractSpec :=
+  ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
+```
+
+Assert the following facts, not only `.isOk`:
+
+- Counter has one distinct state and three functions;
+- ValueVault has six distinct `StateId` values and seven functions;
+- every scalar load/store points to the declaration with the same source name;
+- `checkpointId` becomes a value-producing context instruction;
+- every event and return remains in its original effect order;
+- wrapping and checked arithmetic remain distinct;
+- entrypoint kind, mutability, parameters, return type, and dispatch hints
+  survive in `InterfaceContract`;
+- all `ContractSpec` fields are either materialization or evidence;
+- `u8 256`, `u32 2^32`, `u64 2^64`, and `u128 2^128` reject before
+  numeric narrowing;
+- an unknown state name returns `unknownState`, never state zero.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/LegacyAdapter.lean
+```
+
+Expected: FAIL because `adaptLegacy` is missing.
+
+- [ ] **Step 2: Build resolved adapter environments**
+
+`Adapter.Env` assigns deterministic IDs to types, states, functions, events,
+blocks, and values. Every lookup returns `Except CanonicalizeError`. The state
+environment stores source name, `StateId`, and `StateShape`; it never stores
+a target slot.
+
+- [ ] **Step 3: Normalize expressions to ordered ANF**
+
+Use a state monad over a value/block name supply. Expression normalization
+returns:
+
+```lean
+structure NormalizedValue where
+  instructions : Array Core.Instruction
+  value : Core.ValueRef
+```
+
+Evaluate operands left-to-right. Scalar storage and context reads append an
+instruction and return its result. Arithmetic records the node's explicit
+overflow flag. No dummy `Inhabited`, wildcard fallback, or `partial def` is
+allowed.
+
+- [ ] **Step 4: Normalize statements to CFG**
+
+`ifElse` creates true, false, and continuation blocks. `boundedFor` creates
+a backedge with `.atMost (stopExclusive - start)`. `whileLoop` is rejected
+until it can carry `.requiresUnbounded` and capability resolution. Return and
+revert terminate blocks; appending another statement to a terminated block is
+an error.
+
+- [ ] **Step 5: Preserve the complete `ContractSpec` envelope**
+
+Map artifact-affecting fields into `InterfaceContract` or
+`MaterializationContract`. Map invariant/source proof links into
+`CanonicalEvidence`. If a source field has no canonical owner, return
+`unclassifiedField`; do not ignore it.
+
+- [ ] **Step 6: Run and commit**
+
+```bash
+lake env lean --run Tests/Canonical/LegacyAdapter.lean
+lake build
+git diff --check
+git add ProofForge/IR/Legacy/Adapter/Env.lean ProofForge/IR/Legacy/Adapter/Expr.lean ProofForge/IR/Legacy/Adapter/Statement.lean ProofForge/IR/Legacy/Adapter.lean ProofForge/IR/Elaborate.lean Tests/Canonical/LegacyAdapter.lean ProofForge/IR/Legacy/Classification.lean ProofForge/IR.lean
+git commit -m "feat(core): adapt legacy contracts without semantic loss"
+```
+
+### Task 7: Add Legacy-to-Core Observable Parity
+
+**Files:**
+- Create: `ProofForge/IR/Legacy/Refinement.lean`
+- Create: `Tests/Canonical/LegacyParity.lean`
+- Create: `Tests/Canonical/LegacyRefinement.lean`
+- Modify: `ProofForge/IR/Legacy/Classification.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces: `LegacyScalarFragment`, `StateRelation`,
+  `ObservableRelation`, and
+  `adaptLegacy_preserves_scalar_fragment`.
+- Produces the first `canonical-core` recipe.
+
+- [ ] **Step 1: Write failing differential scenarios**
+
+`Tests/Canonical/LegacyParity.lean` runs both existing
+`ProofForge.IR.Semantics` and `Core.Semantics` for:
+
+| Contract | Scenario |
+|---|---|
+| Counter | initialize; increment twice; get |
+| ValueVault | initialize 100; deposit 25; charge fee; release; snapshot; getters |
+| Counter error | checked overflow fixture |
+| ValueVault error | release beyond balance fixture |
+
+Compare logical state by source state name, returned values, event names and
+arguments, structured errors, and ordered effect trace. Target layout and
+internal value IDs are intentionally excluded.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/LegacyParity.lean
+```
+
+Expected: FAIL until the relation and runner exist.
+
+- [ ] **Step 2: Define the supported fragment and local lemmas**
+
+`LegacyScalarFragment` accepts precisely the Legacy decisions marked
+`preserve` or `normalize` for Task 6. Prove local preservation for literals,
+locals, scalar load/store, context read, arithmetic, event, branch, return, and
+revert. Combine those lemmas into:
+
+```lean
+theorem adaptLegacy_preserves_scalar_fragment
+    (h : LegacyScalarFragment spec) :
+    ObservableRelation
+      (IR.Semantics.execute spec.module scenario)
+      (Core.Semantics.execute host fuel
+        (adaptLegacy spec).toChecked scenario)
+```
+
+- [ ] **Step 3: Register the canonical Core gate**
+
+```make
+canonical-core:
+    lake env lean --run Tests/Canonical/CoreSchema.lean
+    lake env lean --run Tests/Canonical/CoreValidate.lean
+    lake env lean --run Tests/Canonical/CoreSemantics.lean
+    lake env lean --run Tests/Canonical/LegacyAdapter.lean
+    lake env lean --run Tests/Canonical/LegacyParity.lean
+    lake env lean Tests/Canonical/LegacyRefinement.lean
+```
+
+Use the repository's `justfile` syntax, preserving the command order above.
+
+- [ ] **Step 4: Run and commit**
+
+```bash
+just canonical-core
+lake build
+git diff --check
+git add ProofForge/IR/Legacy/Refinement.lean Tests/Canonical/LegacyParity.lean Tests/Canonical/LegacyRefinement.lean ProofForge/IR/Legacy/Classification.lean justfile
+git commit -m "proof(core): relate legacy and canonical observables"
+```
+
+---
+
+## Wave 3: Typed HostOps and Existing Target Plans
+
+### Task 8: Add the Typed HostOp and Capability Contract
+
+**Files:**
+- Create: `ProofForge/IR/Core/HostOp.lean`
+- Create: `ProofForge/Target/HostOpRegistry.lean`
+- Create: `Tests/Canonical/HostOpCatalog.lean`
+- Create: `Tests/Canonical/HostOpFailClosed.lean`
+- Modify: `ProofForge/IR/Core/Syntax.lean`
+- Modify: `ProofForge/IR/Core/Validate.lean`
+- Modify: `ProofForge/IR/Core/Semantics.lean`
+- Modify: `ProofForge/Target/Plan.lean`
+- Modify: `ProofForge/Contract/Intent.lean`
+- Modify: `ProofForge/Contract/Builder.lean`
+- Modify: `ProofForge/Target/Adapter.lean`
+- Modify: `ProofForge/Backend/Solana/Extension/Parse.lean`
+- Modify: `ProofForge/Cli/TargetJson.lean`
+- Modify: `ProofForge/Cli/LearnArtifacts.lean`
+
+**Interfaces:**
+- Produces: `HostOpVersion`, `HostOpId`, `HostOpEffectClass`,
+  `HostOpSig`, `HostOpCall`, `HostOpCatalog`,
+  `HostOpHandler PlanOp`, and `HostOpRegistry PlanOp`.
+- Changes: `CapabilityCall.operation : CapabilityOperation`, with
+  `CapabilityOperation.builtin` and `.hostOp`.
+
+- [ ] **Step 1: Write the failing HostOp matrix**
+
+`HostOpCatalog.lean` defines two signatures with different exact versions and
+checks deterministic lookup. `HostOpFailClosed.lean` must reject:
+
+- unknown namespace or name;
+- unknown major, minor, or patch version;
+- duplicate catalog ID;
+- wrong argument arity or type;
+- wrong instruction result arity or type;
+- pure operation used with effectful signature;
+- missing required capability;
+- target has capability but no handler;
+- handler registered under a different target;
+- handler output fails target-plan validation.
+
+Run:
+
+```bash
+lake env lean --run Tests/Canonical/HostOpCatalog.lean
+lake env lean --run Tests/Canonical/HostOpFailClosed.lean
+```
+
+Expected: FAIL because HostOp is still a string stub.
+
+- [ ] **Step 2: Define exact IDs and signatures**
+
+```lean
+structure HostOpVersion where
+  major : Nat
+  minor : Nat
+  patch : Nat
+  deriving BEq, Ord, Repr
+
+structure HostOpId where
+  namespace : String
+  name : String
+  version : HostOpVersion
+  deriving BEq, Ord, Repr
+
+structure HostOpSig where
+  id : HostOpId
+  params : Array CoreType
+  results : Array CoreType
+  effectClass : HostOpEffectClass
+  requiredCapabilities : Array Capability
+  deriving BEq, Repr
+```
+
+Catalog lookup is exact. Duplicate registration is an error, not last-write
+wins. `HostOpCall` contains only ID and typed argument references; result
+definitions remain on the enclosing Core instruction.
+
+- [ ] **Step 3: Replace the string capability operation**
+
+```lean
+inductive CapabilityOperation
+  | builtin (name : String)
+  | hostOp (id : HostOpId)
+  deriving BEq, Repr
+
+def CapabilityOperation.render : CapabilityOperation -> String
+```
+
+Update production callers listed under **Files** to construct `.builtin`.
+Keep JSON and learn artifacts wire-compatible by rendering builtins to their
+old strings and HostOps to
+`namespace/name@major.minor.patch`. Update every compiler error from
+`.operation` use; do not add an untyped compatibility field.
+
+- [ ] **Step 4: Connect validation, capability resolution, and semantics**
+
+Core validation checks catalog signature and instruction results. Capability
+planning adds each HostOp signature's required capabilities. Target resolution
+requires both the capability and handler. Core execution delegates to
+`HostSemantics.eval`; absent semantics returns `unknownHostOp`.
+
+- [ ] **Step 5: Run focused and regression tests**
+
+```bash
+lake env lean --run Tests/Canonical/HostOpCatalog.lean
+lake env lean --run Tests/Canonical/HostOpFailClosed.lean
+lake env lean --run Tests/SharedTokenIntent.lean
+lake env lean --run Tests/TokenSpec.lean
+lake build
+git diff --check
+```
+
+Expected: all pass and existing builtin operation JSON strings remain stable.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add ProofForge/Target/CoreBackend.lean ProofForge/Target/Registry.lean ProofForge/Target/BackendRegistry.lean ProofForge/Cli/TargetDriver.lean
-git commit -m "feat(target): wire evm-core, solana-core, wasm-near-core experimental targets"
+git add ProofForge/IR/Core/HostOp.lean ProofForge/Target/HostOpRegistry.lean Tests/Canonical/HostOpCatalog.lean Tests/Canonical/HostOpFailClosed.lean ProofForge/IR/Core/Syntax.lean ProofForge/IR/Core/Validate.lean ProofForge/IR/Core/Semantics.lean ProofForge/Target/Plan.lean ProofForge/Contract/Intent.lean ProofForge/Contract/Builder.lean ProofForge/Target/Adapter.lean ProofForge/Backend/Solana/Extension/Parse.lean ProofForge/Cli/TargetJson.lean ProofForge/Cli/LearnArtifacts.lean
+git commit -m "feat(core): add typed versioned host operations"
 ```
 
----
-
-## Task 11: Product smoke tests + just recipes
+### Task 9: Add the Internal Dual-Run Compiler Harness
 
 **Files:**
+- Create: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Create: `Tests/Canonical/Emit.lean`
+- Create: `Tests/Canonical/PipelineMode.lean`
+- Modify: `ProofForge.lean`
 - Modify: `justfile`
-- Test: `just core-ir-build`, `just core-product`
 
-- [ ] **Step 1: Add just recipes**
+**Interfaces:**
+- Produces: `CompilerPipeline.legacy`, `.canonical`, and internal
+  `compileForTest`.
+- Does not modify CLI usage, `Target.knownIds`, backend registry, or release
+  packaging.
 
-Append to `justfile`:
+- [ ] **Step 1: Write a failing visibility test**
 
-```just
-# Core IR experimental targets
-core-ir-build:
-    lake build
+`PipelineMode.lean` checks that both modes are callable from Lean, while
+`Target.knownIds` and rendered CLI help contain neither `canonical` nor
+`-core` as a target.
 
-core-evm-smoke:
-    lake env proof-forge build --target evm-core --root . -o build/evm-core/Counter.yul Examples/Product/Counter.lean
+- [ ] **Step 2: Implement the internal interface**
 
-core-solana-smoke:
-    lake env proof-forge build --target solana-sbpf-asm-core --root . -o build/solana-core/Counter.s Examples/Product/Counter.lean
+```lean
+inductive CompilerPipeline
+  | legacy
+  | canonical
 
-core-wasm-smoke:
-    lake env proof-forge build --target wasm-near-core --root . -o build/wasm-core/Counter.wat Examples/Product/Counter.lean
-
-core-product: core-ir-build core-evm-smoke core-solana-smoke core-wasm-smoke
+def compileForTest
+    (mode : CompilerPipeline)
+    (targetId : String)
+    (spec : ContractSpec) :
+    IO (Except CompileDiagnostic ArtifactBundle)
 ```
 
-- [ ] **Step 2: Run recipes**
+`.legacy` calls the frozen baseline functions directly. `.canonical` calls
+`adaptLegacy`, `validateCanonical`, capability resolution, and the target's
+`buildFromCore`. Never catch canonical failure and retry legacy.
 
-Run: `just core-product`
-Expected: all three targets emit artifacts without crashing. The artifacts may be minimal/skeleton output in Phase 1.
+`Tests/Canonical/Emit.lean` parses explicit
+`--pipeline legacy|canonical --target <id> --fixture counter|value-vault --out <dir>`
+arguments and writes test artifacts under `build/canonical/`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Run and commit**
 
 ```bash
-git add justfile
-git commit -m "build(just): add core-ir experimental target recipes"
+lake env lean --run Tests/Canonical/PipelineMode.lean
+lake build
+git diff --check
+git add ProofForge/Compiler/CanonicalPipeline.lean Tests/Canonical/Emit.lean Tests/Canonical/PipelineMode.lean ProofForge.lean justfile
+git commit -m "test(core): add internal canonical dual-run harness"
 ```
 
----
-
-## Task 12: Final integration and gate run
+### Task 10: Feed Canonical Core into the Existing EVM Plan
 
 **Files:**
-- All of the above.
-- Test: `just build`, `just product`, `just core-product`
+- Create: `ProofForge/Backend/Evm/Plan/Core.lean`
+- Create: `Tests/Backend/Evm/CanonicalPlan.lean`
+- Create: `scripts/canonical/evm-parity.sh`
+- Modify: `ProofForge/Backend/Evm/Plan.lean`
+- Modify: `ProofForge/Backend/Evm/Lower.lean`
+- Modify: `ProofForge/Backend/Evm.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `Tests/Canonical/EvidenceIsolation.lean`
+- Modify: `justfile`
 
-- [ ] **Step 1: Run full build**
+**Interfaces:**
+- Produces:
+  `Evm.Plan.buildFromCore : CheckedCanonicalContract -> CapabilityPlan -> Except PlanError ModulePlan`.
+- Produces a lowerer whose semantic input is the existing `ModulePlan`, not a
+  Legacy module or final Yul AST.
 
-Run: `lake build`
-Expected: PASS.
+- [ ] **Step 1: Write failing plan assertions**
 
-- [ ] **Step 2: Run existing product gate**
+`CanonicalPlan.lean` checks Counter and ValueVault:
 
-Run: `just product`
-Expected: PASS (existing backends untouched).
+- physical slot allocation is injective over logical `StateId`;
+- selectors/ABI come from `InterfaceContract`, never zero fallback;
+- each non-empty Core function has a non-empty `StmtPlan` body;
+- checked/wrapping operations select different helpers;
+- return plans exist for every non-unit function;
+- evidence changes do not change `ModulePlan`;
+- missing capability, unsupported Core op, and incomplete return fail.
 
-- [ ] **Step 3: Run new Core IR product gate**
+- [ ] **Step 2: Build existing EVM semantic plans from Core**
 
-Run: `just core-product`
-Expected: PASS; artifacts emitted under `build/evm-core/`, `build/solana-core/`, `build/wasm-core/`.
+Map Core pure/storage/context/event/control instructions into the existing
+`ExprPlan`, `EffectPlan`, and `StmtPlan`. Resolve logical storage through
+`StorageLayout` in this builder. Move shared scalar/ABI/error types out of
+Legacy AST imports or map them explicitly to EVM plan types; the Core builder
+must not consume `IR.Expr`, `IR.Effect`, `IR.Statement`, or `IR.Module`.
 
-- [ ] **Step 4: Commit any final fixes**
+- [ ] **Step 3: Make lower/render fail closed**
+
+The canonical lowerer consumes the complete existing `ModulePlan`. Remove
+best-effort fallbacks for empty body, missing selector, unsupported expression,
+and missing return. Validate the produced Yul AST before printing.
+
+- [ ] **Step 4: Add toolchain and runtime parity**
+
+`scripts/canonical/evm-parity.sh` runs:
 
 ```bash
-git commit -m "chore(core-ir): final integration and gate fixes" || true
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline legacy --target evm --fixture counter --out build/canonical/evm/legacy-counter
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target evm --fixture counter --out build/canonical/evm/core-counter
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline legacy --target evm --fixture value-vault --out build/canonical/evm/legacy-vault
+lake env lean --run Tests/Canonical/Emit.lean -- --pipeline canonical --target evm --fixture value-vault --out build/canonical/evm/core-vault
+solc --strict-assembly --bin --overwrite -o build/canonical/evm/solc build/canonical/evm/core-counter/contract.yul
+solc --strict-assembly --bin --overwrite -o build/canonical/evm/solc build/canonical/evm/core-vault/contract.yul
 ```
 
----
+Then reuse the repository Foundry/Anvil scenario helpers to compare state,
+returns, events, and reverts between the two artifacts. Text equality is not
+required.
 
-## Self-Review
+- [ ] **Step 5: Run the EVM cutover gate**
 
-### Spec coverage
+```bash
+lake env lean --run Tests/Backend/Evm/CanonicalPlan.lean
+scripts/canonical/evm-parity.sh
+just evm-all
+git diff --check
+```
 
-| Spec section | Implementing task |
-|---|---|
-| Core IR AST | Task 1 |
-| Core IR supporting types | Task 1 |
-| Surface → Core elaboration | Task 3 |
-| Target Plan abstraction | Tasks 4, 6, 8 |
-| EVM CorePlan/CoreLower | Tasks 4, 5 |
-| Solana CorePlan/CoreLower | Tasks 6, 7 |
-| WasmHost CorePlan/CoreLower | Tasks 8, 9 |
-| CLI experimental target ids | Task 10 |
-| Product smokes (Counter/ValueVault) | Tasks 3, 11, 12 |
-| hostOp reserved position | Task 1 (`hostOpStub`) |
+Expected: all pass before `evm` routing changes.
 
-### Placeholder scan
+- [ ] **Step 6: Commit**
 
-- No `TBD`, `TODO`, or "implement later" in task steps.
-- Code blocks contain concrete Lean definitions.
-- Test commands include expected output.
-- All referenced types are defined in Task 1 or earlier in the plan.
+```bash
+git add ProofForge/Backend/Evm/Plan/Core.lean Tests/Backend/Evm/CanonicalPlan.lean scripts/canonical/evm-parity.sh ProofForge/Backend/Evm/Plan.lean ProofForge/Backend/Evm/Lower.lean ProofForge/Backend/Evm.lean ProofForge/Compiler/CanonicalPipeline.lean Tests/Canonical/EvidenceIsolation.lean justfile
+git commit -m "feat(evm): build existing plan from canonical core"
+```
 
-### Type consistency
+### Task 11: Feed Canonical Core into the Existing Solana Plan
 
-- `CoreModule` is defined in Task 1 and used consistently thereafter.
-- `TargetPlan` signature uses `Plan Code : Type` as fixed in the spec self-review.
-- `buildEvmCorePlan`, `buildSolanaCorePlan`, `buildWasmCorePlan` names are stable across tasks.
+**Files:**
+- Create: `ProofForge/Backend/Solana/Plan/Core.lean`
+- Create: `Tests/Backend/Solana/CanonicalPlan.lean`
+- Create: `scripts/canonical/solana-parity.sh`
+- Modify: `ProofForge/Backend/Solana/Plan.lean`
+- Modify: `ProofForge/Backend/Solana/SbpfAsm.lean`
+- Modify: `ProofForge/Backend/Solana.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `Tests/Canonical/EvidenceIsolation.lean`
+- Modify: `justfile`
 
----
+**Interfaces:**
+- Produces:
+  `Solana.Plan.buildFromCore : CheckedCanonicalContract -> CapabilityPlan -> Except PlanError SolanaModulePlan`.
+- Extends the existing plan with target-semantic `SolanaOpPlan`; it does not
+  store `AstNode` or Legacy declarations.
 
-## Execution Handoff
+- [ ] **Step 1: Write failing Solana plan tests**
 
-**Plan complete and saved to `docs/superpowers/plans/2026-07-11-core-ir-target-plan.md`. Two execution options:**
+Check:
 
-**1. Subagent-Driven (recommended)** - Dispatch a fresh subagent per task, review between tasks, fast iteration.
+- six ValueVault states receive distinct account-data ranges;
+- account/data/discriminator/parameter layout matches the legacy baseline;
+- function bodies contain semantic load/store/arithmetic/branch/return ops;
+- `SolanaLowerCtxSeed` contains resolved target layout, not
+  `IR.StructDecl`, `IR.StateDecl`, or `IR.Module`;
+- missing account capability, invalid alignment, unsupported Core operation,
+  and missing return fail;
+- different evidence produces identical plan and assembly.
 
-**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints for review.
+- [ ] **Step 2: Extend the existing plan with semantic operations**
 
-**Which approach?**
+Define `SolanaOpPlan` for validated constants, locals, account-data
+load/store, arithmetic, comparison, branch, log, assert/revert, and return.
+Target HostOp handlers added later also return this type. Physical account
+offsets are allocated here from logical state shapes.
+
+Replace legacy-bearing `SolanaLowerCtxSeed` fields with resolved
+`SolanaStateFieldPlan`, target struct layouts, input layout, manifest
+accounts, and extensions. The assembler consumes only the complete plan.
+
+- [ ] **Step 3: Make sBPF lowering fail closed**
+
+Add `lowerFromPlan : SolanaModulePlan -> Except LowerError (Array AstNode)`.
+Unknown plan op, invalid register assignment, missing epilogue, or verifier
+failure returns an error. The legacy wrapper may still build its old plan for
+dual-run, but canonical lowering cannot call `SbpfAsm.lowerModule` on a Legacy
+module.
+
+- [ ] **Step 4: Add assembler/execution parity**
+
+`solana-parity.sh` emits legacy and canonical Counter/ValueVault assembly,
+runs the repository assembler/encoder/verifier, and executes existing
+Counter/ValueVault sBPF scenarios. Compare return data, account bytes, logs,
+and errors.
+
+- [ ] **Step 5: Run the Solana cutover gate**
+
+```bash
+lake env lean --run Tests/Backend/Solana/CanonicalPlan.lean
+scripts/canonical/solana-parity.sh
+just solana-light
+git diff --check
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ProofForge/Backend/Solana/Plan/Core.lean Tests/Backend/Solana/CanonicalPlan.lean scripts/canonical/solana-parity.sh ProofForge/Backend/Solana/Plan.lean ProofForge/Backend/Solana/SbpfAsm.lean ProofForge/Backend/Solana.lean ProofForge/Compiler/CanonicalPipeline.lean Tests/Canonical/EvidenceIsolation.lean justfile
+git commit -m "feat(solana): build existing plan from canonical core"
+```
+
+### Task 12: Feed Canonical Core into the Existing NEAR Plan
+
+**Files:**
+- Create: `ProofForge/Backend/WasmHost/NearModulePlan/Core.lean`
+- Create: `Tests/Backend/Wasm/CanonicalNearPlan.lean`
+- Create: `scripts/canonical/near-parity.sh`
+- Modify: `ProofForge/Backend/WasmHost/NearModulePlan.lean`
+- Modify: `ProofForge/Backend/WasmHost/EmitWat.lean`
+- Modify: `ProofForge/Backend/WasmHost.lean`
+- Modify: `ProofForge/Compiler/CanonicalPipeline.lean`
+- Modify: `Tests/Canonical/EvidenceIsolation.lean`
+- Modify: `justfile`
+
+**Interfaces:**
+- Produces:
+  `NearModulePlan.buildFromCore : CheckedCanonicalContract -> CapabilityPlan -> Except PlanError NearModulePlan`.
+- Extends the existing plan with target-semantic `NearOpPlan`; it contains no
+  `Wasm.Insn` or Legacy declarations.
+
+- [ ] **Step 1: Write failing NEAR plan tests**
+
+Check:
+
+- logical scalar/map/array states receive distinct deterministic key prefixes;
+- interface, imports, memory, allocator, and scratch layout match legacy;
+- each non-unit function has a planned return;
+- `NearLowerCtxSeed` contains target layouts, not Legacy structs/module;
+- missing host import, invalid key layout, unsupported Core operation, and
+  missing return fail;
+- evidence changes do not alter plan or WAT.
+
+- [ ] **Step 2: Extend the existing plan with semantic function bodies**
+
+`NearOpPlan` covers constants, locals, storage host calls, arithmetic,
+comparison, branch, event/log, assert/revert, and return. Resolve logical state
+to NEAR key pointers and prefixes only in `buildFromCore`. Replace legacy
+`StructDecl` and `AllocatorConfig` seed values with explicit target layout
+and allocator plan types.
+
+- [ ] **Step 3: Lower only from the complete plan**
+
+Add `lowerFromPlan : NearModulePlan -> Except EmitError Wasm.Module`.
+Validate the Wasm AST before printing. An empty body for a non-unit function,
+missing host import, unsupported plan op, or stack type mismatch is an error.
+
+- [ ] **Step 4: Add WAT and offline-host parity**
+
+`near-parity.sh` emits both modes for Counter and ValueVault, runs
+`wat2wasm` on canonical WAT, and uses the existing offline host to compare
+state, return values, logs, and errors.
+
+- [ ] **Step 5: Run the NEAR cutover gate**
+
+```bash
+lake env lean --run Tests/Backend/Wasm/CanonicalNearPlan.lean
+scripts/canonical/near-parity.sh
+just emitwat-ci-smoke
+just near-target-first
+just wasm-near-host-smoke
+just near-offline-host-transaction
+git diff --check
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ProofForge/Backend/WasmHost/NearModulePlan/Core.lean Tests/Backend/Wasm/CanonicalNearPlan.lean scripts/canonical/near-parity.sh ProofForge/Backend/WasmHost/NearModulePlan.lean ProofForge/Backend/WasmHost/EmitWat.lean ProofForge/Backend/WasmHost.lean ProofForge/Compiler/CanonicalPipeline.lean Tests/Canonical/EvidenceIsolation.lean justfile
+git commit -m "feat(near): build existing plan from canonical core"
+```
+
