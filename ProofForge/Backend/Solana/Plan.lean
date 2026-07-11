@@ -55,6 +55,9 @@ structure SolanaStateFieldPlan where
   typeName : String
   byteSize : Nat
   absOff : Nat
+  keyByteSize : Nat := 0
+  valueByteSize : Nat := 0
+  capacity : Nat := 0
   deriving Repr, Inhabited, BEq
 
 /-- One account in the instruction account meta list. -/
@@ -114,6 +117,10 @@ inductive SolanaOpPlan where
   | boolLiteral (result : SolanaValuePlan) (value : Bool)
   | loadState (result : SolanaValuePlan) (stateId : Nat) (absOff byteSize : Nat)
   | storeState (stateId : Nat) (absOff byteSize : Nat) (value : SolanaValuePlan)
+  | loadMap (result : SolanaValuePlan) (stateId : Nat) (absOff capacity keyByteSize valueByteSize : Nat)
+      (key : SolanaValuePlan)
+  | storeMap (stateId : Nat) (absOff capacity keyByteSize valueByteSize : Nat)
+      (key value : SolanaValuePlan)
   | arithmetic (result : SolanaValuePlan) (op : SolanaArithmeticPlan)
       (checked : Bool) (lhs rhs : SolanaValuePlan)
   | compare (result : SolanaValuePlan) (op : SolanaComparePlan)
@@ -518,6 +525,60 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
       unless byteSize == 8 do throw { message := s!"canonical Solana store width {byteSize} is unsupported" }
       .ok #[canonicalLoadValue value .r2,
         .instruction { opcode := .stxdw, dst := some .r1, src := some .r2, off := some (.num absOff) }]
+  | .loadMap result _ absOff capacity keyByteSize valueByteSize key => do
+      unless keyByteSize == 8 && valueByteSize == 1 do
+        throw { message := "canonical Solana Set map requires u64 keys and bool values" }
+      let done := s!"core_map_load_{fnId}_{blockId}_{opIndex}_done"
+      let mut nodes := #[
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 0) },
+        canonicalLoadValue key .r2]
+      for index in [:capacity] do
+        let entryOff := absOff + index * (1 + keyByteSize + valueByteSize)
+        let next := s!"core_map_load_{fnId}_{blockId}_{opIndex}_{index}_next"
+        nodes := nodes ++ #[
+          .instruction { opcode := .ldxb, dst := some .r3, src := some .r1, off := some (.num entryOff) },
+          .instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym next) },
+          .instruction { opcode := .ldxdw, dst := some .r3, src := some .r1, off := some (.num (entryOff + 1)) },
+          .instruction { opcode := .jne, dst := some .r3, src := some .r2, off := some (.sym next) },
+          .instruction { opcode := .ldxb, dst := some .r4, src := some .r1, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := .ja, off := some (.sym done) },
+          .label next]
+      nodes := nodes ++ #[.label done, canonicalStoreValue result .r4]
+      return nodes
+  | .storeMap _ absOff capacity keyByteSize valueByteSize key value => do
+      unless keyByteSize == 8 && valueByteSize == 1 do
+        throw { message := "canonical Solana Set map requires u64 keys and bool values" }
+      let searchEmpty := s!"core_map_store_{fnId}_{blockId}_{opIndex}_empty"
+      let done := s!"core_map_store_{fnId}_{blockId}_{opIndex}_done"
+      let mut nodes := #[canonicalLoadValue key .r2, canonicalLoadValue value .r4]
+      for index in [:capacity] do
+        let entryOff := absOff + index * (1 + keyByteSize + valueByteSize)
+        let next := s!"core_map_store_{fnId}_{blockId}_{opIndex}_{index}_next"
+        nodes := nodes ++ #[
+          .instruction { opcode := .ldxb, dst := some .r3, src := some .r1, off := some (.num entryOff) },
+          .instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym next) },
+          .instruction { opcode := .ldxdw, dst := some .r3, src := some .r1, off := some (.num (entryOff + 1)) },
+          .instruction { opcode := .jne, dst := some .r3, src := some .r2, off := some (.sym next) },
+          .instruction { opcode := .stxb, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := .ja, off := some (.sym done) },
+          .label next]
+      nodes := nodes.push (.instruction { opcode := .ja, off := some (.sym searchEmpty) })
+      nodes := nodes.push (.label searchEmpty)
+      for index in [:capacity] do
+        let entryOff := absOff + index * (1 + keyByteSize + valueByteSize)
+        let next := s!"core_map_empty_{fnId}_{blockId}_{opIndex}_{index}_next"
+        nodes := nodes ++ #[
+          .instruction { opcode := .ldxb, dst := some .r3, src := some .r1, off := some (.num entryOff) },
+          .instruction { opcode := .jne, dst := some .r3, imm := some (.num 0), off := some (.sym next) },
+          .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 1) },
+          .instruction { opcode := .stxb, dst := some .r1, src := some .r3, off := some (.num entryOff) },
+          .instruction { opcode := .stxdw, dst := some .r1, src := some .r2, off := some (.num (entryOff + 1)) },
+          .instruction { opcode := .stxb, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := .ja, off := some (.sym done) },
+          .label next]
+      nodes := nodes ++ #[
+        .instruction { opcode := .ja, off := some (.sym "error_map_capacity") }, .label done]
+      return nodes
   | .arithmetic result op checked lhs rhs => do
       let base := #[canonicalLoadValue lhs .r2, canonicalLoadValue rhs .r3]
       let guard := if checked then
@@ -616,7 +677,7 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
   return nodes
 
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
-  | .literal result _ | .boolLiteral result _ | .loadState result .. |
+  | .literal result _ | .boolLiteral result _ | .loadState result .. | .loadMap result .. |
     .arithmetic result .. | .compare result .. | .context result _ => #[result]
   | _ => #[]
 
@@ -655,7 +716,9 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     .label "error_syscall",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 10) }, .instruction { opcode := .exit },
     .label "error_arithmetic",
-    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit }]
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
+    .label "error_map_capacity",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit }]
   match BpfEncode.toBpfBin nodes with
   | .ok _ => pure nodes
   | .error e => throw { message := s!"canonical Solana verifier rejected plan: {e.render}" }

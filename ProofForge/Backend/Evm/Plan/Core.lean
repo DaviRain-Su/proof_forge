@@ -210,7 +210,9 @@ def coreStorageLayout (module : Core.Module) (materialization : MaterializationC
       | none => throw { message := s!"missing EVM state symbol for Core state {decl.id.value}" }
     let (kind, type) ← match decl.shape with
       | .scalar type => pure (StateKind.scalar, coreTypeToValueType type)
-      | .map .. => throw { message := "map state is not yet materialized by the EVM Core plan" }
+      | .map keyType valueType capacity =>
+          pure (StateKind.map (coreTypeToValueType keyType) (capacity.getD 0),
+            coreTypeToValueType valueType)
       | .fixedArray .. => throw { message := "fixed-array state is not yet materialized by the EVM Core plan" }
       | .dynamicArray .. => throw { message := "dynamic-array state is not yet materialized by the EVM Core plan" }
       | .record .. => throw { message := "record state is not yet materialized by the EVM Core plan" }
@@ -284,18 +286,25 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       .ok #[StmtPlan.letBind (resultName instr) .hash
         (.hash (← valueExpr env arg))]
   | .storageLoad path => do
-      if !path.path.isEmpty then
-        .error { message := "storageLoad with non-scalar path not yet supported in EVM Core plan builder" }
-      else
+      match path.path with
+      | #[] =>
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
           (.effect (.storageScalarRead (← lookupStateName env path.root)))]
+      | #[.mapKey key] =>
+        let vt := coreTypeToValueType path.resultType
+        .ok #[StmtPlan.letBind (resultName instr) vt
+          (.effect (.storageMapGet (← lookupStateName env path.root) (← valueExpr env key)))]
+      | _ => .error { message := "EVM Core plan supports only one mapKey storage-load segment" }
   | .storageStore path value => do
-      if !path.path.isEmpty then
-        .error { message := "storageStore with non-scalar path not yet supported in EVM Core plan builder" }
-      else
+      match path.path with
+      | #[] =>
         .ok #[StmtPlan.effect (.storageScalarWrite (← lookupStateName env path.root)
           (← valueExpr env value))]
+      | #[.mapKey key] =>
+        .ok #[StmtPlan.effect (.storageMapSet (← lookupStateName env path.root)
+          (← valueExpr env key) (← valueExpr env value))]
+      | _ => .error { message := "EVM Core plan supports only one mapKey storage-store segment" }
   | .contextRead field => do
       let resultType ← match instr.results[0]? with
         | some result => pure (coreTypeToValueType result.type)
@@ -376,30 +385,61 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
 /-- Map a Core function to EVM entrypoint plan entries (body statements).
 Only the entry block is mapped for the initial fragment; control flow
 mapping (branches, loops) will be added as needed. -/
+private def lowerBlockInstructions (env : CorePlanEnv) (block : Block) :
+    Except PlanError (Array StmtPlan × CorePlanEnv) := do
+  let mut statements := #[]
+  let mut currentEnv := env
+  for instruction in block.instructions do
+    statements := statements ++ (← coreInstructionToStmtPlans currentEnv instruction)
+    currentEnv := bindInstructionResults currentEnv instruction
+  return (statements, currentEnv)
+
+private def returnPlan (env : CorePlanEnv) (values : Array ValueRef) :
+    Except PlanError (Array StmtPlan) := do
+  if values.size > 1 then throw { message := "EVM Core function returns multiple values" }
+  if let some value := values[0]? then return #[.return (← valueExpr env value)]
+  return #[]
+
 def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanError (Array StmtPlan) := do
   let block ← match func.blocks[0]? with
     | some block => pure block
     | none => throw { message := s!"function {func.id.value} has no entry block" }
-  if func.blocks.size != 1 || block.id != func.entry then
-    throw { message := s!"function {func.id.value} uses CFG control flow not yet materialized by the EVM Core plan" }
+  if block.id != func.entry then
+    throw { message := s!"function {func.id.value} first block is not its entry" }
   if !block.params.isEmpty then
     throw { message := s!"function {func.id.value} entry block parameters are not yet materialized by the EVM Core plan" }
-  let mut stmts := #[]
-  let mut currentEnv := env
-  for instr in block.instructions do
-    let ss ← coreInstructionToStmtPlans currentEnv instr
-    stmts := stmts ++ ss
-    currentEnv := bindInstructionResults currentEnv instr
+  let (entryStatements, currentEnv) ← lowerBlockInstructions env block
+  let mut stmts := entryStatements
   match block.terminator with
-  | .return vals =>
-      if vals.size > 1 then
-        throw { message := s!"function {func.id.value} returns multiple Core values not yet materialized by EVM" }
-      else if vals.isEmpty then
-        pure ()
-      else
-        stmts := stmts.push (StmtPlan.return (← valueExpr currentEnv vals[0]!))
-  | .jump .. | .branch .. =>
-      throw { message := s!"function {func.id.value} control-flow terminator is not yet materialized by the EVM Core plan" }
+  | .return vals => stmts := stmts ++ (← returnPlan currentEnv vals)
+  | .branch condition onTrue onFalse =>
+      let trueBlock ← match func.blocks.find? (fun candidate => candidate.id == onTrue) with
+        | some block => pure block
+        | none => throw { message := "EVM Core branch true block is missing" }
+      let falseBlock ← match func.blocks.find? (fun candidate => candidate.id == onFalse) with
+        | some block => pure block
+        | none => throw { message := "EVM Core branch false block is missing" }
+      let (trueBody, _) ← lowerBlockInstructions currentEnv trueBlock
+      let (falseBody, _) ← lowerBlockInstructions currentEnv falseBlock
+      let (continuation, trueArgs) ← match trueBlock.terminator with
+        | .jump target args _ => pure (target, args)
+        | _ => throw { message := "EVM Core structured branch true arm must jump to a continuation" }
+      let (falseContinuation, falseArgs) ← match falseBlock.terminator with
+        | .jump target args _ => pure (target, args)
+        | _ => throw { message := "EVM Core structured branch false arm must jump to a continuation" }
+      unless continuation == falseContinuation && trueArgs.isEmpty && falseArgs.isEmpty do
+        throw { message := "EVM Core structured branch arms must join without block arguments" }
+      stmts := stmts.push (.ifElse (← valueExpr currentEnv condition) trueBody falseBody)
+      let continuationBlock ← match func.blocks.find? (fun candidate => candidate.id == continuation) with
+        | some block => pure block
+        | none => throw { message := "EVM Core branch continuation is missing" }
+      let (continuationBody, continuationEnv) ← lowerBlockInstructions currentEnv continuationBlock
+      stmts := stmts ++ continuationBody
+      match continuationBlock.terminator with
+      | .return values => stmts := stmts ++ (← returnPlan continuationEnv values)
+      | _ => throw { message := "EVM Core branch continuation must return" }
+  | .jump .. =>
+      throw { message := s!"function {func.id.value} CFG control flow entry jump is not yet materialized by the EVM Core plan" }
   | .revert _ =>
       throw { message := s!"function {func.id.value} structured revert terminator is not yet materialized by the EVM Core plan" }
   return stmts
@@ -533,6 +573,18 @@ def buildFromCore (checked : CheckedCanonicalContract)
                 (coreTypeToValueType lhs.type).byteWidth < 32
             | _ => false
         | _ => false
+  let usesMapRead := m.functions.any fun function => function.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .storageLoad { path := #[.mapKey _], .. } => true
+      | _ => false
+  let usesMapWrite := m.functions.any fun function => function.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .storageStore { path := #[.mapKey _], .. } _ => true
+      | _ => false
+  let helpers :=
+    (if usesCheckedWidth then #[Helper.checkedWidth] else #[]) ++
+    (if usesMapRead || usesMapWrite then #[Helper.mapSlot] else #[]) ++
+    (if usesMapWrite then #[Helper.mapPresenceSlot, Helper.mapWrite] else #[])
   let mut crosscalls := #[]
   for function in m.functions do
     for block in function.blocks do
@@ -558,7 +610,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     name := iface.contractName
     targetPlan := capPlan
     storage
-    helpers := if usesCheckedWidth then #[.checkedWidth] else #[]
+    helpers
     mapAssignOps := #[]
     entrypoints
     dispatch := { entrypoints, default := .revert }

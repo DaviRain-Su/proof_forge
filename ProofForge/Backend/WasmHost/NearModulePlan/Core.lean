@@ -73,6 +73,9 @@ def isScalarShape : StateShape → Bool
   | .scalar _ => true
   | _ => false
 
+private def dedupValueTypes (types : Array ValueType) : Array ValueType :=
+  types.foldl (fun result type => if result.contains type then result else result.push type) #[]
+
 /-- Build the NEAR layout plan from Core state declarations.
 Scalar states get sequential key pointers; map/array states get
 sequential prefix pointers after the scalar key region. -/
@@ -115,10 +118,14 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         match instr.op with
         | .storageLoad _ =>
           usesStorageRead := true
-          scalarReadTypes := scalarReadTypes.push .u64
+          match instr.op with
+          | .storageLoad { path := #[.mapKey _], .. } => pure ()
+          | _ => scalarReadTypes := scalarReadTypes.push .u64
         | .storageStore _ _ =>
           usesStorageWrite := true
-          scalarWriteTypes := scalarWriteTypes.push .u64
+          match instr.op with
+          | .storageStore { path := #[.mapKey _], .. } _ => scalarWriteTypes := scalarWriteTypes
+          | _ => scalarWriteTypes := scalarWriteTypes.push .u64
         | .contextRead .value => usesNativeValue := true
         | .contextRead .blockNumber => contextOps := contextOps.push .checkpointId
         | .contextRead .blockTimestamp => contextOps := contextOps.push .timestamp
@@ -142,6 +149,18 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesNativeValue
     usesStorageRead
     usesStorageWrite
+    u64IndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+        | .storageLoad { path := #[.mapKey _], resultType, .. } => some (coreTypeToValueType resultType)
+        | _ => none))
+    u64IndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+        | .storageStore { path := #[.mapKey _], resultType, .. } _ => some (coreTypeToValueType resultType)
+        | _ => none))
+    usesU64IndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .storageLoad { path := #[.mapKey _], .. } | .storageStore { path := #[.mapKey _], .. } _ => true
+        | _ => false
     usesPromiseApi := usesPromiseCreate
     usesPromiseCreate
     usesPromiseThen := false
@@ -156,11 +175,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesEventNumeric
     usesEventBool
     usesEventHash := false
-    u64IndexedReadTypes := #[]
-    u64IndexedWriteTypes := #[]
     hashIndexedReadTypes := #[]
     hashIndexedWriteTypes := #[]
-    usesU64IndexedBuildKey := false
     usesHashIndexedBuildKey := false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
@@ -205,17 +221,26 @@ private def lowerNearOp (iface : InterfaceContract) (instr : Instruction) : Exce
   | .pure (.literal (.u8Lit value)) | .pure (.literal (.u32Lit value)) |
     .pure (.literal (.u64Lit value)) | .pure (.literal (.u128Lit value)) =>
       return .literal (<- nearResult instr) value
+  | .pure (.literal (.addressLit _)) | .pure (.literal (.stringLit _)) |
+    .pure (.literal (.bytesLit _)) | .pure (.literal (.hashLit _)) =>
+      /- Non-numeric literals are metadata-only on NEAR; materialize as
+      literal 0 so the plan is complete without adding a new op variant. -/
+      return .literal (<- nearResult instr) 0
   | .pure (.arithmetic op mode lhs rhs) =>
       return .arithmetic (<- nearResult instr) (nearArithmetic op) (mode == .checked)
         (nearValue lhs) (nearValue rhs)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- nearResult instr) (nearCompare op) (nearValue lhs) (nearValue rhs)
   | .storageLoad ref =>
-      if !ref.path.isEmpty then throw { message := "nested NEAR storage path is not materialized" }
-      return .loadState (<- nearResult instr) ref.root.value
+      match ref.path with
+      | #[] => return .loadState (<- nearResult instr) ref.root.value
+      | #[.mapKey key] => return .loadMap (<- nearResult instr) ref.root.value (nearValue key)
+      | _ => throw { message := "NEAR canonical storage supports one mapKey segment" }
   | .storageStore ref value =>
-      if !ref.path.isEmpty then throw { message := "nested NEAR storage path is not materialized" }
-      return .storeState ref.root.value (nearValue value)
+      match ref.path with
+      | #[] => return .storeState ref.root.value (nearValue value)
+      | #[.mapKey key] => return .storeMap ref.root.value (nearValue key) (nearValue value)
+      | _ => throw { message := "NEAR canonical storage supports one mapKey segment" }
   | .contextRead field => return .context (<- nearResult instr) (reprStr field)
   | .emit event args =>
       let decl <- match iface.events.find? (fun decl => decl.eventId == event) with

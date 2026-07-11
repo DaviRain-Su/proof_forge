@@ -43,6 +43,7 @@ import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.HostBridge
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Backend.WasmHost.Imports
+import ProofForge.Backend.WasmHost.Map
 import ProofForge.Backend.WasmHost.Scalar
 import ProofForge.Backend.WasmHost.Params
 import ProofForge.Backend.WasmHost.Event
@@ -116,6 +117,8 @@ inductive NearOpPlan where
   | boolLiteral (result : NearValuePlan) (value : Bool)
   | loadState (result : NearValuePlan) (stateId : Nat)
   | storeState (stateId : Nat) (value : NearValuePlan)
+  | loadMap (result : NearValuePlan) (stateId : Nat) (key : NearValuePlan)
+  | storeMap (stateId : Nat) (key value : NearValuePlan)
   | arithmetic (result : NearValuePlan) (op : NearArithmeticPlan)
       (checked : Bool) (lhs rhs : NearValuePlan)
   | compare (result : NearValuePlan) (op : NearComparePlan) (lhs rhs : NearValuePlan)
@@ -445,6 +448,27 @@ private def lowerCanonicalNearOp (plan : NearModulePlan) (eventStrings : Array L
         | none => Diagnostics.err s!"canonical NEAR references unknown scalar state {stateId}"
       Scalar.storageScalarWriteInsns #[] state state.id #[.localGet s!"v{value.id}"]
         (canonicalNearType value.typeName)
+  | .loadMap result stateId key => do
+      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.id == toString stateId) with
+        | some entry => pure entry
+        | none => Diagnostics.err s!"canonical NEAR references unknown map state {stateId}"
+      let mapInfo : Layout.MapInfo := {
+        id := mapPlan.id, keyType := mapPlan.keyType, valueType := mapPlan.valueType,
+        prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
+      let readCall ← Map.mapReadCall mapInfo mapInfo.id
+      let (instructions, _) := Map.mapReadValueInsns mapInfo #[.localGet s!"v{key.id}"] readCall
+      return instructions ++ #[.localSet s!"v{result.id}"]
+  | .storeMap stateId key value => do
+      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.id == toString stateId) with
+        | some entry => pure entry
+        | none => Diagnostics.err s!"canonical NEAR references unknown map state {stateId}"
+      let mapInfo : Layout.MapInfo := {
+        id := mapPlan.id, keyType := mapPlan.keyType, valueType := mapPlan.valueType,
+        prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
+      let writeCall ← Map.mapWriteCall mapInfo
+      let (instructions, _) ← Map.mapWriteValueInsns mapInfo mapInfo.id
+        #[.localGet s!"v{key.id}"] #[.localGet s!"v{value.id}"] writeCall mapInfo.valueType
+      return instructions ++ #[.drop]
   | .arithmetic result op checked lhs rhs =>
       let ty := canonicalNearType result.typeName
       let calculation := #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
@@ -506,7 +530,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   if fn.blocks.isEmpty then Diagnostics.err s!"canonical NEAR function `{fn.name}` has no blocks"
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
-      | .literal result _ | .boolLiteral result _ | .loadState result _ |
+      | .literal result _ | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
         .arithmetic result .. | .compare result .. | .context result _ => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let mut dispatch := #[]
@@ -535,18 +559,20 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let helperFuncs := scalarTypes.foldl (fun acc ty =>
     let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty) else acc
     if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty) else acc) #[]
+  let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc] else #[])
   let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface
   let imports := Imports.importsForModulePlan plan.surface defaultAllocator false
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
+    plan.layout.maps.map (fun state => { offset := state.prefixPtr, bytes := state.id ++ ":" : ProofForge.Compiler.Wasm.DataSegment }) ++
     #[{ offset := Memory.TRUE_PTR, bytes := "true" },
       { offset := Memory.FALSE_PTR, bytes := "false" },
       { offset := Memory.HEX_LUT_PTR, bytes := "0123456789abcdef" }] ++
     (if eventStrings.isEmpty then #[] else #[{
       offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
     }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
-  return { imports := imports, globals := if eventStrings.isEmpty then #[] else Event.evtGlobals, funcs := helperFuncs ++ returnFuncs ++ eventHelpers ++ funcs, memory := some { min := 1 }, dataSegments := data }
+  return { imports := imports, globals := if eventStrings.isEmpty then #[] else Event.evtGlobals, funcs := helperFuncs ++ mapHelpers ++ returnFuncs ++ eventHelpers ++ funcs, memory := some { min := 1 }, dataSegments := data }
 
 end ProofForge.Backend.WasmHost.NearModulePlan

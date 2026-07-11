@@ -57,7 +57,7 @@ def coreStateByteSize : StateShape → Except PlanError Nat
   | .map key value (some cap) => do
       let keySize <- coreScalarByteSize key
       let valueSize <- coreScalarByteSize value
-      return (keySize + valueSize) * cap
+      return (1 + keySize + valueSize) * cap
   | .map _ _ none => .error { message := "Solana map state requires a finite capacity" }
   | .fixedArray elem len => do
       let elemSize <- coreScalarByteSize elem
@@ -84,6 +84,15 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
   let mut offset := 0
   for decl in m.state do
     let size <- coreStateByteSize decl.shape
+    let keyByteSize ← match decl.shape with
+      | .map key _ _ => coreScalarByteSize key
+      | _ => pure 0
+    let valueByteSize ← match decl.shape with
+      | .map _ value _ => coreScalarByteSize value
+      | _ => pure 0
+    let capacity := match decl.shape with
+      | .map _ _ capacity => capacity.getD 0
+      | _ => 0
     fields := fields.push {
       id := toString decl.id.value
       kind := coreStateKindName decl.shape
@@ -95,6 +104,9 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
         | .record _ => "struct"
       byteSize := size
       absOff := acctDataOff + offset
+      keyByteSize
+      valueByteSize
+      capacity
     }
     offset := offset + size
   return fields
@@ -187,13 +199,17 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan) (instr : 
   | .pure (.compare op lhs rhs) =>
       return .compare (<- resultPlan instr) (comparePlan op) (valuePlan lhs) (valuePlan rhs)
   | .storageLoad ref =>
-      if !ref.path.isEmpty then throw { message := "nested Solana storage paths are not yet materialized" }
       let field <- stateField fields ref.root
-      return .loadState (<- resultPlan instr) ref.root.value field.absOff field.byteSize
+      match ref.path with
+      | #[] => return .loadState (<- resultPlan instr) ref.root.value field.absOff field.byteSize
+      | #[.mapKey key] => return .loadMap (<- resultPlan instr) ref.root.value field.absOff field.capacity field.keyByteSize field.valueByteSize (valuePlan key)
+      | _ => throw { message := "Solana canonical storage supports one mapKey segment" }
   | .storageStore ref value =>
-      if !ref.path.isEmpty then throw { message := "nested Solana storage paths are not yet materialized" }
       let field <- stateField fields ref.root
-      return .storeState ref.root.value field.absOff field.byteSize (valuePlan value)
+      match ref.path with
+      | #[] => return .storeState ref.root.value field.absOff field.byteSize (valuePlan value)
+      | #[.mapKey key] => return .storeMap ref.root.value field.absOff field.capacity field.keyByteSize field.valueByteSize (valuePlan key) (valuePlan value)
+      | _ => throw { message := "Solana canonical storage supports one mapKey segment" }
   | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
   | .emit event args => return .log event.value (args.map valuePlan)
   | .assert condition error => return .assert (valuePlan condition) error.id.value
