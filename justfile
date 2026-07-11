@@ -96,6 +96,10 @@ near-promise-hostop:
     lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
     scripts/canonical/near-promise-hostop.sh
 
+# Wave 6 Task 18: EVM public route canonical gate.
+canonical-evm-route:
+    lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

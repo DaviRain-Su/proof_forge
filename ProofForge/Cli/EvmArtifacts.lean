@@ -1,6 +1,7 @@
 import Lean.Util.Path
 import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Evm.Plan
+import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.ConstructorAbi
@@ -15,11 +16,12 @@ import ProofForge.Contract.Client
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
 import ProofForge.IR
+import ProofForge.IR.Canonical
+import ProofForge.IR.Legacy.Adapter
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.PeerMap
 import ProofForge.Target.Preflight
-
 open ProofForge.Cli.ConstructorAbi
 open ProofForge.Cli.HexUtil
 open ProofForge.Cli.JsonUtil
@@ -38,8 +40,23 @@ def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.Con
   | .error err => throw <| IO.userError err.render
   match ProofForge.Backend.Evm.ConstructorInit.validateAtomicUupsConstructor
       spec.module spec.constructorParams spec.constructorInitBindings opts.evmConstructorArgsHex with
-  | .ok () => pure ()
   | .error err => throw <| IO.userError err.render
+  | .ok () => pure ()
+  /- Canonical validation gate: adaptLegacy → validateCanonical → buildFromCore.
+  If adaptLegacy succeeds, the canonical path is mandatory: no fallback to
+  legacy on validateCanonical or buildFromCore failure. If adaptLegacy fails
+  (product constructs not yet in the canonical adapter), the legacy path
+  continues — the gate is advisory until the adapter reaches full coverage. -/
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  | .error _ => pure ()  /- adapter coverage gap; legacy path proceeds -/
+  | .ok bundle =>
+      match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
+      | .error e => throw <| IO.userError s!"canonical: validation failed: {repr e}"
+      | .ok checked =>
+          let capPlan : ProofForge.Target.CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
+          match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+          | .error e => throw <| IO.userError s!"canonical: EVM plan failed: {e.message}"
+          | .ok _ => pure ()
   -- PF-P2-03: apply deploy-time peer map so logical peer ids become `0x…`
   -- host addresses (and method pool strings stay for selector resolve).
   let module0 := ProofForge.Target.PeerMap.applyToModule spec.module opts.peerMap
