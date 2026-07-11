@@ -115,7 +115,7 @@ private def checkUnique {α : Type} [BEq α] [Repr α] [Hashable α]
         s!"duplicate {kind}: {repr x}"
     seen := seen.insert x
 
-private def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
+def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
   checkUnique .duplicateId "type" (m.structs.map (·.id))
   checkUnique .duplicateId "state" (m.state.map (·.id))
   checkUnique .duplicateId "function" (m.functions.map (·.id))
@@ -193,6 +193,25 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
     unless resultShapeType == path.resultType do
       .error <| error .typeMismatch "state-shape" (some fid) (some bid) (some idx)
         s!"storage result type {repr path.resultType} does not match shape {repr resultShapeType}"
+
+/- Pass 2: state-shape reference resolution. Every storage root must exist and
+path segments must match the declared shape. This pass is intentionally
+separated from instruction typing so that reference errors are reported before
+type and control-flow passes. -/
+
+def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
+  for f in m.functions do
+    for b in f.blocks do
+      for idx in [:b.instructions.size] do
+        let instr := b.instructions[idx]!
+        match instr.op with
+        | .storageLoad path | .storageContains path | .storageStore path _ =>
+          checkStoragePath m f.id b.id idx path
+        | .storageLength root | .storageResize root _ =>
+          unless m.state.any (·.id == root) do
+            .error <| error .unknownReference "state-shape" (some f.id) (some b.id) (some idx)
+              s!"unknown storage root {repr root}"
+        | _ => pure ()
 
 /- Pass 3: CFG shape, reachability, and cycle bounds. -/
 
@@ -379,15 +398,15 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
   match instr.op with
   | .pure p => checkPureOp p instr.results f.id b.id idx
   | .storageLoad path =>
-    checkStoragePath m f.id b.id idx path
+    -- state-shape reference resolution happens in the dedicated second pass;
+    -- here we only check the instruction-level result type.
     match instr.results with
     | #[r] =>
       unless r.type == path.resultType do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"storageLoad result type {repr r.type} does not match path {repr path.resultType}"
     | _ => pure ()
-  | .storageContains path =>
-    checkStoragePath m f.id b.id idx path
+  | .storageContains _ =>
     match instr.results with
     | #[r] =>
       unless r.type == .bool do
@@ -395,24 +414,17 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
           s!"storageContains result must be bool, got {repr r.type}"
     | _ => pure ()
   | .storageStore path value =>
-    checkStoragePath m f.id b.id idx path
     unless value.type == path.resultType do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"storageStore value type {repr value.type} does not match path {repr path.resultType}"
-  | .storageLength root =>
-    unless m.state.any (·.id == root) do
-      .error <| error .unknownReference pass (some f.id) (some b.id) (some idx)
-        s!"storageLength unknown root {repr root}"
+  | .storageLength _ =>
     match instr.results with
     | #[r] =>
       unless r.type == .u64 do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"storageLength result must be u64, got {repr r.type}"
     | _ => pure ()
-  | .storageResize root length =>
-    unless m.state.any (·.id == root) do
-      .error <| error .unknownReference pass (some f.id) (some b.id) (some idx)
-        s!"storageResize unknown root {repr root}"
+  | .storageResize _ length =>
     unless length.type == .u64 do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"storageResize length must be u64, got {repr length.type}"
@@ -553,11 +565,11 @@ private def checkCapabilityAndHostOp (m : Module) :
               s!"hostCall has empty namespace or name"
         | _ => pure ()
 
-/- Entry point: run all validation passes in the required order. -/
+/- Passes 3-7: CFG, dominance, instruction typing, terminator typing, and
+HostOp/capability references. Exposed so that `ProofForge.IR.Canonical` can
+insert canonical-level reference checks between pass 1 and pass 3. -/
 
-def validateModule (m : Module) : Except ValidationError CheckedModule := do
-  checkSymbolUniqueness m
-  -- state-shape references are checked during instruction typing (Pass 5)
+def validateModulePhases (m : Module) : Except ValidationError CheckedModule := do
   for f in m.functions do
     checkCfgAndBounds f
     checkDominance f
@@ -570,5 +582,12 @@ def validateModule (m : Module) : Except ValidationError CheckedModule := do
       checkTerminator f b
   checkCapabilityAndHostOp m
   return { module := m }
+
+/- Entry point: run all validation passes in the required order. -/
+
+def validateModule (m : Module) : Except ValidationError CheckedModule := do
+  checkSymbolUniqueness m
+  checkStateShapeReferences m
+  validateModulePhases m
 
 end ProofForge.IR.Core.Validate

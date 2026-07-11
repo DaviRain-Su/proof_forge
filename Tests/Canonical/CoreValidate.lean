@@ -300,6 +300,116 @@ def invalidMaterializationContract : CanonicalContract := {
   }
 }
 
+/- Duplicate block ID inside one function. -/
+
+def duplicateBlockIdContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+        },
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+        }
+      ]
+    }]
+  }
+}
+
+/- Duplicate value ID (parameter and instruction result share ⟨0⟩). -/
+
+def duplicateValueIdContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .u64⟩], .pure (.literal (.u64Lit 0))⟩
+        ]
+        terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+      }]
+    }]
+  }
+}
+
+/- Interface entrypoint references an unknown function. -/
+
+def unknownFunctionRefContract : CanonicalContract := {
+  baseContract with
+  interface := {
+    entrypoints := #[⟨⟨99⟩, "call", true⟩]
+  }
+}
+
+/- Emit references an unknown event ID. -/
+
+def unknownEventRefContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[⟨#[], .emit ⟨99⟩ #[]⟩]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
+/- Storage path traverses a record whose struct type is not declared. -/
+
+def unknownStructRefContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    state := baseModule.state ++ #[⟨⟨6⟩, .record ⟨99⟩⟩]
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[], .storageStore {
+            root := ⟨6⟩
+            path := #[.field ⟨0⟩]
+            resultType := .u64
+          } { id := ⟨0⟩, type := .u64 }⟩
+        ]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
 def main : IO Unit := do
   expectError .duplicateId duplicateIdContract
   expectError .unknownReference unknownReferenceContract
@@ -312,4 +422,9 @@ def main : IO Unit := do
   expectError .invalidReturn invalidReturnContract
   expectError .invalidInterface invalidInterfaceContract
   expectError .invalidMaterialization invalidMaterializationContract
+  expectError .duplicateId duplicateBlockIdContract
+  expectError .duplicateId duplicateValueIdContract
+  expectError .invalidInterface unknownFunctionRefContract
+  expectError .unknownReference unknownEventRefContract
+  expectError .unknownReference unknownStructRefContract
   IO.println "canonical-core-validate: ok"

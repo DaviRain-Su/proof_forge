@@ -145,9 +145,14 @@ private def validateRequirements (requirements : Array CapabilityCall) :
 
 def validateCanonical (c : CanonicalContract) :
     Except ValidationError CheckedCanonicalContract := do
-  let checkedModule ← Validate.validateModule c.module
-  validateInterface checkedModule.module c.interface
-  validateMaterialization checkedModule.module c.materialization
+  -- Pass 1: symbol uniqueness and declaration tables.
+  Validate.checkSymbolUniqueness c.module
+  -- Pass 2: state-shape and interface/materialization references.
+  Validate.checkStateShapeReferences c.module
+  validateInterface c.module c.interface
+  validateMaterialization c.module c.materialization
+  -- Passes 3-7: CFG, dominance, instruction typing, terminators, HostOp/capability.
+  let _ ← Validate.validateModulePhases c.module
   validateRequirements c.requirements
   return { contract := c }
 
