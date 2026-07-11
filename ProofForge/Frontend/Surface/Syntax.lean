@@ -146,6 +146,7 @@ structure SurfaceEntrypoint where
   name : String
   kind : SurfaceEntrypointKind
   mutability : SurfaceMutability
+  selector? : Option String := none
   params : Array SurfaceParam
   retType : SurfaceType
   body : Array SurfaceStmt
@@ -197,12 +198,16 @@ structure SurfaceErrorDecl where
 /-- Surface-level interface intent (maps to canonical MaterializationIntent). -/
 inductive SurfaceIntentKind
   | module
+  | state
+  | entrypoint
   | capability
   deriving Repr
 
 structure SurfaceIntent where
   kind : SurfaceIntentKind
   label : String
+  capability? : Option ProofForge.Target.Capability := none
+  metadata : Array ProofForge.Target.TargetMetadata := #[]
   source? : Option String := none
   deriving Repr
 

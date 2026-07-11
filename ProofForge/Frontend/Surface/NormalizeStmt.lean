@@ -112,6 +112,8 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       | .stateField name => do
           let stateId ← lookupState name
           let resultType ← stateScalarType name
+          unless nv.value.type == resultType do
+            throw (SurfaceNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
           let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
           liftExcept (fb.emitInstr instr)
   | .stateWrite name value => do
@@ -119,6 +121,8 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let stateId ← lookupState name
       let resultType ← stateScalarType name
+      unless nv.value.type == resultType do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
       let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
       liftExcept (fb.emitInstr instr)
   | .emit eventName args => do
@@ -134,6 +138,8 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       liftExcept (fb.emitInstr instr)
   | .assert cond message => do
       let nv ← normalizeExpr cond
+      unless nv.value.type == .bool do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let error ← assertErrorRef message
       let instr := { results := #[], op := .assert nv.value error }
@@ -234,6 +240,8 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       return fb
    | .returnExpr value => do
       let nv ← normalizeExpr value
+      unless nv.value.type == retType do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr retType) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.setTerminator (.return #[nv.value]))
   | .returnUnit =>

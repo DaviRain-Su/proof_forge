@@ -65,6 +65,10 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let nl ← normalizeExpr lhs
       let nr ← normalizeExpr rhs
       let ty ← exprType lhs
+      unless nr.value.type == ty do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr ty) (reprStr nr.value.type))
+      unless ty == .u8 || ty == .u32 || ty == .u64 || ty == .u128 do
+        throw (SurfaceNormalizeError.typeMismatch "unsigned integer" (reprStr ty))
       let mode := if checked then .checked else .wrapping
       let coreOp := adaptArithOp op
       let nv ← arithmeticValue mode coreOp nl.value nr.value ty
@@ -72,6 +76,8 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
   | .compare op lhs rhs =>
       let nl ← normalizeExpr lhs
       let nr ← normalizeExpr rhs
+      unless nl.value.type == nr.value.type do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr nl.value.type) (reprStr nr.value.type))
       let coreOp := adaptCompareOp op
       let nv ← compareValue coreOp nl.value nr.value
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }

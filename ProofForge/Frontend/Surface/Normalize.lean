@@ -20,16 +20,23 @@ def buildInterface (contract : SurfaceContract) (mod : Module) :
   let env := (← get).env
   let entrypoints ← contract.entrypoints.mapIdxM fun idx ep => do
     let fid : FunctionId := ⟨idx⟩
+    let function ← match mod.functions.find? (fun candidate => candidate.id == fid) with
+      | some function => pure function
+      | none => throw (SurfaceNormalizeError.unknownFunction ep.name)
+    unless function.params.size == ep.params.size do
+      throw (SurfaceNormalizeError.typeMismatch
+        s!"{ep.params.size} interface parameters" s!"{function.params.size} Core parameters")
     let params ← ep.params.mapIdxM fun pidx p => do
       let coreTy ← liftExcept (resolveSurfaceType env.typeIds p.type)
-      return { valueId := ⟨pidx⟩, name := p.name, type := coreTy : InterfaceParam }
+      let valueDef := function.params[pidx]!
+      return { valueId := valueDef.id, name := p.name, type := coreTy : InterfaceParam }
     let retType ← liftExcept (resolveSurfaceType env.typeIds ep.retType)
     return {
       functionId := fid,
       name := ep.name,
       kind := adaptEntrypointKind ep.kind,
       mutability := adaptMutability ep.mutability,
-      selector? := none,
+      selector? := ep.selector?,
       params := params,
       retType := retType
     : InterfaceEntrypoint }
@@ -78,8 +85,11 @@ def buildMaterialization (contract : SurfaceContract) (interface : InterfaceCont
     { errorId := err.errorId, form := ErrorEncodingForm.assertFallback : ErrorEncoding }
   let intents := contract.intents.map fun i =>
     { kind := match i.kind with
-        | .module => .module | .capability => .capability,
-      label := i.label : MaterializationIntent }
+        | .module => .module | .state => .state
+        | .entrypoint => .entrypoint | .capability => .capability,
+      label := i.label,
+      capability? := i.capability?,
+      metadata := i.metadata : MaterializationIntent }
   return {
     constructorBindings := bindings,
     constructorParams := contract.constructorParams.map fun p =>

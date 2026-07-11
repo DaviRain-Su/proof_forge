@@ -22,6 +22,27 @@ structure SurfaceRuntimeState where
   returnValue : Option Nat := none
   deriving Repr
 
+private def u64Modulus : Nat := 18446744073709551616
+
+private def evalArithmetic (op : SurfaceArithOp) (checked : Bool)
+    (lhs rhs : Nat) : Except String Nat :=
+  match op with
+  | .add =>
+      let result := lhs + rhs
+      if checked && result >= u64Modulus then .error "arithmeticOverflow"
+      else .ok (if checked then result else result % u64Modulus)
+  | .sub =>
+      if checked && lhs < rhs then .error "arithmeticOverflow"
+      else .ok (if checked then lhs - rhs else (lhs + u64Modulus - rhs % u64Modulus) % u64Modulus)
+  | .mul =>
+      let result := lhs * rhs
+      if checked && result >= u64Modulus then .error "arithmeticOverflow"
+      else .ok (if checked then result else result % u64Modulus)
+  | .div => if rhs == 0 then .error "divisionByZero" else .ok (lhs / rhs)
+  | .mod => if rhs == 0 then .error "divisionByZero" else .ok (lhs % rhs)
+  | .bitAnd | .bitOr | .bitXor | .shiftLeft | .shiftRight =>
+      .error "bitwise ops not in reference semantics"
+
 /-- Evaluate a Surface expression to a Nat value (initial fragment only). -/
 partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     (locals : Std.HashMap String Nat) : Except String Nat :=
@@ -33,14 +54,11 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
   | .local name => match Std.HashMap.get? locals name with
     | some v => .ok v | none => .error s!"unbound local: {name}"
   | .stateRead name => match Std.HashMap.get? st.storage name with
-    | some v => .ok v | none => .ok 0
-  | .arith op _ lhs rhs => do
+    | some v => .ok v | none => .error s!"missing state: {name}"
+  | .arith op checked lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
-    match op with
-    | .add => .ok (l + r) | .sub => .ok (l - r) | .mul => .ok (l * r)
-    | .div => .ok (l / r) | .mod => .ok (l % r)
-    | _ => .error "bitwise ops not in reference semantics"
+    evalArithmetic op checked l r
   | .compare op lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
@@ -93,10 +111,10 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
         s ← execStmts thenBody s l
       else
         s ← execStmts elseBody s l
-    | .boundedLoop _ start stop body => do
+    | .boundedLoop indexName start stop body => do
       for i in [start:stop] do
         if s.reverted then return s
-        let l' := Std.HashMap.insert l "$loop_idx" i
+        let l' := Std.HashMap.insert l indexName i
         s ← execStmts body s l'
     | .returnExpr value => do
       let v ← evalExpr value s l
