@@ -96,7 +96,6 @@ import ProofForge.Cli.Usage
 import ProofForge.Cli.Options
 import ProofForge.Cli.TargetDriver
 import ProofForge.Cli.TargetFirst
-import ProofForge.Cli.CoreBackend
 import ProofForge.Cli.LegacyArgs
 
 open Lean
@@ -326,11 +325,9 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .valueVaultIrQuint => compileValueVaultIrQuint opts
   | .irQuint => compileIrQuint opts
   | .irQuintScenario => compileIrQuintScenario opts
-  | .evmCoreYul => compileEvmCoreYul opts
-  | .solanaCoreSbpf => compileSolanaCoreSbpf opts
-  | .wasmCoreWat => compileWasmCoreWat opts
 
 end ProofForge.Cli
+
 
 def wantsHelp (args : List String) : Bool :=
   args.any (fun a => a == "--help" || a == "-h")

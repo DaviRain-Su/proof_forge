@@ -172,9 +172,6 @@ inductive EmitMode where
   | valueVaultIrQuint
   | irQuint
   | irQuintScenario
-  | evmCoreYul
-  | solanaCoreSbpf
-  | wasmCoreWat
   deriving BEq, Inhabited
 
 def EmitMode.emitsEvmDeployManifest : EmitMode → Bool

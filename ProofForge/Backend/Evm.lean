@@ -1,6 +1,4 @@
 import ProofForge.Backend.Evm.Plan
-import ProofForge.Backend.Evm.CorePlan
-import ProofForge.Backend.Evm.CoreLower
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Backend.Evm.ConstructorInit
 import ProofForge.Backend.Evm.IR

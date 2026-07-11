@@ -25,8 +25,6 @@ import ProofForge.Backend.WasmHost.ArrayHeap
 import ProofForge.Backend.WasmHost.Capabilities
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Context
-import ProofForge.Backend.WasmHost.CorePlan
-import ProofForge.Backend.WasmHost.CoreLower
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.EmitWat
