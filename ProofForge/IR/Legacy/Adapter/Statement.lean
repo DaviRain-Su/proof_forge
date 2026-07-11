@@ -58,6 +58,39 @@ def FunctionBuilder.finishCurrent (fb : FunctionBuilder) : AdapterM FunctionBuil
 def FunctionBuilder.toBlocks (fb : FunctionBuilder) : Except CanonicalizeError (Array Block) :=
   fb.sealedBlocks
 
+private def projectOuterLocals (outer candidate : Std.HashMap String ValueRef) :
+    Std.HashMap String ValueRef :=
+  outer.toList.foldl (fun projected entry =>
+    let (name, before) := entry
+    projected.insert name ((Std.HashMap.get? candidate name).getD before)) {}
+
+private def mergeBranchLocals (outer trueLocals falseLocals : Std.HashMap String ValueRef)
+    (trueFallsThrough falseFallsThrough : Bool) :
+    Except CanonicalizeError (Std.HashMap String ValueRef) := do
+  if trueFallsThrough && falseFallsThrough then
+    let mut merged : Std.HashMap String ValueRef := {}
+    for (name, before) in outer.toList do
+      let trueValue := (Std.HashMap.get? trueLocals name).getD before
+      let falseValue := (Std.HashMap.get? falseLocals name).getD before
+      unless trueValue == falseValue do
+        throw (CanonicalizeError.unsupportedConstructor "Statement.ifElse"
+          s!"outer local `{name}` requires a continuation phi parameter")
+      merged := merged.insert name trueValue
+    return merged
+  else if trueFallsThrough then
+    return projectOuterLocals outer trueLocals
+  else if falseFallsThrough then
+    return projectOuterLocals outer falseLocals
+  else
+    return outer
+
+private def changedOuterLocal? (outer candidate : Std.HashMap String ValueRef) : Option String :=
+  outer.toList.findSome? (fun entry =>
+    let (name, before) := entry
+    match Std.HashMap.get? candidate name with
+    | some after => if after == before then none else some name
+    | none => some name)
+
 /- Default error reference for unconditional reverts. -/
 
 def defaultRevertError : CoreErrorRef := { namespace_ := "legacy", code := 0 }
@@ -134,6 +167,9 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       match target with
       | .local name => do
+          let current ← lookupLocal name
+          unless current.type == nv.value.type do
+            throw (CanonicalizeError.typeMismatch (reprStr current.type) (reprStr nv.value.type))
           bindLocal name nv.value
           return fb
       | .effect (.storageScalarRead stateName) => do
@@ -189,10 +225,12 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
   | .revertWithError ref =>
       liftExcept (fb.setTerminator (.revert (errorRefOf ref)))
   | .release _ =>
-      -- Release is a no-op at the Core level; ownership is checked structurally.
-      return fb
+      throw (CanonicalizeError.unsupportedConstructor "Statement.release"
+        "ownership-aware memory release is not implemented in canonical normalization")
   | .ifElse cond thenBody elseBody => do
       let nv ← normalizeExpr cond
+      unless nv.value.type == .bool do
+        throw (CanonicalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let trueId ← freshBlockId
       let falseId ← freshBlockId
@@ -203,24 +241,28 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
 
       let trueBuilder : FunctionBuilder := { blocks := entryBlocks, current := { id := trueId } }
       let trueBuilder ← thenBody.foldlM (fun b stmt => normalizeStatement b stmt retType) trueBuilder
-      let trueFallsThrough := trueBuilder.current.terminator.isNone
+      let trueFallsThrough := trueBuilder.active && trueBuilder.current.terminator.isNone
       let trueBuilder ← if trueFallsThrough then
           liftExcept (trueBuilder.setTerminator (.jump contId #[]))
         else
           pure trueBuilder
       let trueBlocks ← liftExcept trueBuilder.sealedBlocks
+      let trueLocals := (← get).env.localValues
 
       modify (fun s => { s with env := { s.env with localValues := localsBefore } })
       let falseBuilder : FunctionBuilder := { blocks := trueBlocks, current := { id := falseId } }
       let falseBuilder ← elseBody.foldlM (fun b stmt => normalizeStatement b stmt retType) falseBuilder
-      let falseFallsThrough := falseBuilder.current.terminator.isNone
+      let falseFallsThrough := falseBuilder.active && falseBuilder.current.terminator.isNone
       let falseBuilder ← if falseFallsThrough then
           liftExcept (falseBuilder.setTerminator (.jump contId #[]))
         else
           pure falseBuilder
       let branchBlocks ← liftExcept falseBuilder.sealedBlocks
+      let falseLocals := (← get).env.localValues
 
-      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      let mergedLocals ← liftExcept <|
+        mergeBranchLocals localsBefore trueLocals falseLocals trueFallsThrough falseFallsThrough
+      modify (fun s => { s with env := { s.env with localValues := mergedLocals } })
       return {
         blocks := branchBlocks
         current := { id := contId }
@@ -256,7 +298,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let mut bodyBuilder : FunctionBuilder := { blocks := headerBlocks, current := { id := bodyId } }
       bindLocal indexName boundRef
       bodyBuilder ← body.foldlM (fun b stmt => normalizeStatement b stmt retType) bodyBuilder
-      if bodyBuilder.current.terminator.isNone then
+      let bodyFallsThrough := bodyBuilder.active && bodyBuilder.current.terminator.isNone
+      if bodyFallsThrough then
         let oneLit ← liftExcept (adaptLiteral (.u64 1))
         let oneRef ← emitValueInstruction (.pure (.literal oneLit)) .u64
         let nextRef ← emitValueInstruction
@@ -265,6 +308,12 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
         bodyBuilder ← liftExcept (nextRef.instructions.foldlM FunctionBuilder.emitInstr bodyBuilder)
         bodyBuilder ← liftExcept (bodyBuilder.setTerminator
           (.jump headerId #[nextRef.value] (some (.atMost (stopExclusive - start)))))
+      if bodyFallsThrough then
+        match changedOuterLocal? localsBefore (← get).env.localValues with
+        | some name =>
+            throw (CanonicalizeError.unsupportedConstructor "Statement.boundedFor"
+              s!"outer local `{name}` requires a loop-carried block parameter")
+        | none => pure ()
       let loopBlocks ← liftExcept bodyBuilder.sealedBlocks
       modify (fun s => { s with env := { s.env with localValues := localsBefore } })
       return { blocks := loopBlocks, current := { id := contId } }

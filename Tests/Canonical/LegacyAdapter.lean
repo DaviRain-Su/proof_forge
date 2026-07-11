@@ -10,6 +10,7 @@ namespace Tests.Canonical.LegacyAdapter
 
 open ProofForge.IR
 open ProofForge.IR.Core
+open ProofForge.IR.Legacy
 open ProofForge.IR.Legacy.Adapter
 open ProofForge.Contract
 
@@ -180,6 +181,67 @@ def boolEventModule : ProofForge.IR.Module := {
   }]
 }
 
+def nestedTerminatingIfModule : ProofForge.IR.Module := {
+  name := "NestedTerminatingIf"
+  state := #[]
+  entrypoints := #[{
+    name := "choose"
+    returns := .u64
+    body := #[.ifElse (.literal (.bool true))
+      #[.ifElse (.literal (.bool false))
+        #[.return (.literal (.u64 1))]
+        #[.return (.literal (.u64 2))]]
+      #[.return (.literal (.u64 3))]]
+  }]
+}
+
+def conditionalLocalMutationModule : ProofForge.IR.Module := {
+  name := "ConditionalLocalMutation"
+  state := #[]
+  entrypoints := #[{
+    name := "choose"
+    params := #[("condition", .bool)]
+    returns := .u64
+    body := #[
+      .letMutBind "value" .u64 (.literal (.u64 0)),
+      .ifElse (.local "condition")
+        #[.assign (.local "value") (.literal (.u64 1))]
+        #[],
+      .return (.local "value")
+    ]
+  }]
+}
+
+def loopLocalMutationModule : ProofForge.IR.Module := {
+  name := "LoopLocalMutation"
+  state := #[]
+  entrypoints := #[{
+    name := "run"
+    returns := .u64
+    body := #[
+      .letMutBind "value" .u64 (.literal (.u64 0)),
+      .boundedFor "i" 0 2 #[
+        .assignOp (.local "value") .add (.literal (.u64 1))
+      ],
+      .return (.local "value")
+    ]
+  }]
+}
+
+def releaseModule : ProofForge.IR.Module := {
+  name := "Release"
+  state := #[]
+  entrypoints := #[{
+    name := "run"
+    returns := .u64
+    body := #[
+      .letBind "value" .u64 (.literal (.u64 1)),
+      .release "value",
+      .return (.local "value")
+    ]
+  }]
+}
+
 def hasBoundedBackedge (module : Core.Module) : Bool :=
   module.functions.any (fun f => f.blocks.any (fun b =>
     match b.terminator with
@@ -314,6 +376,46 @@ def runAssertions : IO Unit := do
   | some event =>
       require (event.fields.map (·.type) == #[.bool]) "bool event schema was not inferred"
   | none => throw <| IO.userError "bool event declaration missing"
+
+  let nestedBundle ← match adaptLegacy (ContractSpec.fromIR nestedTerminatingIfModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"nested terminating if adapt failed: {repr e}"
+  require (returnCount nestedBundle.contract.contract.module == 3)
+    "nested terminating branches were not retained"
+
+  match adaptLegacy (ContractSpec.fromIR conditionalLocalMutationModule) with
+  | .error (.unsupportedConstructor "Statement.ifElse" _) => pure ()
+  | .error e => throw <| IO.userError s!"conditional local mutation wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "conditional local mutation was silently accepted"
+
+  match adaptLegacy (ContractSpec.fromIR loopLocalMutationModule) with
+  | .error (.unsupportedConstructor "Statement.boundedFor" _) => pure ()
+  | .error e => throw <| IO.userError s!"loop local mutation wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "loop-carried local mutation was silently accepted"
+
+  match adaptLegacy (ContractSpec.fromIR releaseModule) with
+  | .error (.unsupportedConstructor "Statement.release" _) => pure ()
+  | .error e => throw <| IO.userError s!"release wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "release was silently lowered to a no-op"
+
+  -- Spec-field coverage detects a missing decision.
+  let partialDecisions : Array LegacySpecFieldDecision := #[
+    { field := "name", disposition := .preserve, owner := "test", reason := "" }
+  ]
+  match checkSpecFieldCoverage #["name", "module"] partialDecisions with
+  | .error (.unclassifiedField "module") => pure ()
+  | .error e => throw <| IO.userError s!"missing field wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "missing field should have rejected"
+
+  -- Spec-field coverage detects an extra decision.
+  let extraDecisions : Array LegacySpecFieldDecision := #[
+    { field := "name", disposition := .preserve, owner := "test", reason := "" },
+    { field := "extra", disposition := .preserve, owner := "test", reason := "" }
+  ]
+  match checkSpecFieldCoverage #["name"] extraDecisions with
+  | .error (.unclassifiedField "extra") => pure ()
+  | .error e => throw <| IO.userError s!"extra field wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "extra field should have rejected"
 
 end Tests.Canonical.LegacyAdapter
 
