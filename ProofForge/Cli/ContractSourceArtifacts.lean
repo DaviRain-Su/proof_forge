@@ -14,6 +14,7 @@ import ProofForge.Cli.Options
 import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
 import ProofForge.IR
@@ -226,6 +227,9 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     match ProofForge.Target.resolveSpec profile spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
+  match ProofForge.Compiler.runCanonicalValidationGate profile.id spec with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError e
   compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
     moduleName := spec.name
     path? := some input.toString

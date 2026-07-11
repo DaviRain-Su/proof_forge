@@ -105,6 +105,10 @@ canonical-evm-route:
 canonical-solana-route:
     lake env lean --run Tests/Canonical/SolanaPublicRoute.lean
 
+# Wave 6 Task 20: NEAR public route canonical gate.
+canonical-near-route:
+    lake env lean --run Tests/Canonical/NearPublicRoute.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
