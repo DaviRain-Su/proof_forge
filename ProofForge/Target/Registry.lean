@@ -134,6 +134,7 @@ def wasmNear : TargetProfile := {
     .cryptoHash,
     .accountExplicit,
     .assertions,
+    .checkedArithmetic,
     .controlConditional,
     .controlBoundedLoop,
     .dataFixedArray,

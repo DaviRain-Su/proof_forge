@@ -101,6 +101,10 @@ near-promise-hostop:
 canonical-evm-route:
     lake env lean --run Tests/Canonical/EvmPublicRoute.lean
 
+# Wave 6 Task 19: Solana public route canonical gate.
+canonical-solana-route:
+    lake env lean --run Tests/Canonical/SolanaPublicRoute.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

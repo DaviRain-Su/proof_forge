@@ -38,6 +38,7 @@ import ProofForge.Solana.Examples.SplTokenTransferCheckedCpi
 import ProofForge.Solana.Examples.SystemCpi
 import ProofForge.Solana.Examples.SystemCreateAccountCpi
 import ProofForge.Target
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target.ArtifactBundle
 
 open System
@@ -207,6 +208,9 @@ def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
+  match ProofForge.Compiler.runCanonicalValidationGate "solana-sbpf-asm" spec with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError e
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec projectName spec with
   | .ok pkg =>
@@ -321,6 +325,9 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
     | .error err => throw <| IO.userError err.render
+  match ProofForge.Compiler.runCanonicalValidationGate "solana-sbpf-asm" spec with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError e
   match ProofForge.Backend.Solana.SbpfAsm.renderModuleWithPlan spec.module plan with
   | .ok source =>
       if let some parent := output.parent then

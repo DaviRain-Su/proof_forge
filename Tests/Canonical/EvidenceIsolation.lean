@@ -33,7 +33,8 @@ def sharedContractBase : CanonicalContract := {
       contractName := "EvidenceIsolation"
       entrypoints := #[{
         functionId := ⟨0⟩, name := "get", kind := .function,
-        mutability := .view, params := #[], retType := .u64
+        mutability := .view, selector? := some "a87d9f4b",
+        params := #[], retType := .u64
       }]
     }
     materialization := {
@@ -104,7 +105,7 @@ def main : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"evidence isolation: EVM buildFromCore failed: {e.message}"
   let solanaCapPlan : ProofForge.Target.CapabilityPlan :=
-    { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
+    { targetId := "solana-sbpf-asm", calls := checked.contract.requirements, metadata := #[] }
   match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked solanaCapPlan with
   | .ok plan =>
       require (plan.stateFields.size == 1) "evidence isolation: Solana state field count changed"
@@ -112,7 +113,7 @@ def main : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"evidence isolation: Solana buildFromCore failed: {e.message}"
   let nearCapPlan : ProofForge.Target.CapabilityPlan :=
-    { targetId := "wasm-near", calls := #[], metadata := #[] }
+    { targetId := "wasm-near", calls := checked.contract.requirements, metadata := #[] }
   match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked nearCapPlan with
   | .ok plan =>
       require (plan.layout.scalars.size == 1) "evidence isolation: NEAR scalar count changed"

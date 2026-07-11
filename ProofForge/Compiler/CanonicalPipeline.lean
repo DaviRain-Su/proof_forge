@@ -130,4 +130,41 @@ def compileForTest
                   message := "canonical buildFromCore is unavailable for this target"
                 }
 
+/-- Shared canonical validation gate for public CLI routes.
+
+Runs `adaptLegacy` → `validateCanonical` → capability resolution →
+`buildFromCore` + hostOp handler check. If `adaptLegacy` succeeds, the
+canonical path is mandatory: any validation or `buildFromCore` failure is a
+hard error (no fallback to legacy). If `adaptLegacy` fails (product constructs
+not yet in the canonical adapter), the gate is advisory — the legacy path
+continues.
+
+This is a documented coverage gap until the adapter reaches full coverage. -/
+def runCanonicalValidationGate (targetId : String) (spec : ContractSpec) : Except String Unit := do
+  match adaptLegacy spec with
+  | .error _ => .ok ()  /- adapter coverage gap; legacy path proceeds -/
+  | .ok bundle =>
+      match validateCanonical bundle.contract.contract with
+      | .error e => .error s!"canonical: validation failed: {repr e}"
+      | .ok checked =>
+          let hostCallErrors := checkHostOpHandlers targetId checked
+          if hostCallErrors.size > 0 then
+            .error (String.intercalate "; " hostCallErrors.toList)
+          else if targetId == "evm" then
+            let capPlan : CapabilityPlan := { targetId, calls := checked.contract.requirements, metadata := #[] }
+            match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+            | .error e => .error s!"canonical: EVM plan failed: {e.message}"
+            | .ok _ => .ok ()
+          else if targetId == "solana-sbpf-asm" then
+            let capPlan : CapabilityPlan := { targetId, calls := checked.contract.requirements, metadata := #[] }
+            match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
+            | .error e => .error s!"canonical: Solana plan failed: {e.message}"
+            | .ok _ => .ok ()
+          else if targetId == "wasm-near" then
+            let capPlan : CapabilityPlan := { targetId, calls := checked.contract.requirements, metadata := #[] }
+            match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+            | .error e => .error s!"canonical: NEAR plan failed: {e.message}"
+            | .ok _ => .ok ()
+          else
+            .ok ()
 end ProofForge.Compiler

@@ -8,6 +8,10 @@ import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.IR.Legacy.Adapter
+import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.NearModulePlan
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Compiler.Wasm.Printer
 
 /-! # Internal Canonical Emit Test Harness
 
@@ -93,6 +97,27 @@ def main (args : List String) : IO UInt32 := do
             | .error e => throw <| IO.userError s!"canonical Solana lowering failed: {e.message}"
           pure (ProofForge.Backend.Solana.Asm.renderNodes nodes)
     IO.FS.writeFile (dir / "contract.s") (asm ++ "\n")
+  if parsed.target == "wasm-near" then
+    let wat <- match mode with
+      | .legacy =>
+          match ProofForge.Backend.WasmHost.EmitWat.renderCheckedModule spec.module with
+          | .ok wat => pure wat
+          | .error e => throw <| IO.userError s!"legacy NEAR emit failed: {e.message}"
+      | .canonical => do
+          let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+            | .ok bundle => pure bundle
+            | .error e => throw <| IO.userError s!"canonical NEAR adapt failed: {repr e}"
+          let capPlan : ProofForge.Target.CapabilityPlan := {
+            targetId := "wasm-near", calls := bundle.contract.contract.requirements, metadata := #[]
+          }
+          let plan <- match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore bundle.contract capPlan with
+            | .ok plan => pure plan
+            | .error e => throw <| IO.userError s!"canonical NEAR plan failed: {e.message}"
+          let wasm <- match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan with
+            | .ok wasm => pure wasm
+            | .error e => throw <| IO.userError s!"canonical NEAR lowering failed: {e.message}"
+          pure (ProofForge.Compiler.Wasm.Printer.render wasm)
+    IO.FS.writeFile (dir / "contract.wat") (wat ++ "\n")
   match ← compileForTest mode parsed.target spec with
   | .error diag => do
     IO.eprintln s!"compile failed: {repr diag}"
