@@ -467,6 +467,8 @@ structure Entrypoint where
   chain-neutral so other ABI-bearing targets can reuse the same field (D-050). -/
   paramAbiWords : Array (Option String) := #[]
   returns : ValueType := .unit
+  /-- Optional host ABI override for the return carrier. -/
+  returnAbiWord? : Option String := none
   body : Array Statement
   deriving Repr
 

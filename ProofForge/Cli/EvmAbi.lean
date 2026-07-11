@@ -81,12 +81,13 @@ def entrypointParamEvmAbiWord (entrypoint : ProofForge.IR.Entrypoint) (index : N
 def entrypointReturnJson
     (module : ProofForge.IR.Module)
     (entrypointName : String)
-    (type : ProofForge.IR.ValueType) : Except String (Nat × String) := do
+    (type : ProofForge.IR.ValueType)
+    (abiWord? : Option String := none) : Except String (Nat × String) := do
   match type with
   | .unit =>
       .ok (0, entrypointAbiValueJson none type "void" #[])
   | _ => do
-      let abiType ← entrypointAbiType module s!"entrypoint `{entrypointName}` return" type
+      let abiType ← entrypointAbiType module s!"entrypoint `{entrypointName}` return" type abiWord?
       let wordTypes ← entrypointAbiWordTypes module s!"entrypoint `{entrypointName}` return" type
       .ok (wordTypes.size, entrypointAbiValueJson none type abiType wordTypes)
 
@@ -132,6 +133,7 @@ def entrypointJson (module : ProofForge.IR.Module) (entrypoint : ProofForge.IR.E
     paramAbiTypes := paramAbiTypes.push abiType
     calldataWords := calldataWords + wordCount
   let (returnWords, returnValue) ← entrypointReturnJson module entrypoint.name entrypoint.returns
+    entrypoint.returnAbiWord?
   let signature := s!"{entrypoint.name}({String.intercalate "," paramAbiTypes.toList})"
   let selectorValue :=
     match entrypoint.selector? with

@@ -182,7 +182,8 @@ def pushStmt (statement : Statement) : EntryM Unit := do
 
 def entryFull (name : String) (selector? : Option String) (returns : ValueType)
     (params : Array (String × ValueType)) (paramAbiWords : Array (Option String))
-    (body : EntryM Unit) (mutability : EntrypointMutability := .call) : ModuleM Unit := do
+    (body : EntryM Unit) (mutability : EntrypointMutability := .call)
+    (returnAbiWord? : Option String := none) : ModuleM Unit := do
   let (_, entryBuilder) := body.run {}
   let entrypoint : Entrypoint := {
     name := name
@@ -191,6 +192,7 @@ def entryFull (name : String) (selector? : Option String) (returns : ValueType)
     params := params
     paramAbiWords := paramAbiWords
     returns := returns
+    returnAbiWord? := returnAbiWord?
     body := entryBuilder.body
   }
   let entryIntents := entryBuilder.intents.map (scopeEntryIntent name)

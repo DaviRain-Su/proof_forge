@@ -478,6 +478,7 @@ def buildEntrypointPlan (module : Module) (entrypoint : Entrypoint) :
   let selector ← entrypointSelector entrypoint
   let params ← entrypointParamPlans module entrypoint
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
+    entrypoint.returnAbiWord?
   let body ← buildEntrypointBodyPlan module entrypoint
   .ok { name := entrypoint.name, selector, params, returns, body }
 
@@ -486,6 +487,7 @@ def buildEntrypointSurfacePlan (module : Module) (entrypoint : Entrypoint) :
   let selector ← entrypointSelector entrypoint
   let params ← entrypointParamPlans module entrypoint
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
+    entrypoint.returnAbiWord?
   .ok { name := entrypoint.name, selector, params, returns, body := #[] }
 
 def buildEntrypointPlans (module : Module) : Except LowerError (Array EntrypointPlan) :=

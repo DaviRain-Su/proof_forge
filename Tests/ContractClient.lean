@@ -62,6 +62,21 @@ def addressOverrideSpec : ContractSpec := ContractSpec.fromIR {
   entrypoints := #[addressOverrideEntrypoint]
 }
 
+def addressReturnOverrideEntrypoint : ProofForge.IR.Entrypoint := {
+  name := "owner"
+  selector? := some "8da5cb5b"
+  mutability := .view
+  «returns» := .u64
+  returnAbiWord? := some "address"
+  body := #[.return (.literal (.u64 1))]
+}
+
+def addressReturnOverrideSpec : ContractSpec := ContractSpec.fromIR {
+  name := "AddressReturnOverrideProbe"
+  state := #[]
+  entrypoints := #[addressReturnOverrideEntrypoint]
+}
+
 def boolReturningCallParams : Array (String × ProofForge.IR.ValueType) :=
   #[("to", .u64), ("amount", .u64)]
 
@@ -262,6 +277,15 @@ def testAbiWordControlsTypescriptParameterType : IO Unit := do
       require (signature == "setOwner(address)")
         s!"address override selector signature diverged: {signature}"
 
+def testAbiWordControlsTypescriptReturnType : IO Unit := do
+  let wrapper ← renderEvm addressReturnOverrideSpec "AddressReturnOverrideProbe"
+  require (contains wrapper "\"outputs\":[{\"type\":\"address\"}]")
+    "EVM ABI address override must encode the return as address"
+  require (contains wrapper "export async function owner(): Promise<string>")
+    "EVM ABI address override must expose a string TypeScript return"
+  require (!contains wrapper "owner(): Promise<bigint>")
+    "EVM ABI address override must not expose the portable U64 carrier"
+
 def testFallbackAndReceiveAbi : IO Unit := do
   let module := ProofForge.IR.Examples.EvmFallbackProbe.module
   let spec := ContractSpec.fromIR module
@@ -298,6 +322,7 @@ def main : IO UInt32 := do
   testNearViewAndCallEntrypoints
   testReturnValueDoesNotImplyView
   testAbiWordControlsTypescriptParameterType
+  testAbiWordControlsTypescriptReturnType
   testFallbackAndReceiveAbi
   IO.println "contract-client: ok"
   return 0

@@ -117,13 +117,17 @@ def entrypointParamPlans (module : Module) (entrypoint : Entrypoint) :
     .ok (headWordIndex + paramPlan.headWordCount, params.push paramPlan)
   .ok params
 
-def returnPlan (module : Module) (context : String) (returnType : ValueType) :
+def returnPlan (module : Module) (context : String) (returnType : ValueType)
+    (abiType? : Option String := none) :
     Except LowerError ReturnPlan := do
+  match ProofForge.Backend.Evm.AbiType.validateAbiWordOverride context returnType abiType? with
+  | .ok _ => pure ()
+  | .error message => .error { message }
   let wordTypes ←
     match returnType with
     | .unit => .ok #[]
     | _ => abiValueWordTypes module s!"{context} return value" returnType
-  .ok { returnType, wordTypes, localNames := returnLocalNames returnType wordTypes }
+  .ok { returnType, abiType?, wordTypes, localNames := returnLocalNames returnType wordTypes }
 
 def localAbiStructFieldIds
     (module : Module)

@@ -50,6 +50,17 @@ def paramTypeToTs (entrypoint : Entrypoint) (index : Nat) (type : ValueType) : S
         typeToTs type
   | none => typeToTs type
 
+def returnTypeToTs (entrypoint : Entrypoint) : String :=
+  match entrypoint.returnAbiWord? with
+  | some abiWord =>
+      if abiWord == "address" || abiWord.startsWith "bytes" then
+        "string"
+      else if abiWord == "bool" then
+        "boolean"
+      else
+        typeToTs entrypoint.returns
+  | none => typeToTs entrypoint.returns
+
 def abiEntryJson (module : Module) (entrypoint : Entrypoint) : Except String String :=
   match entrypoint.kind with
   | .fallback =>
@@ -71,6 +82,7 @@ def abiEntryJson (module : Module) (entrypoint : Entrypoint) : Except String Str
         else do
           let abiType ← ProofForge.Backend.Evm.AbiType.descriptor module
             s!"generated EVM client entrypoint `{entrypoint.name}` return" entrypoint.returns
+            entrypoint.returnAbiWord?
           pure ("[" ++ abiType.toJson ++ "]")
       let stateMutability := if entrypoint.mutability == .view then "view" else "nonpayable"
       pure ("{\"name\":\"" ++ entrypoint.name ++ "\",\"type\":\"function\",\"inputs\":[" ++ inputs ++ "],\"outputs\":" ++ outputs ++ ",\"stateMutability\":\"" ++ stateMutability ++ "\"}")
@@ -176,7 +188,7 @@ def evmEntrypointWrapper (entrypoint : Entrypoint) : String :=
       "  return await tx.wait();\n" ++
       "}\n"
   else
-    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ returnTypeToTs entrypoint ++ "> {\n" ++
     "  return await contract.getFunction(\"" ++ entrypoint.name ++ "\").staticCall(" ++ argList ++ ");\n" ++
     "}\n"
 

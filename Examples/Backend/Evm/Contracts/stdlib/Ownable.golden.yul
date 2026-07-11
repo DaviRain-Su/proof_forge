@@ -6,11 +6,11 @@ object "Ownable" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xd23e8489 {
+    case 0xf2fde38b {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
-      if gt(calldataload(4), 18446744073709551615) {
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
         revert(0, 0)
       }
       f_Ownable_transferOwnership(calldataload(4))
@@ -37,17 +37,42 @@ object "Ownable" {
       if iszero(iszero(eq(newOwner, 0))) {
         revert(0, 0)
       }
+      {
+        mstore(0, 35943731765892510050589367655672536643328569156915554301577312365719383532644)
+        mstore(32, 51742913097576536687416843347501904736222912990880608286633430183482035798016)
+        let __pf_event_topic0 := keccak256(0, 37)
+        let __pf_event_indexed_topic0 := and(shr(0, sload(0)), 18446744073709551615)
+        let __pf_event_indexed_topic1 := newOwner
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
+      }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(newOwner, 18446744073709551615))))
     }
     function f_Ownable_renounceOwnership() {
       if iszero(eq(caller(), and(shr(0, sload(0)), 18446744073709551615))) {
         revert(0, 0)
       }
+      {
+        mstore(0, 35943731765892510050589367655672536643328569156915554301577312365719383532644)
+        mstore(32, 51742913097576536687416843347501904736222912990880608286633430183482035798016)
+        let __pf_event_topic0 := keccak256(0, 37)
+        let __pf_event_indexed_topic0 := and(shr(0, sload(0)), 18446744073709551615)
+        let __pf_event_indexed_topic1 := 0
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
+      }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
     function f_Ownable_init() {
-      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
+      if iszero(eq(and(shr(64, sload(0)), 18446744073709551615), 0)) {
         revert(0, 0)
+      }
+      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(1, 18446744073709551615))))
+      {
+        mstore(0, 35943731765892510050589367655672536643328569156915554301577312365719383532644)
+        mstore(32, 51742913097576536687416843347501904736222912990880608286633430183482035798016)
+        let __pf_event_topic0 := keccak256(0, 37)
+        let __pf_event_indexed_topic0 := 0
+        let __pf_event_indexed_topic1 := caller()
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
       }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(caller(), 18446744073709551615))))
     }

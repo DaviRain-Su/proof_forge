@@ -14,20 +14,28 @@ open ProofForge.Contract.Source
 open ProofForge.Contract.Stdlib.AccessControl
 
 contract_source AccessControlProbe do
+  event RoleGranted
   import ProofForge.Contract.Stdlib.AccessControl;
 
   state touches : .u64
 
   entry init do
+    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    initialized := u64 1;
     let admin : .address := caller;
-    do pathWriteRole roleMembers (u64 defaultAdminRole) admin (u64 1);
+    do writeRoleMember roleMembers defaultAdminRole (ProofForge.Contract.Surface.ref admin) (u64 1);
+    emit RoleGranted indexed #[
+      fieldAsName "role" defaultAdminRole,
+      fieldAsName "account" caller,
+      fieldAsName "sender" caller
+    ] data #[];
 
   entry grantMinter (who : .address) do
-    guard_role defaultAdminRole;
-    do pathWriteRole roleMembers (u64 minterRole) who (u64 1);
+    do requireRoleMember roleMembers defaultAdminRole caller;
+    do writeRoleMember roleMembers minterRole (ProofForge.Contract.Surface.ref who) (u64 1);
 
   entry touch do
-    guard_role minterRole;
+    do requireRoleMember roleMembers minterRole caller;
     touches := touches +! (u64 1);
 
   query getTouches returns(.u64) do

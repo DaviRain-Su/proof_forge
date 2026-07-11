@@ -32,6 +32,7 @@ structure MethodRef where
   selector? : Option String := none
   params : Array BindingRef := #[]
   returns : ValueType := .unit
+  returnAbiWord? : Option String := none
   deriving BEq, Repr
 
 structure EventRef where
@@ -109,6 +110,10 @@ def method (name : String) (params : Array BindingRef := #[])
     (returns : ValueType := .unit) : MethodRef :=
   { name, selector? := none, params, returns }
 
+def methodWithReturnAbi (name : String) (params : Array BindingRef := #[])
+    (returns : ValueType) (abiWord : String) : MethodRef :=
+  { name, selector? := none, params, returns, returnAbiWord? := some abiWord }
+
 private def identNameLit (name : Lean.TSyntax `ident) : Lean.TSyntax `term :=
   ⟨Lean.Syntax.mkStrLit name.getId.toString⟩
 
@@ -169,6 +174,7 @@ def entryWithMutability (mutability : ProofForge.IR.EntrypointMutability)
     (methodRef.params.map fun param => param.abiWord?)
     body
     mutability
+    methodRef.returnAbiWord?
 
 def entry (methodRef : MethodRef) (body : EntryM Unit) : ModuleM Unit :=
   entryWithMutability .call methodRef body

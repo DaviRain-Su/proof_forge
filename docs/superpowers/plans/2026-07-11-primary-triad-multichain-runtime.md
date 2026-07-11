@@ -172,9 +172,9 @@ match standards behavior, not duplicate the full catalog indiscriminately.
 | Permit | [ERC-2612](https://eips.ethereum.org/EIPS/eip-2612), [EIP-712](https://eips.ethereum.org/EIPS/eip-712) | Canonical seven-argument atomic route now exists with replay/deadline/domain/low-s/v attacks; compliance evidence is not yet bound | Bind exact adapter/artifact/runtime evidence before promotion from `experimental` |
 | NFT | [ERC-721](https://eips.ethereum.org/EIPS/eip-721) | Transfer subset only | Add mandatory balance/approval/operator/ERC-165 behavior and canonical address ABI |
 | Multi-token | [ERC-1155](https://eips.ethereum.org/EIPS/eip-1155) | Single-transfer subset plus a custom fixed-size-two batch | Dynamic batch ABI, `TransferBatch`, `balanceOfBatch`, standard receiver data and ERC-165 |
-| Interface discovery | [ERC-165](https://eips.ethereum.org/EIPS/eip-165) | Public mutable registration permits false claims | Immutable/generated interface set; `0xffffffff` must be false |
-| Ownership | [ERC-173](https://eips.ethereum.org/EIPS/eip-173) | Portable ownership exists, but types/events/init do not match ERC-173 | Canonical owner/transfer ABI and event plus atomic initialization |
-| Role access | [OZ Access](https://docs.openzeppelin.com/contracts/5.x/api/access) | Portable roles exist, but OZ-compatible types/events/admin semantics do not | Use a separate component profile for role-admin, grant/revoke/renounce and events; do not attribute role behavior to ERC-173 |
+| Interface discovery | [ERC-165](https://eips.ethereum.org/EIPS/eip-165) | Immutable/generated identity set now rejects `0xffffffff`; evidence remains `experimental` | Bind the exact adapter/artifact/runtime result to the compliance manifest |
+| Ownership | [ERC-173](https://eips.ethereum.org/EIPS/eip-173) | Canonical EVM ABI/event and one-shot initialization now coexist with a portable u64 carrier | Bind the exact adapter/artifact/runtime result to the compliance manifest |
+| Role access | [OZ Access](https://docs.openzeppelin.com/contracts/5.x/api/access) | EVM bytes32 role/admin/event surface is separate from the portable u64 role profile | Finish behavioral equivalence and evidence binding; never report the portable profile as exact OZ AccessControl |
 | Vault | [ERC-4626](https://eips.ethereum.org/EIPS/eip-4626) | Substantial runtime body with security hardening, but not a complete tokenized vault | Share allowance, delegated exits, total-assets policy, full-precision math, atomic initialization |
 | Upgrade | [ERC-1967](https://eips.ethereum.org/EIPS/eip-1967), [ERC-1822](https://eips.ethereum.org/EIPS/eip-1822) | Transport spike exists | `proxiableUUID`, only-proxy boundary, initializer calldata, authority binding, layout/migration checks |
 | Governance | [OZ Governance](https://docs.openzeppelin.com/contracts/5.x/api/governance), [ERC-5805](https://eips.ethereum.org/EIPS/eip-5805), [ERC-6372](https://eips.ethereum.org/EIPS/eip-6372) | No reusable Governor/Votes/Timelock SDK | Add only after token/access compliance closes |
@@ -262,10 +262,12 @@ hook ELF.
 - ERC-2612 staging/front-run, replay, deadline, domain, high-s, and invalid-v
   attacks are now covered by the atomic Foundry gate; manifest evidence binding
   remains open.
-- ERC-165 registration is publicly mutable and permits forbidden interface
-  claims.
-- Ownable/AccessControl ABI, events, role-admin, and one-shot initialization do
-  not match their advertised EVM component semantics.
+- ERC-165 public mutation and forbidden-ID claims are closed; requirement-bound
+  evidence promotion remains open.
+- Ownable canonical ABI/events and one-shot initialization are closed. The EVM
+  AccessControl adapter now has bytes32 roles/admin/events/renounce, while the
+  portable role profile remains explicitly separate; full OZ behavioral
+  equivalence and evidence promotion remain open.
 - ERC-4626 lacks full share-token allowance/delegated exit behavior, a defined
   live `totalAssets` policy, full-precision math, and atomic initialization.
 - Runtime custom-error expressions at `bbc4fb9d` still need inferred type/range
@@ -712,7 +714,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | T-00 | Requirement-level standards manifests and evidence model; replace broad `Covered` claims | `docs/sdk-ecosystem-gaps-2026-07.md`, new `ProofForge/Contract/Compliance.lean`, `Tests/StandardCompliance.lean` | Stable requirement IDs cover interface, behavior and security obligations; status binds adapter version, artifact digest, oracle version and actual run result | none | done: verified@fd137842; `just standard-compliance`, `just docs-check`, `just product` |
 | E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | done: verified@71bdfa71; `just evm-abi-schema`, `just portable-counter-multi-target`, `just evm-foundry` |
 | E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | done: verified@e3aef6d6; `just product-erc20-permit`, `just evm-foundry`, `just evm-anvil-deploy`, `just product` |
-| E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | pending |
+| E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | in_progress: implementation and local runtime evidence green; commit/evidence binding pending |
 | E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | in_progress: initial expression lowering committed at bbc4fb9d |
 | N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | pending |
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | pending |
@@ -877,7 +879,7 @@ smokes. This task cannot start before E-P0-01.
 
 Execute as two commits with disjoint ownership where possible.
 
-- [ ] E-P0-03: make the ERC-165 set immutable/generated, force `0xffffffff`
+- [x] E-P0-03: make the ERC-165 set immutable/generated, force `0xffffffff`
       false, implement ERC-173 ABI/event behavior, separate role-profile
       requirements, and reject repeat initialization.
 - [ ] E-P0-04: add runtime custom-error inferred-type/range validation,
