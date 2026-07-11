@@ -25,11 +25,14 @@ inductive CoreValue
   | bytes (b : ByteArray)
   | string (s : String)
   | hash (s : String)
-  | memRef (id : Nat)
+  | memRef (element : CoreType) (id : Nat)
+  | fixedArray (element : CoreType) (entries : Array CoreValue)
+  | array (element : CoreType) (entries : Array CoreValue)
+  | structValue (typeId : TypeId) (fields : Array (FieldId × CoreValue))
   deriving BEq, Repr, Inhabited
 
-/- The Core type of a runtime value. `memRef` is reported as `u64` because it is
-only produced by memory allocation and never flows into validated storage. -/
+/- The Core type of a runtime value. A memory reference retains its declared
+element type and therefore inhabits the matching dynamic-array type. -/
 
 def typeOfValue : CoreValue → CoreType
   | .unit => .unit
@@ -42,11 +45,14 @@ def typeOfValue : CoreValue → CoreType
   | .bytes _ => .bytes
   | .string _ => .string
   | .hash _ => .hash
-  | .memRef _ => .u64
+  | .memRef element _ => .array element
+  | .fixedArray element entries => .fixedArray element entries.size
+  | .array element _ => .array element
+  | .structValue typeId _ => .structType typeId
 
 /- Default value derived from a Core type. No target allocation value or
-hard-coded `.u64 0` default is used for missing state. Aggregate defaults are
-runtime placeholders that never leak into observable storage results. -/
+hard-coded `.u64 0` default is used for missing state. Aggregate defaults retain
+their declared runtime shape. -/
 
 def typeDefault : CoreType → CoreValue
   | .unit => .unit
@@ -59,7 +65,10 @@ def typeDefault : CoreType → CoreValue
   | .bytes => .bytes ByteArray.empty
   | .string => .string ""
   | .hash => .hash ""
-  | .fixedArray _ _ | .array _ | .structType _ => .unit
+  | .fixedArray element length =>
+    .fixedArray element (Array.mk (List.replicate length (typeDefault element)))
+  | .array element => .array element #[]
+  | .structType typeId => .structValue typeId #[]
 
 /- Errors produced by the reference interpreter. Each tag is distinct so that
 divide-by-zero, assertion failure, revert, and unknown host operations cannot
@@ -78,6 +87,10 @@ inductive RuntimeError
   | missingFunction
   | argMismatch
   | invalidCast
+  | loopBoundExceeded (block : BlockId)
+  | unsupportedContext (field : ContextField)
+  | unsupportedHash
+  | unsupportedCrosscall (family : String)
   deriving BEq, Repr
 
 /- Logical storage cells mirror the validated `StateShape`. Map entries are
@@ -106,7 +119,7 @@ allocations. Target allocation (EVM slots, account offsets, storage prefixes) is
 absent. -/
 
 structure LogicalState where
-  storage : Std.HashMap StateId StorageCell
+  storage : StateId → Option StorageCell
   memory : Array (CoreType × Array CoreValue) := #[]
   nextMemId : Nat := 0
 
@@ -114,7 +127,7 @@ instance : Repr LogicalState where
   reprPrec _ _ := "LogicalState"
 
 instance : Inhabited LogicalState where
-  default := { storage := {}, memory := #[], nextMemId := 0 }
+  default := { storage := fun _ => none, memory := #[], nextMemId := 0 }
 
 abbrev Env := Std.HashMap ValueId CoreValue
 
@@ -122,9 +135,14 @@ abbrev Env := Std.HashMap ValueId CoreValue
 kept separate in `RuntimeError` so that a failed trace cannot be mistaken for a
 successful one. -/
 
+inductive ObservableEffect
+  | emit (event : EventId) (args : Array CoreValue)
+  | hostCall (id : HostOpId) (args : Array CoreValue)
+  | crosscall (family : String) (args : Array CoreValue)
+  deriving Repr, BEq, Inhabited
+
 structure ObservableTrace where
-  events : Array (EventId × Array CoreValue) := #[]
-  hostCalls : Array (HostOpId × Array CoreValue) := #[]
+  effects : Array ObservableEffect := #[]
   deriving Repr, BEq, Inhabited
 
 structure ExecutionResult where
@@ -143,12 +161,15 @@ structure Machine where
   state : LogicalState
   trace : ObservableTrace
 
-/- Host semantics is the extension hook for target-specific operations. A host
-handler that does not recognise an operation must return `unknownHostOp`; the
-interpreter never supplies a default value. -/
+/- Host semantics is the extension hook for target-specific operations. Every
+host-dependent operation has an explicit handler; an implementation that does
+not recognise one must return a runtime error rather than a placeholder value. -/
 
 structure HostSemantics where
   handle : HostOpCall → Array CoreValue → LogicalState → Except RuntimeError (CoreValue × LogicalState)
+  handleContext : ContextField → LogicalState → Except RuntimeError (CoreValue × LogicalState)
+  handleHash : CoreValue → LogicalState → Except RuntimeError (CoreValue × LogicalState)
+  handleCrosscall : CoreCrosscallSpec → Array CoreValue → LogicalState → Except RuntimeError (CoreValue × LogicalState)
 
 /- Convert a literal to its runtime value. -/
 
@@ -169,7 +190,8 @@ def literalValue (lit : CoreLiteral) : CoreValue :=
 
 def evalRef (env : Env) (ref : ValueRef) : Except RuntimeError CoreValue :=
   match Std.HashMap.get? env ref.id with
-  | some v => .ok v
+  | some v =>
+    if typeOfValue v == ref.type then .ok v else .error .typeMismatch
   | none => .error .invalidStorageShape
 
 /- Convert a runtime scalar to an array index. -/
@@ -179,15 +201,6 @@ def asArrayIndex (v : CoreValue) : Except RuntimeError Nat :=
   | .u32 n => .ok n.toNat
   | .u64 n => .ok n.toNat
   | _ => .error .typeMismatch
-
-/- Default values for context fields. These are semantic defaults, not storage
-defaults. -/
-
-def defaultContextValue (field : ContextField) : CoreValue :=
-  match field with
-  | .sender | .contractAddress => .address ""
-  | .value => .u128 0
-  | .blockNumber | .blockTimestamp | .gas => .u64 0
 
 /- Pure unary operations. `neg` uses wrapping semantics because Core only
 preserves a mode on binary arithmetic. -/
@@ -353,11 +366,6 @@ def evalCast (to : CoreType) (arg : CoreValue) : Except RuntimeError CoreValue :
   | .hash, .hash s => .ok (.hash s)
   | _, _ => .error .typeMismatch
 
-/- Hash is modelled as an opaque hash tag; the value is not interpreted. -/
-
-def evalHash (_arg : CoreValue) : CoreValue :=
-  .hash ""
-
 def evalPureOp (env : Env) (op : PureOp) : Except RuntimeError CoreValue := do
   match op with
   | .literal lit => .ok (literalValue lit)
@@ -365,7 +373,7 @@ def evalPureOp (env : Env) (op : PureOp) : Except RuntimeError CoreValue := do
   | .arithmetic op mode lhs rhs => evalArithmetic op mode (← evalRef env lhs) (← evalRef env rhs)
   | .compare op lhs rhs => evalCompare op (← evalRef env lhs) (← evalRef env rhs)
   | .cast to arg => evalCast to (← evalRef env arg)
-  | .hash arg => .ok (evalHash (← evalRef env arg))
+  | .hash _ => .error .unsupportedHash
 
 /- Storage cell accessors used by path read/write. -/
 
@@ -390,16 +398,32 @@ def StorageCell.readRecord (field : FieldId) : StorageCell → Except RuntimeErr
   | _ => .error .invalidStorageShape
 
 def StorageCell.writeScalar (value : CoreValue) : StorageCell → Except RuntimeError StorageCell
-  | .scalar _ => .ok (.scalar value)
+  | .scalar previous =>
+    if typeOfValue value == typeOfValue previous then .ok (.scalar value)
+    else .error .typeMismatch
   | _ => .error .invalidStorageShape
 
 def StorageCell.writeMap (key : CoreValue) (value : CoreValue) : StorageCell → Except RuntimeError StorageCell
-  | .map kt vt entries => .ok (.map kt vt (fun k => if k == key then some value else entries k))
+  | .map kt vt entries =>
+    if typeOfValue key == kt && typeOfValue value == vt then
+      .ok (.map kt vt (fun k => if k == key then some value else entries k))
+    else
+      .error .typeMismatch
   | _ => .error .invalidStorageShape
 
 def StorageCell.writeArray (index : Nat) (value : CoreValue) : StorageCell → Except RuntimeError StorageCell
-  | .fixedArray elem entries | .dynamicArray elem entries =>
-    if h : index < Array.size entries then .ok (.fixedArray elem (Array.set entries index value h)) else .error .arrayOutOfBounds
+  | .fixedArray elem entries =>
+    if typeOfValue value != elem then .error .typeMismatch
+    else if h : index < Array.size entries then
+      .ok (.fixedArray elem (Array.set entries index value h))
+    else
+      .error .arrayOutOfBounds
+  | .dynamicArray elem entries =>
+    if typeOfValue value != elem then .error .typeMismatch
+    else if h : index < Array.size entries then
+      .ok (.dynamicArray elem (Array.set entries index value h))
+    else
+      .error .arrayOutOfBounds
   | _ => .error .invalidStorageShape
 
 def StorageCell.writeRecord (field : FieldId) (value : CoreValue) : StorageCell → Except RuntimeError StorageCell
@@ -410,12 +434,17 @@ def StorageCell.writeRecord (field : FieldId) (value : CoreValue) : StorageCell 
 state has not been accessed before. -/
 
 def getStateCell (module : Module) (state : LogicalState) (root : StateId) : Except RuntimeError StorageCell :=
-  match Std.HashMap.get? state.storage root with
+  match state.storage root with
   | some cell => .ok cell
   | none =>
     match module.state.find? (fun s => s.id == root) with
     | some decl => .ok (stateShapeDefault decl.shape)
     | none => .error .invalidStorageShape
+
+def setStateCell (state : LogicalState) (root : StateId) (cell : StorageCell) : LogicalState :=
+  { state with
+    storage := fun key =>
+      if key.value = root.value then some cell else state.storage key }
 
 /- Read a logical storage path. Missing map keys return the declared value type
 default; out-of-bounds array access is an error. -/
@@ -447,7 +476,7 @@ def writePath (module : Module) (env : Env) (state : LogicalState) (path : Stora
       cell.writeArray i value
     | [.field f] => cell.writeRecord f value
     | _ => .error .invalidStorageShape
-  .ok { state with storage := state.storage.insert path.root newCell }
+  .ok (setStateCell state path.root newCell)
 
 /- Membership test for maps and arrays. -/
 
@@ -491,7 +520,7 @@ def storageResize (module : Module) (state : LogicalState) (root : StateId) (len
         Array.shrink entries len
       else
         entries ++ Array.mk (List.replicate (len - Array.size entries) (typeDefault elem))
-    .ok { state with storage := state.storage.insert root (.dynamicArray elem newEntries) }
+    .ok (setStateCell state root (.dynamicArray elem newEntries))
   | _ => .error .invalidStorageShape
 
 /- Memory allocation returns a `memRef` handle; loads and stores use that handle. -/
@@ -501,10 +530,10 @@ def allocMemory (state : LogicalState) (ty : CoreType) (length : CoreValue) : Ex
   let id := state.nextMemId
   let entries := Array.mk (List.replicate len (typeDefault ty))
   let state' := { state with memory := Array.push state.memory (ty, entries), nextMemId := id + 1 }
-  .ok (state', .memRef id)
+  .ok (state', .memRef ty id)
 
 def loadMemory (state : LogicalState) (base index : CoreValue) : Except RuntimeError CoreValue := do
-  let id ← match base with | .memRef id => .ok id | _ => .error .typeMismatch
+  let id ← match base with | .memRef _ id => .ok id | _ => .error .typeMismatch
   let i ← asArrayIndex index
   match state.memory[id]? with
   | none => .error .invalidStorageShape
@@ -512,38 +541,61 @@ def loadMemory (state : LogicalState) (base index : CoreValue) : Except RuntimeE
     if h : i < Array.size entries then .ok entries[i] else .error .arrayOutOfBounds
 
 def storeMemory (state : LogicalState) (base index value : CoreValue) : Except RuntimeError LogicalState := do
-  let id ← match base with | .memRef id => .ok id | _ => .error .typeMismatch
+  let id ← match base with | .memRef _ id => .ok id | _ => .error .typeMismatch
   let i ← asArrayIndex index
   match state.memory[id]? with
   | none => .error .invalidStorageShape
   | some (ty, entries) =>
-    if h : i < Array.size entries then
+    if typeOfValue value != ty then
+      .error .typeMismatch
+    else if h : i < Array.size entries then
       .ok { state with memory := Array.set! state.memory id (ty, Array.set entries i value h) }
     else
       .error .arrayOutOfBounds
 
 def releaseMemory (state : LogicalState) (base : CoreValue) : Except RuntimeError LogicalState := do
-  let id ← match base with | .memRef id => .ok id | _ => .error .typeMismatch
+  let id ← match base with | .memRef _ id => .ok id | _ => .error .typeMismatch
   .ok { state with memory := Array.set! state.memory id (default, #[]) }
 
-/- Bind a list of parameter definitions to argument values. -/
+/- Bind typed values into an existing environment. Jump bindings overwrite only
+their target block parameters, so values from dominating blocks stay live. -/
 
-def bindParams (params : Array ValueDef) (args : Array CoreValue) : Env :=
-  let pairs := Array.zip params args
-  Array.foldl (fun env (p, a) => env.insert p.id a) {} pairs
+def bindParams (params : Array ValueDef) (args : Array CoreValue) (env : Env) :
+    Except RuntimeError Env := do
+  unless params.size == args.size do
+    .error .argMismatch
+  let mut bound := env
+  for i in [:params.size] do
+    let param := params[i]!
+    let arg := args[i]!
+    unless typeOfValue arg == param.type do
+      .error .typeMismatch
+    bound := bound.insert param.id arg
+  return bound
 
 /- Bind instruction results to produced values. -/
 
-def bindResults (results : Array ValueDef) (values : Array CoreValue) (env : Env) : Except RuntimeError Env :=
-  if results.size == values.size then
-    .ok (Array.foldl (fun env (r, v) => env.insert r.id v) env (Array.zip results values))
-  else
+def bindResults (results : Array ValueDef) (values : Array CoreValue) (env : Env) : Except RuntimeError Env := do
+  unless results.size == values.size do
     .error .typeMismatch
+  let mut bound := env
+  for i in [:results.size] do
+    let result := results[i]!
+    let value := values[i]!
+    unless typeOfValue value == result.type do
+      .error .typeMismatch
+    bound := bound.insert result.id value
+  return bound
 
 /- Execute a single instruction. -/
 
 def execInstruction (host : HostSemantics) (module : Module) (env : Env) (state : LogicalState) (trace : ObservableTrace) (instr : Instruction) : Except RuntimeError (Env × LogicalState × ObservableTrace) := do
   match instr.op with
+  | .pure (.hash arg) =>
+    let argValue ← evalRef env arg
+    let (value, state') ← host.handleHash argValue state
+    let env' ← bindResults instr.results #[value] env
+    .ok (env', state', trace)
   | .pure op =>
     let v ← evalPureOp env op
     let env' ← bindResults instr.results #[v] env
@@ -590,12 +642,12 @@ def execInstruction (host : HostSemantics) (module : Module) (env : Env) (state 
     let state' ← releaseMemory state b
     .ok (env, state', trace)
   | .contextRead field =>
-    let v := defaultContextValue field
+    let (v, state') ← host.handleContext field state
     let env' ← bindResults instr.results #[v] env
-    .ok (env', state, trace)
+    .ok (env', state', trace)
   | .emit eventId args =>
     let argVals ← args.mapM (evalRef env)
-    let trace' := { trace with events := trace.events.push (eventId, argVals) }
+    let trace' := { trace with effects := trace.effects.push (.emit eventId argVals) }
     .ok (env, state, trace')
   | .assert condition error =>
     let cond ← evalRef env condition
@@ -603,13 +655,16 @@ def execInstruction (host : HostSemantics) (module : Module) (env : Env) (state 
     | .bool true => .ok (env, state, trace)
     | .bool false => .error (.assertionFailure error)
     | _ => .error .typeMismatch
-  | .crosscall _ _ =>
-    let env' ← bindResults instr.results #[.u64 0] env
-    .ok (env', state, trace)
+  | .crosscall spec args =>
+    let argVals ← args.mapM (evalRef env)
+    let (value, state') ← host.handleCrosscall spec argVals state
+    let env' ← bindResults instr.results #[value] env
+    let trace' := { trace with effects := trace.effects.push (.crosscall spec.family argVals) }
+    .ok (env', state', trace')
   | .hostCall call =>
     let argVals ← call.args.mapM (evalRef env)
     let (v, state') ← host.handle call argVals state
-    let trace' := { trace with hostCalls := trace.hostCalls.push (call.id, argVals) }
+    let trace' := { trace with effects := trace.effects.push (.hostCall call.id argVals) }
     let env' ← bindResults instr.results #[v] env
     .ok (env', state', trace')
 
@@ -619,16 +674,37 @@ def execInstructions (host : HostSemantics) (module : Module) (env : Env) (state
   instrs.foldlM (fun (env, state, trace) instr =>
     execInstruction host module env state trace instr) (env, state, trace)
 
-/- Execute a block. Fuel decreases on every block transition so execution is
-total and bounded. The terminator is handled inline to avoid mutual recursion. -/
+abbrev LoopBudgets := Std.HashMap BlockId Nat
 
-def execBlock (host : HostSemantics) (fuel : Nat) (module : Module) (func : Function) (env : Env) (state : LogicalState) (trace : ObservableTrace) (blockId : BlockId) : Except RuntimeError ExecutionResult :=
+/- A bound belongs to the loop-tail block that carries the annotated backedge.
+It is consumed before that block executes, so `atMost 0` executes zero loop
+iterations rather than failing only after the loop body has run. -/
+
+def consumeLoopBound (block : Block) (budgets : LoopBudgets) :
+    Except RuntimeError LoopBudgets :=
+  match block.terminator with
+  | .jump _ _ (some (.atMost maximum)) =>
+    let remaining := (Std.HashMap.get? budgets block.id).getD maximum
+    if remaining == 0 then
+      .error (.loopBoundExceeded block.id)
+    else
+      .ok (budgets.insert block.id (remaining - 1))
+  | .jump _ _ (some .requiresUnbounded) | .jump _ _ none
+  | .branch _ _ _ | .return _ | .revert _ => .ok budgets
+
+/- Execute a block. Fuel decreases on every block transition so execution is
+total and bounded. Loop budgets are threaded separately from global fuel. -/
+
+def execBlockWithBudgets (host : HostSemantics) (fuel : Nat) (module : Module)
+    (func : Function) (env : Env) (state : LogicalState) (trace : ObservableTrace)
+    (budgets : LoopBudgets) (blockId : BlockId) : Except RuntimeError ExecutionResult :=
   match fuel with
   | 0 => .error .outOfFuel
   | fuel + 1 => do
     let block ← match func.blocks.find? (fun b => b.id == blockId) with
       | some b => .ok b
       | none => .error .missingFunction
+    let budgets' ← consumeLoopBound block budgets
     let (env', state', trace') ← execInstructions host module env state trace block.instructions
     match block.terminator with
     | .jump target args _ => do
@@ -636,28 +712,41 @@ def execBlock (host : HostSemantics) (fuel : Nat) (module : Module) (func : Func
         | some b => .ok b
         | none => .error .missingFunction
       let argVals ← args.mapM (evalRef env')
-      let env'' := bindParams targetBlock.params argVals
-      execBlock host fuel module func env'' state' trace' target
+      let env'' ← bindParams targetBlock.params argVals env'
+      execBlockWithBudgets host fuel module func env'' state' trace' budgets' target
     | .branch condition onTrue onFalse => do
       let cond ← evalRef env' condition
       match cond with
-      | .bool true => execBlock host fuel module func env' state' trace' onTrue
-      | .bool false => execBlock host fuel module func env' state' trace' onFalse
+      | .bool true => execBlockWithBudgets host fuel module func env' state' trace' budgets' onTrue
+      | .bool false => execBlockWithBudgets host fuel module func env' state' trace' budgets' onFalse
       | _ => .error .typeMismatch
     | .return values => do
       let vals ← values.mapM (evalRef env')
       match vals with
-      | #[] => .ok { returnValue := .unit, finalState := state', trace := trace' }
-      | #[v] => .ok { returnValue := v, finalState := state', trace := trace' }
-      | _ => .error .invalidStorageShape
+      | #[] =>
+        if func.retType == .unit then
+          .ok { returnValue := .unit, finalState := state', trace := trace' }
+        else
+          .error .typeMismatch
+      | #[v] =>
+        if func.retType != .unit && typeOfValue v == func.retType then
+          .ok { returnValue := v, finalState := state', trace := trace' }
+        else
+          .error .typeMismatch
+      | _ => .error .typeMismatch
     | .revert error => .error (.explicitRevert error)
+
+def execBlock (host : HostSemantics) (fuel : Nat) (module : Module)
+    (func : Function) (env : Env) (state : LogicalState) (trace : ObservableTrace)
+    (blockId : BlockId) : Except RuntimeError ExecutionResult :=
+  execBlockWithBudgets host fuel module func env state trace {} blockId
 
 /- Entry point: validate the entry function, bind arguments, and start execution
 with the provided fuel. This function is total: every path returns a result or a
 `RuntimeError`. -/
 
 def execute (host : HostSemantics) (fuel : Nat) (checked : CheckedCanonicalContract) (entrypoint : FunctionId) (args : Array CoreValue) (state : LogicalState) : Except RuntimeError ExecutionResult := do
-  let module := match checked with | { contract := c } => c.module
+  let module := checked.contract.module
   let func ← match module.functions.find? (fun f => f.id == entrypoint) with
     | some f => .ok f
     | none => .error .missingFunction
@@ -666,7 +755,7 @@ def execute (host : HostSemantics) (fuel : Nat) (checked : CheckedCanonicalContr
   for i in [:func.params.size] do
     unless typeOfValue args[i]! == func.params[i]!.type do
       .error .argMismatch
-  let env := bindParams func.params args
+  let env ← bindParams func.params args {}
   execBlock host fuel module func env state {} func.entry
 
 end ProofForge.IR.Core.Semantics

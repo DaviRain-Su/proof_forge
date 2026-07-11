@@ -19,20 +19,20 @@ instance : Inhabited CoreStmt where default := .effect default
 
 /-- Flatten a list of lists (local helper to avoid relying on a particular
 `List` namespace member being available). -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeBody` for canonical CFG conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeBody` for canonical CFG conversion." (since := "0.1.0-beta.1")]
 def flatten (xss : List (List α)) : List α :=
   xss.foldr List.append []
 
 /-- Look up the storage slot index for a state variable name. Unknown names
 now surface as `ElabError.unknownState` instead of silently using slot `0`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter` for canonical state resolution."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter` for canonical state resolution." (since := "0.1.0-beta.1")]
 def stateSlot (stateSlots : List (String × Nat)) (name : String) : Except ElabError Nat :=
   match stateSlots.find? (fun (n, _) => n == name) with
   | some (_, idx) => .ok idx
   | none => .error (.unknownState name)
 
 /-- Map a Surface IR `ValueType` to the chain-neutral Core IR `CoreType`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptType` for canonical type conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptType` for canonical type conversion." (since := "0.1.0-beta.1")]
 def elaborateType (t : ValueType) : Except ElabError CoreType :=
   match t with
   | .unit => .ok .unit
@@ -50,7 +50,7 @@ def elaborateType (t : ValueType) : Except ElabError CoreType :=
   | .array e => do .ok (.array (← elaborateType e))
 
 /-- Map a Surface IR `Literal` to a Core IR `CoreLiteral`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptLiteral` for canonical literal conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptLiteral` for canonical literal conversion." (since := "0.1.0-beta.1")]
 def elaborateLiteral (l : Literal) : Except ElabError CoreLiteral :=
   match l with
   | .u8 n => .ok (.u8Lit n.toUInt8)
@@ -62,7 +62,7 @@ def elaborateLiteral (l : Literal) : Except ElabError CoreLiteral :=
   | .address _ => .error (.unsupported "address literal")
 
 /-- Map Surface `AssignOp` to the corresponding Core `BinaryOp`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptAssignOp` for canonical operator conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptAssignOp` for canonical operator conversion." (since := "0.1.0-beta.1")]
 def assignOpToBinaryOp (op : AssignOp) : Except ElabError BinaryOp :=
   match op with
   | .add => .ok .add
@@ -79,7 +79,7 @@ def assignOpToBinaryOp (op : AssignOp) : Except ElabError BinaryOp :=
 /-- Map a Surface IR `ContextField` to a Core IR `ContextKind`.
 Only the fields needed for Counter/ValueVault-style modules are handled; all
 others are rejected with `ElabError.unsupported`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptContextField` for canonical context conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptContextField` for canonical context conversion." (since := "0.1.0-beta.1")]
 def elaborateContextField (field : ContextField) : Except ElabError ContextKind :=
   match field with
   | .userId => .ok .sender
@@ -91,7 +91,7 @@ def elaborateContextField (field : ContextField) : Except ElabError ContextKind 
 mutual
   /-- Elaborate a Surface IR `Expr` into a Core IR `CoreExpr`. `stateSlots`
   maps declared state-variable names to their target-neutral scalar slot index. -/
-  @[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeExpr` for canonical ANF conversion."]
+  @[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeExpr` for canonical ANF conversion." (since := "0.1.0-beta.1")]
   partial def elaborateExpr (stateSlots : List (String × Nat)) (e : Expr) : Except ElabError CoreExpr :=
     match e with
     | .literal l => do .ok (.literal (← elaborateLiteral l))
@@ -121,7 +121,7 @@ mutual
     | other => .error (.unsupported s!"expr {repr other}")
 
   /-- Elaborate a Surface IR `Effect` into a Core IR `CoreEffect`. -/
-  @[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeEffect` for canonical effect conversion."]
+  @[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeEffect` for canonical effect conversion." (since := "0.1.0-beta.1")]
   partial def elaborateEffect (stateSlots : List (String × Nat)) (eff : Effect) : Except ElabError CoreEffect :=
     match eff with
     | .storageScalarRead id => do .ok (.storageRead (.scalar (← stateSlot stateSlots id)))
@@ -138,7 +138,7 @@ mutual
 end
 
 /-- Elaborate a Surface IR `Statement` into a list of Core IR `CoreStmt`s. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeBody` for canonical CFG conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.normalizeBody` for canonical CFG conversion." (since := "0.1.0-beta.1")]
 partial def elaborateStmt (stateSlots : List (String × Nat)) (s : Statement) : Except ElabError (List CoreStmt) :=
   match s with
   | .letBind name ty value => do
@@ -172,7 +172,7 @@ where
 /-- Elaborate a Surface IR `Module` into a Core IR `CoreModule`.
 This is intentionally partial: Counter and ValueVault-style modules are fully
 supported, and anything outside that fragment returns `ElabError.unsupported`. -/
-@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptLegacy` for canonical bundle conversion."]
+@[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptLegacy` for canonical bundle conversion." (since := "0.1.0-beta.1")]
 def elaborateModule (m : Module) : Except ElabError CoreModule := do
   let stateSlots := m.state.zipIdx.toList.map (fun (s, i) => (s.id, i))
   let state ← m.state.toList.mapM fun s => do
@@ -197,7 +197,7 @@ def elaborateModule (m : Module) : Except ElabError CoreModule := do
     }
 
 /-- Compatibility alias preserved for the migration window. -/
-@[deprecated "Use `ProofForge.IR.Legacy.Adapter.adaptLegacy` for canonical bundle conversion."]
+@[deprecated "Use `ProofForge.IR.Legacy.Adapter.adaptLegacy` for canonical bundle conversion." (since := "0.1.0-beta.1")]
 def adaptToCanonical (spec : ProofForge.Contract.ContractSpec) : Except String ProofForge.IR.Canonical.CanonicalBundle :=
   match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
   | .ok bundle => .ok bundle

@@ -122,6 +122,76 @@ def arithmeticModeModule (checked : Bool) : ProofForge.IR.Module := {
   }]
 }
 
+def mismatchedLetModule : ProofForge.IR.Module := {
+  name := "MismatchedLet"
+  state := #[]
+  entrypoints := #[{
+    name := "bad"
+    returns := .bool
+    body := #[
+      .letBind "x" .bool (.literal (.u64 1)),
+      .return (.local "x")
+    ]
+  }]
+}
+
+def ifElseModule : ProofForge.IR.Module := {
+  name := "IfElse"
+  state := #[{ id := "count", kind := .scalar, type := .u64 }]
+  entrypoints := #[{
+    name := "choose"
+    body := #[.ifElse (.literal (.bool true))
+      #[.effect (.storageScalarWrite "count" (.literal (.u64 1)))]
+      #[.effect (.storageScalarWrite "count" (.literal (.u64 2)))]]
+  }]
+}
+
+def boundedForModule : ProofForge.IR.Module := {
+  name := "BoundedFor"
+  state := #[{ id := "count", kind := .scalar, type := .u64 }]
+  entrypoints := #[{
+    name := "run"
+    body := #[.boundedFor "i" 0 3 #[
+      .effect (.storageScalarAssignOp "count" .add (.literal (.u64 1)))
+    ]]
+  }]
+}
+
+def structuredErrorModule : ProofForge.IR.Module := {
+  name := "StructuredError"
+  state := #[]
+  entrypoints := #[{
+    name := "fail"
+    body := #[.assert (.literal (.bool false)) "denied" (some {
+      assertionId := 7
+      userCode? := some "Denied"
+    })]
+  }]
+}
+
+def boolEventModule : ProofForge.IR.Module := {
+  name := "BoolEvent"
+  state := #[]
+  entrypoints := #[{
+    name := "emit_flag"
+    body := #[.effect (.eventEmit "Flag" #[
+      ("enabled", .literal (.bool true))
+    ])]
+  }]
+}
+
+def hasBoundedBackedge (module : Core.Module) : Bool :=
+  module.functions.any (fun f => f.blocks.any (fun b =>
+    match b.terminator with
+    | .jump _ _ (some (.atMost 3)) => true
+    | _ => false))
+
+def hasErrorCode (module : Core.Module) (code : Nat) : Bool :=
+  module.functions.any (fun f => f.blocks.any (fun b =>
+    b.instructions.any (fun i => match i.op with
+      | .assert _ error => error.code == code
+      | _ => false)))
+
 def runAssertions : IO Unit := do
   -- Counter adapts successfully.
   let counterBundle ← match adaptLegacy counterSpec with
@@ -213,6 +283,37 @@ def runAssertions : IO Unit := do
   | .error (.unknownState "missing") => pure ()
   | .error e => throw <| IO.userError s!"unknown state wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "unknown state should have rejected"
+
+  match adaptLegacy (ContractSpec.fromIR mismatchedLetModule) with
+  | .error (.typeMismatch _ _) => pure ()
+  | .error e => throw <| IO.userError s!"mismatched let wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "mismatched let type should have rejected"
+
+  let ifBundle ← match adaptLegacy (ContractSpec.fromIR ifElseModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"ifElse adapt failed: {repr e}"
+  let ifFunction := ifBundle.contract.contract.module.functions.find? (·.id == ⟨0⟩)
+  require (ifFunction.map (·.blocks.size) == some 4) "ifElse did not retain entry/branches/continuation"
+
+  let loopBundle ← match adaptLegacy (ContractSpec.fromIR boundedForModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"boundedFor adapt failed: {repr e}"
+  require (hasBoundedBackedge loopBundle.contract.contract.module)
+    "boundedFor did not retain its atMost bound"
+
+  let errorBundle ← match adaptLegacy (ContractSpec.fromIR structuredErrorModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"structured error adapt failed: {repr e}"
+  require (hasErrorCode errorBundle.contract.contract.module 7)
+    "structured ErrorRef assertionId was not preserved"
+
+  let boolEventBundle ← match adaptLegacy (ContractSpec.fromIR boolEventModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"bool event adapt failed: {repr e}"
+  match boolEventBundle.contract.contract.module.events.find? (·.id == ⟨0⟩) with
+  | some event =>
+      require (event.fields.map (·.type) == #[.bool]) "bool event schema was not inferred"
+  | none => throw <| IO.userError "bool event declaration missing"
 
 end Tests.Canonical.LegacyAdapter
 

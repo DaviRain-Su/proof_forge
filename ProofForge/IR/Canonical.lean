@@ -6,6 +6,7 @@ import ProofForge.IR.Core.Error
 import ProofForge.IR.Core.Validate
 import ProofForge.Target.Capability
 import ProofForge.Target.Plan
+import ProofForge.Contract.Intent
 
 namespace ProofForge.IR.Canonical
 
@@ -58,10 +59,20 @@ structure ConstructorBinding where
   value : CoreLiteral
   deriving Repr, BEq
 
+/-- Deploy-time constructor parameter schema carried into the canonical
+materialization contract. The `abiType` is host-facing (e.g. Solidity ABI). -/
+structure ConstructorParam where
+  name : String
+  abiType : String
+  deriving Repr, BEq
+
 structure MaterializationContract where
   constructorBindings : Array ConstructorBinding := #[]
+  constructorParams : Array ConstructorParam := #[]
   allocatorRequirement : Option String := none
   upgradePolicy : Option String := none
+  proxyPattern? : Option String := none
+  intents : Array ProofForge.Contract.Intent := #[]
   deriving Repr, BEq
 
 /- Canonical contract: the checked runtime/materialization boundary passed to
@@ -76,6 +87,7 @@ structure CanonicalContract where
   deriving Repr, BEq
 
 structure CheckedCanonicalContract where
+  private mk ::
   contract : CanonicalContract
   deriving Repr, BEq
 
@@ -170,9 +182,13 @@ instance : Inhabited CanonicalEvidence where default := { sourceMap := default, 
 instance : Inhabited InterfaceEntrypoint where default := { functionId := ⟨0⟩, kind := "", mutatesState := false }
 instance : Inhabited InterfaceContract where default := { entrypoints := #[] }
 instance : Inhabited ConstructorBinding where default := { stateId := ⟨0⟩, value := .unitLit }
-instance : Inhabited MaterializationContract where default := { constructorBindings := #[] }
+instance : Inhabited MaterializationContract where default := {
+  constructorBindings := #[],
+  constructorParams := #[],
+  allocatorRequirement := none,
+  upgradePolicy := none,
+  proxyPattern? := none,
+  intents := #[]
+}
 instance : Inhabited CanonicalContract where default := { schemaVersion := 0, module := default, interface := default, materialization := default, requirements := #[] }
-instance : Inhabited CheckedCanonicalContract where default := { contract := default }
-instance : Inhabited CanonicalBundle where default := { contract := default, evidence := default }
-
 end ProofForge.IR.Canonical

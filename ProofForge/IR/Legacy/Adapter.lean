@@ -36,10 +36,19 @@ contract. All artifact-affecting metadata is preserved. -/
 def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv) : Except CanonicalizeError MaterializationContract := do
   let bindings ← spec.constructorInitBindings.mapM (adaptConstructorBinding env)
   let upgradePolicy := spec.upgradePolicy?.map (·.kind)
+  let proxyPattern? := spec.proxyPattern?.map (·.kind)
+  let constructorParams : Array ProofForge.IR.Canonical.ConstructorParam :=
+    spec.constructorParams.map (fun p => {
+      name := p.name
+      abiType := p.abiType
+    })
   return {
     constructorBindings := bindings,
+    constructorParams := constructorParams,
     allocatorRequirement := none,
-    upgradePolicy := upgradePolicy
+    upgradePolicy := upgradePolicy,
+    proxyPattern? := proxyPattern?,
+    intents := spec.intents
   }
 
 /- Map legacy entrypoint metadata into the canonical interface contract. -/
@@ -74,43 +83,30 @@ def collectEventNames (m : Module) : Array String :=
   m.entrypoints.foldl (fun acc ep =>
     ep.body.foldl (fun a stmt => collectEventNamesStmt stmt a) acc) #[]
 
-/- Build a canonical event declaration from its first emission site. -/
-
-def adaptEventFields (fields : Array (String × Expr)) : AdapterM (Array ValueDef) := do
-  fields.mapM (fun _ => do
-    let vid ← freshValueId
-    let ty : CoreType := .u64  -- fields retain their portable carrier; type resolved later
-    return { id := vid, type := ty })
-
-partial def findEventFieldsStmt (stmt : Statement) (name : String) : Option (Array (String × Expr)) :=
-  match stmt with
-  | .effect (.eventEmit n fields) => if n == name then some fields else none
-  | .effect (.eventEmitIndexed n _ dataFields) => if n == name then some dataFields else none
-  | .ifElse _ thenBody elseBody =>
-      thenBody.findSome? (fun s => findEventFieldsStmt s name) <|>
-      elseBody.findSome? (fun s => findEventFieldsStmt s name)
-  | .boundedFor _ _ _ body => body.findSome? (fun s => findEventFieldsStmt s name)
-  | .whileLoop _ body => body.findSome? (fun s => findEventFieldsStmt s name)
-  | _ => none
-
-def findEventFields (m : Module) (name : String) : Array (String × Expr) :=
+private def findEventArgTypes (functions : Array Function) (eventId : EventId) :
+    Option (Array CoreType) :=
   Id.run do
-    for ep in m.entrypoints do
-      for stmt in ep.body do
-        match findEventFieldsStmt stmt name with
-        | some fields => return fields
-        | none => continue
-    return #[]
+    for function in functions do
+      for block in function.blocks do
+        for instruction in block.instructions do
+          match instruction.op with
+          | .emit emittedId args =>
+              if emittedId == eventId then return some (args.map (·.type))
+          | _ => pure ()
+    return none
 
 /- Build all canonical event declarations discovered in the module. -/
 
-def adaptEvents (m : Module) : AdapterM (Array Event) := do
+def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Event) := do
   let names := collectEventNames m
   names.mapM (fun name => do
     let eventId ← lookupEvent name
-    -- Find an emission to derive the field count.
-    let fields := findEventFields m name
-    let coreFields ← adaptEventFields fields
+    let types ← match findEventArgTypes functions eventId with
+      | some types => pure types
+      | none => throw (CanonicalizeError.unknownEvent name)
+    let coreFields ← types.mapM (fun type => do
+      let id ← freshValueId
+      return { id := id, type := type })
     return { id := eventId, fields := coreFields })
 
 /- Adapt a legacy struct declaration to canonical form. -/
@@ -146,8 +142,8 @@ def adaptModuleM (m : Module) : AdapterM Core.Module := do
     let id ← lookupState s.id
     let shape ← liftExcept (adaptStateShape s)
     return { id := id, shape := shape })
-  let events ← adaptEvents m
   let functions ← m.entrypoints.mapM adaptFunction
+  let events ← adaptEvents m functions
   return {
     name := m.name,
     structs := structs,

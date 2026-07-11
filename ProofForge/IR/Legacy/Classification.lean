@@ -799,4 +799,22 @@ def classifySpecFields : ProofForge.Contract.ContractSpec → Array LegacySpecFi
         reason := "Lean invariants are verification evidence" }
     ]
 
+/--! Canonical field names of `ContractSpec`.
+
+This list is the runtime counterpart to the positional pattern in
+`classifySpecFields`. It is used by the adapter to detect any drift between the
+legacy spec schema and its classification decisions. -/
+def specFieldNames : Array String := #[
+  "name",
+  "module",
+  "intents",
+  "upgradePolicy?",
+  "proxyPattern?",
+  "constructorParams",
+  "constructorInitBindings",
+  "quintInvariants",
+  "quintLiveness",
+  "leanInvariants"
+]
+
 end ProofForge.IR.Legacy

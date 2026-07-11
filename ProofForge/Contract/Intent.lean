@@ -22,7 +22,7 @@ structure Intent where
   capability? : Option ProofForge.Target.Capability := none
   source? : Option String := none
   metadata : Array ProofForge.Target.TargetMetadata := #[]
-  deriving Repr
+  deriving Repr, BEq
 
 def Intent.capability (capability : ProofForge.Target.Capability) (operation : String := capability.id)
     (source? : Option String := none) (metadata : Array ProofForge.Target.TargetMetadata := #[]) : Intent := {

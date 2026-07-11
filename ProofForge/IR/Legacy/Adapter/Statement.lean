@@ -18,42 +18,45 @@ structure PartialBlock where
 structure FunctionBuilder where
   blocks : Array Block
   current : PartialBlock
+  active : Bool := true
   deriving Repr
 
 def FunctionBuilder.emitInstr (fb : FunctionBuilder) (instr : Instruction) : Except CanonicalizeError FunctionBuilder :=
-  match fb.current.terminator with
-  | some _ => .error (CanonicalizeError.terminatedBlock s!"cannot append instruction to terminated block {repr fb.current.id}")
-  | none => .ok { fb with current := { fb.current with instructions := fb.current.instructions.push instr } }
+  if !fb.active then
+    .error (CanonicalizeError.terminatedBlock "cannot append instruction after all control-flow paths terminated")
+  else
+    match fb.current.terminator with
+    | some _ => .error (CanonicalizeError.terminatedBlock s!"cannot append instruction to terminated block {repr fb.current.id}")
+    | none => .ok { fb with current := { fb.current with instructions := fb.current.instructions.push instr } }
 
 def FunctionBuilder.setTerminator (fb : FunctionBuilder) (t : Terminator) : Except CanonicalizeError FunctionBuilder :=
-  match fb.current.terminator with
-  | some _ => .error (CanonicalizeError.terminatedBlock s!"block {repr fb.current.id} already has a terminator")
-  | none => .ok { fb with current := { fb.current with terminator := some t } }
+  if !fb.active then
+    .error (CanonicalizeError.terminatedBlock "cannot terminate an unreachable continuation")
+  else
+    match fb.current.terminator with
+    | some _ => .error (CanonicalizeError.terminatedBlock s!"block {repr fb.current.id} already has a terminator")
+    | none => .ok { fb with current := { fb.current with terminator := some t } }
 
-def FunctionBuilder.finishCurrent (fb : FunctionBuilder) : AdapterM FunctionBuilder :=
-  match fb.current.terminator with
-  | none => throw (CanonicalizeError.terminatedBlock s!"block {repr fb.current.id} has no terminator")
-  | some t =>
-      let block : Block := {
-        id := fb.current.id,
-        params := fb.current.params,
-        instructions := fb.current.instructions,
-        terminator := t
-      }
-      freshBlockId >>= fun nextId =>
-        pure { blocks := fb.blocks.push block, current := { id := nextId } }
+def FunctionBuilder.sealedBlocks (fb : FunctionBuilder) : Except CanonicalizeError (Array Block) :=
+  if !fb.active then
+    .ok fb.blocks
+  else
+    match fb.current.terminator with
+    | none => .error (CanonicalizeError.terminatedBlock s!"block {repr fb.current.id} has no terminator")
+    | some terminator => .ok (fb.blocks.push {
+        id := fb.current.id
+        params := fb.current.params
+        instructions := fb.current.instructions
+        terminator := terminator
+      })
+
+def FunctionBuilder.finishCurrent (fb : FunctionBuilder) : AdapterM FunctionBuilder := do
+  let blocks ← liftExcept fb.sealedBlocks
+  let nextId ← freshBlockId
+  return { blocks := blocks, current := { id := nextId } }
 
 def FunctionBuilder.toBlocks (fb : FunctionBuilder) : Except CanonicalizeError (Array Block) :=
-  match fb.current.terminator with
-  | none => .error (CanonicalizeError.terminatedBlock s!"final block {repr fb.current.id} has no terminator")
-  | some t =>
-      let block : Block := {
-        id := fb.current.id,
-        params := fb.current.params,
-        instructions := fb.current.instructions,
-        terminator := t
-      }
-      .ok (fb.blocks.push block)
+  fb.sealedBlocks
 
 /- Default error reference for unconditional reverts. -/
 
@@ -113,12 +116,16 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
   | .letBind name ty value => do
       let coreTy ← liftExcept (adaptType ty)
       let nv ← normalizeExpr value
+      unless nv.value.type == coreTy do
+        throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
   | .letMutBind name ty value => do
       let coreTy ← liftExcept (adaptType ty)
       let nv ← normalizeExpr value
+      unless nv.value.type == coreTy do
+        throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
@@ -161,19 +168,21 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
           return fb
       | other => throw (CanonicalizeError.invalidLValue s!"assign-op target {repr other}")
   | .effect eff => normalizeEffect fb eff
-  | .assert cond _msg _ => do
+  | .assert cond _msg errorRef? => do
       let nv ← normalizeExpr cond
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let instr := { results := #[], op := .assert nv.value { namespace_ := "legacy", code := 0 } }
+      let error := errorRef?.map errorRefOf |>.getD defaultRevertError
+      let instr := { results := #[], op := .assert nv.value error }
       liftExcept (fb.emitInstr instr)
-  | .assertEq lhs rhs _msg _ => do
+  | .assertEq lhs rhs _msg errorRef? => do
       let nl ← normalizeExpr lhs
       let nr ← normalizeExpr rhs
       let nc ← emitValueInstruction (.pure (.compare .eq nl.value nr.value)) .bool
       let fb ← liftExcept (nl.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nr.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nc.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let instr := { results := #[], op := .assert nc.value { namespace_ := "legacy", code := 0 } }
+      let error := errorRef?.map errorRefOf |>.getD defaultRevertError
+      let instr := { results := #[], op := .assert nc.value error }
       liftExcept (fb.emitInstr instr)
   | .revert _msg =>
       liftExcept (fb.setTerminator (.revert defaultRevertError))
@@ -189,56 +198,76 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let falseId ← freshBlockId
       let contId ← freshBlockId
       let fb ← liftExcept (fb.setTerminator (.branch nv.value trueId falseId))
-      -- true branch
-      let trueBuilder : FunctionBuilder := { blocks := fb.blocks, current := { id := trueId } }
+      let entryBlocks ← liftExcept fb.sealedBlocks
+      let localsBefore := (← get).env.localValues
+
+      let trueBuilder : FunctionBuilder := { blocks := entryBlocks, current := { id := trueId } }
       let trueBuilder ← thenBody.foldlM (fun b stmt => normalizeStatement b stmt retType) trueBuilder
-      let trueBuilder ← liftExcept (trueBuilder.setTerminator (.jump contId #[]))
-      -- false branch
-      let falseBuilder : FunctionBuilder := { blocks := trueBuilder.blocks, current := { id := falseId } }
+      let trueFallsThrough := trueBuilder.current.terminator.isNone
+      let trueBuilder ← if trueFallsThrough then
+          liftExcept (trueBuilder.setTerminator (.jump contId #[]))
+        else
+          pure trueBuilder
+      let trueBlocks ← liftExcept trueBuilder.sealedBlocks
+
+      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      let falseBuilder : FunctionBuilder := { blocks := trueBlocks, current := { id := falseId } }
       let falseBuilder ← elseBody.foldlM (fun b stmt => normalizeStatement b stmt retType) falseBuilder
-      let falseBuilder ← liftExcept (falseBuilder.setTerminator (.jump contId #[]))
-      -- continuation
-      return { blocks := falseBuilder.blocks, current := { id := contId } }
+      let falseFallsThrough := falseBuilder.current.terminator.isNone
+      let falseBuilder ← if falseFallsThrough then
+          liftExcept (falseBuilder.setTerminator (.jump contId #[]))
+        else
+          pure falseBuilder
+      let branchBlocks ← liftExcept falseBuilder.sealedBlocks
+
+      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      return {
+        blocks := branchBlocks
+        current := { id := contId }
+        active := trueFallsThrough || falseFallsThrough
+      }
   | .boundedFor indexName start stopExclusive body => do
       if stopExclusive < start then
         throw (CanonicalizeError.other s!"boundedFor: stopExclusive {stopExclusive} < start {start}")
       let headerId ← freshBlockId
       let bodyId ← freshBlockId
       let contId ← freshBlockId
-      -- Fresh value identities for the loop-index block parameters.
+      let localsBefore := (← get).env.localValues
       let headerParamId ← freshValueId
-      let bodyParamId ← freshValueId
       let indexParam : ValueDef := { id := headerParamId, type := .u64 }
-      let bodyParam : ValueDef := { id := bodyParamId, type := .u64 }
       let boundRef : ValueRef := { id := headerParamId, type := .u64 }
-      let bodyRef : ValueRef := { id := bodyParamId, type := .u64 }
-      -- Enter loop: jump to header with initial index value.
       let startRefId ← freshValueId
       let startLit ← liftExcept (adaptLiteral (.u64 start))
       let startInstr := { results := #[{ id := startRefId, type := .u64 }], op := .pure (.literal startLit) }
       let fb ← liftExcept (fb.emitInstr startInstr)
       let fb ← liftExcept (fb.setTerminator (.jump headerId #[{ id := startRefId, type := .u64 }]))
-      -- Header block: branch on index < stopExclusive.
+      let entryBlocks ← liftExcept fb.sealedBlocks
+
       let headerBlock : PartialBlock := { id := headerId, params := #[indexParam] }
       let stopLit ← liftExcept (adaptLiteral (.u64 stopExclusive))
       let stopRef ← emitValueInstruction (.pure (.literal stopLit)) .u64
       let condRef ← emitValueInstruction (.pure (.compare .lt boundRef stopRef.value)) .bool
-      let mut headerBuilder : FunctionBuilder := { blocks := fb.blocks, current := headerBlock }
+      let mut headerBuilder : FunctionBuilder := { blocks := entryBlocks, current := headerBlock }
       headerBuilder ← liftExcept (stopRef.instructions.foldlM FunctionBuilder.emitInstr headerBuilder)
       headerBuilder ← liftExcept (condRef.instructions.foldlM FunctionBuilder.emitInstr headerBuilder)
       headerBuilder ← liftExcept (headerBuilder.setTerminator (.branch condRef.value bodyId contId))
-      -- Body block: bind index, emit body, increment, jump back to header.
-      let mut bodyBuilder : FunctionBuilder := { blocks := headerBuilder.blocks, current := { id := bodyId, params := #[bodyParam] } }
-      bindLocal indexName bodyRef
+      let headerBlocks ← liftExcept headerBuilder.sealedBlocks
+
+      let mut bodyBuilder : FunctionBuilder := { blocks := headerBlocks, current := { id := bodyId } }
+      bindLocal indexName boundRef
       bodyBuilder ← body.foldlM (fun b stmt => normalizeStatement b stmt retType) bodyBuilder
-      let oneLit ← liftExcept (adaptLiteral (.u64 1))
-      let oneRef ← emitValueInstruction (.pure (.literal oneLit)) .u64
-      let nextRef ← emitValueInstruction (.pure (.arithmetic .add .wrapping bodyRef oneRef.value)) .u64
-      bodyBuilder ← liftExcept (oneRef.instructions.foldlM FunctionBuilder.emitInstr bodyBuilder)
-      bodyBuilder ← liftExcept (nextRef.instructions.foldlM FunctionBuilder.emitInstr bodyBuilder)
-      bodyBuilder ← liftExcept (bodyBuilder.setTerminator (.jump headerId #[nextRef.value] (some (.atMost (stopExclusive - start)))))
-      -- Continuation block becomes current.
-      return { blocks := bodyBuilder.blocks, current := { id := contId } }
+      if bodyBuilder.current.terminator.isNone then
+        let oneLit ← liftExcept (adaptLiteral (.u64 1))
+        let oneRef ← emitValueInstruction (.pure (.literal oneLit)) .u64
+        let nextRef ← emitValueInstruction
+          (.pure (.arithmetic .add .wrapping boundRef oneRef.value)) .u64
+        bodyBuilder ← liftExcept (oneRef.instructions.foldlM FunctionBuilder.emitInstr bodyBuilder)
+        bodyBuilder ← liftExcept (nextRef.instructions.foldlM FunctionBuilder.emitInstr bodyBuilder)
+        bodyBuilder ← liftExcept (bodyBuilder.setTerminator
+          (.jump headerId #[nextRef.value] (some (.atMost (stopExclusive - start)))))
+      let loopBlocks ← liftExcept bodyBuilder.sealedBlocks
+      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      return { blocks := loopBlocks, current := { id := contId } }
   | .whileLoop _ _ =>
       throw (CanonicalizeError.unboundedLoop "whileLoop requires requiresUnbounded capability resolution")
   | .return value => do
@@ -250,13 +279,16 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
 values; non-unit functions must have an explicit source return. -/
 
 def ensureTerminator (fb : FunctionBuilder) (retType : CoreType) : AdapterM FunctionBuilder :=
-  match fb.current.terminator with
-  | some _ => return fb
-  | none =>
-      if retType == .unit then
-        liftExcept (fb.setTerminator (.return #[]))
-      else
-        throw (CanonicalizeError.terminatedBlock s!"function returning {repr retType} missing return")
+  if !fb.active then
+    return fb
+  else
+    match fb.current.terminator with
+    | some _ => return fb
+    | none =>
+        if retType == .unit then
+          liftExcept (fb.setTerminator (.return #[]))
+        else
+          throw (CanonicalizeError.terminatedBlock s!"function returning {repr retType} missing return")
 
 /- Normalize a statement body and return the completed blocks plus the entry
 block identifier. -/
