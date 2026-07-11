@@ -149,8 +149,7 @@ expected_touch_params = [
 ]
 if touch_ins.get("params") != expected_touch_params:
     raise SystemExit(f"touch params mismatch: {touch_ins.get('params')}")
-instruction_accounts = [account.get("name") for account in instructions[0].get("accounts", [])]
-expected_instruction_accounts = [
+expected_module_accounts = [
     "nonce",
     "vault_account",
     "source",
@@ -159,10 +158,19 @@ expected_instruction_accounts = [
     "authority",
     "spl_token",
 ]
-if instruction_accounts != expected_instruction_accounts:
-    raise SystemExit(f"artifact instruction accounts mismatch: {instruction_accounts}")
+expected_instruction_accounts = {
+    "initialize": ["nonce"],
+    "touch": expected_module_accounts,
+}
+for instruction in instructions:
+    instruction_accounts = [account.get("name") for account in instruction.get("accounts", [])]
+    expected = expected_instruction_accounts[instruction["name"]]
+    if instruction_accounts != expected:
+        raise SystemExit(
+            f"artifact instruction accounts mismatch for {instruction['name']}: {instruction_accounts}"
+        )
 idl_accounts = [account.get("name") for account in idl.get("accounts", [])]
-if idl_accounts != expected_instruction_accounts:
+if idl_accounts != expected_module_accounts:
     raise SystemExit(f"IDL account schema mismatch: {idl_accounts}")
 idl_declared_accounts = [
     {key: value for key, value in account.items() if key != "entrypoint"}
@@ -196,7 +204,7 @@ if idl.get("entrypointActions", {}).get("pdas") != pda_actions:
     raise SystemExit("IDL PDA action metadata mismatch")
 if idl.get("entrypointActions", {}).get("cpis") != cpi_actions:
     raise SystemExit("IDL CPI action metadata mismatch")
-program_accounts = [account for account in instructions[0].get("accounts", []) if account.get("name") == "spl_token"]
+program_accounts = [account for account in touch_ins.get("accounts", []) if account.get("name") == "spl_token"]
 if not program_accounts or program_accounts[0].get("owner") != "executable":
     raise SystemExit("artifact missing SPL Token executable account schema")
 if not pdas or pdas[0].get("name") != "vault":
@@ -261,11 +269,15 @@ expected_manifest_touch_params = [
 ]
 if m_touch.get("params") != expected_manifest_touch_params:
     raise SystemExit(f"manifest touch params mismatch: {m_touch.get('params')}")
-manifest_instruction_accounts = [account.get("name") for account in manifest_instructions[0].get("accounts", [])]
-if manifest_instruction_accounts != expected_instruction_accounts:
-    raise SystemExit(f"manifest instruction accounts mismatch: {manifest_instruction_accounts}")
+for instruction in manifest_instructions:
+    manifest_instruction_accounts = [account.get("name") for account in instruction.get("accounts", [])]
+    expected = expected_instruction_accounts[instruction["name"]]
+    if manifest_instruction_accounts != expected:
+        raise SystemExit(
+            f"manifest instruction accounts mismatch for {instruction['name']}: {manifest_instruction_accounts}"
+        )
 manifest_program_accounts = [
-    account for account in manifest_instructions[0].get("accounts", [])
+    account for account in m_touch.get("accounts", [])
     if account.get("name") == "spl_token"
 ]
 if not manifest_program_accounts or manifest_program_accounts[0].get("owner") != "executable":

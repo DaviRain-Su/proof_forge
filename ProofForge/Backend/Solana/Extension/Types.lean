@@ -378,4 +378,12 @@ structure CpiValueBinding where
   relativeToInstructionData : Bool := false
   deriving Repr, Inhabited
 
+/-- Account and value bindings for one concrete instruction ABI. Extension
+helpers must use this scope instead of the module-wide account union. -/
+structure EntrypointBindings where
+  entrypoint : String
+  accountBindings : Array CpiAccountBinding
+  valueBindings : Array CpiValueBinding
+  deriving Repr, Inhabited
+
 end ProofForge.Backend.Solana.Extension

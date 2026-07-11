@@ -63,6 +63,11 @@ reference_entrypoints = reference["entrypoints"]
 require(len(instructions) == len(reference_entrypoints),
         f"entrypoint count mismatch: {len(instructions)}")
 reference_accounts = reference["accounts"]
+cpi_by_name = {cpi["name"]: cpi for cpi in reference["cpis"]}
+action_by_entrypoint = {
+    action["entrypoint"]: action["cpi"] for action in reference["cpiActions"]
+}
+account_by_name = {account["name"]: account for account in reference_accounts}
 for instruction, ref_entry in zip(instructions, reference_entrypoints):
     require(instruction.get("name") == ref_entry["name"],
             f"entrypoint name mismatch: {instruction.get('name')}")
@@ -73,10 +78,16 @@ for instruction, ref_entry in zip(instructions, reference_entrypoints):
     require(instruction.get("params", []) == ref_entry["params"],
             f"params mismatch for {ref_entry['name']}: {instruction.get('params')}")
     artifact_accounts = instruction.get("accounts", [])
-    require([a.get("name") for a in artifact_accounts] == [a["name"] for a in reference_accounts],
+    cpi = cpi_by_name[action_by_entrypoint[ref_entry["name"]]]
+    expected_names = [reference_accounts[0]["name"]]
+    expected_names.extend(cpi["accounts"])
+    if cpi["program"] not in expected_names:
+        expected_names.append(cpi["program"])
+    expected_accounts = [account_by_name[name] for name in expected_names]
+    require([a.get("name") for a in artifact_accounts] == expected_names,
             f"account order mismatch for {ref_entry['name']}: {artifact_accounts}")
-    for got, expected in zip(artifact_accounts, reference_accounts):
-        require(got.get("index") == expected["index"],
+    for index, (got, expected) in enumerate(zip(artifact_accounts, expected_accounts)):
+        require(got.get("index") == index,
                 f"account {expected['name']} index mismatch: {got}")
         require(got.get("signer") == expected["signer"],
                 f"account {expected['name']} signer mismatch: {got}")

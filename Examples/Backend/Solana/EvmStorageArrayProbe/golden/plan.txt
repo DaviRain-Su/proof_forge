@@ -12,15 +12,21 @@ accounts:
   before: index=0 signer=false writable=true owner="program" dataSize=40
 entrypoints:
 storage_lifecycle: returns=U64 hasReturn=true instructionDataMinLen=1
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=40
   discriminator: kind=internal bytes=[0]
   params: []
 
 read_value: returns=U64 hasReturn=true instructionDataMinLen=9
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=40
   discriminator: kind=internal bytes=[1]
   params:
     index: type=U64 offset=1 byteSize=8
 
 write_value: returns=Unit hasReturn=false instructionDataMinLen=17
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=40
   discriminator: kind=internal bytes=[2]
   params:
     index: type=U64 offset=1 byteSize=8

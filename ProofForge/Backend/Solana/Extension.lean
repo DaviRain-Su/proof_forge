@@ -230,6 +230,95 @@ def lowerProgramExtensionsWithBindingsChecked
   validateProgramExtensionBindings accountBindings valueBindings extensions
   pure (lowerProgramExtensionsWithBindings accountBindings valueBindings extensions)
 
+def entrypointBindings (bindings : Array EntrypointBindings) (entrypoint : String) :
+    Except String EntrypointBindings :=
+  match bindings.find? (fun scope => scope.entrypoint == entrypoint) with
+  | some scope => .ok scope
+  | none => .error s!"Solana extension entrypoint `{entrypoint}` has no input binding scope"
+
+def definitionEntrypoint (kind name : String) (actions : Array (String × String)) :
+    Except String (Option String) := do
+  let entrypoints := actions.foldl (fun acc action =>
+    if action.1 != name || acc.any (· == action.2) then acc else acc.push action.2) #[]
+  match entrypoints.toList with
+  | [] => pure none
+  | [entrypoint] => pure (some entrypoint)
+  | _ =>
+      throw s!"Solana {kind} helper `{name}` is used by multiple entrypoints with potentially different ABIs; use a distinct helper name per entrypoint"
+
+def bindingsForDefinition (kind name : String) (actions : Array (String × String))
+    (fallbackAccounts : Array CpiAccountBinding) (fallbackValues : Array CpiValueBinding)
+    (entrypoints : Array EntrypointBindings) :
+    Except String (Array CpiAccountBinding × Array CpiValueBinding) := do
+  match ← definitionEntrypoint kind name actions with
+  | none => pure (fallbackAccounts, fallbackValues)
+  | some entrypoint =>
+      let scope ← entrypointBindings entrypoints entrypoint
+      pure (scope.accountBindings, scope.valueBindings)
+
+/-- Lower extension helpers against the ABI of the entrypoint that calls each
+helper. The module-wide bindings remain only as a compatibility fallback for
+definition-only metadata that has no executable action. -/
+def lowerProgramExtensionsWithEntrypointBindingsChecked
+    (fallbackAccounts : Array CpiAccountBinding) (fallbackValues : Array CpiValueBinding)
+    (entrypoints : Array EntrypointBindings) (extensions : ProgramExtensions) :
+    Except String (Array AstNode) := do
+  if !hasExtensions extensions then
+    pure #[]
+  else if !hasSyscallExtensions extensions then
+    pure (#[.blankLine, .comment "Solana SDK target extension metadata"] ++
+      lowerRuntimeAllocators extensions)
+  else
+    let mut nodes := #[.blankLine, .comment "Solana SDK target extension syscall helpers"] ++
+      lowerRuntimeAllocators extensions
+    let pdaActions := extensions.pdaActions.map (fun action => (action.name, action.entrypoint))
+    for pda in extensions.pdas do
+      let (accounts, values) ← bindingsForDefinition "PDA" pda.name pdaActions
+        fallbackAccounts fallbackValues entrypoints
+      validatePdaSeedBindings accounts values pda
+      nodes := nodes ++ lowerPdaDerive accounts values pda
+    let cpiActions := extensions.cpiActions.map (fun action => (action.name, action.entrypoint))
+    for cpi in extensions.cpis do
+      let (accounts, values) ← bindingsForDefinition "CPI" cpi.name cpiActions
+        fallbackAccounts fallbackValues entrypoints
+      validateCpiDataLayout cpi
+      validateCpiSignerSeedBindings accounts values cpi
+      validateCpiValueSources values cpi
+      nodes := nodes ++ lowerCpiInvoke accounts values extensions.pdas cpi
+    for action in uniqueMemoryHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerMemoryHelper scope.valueBindings action
+    for action in uniqueCryptoHashHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerCryptoHashHelper scope.valueBindings action
+    for action in uniqueSysvarHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerSysvarHelper scope.valueBindings action
+    for action in uniqueReturnDataHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerReturnDataHelper scope.valueBindings action
+    for action in uniqueReturnDataReadHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerReturnDataReadHelper scope.valueBindings action
+    for action in uniqueComputeUnitsHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerComputeUnitsHelper scope.valueBindings action
+    for action in uniqueComputeUnitsLogHelpers extensions do
+      nodes := nodes ++ lowerComputeUnitsLogHelper action
+    for action in uniquePubkeyLogHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerPubkeyLogHelper scope.accountBindings action
+    for action in uniqueDataLogHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerDataLogHelper scope.valueBindings action
+    for action in uniqueAccountReallocHelpers extensions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerAccountReallocHelper scope.accountBindings action
+    for action in extensions.transferHookExtraAccountMetaListActions do
+      let scope ← entrypointBindings entrypoints action.entrypoint
+      nodes := nodes ++ lowerTransferHookExtraAccountMetaListHelper scope.accountBindings action
+    pure (nodes ++ lowerExtensionErrors)
+
 def lowerProgramExtensionsWithAccountBindings
     (bindings : Array CpiAccountBinding) (extensions : ProgramExtensions) : Array AstNode :=
   lowerProgramExtensionsWithBindings bindings #[] extensions

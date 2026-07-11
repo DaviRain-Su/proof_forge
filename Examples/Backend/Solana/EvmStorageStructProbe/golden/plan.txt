@@ -12,6 +12,8 @@ accounts:
   before: index=0 signer=false writable=true owner="program" dataSize=24
 entrypoints:
 struct_lifecycle: returns=U64 hasReturn=true instructionDataMinLen=1
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=24
   discriminator: kind=internal bytes=[0]
   params: []
 extensions:

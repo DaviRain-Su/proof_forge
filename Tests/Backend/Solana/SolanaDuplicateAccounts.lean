@@ -27,6 +27,12 @@ def thirdAccount : AccountInputLayout :=
 
 def instructionDataLenStart : Nat := thirdAccount.nextAccountStart
 
+def secondUniqueAccount : AccountInputLayout :=
+  computeAccountLayoutAt 1 duplicateStart 0
+
+def twoAccountInstructionDataLenStart : Nat :=
+  secondUniqueAccount.nextAccountStart
+
 def duplicateInputMemory : Memory :=
   Memory.write
     (Memory.write
@@ -46,8 +52,22 @@ def scanNodes : Array AstNode :=
     .instruction { opcode := .exit },
     .label "error_duplicate_account",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) },
+    .instruction { opcode := .exit },
+    .label "error_account_count",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) },
     .instruction { opcode := .exit }
   ]
+
+def twoUniqueInputMemory : Memory :=
+  Memory.write
+    (Memory.write
+      (Memory.write
+        (Memory.write
+          (Memory.write #[] 0 2)
+          U64_SIZE 0xff)
+        firstAccount.dataLenOff 0)
+      duplicateStart 0xff)
+    secondUniqueAccount.dataLenOff 0
 
 def runScanWith (memory : Memory) : Except String SbpfState :=
   run (collectProgram scanNodes) defaultFuel {
@@ -97,13 +117,26 @@ def checkInvalidDuplicateRejected : IO Bool := do
         return false
       return true
 
+def checkRuntimeAccountCount : IO Bool := do
+  match runScanWith twoUniqueInputMemory with
+  | .error err =>
+      IO.eprintln s!"solana-duplicate-accounts: runtime-count interpreter failed: {err}"
+      return false
+  | .ok state =>
+      let cursor := regGet state.regs .r3
+      if cursor != twoAccountInstructionDataLenStart then
+        IO.eprintln s!"solana-duplicate-accounts: two-account cursor {cursor}, expected {twoAccountInstructionDataLenStart}"
+        return false
+      return true
+
 end ProofForge.Tests.SolanaDuplicateAccounts
 
 def main : IO UInt32 := do
   let decoded ← ProofForge.Tests.SolanaDuplicateAccounts.checkDuplicateScan
   let rejected ← ProofForge.Tests.SolanaDuplicateAccounts.checkInvalidDuplicateRejected
-  if decoded && rejected then
-    IO.println "solana-duplicate-accounts: alias decoded and invalid index rejected"
+  let runtimeCount ← ProofForge.Tests.SolanaDuplicateAccounts.checkRuntimeAccountCount
+  if decoded && rejected && runtimeCount then
+    IO.println "solana-duplicate-accounts: alias decoded, invalid index rejected, runtime count honored"
     return 0
   else
     return 1

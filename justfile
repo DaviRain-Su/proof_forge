@@ -467,6 +467,11 @@ solana-duplicate-accounts:
 solana-duplicate-accounts-live:
     scripts/solana/duplicate-accounts-live-smoke.sh
 
+# Keep each instruction's account roles and permissions scoped to its entrypoint.
+solana-account-graph:
+    lake build ProofForge.Backend.Solana.Manifest ProofForge.Backend.Solana.Plan ProofForge.Backend.Solana.SbpfAsm
+    lake env lean --run Tests/Backend/Solana/SolanaAccountGraph.lean
+
 # Opt-in solanalib adapter + CompileCorrect pipeline (pulls solanalib/mathlib).
 solana-solanalib-adapter:
     lake build SolanaRefinement
@@ -1183,7 +1188,7 @@ solana-web3-compat:
     python3 scripts/solana/check-web3-compat-wrappers.py
 
 # Run all Solana gates that are safe for default CI.
-solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-auto-materialize primary-materialize crosscall-materialize solana-web3-compat solana-pinocchio-reference-equivalence solana-sbpf-exec-smoke solana-sbpf-genericity-smoke solana-counter-sbpf-regression solana-refinement-smoke solana-bpf-encode-smoke solana-duplicate-accounts
+solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-auto-materialize primary-materialize crosscall-materialize solana-web3-compat solana-pinocchio-reference-equivalence solana-sbpf-exec-smoke solana-sbpf-genericity-smoke solana-counter-sbpf-regression solana-refinement-smoke solana-bpf-encode-smoke solana-duplicate-accounts solana-account-graph
 
 # Check shared-vs-target example topology.
 examples-topology:
