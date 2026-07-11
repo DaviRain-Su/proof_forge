@@ -40,7 +40,7 @@ structure SolanaCorePlan where
 def buildSolanaCorePlan (m : CoreModule) : SolanaCorePlan :=
   { moduleName := m.name
   , accounts := [ { name := "data", isMutable := true } ]
-  , stateLayout := m.state.enum.map fun (i, s) => (s.name, i * 8)
+  , stateLayout := m.state.mapIdx fun i s => (s.name, i * 8)
   , entrypoints := m.entrypoints.map fun e =>
       { name := e.name, params := e.params, body := [] }
   }
