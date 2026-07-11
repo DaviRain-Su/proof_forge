@@ -711,7 +711,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 |---|---|---|---|---|---|
 | T-00 | Requirement-level standards manifests and evidence model; replace broad `Covered` claims | `docs/sdk-ecosystem-gaps-2026-07.md`, new `ProofForge/Contract/Compliance.lean`, `Tests/StandardCompliance.lean` | Stable requirement IDs cover interface, behavior and security obligations; status binds adapter version, artifact digest, oracle version and actual run result | none | done: verified@fd137842; `just standard-compliance`, `just docs-check`, `just product` |
 | E-P0-01 | Canonical selector/schema derivation and fail-closed mismatch checks | `ProofForge/Cli/EvmAbi.lean`, `Contract/Spec.lean`, EVM validators | Tests reject a selector whose actual params differ; ABI JSON matches dispatcher | T-00 | done: verified@71bdfa71; `just evm-abi-schema`, `just portable-counter-multi-target`, `just evm-foundry` |
-| E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | pending |
+| E-P0-02 | Replace staged permit with atomic ERC-2612 or reject permit routing until complete | `Stdlib/ERC20Permit.lean`, `Token/EvmSpec.lean`, Foundry smoke | canonical seven-arg permit, nonce/domain/deadline/low-s/v tests, front-run regression | E-P0-01 | done: verified@e3aef6d6; `just product-erc20-permit`, `just evm-foundry`, `just evm-anvil-deploy`, `just product` |
 | E-P0-03 | Fix immutable standard identity/access surfaces | `Stdlib/ERC165.lean`, `Ownable.lean`, `AccessControl.lean` | Separate ERC-165, ERC-173 and access-profile conformance plus attacker re-init tests | T-00 | pending |
 | E-P0-04 | Finish runtime custom-error expression safety from `bbc4fb9d` | EVM validation/lowering, `ErrorRef`, error smokes | inferred type/range, mutual exclusion, equality, exact Foundry payload | T-00 | in_progress: initial expression lowering committed at bbc4fb9d |
 | N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | pending |
@@ -865,12 +865,12 @@ EVM validators, and focused ABI/dispatcher tests.
 `ProofForge/Contract/Token/EvmSpec.lean`, EVM ABI/client metadata, and Foundry
 smokes. This task cannot start before E-P0-01.
 
-- [ ] Add attacks for signature overwrite/front-run, replay, expired deadline,
+- [x] Add attacks for signature overwrite/front-run, replay, expired deadline,
       bad domain, high-s, and invalid v.
-- [ ] Remove the public signature-staging entrypoint and use one canonical
+- [x] Remove the public signature-staging entrypoint and use one canonical
       seven-parameter permit call.
-- [ ] Verify nonce/domain/signature rules and Approval emission atomically.
-- [ ] Run targeted Lean tests, `just product-erc20-permit`,
+- [x] Verify nonce/domain/signature rules and Approval emission atomically.
+- [x] Run targeted Lean tests, `just product-erc20-permit`,
       `just evm-foundry`, `just evm-anvil-deploy`, `just product`, and commit.
 
 ### Task 5: E-P0-03 And E-P0-04 EVM Safety Closure
