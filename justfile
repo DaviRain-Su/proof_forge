@@ -76,6 +76,10 @@ canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean
     lake env lean --run Tests/Canonical/DiagnosticParity.lean
 
+# Wave 4 Task 14: source loader and versioned surface.
+source-loader:
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

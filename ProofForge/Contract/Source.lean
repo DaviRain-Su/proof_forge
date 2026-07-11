@@ -36,6 +36,9 @@ open ProofForge.IR
 entry arity, item syntax, or diagnostic codes change incompatibly. -/
 def sourceDslVersion : String := "contract_source-v1"
 
+/-- Surface v2 source DSL version. -/
+def sourceSurfaceVersion : String := "contract_source-v2"
+
 abbrev ScalarRef := ProofForge.Contract.Surface.ScalarRef
 abbrev MapRef := ProofForge.Contract.Surface.MapRef
 abbrev BindingRef := ProofForge.Contract.Surface.BindingRef

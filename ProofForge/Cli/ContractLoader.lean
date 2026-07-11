@@ -4,6 +4,7 @@ import Lean.Elab.Frontend
 import Lean.Util.Path
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token
+import ProofForge.Frontend.Surface
 
 namespace ProofForge.Cli.ContractLoader
 
@@ -68,6 +69,8 @@ unsafe def runTrustedLocalFrontend
     | throw <| IO.userError s!"Lean frontend failed for `{input.toString}`"
   pure (env, modName)
 
+
+
 private def specConstName (modName : Name) : Name :=
   modName ++ `spec
 
@@ -89,6 +92,58 @@ private def isContractSpecConst (env : Environment) (constName : Name) : Bool :=
 private def resolveSpecConstName (env : Environment) (modName : Name) : Option Name :=
   (candidateSpecNames modName).find? fun candidate =>
     env.constants.contains candidate && isContractSpecConst env candidate
+
+/-- Tagged compiler input: either a Legacy v1 ContractSpec or a Surface v2 contract. -/
+inductive LoadedContractSource
+  | legacyV1 (spec : ProofForge.Contract.ContractSpec)
+  | surfaceV2 (contract : ProofForge.Frontend.Surface.SurfaceContract)
+
+/-- Candidate names for Surface v2 `contract` constant. -/
+private def candidateSurfaceNames (modName : Name) : List Name :=
+  let lastComponent :=
+    match modName.components.reverse with
+    | last :: _ => last
+    | [] => Name.anonymous
+  [modName ++ `contract, lastComponent ++ `contract, `contract]
+
+/-- True when `constName` is a `SurfaceContract` constant. -/
+private def isSurfaceContractConst (env : Environment) (constName : Name) : Bool :=
+  match env.find? constName with
+  | some info =>
+      match info.type with
+      | Expr.const `ProofForge.Frontend.Surface.SurfaceContract _ => true
+      | _ => false
+  | none => false
+
+/-- Resolve the Surface v2 `contract` constant. -/
+private def resolveSurfaceConstName (env : Environment) (modName : Name) : Option Name :=
+  (candidateSurfaceNames modName).find? fun candidate =>
+    env.constants.contains candidate && isSurfaceContractConst env candidate
+
+/-- Discover exactly one supported source constant. Fails on ambiguity or missing. -/
+unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
+    IO LoadedContractSource := do
+  let legacySpec? := resolveSpecConstName env modName
+  let surfaceSpec? := resolveSurfaceConstName env modName
+  match legacySpec?, surfaceSpec? with
+  | some _, some _ =>
+      throw <| IO.userError s!"module `{modName}` exports both ContractSpec (v1) and SurfaceContract (v2); ambiguousContractSource"
+  | none, none =>
+      throw <| IO.userError s!"module `{modName}` exports neither ContractSpec (v1) nor SurfaceContract (v2); missingContractSource"
+  | some constName, none =>
+      match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
+      | .ok spec => pure (LoadedContractSource.legacyV1 spec)
+      | .error msg => throw <| IO.userError msg
+  | none, some constName =>
+      match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
+      | .ok contract => pure (LoadedContractSource.surfaceV2 contract)
+      | .error msg => throw <| IO.userError msg
+
+unsafe def loadSource
+    (input : System.FilePath) (root? : Option System.FilePath) (moduleName? : Option Name) :
+    IO LoadedContractSource := do
+  let (env, modName) ← runTrustedLocalFrontend input root? moduleName?
+  loadSourceFromEnv env modName
 
 /-- True when `spec` is a `TokenSpec` (TokenSpec modules must use `--token`). -/
 private def isTokenSpecConst (env : Environment) (constName : Name) : Bool :=
