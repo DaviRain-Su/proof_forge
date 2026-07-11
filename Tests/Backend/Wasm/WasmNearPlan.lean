@@ -629,7 +629,7 @@ def testUnsupportedContextDiagnostic : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "chainId context read should not lower on wasm-near EmitWat"
   | .error err =>
-      require (err.message == "EmitWat: wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin")
+      require (err.message == "EmitWat: wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas")
         s!"unsupported context diagnostic mismatch: {err.message}"
 
 def oversizedEventName : String := String.mk (List.replicate 1200 'x')

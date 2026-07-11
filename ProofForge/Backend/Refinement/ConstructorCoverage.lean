@@ -77,7 +77,7 @@ def fuelCoveredExpr : Expr → Bool
 def fuelCoveredEffect : Effect → Bool
   | .storageScalarRead _ | .storageScalarWrite _ _ => true
   | .storageScalarAssignOp _ _ _ => true
-  | .storageMapGet _ _ | .storageMapInsert _ _ _ | .storageMapSet _ _ _ => true
+  | .storageMapGet _ _ | .storageMapInsert _ _ _ | .storageMapSet _ _ _ | .storageMapDelete _ _ => true
   | .storageMapContains _ _ => true
   | .storageStructFieldRead _ _ | .storageStructFieldWrite _ _ _ => true
   | .contextRead _ => true
@@ -554,6 +554,7 @@ mutual
     | n + 1, .storageMapGet _ k => exprFC n k
     | n + 1, .storageMapInsert _ k v => exprFC n k && exprFC n v
     | n + 1, .storageMapSet _ k v => exprFC n k && exprFC n v
+    | n + 1, .storageMapDelete _ k => exprFC n k
     | n + 1, .storageArrayRead _ i => exprFC n i
     | n + 1, .storageArrayWrite _ i v => exprFC n i && exprFC n v
     | n + 1, .storageArrayStructFieldRead _ i _ => exprFC n i
