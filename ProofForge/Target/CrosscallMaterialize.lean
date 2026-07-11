@@ -224,6 +224,7 @@ where
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
+    | .storageMapDelete _ k => exprUses k
     | .storageMapInsert _ k v | .storageMapSet _ k v | .storageArrayWrite _ k v
     | .storageArrayStructFieldWrite _ k _ v => exprUses k || exprUses v
     | .memoryArraySet a i v => exprUses a || exprUses i || exprUses v
@@ -237,8 +238,8 @@ where
         exprUses a || exprUses b || exprUses c || exprUses d
     | .checkErc1155Received a b c d e =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e f g =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f || exprUses g
+    | .checkErc1155BatchReceived a b c d e =>
+        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool
@@ -323,6 +324,7 @@ where
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
+    | .storageMapDelete _ k => exprUses k
     | .storageMapInsert _ k v | .storageMapSet _ k v | .storageArrayWrite _ k v
     | .storageArrayStructFieldWrite _ k _ v => exprUses k || exprUses v
     | .memoryArraySet a i v => exprUses a || exprUses i || exprUses v
@@ -336,8 +338,8 @@ where
         exprUses a || exprUses b || exprUses c || exprUses d
     | .checkErc1155Received a b c d e =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e f g =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f || exprUses g
+    | .checkErc1155BatchReceived a b c d e =>
+        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool

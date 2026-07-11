@@ -360,7 +360,7 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
     (field : ContextField)
     (h : match field with
          | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-         | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao => true
+         | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao => true
          | _ => false) :
     evalEffectFuel (fuel + 1) state frame (.contextRead field) =
       .ok (state, .u64 0) := by
@@ -374,6 +374,8 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
   | chainId => simp [evalEffectFuel, h]
   | gasPrice => simp [evalEffectFuel, h]
   | gasLeft => simp [evalEffectFuel, h]
+  | prepaidGas => simp [evalEffectFuel, h]
+  | usedGas => simp [evalEffectFuel, h]
   | baseFee => simp [evalEffectFuel, h]
   | prevRandao => simp [evalEffectFuel, h]
   | randomSeed => simp at h
@@ -572,8 +574,8 @@ mutual
         exprFC n a && exprFC n b && exprFC n c && exprFC n d
     | n + 1, .checkErc1155Received a b c d e =>
         exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e
-    | n + 1, .checkErc1155BatchReceived a b c d e f g =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e && exprFC n f && exprFC n g
+    | n + 1, .checkErc1155BatchReceived a b c d e =>
+        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e
 
   /-- Shallow + depth wrapper for `Effect`. -/
   def effectFC (n : Nat) (eff : Effect) : Bool :=

@@ -118,6 +118,8 @@ def emitLit : Literal → Expr
   | .bool b => .bool b
   | .hash4 a b c d => .str s!"{a}{b}{c}{d}"
   | .address value => .str (toString value)
+  | .bytes ba => .call1 (.ident "hexToBytes") (.str (ba.toList.map (fun b => toString b) |> String.join))
+  | .string s => .str s
 
 /-- Convert a stored-string expression to the requested IR type. -/
 def fromStoredString (type : ValueType) (raw : Expr) : Expr :=

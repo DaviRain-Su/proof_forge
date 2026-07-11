@@ -852,6 +852,16 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
 
     linker.func_wrap(
         "env",
+        "storage_remove",
+        |mut caller: Caller<'_, HostState>, key_len: i64, key_ptr: i64| -> Result<i64> {
+            let key = read_memory(&mut caller, key_ptr, key_len)?;
+            let existed = caller.data_mut().storage.remove(&key).is_some();
+            Ok(i64::from(existed))
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
         "sha256",
         |mut caller: Caller<'_, HostState>, len: i64, ptr: i64, register_id: i64| -> Result<()> {
             let bytes = read_memory(&mut caller, ptr, len)?;

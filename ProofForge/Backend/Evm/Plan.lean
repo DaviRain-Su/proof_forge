@@ -45,6 +45,8 @@ mutual
     | chainId
     | gasPrice
     | gasLeft
+    | prepaidGas
+    | usedGas
     | baseFee
     | prevRandao
     | origin
@@ -163,6 +165,8 @@ mutual
     | storageMapInsertTarget (target : MapWriteTargetPlan) (key value : ExprPlan)
     | storageMapSet (stateId : String) (key value : ExprPlan)
     | storageMapSetTarget (target : MapWriteTargetPlan) (key value : ExprPlan)
+    | storageMapDelete (stateId : String) (key : ExprPlan)
+    | storageMapDeleteTarget (target : MapWriteTargetPlan) (key : ExprPlan)
     | storageArrayRead (stateId : String) (index : ExprPlan)
     | storageArrayReadTarget (target : ArrayReadTargetPlan) (index : ExprPlan)
     | storageArrayWrite (stateId : String) (index value : ExprPlan)
@@ -196,7 +200,7 @@ mutual
     | eventEmitIndexedWords (event : EventPlan) (indexedFieldWords dataFieldWords : Array (Array ExprPlan))
     | checkErc721Received (operator fromAddr toAddr tokenId : ExprPlan)
     | checkErc1155Received (operator fromAddr toAddr id amount : ExprPlan)
-    | checkErc1155BatchReceived (operator fromAddr toAddr id0 amount0 id1 amount1 : ExprPlan)
+    | checkErc1155BatchReceived (operator fromAddr toAddr ids amounts : ExprPlan)
     deriving Repr
 
   inductive EventFieldPlan where
@@ -749,6 +753,7 @@ mutual
     | .storageMapGet _ key => contextOpsFromExpr key
     | .storageMapInsert _ key value | .storageMapSet _ key value =>
         contextOpsFromExpr key ++ contextOpsFromExpr value
+    | .storageMapDelete _ key => contextOpsFromExpr key
     | .storageArrayRead _ index => contextOpsFromExpr index
     | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
         contextOpsFromExpr index ++ contextOpsFromExpr value
@@ -779,8 +784,8 @@ mutual
         contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
           contextOpsFromExpr d ++ contextOpsFromExpr e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           acc ++ contextOpsFromExpr expr
 
   partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=

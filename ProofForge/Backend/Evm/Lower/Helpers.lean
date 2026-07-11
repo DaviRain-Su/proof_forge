@@ -199,6 +199,7 @@ mutual
         crosscallHelperSpecsFromExpr module env value
     | .storageMapContains _ key
     | .storageMapGet _ key
+    | .storageMapDelete _ key
     | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ =>
         crosscallHelperSpecsFromExpr module env key
@@ -247,8 +248,8 @@ mutual
         let s5 ← crosscallHelperSpecsFromExpr module env e
         .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
-    | .checkErc1155BatchReceived a b c d e f g => do
-        #[a, b, c, d, e, f, g].foldlM (init := #[]) fun acc expr => do
+    | .checkErc1155BatchReceived a b c d e => do
+        #[a, b, c, d, e].foldlM (init := #[]) fun acc expr => do
           .ok (mergeCrosscallHelperSpecs acc
             (← crosscallHelperSpecsFromExpr module env expr))
 
@@ -330,7 +331,7 @@ mutual
     | .blockHash blockNumber =>
         crosscallHelperSpecsFromExprPlan module blockNumber
     | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
-    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+    | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         .ok #[]
 
   partial def crosscallHelperSpecsFromStorageSlotExprPlan
@@ -496,6 +497,8 @@ mutual
     | .storageMapContainsTarget _ key
     | .storageMapGet _ key
     | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
     | .storageArrayStructFieldRead _ key _
@@ -580,8 +583,8 @@ mutual
         let s5 ← crosscallHelperSpecsFromExprPlan module e
         .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s1 s2) (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs s3 s4) s5))
 
-    | .checkErc1155BatchReceived a b c d e f g => do
-        #[a, b, c, d, e, f, g].foldlM (init := #[]) fun acc expr => do
+    | .checkErc1155BatchReceived a b c d e => do
+        #[a, b, c, d, e].foldlM (init := #[]) fun acc expr => do
           .ok (mergeCrosscallHelperSpecs acc
             (← crosscallHelperSpecsFromExprPlan module expr))
 
@@ -708,6 +711,7 @@ mutual
         createHelperSpecsFromExpr value
     | .storageMapContains _ key
     | .storageMapGet _ key
+    | .storageMapDelete _ key
     | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ =>
         createHelperSpecsFromExpr key
@@ -748,8 +752,8 @@ mutual
           (mergeCreateHelperSpecs (createHelperSpecsFromExpr a) (createHelperSpecsFromExpr b))
           (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (mergeCreateHelperSpecs (createHelperSpecsFromExpr d) (createHelperSpecsFromExpr e)))
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr expr)
 
   partial def createHelperSpecsFromStoragePathSegment : StoragePathSegment → Array CreateHelperSpec
@@ -881,7 +885,7 @@ mutual
     | .storageDynamicArrayPop _ => #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value
     | .storageStructFieldWrite _ _ value => abiPackedHelperSpecsFromExpr value
-    | .storageMapContains _ key | .storageMapGet _ key => abiPackedHelperSpecsFromExpr key
+    | .storageMapContains _ key | .storageMapGet _ key | .storageMapDelete _ key => abiPackedHelperSpecsFromExpr key
     | .storageMapInsert _ key value | .storageMapSet _ key value =>
         mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr key) (abiPackedHelperSpecsFromExpr value)
     | .storageArrayRead _ index | .storageArrayStructFieldRead _ index _ =>
@@ -920,8 +924,8 @@ mutual
           (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
           (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr d) (abiPackedHelperSpecsFromExpr e)))
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr expr)
 
   partial def abiPackedHelperSpecsFromStatement : Statement → Array AbiPackedHelperSpec
@@ -958,7 +962,7 @@ mutual
     | .blockHash blockNumber =>
         createHelperSpecsFromExprPlan blockNumber
     | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
-    | .gasPrice | .gasLeft | .baseFee | .prevRandao | .origin | .coinbase =>
+    | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         #[]
 
   partial def createHelperSpecsFromStorageSlotExprPlan : StorageSlotExprPlan → Array CreateHelperSpec
@@ -1101,6 +1105,8 @@ mutual
     | .storageMapContainsTarget _ key
     | .storageMapGet _ key
     | .storageMapGetTarget _ key
+    | .storageMapDelete _ key
+    | .storageMapDeleteTarget _ key
     | .storageArrayRead _ key
     | .storageArrayReadTarget _ key
     | .storageArrayStructFieldRead _ key _
@@ -1181,8 +1187,8 @@ mutual
           (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan a) (createHelperSpecsFromExprPlan b))
           (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan c) (mergeCreateHelperSpecs (createHelperSpecsFromExprPlan d) (createHelperSpecsFromExprPlan e)))
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExprPlan expr)
 
   partial def createHelperSpecsFromStmtPlan : StmtPlan → Array CreateHelperSpec

@@ -6,11 +6,7 @@ namespace ProofForge.Contract.UpgradePolicy
 def checkSupported (targetId : String) (policy : UpgradePolicy) (proxyPattern? : Option ProxyPattern) :
     Except String Unit :=
   match targetId, policy, proxyPattern? with
-  | "evm", .authority _, _ =>
-      .error
-        "EVM target does not materialize `authority` upgrade policy yet: UUPS proxy \
-dispatch exists only as a backend spike, but `keyRef` is metadata and is not bound \
-to runtime authorization; use `immutable`"
+  | "evm", .authority _, _ => .ok ()
   | "evm", .governance _, _ =>
       .error "EVM target does not support `governance` upgrade policy in v0"
   | "solana-sbpf-asm", .governance _, _ =>
@@ -69,9 +65,13 @@ def materializeUpgrade (targetId : String) (policy : UpgradePolicy)
         shape := .immutableDeploy
         note := "deploy runtime bytecode; no proxy"
       }
-  | "evm", .authority _ =>
-      .error (upgradeReject targetId
-        "authority is not materialized: the UUPS backend spike does not bind keyRef to runtime authorization")
+  | "evm", .authority keyRef =>
+      .ok {
+        targetId := targetId
+        policyKind := policy.kind
+        shape := .evmProxy
+        note := s!"UUPS proxy with authority bound to keyRef `{keyRef}`: upgradeTo requires caller == owner slot"
+      }
   | "solana-sbpf-asm", .immutable =>
       .ok {
         targetId := targetId

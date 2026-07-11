@@ -395,6 +395,7 @@ mutual
         ProofForge.Backend.Evm.Validate.needsCheckedArithmetic op || exprUsesCheckedArithmetic v
     | .storageMapInsert _ _ v => exprUsesCheckedArithmetic v
     | .storageMapSet _ _ v => exprUsesCheckedArithmetic v
+    | .storageMapDelete _ _ => false
     | .storageArrayWrite _ _ v => exprUsesCheckedArithmetic v
     | .storageArrayStructFieldWrite _ _ _ v => exprUsesCheckedArithmetic v
     | .storageDynamicArrayPush _ v => exprUsesCheckedArithmetic v
@@ -415,8 +416,8 @@ mutual
         exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
           exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d || exprUsesCheckedArithmetic e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].any exprUsesCheckedArithmetic
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].any exprUsesCheckedArithmetic
 
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true

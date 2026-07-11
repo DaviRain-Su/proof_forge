@@ -38,6 +38,8 @@ def contextFieldExpr
   | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
   | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
+  | .prepaidGas => .error "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)"
+  | .usedGas => .error "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)"
   | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
   | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
   | .randomSeed => .error "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode"
@@ -48,6 +50,7 @@ def contextFieldExpr
 
 partial def contextExprPlan
     {ε : Type}
+    (mkError : String → ε)
     (lowerPlanExpr : ExprPlan → Except ε Lean.Compiler.Yul.Expr) :
     ContextExprPlan → Except ε Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
@@ -58,6 +61,8 @@ partial def contextExprPlan
   | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
   | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
   | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
+  | .prepaidGas => .error (mkError "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only")
+  | .usedGas => .error (mkError "EVM context read `usedGas` is not supported; used_gas is NEAR-only")
   | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
   | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
   | .origin => .ok (Lean.Compiler.Yul.builtin "origin" #[])
@@ -260,7 +265,7 @@ partial def exprPlanExprWithArithmeticWidths
         (← lowerPlan c)
         (← lowerPlan d))
   | .context field =>
-      contextExprPlan lowerPlan field
+      contextExprPlan mkError lowerPlan field
   | .crosscall mode target methodId callValue? args returnType =>
       crosscallExpandedExprPlanExpr
         mkError
@@ -1045,23 +1050,28 @@ def boundedForStmtPlanStatements
   | _ =>
       .error (mkError "EVM StmtPlan-to-Yul boundedFor lowering expected boundedFor")
 
-/-- Lower the fixed-size ERC-1155 batch receiver check from its semantic
-`EffectPlan`. Keeping expression lowering behind this boundary prevents the
-legacy effect facade from rendering raw IR arguments directly. -/
+/-- Lower the dynamic ERC-1155 batch receiver check from its semantic
+`EffectPlan`. `ids` and `amounts` must be `ExprPlan.arrayLit` expressions;
+the individual element plans are lowered to Yul and passed to
+`checkErc1155BatchReceivedStatements`. -/
 def erc1155BatchReceiverEffectPlanStatements
     {ε : Type}
     (mkError : String → ε)
     (lowerExprPlan : ExprPlan → Except ε Lean.Compiler.Yul.Expr) :
     EffectPlan → Except ε (Array Lean.Compiler.Yul.Statement)
-  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
-      let args ←
-        #[operator, fromAddr, toAddr, id0, amount0, id1, amount1].mapM lowerExprPlan
-      match args with
-      | #[operatorYul, fromYul, toYul, id0Yul, amount0Yul, id1Yul, amount1Yul] =>
-          .ok (checkErc1155BatchReceivedStatements
-            operatorYul fromYul toYul id0Yul amount0Yul id1Yul amount1Yul)
-      | _ =>
-          .error (mkError "EVM ERC-1155 batch receiver plan must lower exactly seven arguments")
+  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
+      let idsArr ← match ids with
+        | .arrayLit _ values => values.mapM lowerExprPlan
+        | _ => .error (mkError "EVM ERC-1155 batch receiver: ids must be an array literal")
+      let amountsArr ← match amounts with
+        | .arrayLit _ values => values.mapM lowerExprPlan
+        | _ => .error (mkError "EVM ERC-1155 batch receiver: amounts must be an array literal")
+      if idsArr.size != amountsArr.size then
+        .error (mkError "EVM ERC-1155 batch receiver: ids and amounts arrays must have equal length")
+      let operatorYul ← lowerExprPlan operator
+      let fromYul ← lowerExprPlan fromAddr
+      let toYul ← lowerExprPlan toAddr
+      .ok (checkErc1155BatchReceivedStatements operatorYul fromYul toYul idsArr amountsArr)
   | _ =>
       .error (mkError "EVM ERC-1155 batch receiver lowering expected checkErc1155BatchReceived")
 

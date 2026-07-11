@@ -59,6 +59,14 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
       | .u32 | .u64 | .bool =>
         let loadInsns := #[.i32Const (INPUT_BUF + offset), .load (loadOpFor vt) 0, .localSet name]
         .ok (insns ++ loadInsns, locals.push { name := name, type := wasmTypeOf vt }, offset + scalarWidth vt, hslot)
+      | .u128 =>
+        -- U128: 16-byte Borsh LE. Allocate 16 bytes, copy low 8 + high 8 from INPUT_BUF.
+        -- Local holds an i32 pointer to the 16-byte buffer.
+        let loadInsns :=
+          #[.i64Const 16, .call arrAllocName, .localSet name,
+            .localGet name, .i32Const (INPUT_BUF + offset), .load "i64.load" 0, .store "i64.store" 0,
+            .localGet name, .i32Const (INPUT_BUF + offset + 8), .load "i64.load" 0, .store "i64.store" 8]
+        .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + 16, hslot)
       | .hash =>
         let slot := PARAM_HASH_BUF + hslot * 32
         let loadInsns := #[.i32Const slot, .i32Const (INPUT_BUF + offset), .i32Const 32, .call memcpyName,
@@ -109,6 +117,20 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
                       .store (storeOpFor f.type) 0]
                 acc ++ loadField) #[]
           .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
+      | .bytes | .string =>
+        -- Borsh dynamic bytes/string: 4-byte LE length prefix + payload.
+        -- Allocate a buffer, copy the 4-byte length prefix + payload from INPUT_BUF.
+        -- The local holds an i32 pointer to the payload (length prefix at ptr - 4).
+        let lenOff := INPUT_BUF + offset
+        let loadInsns :=
+          #[.i32Const lenOff, .load "i32.load" 0, .localSet (name ++ "_len"),
+            .localGet (name ++ "_len"), .plain "i64.extend_i32_u", .i64Const 4, .plain "i64.add",
+            .call arrAllocName, .localSet name,
+            .localGet name, .i32Const lenOff, .i32Const 4, .call memcpyName,
+            .localGet name, .i32Const 4, .plain "i32.add", .localSet name]
+        .ok (insns ++ loadInsns,
+            locals.push { name := name ++ "_len", type := .i32 } |>.push { name := name, type := .i32 },
+            offset + 260, hslot)
       | _ => err s!"EmitWat: param `{name}` has unsupported Borsh type `{vt.name}`"
   pure (result.fst, result.snd.fst)
 

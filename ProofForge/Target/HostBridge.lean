@@ -51,6 +51,7 @@ def HostBridge.requiredImports : HostBridge → Array String
   | .near => #[
       "env.storage_read",
       "env.storage_write",
+      "env.storage_remove",
       "env.read_register",
       "env.value_return",
       "env.signer_account_id",
@@ -89,6 +90,7 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
   | .near => #[
       { name := "storage_read",  params := #["i64", "i64", "i64"], results := #["i64"] },
       { name := "storage_write", params := #["i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
+      { name := "storage_remove", params := #["i64", "i64"], results := #["i64"] },
       { name := "read_register", params := #["i64", "i64"], results := #[] },
       { name := "value_return",  params := #["i64", "i64"], results := #[] },
       { name := "signer_account_id", params := #["i64"], results := #[] },

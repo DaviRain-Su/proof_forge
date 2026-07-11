@@ -25,6 +25,38 @@ def associatedTokenProgram : String :=
 def memoProgram : String :=
   "memo"
 
+def stakeProgram : String :=
+  "stake_program"
+
+def voteProgram : String :=
+  "vote_program"
+
+def configProgram : String :=
+  "config_program"
+
+def metaplexTokenMetadataProgram : String :=
+  "metaplex_token_metadata"
+
+def stakeMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "stake"
+  ]
+
+def voteMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "vote"
+  ]
+
+def configMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "config"
+  ]
+
+def metaplexMetadata : Array TargetMetadata :=
+  #[
+    kv "solana.cpi.protocol" "metaplex"
+  ]
+
 def memoMetadata : Array TargetMetadata :=
   #[
     kv "solana.cpi.protocol" "memo"
@@ -547,6 +579,153 @@ def associatedTokenCreateCall (name funding account wallet mint : String)
   dataLayout? := some (if idempotent then "associated-token.create_idempotent" else "associated-token.create")
   extraMetadata := associatedTokenMetadata ++ #[
     kv "solana.cpi.token_program" tokenProgramName
+  ]
+}
+
+/-- Stake Program `DelegateStake` (instruction 0): delegates stake to a vote
+    account. Requires stake account, vote account, clock sysvar, stake history
+    sysvar, and the staker authority as signer. -/
+def stakeDelegateStakeCall (name stakeAccount voteAccount clockSysvar
+    stakeHistorySysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := stakeProgram
+  instruction := "delegate_stake"
+  accounts := #[
+    writableSignerAccount stakeAccount,
+    readonlyAccount voteAccount,
+    readonlyAccount clockSysvar,
+    readonlyAccount stakeHistorySysvar,
+    signerForSeeds stakerAuthority .readOnly signerSeeds,
+    readonlyAccount stakeProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "stake.delegate_stake"
+  extraMetadata := stakeMetadata
+}
+
+/-- Stake Program `Deactivate` (instruction 4): deactivates staked tokens.
+    Requires stake account, clock sysvar, and staker authority as signer. -/
+def stakeDeactivateCall (name stakeAccount clockSysvar stakerAuthority : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := stakeProgram
+  instruction := "deactivate"
+  accounts := #[
+    writableSignerAccount stakeAccount,
+    readonlyAccount clockSysvar,
+    signerForSeeds stakerAuthority .readOnly signerSeeds,
+    readonlyAccount stakeProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "stake.deactivate"
+  extraMetadata := stakeMetadata
+}
+
+/-- Stake Program `Withdraw` (instruction 3): withdraws stake lamports to a
+    destination account. Requires stake account, destination, clock sysvar,
+    stake history sysvar, withdrawer authority as signer, and the stake program
+    itself (for program-id resolution). -/
+def stakeWithdrawCall (name stakeAccount destination clockSysvar
+    stakeHistorySysvar withdrawerAuthority lamportsSource : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := stakeProgram
+  instruction := "withdraw"
+  accounts := #[
+    writableSignerAccount stakeAccount,
+    writableAccount destination,
+    readonlyAccount clockSysvar,
+    readonlyAccount stakeHistorySysvar,
+    signerForSeeds withdrawerAuthority .readOnly signerSeeds,
+    readonlyAccount stakeProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "stake.withdraw"
+  extraMetadata := stakeMetadata ++ #[
+    kv "solana.cpi.lamports_source" lamportsSource
+  ]
+}
+
+/-- Vote Program `Vote` (instruction 0): casts a vote. Requires the vote account
+    and slot hashes sysvar. -/
+def voteVoteCall (name voteAccount slotHashesSysvar voterAuthority : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := voteProgram
+  instruction := "vote"
+  accounts := #[
+    writableSignerAccount voteAccount,
+    readonlyAccount slotHashesSysvar,
+    signerForSeeds voterAuthority .readOnly signerSeeds,
+    readonlyAccount voteProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "vote.vote"
+  extraMetadata := voteMetadata
+}
+
+/-- Config Program `Create` (instruction 1): creates a config account.
+    Requires payer, config account (PDA), system program, and the config
+    program itself for program-id resolution. -/
+def configCreateCall (name payer configAccount systemProgramName : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := configProgram
+  instruction := "create"
+  accounts := #[
+    writableSignerAccount payer,
+    signerForSeeds configAccount .writable signerSeeds,
+    readonlyAccount systemProgramName,
+    readonlyAccount configProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "config.create"
+  extraMetadata := configMetadata
+}
+
+/-- Metaplex Token Metadata `CreateMetadataAccount` (instruction 0): creates a
+    metadata PDA for an SPL token mint. Requires the metadata account (PDA),
+    the mint, mint authority, payer, and the metaplex program for program-id
+    resolution. The `metadataSource` is a named value binding that holds
+    pre-built Borsh metadata bytes. -/
+def metaplexCreateMetadataCall (name metadataAccount mint mintAuthority
+    payer metadataSource : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := metaplexTokenMetadataProgram
+  instruction := "create_metadata_account"
+  accounts := #[
+    signerForSeeds metadataAccount .writable signerSeeds,
+    readonlyAccount mint,
+    signerForSeeds mintAuthority .readOnly signerSeeds,
+    writableSignerAccount payer,
+    readonlyAccount metaplexTokenMetadataProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "metaplex.create_metadata_account"
+  extraMetadata := metaplexMetadata ++ #[
+    kv "solana.cpi.metadata_source" metadataSource
+  ]
+}
+
+/-- Metaplex Token Metadata `UpdateMetadataAccount` (instruction 1): updates a
+    metadata account's data. Requires the metadata account and update authority. -/
+def metaplexUpdateMetadataCall (name metadataAccount updateAuthority
+    metadataSource : String)
+    (signerSeeds : Array String := #[]) : CpiCall := {
+  name := name
+  program := metaplexTokenMetadataProgram
+  instruction := "update_metadata_account"
+  accounts := #[
+    writableAccount metadataAccount,
+    signerForSeeds updateAuthority .readOnly signerSeeds,
+    readonlyAccount metaplexTokenMetadataProgram
+  ]
+  signerSeeds := signerSeeds
+  dataLayout? := some "metaplex.update_metadata_account"
+  extraMetadata := metaplexMetadata ++ #[
+    kv "solana.cpi.metadata_source" metadataSource
   ]
 }
 

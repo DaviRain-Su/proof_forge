@@ -356,9 +356,13 @@ def effectPlanSupportsPlannedBodyStmt :
   | .storageMapInsert _ key value
   | .storageMapSet _ key value =>
       exprPlanSupportsPlannedBody key && exprPlanSupportsPlannedBody value
+  | .storageMapDelete _ key =>
+      exprPlanSupportsPlannedBody key
   | .storageMapInsertTarget _ key value
   | .storageMapSetTarget _ key value =>
       exprPlanSupportsPlannedBody key && exprPlanSupportsPlannedBody value
+  | .storageMapDeleteTarget _ key =>
+      exprPlanSupportsPlannedBody key
   | .storageArrayWrite _ index value =>
       exprPlanSupportsPlannedBody index && exprPlanSupportsPlannedBody value
   | .storageArrayWriteTarget _ index value =>
@@ -411,8 +415,8 @@ def effectPlanSupportsPlannedBodyStmt :
   | .eventEmitIndexedWords event indexedFieldWords dataFieldWords =>
       eventFieldWordPlansSupportPlannedBody event.indexedFields indexedFieldWords &&
         eventFieldWordPlansSupportPlannedBody event.dataFields dataFieldWords
-  | .checkErc1155BatchReceived a b c d e f g =>
-      #[a, b, c, d, e, f, g].all exprPlanSupportsPlannedBody
+  | .checkErc1155BatchReceived a b c d e =>
+      #[a, b, c, d, e].all exprPlanSupportsPlannedBody
   | _ => false
 
 partial def aggregateReturnExprPlanSupportsPlannedBody
@@ -624,6 +628,12 @@ def lowerPlannedBodyEffectPlan
         (fun expr => lowerExpr module env expr)
         (lowerPlanEffectExpr module env)
         (.effect effect)
+  | .storageMapDeleteTarget .. =>
+      ProofForge.Backend.Evm.ToYul.mapDeleteTargetEffectStmtPlanStatements
+        toYulError
+        (fun expr => lowerExpr module env expr)
+        (lowerPlanEffectExpr module env)
+        (.effect effect)
   | .storageMapInsert stateId key value =>
       match ProofForge.Backend.Evm.Lower.mapWriteTargetPlan? module stateId with
       | some target =>
@@ -658,6 +668,16 @@ def lowerPlannedBodyEffectPlan
               let (slot, _, _) ← requireStorageMapState module stateId
               .ok (slotExpr slot))
             (.effect effect)
+  | .storageMapDelete stateId key =>
+      match ProofForge.Backend.Evm.Lower.mapWriteTargetPlan? module stateId with
+      | some target =>
+          ProofForge.Backend.Evm.ToYul.mapDeleteTargetEffectStmtPlanStatements
+            toYulError
+            (fun expr => lowerExpr module env expr)
+            (lowerPlanEffectExpr module env)
+            (.effect (.storageMapDeleteTarget target key))
+      | none =>
+          .error { message := s!"EVM map delete requires a planned map write target for state `{stateId}`" }
   | .storageArrayWrite stateId index value =>
       match ProofForge.Backend.Evm.Lower.arrayWriteTargetPlan? module stateId with
       | some target =>

@@ -576,7 +576,7 @@ mutual
     | .storageScalarRead _ => pure collector
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         collectEventPlansFromExpr module env collector value
-    | .storageMapContains _ key | .storageMapGet _ key =>
+    | .storageMapContains _ key | .storageMapGet _ key | .storageMapDelete _ key =>
         collectEventPlansFromExpr module env collector key
     | .storageMapInsert _ key value | .storageMapSet _ key value => do
         let collector ← collectEventPlansFromExpr module env collector key
@@ -638,8 +638,8 @@ mutual
         let collector ← collectEventPlansFromExpr module env collector d
         collectEventPlansFromExpr module env collector e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldlM (init := collector)
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldlM (init := collector)
           (collectEventPlansFromExpr module env)
 
   partial def collectEventPlansFromStatements
@@ -829,6 +829,7 @@ mutual
         localArrayGetLengthsExpr env value
     | .storageMapContains _ key
     | .storageMapGet _ key
+    | .storageMapDelete _ key
     | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ =>
         localArrayGetLengthsExpr env key
@@ -871,8 +872,8 @@ mutual
             (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d)))
           (localArrayGetLengthsExpr env e)
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeNatSets acc (localArrayGetLengthsExpr env expr)
 
   partial def localArrayGetLengthsStoragePathSegment (env : TypeEnv) : StoragePathSegment → Array Nat
@@ -1023,6 +1024,7 @@ mutual
         nestedLocalArrayGetShapesExpr env value
     | .storageMapContains _ key
     | .storageMapGet _ key
+    | .storageMapDelete _ key
     | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ =>
         nestedLocalArrayGetShapesExpr env key
@@ -1065,8 +1067,8 @@ mutual
             (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d)))
           (nestedLocalArrayGetShapesExpr env e)
 
-    | .checkErc1155BatchReceived a b c d e f g =>
-        #[a, b, c, d, e, f, g].foldl (init := #[]) fun acc expr =>
+    | .checkErc1155BatchReceived a b c d e =>
+        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env expr)
 
   partial def nestedLocalArrayGetShapesStoragePathSegment (env : TypeEnv) :

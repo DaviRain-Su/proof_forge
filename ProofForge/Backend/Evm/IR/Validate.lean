@@ -35,6 +35,8 @@ mutual
     | .literal (.u128 _) => .ok .u128
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.bytes _) => .ok .bytes
+    | .literal (.string _) => .ok .string
     | .literal (.address _) => .ok .address
     | .local name =>
         match findLocal? env name with
@@ -302,6 +304,10 @@ mutual
         let (keyType, valueType) ← mapStateTypes module stateId
         ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
         .ok valueType
+    | .storageMapDelete stateId key => do
+        let (keyType, valueType) ← mapStateTypes module stateId
+        ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
+        .ok valueType
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
@@ -356,7 +362,7 @@ mutual
         .error { message := "checkErc721Received is a statement effect, not an expression" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is a statement effect, not an expression" }
 end
 
@@ -367,6 +373,8 @@ partial def inferEventFieldExprType (module : Module) (env : TypeEnv) : ProofFor
   | .literal (.u128 _) => .ok .u128
   | .literal (.bool _) => .ok .bool
   | .literal (.hash4 ..) => .ok .hash
+  | .literal (.bytes _) => .ok .bytes
+  | .literal (.string _) => .ok .string
   | .literal (.address _) => .ok .address
   | .local name =>
       match findLocal? env name with
@@ -442,6 +450,9 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ =>
       .error { message := "storage.map.get must be used as an expression" }
+  | .storageMapDelete stateId key => do
+      let (keyType, _) ← mapStateTypes module stateId
+      ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
   | .storageMapInsert stateId key value => do
       let (keyType, valueType) ← mapStateTypes module stateId
       ensureType s!"map `{stateId}` key" keyType (← inferExprType module env key)
@@ -509,8 +520,8 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       discard <| inferExprType module env id
       discard <| inferExprType module env amount
 
-  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
-      for expr in #[operator, fromAddr, toAddr, id0, amount0, id1, amount1] do
+  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
+      for expr in #[operator, fromAddr, toAddr, ids, amounts] do
         discard <| inferExprType module env expr
 def requireMutableLocal (env : TypeEnv) (context name : String) : Except LowerError LocalBinding := do
   let some binding := findLocal? env name

@@ -607,6 +607,124 @@ def lowerSystemTransferData (valueBindings : Array CpiValueBinding) (cpi : CpiIn
   ] ++
   lowerCpiU64Field valueBindings cpi "solana.cpi.lamports_source" "lamports" 4
 
+/-- Stake Program `DelegateStake` (instruction 0): u32 discriminator=0. -/
+def lowerStakeDelegateStakeData : Array AstNode :=
+  #[
+    .comment "solana.cpi.data stake.delegate_stake: u32 discriminator=0"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    loadImm .r3 0,
+    storeReg .stxw .r8 0 .r3
+  ]
+
+/-- Stake Program `Deactivate` (instruction 4): u32 discriminator=4. -/
+def lowerStakeDeactivateData : Array AstNode :=
+  #[
+    .comment "solana.cpi.data stake.deactivate: u32 discriminator=4"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    loadImm .r3 4,
+    storeReg .stxw .r8 0 .r3
+  ]
+
+/-- Stake Program `Withdraw` (instruction 3): u32 discriminator=3, u64 lamports. -/
+def lowerStakeWithdrawData (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data stake.withdraw: u32 discriminator=3, u64 lamports"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    loadImm .r3 3,
+    storeReg .stxw .r8 0 .r3
+  ] ++
+  lowerCpiU64Field valueBindings cpi "solana.cpi.lamports_source" "lamports" 4
+
+/-- Vote Program `Vote` (instruction 0): u32 discriminator=0.
+    Vote account data is passed via accounts, not instruction data. -/
+def lowerVoteVoteData : Array AstNode :=
+  #[
+    .comment "solana.cpi.data vote.vote: u32 discriminator=0"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    loadImm .r3 0,
+    storeReg .stxw .r8 0 .r3
+  ]
+
+/-- Config Program `Create` (instruction 1): u32 discriminator=1.
+    Config creation uses accounts for the data; ix data is just the tag. -/
+def lowerConfigCreateData : Array AstNode :=
+  #[
+    .comment "solana.cpi.data config.create: u32 discriminator=1"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    loadImm .r3 1,
+    storeReg .stxw .r8 0 .r3
+  ]
+
+/-- Copy raw metadata bytes from a value binding into instruction data at
+`fieldOff`. Used by Metaplex create/update metadata CPI layouts. -/
+def lowerCpiMetadataBytesField (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke)
+    (fieldOff : Nat) : Array AstNode :=
+  match cpiMetadataValue? cpi "solana.cpi.metadata_source" with
+  | some source =>
+      match cpiValueBinding? valueBindings source with
+      | some binding =>
+          let len := min binding.byteSize 128
+          if len == 0 then
+            #[.comment s!"metaplex.metadata: empty binding for `{source}`"]
+          else
+            let base :=
+              if binding.relativeToInstructionData then
+                loadSavedInstructionDataPtr .r7
+              else
+                #[.instruction { opcode := .mov64, dst := some .r7, src := some .r1 }]
+            #[.comment s!"metaplex.metadata: copy {len} bytes from {binding.sourceKind} {source}"] ++
+            base ++
+            (List.range len).foldl
+              (fun acc idx =>
+                acc ++ #[
+                  .instruction {
+                    opcode := .ldxb, dst := some .r3, src := some .r7,
+                    off := some (.num (binding.absOff + idx))
+                  },
+                  .instruction {
+                    opcode := .stxb, dst := some .r8, off := some (.num (fieldOff + idx)),
+                    src := some .r3
+                  }
+                ])
+              #[]
+      | none =>
+          #[
+            .comment s!"metaplex.metadata: source `{source}` not found in bindings (reject)",
+            .instruction { opcode := .ja, off := some (.sym "error_cpi") }
+          ]
+  | none =>
+      #[
+        .comment "metaplex.metadata: no metadata_source metadata (reject)",
+        .instruction { opcode := .ja, off := some (.sym "error_cpi") }
+      ]
+
+/-- Metaplex `CreateMetadataAccount` (instruction 0): u8 discriminator=0,
+    followed by pre-built Borsh metadata bytes from `metadata_source`. -/
+def lowerMetaplexCreateMetadataData (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data metaplex.create_metadata_account: u8 discriminator=0, metadata bytes"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 0
+  ] ++
+  lowerCpiMetadataBytesField valueBindings cpi 1
+
+/-- Metaplex `UpdateMetadataAccount` (instruction 1): u8 discriminator=1,
+    followed by pre-built Borsh metadata bytes from `metadata_source`. -/
+def lowerMetaplexUpdateMetadataData (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode :=
+  #[
+    .comment "solana.cpi.data metaplex.update_metadata_account: u8 discriminator=1, metadata bytes"
+  ] ++
+  stackPtr .r8 cpiInstructionDataOffset ++ #[
+    storeImm .stb .r8 0 1
+  ] ++
+  lowerCpiMetadataBytesField valueBindings cpi 1
+
 def lowerSystemCreateAccountData (accountBindings : Array CpiAccountBinding)
     (valueBindings : Array CpiValueBinding) (cpi : CpiInvoke) : Array AstNode :=
   #[
@@ -1044,6 +1162,10 @@ def isSupportedCpiDataLayout (layout : String) : Bool :=
   | "token-2022.initialize_transfer_hook"
   | "token-2022.initialize_pausable_config"
   | "token-2022.pause" | "token-2022.resume"
+  | "stake.delegate_stake" | "stake.deactivate" | "stake.withdraw"
+  | "vote.vote"
+  | "config.create"
+  | "metaplex.create_metadata_account" | "metaplex.update_metadata_account"
   | "memo.memo" => true
   | _ => false
 
@@ -1117,6 +1239,20 @@ def lowerCpiInstructionData (accountBindings : Array CpiAccountBinding)
       (lowerToken2022PausableTagData "token-2022.pause" 1, token2022PausableTagDataLen)
   | some "token-2022.resume" =>
       (lowerToken2022PausableTagData "token-2022.resume" 2, token2022PausableTagDataLen)
+  | some "stake.delegate_stake" =>
+      (lowerStakeDelegateStakeData, 4)
+  | some "stake.deactivate" =>
+      (lowerStakeDeactivateData, 4)
+  | some "stake.withdraw" =>
+      (lowerStakeWithdrawData valueBindings cpi, 12)
+  | some "vote.vote" =>
+      (lowerVoteVoteData, 4)
+  | some "config.create" =>
+      (lowerConfigCreateData, 4)
+  | some "metaplex.create_metadata_account" =>
+      (lowerMetaplexCreateMetadataData valueBindings cpi, 1)
+  | some "metaplex.update_metadata_account" =>
+      (lowerMetaplexUpdateMetadataData valueBindings cpi, 1)
   | some "memo.memo" =>
       lowerMemoData valueBindings cpi
   | some dl =>

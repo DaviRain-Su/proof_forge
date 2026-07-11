@@ -652,6 +652,8 @@ def literalPlan : Literal → Except LowerError ExprPlan
   | .hash4 a b c d => do
       .ok (.literalWord (← packedHashLiteral a b c d))
   | .address value => .ok (.literalWord value)
+  | .bytes _ => .error { message := "EVM literalPlan: bytes literal not yet supported (use memoryArrayNew + store)" }
+  | .string _ => .error { message := "EVM literalPlan: string literal not yet supported (use memoryArrayNew + store)" }
 
 def eventPlanForFields
     (module : Module)
@@ -1288,6 +1290,8 @@ mutual
     | .chainId => .ok .chainId
     | .gasPrice => .ok .gasPrice
     | .gasLeft => .ok .gasLeft
+    | .prepaidGas => .error { message := "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)" }
+    | .usedGas => .error { message := "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)" }
     | .baseFee => .ok .baseFee
     | .prevRandao => .ok .prevRandao
     | .randomSeed => .error { message := "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode" }
@@ -1353,6 +1357,11 @@ mutual
         match mapWriteTargetPlan? module stateId with
         | some target => .ok (.storageMapSetTarget target keyPlan valuePlan)
         | none => .ok (.storageMapSet stateId keyPlan valuePlan)
+    | .storageMapDelete stateId key => do
+        let keyPlan ← buildExprPlan module env key
+        match mapWriteTargetPlan? module stateId with
+        | some target => .ok (.storageMapDeleteTarget target keyPlan)
+        | none => .ok (.storageMapDelete stateId keyPlan)
     | .storageArrayRead stateId index => do
         let indexPlan ← buildExprPlan module env index
         match arrayReadTargetPlan? module stateId with
@@ -1445,15 +1454,13 @@ mutual
           (← buildExprPlan module env id)
           (← buildExprPlan module env amount))
 
-    | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
+    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
         .ok (.checkErc1155BatchReceived
           (← buildExprPlan module env operator)
           (← buildExprPlan module env fromAddr)
           (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env id0)
-          (← buildExprPlan module env amount0)
-          (← buildExprPlan module env id1)
-          (← buildExprPlan module env amount1))
+          (← buildExprPlan module env ids)
+          (← buildExprPlan module env amounts))
 
   partial def buildStatementPlan
       (module : Module)

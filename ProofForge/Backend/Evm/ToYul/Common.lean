@@ -183,19 +183,31 @@ def checkErc1155ReceivedStatements
 /-- IERC1155Receiver.onERC1155BatchReceived selector. -/
 def onErc1155BatchReceivedSelector : Nat := 0xbc197c81
 
-/-- E1.2: ERC-1155 size-2 batch safe-transfer receiver check.
-    CALL `onERC1155BatchReceived(operator, from, [id0,id1], [amount0,amount1], "")`
-    when `to` has code; require magic return. -/
+/-- E1.2: ERC-1155 dynamic batch safe-transfer receiver check.
+    CALL `onERC1155BatchReceived(operator, from, ids, amounts, "")`
+    when `to` has code; require magic return. `ids` and `amounts` are the
+    already-lowered Yul expressions for each array element (same length n). -/
 def checkErc1155BatchReceivedStatements
-    (operator fromAddr toAddr id0 amount0 id1 amount1 : Lean.Compiler.Yul.Expr) :
+    (operator fromAddr toAddr : Lean.Compiler.Yul.Expr)
+    (ids amounts : Array Lean.Compiler.Yul.Expr) :
     Array Lean.Compiler.Yul.Statement :=
+  let n := ids.size
+  -- ABI layout (relative to head start at offset 4):
+  --   head: 5 words — operator, from, ids_off, amounts_off, data_off
+  --   ids  : [n, id0, ..., id_{n-1}]  → (n+1) words
+  --   amounts: [n, a0, ..., a_{n-1}]  → (n+1) words
+    --   data : [0]                      → 1 word
+  let headWords := 5
+  let idsOff := headWords * 32          -- 0xa0
+  let idsWords := n + 1
+  let amountsOff := idsOff + idsWords * 32
+  let amountsWords := n + 1
+  let dataOff := amountsOff + amountsWords * 32
+  let dataSize := dataOff + 32
+  let callSize := 4 + dataSize
   let operatorArg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_operator"
   let fromArg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_from"
   let toArg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_to"
-  let id0Arg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_id0"
-  let amount0Arg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_amount0"
-  let id1Arg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_id1"
-  let amount1Arg := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_amount1"
   let isContract :=
     Lean.Compiler.Yul.builtin "iszero" #[
       Lean.Compiler.Yul.builtin "iszero" #[
@@ -209,33 +221,39 @@ def checkErc1155BatchReceivedStatements
     ]
   let callSuccess := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_ok"
   let retMagic := Lean.Compiler.Yul.Expr.id "__pf_erc1155_batch_magic"
-  -- ABI (args relative to head start): head = 5 words (operator, from, ids_off,
-  -- amounts_off, data_off) = 0xa0.
-  -- ids at 0xa0: [2, id0, id1] (96 B) → ends 0x100
-  -- amounts at 0x100: [2, a0, a1] (96 B) → ends 0x160
-  -- data at 0x160: [0] (32 B) → ends 0x180
-  -- With 4-byte selector: total call size = 4 + 0x180 = 388.
-  let contractBody : Array Lean.Compiler.Yul.Statement := #[
+  -- Head section
+  let headStmts := #[
     .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, magicWord]),
     .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 4, operatorArg]),
     .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 36, fromArg]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 68, Lean.Compiler.Yul.Expr.num 0xa0]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 100, Lean.Compiler.Yul.Expr.num 0x100]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 132, Lean.Compiler.Yul.Expr.num 0x160]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 164, Lean.Compiler.Yul.Expr.num 2]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 196, id0Arg]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 228, id1Arg]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 260, Lean.Compiler.Yul.Expr.num 2]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 292, amount0Arg]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 324, amount1Arg]),
-    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 356, Lean.Compiler.Yul.Expr.num 0]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 68, Lean.Compiler.Yul.Expr.num idsOff]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 100, Lean.Compiler.Yul.Expr.num amountsOff]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 132, Lean.Compiler.Yul.Expr.num dataOff])
+  ]
+  -- ids section: [n, id0, ..., id_{n-1}]
+  let idsLenStmt := .exprStmt (Lean.Compiler.Yul.builtin "mstore"
+    #[Lean.Compiler.Yul.Expr.num idsOff, Lean.Compiler.Yul.Expr.num n])
+  let idStmts := ids.zipIdx.map fun (idExpr, i) =>
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore"
+      #[Lean.Compiler.Yul.Expr.num (idsOff + 32 + i * 32), idExpr])
+  -- amounts section: [n, a0, ..., a_{n-1}]
+  let amountsLenStmt := .exprStmt (Lean.Compiler.Yul.builtin "mstore"
+    #[Lean.Compiler.Yul.Expr.num amountsOff, Lean.Compiler.Yul.Expr.num n])
+  let amountStmts := amounts.zipIdx.map fun (aExpr, i) =>
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore"
+      #[Lean.Compiler.Yul.Expr.num (amountsOff + 32 + i * 32), aExpr])
+  -- data section: [0]
+  let dataStmt := .exprStmt (Lean.Compiler.Yul.builtin "mstore"
+    #[Lean.Compiler.Yul.Expr.num dataOff, Lean.Compiler.Yul.Expr.num 0])
+  let contractBody : Array Lean.Compiler.Yul.Statement :=
+    headStmts ++ #[idsLenStmt] ++ idStmts ++ #[amountsLenStmt] ++ amountStmts ++ #[dataStmt] ++ #[
     .varDecl #[{ name := "__pf_erc1155_batch_ok" }] (some <|
       Lean.Compiler.Yul.builtin "call" #[
         Lean.Compiler.Yul.builtin "gas" #[],
         toArg,
         Lean.Compiler.Yul.Expr.num 0,
         Lean.Compiler.Yul.Expr.num 0,
-        Lean.Compiler.Yul.Expr.num 388,
+        Lean.Compiler.Yul.Expr.num callSize,
         Lean.Compiler.Yul.Expr.num 0,
         Lean.Compiler.Yul.Expr.num 32
       ]),
@@ -256,15 +274,16 @@ def checkErc1155BatchReceivedStatements
       ])
       { statements := #[revertStatement] }
   ]
+  let idDecls := ids.zipIdx.map fun (idExpr, i) =>
+    .varDecl #[{ name := s!"__pf_erc1155_batch_id{i}" }] (some idExpr)
+  let amountDecls := amounts.zipIdx.map fun (aExpr, i) =>
+    .varDecl #[{ name := s!"__pf_erc1155_batch_amount{i}" }] (some aExpr)
   #[
     .block { statements := #[
       .varDecl #[{ name := "__pf_erc1155_batch_operator" }] (some operator),
       .varDecl #[{ name := "__pf_erc1155_batch_from" }] (some fromAddr),
-      .varDecl #[{ name := "__pf_erc1155_batch_to" }] (some toAddr),
-      .varDecl #[{ name := "__pf_erc1155_batch_id0" }] (some id0),
-      .varDecl #[{ name := "__pf_erc1155_batch_amount0" }] (some amount0),
-      .varDecl #[{ name := "__pf_erc1155_batch_id1" }] (some id1),
-      .varDecl #[{ name := "__pf_erc1155_batch_amount1" }] (some amount1),
+      .varDecl #[{ name := "__pf_erc1155_batch_to" }] (some toAddr)
+    ] ++ idDecls ++ amountDecls ++ #[
       .ifStmt isContract { statements := contractBody }
     ] }
   ]

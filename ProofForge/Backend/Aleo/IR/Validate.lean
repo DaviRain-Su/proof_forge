@@ -163,6 +163,8 @@ mutual
     | .literal (.address _) => .ok .address
     | .literal (.hash4 ..) =>
         .error { message := "Leo IR v0 does not support Hash literals" }
+    | .literal (.bytes _) => .error { message := "Leo IR v0 does not support bytes literals" }
+    | .literal (.string _) => .error { message := "Leo IR v0 does not support string literals" }
     | .local name =>
         match findLocal? env name with
         | some binding => .ok binding.type
@@ -289,8 +291,8 @@ mutual
       let (_, valueType) ← mapStateTypes module stateId
       discard <| inferExprType module env key
       .ok valueType
-    | .storageMapInsert _ _ _ | .storageMapSet _ _ _ =>
-        .error { message := "storage.map.insert/set are statement effects, not expressions" }
+    | .storageMapInsert _ _ _ | .storageMapSet _ _ _ | .storageMapDelete _ _ =>
+        .error { message := "storage.map.insert/set/delete are statement effects, not expressions" }
     | .storageArrayRead _ _ | .storageArrayWrite _ _ _ =>
         .error { message := "Leo IR v0 does not support array storage" }
     | .storageArrayStructFieldRead _ _ _ | .storageArrayStructFieldWrite _ _ _ _ =>
@@ -318,7 +320,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Leo" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
@@ -362,6 +364,9 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       discard <| ensureSameNumericType s!"compound assignment {assignOpDiagnosticName op}" expected actual
   | .storageMapContains _ _ | .storageMapGet _ _ =>
       .error { message := "storage.map.contains/get must be used as expressions" }
+  | .storageMapDelete stateId key => do
+      let (keyType, _) ← mapStateTypes module stateId
+      ensureType s!"map state `{stateId}` key" keyType (← inferExprType module env key)
   | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
       let (keyType, valueType) ← mapStateTypes module stateId
       ensureType s!"map state `{stateId}` key" keyType (← inferExprType module env key)
@@ -398,7 +403,7 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
   | .checkErc1155Received _ _ _ _ _ =>
       .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+  | .checkErc1155BatchReceived _ _ _ _ _ =>
       .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported by Leo IR v0" }
 
 /-! ### Statement validation -/

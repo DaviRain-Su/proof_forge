@@ -200,6 +200,7 @@ mutual
     | fuel + 1, entrypoint, env, .storageStructFieldWrite _ _ value => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .storageMapContains _ key
     | fuel + 1, entrypoint, env, .storageMapGet _ key
+    | fuel + 1, entrypoint, env, .storageMapDelete _ key
     | fuel + 1, entrypoint, env, .storageArrayRead _ key
     | fuel + 1, entrypoint, env, .storageArrayStructFieldRead _ key _ => checkExprFuel fuel entrypoint env key
     | fuel + 1, entrypoint, env, .storageMapInsert _ key value
@@ -238,14 +239,12 @@ mutual
         checkExprFuel fuel entrypoint env id
         checkExprFuel fuel entrypoint env amount
 
-    | fuel + 1, entrypoint, env, .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
+    | fuel + 1, entrypoint, env, .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
         checkExprFuel fuel entrypoint env operator
         checkExprFuel fuel entrypoint env fromAddr
         checkExprFuel fuel entrypoint env toAddr
-        checkExprFuel fuel entrypoint env id0
-        checkExprFuel fuel entrypoint env amount0
-        checkExprFuel fuel entrypoint env id1
-        checkExprFuel fuel entrypoint env amount1
+        checkExprFuel fuel entrypoint env ids
+        checkExprFuel fuel entrypoint env amounts
 
   def checkStoragePathSegmentFuel : Nat → String → Env → StoragePathSegment →
       Except OwnershipError Unit

@@ -88,6 +88,11 @@ def insert (name : String) (value : Value) : Bindings → Bindings
       else
         (key, oldValue) :: insert name value rest
 
+def eraseBinding (name : String) : Bindings → Bindings
+  | [] => []
+  | (key, value) :: rest =>
+      if key == name then rest else (key, value) :: eraseBinding name rest
+
 def listGet? {α : Type} : List α → Nat → Option α
   | [], _ => none
   | value :: _, 0 => some value
@@ -139,6 +144,9 @@ def State.write (state : State) (name : String) (value : Value) : State :=
       { state with storage := writeStructFields state.storage name fields }
   | _ => state
 
+def State.erase (state : State) (name : String) : State :=
+  { state with storage := eraseBinding name state.storage }
+
 def State.recordEvent (state : State) (name : String)
     (indexed data : Array Value) : State :=
   { state with logs := state.logs.push { name, indexed, data } }
@@ -165,6 +173,8 @@ def literalValue : Literal → Except String Value
   | .bool value => .ok (.bool value)
   | .hash4 a b c d => .ok (.hash a b c d)
   | .address value => .ok (.address value)
+  | .bytes ba => .ok (.bytes (ba.toList.map UInt8.toNat))
+  | .string s => .ok (.string s)
 
 def valueMatchesType : ValueType → Value → Bool
   | .unit, .unit => true
@@ -692,6 +702,13 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       let nextState :=
         (stateAfterValue.write (mapKey name key) newValue).write (mapPresentKey name key) (.bool true)
       .ok (nextState, oldValue)
+  | .storageMapDelete name keyExpr => do
+      let (nextState, keyValue) ← evalExpr state frame keyExpr
+      let key := valueKey keyValue
+      let oldValue := (nextState.read (mapKey name key)).getD (.unit)
+      let nextState := nextState.erase (mapKey name key)
+      let nextState := nextState.erase (mapPresentKey name key)
+      .ok (nextState, oldValue)
   | .storageArrayRead name indexExpr => do
       let (nextState, rawIndex) ← evalExpr state frame indexExpr
       let index ← indexValue rawIndex
@@ -769,7 +786,7 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       .ok (stateAfterValue.write key value, value)
   | .contextRead field =>
       match field with
-      | .userId | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
+      | .userId | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
           .ok (state, .u64 0)
       | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
           .ok (state, .hash 0 0 0 0)
@@ -796,15 +813,13 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       let (s5, _) ← evalExpr s4 frame amount
       .ok (s5, .unit)
 
-  | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
+  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
       let (s1, _) ← evalExpr state frame operator
       let (s2, _) ← evalExpr s1 frame fromAddr
       let (s3, _) ← evalExpr s2 frame toAddr
-      let (s4, _) ← evalExpr s3 frame id0
-      let (s5, _) ← evalExpr s4 frame amount0
-      let (s6, _) ← evalExpr s5 frame id1
-      let (s7, _) ← evalExpr s6 frame amount1
-      .ok (s7, .unit)
+      let (s4, _) ← evalExpr s3 frame ids
+      let (s5, _) ← evalExpr s4 frame amounts
+      .ok (s5, .unit)
 partial def evalEventFields (state : State) (frame : Frame) (fields : Array (String × Expr)) :
     Except String (State × Array Value) := do
   let mut nextState := state

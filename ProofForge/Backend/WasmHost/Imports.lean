@@ -55,6 +55,8 @@ def registerLenImport : Import := hostImport "register_len" #[.i64] #[.i64]
 def blockHeightImport : Import := hostImport "block_index" #[] #[.i64]
 def epochHeightImport : Import := hostImport "epoch_height" #[] #[.i64]
 def randomSeedImport : Import := hostImport "random_seed" #[.i64] #[]
+def prepaidGasImport : Import := hostImport "prepaid_gas" #[] #[.i64]
+def usedGasImport : Import := hostImport "used_gas" #[] #[.i64]
 
 def allocImportName : String := "pf_alloc"
 def deallocImportName : String := "pf_dealloc"
@@ -76,6 +78,7 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "attached_deposit" => plan.usesNativeValue
     | "storage_read" => plan.usesStorageRead
     | "storage_write" => plan.usesStorageWrite
+    | "storage_remove" => plan.usesStorageWrite
     | "value_return" => !plan.returnTypes.isEmpty
     | "promise_create" => plan.usesPromiseCreate
     | "promise_then" => plan.usesPromiseThen
@@ -86,6 +89,8 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
     | "random_seed" => plan.contextOps.contains .randomSeed
+    | "prepaid_gas" => plan.contextOps.contains .prepaidGas
+    | "used_gas" => plan.contextOps.contains .usedGas
     | _ => true
 
 def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
@@ -93,7 +98,9 @@ def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
     (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
     (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
         plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
-    (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[])
+    (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[]) ++
+    (if plan.contextOps.contains .prepaidGas then #[prepaidGasImport] else #[]) ++
+    (if plan.contextOps.contains .usedGas then #[usedGasImport] else #[])
 
 def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
   if !plan.usesPromiseReceiverAccount then
@@ -142,7 +149,7 @@ shape until Soroban-specific input encoding lands. -/
 def stripNearStorageImports (imports : Array Import) : Array Import :=
   imports.filter fun import_ =>
     match import_.name with
-    | "storage_read" | "storage_write" | "storage_has_key" => false
+    | "storage_read" | "storage_write" | "storage_has_key" | "storage_remove" => false
     | _ => true
 
 def sorobanGetImport : Import :=
@@ -223,6 +230,7 @@ def importsForModulePlan
         | "input" | "value_return" | "log_utf8" | "read_register"
         | "signer_account_id" | "predecessor_account_id" | "current_account_id"
         | "block_timestamp" | "block_index" | "epoch_height" | "random_seed"
+        | "prepaid_gas" | "used_gas"
         | "attached_deposit" | "sha256" => false
         | _ => true
       let withStorage :=

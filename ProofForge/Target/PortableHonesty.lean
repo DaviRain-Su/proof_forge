@@ -72,7 +72,7 @@ where
     | .contextRead f => pushUnique acc f
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => pushExpr acc v
-    | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => pushExpr acc k
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k | .storageArrayRead _ k => pushExpr acc k
     | .storageMapInsert _ k v | .storageMapSet _ k v | .storageArrayWrite _ k v
     | .storageArrayStructFieldWrite _ k _ v => pushExpr (pushExpr acc k) v
     | .memoryArraySet a i v => pushExpr (pushExpr (pushExpr acc a) i) v
@@ -86,8 +86,8 @@ where
         pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d
     | .checkErc1155Received a b c d e =>
         pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
-    | .checkErc1155BatchReceived a b c d e f g =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e) f) g
+    | .checkErc1155BatchReceived a b c d e =>
+        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ => acc
   pushPath (acc : Array ContextField) : StoragePathSegment → Array ContextField
@@ -138,7 +138,7 @@ where
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
-    | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k | .storageArrayRead _ k => exprUses k
     | .storageMapInsert _ k v | .storageMapSet _ k v | .storageArrayWrite _ k v
     | .storageArrayStructFieldWrite _ k _ v => exprUses k || exprUses v
     | .memoryArraySet a i v => exprUses a || exprUses i || exprUses v
@@ -152,8 +152,8 @@ where
         exprUses a || exprUses b || exprUses c || exprUses d
     | .checkErc1155Received a b c d e =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e f g =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f || exprUses g
+    | .checkErc1155BatchReceived a b c d e =>
+        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool

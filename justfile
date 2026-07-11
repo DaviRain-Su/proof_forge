@@ -487,6 +487,8 @@ solana-lean:
     lake env lean --run Tests/Backend/Solana/SolanaComputeBudgetInstruction.lean
     lake env lean --run Tests/Backend/Solana/SolanaPdaSeeds.lean
     lake env lean --run Tests/Backend/Solana/SolanaLoop.lean
+    lake env lean --run Tests/Backend/Solana/SolanaWhileRevert.lean
+    lake env lean --run Tests/Backend/Solana/SolanaPowCast.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageArray.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageArrayStruct.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageStructField.lean

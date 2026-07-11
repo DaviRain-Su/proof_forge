@@ -369,6 +369,8 @@ def lowerLiteral (lit : Literal) : Except LowerError Expr :=
   | .bool b => .ok (.literalBool b)
   | .address n => .ok (.literalStr s!"addr{n}")
   | .hash4 a b c d => .ok (.literalStr (hashLiteralStr a b c d))
+  | .bytes _ => .error { message := "Quint: bytes literal not supported" }
+  | .string s => .ok (.literalStr s)
 
 def lowerAssignOp (op : AssignOp) : BinOp :=
   match op with

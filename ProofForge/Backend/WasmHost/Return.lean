@@ -27,6 +27,12 @@ def returnBytesFromPtrInsns (byteLen : Nat) (insns : Array Insn) : Array Insn :=
   #[.i64Const byteLen] ++ insns ++
     #[.plain "i64.extend_i32_u", .call "value_return"]
 
+/-- Encode a dynamic bytes/string return: the lowered expr leaves an i32 pointer
+    to a Borsh buffer (4-byte LE length prefix + payload). We call the
+    `__pf_return_bytes` helper which reads the length and calls `value_return`. -/
+def returnDynamicBytesInsns (insns : Array Insn) : Array Insn :=
+  insns ++ #[.call returnBytesName]
+
 def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
     (insns : Array Insn) (actual : ValueType)
     (bridge : ProofForge.Target.HostBridge := .near)
@@ -44,6 +50,7 @@ def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
   else match actual with
     | .u64 => .ok (insns ++ #[.call returnU64Name])
     | .u32 => .ok (insns ++ #[.call returnU32Name])
+    | .u128 => .ok (insns ++ #[.call returnU128Name])
     | .bool => .ok (insns ++ #[.call returnBoolName])
     | .hash =>
       .ok (returnBytesFromPtrInsns 32 insns)
@@ -56,10 +63,9 @@ def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
           .ok (returnBytesFromPtrInsns n insns)
       | none =>
         err s!"EmitWat: return type `{actual.name}` requires aggregate layout size \
-(struct/fixedArray); pass layout size from EmitWat"
+|(struct/fixedArray); pass layout size from EmitWat"
     | .bytes | .string =>
-      err s!"EmitWat: return type `{actual.name}` is not supported on Borsh value_return \
-(dynamic bytes/string); use scalar, hash, fixedArray, or flat struct"
+      .ok (returnDynamicBytesInsns insns)
     | _ => err s!"EmitWat: return type `{actual.name}` is not supported"
 
 end ProofForge.Backend.WasmHost.Return

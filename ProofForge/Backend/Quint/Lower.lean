@@ -587,7 +587,7 @@ mutual
         .ok (ctx.stateValue (structFieldVarName stateId fieldName))
     | .contextRead field =>
         match field with
-        | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
+        | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
             .ok (.literalInt 0)
         | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }

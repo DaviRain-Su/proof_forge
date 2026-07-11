@@ -225,6 +225,13 @@ mutual
             (stateAfterValue.write (mapKey name key) newValue).write
               (mapPresentKey name key) (.bool true)
           .ok (nextState, oldValue)
+      | .storageMapDelete name keyExpr => do
+          let (nextState, keyValue) ← evalExprFuel fuel state frame keyExpr
+          let key := valueKeyScalar keyValue
+          let oldValue := (nextState.read (mapKey name key)).getD (.unit)
+          let nextState := nextState.erase (mapKey name key)
+          let nextState := nextState.erase (mapPresentKey name key)
+          .ok (nextState, oldValue)
       | .storageMapContains name keyExpr => do
           let (nextState, keyValue) ← evalExprFuel fuel state frame keyExpr
           let key := valueKeyScalar keyValue
@@ -239,7 +246,7 @@ mutual
       | .contextRead field =>
           match field with
           | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-          | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao =>
+          | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
               .ok (state, .u64 0)
           | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
               .ok (state, .hash 0 0 0 0)
@@ -264,15 +271,13 @@ mutual
           let (s4, _) ← evalExprFuel fuel s3 frame id
           let (s5, _) ← evalExprFuel fuel s4 frame amount
           .ok (s5, .unit)
-      | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 => do
+      | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
           let (s1, _) ← evalExprFuel fuel state frame operator
           let (s2, _) ← evalExprFuel fuel s1 frame fromAddr
           let (s3, _) ← evalExprFuel fuel s2 frame toAddr
-          let (s4, _) ← evalExprFuel fuel s3 frame id0
-          let (s5, _) ← evalExprFuel fuel s4 frame amount0
-          let (s6, _) ← evalExprFuel fuel s5 frame id1
-          let (s7, _) ← evalExprFuel fuel s6 frame amount1
-          .ok (s7, .unit)
+          let (s4, _) ← evalExprFuel fuel s3 frame ids
+          let (s5, _) ← evalExprFuel fuel s4 frame amounts
+          .ok (s5, .unit)
       | _ => unsupportedEffect effect
 
   /-- Total fuel-indexed evaluation of event field arrays. -/

@@ -462,6 +462,10 @@ inductive HostEnv where
   | solanaRent
   /-- NEAR predecessor when distinct from signer (async receipt model). -/
   | nearPredecessor
+  /-- NEAR prepaid_gas (gas prepaid for the call; no EVM/Solana analogue). -/
+  | nearPrepaidGas
+  /-- NEAR used_gas (gas already consumed in the call; no EVM/Solana analogue). -/
+  | nearUsedGas
   deriving BEq, DecidableEq, Repr
 
 def HostEnv.id : HostEnv → String
@@ -481,6 +485,8 @@ def HostEnv.id : HostEnv → String
   | .coinbase => "env.coinbase"
   | .solanaRent => "env.solanaRent"
   | .nearPredecessor => "env.nearPredecessor"
+  | .nearPrepaidGas => "env.nearPrepaidGas"
+  | .nearUsedGas => "env.nearUsedGas"
 
 instance : ToString HostEnv where
   toString e := e.id
@@ -491,14 +497,16 @@ def HostEnv.bucket : HostEnv → HostEnvBucket
       .general
   | .epoch | .gasOrComputeBudgetLeft | .blockHash | .randomness =>
       .approximate
-  | .gasPrice | .baseFee | .txOrigin | .coinbase | .solanaRent | .nearPredecessor =>
+  | .gasPrice | .baseFee | .txOrigin | .coinbase | .solanaRent | .nearPredecessor
+  | .nearPrepaidGas | .nearUsedGas =>
       .chainOnly
 
 /-- Full HostEnv catalog (for tests / enumeration). -/
 def allHostEnvs : Array HostEnv := #[
   .blockTime, .blockHeight, .chainId, .caller, .selfAddress, .attachedValue,
   .epoch, .gasOrComputeBudgetLeft, .blockHash, .randomness,
-  .gasPrice, .baseFee, .txOrigin, .coinbase, .solanaRent, .nearPredecessor
+  .gasPrice, .baseFee, .txOrigin, .coinbase, .solanaRent, .nearPredecessor,
+  .nearPrepaidGas, .nearUsedGas
 ]
 
 /-- Successful materialization of a HostEnv term on a target. -/
@@ -517,7 +525,7 @@ def HostEnv.hostEffect? : HostEnv → Option HostEffect
   | .gasOrComputeBudgetLeft => some .computeRemaining
   | .randomness | .blockHash => some .envBlock
   | .selfAddress | .gasPrice | .baseFee | .txOrigin | .coinbase
-  | .solanaRent | .nearPredecessor => none
+  | .solanaRent | .nearPredecessor | .nearPrepaidGas | .nearUsedGas => none
 
 /-- Diagnostic when a HostEnv term cannot materialize on `targetId`. -/
 def hostEnvReject (targetId : String) (env : HostEnv) (reason : String) : String :=
@@ -666,6 +674,18 @@ def materializeEnv (targetId : String) (env : HostEnv) :
   | .nearPredecessor, _ =>
       .error (hostEnvReject targetId env
         "NEAR-only predecessor≠signer distinction; use env.caller")
+  | .nearPrepaidGas, "wasm-near" =>
+      .ok (mk .hostImport "prepaid_gas" none
+        (some "NEAR prepaid_gas(): gas attached to the call"))
+  | .nearPrepaidGas, _ =>
+      .error (hostEnvReject targetId env
+        "NEAR-only prepaid_gas; no portable analogue")
+  | .nearUsedGas, "wasm-near" =>
+      .ok (mk .hostImport "used_gas" none
+        (some "NEAR used_gas(): gas consumed so far in the call"))
+  | .nearUsedGas, _ =>
+      .error (hostEnvReject targetId env
+        "NEAR-only used_gas; no portable analogue")
   -- unknown target
   | _, _ =>
       .error (hostEnvReject targetId env s!"no HostEnv row for target `{targetId}`")

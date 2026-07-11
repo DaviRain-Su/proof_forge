@@ -62,6 +62,14 @@ def totalSupply : ScalarRef :=
 def tokenDecimals : ScalarRef :=
   ProofForge.Contract.Surface.slot "decimals" .u64
 
+/-- Token name (NEP-148 metadata, stored as u64 projection for v0). -/
+def tokenName : ScalarRef :=
+  ProofForge.Contract.Surface.slot "tokenName" .u64
+
+/-- Token symbol (NEP-148 metadata, stored as u64 projection for v0). -/
+def tokenSymbol : ScalarRef :=
+  ProofForge.Contract.Surface.slot "tokenSymbol" .u64
+
 /-- Minimum storage deposit for account registration (U64 projection). -/
 def storageRequired : ScalarRef :=
   ProofForge.Contract.Surface.slot "storageRequired" .u64
@@ -104,6 +112,8 @@ contract_mixin NearFungibleTokenMixin do
   do registerFtMethods;
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar tokenDecimals
+  use ProofForge.Contract.Surface.scalar tokenName
+  use ProofForge.Contract.Surface.scalar tokenSymbol
   use ProofForge.Contract.Surface.scalar storageRequired
   use ProofForge.Contract.Surface.scalar pendingSender
   use ProofForge.Contract.Surface.scalar pendingReceiver
@@ -126,6 +136,12 @@ contract_mixin NearFungibleTokenMixin do
 
   query ft_metadata returns(.u64) do
     return tokenDecimals;
+
+  query ft_metadata_name returns(.u64) do
+    return tokenName;
+
+  query ft_metadata_symbol returns(.u64) do
+    return tokenSymbol;
 
   query storage_balance_bounds returns(.u64) do
     return storageRequired;
@@ -220,6 +236,8 @@ contract_source NearFungibleToken do
   entry init do
     totalSupply := u64 0;
     tokenDecimals := u64 18;
+    tokenName := u64 0;
+    tokenSymbol := u64 0;
     storageRequired := u64 1;
 
 end ProofForge.Contract.Stdlib.NearFungibleToken

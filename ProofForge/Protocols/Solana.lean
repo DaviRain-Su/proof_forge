@@ -31,7 +31,11 @@ def knownFamilies : Array String := #[
   "spl-token",
   "associated-token",
   "memo",
-  "token-2022"
+  "token-2022",
+  "stake",
+  "vote",
+  "config",
+  "metaplex"
 ]
 
 /-- Packed dataLayout ids currently supported by the sBPF CPI lowerer. -/
@@ -66,7 +70,14 @@ def supportedDataLayouts : Array String := #[
   "token-2022.initialize_transfer_hook",
   "token-2022.initialize_pausable_config",
   "token-2022.pause",
-  "token-2022.resume"
+  "token-2022.resume",
+  "stake.delegate_stake",
+  "stake.deactivate",
+  "stake.withdraw",
+  "vote.vote",
+  "config.create",
+  "metaplex.create_metadata_account",
+  "metaplex.update_metadata_account"
 ]
 
 /-- Intentionally unsupported (compile-reject): confidential / crypto-hard layouts.
@@ -145,6 +156,31 @@ export ProofForge.Solana (
   invokeSplToken2022Pause
   splToken2022Resume
   invokeSplToken2022Resume
+  stakeProgram
+  voteProgram
+  configProgram
+  metaplexTokenMetadataProgram
+  stakeDelegateStakeCall
+  stakeDeactivateCall
+  stakeWithdrawCall
+  voteVoteCall
+  configCreateCall
+  metaplexCreateMetadataCall
+  metaplexUpdateMetadataCall
+  stakeDelegateStake
+  invokeStakeDelegateStake
+  stakeDeactivate
+  invokeStakeDeactivate
+  stakeWithdraw
+  invokeStakeWithdraw
+  voteVote
+  invokeVoteVote
+  configCreate
+  invokeConfigCreate
+  metaplexCreateMetadata
+  invokeMetaplexCreateMetadata
+  metaplexUpdateMetadata
+  invokeMetaplexUpdateMetadata
 )
 
 end ProofForge.Protocols.Solana

@@ -239,6 +239,7 @@ export ProofForge.Backend.WasmHost.Scalar (
   readFunc writeFunc returnU64Func returnU32Func returnBoolFunc powName
   powFunc scalarStorageHelperFuncsForModulePlan returnHelperFuncsForModulePlan
   powHelperFuncsForModulePlan
+  u128AddName u128SubName u128MulName u128EqName u128ArithFuncs
 )
 
 export ProofForge.Backend.WasmHost.Statement (
@@ -273,15 +274,17 @@ def borshFlatWidth (ty : ProofForge.IR.ValueType) : Nat :=
   | .u64 => 8
   | .bool => 1
   | .hash => 32
+  | .u128 => 16
   | .fixedArray elem n => scalarWidth elem * n
   | .structType _ => 512
+  | .bytes | .string => 260
   | _ => 0
 
 /-- Exact Borsh payload size for supported aggregate return types (N1.2). -/
 def borshReturnPayloadBytes (structs : Array ProofForge.IR.StructDecl) (ty : ProofForge.IR.ValueType)
     : Except EmitError (Option Nat) :=
   match ty with
-  | .u32 | .u64 | .bool | .hash | .unit => .ok none
+  | .u32 | .u64 | .bool | .hash | .u128 | .unit => .ok none
   | .fixedArray elem n =>
     if !(isScalarBorshType elem) then
       err s!"EmitWat: return fixedArray element type `{elem.name}` is not a scalar Borsh type"
@@ -296,9 +299,7 @@ def borshReturnPayloadBytes (structs : Array ProofForge.IR.StructDecl) (ty : Pro
 (only u32/u64/bool/hash supported in Borsh returns)"
       else
         .ok (some (structTotalSize sd))
-  | .bytes | .string =>
-    err s!"EmitWat: return type `{ty.name}` is not supported on Borsh value_return \
-(dynamic bytes/string); use scalar, hash, fixedArray, or flat struct"
+  | .bytes | .string => .ok none
   | _ => err s!"EmitWat: return type `{ty.name}` is not supported"
 
 def entrypointInputBytes (_structs : Array ProofForge.IR.StructDecl) (ep : ProofForge.IR.Entrypoint) : Nat :=
@@ -640,8 +641,20 @@ mutual
     match e with
     | .literal (.u32 n) => .ok (#[.const .i32 (toString n)], .u32)
     | .literal (.u64 n) => .ok (#[.const .i64 (toString n)], .u64)
+    | .literal (.u128 n) =>
+      -- U128 literal: split into low 64 bits and high 64 bits.
+      -- For Phase 1, we only support values that fit in 64 bits (high = 0).
+      -- Full U128 literal support requires data segment or multi-word construction.
+      if n < 18446744073709551616 then
+        .ok (#[.i64Const n, .i64Const 0], .u128)
+      else
+        err "EmitWat: U128 literal exceeds U64 range (full U128 literal lowering not yet supported)"
     | .literal (.bool b) => .ok (#[.const .i32 (if b then "1" else "0")], .bool)
     | .literal (.hash4 a b c d) => .ok (#[.i64Const a, .i64Const b, .i64Const c, .i64Const d, .call hashMakeName], .hash)
+    | .literal (.bytes _) =>
+      err "EmitWat: bytes literal lowering not yet supported (use memoryArrayNew + store)"
+    | .literal (.string _) =>
+      err "EmitWat: string literal lowering not yet supported (use memoryArrayNew + store)"
     | .hashValue a b c d => do
       let (ia, ta) ← lowerExpr ctx env a
       let (ib, tb) ← lowerExpr ctx env b
@@ -666,9 +679,9 @@ mutual
       match lookupLocal? env name with
       | some t => .ok (#[.localGet name], t)
       | none => err s!"EmitWat: unknown local `{name}`"
-    | .add a b _ => lowerNumBin ctx env "add" a b
-    | .sub a b _ => lowerNumBin ctx env "sub" a b
-    | .mul a b _ => lowerNumBin ctx env "mul" a b
+    | .add a b _ => lowerAddSubMul ctx env "add" a b
+    | .sub a b _ => lowerAddSubMul ctx env "sub" a b
+    | .mul a b _ => lowerAddSubMul ctx env "mul" a b
     | .div a b => lowerNumBin ctx env "div_u" a b
     | .mod a b => lowerNumBin ctx env "rem_u" a b
     | .bitAnd a b => lowerNumBin ctx env "and" a b
@@ -678,7 +691,10 @@ mutual
     | .shiftRight a b => lowerNumBin ctx env "shr_u" a b
     | .pow a b => do
       let (la, lb, t) ← lowerMatchingNumericOperands ctx env "pow" a b
-      .ok (la ++ lb ++ #[.call (powName t)], t)
+      if t == .u128 then
+        err "EmitWat: U128 pow not yet supported (use U64 or U32)"
+      else
+        .ok (la ++ lb ++ #[.call (powName t)], t)
     | .eq a b => lowerCmp ctx env "eq" a b
     | .ne a b => lowerCmp ctx env "ne" a b
     | .lt a b => lowerCmp ctx env "lt_u" a b
@@ -694,8 +710,8 @@ mutual
     | .cast value target => lowerCast ctx env value target
     | .nativeValue =>
       -- NEAR `attached_deposit(balance_ptr)` writes u128 LE at ptr (near-sys).
-      -- IR v0 models nativeValue as U64: use the low 64 bits (scenario deposits
-      -- stay well below 2^64).
+      -- IR models nativeValue as U64: use the low 64 bits (scenario deposits
+      -- stay well below 2^64). Full U128 nativeValue is a future enhancement.
       .ok (#[.i64Const RET_BUF, .call "attached_deposit",
              .i32Const RET_BUF, .load "i64.load" 0], .u64)
     | .effect (.storageScalarRead id) =>
@@ -710,6 +726,8 @@ mutual
       | .error planErr => err s!"EmitWat: {planErr.message}"
     | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) =>
       lowerMapWrite ctx env id key value
+    | .effect (.storageMapDelete id key) =>
+      lowerMapDelete ctx env id key
     | .effect (.storageArrayRead id index) => lowerStorageArrayRead ctx env id index
     | .effect (.storageArrayStructFieldRead id index fieldName) =>
       lowerArrayStructFieldRead ctx env id index fieldName
@@ -810,7 +828,7 @@ mutual
     let (la, ta) ← lowerExpr ctx env a
     let (lb, tb) ← lowerExpr ctx env b
     if !(isNumeric ta && ta == tb) then
-      err s!"EmitWat: `{op}` expected matching U32/U64 operands, got `{ta.name}`/`{tb.name}`"
+      err s!"EmitWat: `{op}` expected matching U32/U64/U128 operands, got `{ta.name}`/`{tb.name}`"
     else
       .ok (la, lb, ta)
 
@@ -819,6 +837,24 @@ mutual
     let (la, lb, t) ← lowerMatchingNumericOperands ctx env op a b
     .ok (la ++ lb ++ #[.plain (widthOf t ++ "." ++ op)], t)
 
+  /-- Lower add/sub/mul for U32/U64 (native Wasm ops) or U128 (dedicated helper calls). -/
+  partial def lowerAddSubMul (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    let (la, lb, t) ← lowerMatchingNumericOperands ctx env op a b
+    match t with
+    | .u128 =>
+      let helperName := match op with
+        | "add" => u128AddName
+        | "sub" => u128SubName
+        | "mul" => u128MulName
+        | _ => ""
+      if helperName.isEmpty then
+        err s!"EmitWat: U128 operation `{op}` not supported"
+      else
+        .ok (la ++ lb ++ #[.call helperName], .u128)
+    | _ =>
+      .ok (la ++ lb ++ #[.plain (widthOf t ++ "." ++ op)], t)
+
   partial def lowerCmp (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
       : Except EmitError (Array Insn × ValueType) := do
     let (la, ta) ← lowerExpr ctx env a
@@ -826,6 +862,10 @@ mutual
     if ta != tb then err s!"EmitWat: `{op}` expected matching operand types, got `{ta.name}`/`{tb.name}`"
     else if ta == .hash && op == "eq" then .ok (la ++ lb ++ #[.call hashEqName], .bool)
     else if ta == .hash && op == "ne" then .ok (la ++ lb ++ #[.call hashEqName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 && op == "eq" then .ok (la ++ lb ++ #[.call u128EqName], .bool)
+    else if ta == .u128 && op == "ne" then .ok (la ++ lb ++ #[.call u128EqName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 then
+      err s!"EmitWat: U128 comparison `{op}` not yet supported (only eq/ne)"
     else match ta with
       | .fixedArray elemType len =>
         if op == "eq" then .ok (la ++ lb ++ #[.call (arrEqName elemType len)], .bool)
@@ -851,6 +891,11 @@ mutual
       | .u64, .bool => .ok #[.i64Const 0, .plain "i64.ne"]
       | .bool, .u32 => .ok #[]
       | .bool, .u64 => .ok #[.plain "i64.extend_i32_u"]
+      | .u32, .u128 => .ok #[.plain "i64.extend_i32_u", .i64Const 0]
+      | .u64, .u128 => .ok #[.i64Const 0]
+      | .u128, .u64 => .ok #[]  -- truncate: drop high 64 bits
+      | .u128, .u32 => .ok #[.plain "i32.wrap_i64"]  -- truncate: wrap low 64 to i32
+      | .u128, .bool => .ok #[.i64Const 0, .plain "i64.ne", .plain "i32.wrap_i64"]
       | _, _ => err s!"EmitWat: cast from `{src.name}` to `{target.name}` is not supported"
     .ok (is ++ extra, target)
 
@@ -909,6 +954,13 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let (vis, vt) ← lowerExpr ctx env value
     lowerMapWriteValue ctx env id key vis vt
+
+  partial def lowerMapDelete (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
+      : Except EmitError (Array Insn × ValueType) := do
+    let mapInfo ← mapWriteStateInfo ctx.maps id
+    let deleteCall ← mapDeleteCall mapInfo
+    let keyInsns ← lowerMapKeyFor ctx env mapInfo.keyType key
+    .ok (mapDeleteValueInsns mapInfo keyInsns deleteCall)
 
   /-- Nested map write with pre-evaluated value instructions. -/
   partial def lowerNestedMapWriteValue (ctx : Ctx) (env : LocalTypes) (id : String) (key1 key2 : Expr)
@@ -1122,6 +1174,9 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     storageScalarAssignOpInsns s id op vis vt
   | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) => do
     let (is, _) ← lowerMapWrite ctx env id key value
+    .ok (dropResultInsns is)
+  | .effect (.storageMapDelete id key) => do
+    let (is, _) ← lowerMapDelete ctx env id key
     .ok (dropResultInsns is)
   | .effect (.storageArrayWrite id index value) => do
     let (is, _) ← lowerStorageArrayWrite ctx env id index value
