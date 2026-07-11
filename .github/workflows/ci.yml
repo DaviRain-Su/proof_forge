@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -30,7 +30,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a  # v1.9.0
         with:
           version: stable
 
@@ -61,16 +61,30 @@ jobs:
       - name: Product multi-target gate
         run: just product
 
+      - name: First-run portable init smoke
+        run: just portable-init-smoke
+
+      - name: First-run portable check smoke
+        run: just portable-check-smoke
+
+      - name: First-run portable EVM client smoke
+        run: just portable-evm-client
+
+      - name: Literal README product build command
+        run: |
+          lake env proof-forge build --target evm --root . \
+            -o build/evm/Counter.bin Examples/Product/Counter.lean
+
   build-test:
     runs-on: ubuntu-latest
     needs: [product]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -82,7 +96,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a  # v1.9.0
         with:
           version: stable
 
@@ -94,7 +108,7 @@ jobs:
           solc --version
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
+        uses: dtolnay/rust-toolchain@ad7910d95e317a4b12a9a3dfad520f4b409b3ec0  # 1.91.0
 
       - name: Install Solana testkit tools
         run: scripts/solana/install-testkit-ci-tools.sh
@@ -105,7 +119,7 @@ jobs:
           sudo apt-get install -y wabt
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 22
 
@@ -116,7 +130,7 @@ jobs:
         run: npm install -g @informalsystems/quint
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4.8.0
         with:
           distribution: temurin
           java-version: "17"
@@ -140,6 +154,9 @@ jobs:
 
       - name: Build Lean package
         run: just build
+
+      - name: Check proof-forge --version
+        run: just cli-version
 
       - name: Check target registry
         run: just target-registry
@@ -264,10 +281,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -284,7 +301,7 @@ jobs:
           rustup default stable
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 22
 
@@ -294,7 +311,7 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev protobuf-compiler libudev-dev
 
       - name: Cache Solana live toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: |
             ~/.cache/solana
@@ -338,10 +355,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -391,10 +408,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -425,10 +442,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 
@@ -440,7 +457,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@4e529fb27e59237866a6523e61ab248308c068b4  # 1.88.0
 
       - name: Install wabt (wat2wasm)
         run: |
@@ -465,10 +482,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install just
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
 

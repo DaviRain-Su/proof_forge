@@ -137,7 +137,7 @@ Yul、bytecode、ABI metadata 和 deployment file。当合约本身是 portable 
 
 1. 执行 **工作流 34**（Contract Source 产品化）：portable authoring 边界、
    EVM stdlib 的 `contract_source` 化，以及 target 选择的 build/test/deploy UX。
-   详见 [implementation-backlog.md](implementation-backlog.md) 工作流 34。
+   详见 [implementation-backlog.md](implementation-backlog.zh.md) 工作流 34。
 2. 新的 SDK Alpha/Beta 工作继续落在 Lean SDK 语法和编译器内部 planning layer；
    legacy `.learn` 输入只在兼容性测试有用时复用这些层。
 3. 逐步用 typed account、owner、program 和 capability reference 替代 Lean helper

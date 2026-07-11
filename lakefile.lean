@@ -2,7 +2,7 @@ import Lake
 open Lake DSL
 
 package «proof-forge» where
-  version := v!"0.1.0"
+  version := v!"0.1.0-beta.1"
 
 require evm_semantics from git
   "https://github.com/powdr-labs/evm-semantics.git"@"ae13dbc506158f9d0c7e05634636b17e2bccf850"

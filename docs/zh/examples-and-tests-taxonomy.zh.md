@@ -2,7 +2,7 @@
 
 状态：**规范（2026-07-09）**  
 相关：[产品编写架构](../product-authoring-architecture.md)、
-[编写模型](authoring-model.zh.md)。
+[编写模型](../authoring-model.md)。
 
 ## 产品主张
 

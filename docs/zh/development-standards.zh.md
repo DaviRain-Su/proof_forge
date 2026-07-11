@@ -118,7 +118,7 @@
 | Gate closure（G0/P0/G1） | `docs/gate-status.md`、`docs/implementation-backlog.md` |
 | Accepted RFC / decision | RFC status line、`docs/decisions.md`、最近的 target note |
 
-完整审计登记：[doc-code-sync-audit-2026-07.md](doc-code-sync-audit-2026-07.md)。
+完整审计登记：[doc-code-sync-audit-2026-07.md](../doc-code-sync-audit-2026-07.md)。
 机械 diff：`scripts/docs/audit-doc-code-sync.sh`。
 
 任何未在此仓库中实现的任务命令、目标、制品字段或验证路径必须标记为 `Planned` 或 `Research`，不得写为当前行为。

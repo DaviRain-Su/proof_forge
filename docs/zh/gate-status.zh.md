@@ -21,7 +21,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 ## Gate G0 — Tier-0 退出（当前阶段目标）
 
 **Definition of Done：** 共享场景（Counter，然后是 ValueVault）在
-[testkit](../../testkit/)（RFC 0007）中通过 `evm`、`solana-sbpf-asm` 和
+[testkit](../../testkit)（RFC 0007）中通过 `evm`、`solana-sbpf-asm` 和
 `wasm-near`，同时满足行为一致性和资源预算（D-040 / RFC 0010）。
 
 **状态：Closed**

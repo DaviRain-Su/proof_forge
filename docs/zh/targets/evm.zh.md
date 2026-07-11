@@ -4,7 +4,7 @@
 
 阶段：**Experimental** —— CI 冒烟测试、目标注册表、portable IR 诊断/覆盖门禁以及 EVM 制品元数据校验已接入。
 
-相关内容：[能力注册表](../capability-registry.md)，[共享场景](../shared-scenario.md)，[RFC 0002](../rfcs/0002-target-implementation-design.md)，[RFC 0004](../rfcs/0004-evm-semantic-plan.md)。
+相关内容：[能力注册表](../capability-registry.zh.md)，[共享场景](../shared-scenario.zh.md)，[RFC 0002](../rfcs/0002-target-implementation-design.zh.md)，[RFC 0004](../rfcs/0004-evm-semantic-plan.zh.md)。
 
 ## 流水线
 
@@ -164,7 +164,7 @@ entrypoint。
 
 ## 已实现的能力
 
-映射到 [capability-registry](../capability-registry.md) id：
+映射到 [capability-registry](../capability-registry.zh.md) id：
 
 | 能力 id | `contract_source` / IR 表面 |
 |---|---|
@@ -216,7 +216,7 @@ EVM 不支持（设计上针对其他目标）：
 
 ## 示例
 
-参见 [Examples/Backend/Evm/README.md](../../Examples/Backend/Evm/README.md)：
+参见 [Examples/Backend/Evm/README.md](../examples-evm-README.zh.md)：
 
 - `Counter.lean` — 标量存储
 - `SimpleToken.lean` — 带有映射的 ERC-20 风格代币

@@ -2,7 +2,7 @@
 
 在评审 ProofForge 设计文档和即将进行的实现时，请使用此检查清单。重点关注路径是否可以增量交付，而不是愿景是否宏大。
 
-已确定的决策：[decisions.md](decisions.md)。
+已确定的决策：[decisions.md](decisions.zh.md)。
 
 ## 待确认的问题
 
@@ -20,7 +20,7 @@
 
 ### 2. 能力是显式的
 
-合约使用的每个面向链的操作都应通过 [capability-registry.md](capability-registry.md) 中的能力 id 列出：
+合约使用的每个面向链的操作都应通过 [capability-registry.md](capability-registry.zh.md) 中的能力 id 列出：
 
 - storage
 - caller/signer
@@ -64,7 +64,7 @@ NEAR 和 CosmWasm 都是 Wasm，但绝不能共享同一个目标 id。
 - CosmWasm 有 instantiate/execute/query、region ABI、submessages。
 - Wasm 运行时可以共享；宿主桥接必须分开。
 
-权威 CosmWasm 草案：[targets/wasm-family.md](targets/wasm-family.md)。
+权威 CosmWasm 草案：[targets/wasm-family.md](targets/wasm-family.zh.md)。
 
 ### 5. Move 使用源代码生成
 
@@ -86,7 +86,7 @@ Psy/DPN 评审重点：
 - 保持 ZK/电路能力显式化。
 - 在公共编译器 API 足够稳定之前，不要直接发射 Psy 内部结构。
 
-权威 Psy 草案：[targets/psy-dpn.md](targets/psy-dpn.md)。
+权威 Psy 草案：[targets/psy-dpn.md](../targets/psy-dpn.md)。
 
 ### 7. 从第一天起就包含制品元数据
 
@@ -104,21 +104,21 @@ Psy/DPN 评审重点：
 
 ## 推荐评审顺序
 
-1. [RFC 0001](rfcs/0001-multichain-platform.md) —— 愿景与边界。
-2. [RFC 0002](rfcs/0002-target-implementation-design.md) —— 目标与流水线。
-3. [可移植 IR](portable-ir.md) 和 [能力注册表](capability-registry.md)。
-4. [实现待办列表](implementation-backlog.md) —— 任务切片。
+1. [RFC 0001](rfcs/0001-multichain-platform.zh.md) —— 愿景与边界。
+2. [RFC 0002](rfcs/0002-target-implementation-design.zh.md) —— 目标与流水线。
+3. [可移植 IR](portable-ir.zh.md) 和 [能力注册表](capability-registry.zh.md)。
+4. [实现待办列表](implementation-backlog.zh.md) —— 任务切片。
 5. 目标说明：
-   - [EVM](targets/evm.md)
-   - [Wasm 家族](targets/wasm-family.md)
-   - [Solana sBPF](targets/solana-sbf.md)
-   - [Move 家族](targets/move-family.md)
-   - [Psy DPN ZK 目标](targets/psy-dpn.md)
-6. [共享场景：Counter](shared-scenario.md)。
+   - [EVM](targets/evm.zh.md)
+   - [Wasm 家族](targets/wasm-family.zh.md)
+   - [Solana sBPF](targets/solana-sbf.zh.md)
+   - [Move 家族](targets/move-family.zh.md)
+   - [Psy DPN ZK 目标](../targets/psy-dpn.md)
+6. [共享场景：Counter](shared-scenario.zh.md)。
 
 ## 已记录的决策
 
-参见 [decisions.md](decisions.md) 了解：
+参见 [decisions.md](decisions.zh.md) 了解：
 
 - 在非 EVM spike 之前的第 1 阶段
 - 并行 CosmWasm + Solana spike
@@ -158,6 +158,6 @@ Psy/DPN 评审重点：
 
 当评审触及 registry、CLI、`justfile` gates、Stdlib 或 shared examples 的 PR 时：
 
-- [ ] 最近的英文真值来源文档已更新（见 [development-standards.md](development-standards.md) 的文档同步清单）。
+- [ ] 最近的英文真值来源文档已更新（见 [development-standards.md](development-standards.zh.md) 的文档同步清单）。
 - [ ] 如果 target ids、gates 或 capability matrix 改变，已在本地运行 `just doc-sync-audit`（advisory P0 mechanical drift）。
 - [ ] 未实现路径标记为 **Planned** / **Research**，而不是当前行为。

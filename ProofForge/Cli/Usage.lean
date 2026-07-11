@@ -184,4 +184,90 @@ def usage : String :=
     "IR fixture modes render hand-written portable IR fixtures to target source or bytecode."
   ]
 
+def buildUsage : String :=
+  String.intercalate "\n" [
+    "Usage: proof-forge build --target <id> [options] [input.lean]",
+    "",
+    "Compile a Lean contract source to a target artifact.",
+    "",
+    "Required:",
+    "  --target <id>             target backend (evm | solana-sbpf-asm | wasm-near | …)",
+    "",
+    "Input / project root:",
+    "  input.lean                source file (mutually exclusive with --fixture)",
+    "  --root DIR                project root for relative imports/outputs",
+    "  --module Mod.Name         module name when input path does not determine it",
+    "  --fixture <id>            emit a built-in IR fixture instead of a source file",
+    "",
+    "Output paths:",
+    "  -o, --output PATH         native output path or directory",
+    "  --yul-output PATH         EVM Yul intermediate output",
+    "  --artifact-output PATH    proof-forge-artifact.json path",
+    "",
+    "EVM-specific options:",
+    "  --evm-chain-profile ID    deployment chain profile metadata",
+    "  --evm-constructor-param name:type   constructor ABI schema metadata",
+    "  --evm-constructor-arg name=value    ABI-encode one typed constructor value",
+    "  --evm-constructor-args-hex HEX      append raw ABI-encoded constructor args",
+    "  --solc PATH               solc executable (default: solc)",
+    "  --cast PATH               cast executable (default: cast)",
+    "",
+    "Solana-specific options:",
+    "  --solana-sbpf-arch v0|v3  sBPF version (default: v3)",
+    "",
+    "Other options:",
+    "  --peer logical=host       deploy-time peer binding",
+    "  --peers-demo              enable demo peer bindings",
+    "",
+    "Use `proof-forge --help` for the full command list."
+  ]
+
+def emitUsage : String :=
+  String.intercalate "\n" [
+    "Usage: proof-forge emit --target <id> --fixture <id> [options]",
+    "",
+    "Emit a built-in IR fixture to a target source or artifact.",
+    "",
+    "Required:",
+    "  --target <id>             target backend",
+    "  --fixture <id>            fixture id (see `proof-forge --list-fixtures`)",
+    "",
+    "Output / format:",
+    "  -o, --output PATH         output path or directory",
+    "  --format <fmt>            target-specific format (e.g., wat, elf, yul, psy)",
+    "  --yul-output PATH         EVM Yul intermediate output",
+    "  --artifact-output PATH    proof-forge-artifact.json path",
+    "  --scenario PATH           Quint scenario TOML input",
+    "",
+    "EVM / Solana:",
+    "  --evm-chain-profile ID    deployment chain profile metadata",
+    "  --solc PATH               solc executable (default: solc)",
+    "  --cast PATH               cast executable (default: cast)",
+    "  --solana-sbpf-arch v0|v3  sBPF version (default: v3)",
+    "",
+    "Use `proof-forge --help` for the full command list."
+  ]
+
+def checkUsage : String :=
+  String.intercalate "\n" [
+    "Usage: proof-forge check --target <id> [options] [input.lean]",
+    "",
+    "Validate that a source file or fixture is supported by a target.",
+    "",
+    "Required:",
+    "  --target <id>             target backend",
+    "",
+    "Input:",
+    "  input.lean                source file",
+    "  --fixture <id>            fixture id",
+    "  --format <fmt>            fixture format",
+    "  --root DIR                project root",
+    "  --module Mod.Name         module name",
+    "",
+    "Reporting:",
+    "  --report-format json|text   output format (default: text)",
+    "",
+    "Use `proof-forge --help` for the full command list."
+  ]
+
 end ProofForge.Cli

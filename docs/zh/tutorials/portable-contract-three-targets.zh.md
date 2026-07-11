@@ -6,9 +6,9 @@
 
 相关文档：
 
-- [编写模型](../authoring-model.md)
-- [共享场景](../shared-scenario.md)
-- [Examples/Product/Counter.lean](../../Examples/Product/Counter.lean)
+- [编写模型](../authoring-model.zh.md)
+- [共享场景](../shared-scenario.zh.md)
+- [Examples/Product/Counter.lean](../../../Examples/Product/Counter.lean)
 
 ## 你将构建什么
 
@@ -153,8 +153,8 @@ Solana target 选择 SPL Token / Token-2022 plan。EVM stdlib composition 示例
 
 ## 下一步
 
-- 阅读 [shared-scenario.md](../shared-scenario.md) 了解 Counter/ValueVault
+- 阅读 [shared-scenario.md](../shared-scenario.zh.md) 了解 Counter/ValueVault
   capability 表与 budget baseline 说明。
 - 用 `proof-forge init` 脚手架新项目，并将 `--root` 指向你的工作区。
-- 在 [implementation-backlog.md](../implementation-backlog.md) Workstream 34
+- 在 [implementation-backlog.md](../implementation-backlog.zh.md) Workstream 34
   中跟踪产品 backlog。

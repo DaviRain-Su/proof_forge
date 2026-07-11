@@ -42,3 +42,18 @@ scripts/**/__pycache__/
 scripts/near/sandbox-peer-smoke/target/
 .gstack/
 .worktrees/
+
+# Key material and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pkcs12
+*.keystore
+*.jks
+id.json
+*.mnemonic
+*.seed
+*.keypair.json
+*keypair.json

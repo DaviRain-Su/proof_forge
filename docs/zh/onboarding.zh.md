@@ -83,12 +83,12 @@ capability 支持和 lowering。传入 `--report-format json` 可以得到机器
 | Aleo | `leo` |
 | Cloudflare Workers | Node/npm、`wrangler` |
 
-权威命令列表和前置条件见 [validation-gates.md](validation-gates.md)。如果缺少某个工具，
+权威命令列表和前置条件见 [validation-gates.md](validation-gates.zh.md)。如果缺少某个工具，
 许多脚本会跳过对应的可选分支，但仍会验证生成源码、元数据或诊断。
 
 ## 工作规则
 
-- 改代码前，先读 [development-standards.md](development-standards.md) 以及被触及边界最近的真值来源文档。
+- 改代码前，先读 [development-standards.md](development-standards.zh.md) 以及被触及边界最近的真值来源文档。
 - 英文工程文档是权威来源。中文 `.zh.md` 翻译在 `main` 上从英文文档同步。
 - 如果更改公共 CLI flag、target id、capability id、artifact 字段、验证命令、target 生命周期阶段或示例行为，必须在同一次更改里更新对应文档。
 - 先跑窄门禁，再跑 `just check`；只有当变更触及某个 target 时，再跑更宽的 target gates。

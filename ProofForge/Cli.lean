@@ -123,6 +123,33 @@ export ProofForge.Cli.EmitMode (EmitMode)
 def emitWatFixtureModule? (fixtureId : String) : Option ProofForge.IR.Module :=
   ProofForge.Cli.Check.emitWatFixtureModule? fixtureId
 
+def cliVersion : String :=
+  "0.1.0-beta.1"
+
+def readFileTrim (path : String) : IO String := do
+  let s ← IO.FS.readFile (FilePath.mk path)
+  return s.trimAscii.toString
+
+def gitShortSha? : IO (Option String) := do
+  try
+    let out ← IO.Process.output { cmd := "git", args := #["rev-parse", "--short", "HEAD"] }
+    if out.exitCode == 0 then
+      return some out.stdout.trimAscii.toString
+    else
+      return none
+  catch _ =>
+    return none
+
+def printVersion : IO UInt32 := do
+  let toolchain ← try readFileTrim "lean-toolchain" catch _ => pure "unknown"
+  let sha ← gitShortSha?
+  IO.println s!"proof-forge {cliVersion}"
+  IO.println s!"Lean toolchain: {toolchain}"
+  match sha with
+  | some s => IO.println s!"git sha: {s}"
+  | none => IO.println "git sha: unknown"
+  return 0
+
 unsafe def checkCommand (opts : CliOptions) : IO UInt32 := do
   let targetId ← match opts.targetId? with
     | some id => pure id
@@ -301,116 +328,148 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
 
 end ProofForge.Cli
 
-unsafe def main (args : List String) : IO UInt32 := do
+def wantsHelp (args : List String) : Bool :=
+  args.any (fun a => a == "--help" || a == "-h")
+
+unsafe def dispatch (args : List String) : IO UInt32 := do
   match args with
   | "init" :: rest =>
-    match ProofForge.Cli.Scaffold.parseInitOptions rest with
-    | Except.ok opts => ProofForge.Cli.Scaffold.initCommand opts
-    | Except.error msg =>
-        IO.eprintln msg
-        return 1
+      match ProofForge.Cli.Scaffold.parseInitOptions rest with
+      | Except.ok opts => ProofForge.Cli.Scaffold.initCommand opts
+      | Except.error msg =>
+          IO.eprintln msg
+          return 1
   | "deploy" :: rest =>
-    match ProofForge.Cli.Deploy.parseDeployOptions rest with
-    | Except.ok opts => ProofForge.Cli.Deploy.deployCommand opts
-    | Except.error msg =>
-        IO.eprintln msg
-        return 1
+      match ProofForge.Cli.Deploy.parseDeployOptions rest with
+      | Except.ok opts => ProofForge.Cli.Deploy.deployCommand opts
+      | Except.error msg =>
+          IO.eprintln msg
+          return 1
   | "metadata" :: rest =>
-    match ProofForge.Cli.Metadata.parseMetadataOptions rest with
-    | Except.ok opts => ProofForge.Cli.Metadata.metadataCommand opts
-    | Except.error msg =>
-        IO.eprintln msg
-        return 1
+      match ProofForge.Cli.Metadata.parseMetadataOptions rest with
+      | Except.ok opts => ProofForge.Cli.Metadata.metadataCommand opts
+      | Except.error msg =>
+          IO.eprintln msg
+          return 1
   | _ =>
-    let parseResult : Except String ProofForge.Cli.CliOptions :=
-      match args with
-      | "--list-targets" :: rest =>
-        let wantsJson := rest.any (fun a => a == "--json")
-        Except.ok {
-          cmd := ProofForge.Cli.Command.listTargets
-          reportFormat? := if wantsJson then some "json" else none
-        }
-      | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
-      | "build" :: rest =>
-        match ProofForge.Cli.parseNewOptions rest {} with
-        | Except.ok state =>
-          match ProofForge.Cli.newCommandArgsToLegacy state "build" with
-          | Except.ok legacyArgs =>
-            match ProofForge.Cli.parseArgs legacyArgs {} with
-            | Except.ok opts => Except.ok { opts with
-                cmd := ProofForge.Cli.Command.build,
-                format? := state.format?,
-                scenario? := state.scenario?.map FilePath.mk,
-                fromNewSurface := true }
+      let parseResult : Except String ProofForge.Cli.CliOptions :=
+        match args with
+        | "--list-targets" :: rest =>
+            let wantsJson := rest.any (fun a => a == "--json")
+            Except.ok {
+              cmd := ProofForge.Cli.Command.listTargets
+              reportFormat? := if wantsJson then some "json" else none }
+        | "--list-fixtures" :: _ => Except.ok { cmd := ProofForge.Cli.Command.listFixtures }
+        | "build" :: rest =>
+            match ProofForge.Cli.parseNewOptions rest {} with
+            | Except.ok state =>
+                match ProofForge.Cli.newCommandArgsToLegacy state "build" with
+                | Except.ok legacyArgs =>
+                    match ProofForge.Cli.parseArgs legacyArgs {} with
+                    | Except.ok opts => Except.ok { opts with
+                        cmd := ProofForge.Cli.Command.build,
+                        format? := state.format?,
+                        scenario? := state.scenario?.map FilePath.mk,
+                        fromNewSurface := true }
+                    | Except.error msg => Except.error msg
+                | Except.error msg => Except.error msg
             | Except.error msg => Except.error msg
-          | Except.error msg => Except.error msg
-        | Except.error msg => Except.error msg
-      | "emit" :: rest =>
-        match ProofForge.Cli.parseNewOptions rest {} with
-        | Except.ok state =>
-          match ProofForge.Cli.newCommandArgsToLegacy state "emit" with
-          | Except.ok legacyArgs =>
-            match ProofForge.Cli.parseArgs legacyArgs {} with
-            | Except.ok opts => Except.ok { opts with
-                cmd := ProofForge.Cli.Command.emit,
-                fixture? := state.fixture?,
-                format? := state.format?,
-                scenario? := state.scenario?.map FilePath.mk,
-                fromNewSurface := true }
+        | "emit" :: rest =>
+            match ProofForge.Cli.parseNewOptions rest {} with
+            | Except.ok state =>
+                match ProofForge.Cli.newCommandArgsToLegacy state "emit" with
+                | Except.ok legacyArgs =>
+                    match ProofForge.Cli.parseArgs legacyArgs {} with
+                    | Except.ok opts => Except.ok { opts with
+                        cmd := ProofForge.Cli.Command.emit,
+                        fixture? := state.fixture?,
+                        format? := state.format?,
+                        scenario? := state.scenario?.map FilePath.mk,
+                        fromNewSurface := true }
+                    | Except.error msg => Except.error msg
+                | Except.error msg => Except.error msg
             | Except.error msg => Except.error msg
-          | Except.error msg => Except.error msg
-        | Except.error msg => Except.error msg
-      | "check" :: rest =>
-        match ProofForge.Cli.parseNewOptions rest {} with
-        | Except.ok state =>
-          Except.ok {
-            cmd := ProofForge.Cli.Command.check,
-            targetId? := state.target?,
-            fixture? := state.fixture?,
-            format? := state.format?,
-            reportFormat? := state.reportFormat?,
-            input? := state.input?.map FilePath.mk,
-            root? := state.root?.map FilePath.mk,
-            moduleName? := state.module?.map ProofForge.Cli.parseModuleName,
-            fromNewSurface := true
-            : ProofForge.Cli.CliOptions }
-        | Except.error msg => Except.error msg
-      | "metadata" :: rest =>
-        match ProofForge.Cli.parseNewOptions rest {} with
-        | Except.ok state =>
-          Except.ok {
-            cmd := ProofForge.Cli.Command.metadata,
-            fixture? := state.fixture?,
-            output? := state.out?.map FilePath.mk,
-            root? := state.root?.map FilePath.mk,
-            fromNewSurface := true
-            : ProofForge.Cli.CliOptions }
-        | Except.error msg => Except.error msg
-      | _ => ProofForge.Cli.parseArgs args {}
-    match parseResult with
-    | Except.ok opts => do
-        match opts.cmd with
-        | ProofForge.Cli.Command.listTargets =>
-          -- Plain list: registry membership (PF-P0-02). JSON: full support matrix (PF-P1-02).
-          if opts.reportFormat? == some "json" then
-            IO.println ProofForge.Cli.listTargetsJson
-          else
-            IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
-          return 0
-        | ProofForge.Cli.Command.listFixtures =>
-          IO.println (String.intercalate "\n" ProofForge.Cli.Fixture.ids.toList)
-          return 0
-        | ProofForge.Cli.Command.check =>
-          ProofForge.Cli.checkCommand opts
-        | ProofForge.Cli.Command.metadata =>
-          ProofForge.Cli.Metadata.metadataCommandFromCliOptions opts
-        | _ =>
-          if !opts.fromNewSurface then
-            if let some note := opts.mode.deprecationNote then
-              IO.eprintln note
-          if opts.evmChainProfile?.isSome then
-            discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?
-          ProofForge.Cli.compileFile opts
-    | Except.error msg =>
-        IO.eprintln msg
-        return 1
+        | "check" :: rest =>
+            match ProofForge.Cli.parseNewOptions rest {} with
+            | Except.ok state =>
+                Except.ok {
+                  cmd := ProofForge.Cli.Command.check,
+                  targetId? := state.target?,
+                  fixture? := state.fixture?,
+                  format? := state.format?,
+                  reportFormat? := state.reportFormat?,
+                  input? := state.input?.map FilePath.mk,
+                  root? := state.root?.map FilePath.mk,
+                  moduleName? := state.module?.map ProofForge.Cli.parseModuleName,
+                  fromNewSurface := true
+                  : ProofForge.Cli.CliOptions }
+            | Except.error msg => Except.error msg
+        | "metadata" :: rest =>
+            match ProofForge.Cli.parseNewOptions rest {} with
+            | Except.ok state =>
+                Except.ok {
+                  cmd := ProofForge.Cli.Command.metadata,
+                  fixture? := state.fixture?,
+                  output? := state.out?.map FilePath.mk,
+                  root? := state.root?.map FilePath.mk,
+                  fromNewSurface := true
+                  : ProofForge.Cli.CliOptions }
+            | Except.error msg => Except.error msg
+        | _ => ProofForge.Cli.parseArgs args {}
+      match parseResult with
+      | Except.ok opts => do
+          match opts.cmd with
+          | ProofForge.Cli.Command.listTargets =>
+              if opts.reportFormat? == some "json" then
+                IO.println ProofForge.Cli.listTargetsJson
+              else
+                IO.println (String.intercalate "\n" ProofForge.Target.knownIds.toList)
+              return 0
+          | ProofForge.Cli.Command.listFixtures =>
+              IO.println (String.intercalate "\n" ProofForge.Cli.Fixture.ids.toList)
+              return 0
+          | ProofForge.Cli.Command.check =>
+              ProofForge.Cli.checkCommand opts
+          | ProofForge.Cli.Command.metadata =>
+              ProofForge.Cli.Metadata.metadataCommandFromCliOptions opts
+          | _ =>
+              if !opts.fromNewSurface then
+                if let some note := opts.mode.deprecationNote then
+                  IO.eprintln note
+              if opts.evmChainProfile?.isSome then
+                discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?
+              ProofForge.Cli.compileFile opts
+      | Except.error msg =>
+          IO.eprintln msg
+          return 1
+
+unsafe def main (args : List String) : IO UInt32 := do
+  match args with
+  | ["--version"] | "--version" :: _ =>
+      ProofForge.Cli.printVersion
+  | ["--help"] | "--help" :: _ | ["-h"] | "-h" :: _ =>
+      IO.println ProofForge.Cli.usage
+      return 0
+  | [] =>
+      IO.println ProofForge.Cli.usage
+      return 0
+  | "build" :: rest =>
+      if wantsHelp rest then
+        IO.println ProofForge.Cli.buildUsage
+        return 0
+      else
+        dispatch args
+  | "emit" :: rest =>
+      if wantsHelp rest then
+        IO.println ProofForge.Cli.emitUsage
+        return 0
+      else
+        dispatch args
+  | "check" :: rest =>
+      if wantsHelp rest then
+        IO.println ProofForge.Cli.checkUsage
+        return 0
+      else
+        dispatch args
+  | _ =>
+      dispatch args

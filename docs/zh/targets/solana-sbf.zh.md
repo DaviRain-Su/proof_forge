@@ -1,6 +1,6 @@
 # Solana sBPF 目标（已取代）
 
-> **已被 [`solana-sbpf-asm`](solana-sbpf-asm.md) 取代**（D-026）。
+> **已被 [`solana-sbpf-asm`](../../targets/solana-sbpf-asm.md) 取代**（D-026）。
 > direct sBPF assembly 路线（`solana-sbpf-asm`）是规范 Solana 后端。
 > 本 Zig/sbpf-linker 路线仅作为历史参考保留。
 
