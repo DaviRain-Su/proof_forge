@@ -102,12 +102,12 @@ inductive SurfaceStateKind
   | fixedArray (element : SurfaceType) (length : Nat)
   | dynamicArray (element : SurfaceType)
   | record (typeName : String)
-  deriving Repr
+  deriving Repr, Inhabited
 
 structure SurfaceStateDecl where
   name : String
   kind : SurfaceStateKind
-  deriving Repr
+  deriving Repr, Inhabited
 
 /-- Surface-level event field. -/
 structure SurfaceEventField where

@@ -80,6 +80,11 @@ canonical-materialization:
 source-loader:
     lake env lean --run Tests/Canonical/SourceLoader.lean
 
+# Wave 4 Task 15: Surface Set collection.
+canonical-set:
+    lake env lean --run Tests/Canonical/SetNormalize.lean
+    lake env lean --run Tests/Canonical/SetParity.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean
