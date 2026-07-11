@@ -100,6 +100,7 @@ near-promise-hostop:
 # Wave 6 Task 18: EVM public route canonical gate.
 canonical-evm-route:
     lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+    lake env lean --run Tests/Canonical/EvmCutoverAdapter.lean
 
 # Wave 6 Task 19: Solana public route canonical gate.
 canonical-solana-route:

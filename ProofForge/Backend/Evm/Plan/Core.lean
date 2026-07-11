@@ -70,7 +70,10 @@ def coreLiteralToExprPlan : CoreLiteral → Except PlanError ExprPlan
       match value.toNat? with
       | some word => .ok (.literalWord word)
       | none => .error { message := "non-numeric string literals are not yet materialized by the EVM Core plan" }
-  | .hashLit _ => .error { message := "hash literals are not yet materialized by the EVM Core plan" }
+  | .hashLit value =>
+      match value.toNat? with
+      | some word => .ok (.literalWord word)
+      | none => .error { message := "non-numeric hash literals are not yet materialized by the EVM Core plan" }
 
 private def coreLiteralPlanType : CoreLiteral → Except PlanError ValueType
   | .stringLit value =>

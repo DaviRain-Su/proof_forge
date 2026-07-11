@@ -16,7 +16,7 @@ value reference produced by the last instruction. -/
 structure NormalizedValue where
   instructions : Array Instruction
   value : ValueRef
-  deriving Repr, BEq
+  deriving Repr, BEq, Inhabited
 
 /- Append an instruction that produces a single value. -/
 
@@ -59,7 +59,14 @@ def adaptLiteral (l : Literal) : Except CanonicalizeError CoreLiteral :=
       if n < 340282366920938463463374607431768211456 then .ok (.u128Lit n)
       else .error (CanonicalizeError.literalOutOfRange "u128" (toString n))
   | .bool b => .ok (.boolLit b)
-  | .hash4 _ _ _ _ => .error (CanonicalizeError.unsupportedConstructor "Literal.hash4" "hash4 literal not in initial fragment")
+  | .hash4 a b c d =>
+      let maxU64 := 18446744073709551615
+      if a > maxU64 || b > maxU64 || c > maxU64 || d > maxU64 then
+        .error (CanonicalizeError.literalOutOfRange "hash4 limb" s!"{a},{b},{c},{d}")
+      else
+        let word := ((((a * 18446744073709551616) + b) * 18446744073709551616 + c) *
+          18446744073709551616 + d)
+        .ok (.hashLit (toString word))
   | .address n => .ok (.addressLit (toString n))
 
 /- Core literal result type. -/
@@ -96,6 +103,27 @@ def stateScalarType (name : String) : AdapterM CoreType := do
   | .scalar ty => return ty
   | _ => throw (CanonicalizeError.typeMismatch "scalar" "non-scalar state")
 
+def stateMapTypes (name : String) : AdapterM (CoreType × CoreType) := do
+  match ← lookupStateShape name with
+  | .map key value _ => return (key, value)
+  | _ => throw (CanonicalizeError.typeMismatch "map" "non-map state")
+
+private def storagePathResultType (shape : StateShape)
+    (segments : Array ProofForge.IR.StoragePathSegment) : AdapterM CoreType := do
+  let mut current := shape
+  for segment in segments do
+    match segment, current with
+    | .mapKey _, .map _ value _ => current := .scalar value
+    | .index _, .fixedArray element _ => current := .scalar element
+    | .field _, _ =>
+        throw (CanonicalizeError.unsupportedConstructor "StoragePathSegment.field"
+          "record field IDs are not available in the initial adapter environment")
+    | _, _ => throw (CanonicalizeError.typeMismatch "compatible storage path" (reprStr current))
+  let resultType ← match current with
+    | .scalar type => pure type
+    | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
+  return resultType
+
 /- Compute the canonical result type of a legacy expression. -/
 
 def exprType (e : Expr) : AdapterM CoreType := do
@@ -109,7 +137,11 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .eq _ _ | .ne _ _ | .lt _ _ | .le _ _ | .gt _ _ | .ge _ _
   | .boolAnd _ _ | .boolOr _ _ | .boolNot _ => return .bool
   | .effect (.storageScalarRead name) => stateScalarType name
+  | .effect (.contextRead .userIdHash) => return .hash
   | .effect (.contextRead field) => contextFieldType <$> liftExcept (adaptContextField field)
+  | .effect (.storageMapGet name _) => return (← stateMapTypes name).2
+  | .effect (.storagePathRead name path) =>
+      storagePathResultType (← lookupStateShape name) path
   | .hash _ | .hashTwoToOne _ _ => return .hash
   | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
@@ -205,7 +237,7 @@ def effectTag (eff : Effect) : String :=
 Effectful sub-expressions (storage/context reads) are lifted to explicit
 instructions. No wildcard arm exists. -/
 
-def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
+partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
   match e with
   | .literal l =>
       let lit ← liftExcept (adaptLiteral l)
@@ -321,6 +353,50 @@ def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       let stateId ← lookupState name
       let resultType ← stateScalarType name
       emitValueInstruction (.storageLoad { root := stateId, resultType := resultType }) resultType
+  | .effect (.storageMapGet name key) =>
+      let stateId ← lookupState name
+      let (keyType, valueType) ← stateMapTypes name
+      let normalizedKey ← normalizeExpr key
+      unless normalizedKey.value.type == keyType do
+        throw (CanonicalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+      let loaded ← emitValueInstruction (.storageLoad {
+        root := stateId, path := #[.mapKey normalizedKey.value], resultType := valueType }) valueType
+      return { instructions := normalizedKey.instructions ++ loaded.instructions, value := loaded.value }
+  | .effect (.storagePathRead name path) =>
+      let stateId ← lookupState name
+      let mut instructions := #[]
+      let mut segments := #[]
+      let mut current ← lookupStateShape name
+      for segment in path do
+        match segment, current with
+        | .mapKey key, .map expectedKey value _ =>
+            let normalized ← normalizeExpr key
+            unless normalized.value.type == expectedKey do
+              throw (CanonicalizeError.typeMismatch (reprStr expectedKey) (reprStr normalized.value.type))
+            instructions := instructions ++ normalized.instructions
+            segments := segments.push (.mapKey normalized.value)
+            current := .scalar value
+        | .index index, .fixedArray element _ =>
+            let normalized ← normalizeExpr index
+            unless normalized.value.type == .u64 do
+              throw (CanonicalizeError.typeMismatch (reprStr CoreType.u64) (reprStr normalized.value.type))
+            instructions := instructions ++ normalized.instructions
+            segments := segments.push (.index normalized.value)
+            current := .scalar element
+        | .field _, _ =>
+            throw (CanonicalizeError.unsupportedConstructor "StoragePathSegment.field"
+              "record field IDs are not available in the initial adapter environment")
+        | _, _ => throw (CanonicalizeError.typeMismatch "compatible storage path" (reprStr current))
+      let resultType ← match current with
+        | .scalar type => pure type
+        | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
+      let loaded ← emitValueInstruction
+        (.storageLoad { root := stateId, path := segments, resultType }) resultType
+      return { instructions := instructions ++ loaded.instructions, value := loaded.value }
+  | .effect (.contextRead .userIdHash) =>
+      let sender ← emitValueInstruction (.contextRead .sender) .address
+      let hashed ← emitValueInstruction (.pure (.hash sender.value)) .hash
+      return { instructions := sender.instructions ++ hashed.instructions, value := hashed.value }
   | .effect (.contextRead field) =>
       let coreField ← liftExcept (adaptContextField field)
       let resultType := contextFieldType coreField

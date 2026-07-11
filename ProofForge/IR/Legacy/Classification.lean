@@ -72,7 +72,7 @@ def classifyLiteral : Literal → LegacyDecision
   | .u32 _ => payloadDecision "Literal.u32" .normalize "canonical-core" "u32 literal is range checked during normalization"
   | .u64 _ => payloadDecision "Literal.u64" .normalize "canonical-core" "u64 literal is range checked during normalization"
   | .bool _ => payloadDecision "Literal.bool" .normalize "canonical-core" "boolean literal maps to canonical Core"
-  | .hash4 _ _ _ _ => payloadDecision "Literal.hash4" .reject "canonical-core" "hash4 literal is outside the initial adapter fragment"
+  | .hash4 _ _ _ _ => payloadDecision "Literal.hash4" .normalize "canonical-core" "hash4 limbs are range checked and packed into a canonical numeric hash literal"
   | .address _ => payloadDecision "Literal.address" .normalize "canonical-core" "numeric address handle maps to CoreType.address"
 
 def classifyAssignOp : AssignOp → LegacyDecision
@@ -94,7 +94,7 @@ def classifyStoragePathSegment : StoragePathSegment → LegacyDecision
 
 def classifyContextField : ContextField → LegacyDecision
   | .userId => payloadDecision "ContextField.userId" .normalize "canonical-core" "caller identity maps to canonical sender context"
-  | .userIdHash => payloadDecision "ContextField.userIdHash" .reject "canonical-core-context" "hashed caller identity is outside the initial adapter fragment"
+  | .userIdHash => payloadDecision "ContextField.userIdHash" .normalize "canonical-core-context" "hashed caller identity expands to sender followed by the canonical hash primitive"
   | .contractId => payloadDecision "ContextField.contractId" .normalize "canonical-core" "contract identity maps to canonical contract address context"
   | .checkpointId => payloadDecision "ContextField.checkpointId" .normalize "canonical-core" "checkpoint maps to canonical block number context"
   | .timestamp => payloadDecision "ContextField.timestamp" .normalize "canonical-core" "timestamp maps to canonical block timestamp context"
@@ -323,9 +323,9 @@ def classifyEffect : Effect → LegacyDecision
         reason := "map storage rejected until core validator and semantics tasks land" }
   | .storageMapGet _ _ =>
       { nodeTag := "Effect.storageMapGet"
-        disposition := .reject
+        disposition := .normalize
         owner := "canonical-core-maps"
-        reason := "map storage read rejected until core validator and semantics tasks land" }
+        reason := "map storage reads normalize to a typed Core storageLoad mapKey path" }
   | .storageMapInsert _ _ _ =>
       { nodeTag := "Effect.storageMapInsert"
         disposition := .reject

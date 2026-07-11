@@ -776,9 +776,9 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"cast expects scalar operand and target type, got {repr arg.type} -> {repr to}"
   | .hash arg, #[r] =>
-    unless arg.type == .hash && r.type == .hash do
+    unless (arg.type == .hash || arg.type == .address) && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
-        s!"hash input/result must be hash, got {repr arg.type} -> {repr r.type}"
+        s!"hash input must be hash/address and result hash, got {repr arg.type} -> {repr r.type}"
   | _, _ =>
     .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
       s!"pure operation produced {results.size} results, expected 1"
