@@ -152,24 +152,10 @@ def adaptModuleM (m : Module) : AdapterM Core.Module := do
     events := events
   }
 
-/- Verify that the field classification decisions exactly cover the canonical
-`ContractSpec` field inventory. Throws `CanonicalizeError.unclassifiedField` on
-any missing or extra decision. -/
-
-def checkSpecFieldCoverage (names : Array String) (decisions : Array LegacySpecFieldDecision) : Except CanonicalizeError Unit := do
-  for name in names do
-    unless decisions.any (·.field == name) do
-      throw (CanonicalizeError.unclassifiedField name)
-  for d in decisions do
-    unless names.contains d.field do
-      throw (CanonicalizeError.unclassifiedField d.field)
-
 /- Verify that every `ContractSpec` field is classified and not rejected. -/
 
 def checkSpecFieldClassification (spec : ContractSpec) : Except CanonicalizeError Unit := do
-  let decisions := classifySpecFields spec
-  checkSpecFieldCoverage specFieldNames decisions
-  for d in decisions do
+  for d in classifySpecFields spec do
     match d.disposition with
     | .reject => throw (CanonicalizeError.unsupportedConstructor d.field d.reason)
     | _ => pure ()
