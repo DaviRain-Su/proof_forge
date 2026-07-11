@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "aa0101801aece3073634cabd1be8537ca2c4aeb671bf2e85543d061b9f2e08a6",
+    "sha256": "e5f103d88a14e3ae0592fcd7b0527089348d6f1f5fa231a2307c5a2c7beecb88",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity and EVM P0 custom-error updates"
+    "note": "manually synced through the 2026-07-11 target-maturity, EVM custom-error, and NEAR FT safety updates"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",

@@ -214,6 +214,11 @@ jobs:
           just near-abi-plan
           just near-abi-client
 
+      - name: Check Wasm-NEAR FT resolver safety
+        run: |
+          just near-ft-security
+          just wasm-near-ft-transfer-call-e2e
+
       - name: Run Wasm-NEAR aggregate and honesty gates
         run: |
           just emitwat-aggregate-abi
@@ -359,6 +364,37 @@ jobs:
 
       - name: Run Solana Pinocchio live equivalence
         run: just solana-pinocchio-live-equivalence
+
+  near-sandbox-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          toolchain="$(cat lean-toolchain)"
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain "$toolchain"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Install wabt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wabt
+
+      - name: Run NEAR FT security sandbox
+        run: just near-ft-security-sandbox
 
   aleo-smoke:
     runs-on: ubuntu-latest

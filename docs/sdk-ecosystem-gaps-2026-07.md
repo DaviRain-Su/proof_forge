@@ -220,7 +220,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | Entrypoint ABI (Borsh params + returns) | Partial (N1.2) | `NearAbiPlan` is authoritative for Wasm input validation and generated TypeScript encoding/decoding. `just near-abi-plan` checks malformed input and unsupported-schema rejection; `just near-abi-client-sandbox` proves generated `echo(42n) -> 42n` through raw RPC on near-sandbox. Flat struct/fixedArray are supported; dynamic `bytes`/`string` fail closed | P1 remain: dynamic bytes/string |
-| State storage (scalar/map/hash) | Covered | storage_read/write/has_key lowered; product maps OK | — |
+| State storage (scalar/map/hash) | Partial | storage_read/write/has_key lower, but `Map<U64, Hash>` reads return a shared scratch pointer: a second read or map operation can overwrite the first result. N-P0-02 avoids this for callback identities by carrying immutable private callback args | P0: allocate/copy stable hash results and add alias regression |
 | Generic events via log_utf8 | Covered | EmitWat event lowering + offline host | — |
 | Cross-contract calls (Promise API) | Partial (N1.4) | Host imports + materialize; **offline** `just near-remote-call-offline-peer` (`call_with_args → 49`); **testkit** `just testkit-remote-call` includes NEAR peer observation (N1.4 closed: offline-host materializes promise_create/return → 49 alongside EVM/Solana peers); **sandbox** `just near-sandbox-peer` real PeerOracle; IR semantics remain sum stub (not a peer VM; see `docs/formal-verification.md` § Crosscall honesty) | P1 remain: richer multi-hop peer simulation |
 | Callback handling | Partial | `promise_result` host import exists; offline host returns `2` (Failed). Full callback dispatch deferred | P1 |
@@ -229,7 +229,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| NEP-141 (fungible token) | Implemented lite subset; compliance `experimental` | `just product-token-near`: Product TokenSpec plan + generic stdlib body WAT + Backend-wrapper offline mint/transfer conformance; current Borsh/Hash/U64 shape is not the standard JSON AccountId/U128 contract and security requirements remain open | P0: parameterized interoperable runtime and bound evidence |
+| NEP-141 (fungible token) | Implemented lite subset; compliance `experimental` | One-shot init, mint authority, private keyed resolver, bounded refunds and out-of-order callback isolation are executable via `just near-ft-security`, `just wasm-near-ft-transfer-call-e2e`, and `just near-ft-security-sandbox`. Current Borsh/Hash/U64 shape is not the standard JSON AccountId/U128 contract | P0: parameterized interoperable runtime and bound evidence |
 | NEP-145 (storage management) | Implemented ledger subset; compliance `experimental` | Product `storage_deposit` plus caller-bound `storage_withdraw` ledger debit; canonical JSON objects, refunds, unregister, complete one-yocto behavior, and requirement evidence remain open | P0/P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
 | NEP-171 (NFT) | Missing | No NFT example | P1 |
@@ -283,9 +283,9 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 **Solana (0 open P0, 5 closed P0):** Account constraint owner validation, user-facing realloc API, SPL Token close-account lowering, ComputeBudgetInstruction, and Token-2022 direct sBPF CPI lowering for transfer_fee + non_transferable + metadata_pointer + default_account_state + immutable_owner + permanent_delegate + interest_bearing + memo_transfer + transfer_hook initialization + pausable are closed. The P1 Associated Token `create_idempotent` CPI gap and Token-2022 transfer-hook `Execute`/extra-account-meta routing are also now covered.
 
-**NEAR (2 open P0, 4 closed):** **Open:** TokenSpec must produce one parameterized runtime artifact; storage withdrawal still needs the 1-yocto guard and predecessor refund Promise. Promise materialization, signer_account_id, attached_deposit, and aggregate ABI have executable coverage; richer callbacks remain P1.
+**NEAR (3 open P0, 6 closed):** **Open:** TokenSpec must produce one parameterized runtime artifact; storage withdrawal still needs the predecessor refund Promise; `Map<U64, Hash>` reads need stable, non-aliasing result storage. The 1-yocto guard, codec parity, one-shot FT initialization, mint authority, private keyed resolver, bounded refunds, Promise materialization, signer_account_id, attached_deposit, and fixed-width aggregate ABI have executable coverage.
 
-Total: 2 open P0 blockers across three chains (0 EVM + 0 Solana + 2 NEAR).
+Total: 3 open P0 blockers across three chains (0 EVM + 0 Solana + 3 NEAR).
 Remaining work includes these product-path P0 gaps plus P1 feature expansion.
 PF-P2-02 closed EVM receiver callbacks (`onERC721Received`,
 `onERC1155Received`), custom-error 4-byte selector surface, and ERC-1155 size-2
