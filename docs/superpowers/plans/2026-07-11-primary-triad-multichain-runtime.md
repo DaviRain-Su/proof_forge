@@ -722,7 +722,7 @@ Allowed states are `pending`, `in_progress: evidence`, `blocked: condition`, and
 | N-P0-01 | One authoritative per-entrypoint NEAR codec plan; stop emitting incompatible clients | `WasmHost/NearModulePlan.lean`, `Params.lean`, `Return.lean`, `Contract/Client.lean` | generated TS client calls nonzero-arg sandbox contract and decodes result; codec mismatch fails build | T-00 | done: verified@31caf403; `just near-abi-plan`, `just near-abi-client`, `just near-abi-client-sandbox`, `just near-plan-smoke`, `just near-target-first`, `just value-vault-wasm-refinement-smoke`, `just product`, `just docs-check`, `just build` |
 | N-P0-02 | One-shot init, authorized mint, private/concurrent-safe resolver | `Stdlib/NearFungibleToken.lean`, NEAR sandbox tests | repeat-init, attacker mint, direct callback, concurrent transfer-call, and refund-bound attacks fail | N-P0-01 | done: verified@d519249e; `just near-ft-security`, `just wasm-near-ft-transfer-call`, `just wasm-near-ft-transfer-call-e2e`, `just near-ft-security-sandbox`, `just contract-client`, `just product`, `just docs-check`, `just build` |
 | N-P0-03 | Stable non-aliasing `Map<U64, Hash>` read results | `WasmHost/Map.lean`, allocator/plan/refinement tests | two retained hash reads survive later map operations and compare/store correctly in interpreter and sandbox | N-P0-01 | done: verified@67f90447; `just near-map-hash-alias`, `just near-map-hash-alias-sandbox`, `just wasm-near-plan`, `just near-plan-smoke`, `just near-target-first`, `just wasm-near-ft-transfer-call-e2e`, `just value-vault-wasm-refinement-smoke`, `just near-ft-security-sandbox`, `just product`, `just docs-check`, `just build` |
-| S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | pending |
+| S-P0-01 | Duplicate-aware Solana account input decoder and alias policy | `Backend/Solana/StateLayout.lean`, `SbpfAsm/Common.lean`, plan/tests | duplicate logical roles followed by another account decode correctly in ELF and pinned live runtime | T-00 | done: verified@f832d17e; `just solana-duplicate-accounts`, `just solana-bpf-encode-smoke`, `just solana-duplicate-accounts-live`, `just solana-light`, `just product`, `just docs-check` |
 | S-P0-02 | Per-entrypoint account graph and least privilege | `Backend/Solana/Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, lowerer | unused accounts absent; signer/writable escalation tests fail closed | S-P0-01 | pending |
 | X-P0-01 | Feature support derives from executable adapter evidence | `Contract/Token.lean`, `TokenAuth.lean`, feature matrix tests | cap/pause/permit/confidential/unregister cannot report full without a verified requirement result for the exact adapter/artifact | T-00 | in_progress: fail-closed matrix and burn/unregister honesty implemented; evidence-bound promotion pending |
 | T-99 | Wave-T fail-closed gate | all Wave-T tests and product matrices | Every earlier Wave-T row is green or the corresponding route is rejected; evidence report records commands and digests | all earlier Wave-T rows | pending |
@@ -914,15 +914,28 @@ Execute as two commits with disjoint ownership where possible.
 `Plan.lean`, `Manifest.lean`, `Idl.lean`, `Client.lean`, focused Lean tests, and
 a pinned Pinocchio/Surfpool fixture.
 
-- [ ] S-P0-01: reproduce two logical roles sharing one pubkey followed by a
+- [x] S-P0-01: reproduce two logical roles sharing one pubkey followed by a
       distinct account; implement compact duplicate-marker walking before any
       state or instruction offset is consumed.
-- [ ] Define allowed and forbidden alias policies and verify the later account
+- [x] Define allowed and forbidden alias policies and verify the later account
       plus instruction data in ELF and the pinned runtime.
 - [ ] S-P0-02: carry an `AccountGraph` per entrypoint through plan, validator,
       IDL, client, manifest, and lowerer; reject signer/writable escalation.
-- [ ] Run focused Lean/ELF tests, `just solana-light`, the pinned live gate,
+- [x] Run focused Lean/ELF tests, `just solana-light`, the pinned live gate,
       `just product`, and commit each task separately.
+
+S-P0-01 evidence (`f832d17e`): the interpreter regression executes the emitted
+scanner against `[unique account 0, duplicate-of-0, unique account 2]`, checks
+all three pointer-table slots and the final instruction-data cursor, and rejects
+self/forward duplicate indices with target error 13. The generated live fixture
+declares three logical roles and submitted `[payer, payer, system_program]` to a
+deployed ELF on Surfpool; dispatch succeeded with the distinct third role after
+the compact duplicate record. The verified ELF SHA-256 was
+`d007d77353344f797eb94031e158f7fda120a06911b60702b7a79458de1202fb`.
+The pinned local runner was Darwin 25.4.0 arm64 with Lean 4.31.0, sbpf 0.2.2,
+Surfpool 0.10.8, Solana CLI 3.1.12, and Cargo 1.94.1. The optional GitHub
+`solana-pinocchio-live` job runs the same live gate after its pinned toolchain
+installer.
 
 ### Task 8: F-01 And F-02 Portable Value Foundations
 
