@@ -137,13 +137,6 @@ def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
 /- Pass 2: state-shape reference resolution. Every storage root must exist and
 path segments must match the declared shape. -/
 
-private def checkValueRefType (vr : ValueRef) (expected : CoreType)
-    (pass : String) (fid : FunctionId) (bid : BlockId) (idx : Nat) :
-    Except ValidationError Unit :=
-  unless vr.type == expected do
-    .error <| error .typeMismatch pass (some fid) (some bid) (some idx)
-      s!"expected {repr expected}, got {repr vr.type}"
-
 private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
     (idx : Nat) (path : StorageRef) : Except ValidationError Unit := do
   let state? := m.state.find? (·.id == path.root)
@@ -156,7 +149,9 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
     for seg in path.path do
       match seg, shape with
       | .mapKey key, .map keyTy valTy _ =>
-        checkValueRefType key keyTy "state-shape" fid bid idx
+        unless key.type == keyTy do
+          .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
+            s!"map key type {repr key.type} does not match {repr keyTy}"
         shape := .scalar valTy
       | .mapKey _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
@@ -204,6 +199,13 @@ separated from instruction typing so that reference errors are reported before
 type and control-flow passes. -/
 
 def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
+  for decl in m.state do
+    match decl.shape with
+    | .record typeId =>
+      unless m.structs.any (·.id == typeId) do
+        .error <| ValidationError.mkSimple .unknownReference "state-shape"
+          s!"state {repr decl.id} references unknown struct type {repr typeId}"
+    | _ => pure ()
   for f in m.functions do
     for b in f.blocks do
       for idx in [:b.instructions.size] do
@@ -229,13 +231,33 @@ private def successors (t : Terminator) : Array BlockId :=
   | .return _ => #[]
   | .revert _ => #[]
 
-private def isBackedge (f : Function) (src : BlockId) (dst : BlockId) :
-    Bool :=
-  let srcIdx? := f.blocks.findIdx? (·.id == src)
-  let dstIdx? := f.blocks.findIdx? (·.id == dst)
-  match srcIdx?, dstIdx? with
-  | some srcIdx, some dstIdx => dstIdx ≤ srcIdx
-  | _, _ => false
+private def traversalSuccessors (skipBoundedEdges : Bool)
+    (terminator : Terminator) : Array BlockId :=
+  if skipBoundedEdges then
+    match terminator with
+    | .jump _ _ (some _) => #[]
+    | _ => successors terminator
+  else
+    successors terminator
+
+private def isReachable (f : Function) (start target : BlockId)
+    (avoid : Option BlockId := none) (skipBoundedEdges : Bool := false) : Bool := Id.run do
+  if avoid == some start then return false
+  let mut visited : Std.HashSet BlockId := {}
+  let mut stack : Array BlockId := #[start]
+  while !stack.isEmpty do
+    let current := stack.back!
+    stack := stack.pop
+    if current == target then return true
+    if visited.contains current then continue
+    visited := visited.insert current
+    match f.blocks.find? (·.id == current) with
+    | none => pure ()
+    | some block =>
+      for succ in traversalSuccessors skipBoundedEdges block.terminator do
+        unless avoid == some succ do
+          stack := stack.push succ
+  return false
 
 private def checkCfgAndBounds (f : Function) :
     Except ValidationError Unit := do
@@ -259,76 +281,138 @@ private def checkCfgAndBounds (f : Function) :
           s!"block {repr b} referenced but not declared"
       | some block =>
         for succ in successors block.terminator do
-          if isBackedge f b succ then
-            match block.terminator with
-            | .jump _ _ (some _) => pure ()
-            | _ =>
-              .error <| error .missingLoopBound "cfg" (some f.id) (some b) none
-                s!"back edge from {repr b} to {repr succ} lacks a LoopBound"
           stack := stack.push succ
     for b in f.blocks do
       unless visited.contains b.id do
         .error <| error .unknownReference "cfg" (some f.id) (some b.id) none
           s!"block {repr b.id} is unreachable"
+    for b in f.blocks do
+      for succ in traversalSuccessors true b.terminator do
+        if isReachable f succ b.id none true then
+          .error <| error .missingLoopBound "cfg" (some f.id) (some b.id) none
+            s!"cycle containing edge {repr b.id} -> {repr succ} lacks a LoopBound"
 
 /- Pass 4: dominance and value environments. -/
 
-private def referencedValueIds (op : InstructionOp) : Array ValueId :=
-  let refs (vrs : Array ValueRef) := vrs.map (·.id)
+private def storagePathValueRefs (path : StorageRef) : Array ValueRef :=
+  path.path.foldl (fun refs seg =>
+    match seg with
+    | .mapKey key => refs.push key
+    | .index index => refs.push index
+    | .field _ => refs) #[]
+
+private def optionalValueRef : Option ValueRef → Array ValueRef
+  | some ref => #[ref]
+  | none => #[]
+
+private def referencedValueRefs (op : InstructionOp) : Array ValueRef :=
   match op with
   | .pure p => match p with
     | .literal _ => #[]
-    | .unary _ arg => #[arg.id]
-    | .arithmetic _ _ lhs rhs => #[lhs.id, rhs.id]
-    | .compare _ lhs rhs => #[lhs.id, rhs.id]
-    | .cast _ arg => #[arg.id]
-    | .hash arg => #[arg.id]
-  | .storageLoad path => path.path.foldl (fun acc seg =>
-      match seg with | .mapKey k => acc.push k.id | .index i => acc.push i.id | .field _ => acc) #[]
-  | .storageContains path => path.path.foldl (fun acc seg =>
-      match seg with | .mapKey k => acc.push k.id | .index i => acc.push i.id | .field _ => acc) #[]
+    | .unary _ arg => #[arg]
+    | .arithmetic _ _ lhs rhs => #[lhs, rhs]
+    | .compare _ lhs rhs => #[lhs, rhs]
+    | .cast _ arg => #[arg]
+    | .hash arg => #[arg]
+  | .storageLoad path => storagePathValueRefs path
+  | .storageContains path => storagePathValueRefs path
   | .storageStore path value =>
-    let acc := path.path.foldl (fun acc seg =>
-      match seg with | .mapKey k => acc.push k.id | .index i => acc.push i.id | .field _ => acc) #[]
-    acc.push value.id
+    (storagePathValueRefs path).push value
   | .storageLength _ => #[]
-  | .storageResize _ length => #[length.id]
-  | .memoryAlloc _ length => #[length.id]
-  | .memoryLoad base index => #[base.id, index.id]
-  | .memoryStore base index value => #[base.id, index.id, value.id]
-  | .memoryRelease base => #[base.id]
+  | .storageResize _ length => #[length]
+  | .memoryAlloc _ length => #[length]
+  | .memoryLoad base index => #[base, index]
+  | .memoryStore base index value => #[base, index, value]
+  | .memoryRelease base => #[base]
   | .contextRead _ => #[]
-  | .emit _ args => refs args
-  | .assert condition _ => #[condition.id]
-  | .crosscall _ args => refs args
-  | .hostCall call => refs call.args
+  | .emit _ args => args
+  | .assert condition _ => #[condition]
+  | .crosscall spec args =>
+    optionalValueRef spec.gas ++ optionalValueRef spec.value ++ args
+  | .hostCall call => call.args
 
-private def referencedValueIdsTerminator (t : Terminator) : Array ValueId :=
+private def referencedValueRefsTerminator (t : Terminator) : Array ValueRef :=
   match t with
-  | .jump _ args _ => args.map (·.id)
-  | .branch condition _ _ => #[condition.id]
-  | .return values => values.map (·.id)
+  | .jump _ args _ => args
+  | .branch condition _ _ => #[condition]
+  | .return values => values
   | .revert _ => #[]
 
+private inductive ValueDefinitionSite
+  | functionParameter
+  | blockParameter (block : BlockId)
+  | instructionResult (block : BlockId) (instruction : Nat)
+
+private structure ValueBinding where
+  id : ValueId
+  type : CoreType
+  site : ValueDefinitionSite
+
+private def collectValueBindings (f : Function) : Array ValueBinding := Id.run do
+  let mut bindings := #[]
+  for param in f.params do
+    bindings := bindings.push {
+      id := param.id
+      type := param.type
+      site := .functionParameter
+    }
+  for block in f.blocks do
+    for param in block.params do
+      bindings := bindings.push {
+        id := param.id
+        type := param.type
+        site := .blockParameter block.id
+      }
+    for idx in [:block.instructions.size] do
+      for result in block.instructions[idx]!.results do
+        bindings := bindings.push {
+          id := result.id
+          type := result.type
+          site := .instructionResult block.id idx
+        }
+  return bindings
+
+private def blockDominates (f : Function) (definition use : BlockId) : Bool :=
+  definition == use || !isReachable f f.entry use (some definition)
+
+private def checkValueUse (f : Function) (bindings : Array ValueBinding)
+    (useBlock : BlockId) (useInstruction : Option Nat) (ref : ValueRef) :
+    Except ValidationError Unit := do
+  let binding? := bindings.find? (·.id == ref.id)
+  let binding ← match binding? with
+    | none =>
+      .error <| error .invalidDominance "dominance" (some f.id)
+        (some useBlock) useInstruction s!"value {repr ref.id} has no definition"
+    | some binding => pure binding
+  unless ref.type == binding.type do
+    .error <| error .typeMismatch "dominance" (some f.id)
+      (some useBlock) useInstruction
+      s!"value {repr ref.id} claims type {repr ref.type}, but its definition has type {repr binding.type}"
+  let dominates := match binding.site with
+    | .functionParameter => true
+    | .blockParameter definitionBlock =>
+      blockDominates f definitionBlock useBlock
+    | .instructionResult definitionBlock definitionInstruction =>
+      if definitionBlock == useBlock then
+        match useInstruction with
+        | some idx => definitionInstruction < idx
+        | none => true
+      else
+        blockDominates f definitionBlock useBlock
+  unless dominates do
+    .error <| error .invalidDominance "dominance" (some f.id)
+      (some useBlock) useInstruction
+      s!"definition of value {repr ref.id} does not dominate this use"
+
 private def checkDominance (f : Function) : Except ValidationError Unit := do
-  let mut defined : Std.HashSet ValueId := {}
-  -- function parameters are available everywhere
-  for p in f.params do defined := defined.insert p.id
+  let bindings := collectValueBindings f
   for b in f.blocks do
-    -- block parameters are available in the block
-    for p in b.params do defined := defined.insert p.id
     for idx in [:b.instructions.size] do
       let instr := b.instructions[idx]!
-      for vid in referencedValueIds instr.op do
-        unless defined.contains vid do
-          .error <| error .invalidDominance "dominance" (some f.id) (some b.id) (some idx)
-            s!"value {repr vid} used before definition"
-      for r in instr.results do
-        defined := defined.insert r.id
-    for vid in referencedValueIdsTerminator b.terminator do
-      unless defined.contains vid do
-        .error <| error .invalidDominance "dominance" (some f.id) (some b.id) none
-          s!"value {repr vid} used before definition in terminator"
+      for ref in referencedValueRefs instr.op do
+        checkValueUse f bindings b.id (some idx) ref
+    for ref in referencedValueRefsTerminator b.terminator do
+      checkValueUse f bindings b.id none ref
 
 /- Pass 5: instruction input/result typing. -/
 
@@ -503,10 +587,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"crosscall result must be u64 (call handle), got {repr r.type}"
     | _ => pure ()
-  | .hostCall call =>
-    if call.id.namespace_.isEmpty || call.id.name.isEmpty then
-      .error <| error .unknownReference pass (some f.id) (some b.id) (some idx)
-        s!"hostCall has empty namespace or name"
+  | .hostCall _ => pure ()
 
 /- Pass 6: terminator and return typing. -/
 
@@ -537,9 +618,10 @@ private def checkTerminator (f : Function) (b : Block) :
         .error <| error .unknownReference pass (some f.id) (some b.id) none
           s!"branch target {repr target} not found"
   | .return values =>
-    unless values.size == 1 || (f.retType == .unit && values.isEmpty) do
+    let expectedArity := if f.retType == .unit then 0 else 1
+    unless values.size == expectedArity do
       .error <| error .invalidReturn pass (some f.id) (some b.id) none
-        s!"return arity mismatch: function returns {repr f.retType}, got {values.size} values"
+        s!"return arity mismatch: function returns {repr f.retType}, expected {expectedArity}, got {values.size} values"
     if f.retType != .unit then
       match values[0]? with
       | some v =>
@@ -576,6 +658,7 @@ insert canonical-level reference checks between pass 1 and pass 3. -/
 def validateModulePhases (m : Module) : Except ValidationError CheckedModule := do
   for f in m.functions do
     checkCfgAndBounds f
+  for f in m.functions do
     checkDominance f
   for f in m.functions do
     for b in f.blocks do

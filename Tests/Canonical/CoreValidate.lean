@@ -62,6 +62,24 @@ def expectError (tag : ValidationErrorTag) (c : CanonicalContract) : IO Unit := 
       throw <| IO.userError
         s!"expected error tag {repr tag}, got {repr e.tag}: {e.reason}"
 
+def expectErrorPass (tag : ValidationErrorTag) (pass : String)
+    (c : CanonicalContract) : IO Unit := do
+  match validateCanonical c with
+  | .ok _ =>
+    throw <| IO.userError
+      s!"expected error tag {repr tag} in pass {pass}, but validation succeeded"
+  | .error e =>
+    unless e.tag == tag && e.pass == pass do
+      throw <| IO.userError
+        s!"expected error tag {repr tag} in pass {pass}, got {repr e.tag} in {e.pass}: {e.reason}"
+
+def expectOk (name : String) (c : CanonicalContract) : IO Unit := do
+  match validateCanonical c with
+  | .ok _ => pure ()
+  | .error e =>
+    throw <| IO.userError
+      s!"expected {name} to validate, got {repr e.tag} in {e.pass}: {e.reason}"
+
 /- Duplicate state ID. -/
 
 def duplicateIdContract : CanonicalContract := {
@@ -410,6 +428,286 @@ def unknownStructRefContract : CanonicalContract := {
   }
 }
 
+/- A use-site type is not authoritative: it must match the defining value. -/
+
+def forgedValueRefTypeContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .bool
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[]
+        terminator := .return #[{ id := ⟨0⟩, type := .bool }]
+      }]
+    }]
+  }
+}
+
+/- A value defined in the left sibling does not dominate the right sibling. -/
+
+def siblingNonDominatingUseContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .bool⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .branch { id := ⟨0⟩, type := .bool } ⟨1⟩ ⟨2⟩
+        },
+        {
+          id := ⟨1⟩
+          params := #[]
+          instructions := #[
+            ⟨#[⟨⟨1⟩, .u64⟩], .pure (.literal (.u64Lit 1))⟩
+          ]
+          terminator := .return #[]
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[
+            ⟨#[⟨⟨2⟩, .u64⟩], .pure (.unary .neg { id := ⟨1⟩, type := .u64 })⟩
+          ]
+          terminator := .return #[]
+        }
+      ]
+    }]
+  }
+}
+
+/- A forged jump argument cannot adopt the target block parameter's type. -/
+
+def forgedBlockArgumentContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨1⟩ #[{ id := ⟨0⟩, type := .bool }] none
+        },
+        {
+          id := ⟨1⟩
+          params := #[⟨⟨1⟩, .bool⟩]
+          instructions := #[]
+          terminator := .return #[]
+        }
+      ]
+    }]
+  }
+}
+
+/- Acyclicity is a CFG property, independent of block serialization order. -/
+
+def reorderedAcyclicContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[
+        {
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨1⟩ #[] none
+        },
+        {
+          id := ⟨2⟩
+          params := #[]
+          instructions := #[]
+          terminator := .return #[]
+        },
+        {
+          id := ⟨1⟩
+          params := #[]
+          instructions := #[]
+          terminator := .jump ⟨2⟩ #[] none
+        }
+      ]
+    }]
+  }
+}
+
+/- Record declarations must resolve even when no instruction traverses them. -/
+
+def unusedUnknownRecordContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    state := baseModule.state ++ #[⟨⟨6⟩, .record ⟨99⟩⟩]
+  }
+}
+
+/- A map key with the wrong declared type is an invalid storage path. -/
+
+def wrongMapKeyTypeContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[⟨⟨0⟩, .u64⟩]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨1⟩, .u128⟩], .pure (.literal (.u128Lit 0))⟩,
+          ⟨#[], .storageStore {
+            root := ⟨1⟩
+            path := #[.mapKey { id := ⟨0⟩, type := .u64 }]
+            resultType := .u128
+          } { id := ⟨1⟩, type := .u128 }⟩
+        ]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
+/- Unit-returning functions cannot return a value. -/
+
+def wrongReturnArityContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .unit
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .u64⟩], .pure (.literal (.u64Lit 0))⟩
+        ]
+        terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+      }]
+    }]
+  }
+}
+
+/- Every function completes CFG validation before any dominance validation. -/
+
+def modulePassOrderContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[
+      {
+        id := ⟨0⟩
+        params := #[]
+        retType := .unit
+        entry := ⟨0⟩
+        blocks := #[{
+          id := ⟨0⟩
+          params := #[]
+          instructions := #[
+            ⟨#[], .assert { id := ⟨99⟩, type := .bool } ⟨"test", 1⟩⟩
+          ]
+          terminator := .return #[]
+        }]
+      },
+      {
+        id := ⟨1⟩
+        params := #[]
+        retType := .unit
+        entry := ⟨0⟩
+        blocks := #[
+          {
+            id := ⟨0⟩
+            params := #[]
+            instructions := #[]
+            terminator := .jump ⟨1⟩ #[] none
+          },
+          {
+            id := ⟨1⟩
+            params := #[]
+            instructions := #[]
+            terminator := .jump ⟨0⟩ #[] none
+          }
+        ]
+      }
+    ]
+  }
+}
+
+/- HostOp reference validation is pass 7, after terminator pass 6. -/
+
+def hostOpAfterTerminatorContract : CanonicalContract := {
+  baseContract with
+  module := {
+    baseModule with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .u64⟩], .hostCall {
+            id := ⟨"", "bad", ⟨1, 0, 0⟩⟩
+            args := #[]
+          }⟩
+        ]
+        terminator := .return #[]
+      }]
+    }]
+  }
+}
+
+def invalidHostOpContract : CanonicalContract := {
+  hostOpAfterTerminatorContract with
+  module := {
+    hostOpAfterTerminatorContract.module with
+    functions := #[{
+      id := ⟨0⟩
+      params := #[]
+      retType := .u64
+      entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        params := #[]
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .u64⟩], .hostCall {
+            id := ⟨"", "bad", ⟨1, 0, 0⟩⟩
+            args := #[]
+          }⟩
+        ]
+        terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+      }]
+    }]
+  }
+}
+
 def main : IO Unit := do
   expectError .duplicateId duplicateIdContract
   expectError .unknownReference unknownReferenceContract
@@ -427,4 +725,14 @@ def main : IO Unit := do
   expectError .invalidInterface unknownFunctionRefContract
   expectError .unknownReference unknownEventRefContract
   expectError .unknownReference unknownStructRefContract
+  expectError .typeMismatch forgedValueRefTypeContract
+  expectError .invalidDominance siblingNonDominatingUseContract
+  expectError .typeMismatch forgedBlockArgumentContract
+  expectOk "reordered acyclic CFG" reorderedAcyclicContract
+  expectError .unknownReference unusedUnknownRecordContract
+  expectError .invalidStoragePath wrongMapKeyTypeContract
+  expectError .invalidReturn wrongReturnArityContract
+  expectErrorPass .missingLoopBound "cfg" modulePassOrderContract
+  expectErrorPass .invalidReturn "terminator" hostOpAfterTerminatorContract
+  expectErrorPass .unknownReference "capability-hostop" invalidHostOpContract
   IO.println "canonical-core-validate: ok"
