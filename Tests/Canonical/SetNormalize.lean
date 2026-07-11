@@ -1,5 +1,9 @@
 import ProofForge.Frontend.Surface
 import Examples.Product.Canonical.SetRegistry
+import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
+import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
 
 /-! Task 15 structural normalization tests for bounded Surface sets. -/
 
@@ -12,7 +16,23 @@ def require (condition : Bool) (message : String) : IO Unit :=
 def testSet := Examples.Product.Canonical.SetRegistry.registry
 def setContract := Examples.Product.Canonical.SetRegistry.contract
 
+def evmDeclarationContext : ProofForge.IR.Module := {
+  name := "SetRegistry"
+  state := #[
+    { id := testSet.membersName, kind := .map .u64 100, type := .bool },
+    { id := testSet.cardinalityName, kind := .scalar, type := .u64 }]
+  entrypoints := #[
+    { name := "initialize", selector? := some "8129fc1c", body := #[] },
+    { name := "insert", selector? := some "e1c7392a", params := #[("key", .u64)], body := #[] },
+    { name := "remove", selector? := some "4cc82215", params := #[("key", .u64)], body := #[] },
+    { name := "contains", selector? := some "5b4b73a9", mutability := .view,
+      params := #[("key", .u64)], returns := .bool, body := #[] }]
+}
+
 def main : IO Unit := do
+  IO.FS.createDirAll "build/canonical/set/evm"
+  IO.FS.createDirAll "build/canonical/set/solana"
+  IO.FS.createDirAll "build/canonical/set/near"
   let expanded := testSet.expand
   require (expanded.size == 2) "Set expansion size"
   require (expanded[0]!.name == testSet.membersName && expanded[0]!.generated) "members name/provenance"
@@ -43,6 +63,40 @@ def main : IO Unit := do
   require hasMapWrite "Set insert emitted no Core map write"
   require (insert.blocks.any fun block => match block.terminator with | .branch _ _ _ => true | _ => false)
     "Set insert emitted no idempotency branch"
+  let evmCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "evm", calls := bundle.contract.contract.requirements, metadata := #[] }
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract evmCapabilities with
+  | .ok plan =>
+      match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan evmDeclarationContext plan with
+      | .ok yul =>
+          require (!yul.isEmpty) "EVM Set lowering emitted no Yul"
+          IO.FS.writeFile "build/canonical/set/evm/contract.yul" yul
+      | .error e => throw <| IO.userError s!"EVM Set lowering failed: {e.message}"
+  | .error e => throw <| IO.userError s!"EVM rejected normalized Set Core: {e.message}"
+  let solanaCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "solana-sbpf-asm", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let solanaPlan ← match ProofForge.Backend.Solana.Plan.Core.buildFromCore
+      bundle.contract solanaCapabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"Solana rejected normalized Set Core: {e.message}"
+  match ProofForge.Backend.Solana.Plan.lowerFromPlan solanaPlan with
+  | .ok nodes =>
+      require (!nodes.isEmpty) "Solana Set lowering emitted no assembly"
+      IO.FS.writeFile "build/canonical/set/solana/contract.s"
+        (ProofForge.Backend.Solana.Asm.renderNodes nodes)
+  | .error e => throw <| IO.userError s!"Solana Set lowering failed: {e.message}"
+  let nearCapabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "wasm-near", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let nearPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore
+      bundle.contract nearCapabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"NEAR rejected normalized Set Core: {e.message}"
+  match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan nearPlan with
+  | .ok module =>
+      require (!module.funcs.isEmpty) "NEAR Set lowering emitted no functions"
+      IO.FS.writeFile "build/canonical/set/near/contract.wat"
+        (ProofForge.Compiler.Wasm.Printer.render module)
+  | .error e => throw <| IO.userError s!"NEAR Set lowering failed: {e.message}"
 
   let spoofed : SurfaceContract := { setContract with
     state := #[{ name := "$surface.set.7.members", kind := .map .u64 .bool (some 1) }] }
