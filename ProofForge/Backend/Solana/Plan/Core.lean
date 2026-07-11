@@ -44,12 +44,26 @@ def coreTypeToSolanaName : CoreType → String
 
 /-- Compute the byte size of a Core state shape in Solana account data.
 Scalar = 8, map = capacity × 16, fixedArray = len × 8, dynamicArray = 0. -/
-def coreStateByteSize : StateShape → Nat
-  | .scalar _ => 8
-  | .map _ _ cap => cap.getD 0 * 16
-  | .fixedArray _ len => len * 8
-  | .dynamicArray _ => 0
-  | .record _ => 8
+def coreScalarByteSize : CoreType -> Except PlanError Nat
+  | .bool | .u8 => .ok 1
+  | .u32 => .ok 4
+  | .u64 => .ok 8
+  | .u128 => .ok 16
+  | .address | .hash => .ok 32
+  | ty => .error { message := s!"unsupported Solana scalar type `{repr ty}`" }
+
+def coreStateByteSize : StateShape → Except PlanError Nat
+  | .scalar ty => coreScalarByteSize ty
+  | .map key value (some cap) => do
+      let keySize <- coreScalarByteSize key
+      let valueSize <- coreScalarByteSize value
+      return (keySize + valueSize) * cap
+  | .map _ _ none => .error { message := "Solana map state requires a finite capacity" }
+  | .fixedArray elem len => do
+      let elemSize <- coreScalarByteSize elem
+      return elemSize * len
+  | .dynamicArray _ => .error { message := "dynamic Solana state requires an explicit allocator layout" }
+  | .record _ => .error { message := "Solana record state layout is not materialized" }
 
 /-- Map a Core state kind to the Solana plan kind string. -/
 def coreStateKindName : StateShape → String
@@ -60,16 +74,16 @@ def coreStateKindName : StateShape → String
   | .record _ => "struct"
 
 /-- Compute total account data size from Core state declarations. -/
-def coreModuleDataSize (m : ProofForge.IR.Core.Module) : Nat :=
-  m.state.foldl (fun acc decl => acc + coreStateByteSize decl.shape) 0
+def coreModuleDataSize (m : ProofForge.IR.Core.Module) : Except PlanError Nat := do
+  m.state.foldlM (fun acc decl => return acc + (<- coreStateByteSize decl.shape)) 0
 
 /-- Build state field plans from Core state declarations.
 Assigns sequential byte offsets in declaration order. -/
-def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Array SolanaStateFieldPlan := Id.run do
+def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except PlanError (Array SolanaStateFieldPlan) := do
   let mut fields := #[]
   let mut offset := 0
   for decl in m.state do
-    let size := coreStateByteSize decl.shape
+    let size <- coreStateByteSize decl.shape
     fields := fields.push {
       id := toString decl.id.value
       kind := coreStateKindName decl.shape
@@ -83,7 +97,7 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Array 
       absOff := acctDataOff + offset
     }
     offset := offset + size
-  fields
+  return fields
 
 /-- Build a default account plan for a Solana program.
 Phase 1: single account (account 0) holding all state. -/
@@ -114,10 +128,7 @@ def coreEntrypointToPlan (ep : InterfaceEntrypoint) (tag : Nat) :
   let mut params := #[]
   let mut offset := 1
   for p in ep.params do
-    let byteSize := match p.type with
-      | .u8 => 1 | .u32 => 4 | .u64 => 8 | .u128 => 16
-      | .bool => 1 | .address => 32 | .hash => 32
-      | _ => 0  -- unsupported scalar types get byteSize 0
+    let byteSize <- coreScalarByteSize p.type
     params := params.push {
       name := p.name
       typeName := coreTypeToSolanaName p.type
@@ -125,23 +136,93 @@ def coreEntrypointToPlan (ep : InterfaceEntrypoint) (tag : Nat) :
       byteSize
     }
     offset := offset + byteSize
-  let discriminator := match ep.selector? with
+  let discriminator <- match ep.selector? with
     | some sel =>
       if sel.length == 16 then
         match parseHexBytePairs (stripHexPrefix sel).toList with
-        | some bytes => { tagKind := "external", bytes }
-        | none => { tagKind := "internal", bytes := #[tag] }
+        | some bytes => pure { tagKind := "external", bytes }
+        | none => throw { message := s!"entrypoint {ep.name} has malformed external discriminator `{sel}`" }
       else
-        { tagKind := "internal", bytes := #[tag] }
-    | none => { tagKind := "internal", bytes := #[tag] }
+        pure { tagKind := "internal", bytes := #[tag] }
+    | none => pure { tagKind := "internal", bytes := #[tag] }
   let hasReturn := match ep.retType with | .unit => false | _ => true
-  .ok {
+  return {
     name := ep.name
     discriminator
     params
     returns := coreTypeToSolanaName ep.retType
     hasReturn
     instructionDataMinLen := offset
+  }
+
+private def valuePlan (v : ValueRef) : SolanaValuePlan :=
+  { id := v.id.value, typeName := coreTypeToSolanaName v.type }
+
+private def resultPlan (instr : Instruction) : Except PlanError SolanaValuePlan :=
+  match instr.results with
+  | #[result] => .ok { id := result.id.value, typeName := coreTypeToSolanaName result.type }
+  | _ => .error { message := "Solana value-producing operation requires exactly one result" }
+
+private def stateField (fields : Array SolanaStateFieldPlan) (id : StateId) : Except PlanError SolanaStateFieldPlan :=
+  match fields.find? (fun field => field.id == toString id.value) with
+  | some field => .ok field
+  | none => .error { message := s!"unknown Solana state {id.value}" }
+
+private def arithmeticPlan : ArithmeticOp -> SolanaArithmeticPlan
+  | .add => .add | .sub => .sub | .mul => .mul | .div => .div | .mod => .mod
+  | .and => .bitAnd | .or => .bitOr | .xor => .bitXor | .shl => .shiftLeft | .shr => .shiftRight
+
+private def comparePlan : CompareOp -> SolanaComparePlan
+  | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
+
+private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan) (instr : Instruction) : Except PlanError SolanaOpPlan := do
+  match instr.op with
+  | .pure (.literal (.boolLit value)) => return .boolLiteral (<- resultPlan instr) value
+  | .pure (.literal (.u8Lit value)) | .pure (.literal (.u32Lit value)) |
+    .pure (.literal (.u64Lit value)) | .pure (.literal (.u128Lit value)) =>
+      return .literal (<- resultPlan instr) value
+  | .pure (.arithmetic op mode lhs rhs) =>
+      return .arithmetic (<- resultPlan instr) (arithmeticPlan op) (mode == .checked)
+        (valuePlan lhs) (valuePlan rhs)
+  | .pure (.compare op lhs rhs) =>
+      return .compare (<- resultPlan instr) (comparePlan op) (valuePlan lhs) (valuePlan rhs)
+  | .storageLoad ref =>
+      if !ref.path.isEmpty then throw { message := "nested Solana storage paths are not yet materialized" }
+      let field <- stateField fields ref.root
+      return .loadState (<- resultPlan instr) ref.root.value field.absOff field.byteSize
+  | .storageStore ref value =>
+      if !ref.path.isEmpty then throw { message := "nested Solana storage paths are not yet materialized" }
+      let field <- stateField fields ref.root
+      return .storeState ref.root.value field.absOff field.byteSize (valuePlan value)
+  | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
+  | .emit event args => return .log event.value (args.map valuePlan)
+  | .assert condition error => return .assert (valuePlan condition) error.id.value
+  | op => throw { message := s!"unsupported canonical Solana operation `{repr op}`" }
+
+private def lowerTerminatorPlan : Terminator -> SolanaTerminatorPlan
+  | .jump target args _ => .jump target.value (args.map valuePlan)
+  | .branch condition onTrue onFalse => .branch (valuePlan condition) onTrue.value onFalse.value
+  | .return values => .return (values.map valuePlan)
+  | .revert error => .revert error.id.value
+
+private def lowerFunctionPlan (fields : Array SolanaStateFieldPlan)
+    (iface : InterfaceContract) (fn : Function) : Except PlanError SolanaFunctionPlan := do
+  let ep <- match iface.entrypoints.find? (fun ep => ep.functionId == fn.id) with
+    | some ep => pure ep
+    | none => throw { message := s!"missing Solana interface entrypoint for function {fn.id.value}" }
+  let blocks <- fn.blocks.mapM fun block => do
+    let ops <- block.instructions.mapM (lowerInstructionPlan fields)
+    return {
+      id := block.id.value
+      params := block.params.map (fun p => { id := p.id.value, typeName := coreTypeToSolanaName p.type })
+      ops
+      terminator := lowerTerminatorPlan block.terminator
+    }
+  return {
+    id := fn.id.value, name := ep.name
+    params := fn.params.map (fun p => { id := p.id.value, typeName := coreTypeToSolanaName p.type })
+    returnType := coreTypeToSolanaName fn.retType
+    blocks
   }
 
 /-- Build a Solana ModulePlan from a checked canonical contract.
@@ -152,13 +233,16 @@ def buildFromCore (checked : CheckedCanonicalContract)
     Except PlanError SolanaModulePlan := do
   if capPlan.targetId != "solana-sbpf-asm" then
     .error { message := s!"Solana buildFromCore requires target `solana-sbpf-asm`, got `{capPlan.targetId}`" }
+  for requirement in checked.contract.requirements do
+    unless capPlan.calls.any (fun call => call.capability == requirement.capability) do
+      throw { message := s!"Solana capability plan is missing `{requirement.capability.id}`" }
   let m := checked.contract.module
   let iface := checked.contract.interface
   /- Compute account data size and layout. -/
-  let dataSize := coreModuleDataSize m
+  let dataSize <- coreModuleDataSize m
   let (acctDataOff, _) := computeSingleAccountLayout dataSize
   /- Build state field plans from Core state declarations. -/
-  let stateFields := coreStateFields m acctDataOff
+  let stateFields <- coreStateFields m acctDataOff
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]
   let mut tag := 0
@@ -171,6 +255,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let extensions := coreEmptyExtensions
   /- Build lower context seed from resolved plan fields. -/
   let seed := coreLowerCtxSeed stateFields
+  let functions <- m.functions.mapM (lowerFunctionPlan stateFields iface)
   .ok {
     targetId := "solana-sbpf-asm"
     artifactKind := "solana-elf"
@@ -181,6 +266,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     stateFields
     accounts
     entrypoints
+    functions
     extensions
     lowerCtxSeed := seed
   }

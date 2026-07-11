@@ -31,6 +31,7 @@ import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.StateLayout
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.Solana.BpfEncode
 
 namespace ProofForge.Backend.Solana.Plan
 
@@ -41,6 +42,7 @@ open ProofForge.Backend.Solana.StateLayout
 open ProofForge.Backend.Solana.SbpfAsm
 open ProofForge.Backend.Solana.Asm
 open ProofForge.Backend.Solana.Register
+open ProofForge.Backend.Solana.Syscalls
 
 -- ============================================================================
 -- Plan types
@@ -90,6 +92,59 @@ structure SolanaEntrypointPlan where
   instructionDataMinLen : Nat
   deriving Repr, Inhabited, BEq
 
+/-- Target-semantic value reference. IDs remain logical SSA identities; the
+register/stack assignment is owned by `lowerFromPlan`. -/
+structure SolanaValuePlan where
+  id : Nat
+  typeName : String
+  deriving Repr, Inhabited, BEq
+
+inductive SolanaArithmeticPlan where
+  | add | sub | mul | div | mod | bitAnd | bitOr | bitXor | shiftLeft | shiftRight
+  deriving Repr, Inhabited, BEq
+
+inductive SolanaComparePlan where
+  | eq | ne | lt | le | gt | ge
+  deriving Repr, Inhabited, BEq
+
+/-- Semantic operations accepted by the canonical sBPF backend. No assembly
+nodes or Legacy IR declarations are stored here. -/
+inductive SolanaOpPlan where
+  | literal (result : SolanaValuePlan) (value : Nat)
+  | boolLiteral (result : SolanaValuePlan) (value : Bool)
+  | loadState (result : SolanaValuePlan) (stateId : Nat) (absOff byteSize : Nat)
+  | storeState (stateId : Nat) (absOff byteSize : Nat) (value : SolanaValuePlan)
+  | arithmetic (result : SolanaValuePlan) (op : SolanaArithmeticPlan)
+      (checked : Bool) (lhs rhs : SolanaValuePlan)
+  | compare (result : SolanaValuePlan) (op : SolanaComparePlan)
+      (lhs rhs : SolanaValuePlan)
+  | context (result : SolanaValuePlan) (field : String)
+  | log (eventId : Nat) (args : Array SolanaValuePlan)
+  | assert (condition : SolanaValuePlan) (errorCode : Nat)
+  deriving Repr, Inhabited, BEq
+
+inductive SolanaTerminatorPlan where
+  | jump (target : Nat) (args : Array SolanaValuePlan)
+  | branch (condition : SolanaValuePlan) (ifTrue ifFalse : Nat)
+  | return (values : Array SolanaValuePlan)
+  | revert (errorCode : Nat)
+  deriving Repr, Inhabited, BEq
+
+structure SolanaBlockPlan where
+  id : Nat
+  params : Array SolanaValuePlan
+  ops : Array SolanaOpPlan
+  terminator : SolanaTerminatorPlan
+  deriving Repr, Inhabited, BEq
+
+structure SolanaFunctionPlan where
+  id : Nat
+  name : String
+  params : Array SolanaValuePlan
+  returnType : String
+  blocks : Array SolanaBlockPlan
+  deriving Repr, Inhabited, BEq
+
 /-- Declared extensions (CPI invokes, syscalls, memory ops, PDAs). Counter has
 none. -/
 structure SolanaExtensionPlan where
@@ -127,6 +182,7 @@ structure SolanaModulePlan where
   stateFields : Array SolanaStateFieldPlan
   accounts : Array SolanaAccountPlan
   entrypoints : Array SolanaEntrypointPlan
+  functions : Array SolanaFunctionPlan := #[]
   extensions : SolanaExtensionPlan
   lowerCtxSeed : SolanaLowerCtxSeed
   deriving Inhabited
@@ -426,5 +482,182 @@ def renderModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
     Except SbpfAsm.LowerError String := do
   let nodes ← lowerModuleFromPlan module plan
   .ok (renderNodes nodes)
+
+private def canonicalValueOffset (value : SolanaValuePlan) : Nat :=
+  (value.id + 1) * 8
+
+private def canonicalLoadValue (value : SolanaValuePlan) (reg : Reg) : AstNode :=
+  .instruction { opcode := .ldxdw, dst := some reg, src := some Reg.r10, off := some (.num (canonicalValueOffset value)) }
+
+private def canonicalStoreValue (value : SolanaValuePlan) (reg : Reg) : AstNode :=
+  .instruction { opcode := .stxdw, dst := some Reg.r10, src := some reg, off := some (.num (canonicalValueOffset value)) }
+
+private def canonicalArithmeticOpcode : SolanaArithmeticPlan -> Opcode
+  | .add => .add64 | .sub => .sub64 | .mul => .mul64 | .div => .div64 | .mod => .mod64
+  | .bitAnd => .and64 | .bitOr => .or64 | .bitXor => .xor64
+  | .shiftLeft => .lsh64 | .shiftRight => .rsh64
+
+private def canonicalCompareOpcode : SolanaComparePlan -> Opcode
+  | .eq => .jeq | .ne => .jne | .lt => .jlt | .le => .jle | .gt => .jgt | .ge => .jge
+
+private def canonicalBlockLabel (fnId blockId : Nat) : String := s!"sol_core_{fnId}_{blockId}"
+
+private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Except SbpfAsm.LowerError (Array AstNode)
+  | .literal result value => .ok #[
+      .instruction { opcode := .mov64, dst := some .r2, imm := some (.num value) },
+      canonicalStoreValue result .r2]
+  | .boolLiteral result value => .ok #[
+      .instruction { opcode := .mov64, dst := some .r2, imm := some (.num (if value then 1 else 0)) },
+      canonicalStoreValue result .r2]
+  | .loadState result _ absOff byteSize => do
+      unless byteSize == 8 do throw { message := s!"canonical Solana load width {byteSize} is unsupported" }
+      .ok #[
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num absOff) },
+        canonicalStoreValue result .r2]
+  | .storeState _ absOff byteSize value => do
+      unless byteSize == 8 do throw { message := s!"canonical Solana store width {byteSize} is unsupported" }
+      .ok #[canonicalLoadValue value .r2,
+        .instruction { opcode := .stxdw, dst := some .r1, src := some .r2, off := some (.num absOff) }]
+  | .arithmetic result op checked lhs rhs => do
+      let base := #[canonicalLoadValue lhs .r2, canonicalLoadValue rhs .r3]
+      let guard := if checked then
+        match op with
+        | .add | .mul => #[.instruction { opcode := .mov64, dst := some .r4, src := some .r2 }]
+        | .sub => #[.instruction { opcode := .jlt, dst := some .r2, src := some .r3, off := some (.sym "error_arithmetic") }]
+        | .div | .mod => #[.instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym "error_arithmetic") }]
+        | _ => #[]
+      else #[]
+      let calculation := #[.instruction { opcode := canonicalArithmeticOpcode op, dst := some .r2, src := some .r3 }]
+      let post := if checked then match op with
+        | .add => #[.instruction { opcode := .jlt, dst := some .r2, src := some .r4, off := some (.sym "error_arithmetic") }]
+        | .mul =>
+          let done := s!"core_mul_{fnId}_{blockId}_{opIndex}_done"
+          #[.instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym done) },
+            .instruction { opcode := .mov64, dst := some .r5, src := some .r2 },
+            .instruction { opcode := .div64, dst := some .r5, src := some .r3 },
+            .instruction { opcode := .jne, dst := some .r5, src := some .r4, off := some (.sym "error_arithmetic") },
+            .label done]
+        | _ => #[]
+      else #[]
+      .ok (base ++ guard ++ calculation ++ post ++ #[canonicalStoreValue result .r2])
+  | .compare result op lhs rhs =>
+      let yes := s!"core_cmp_{fnId}_{blockId}_{opIndex}_yes"
+      let done := s!"core_cmp_{fnId}_{blockId}_{opIndex}_done"
+      .ok #[canonicalLoadValue lhs .r2, canonicalLoadValue rhs .r3,
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 0) },
+        .instruction { opcode := canonicalCompareOpcode op, dst := some .r2, src := some .r3, off := some (.sym yes) },
+        .instruction { opcode := .ja, off := some (.sym done) },
+        .label yes,
+        .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 1) },
+        .label done,
+        canonicalStoreValue result .r4]
+  | .assert condition _ => .ok #[canonicalLoadValue condition .r2,
+      .instruction { opcode := .jeq, dst := some .r2, imm := some (.num 0), off := some (.sym "assert_fail") }]
+  | .context result field => do
+      unless field.endsWith "blockNumber" || field.endsWith "blockTimestamp" do
+        throw { message := s!"canonical Solana context `{field}` has no target handler" }
+      let bufferOff := 480
+      let valueOff := if field.endsWith "blockTimestamp" then bufferOff - CLOCK_UNIX_TIMESTAMP_OFF else bufferOff
+      .ok #[
+        .instruction { opcode := .stxdw, dst := some .r10, off := some (.num 400), src := some .r1 },
+        .instruction { opcode := .mov64, dst := some .r1, src := some .r10 },
+        .instruction { opcode := .sub64, dst := some .r1, imm := some (.num bufferOff) },
+        .instruction { opcode := .call, imm := some (.sym sol_get_clock_sysvar) },
+        .instruction { opcode := .jne, dst := some .r0, imm := some (.num 0), off := some (.sym "error_syscall") },
+        .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num valueOff) },
+        canonicalStoreValue result .r2,
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
+  | .log event args => do
+      let mut nodes := #[]
+      for arg in args do
+        nodes := nodes ++ #[canonicalLoadValue arg .r3,
+          .instruction { opcode := .stxdw, dst := some .r10, off := some (.num 400), src := some .r1 },
+          .instruction { opcode := .mov64, dst := some .r1, imm := some (.num event) },
+          .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 0) },
+          .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 0) },
+          .instruction { opcode := .mov64, dst := some .r5, imm := some (.num 0) },
+          .instruction { opcode := .call, imm := some (.sym sol_log_64_) },
+          .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
+      return nodes
+
+private def lowerCanonicalTerminator (fnId : Nat) : SolanaTerminatorPlan -> Array AstNode
+  | .jump target _ => #[.instruction { opcode := .ja, off := some (.sym (canonicalBlockLabel fnId target)) }]
+  | .branch condition ifTrue ifFalse => #[canonicalLoadValue condition .r2,
+      .instruction { opcode := .jne, dst := some Reg.r2, imm := some (.num 0), off := some (.sym (canonicalBlockLabel fnId ifTrue)) },
+      .instruction { opcode := .ja, off := some (.sym (canonicalBlockLabel fnId ifFalse)) }]
+  | .return values => match values[0]? with
+      | some value => #[canonicalLoadValue value .r2,
+          .instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+          .instruction { opcode := .sub64, dst := some .r3, imm := some (.num 8) },
+          .instruction { opcode := .stxdw, dst := some .r3, off := some (.num 0), src := some .r2 },
+          .instruction { opcode := .mov64, dst := some .r1, src := some .r3 },
+          .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 8) },
+          .instruction { opcode := .call, imm := some (.sym "sol_set_return_data") },
+          .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 0) },
+          .instruction { opcode := .exit }]
+      | none => #[.instruction { opcode := .mov64, dst := some .r0, imm := some (.num 0) },
+          .instruction { opcode := .exit }]
+  | .revert _ => #[.instruction { opcode := .ja, off := some (.sym "assert_fail") }]
+
+private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctionPlan) :
+    Except SbpfAsm.LowerError (Array AstNode) := do
+  unless ep.params.size == fn.params.size do
+    throw { message := s!"canonical Solana parameter layout mismatch for `{fn.name}`" }
+  let mut nodes := #[]
+  for i in [:fn.params.size] do
+    let param := ep.params[i]!
+    let value := fn.params[i]!
+    let opcode <- match param.byteSize with
+      | 1 => pure Opcode.ldxb | 2 => pure .ldxh | 4 => pure .ldxw | 8 => pure .ldxdw
+      | width => throw { message := s!"canonical Solana parameter width {width} is unsupported" }
+    nodes := nodes ++ #[
+      .instruction { opcode, dst := some .r2, src := some entryInstructionDataReg, off := some (.num param.offset) },
+      canonicalStoreValue value .r2]
+  return nodes
+
+private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
+  | .literal result _ | .boolLiteral result _ | .loadState result .. |
+    .arithmetic result .. | .compare result .. | .context result _ => #[result]
+  | _ => #[]
+
+/-- Canonical lowering boundary: consumes only the complete target plan. -/
+def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array AstNode) := do
+  unless plan.targetId == "solana-sbpf-asm" do throw { message := "canonical Solana plan has wrong target" }
+  unless plan.entrypoints.size == plan.functions.size do
+    throw { message := "canonical Solana plan entrypoint/function count mismatch" }
+  for fn in plan.functions do
+    let declaredValues := fn.params ++ fn.blocks.flatMap (fun block =>
+      block.params ++ block.ops.flatMap canonicalOpResults)
+    if declaredValues.any (fun value => canonicalValueOffset value > 384) then
+      throw { message := s!"canonical Solana function `{fn.name}` exceeds the 512-byte stack plan" }
+  let mut nodes : Array AstNode := #[.sectionDecl .text, .globalDecl "entrypoint", .label "entrypoint"]
+  nodes := nodes ++ SbpfAsm.lowerInstructionDataPointerSetup plan.accounts.size ++ #[
+    .instruction { opcode := .ldxb, dst := some .r2, src := some entryInstructionDataReg, off := some (.num 0) }]
+  for i in [:plan.functions.size] do
+    let fn := plan.functions[i]!
+    nodes := nodes.push (.instruction { opcode := .jeq, dst := some Reg.r2, imm := some (.num i), off := some (.sym (canonicalBlockLabel fn.id fn.blocks[0]!.id)) })
+  nodes := nodes ++ #[.instruction { opcode := .mov64, dst := some .r0, imm := some (.num 9) },
+    .instruction { opcode := .exit }]
+  for fn in plan.functions do
+    if fn.blocks.isEmpty then throw { message := s!"canonical Solana function `{fn.name}` has no body" }
+    for block in fn.blocks do
+      nodes := nodes.push (.label (canonicalBlockLabel fn.id block.id))
+      if block.id == fn.blocks[0]!.id then
+        let ep <- match plan.entrypoints.find? (fun ep => ep.name == fn.name) with
+          | some ep => pure ep
+          | none => throw { message := s!"canonical Solana entrypoint `{fn.name}` is missing" }
+        nodes := nodes ++ (<- lowerCanonicalParams ep fn)
+      for i in [:block.ops.size] do
+        nodes := nodes ++ (<- lowerCanonicalOp fn.id block.id i block.ops[i]!)
+      nodes := nodes ++ lowerCanonicalTerminator fn.id block.terminator
+  nodes := nodes ++ #[.label "assert_fail",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 2) }, .instruction { opcode := .exit },
+    .label "error_syscall",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 10) }, .instruction { opcode := .exit },
+    .label "error_arithmetic",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit }]
+  match BpfEncode.toBpfBin nodes with
+  | .ok _ => pure nodes
+  | .error e => throw { message := s!"canonical Solana verifier rejected plan: {e.render}" }
 
 end ProofForge.Backend.Solana.Plan

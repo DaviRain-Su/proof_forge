@@ -76,7 +76,7 @@ def main : IO UInt32 := do
     match scopedReturnDataCall? plan "publish_result_data" "publish_result" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing publish_result return-data action"
-  require (returnDataCall.operation == "solana.return_data.set")
+  require (returnDataCall.operation == .builtin "solana.return_data.set")
     "publish_result_data should lower through solana.return_data.set"
   requireMetadata returnDataCall "solana.extension" "return_data"
   requireMetadata returnDataCall "solana.return_data.op" "set"
@@ -87,7 +87,7 @@ def main : IO UInt32 := do
     match scopedReturnDataCall? plan "read_latest_return_data" "read_return_data" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing read_latest_return_data return-data action"
-  require (readReturnDataCall.operation == "solana.return_data.get")
+  require (readReturnDataCall.operation == .builtin "solana.return_data.get")
     "read_latest_return_data should lower through solana.return_data.get"
   requireMetadata readReturnDataCall "solana.extension" "return_data"
   requireMetadata readReturnDataCall "solana.return_data.op" "get"
@@ -122,7 +122,7 @@ def main : IO UInt32 := do
     match scopedComputeUnitsCall? plan "record_remaining" "record_compute" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing record_remaining compute-units action"
-  require (computeCall.operation == "solana.compute_units.remaining")
+  require (computeCall.operation == .builtin "solana.compute_units.remaining")
     "record_remaining should lower through solana.compute_units.remaining"
   requireMetadata computeCall "solana.extension" "compute_units"
   requireMetadata computeCall "solana.compute_units.op" "remaining"
@@ -133,7 +133,7 @@ def main : IO UInt32 := do
     match scopedComputeUnitsLogCall? plan "log_remaining" "log_compute" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing log_remaining compute-units action"
-  require (logComputeCall.operation == "solana.compute_units.log_remaining")
+  require (logComputeCall.operation == .builtin "solana.compute_units.log_remaining")
     "log_remaining should lower through solana.compute_units.log_remaining"
   requireMetadata logComputeCall "solana.extension" "compute_units"
   requireMetadata logComputeCall "solana.compute_units.op" "log_remaining"

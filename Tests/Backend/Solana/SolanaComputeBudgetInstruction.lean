@@ -71,7 +71,7 @@ def main : IO UInt32 := do
     match scopedComputeBudgetCall? plan "fast_increment" "increment" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing fast_increment compute-budget advice"
-  require (budgetCall.operation == "solana.compute_budget.instruction")
+  require (budgetCall.operation == .builtin "solana.compute_budget.instruction")
     "fast_increment should lower through solana.compute_budget.instruction"
   requireMetadata budgetCall "solana.extension" "compute_budget"
   requireMetadata budgetCall "solana.compute_budget.op" "instruction"

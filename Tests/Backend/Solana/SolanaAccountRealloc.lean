@@ -67,7 +67,7 @@ def checkPackage (label : String) (spec : ProofForge.Contract.ContractSpec)
     match scopedReallocCall? plan reallocName entrypointName with
     | some call => pure call
     | none => throw <| IO.userError s!"{label} plan missing realloc action `{reallocName}`"
-  require (reallocCall.operation == "solana.account.realloc")
+  require (reallocCall.operation == .builtin "solana.account.realloc")
     s!"{label} realloc action should use solana.account.realloc"
   requireMetadata reallocCall "solana.extension" "account_realloc"
   requireMetadata reallocCall "solana.account_realloc.account" accountName

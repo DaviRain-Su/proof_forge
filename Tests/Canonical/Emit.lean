@@ -4,6 +4,10 @@ import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.Cli.Evm
 import ProofForge.Cli.EvmArtifacts
+import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.Solana.Plan
+import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.IR.Legacy.Adapter
 
 /-! # Internal Canonical Emit Test Harness
 
@@ -68,6 +72,27 @@ def main (args : List String) : IO UInt32 := do
           | .ok yul => pure yul
           | .error message => throw <| IO.userError message
     IO.FS.writeFile (dir / "contract.yul") (yul ++ "\n")
+  if parsed.target == "solana-sbpf-asm" then
+    let asm <- match mode with
+      | .legacy =>
+          match ProofForge.Backend.Solana.SbpfAsm.renderModule spec.module with
+          | .ok asm => pure asm
+          | .error e => throw <| IO.userError s!"legacy Solana emit failed: {e.message}"
+      | .canonical => do
+          let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+            | .ok bundle => pure bundle
+            | .error e => throw <| IO.userError s!"canonical Solana adapt failed: {repr e}"
+          let capPlan : ProofForge.Target.CapabilityPlan := {
+            targetId := "solana-sbpf-asm", calls := bundle.contract.contract.requirements, metadata := #[]
+          }
+          let plan <- match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract capPlan with
+            | .ok plan => pure plan
+            | .error e => throw <| IO.userError s!"canonical Solana plan failed: {e.message}"
+          let nodes <- match ProofForge.Backend.Solana.Plan.lowerFromPlan plan with
+            | .ok nodes => pure nodes
+            | .error e => throw <| IO.userError s!"canonical Solana lowering failed: {e.message}"
+          pure (ProofForge.Backend.Solana.Asm.renderNodes nodes)
+    IO.FS.writeFile (dir / "contract.s") (asm ++ "\n")
   match ← compileForTest mode parsed.target spec with
   | .error diag => do
     IO.eprintln s!"compile failed: {repr diag}"

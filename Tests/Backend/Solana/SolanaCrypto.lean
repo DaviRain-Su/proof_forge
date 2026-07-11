@@ -58,7 +58,7 @@ def main : IO UInt32 := do
     match scopedCryptoCall? plan "hash_preimage" "hash_preimage" with
     | some call => pure call
     | none => throw <| IO.userError "Solana crypto plan missing hash_preimage action"
-  require (hashCall.operation == "solana.crypto.sha256")
+  require (hashCall.operation == .builtin "solana.crypto.sha256")
     "hash_preimage should lower through solana.crypto.sha256"
   requireMetadata hashCall "solana.extension" "crypto"
   requireMetadata hashCall "solana.crypto.op" "sha256"
@@ -71,7 +71,7 @@ def main : IO UInt32 := do
     match scopedCryptoCall? plan "keccak_preimage" "keccak_preimage" with
     | some call => pure call
     | none => throw <| IO.userError "Solana crypto plan missing keccak_preimage action"
-  require (keccakCall.operation == "solana.crypto.keccak256")
+  require (keccakCall.operation == .builtin "solana.crypto.keccak256")
     "keccak_preimage should lower through solana.crypto.keccak256"
   requireMetadata keccakCall "solana.extension" "crypto"
   requireMetadata keccakCall "solana.crypto.op" "keccak256"
@@ -84,7 +84,7 @@ def main : IO UInt32 := do
     match scopedCryptoCall? plan "blake3_preimage" "blake3_preimage" with
     | some call => pure call
     | none => throw <| IO.userError "Solana crypto plan missing blake3_preimage action"
-  require (blake3Call.operation == "solana.crypto.blake3")
+  require (blake3Call.operation == .builtin "solana.crypto.blake3")
     "blake3_preimage should lower through solana.crypto.blake3"
   requireMetadata blake3Call "solana.extension" "crypto"
   requireMetadata blake3Call "solana.crypto.op" "blake3"

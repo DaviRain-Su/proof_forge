@@ -35,7 +35,7 @@ def metadataValue? (call : CapabilityCall) (key : String) : Option String :=
     none
 
 def allocatorCall? (plan : CapabilityPlan) : Option CapabilityCall :=
-  plan.calls.find? (fun call => call.operation == "solana.runtime.allocator")
+  plan.calls.find? (fun call => call.operation == .builtin "solana.runtime.allocator")
 
 def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
   require (metadataValue? call key == some expected)

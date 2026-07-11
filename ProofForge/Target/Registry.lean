@@ -290,6 +290,7 @@ def solanaSbpfAsm : TargetProfile := {
     .dataStruct,
     .cryptoHash,
     .assertions,
+    .checkedArithmetic,
     .accountExplicit,
     .runtimeAllocator,
     .runtimeMemory,

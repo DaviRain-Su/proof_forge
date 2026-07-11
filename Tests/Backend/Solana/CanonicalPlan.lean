@@ -3,6 +3,9 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Target.Plan
+import ProofForge.IR.Legacy.Adapter
+import ProofForge.IR.Examples.ValueVault
+import ProofForge.Contract.Spec
 
 /-! # Canonical Core → Solana Plan Assertions
 
@@ -20,6 +23,7 @@ open ProofForge.IR.Canonical
 open ProofForge.Target
 open ProofForge.Backend.Solana.Plan
 open ProofForge.Backend.Solana.Plan.Core
+open ProofForge.IR.Legacy.Adapter
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -102,7 +106,9 @@ def counterWithReqs : CanonicalContract := {
     counterContract.module counterContract.materialization
 }
 
-def solanaCapPlan : CapabilityPlan := { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
+def solanaCapPlan : CapabilityPlan := {
+  targetId := "solana-sbpf-asm", calls := counterWithReqs.requirements, metadata := #[]
+}
 def wrongCapPlan : CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
 
 def main : IO Unit := do
@@ -126,6 +132,22 @@ def main : IO Unit := do
   for ep in plan.entrypoints do
     require (!ep.discriminator.bytes.isEmpty) s!"entrypoint {ep.name} has empty discriminator"
 
+  require (plan.functions.size == 3) "canonical function bodies are missing"
+  require (plan.functions.all (fun fn => !fn.blocks.isEmpty)) "canonical function has no blocks"
+  let allOps := plan.functions.flatMap (fun fn => fn.blocks.flatMap (fun block => block.ops))
+  require (allOps.any (fun op => match op with | .loadState .. => true | _ => false)) "state load plan missing"
+  require (allOps.any (fun op => match op with | .storeState .. => true | _ => false)) "state store plan missing"
+  require (allOps.any (fun op => match op with | .arithmetic .. => true | _ => false)) "arithmetic plan missing"
+  require (plan.functions.any (fun fn => fn.blocks.any (fun block =>
+    match block.terminator with | .return values => !values.isEmpty | _ => false))) "value return plan missing"
+  let canonicalNodes <- match lowerFromPlan plan with
+    | .ok nodes => pure nodes
+    | .error e => throw <| IO.userError s!"plan-only lowering failed: {e.message}"
+  require (!canonicalNodes.isEmpty) "plan-only lowering emitted an empty program"
+  match ProofForge.Backend.Solana.BpfEncode.toBpfBin canonicalNodes with
+  | .ok bytes => require (bytes.size > 0) "plan-only lowering encoded no bytes"
+  | .error e => throw <| IO.userError s!"plan-only encoding failed: {e.render}"
+
   /- Check 3: evidence changes do not change the plan. -/
   let plan2 ← match buildFromCore checked solanaCapPlan with
     | .ok p => pure p
@@ -137,6 +159,51 @@ def main : IO Unit := do
   match buildFromCore checked wrongCapPlan with
   | .ok _ => throw <| IO.userError "buildFromCore should fail with wrong target"
   | .error e =>
-    require (e.message.contains "requires target") s!"wrong target error: {e.message}"
+      require (e.message.contains "requires target") s!"wrong target error: {e.message}"
+
+  match buildFromCore checked { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] } with
+  | .ok _ => throw <| IO.userError "buildFromCore accepted a missing capability"
+  | .error e => require (e.message.contains "missing") s!"missing capability error: {e.message}"
+
+  match coreStateByteSize (.dynamicArray .u64) with
+  | .ok _ => throw <| IO.userError "dynamic state silently received a zero-sized layout"
+  | .error _ => pure ()
+
+  let unsupportedParam : InterfaceEntrypoint := {
+    functionId := ⟨0⟩, name := "bad", kind := .function, mutability := .call,
+    params := #[{ valueId := ⟨0⟩, name := "payload", type := .bytes }], retType := .unit
+  }
+  match coreEntrypointToPlan unsupportedParam 0 with
+  | .ok _ => throw <| IO.userError "unsupported ABI parameter silently received byteSize zero"
+  | .error _ => pure ()
+
+  let malformedSelector : InterfaceEntrypoint := {
+    functionId := ⟨0⟩, name := "bad-selector", kind := .function, mutability := .call,
+    params := #[], retType := .unit, selector? := some "zzzzzzzzzzzzzzzz"
+  }
+  match coreEntrypointToPlan malformedSelector 0 with
+  | .ok _ => throw <| IO.userError "malformed discriminator silently fell back to an internal tag"
+  | .error _ => pure ()
+
+  let vaultSpec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
+  let vaultBundle <- match adaptLegacy vaultSpec with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"ValueVault canonical adaptation failed: {repr e}"
+  let vaultChecked := vaultBundle.contract
+  let vaultCapPlan : CapabilityPlan := {
+    targetId := "solana-sbpf-asm", calls := vaultChecked.contract.requirements, metadata := #[]
+  }
+  let vaultPlan <- match buildFromCore vaultChecked vaultCapPlan with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"ValueVault Solana plan failed: {e.message}"
+  require (vaultPlan.stateFields.size == 6) "ValueVault did not retain six state fields"
+  let vaultOffsets := vaultPlan.stateFields.map (fun field => field.absOff)
+  require (vaultOffsets.all (fun offset => (vaultOffsets.filter (· == offset)).size == 1))
+    "ValueVault state ranges overlap"
+  require (vaultPlan.functions.size == 7 && vaultPlan.functions.all (fun fn => !fn.blocks.isEmpty))
+    "ValueVault semantic function bodies are incomplete"
+  match lowerFromPlan vaultPlan with
+  | .ok nodes => require (!nodes.isEmpty) "ValueVault plan-only lowering emitted no instructions"
+  | .error e => throw <| IO.userError s!"ValueVault plan-only lowering failed: {e.message}"
 
   IO.println "canonical-solana-plan: ok"
