@@ -4,8 +4,7 @@ import ProofForge.IR.Canonical
 open ProofForge.IR.Core
 open ProofForge.IR.Canonical
 
-def sharedContract : CheckedCanonicalContract :=
-  match validateCanonical {
+def sharedContract : CanonicalContract := {
     schemaVersion := 1
     module := {
       name := "EvidenceIsolation"
@@ -30,9 +29,7 @@ def sharedContract : CheckedCanonicalContract :=
     interface := { entrypoints := #[⟨⟨0⟩, "view", false⟩] }
     materialization := { constructorBindings := #[⟨⟨0⟩, .u64Lit 0⟩] }
     requirements := #[]
-  } with
-  | .ok c => c
-  | .error e => panic! s!"shared contract failed validation: {repr e}"
+}
 
 def evidenceA : CanonicalEvidence :=
   emptyEvidence
@@ -54,13 +51,15 @@ def evidenceB : CanonicalEvidence :=
       reason := "legacy B"
     }]
 
-def bundleA : CanonicalBundle := { contract := sharedContract, evidence := evidenceA }
-def bundleB : CanonicalBundle := { contract := sharedContract, evidence := evidenceB }
-
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
 def main : IO Unit := do
+  let checked ← match validateCanonical sharedContract with
+    | .ok contract => pure contract
+    | .error e => throw <| IO.userError s!"shared contract failed validation: {repr e}"
+  let bundleA : CanonicalBundle := { contract := checked, evidence := evidenceA }
+  let bundleB : CanonicalBundle := { contract := checked, evidence := evidenceB }
   require (bundleA.contract == bundleB.contract) "contract changed"
   require (capabilityRequirements bundleA == capabilityRequirements bundleB)
     "evidence changed capabilities"
