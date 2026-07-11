@@ -377,6 +377,7 @@ def EmitMode.acceptsTarget : EmitMode → Bool
   | .learnTarget
   | .learnTokenTarget
   | .counterEmitWat
+  | .errorRefEmitWat
   | .contextEmitWat
   | .hashEmitWat
   | .mapEmitWat

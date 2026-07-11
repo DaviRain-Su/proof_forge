@@ -303,6 +303,42 @@ def oversizedStringLiteralModule : Module := {
   }]
 }
 
+def oversizedMultibyteText : String :=
+  String.ofList (List.replicate (maxLogicalCollectionLength / 3 + 1)
+    (Char.ofNat 0x4e2d))
+
+def oversizedAddressLiteralModule : Module := {
+  name := "OversizedAddressLiteral"
+  functions := #[{
+    id := ⟨14⟩
+    params := #[]
+    retType := .address
+    entry := ⟨1400⟩
+    blocks := #[{
+      id := ⟨1400⟩
+      instructions := #[⟨#[⟨⟨1401⟩, .address⟩],
+        .pure (.literal (.addressLit oversizedMultibyteText))⟩]
+      terminator := .return #[{ id := ⟨1401⟩, type := .address }]
+    }]
+  }]
+}
+
+def oversizedHashLiteralModule : Module := {
+  name := "OversizedHashLiteral"
+  functions := #[{
+    id := ⟨15⟩
+    params := #[]
+    retType := .hash
+    entry := ⟨1500⟩
+    blocks := #[{
+      id := ⟨1500⟩
+      instructions := #[⟨#[⟨⟨1501⟩, .hash⟩],
+        .pure (.literal (.hashLit oversizedMultibyteText))⟩]
+      terminator := .return #[{ id := ⟨1501⟩, type := .hash }]
+    }]
+  }]
+}
+
 def aggregateCrosscallModule : Module := {
   name := "AggregateCrosscall"
   structs := #[{
@@ -470,6 +506,8 @@ def main : IO Unit := do
   expectInvalid .typeMismatch oversizedMapFootprintModule
   expectInvalid .literalOutOfRange oversizedBytesLiteralModule
   expectInvalid .literalOutOfRange oversizedStringLiteralModule
+  expectInvalid .literalOutOfRange oversizedAddressLiteralModule
+  expectInvalid .literalOutOfRange oversizedHashLiteralModule
   expectValid aggregateCrosscallModule
   expectInvalid .typeMismatch ordinaryArrayAsMemoryModule
   expectInvalid .typeMismatch invalidCastModule

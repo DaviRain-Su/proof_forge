@@ -691,7 +691,7 @@ def nestedStorageModule : Module := {
 
 def orderedStructModule : Module := {
   name := "OrderedStruct"
-  structs := [{
+  structs := #[{
     id := ⟨31⟩
     fields := #[
       { id := ⟨0⟩, type := .u64 },

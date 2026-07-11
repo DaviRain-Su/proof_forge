@@ -216,7 +216,7 @@ theorem write_read_same_cell (cell updated : StorageCell) (value : CoreValue)
   | map _ _ _ _ | fixedArray _ _ | dynamicArray _ _ | record _ _ =>
       simp [StorageCell.writeScalar] at hwrite
 
-theorem write_read_same_prop (module : Module) (state : LogicalState)
+theorem write_read_same (module : Module) (state : LogicalState)
     (root : StateId) (previous value : CoreValue) (type : CoreType)
     (hdecl : module.state.find? (·.id == root) =
       some { id := root, shape := StateShape.scalar type })
@@ -271,7 +271,7 @@ theorem write_read_same_prop (module : Module) (state : LogicalState)
     else .error .typeMismatch) = .ok value
   simp [hvalue]
 
-theorem write_read_other_prop (module : Module) (env : Env) (state : LogicalState)
+theorem write_read_other (module : Module) (env : Env) (state : LogicalState)
     (writeRef readRef : StorageRef) (value : CoreValue) (cell : StorageCell)
     (hvalues : readRef.root.value ≠ writeRef.root.value)
     (hwrite : writePath module env state writeRef value =
@@ -417,7 +417,7 @@ theorem array_index_separation_of_lookup (module : Module) (env : Env)
   simp only [Bind.bind, Except.bind]
   rw [dif_pos hupdatedBound, dif_pos hreadBound, hlookup]
 
-theorem map_key_separation_prop (module : Module) (env : Env)
+theorem map_key_separation (module : Module) (env : Env)
     (state updated : LogicalState) (root : StateId)
     (keyType valueType : CoreType) (capacity : Option Nat)
     (entries : Array (CoreValue × CoreValue))
@@ -448,7 +448,7 @@ theorem map_key_separation_prop (module : Module) (env : Env)
     capacity entries (upsertMapEntry entries writeKey value) writeKeyRef readKeyRef
     writeKey readKey value hkeysReverse hwriteEval hreadEval hwrite hbefore hafter hlookup
 
-theorem array_index_separation_prop (module : Module) (env : Env)
+theorem array_index_separation (module : Module) (env : Env)
     (state updated : LogicalState) (root : StateId) (element : CoreType)
     (entries : Array CoreValue) (writeIndexRef readIndexRef : ValueRef)
     (writeIndex readIndex : Nat) (writeIndexValue readIndexValue value : CoreValue)
@@ -482,25 +482,25 @@ theorem array_index_separation_prop (module : Module) (env : Env)
     readIndex writeIndexValue readIndexValue value hreadBound hupdatedBound hindices
     hwriteEval hwriteIndex hreadEval hreadIndex hwrite hbefore hafter hlookup
 
-theorem write_read_other :
+theorem write_read_other_concrete :
     ((writePath scalarPathModule {} default (scalarPath ⟨0⟩) (.u64 7)).bind
       (fun updated => readPath scalarPathModule {} updated (scalarPath ⟨1⟩)) ==
     readPath scalarPathModule {} default (scalarPath ⟨1⟩)) = true :=
   scalar_path_other_root
 
-theorem write_read_same :
+theorem write_read_same_concrete :
     ((writePath scalarPathModule {} default (scalarPath ⟨0⟩) (.u64 7)).bind
       (fun updated => readPath scalarPathModule {} updated (scalarPath ⟨0⟩)) ==
     .ok (.u64 7)) = true :=
   scalar_path_write_read
 
-theorem map_key_separation :
+theorem map_key_separation_concrete :
     ((writePath mapPathModule mapPathEnv default (mapPath ⟨20⟩) (.u64 100)).bind
       (fun updated => readPath mapPathModule mapPathEnv updated (mapPath ⟨21⟩)) ==
     readPath mapPathModule mapPathEnv default (mapPath ⟨21⟩)) = true :=
   map_path_key_separation
 
-theorem array_index_separation :
+theorem array_index_separation_concrete :
     ((writePath arrayPathModule arrayPathEnv default (arrayPath ⟨30⟩) (.u64 99)).bind
       (fun updated => readPath arrayPathModule arrayPathEnv updated (arrayPath ⟨31⟩)) ==
     readPath arrayPathModule arrayPathEnv default (arrayPath ⟨31⟩)) = true :=

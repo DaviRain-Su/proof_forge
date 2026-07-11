@@ -1,4 +1,5 @@
 import ProofForge.Cli
+import ProofForge.Cli.LegacyArgs
 
 namespace ProofForge.Tests.CliTargetFirst
 
@@ -76,6 +77,13 @@ def requireEmitWatPlanTargetCheck
       throw <| IO.userError s!"EmitWat plan target {planTargetId} unexpectedly rejected: {err}"
 
 def main : IO UInt32 := do
+  match ProofForge.Cli.parseArgs
+      ["--emit-error-ref-emitwat", "--target", "wasm-near"] {} with
+  | .ok opts =>
+      require (opts.mode == .errorRefEmitWat && opts.targetId? == some "wasm-near")
+        "error-ref EmitWat mode rejected or lost --target"
+  | .error err =>
+      throw <| IO.userError s!"error-ref EmitWat mode rejected --target: {err}"
   requireEmitWatTarget none "wasm-near" .near
   requireEmitWatTarget (some "wasm-near") "wasm-near" .near
   requireEmitWatTarget (some "wasm-cosmwasm") "wasm-cosmwasm" .cosmWasm
