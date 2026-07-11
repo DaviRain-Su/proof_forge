@@ -24,7 +24,7 @@ Checkpoint branch and base:
 - Branch: `feat/primary-triad-runtime-execution`
 - Original base: `origin/main@ad8f2e86`
 - Upstream integrated before PR: `origin/main@e8806d20`
-- Last implementation checkpoint: `ca0d8e25`
+- Last clean implementation checkpoint: `880417b6`
 - Worktree: `.worktrees/primary-triad-runtime`
 
 Do not mark the long-running milestone complete after closing only `T-99`.
@@ -32,8 +32,10 @@ The final multi-chain runtime still requires Waves F, R, E, N, S, and P.
 
 ## 2. Completed In This Checkpoint
 
-All Wave-T rows before `T-99` are implemented and recorded in the execution
-ledger:
+All Wave-T rows before `T-99` have implementation commits recorded in the
+execution ledger. The integrated `880417b6` report regresses native acceptance
+for N-P0-01/02/03, so those rows are not current-HEAD verified again until
+T99-03B1/B2 closes:
 
 - `T-00`: requirement-level compliance manifests and evidence model.
 - `E-P0-01`: canonical EVM selector/schema derivation.
@@ -100,8 +102,9 @@ The latest complete report was generated from clean source
   differs from the checked golden. The new emitter writes dynamic tails four
   bytes before the selector-relative ABI offsets; do not accept this by blindly
   regenerating the golden.
-- `just near-abi-client-sandbox` reached the generated client but failed because
-  the RPC adapter returned a shape for which `response.result` was undefined.
+- `just near-abi-client-sandbox` reached the generated client and failed at
+  `response.result` being undefined. The raw RPC/provider shape still needs to
+  be captured before assigning the mismatch to a specific boundary.
 - `just near-ft-security-sandbox` and `just near-map-hash-alias-sandbox` were
   rejected by NEAR with `PrepareError(Deserialization)`. Both emitted modules
   contain multi-value `(result i64 i64)` U128 helpers, and
@@ -132,8 +135,11 @@ The merged dynamic batch emitter currently writes array tails at byte `160`
 while its ABI head stores offset `160` relative to the argument block beginning
 after the four-byte selector. The first tail therefore belongs at byte `164`.
 Preserve the dynamic array design, repair every selector-relative tail offset,
-and add an exact receiver calldata/runtime assertion. Do not update the golden
-until the canonical ABI oracle passes.
+and make the tail stores consume the already-bound locals so every argument is
+evaluated exactly once in IR order. Update the existing regression that currently
+allows the original expressions to appear more than once. Add an exact receiver
+calldata/runtime assertion. Do not update the golden until the canonical ABI
+oracle passes.
 
 Acceptance:
 
@@ -141,41 +147,58 @@ Acceptance:
 just evm-build-examples
 just evm-semantic-plan
 just evm-foundry
+just evm-all
 git diff --check
 ```
 
-### T99-03B: Emit NEAR-Compatible U128 And Normalize RPC Results
+### T99-03B1: Emit NEAR-Compatible U128
 
-1. Replace Wasm multi-value U128 helpers with an MVP-compatible convention,
-   such as caller-provided result memory or inline locals. Do not narrow U128.
-2. Add `wasm-validate --disable-multi-value` to the NEAR artifact gate so an
-   unsupported proposal fails before deployment.
-3. Capture the raw sandbox JSON-RPC response in the ABI-client regression and
-   normalize the provider boundary exactly once. Accept both supported provider
-   shapes only when the response is type-checked; do not silently treat missing
-   result bytes as an empty value.
+`ModuleAssembly` currently injects multi-value U128 helpers into every module,
+even when the contract does not use U128. Replace them with an MVP-compatible
+convention, such as caller-provided result memory or inline locals. Do not narrow
+U128. Add focused carry/borrow/multiply/equality boundary tests and a required
+`near-wasm-mvp-validate` gate that runs `wasm-validate --disable-multi-value`
+before deployment.
 
 Acceptance:
 
 ```sh
-just near-abi-client-sandbox
+just near-wasm-mvp-validate
 just near-ft-security-sandbox
 just near-map-hash-alias-sandbox
+just wasm-near-plan
+just near-plan-smoke
+```
+
+### T99-03B2: Normalize The NEAR RPC Provider Contract
+
+Capture the raw sandbox JSON-RPC response and the value returned by
+`provider.query` in the ABI-client regression. Normalize the supported provider
+shape exactly once in the generated wrapper and type-check the result bytes.
+Do not silently treat an absent result as an empty Borsh value.
+
+Acceptance:
+
+```sh
+just near-abi-client
+just near-abi-client-sandbox
 just near-abi-plan
 just near-plan-smoke
 ```
 
 ### T99-03C: Audit The Solana Counter Compute Regression
 
-Compare the testkit instruction/trace delta that moved `initialize` from `56`
-to `70` compute units after Batch B/C. Optimize or remove accidental work when
-the extra instructions are not semantically required. Update the baseline only
-after the emitted instruction delta is reviewed and the new cost is intentional.
+The current integrated report observes `70` compute units where the checked
+baseline is `56`. Record the emitted ELF hash and compare disassembly/runtime
+trace, toolchain, and harness deltas before attributing a cause. Optimize or
+remove accidental work when the extra instructions are not semantically
+required. Update the baseline only after the delta is reviewed and intentional.
 
 Acceptance:
 
 ```sh
 just testkit
+just solana-counter-sbpf-regression
 just solana-light
 just product
 ```
@@ -201,15 +224,17 @@ test run.
 
 ### T99-04: Close And Record Wave T
 
-1. Commit T99-03A/B/C and ensure the worktree is clean.
-2. Run `just wave-t-gate` once without interruption.
-3. Require `25 / 25`, all tools passed, five artifacts present, no integrity
+1. Commit T99-03A/B1/B2/C and CI-HYGIENE-01; ensure the worktree is clean.
+2. Run required `just check` on the pinned Linux CI environment and verify the
+   worker-resource gates execute rather than skip.
+3. Run `just wave-t-gate` once without interruption.
+4. Require `25 / 25`, all tools passed, five artifacts present, no integrity
    failure, and `source.dirty == false`.
-4. Run `just docs-check` and `git diff --check`.
-5. Request independent review of the report and aggregate implementation.
-6. Update the roadmap row and Task 9 checkboxes to
+5. Run `just docs-check` and `git diff --check`.
+6. Request independent review of the report and aggregate implementation.
+7. Update the roadmap row and Task 9 checkboxes to
    `done: verified@<tested SHA>; just wave-t-gate`.
-7. Commit the evidence documentation separately.
+8. Commit the evidence documentation separately.
 
 ## 5. Foundation And Router Queue
 
@@ -262,7 +287,7 @@ docs/superpowers/plans/2026-07-11-primary-triad-runtime-handoff.md.
 Work from feat/primary-triad-runtime-execution and merge current origin/main
 before editing. Preserve all user changes and use isolated worktrees.
 
-First close T99-03A, T99-03B, T99-03C, and CI-HYGIENE-01 with TDD. Do not
+First close T99-03A, T99-03B1, T99-03B2, T99-03C, and CI-HYGIENE-01 with TDD. Do not
 regenerate the ERC-1155 golden before canonical ABI runtime proof; do not emit
 Wasm multi-value functions for NEAR; do not rebaseline Solana compute without a
 reviewed instruction delta. Preserve mandatory NearAbiPlan checks, exact
@@ -281,7 +306,8 @@ is recorded with exact reproduction evidence.
 
 ## 8. PR Policy For This Checkpoint
 
-Publish this checkpoint as a Draft PR. It is expected to show the five T-99
-failures recorded above until T99-03A/B/C are completed. Do not mark ready or
-merge while the required Wave-T CI step is red. Keep the worktree and branch for
-follow-up.
+Publish this checkpoint as a Draft PR. The local clean-source report records the
+five T-99 failures above. GitHub or Woodpecker may fail earlier at a fail-fast
+gate and therefore skip the Wave-T step; a skipped step is not green evidence.
+Do not mark ready or merge until all required checks and Wave-T are green. Keep
+the worktree and branch for follow-up.
