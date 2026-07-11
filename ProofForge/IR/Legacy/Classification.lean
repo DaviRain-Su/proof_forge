@@ -17,6 +17,13 @@ inductive LegacyDisposition
   | reject
   deriving BEq, Repr
 
+def LegacyDisposition.toString : LegacyDisposition → String
+  | .preserve => "preserve"
+  | .normalize => "normalize"
+  | .materialization => "materialization"
+  | .evidence => "evidence"
+  | .reject => "reject"
+
 /--! Decision for one legacy IR constructor.
 
 `nodeTag` is a stable constructor identifier (e.g. `"Expr.literal"`).  The

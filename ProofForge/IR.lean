@@ -8,6 +8,7 @@ import ProofForge.IR.Elaborate
 import ProofForge.IR.Elaborate.Smoke
 import ProofForge.IR.Contract
 import ProofForge.IR.Legacy.Classification
+import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Portability
 import ProofForge.IR.CounterSemantics
 import ProofForge.IR.Examples.AbiAggregateProbe
