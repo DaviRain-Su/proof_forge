@@ -1,4 +1,4 @@
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Compiler.Yul.AST
 
 namespace ProofForge.Backend.Evm.CorePlan

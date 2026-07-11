@@ -12,8 +12,8 @@ import ProofForge.Cli.FileUtil
 import ProofForge.Cli.Options
 import ProofForge.Compiler.Yul.Printer
 import ProofForge.Compiler.Wasm.Printer
-import ProofForge.IR.Core
-import ProofForge.IR.Core.Validate
+import ProofForge.IR.Legacy.Core
+import ProofForge.IR.Legacy.Validate
 import ProofForge.IR.Elaborate
 
 open System

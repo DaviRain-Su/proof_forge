@@ -1,4 +1,4 @@
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Compiler.Wasm.AST
 
 namespace ProofForge.Backend.WasmHost.CorePlan

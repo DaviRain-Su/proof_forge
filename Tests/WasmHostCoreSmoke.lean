@@ -1,4 +1,4 @@
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.WasmHost.CorePlan
 import ProofForge.Backend.WasmHost.CoreLower
 

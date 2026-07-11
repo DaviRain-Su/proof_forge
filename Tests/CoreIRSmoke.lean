@@ -1,5 +1,5 @@
-import ProofForge.IR.Core
-import ProofForge.IR.Core.Validate
+import ProofForge.IR.Legacy.Core
+import ProofForge.IR.Legacy.Validate
 
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Validate

@@ -12,7 +12,7 @@ lowering as a downstream concern.
 See `.superpowers/sdd/task-6-brief.md`.
 -/
 
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.Solana.Asm
 
 namespace ProofForge.Backend.Solana.CorePlan

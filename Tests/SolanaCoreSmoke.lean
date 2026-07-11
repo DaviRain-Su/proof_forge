@@ -6,7 +6,7 @@ Smoke test for `ProofForge.Backend.Solana.CoreLower`.
 See `.superpowers/sdd/task-7-brief.md`.
 -/
 
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.Solana.CorePlan
 import ProofForge.Backend.Solana.CoreLower
 

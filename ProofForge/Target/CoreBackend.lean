@@ -1,7 +1,7 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.IR.Elaborate
-import ProofForge.IR.Core.Validate
+import ProofForge.IR.Legacy.Validate
 import ProofForge.Target.Backend
 
 namespace ProofForge.Target.CoreBackend

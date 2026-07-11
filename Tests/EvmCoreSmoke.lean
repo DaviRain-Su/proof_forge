@@ -1,4 +1,4 @@
-import ProofForge.IR.Core
+import ProofForge.IR.Legacy.Core
 import ProofForge.Backend.Evm.CorePlan
 import ProofForge.Backend.Evm.CoreLower
 import ProofForge.Compiler.Yul.Printer
