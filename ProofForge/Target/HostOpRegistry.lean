@@ -1,4 +1,5 @@
 import ProofForge.IR.Core.HostOp
+import ProofForge.Target.Check
 
 /-! # Typed Target HostOp Handler Registry
 
@@ -42,5 +43,28 @@ def HostOpRegistry.lookup {PlanOp : Type} (reg : HostOpRegistry PlanOp)
 def HostOpRegistry.hasHandler {PlanOp : Type} (reg : HostOpRegistry PlanOp)
     (targetId : String) (id : HostOpId) : Bool :=
   (reg.lookup targetId id).isSome
+
+inductive HostOpResolutionError where
+  | missingCapability (targetId : String) (capability : Capability)
+  | missingHandler (targetId : String) (id : HostOpId)
+  | invalidPlan (targetId : String) (id : HostOpId) (message : String)
+  deriving Repr, BEq
+
+/-- Resolve a typed HostOp for one target. Capability membership, handler
+ownership, and the target plan's own validator are all mandatory. -/
+def HostOpRegistry.resolve {PlanOp : Type} (reg : HostOpRegistry PlanOp)
+    (profile : TargetProfile) (sig : ProofForge.IR.Core.HostOp.HostOpSig)
+    (validatePlan : Array PlanOp -> Except String Unit) :
+    Except HostOpResolutionError (Array PlanOp) := do
+  match firstUnsupportedCapability? profile sig.requiredCapabilities with
+  | some capability =>
+      throw (.missingCapability profile.id capability)
+  | none => pure ()
+  let handler <- match reg.lookup profile.id sig.id with
+    | some handler => pure handler
+    | none => throw (.missingHandler profile.id sig.id)
+  match validatePlan handler.lower with
+  | .ok () => pure handler.lower
+  | .error message => throw (.invalidPlan profile.id sig.id message)
 
 end ProofForge.Target

@@ -1,9 +1,11 @@
 import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Core.Type
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOpRegistry
 
 open ProofForge.IR.Core
 open ProofForge.IR.Core.HostOp
+open ProofForge.Target
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -103,5 +105,51 @@ def main : IO Unit := do
   match HostOpCatalog.validateCallUsage pureSig with
   | .ok _ => throw <| IO.userError "pure sig used as hostCall should reject"
   | .error e => require (e matches .pureEffectfulMismatch) s!"expected pureEffectfulMismatch, got {repr e}"
+
+  /- 9. Missing required capability. -/
+  let handler : HostOpHandler String := {
+    targetId := "evm", id := testSig.id, lower := #["promise_create"]
+  }
+  let registry <- match (HostOpRegistry.empty String).register handler with
+    | .ok registry => pure registry
+    | .error e => throw <| IO.userError s!"handler setup failed: {e}"
+  match registry.resolve evm testSig (fun _ => .ok ()) with
+  | .ok _ => throw <| IO.userError "missing required capability should reject"
+  | .error (.missingCapability "evm" .nearPromise) => pure ()
+  | .error e => throw <| IO.userError s!"expected missingCapability, got {repr e}"
+
+  /- 10. Capability present but no handler. -/
+  let emptyRegistry := HostOpRegistry.empty String
+  match emptyRegistry.resolve wasmNear testSig (fun _ => .ok ()) with
+  | .ok _ => throw <| IO.userError "missing handler should reject"
+  | .error (.missingHandler "wasm-near" id) =>
+      require (id == testSig.id) "missing-handler ID changed"
+  | .error e => throw <| IO.userError s!"expected missingHandler, got {repr e}"
+
+  /- 11. A handler registered for another target cannot satisfy this target. -/
+  let wrongTargetHandler : HostOpHandler String := {
+    targetId := "evm", id := testSig.id, lower := #["promise_create"]
+  }
+  let wrongTargetRegistry <- match (HostOpRegistry.empty String).register wrongTargetHandler with
+    | .ok registry => pure registry
+    | .error e => throw <| IO.userError s!"handler setup failed: {e}"
+  match wrongTargetRegistry.resolve wasmNear testSig (fun _ => .ok ()) with
+  | .ok _ => throw <| IO.userError "different-target handler should reject"
+  | .error (.missingHandler "wasm-near" _) => pure ()
+  | .error e => throw <| IO.userError s!"expected missingHandler, got {repr e}"
+
+  /- 12. Handler output must pass the target plan validator. -/
+  let nearHandler : HostOpHandler String := {
+    targetId := "wasm-near", id := testSig.id, lower := #["invalid-op"]
+  }
+  let nearRegistry <- match (HostOpRegistry.empty String).register nearHandler with
+    | .ok registry => pure registry
+    | .error e => throw <| IO.userError s!"handler setup failed: {e}"
+  match nearRegistry.resolve wasmNear testSig
+      (fun ops => if ops == #["promise_create"] then .ok () else .error "invalid plan") with
+  | .ok _ => throw <| IO.userError "invalid handler plan should reject"
+  | .error (.invalidPlan "wasm-near" id "invalid plan") =>
+      require (id == testSig.id) "invalid-plan ID changed"
+  | .error e => throw <| IO.userError s!"expected invalidPlan, got {repr e}"
 
   IO.println "hostop-fail-closed: ok"
