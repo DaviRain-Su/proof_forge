@@ -1,4 +1,8 @@
-import ProofForge.IR.Core
+import ProofForge.IR.Core.Id
+import ProofForge.IR.Core.Type
+import ProofForge.IR.Core.Storage
+import ProofForge.IR.Core.Syntax
+import ProofForge.IR.Core.Error
 import Std
 
 namespace ProofForge.IR.Core.Validate
