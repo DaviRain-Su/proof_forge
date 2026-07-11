@@ -26,7 +26,10 @@ def sharedContract : CanonicalContract := {
         }]
       }]
     }
-    interface := { entrypoints := #[⟨⟨0⟩, "view", false⟩] }
+    interface := { entrypoints := #[{
+      functionId := ⟨0⟩, kind := "view", mutatesState := false,
+      params := #[], retType := .u64
+    }] }
     materialization := { constructorBindings := #[⟨⟨0⟩, .u64Lit 0⟩] }
     requirements := #[]
 }

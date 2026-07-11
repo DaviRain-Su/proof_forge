@@ -1654,6 +1654,11 @@ evm-all: evm-diagnostics evm-coverage evm-semantic-plan evm-ir-smokes evm-build-
 github-build-test:
     just build
     just target-registry
+    just target-backend
+    just target-support
+    just registry-command
+    just legacy-freeze
+    just canonical-foundation
     just contract-spec-json
     just contract-client
     just evm-plan

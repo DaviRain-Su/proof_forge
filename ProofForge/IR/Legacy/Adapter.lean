@@ -57,10 +57,14 @@ def adaptInterface (m : Module) (env : AdapterEnv) : Except CanonicalizeError In
   let entrypoints ← m.entrypoints.mapM (fun ep => do
     match Std.HashMap.get? env.functionIds ep.name with
     | some fid =>
+        let params ← ep.params.mapM (fun (_, ty) => adaptType ty)
+        let retType ← adaptType ep.returns
         .ok {
           functionId := fid,
           kind := adaptEntrypointKind ep.kind,
-          mutatesState := ep.mutability == EntrypointMutability.call
+          mutatesState := ep.mutability == EntrypointMutability.call,
+          params := params,
+          retType := retType
         }
     | none => .error (CanonicalizeError.unknownFunction ep.name))
   let dispatchHints := m.entrypoints.filterMap (·.selector?)
@@ -104,20 +108,26 @@ def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Even
     let types ← match findEventArgTypes functions eventId with
       | some types => pure types
       | none => throw (CanonicalizeError.unknownEvent name)
-    let coreFields ← types.mapM (fun type => do
-      let id ← freshValueId
-      return { id := id, type := type })
+    let coreFields ← types.mapIdxM (fun index type =>
+      pure { id := ⟨index⟩, type := type })
     return { id := eventId, fields := coreFields })
 
 /- Adapt a legacy struct declaration to canonical form. -/
 
 def adaptStruct (decl : StructDecl) : AdapterM Struct := do
   let id ← lookupType decl.name
-  let fields ← decl.fields.mapM (fun f => do
+  let fields ← decl.fields.mapIdxM (fun index f => do
     let ty ← liftExcept (adaptType f.type)
-    let vid ← freshValueId
-    return { id := vid, type := ty })
-  return { id := id, fields := fields }
+    return {
+      id := ⟨index⟩
+      type := ty
+      ownership := if f.isRef then .reference else .value
+    })
+  return {
+    id := id
+    fields := fields
+    semantics := if decl.isRecord then .linearRecord else .value
+  }
 
 /- Adapt one legacy entrypoint to a canonical function CFG. -/
 
@@ -149,7 +159,8 @@ def adaptModuleM (m : Module) : AdapterM Core.Module := do
     structs := structs,
     state := state,
     functions := functions,
-    events := events
+    events := events,
+    errors := (← get).env.errorDecls
   }
 
 /- Verify that every `ContractSpec` field is classified and not rejected. -/

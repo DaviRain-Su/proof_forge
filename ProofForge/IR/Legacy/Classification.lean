@@ -193,7 +193,7 @@ def classifyStructFieldFields : StructField → Array LegacyDecision
   | ⟨_, _, _, _⟩ => #[
       payloadDecision "StructField.id" .preserve "canonical-core-structs" "field identity is preserved in canonical type declarations",
       payloadDecision "StructField.type" .normalize "canonical-core-structs" "field value type maps recursively to canonical Core",
-      payloadDecision "StructField.isPublic" .evidence "canonical-interface" "field visibility is retained as interface evidence",
+      payloadDecision "StructField.isPublic" .materialization "target-plan-interface" "field visibility controls the emitted target interface",
       payloadDecision "StructField.isRef" .normalize "canonical-core-ownership" "reference ownership is checked during canonical normalization"
     ]
 
@@ -202,7 +202,7 @@ def classifyStructDeclFields : StructDecl → Array LegacyDecision
       payloadDecision "StructDecl.name" .preserve "canonical-core-structs" "struct identity is preserved in canonical type declarations",
       payloadDecision "StructDecl.fields" .normalize "canonical-core-structs" "struct fields are classified individually before canonical normalization",
       payloadDecision "StructDecl.deriveStorage" .materialization "target-plan-storage" "derived storage representation is selected by the target plan",
-      payloadDecision "StructDecl.isPublic" .evidence "canonical-interface" "struct visibility is retained as interface evidence",
+      payloadDecision "StructDecl.isPublic" .materialization "target-plan-interface" "struct visibility controls the emitted target interface",
       payloadDecision "StructDecl.isRecord" .normalize "canonical-core-ownership" "record ownership semantics are classified explicitly"
     ]
 
@@ -216,7 +216,7 @@ def classifyStateDeclFields : StateDecl → Array LegacyDecision
 def classifyErrorRefFields : ErrorRef → Array LegacyDecision
   | ⟨_, _, _, _, _⟩ => #[
       payloadDecision "ErrorRef.assertionId" .normalize "canonical-core-errors" "portable assertion identity is preserved by canonical control flow",
-      payloadDecision "ErrorRef.userCode?" .evidence "canonical-interface" "user error code is retained as structured diagnostic evidence",
+      payloadDecision "ErrorRef.userCode?" .normalize "canonical-core-errors" "user error code is normalized as observable structured-error identity",
       payloadDecision "ErrorRef.soliditySelector?" .materialization "evm-adapter" "Solidity selector is EVM materialization metadata",
       payloadDecision "ErrorRef.solidityArgWords" .materialization "evm-adapter" "Solidity static error arguments are EVM materialization metadata",
       payloadDecision "ErrorRef.solidityArgTypes" .materialization "evm-adapter" "Solidity error ABI types are EVM materialization metadata"
@@ -1046,23 +1046,5 @@ def classifySpecFields : ProofForge.Contract.ContractSpec → Array LegacySpecFi
         owner := "fv-lean"
         reason := "Lean invariants are verification evidence" }
     ]
-
-/--! Canonical field names of `ContractSpec`.
-
-This list is the runtime counterpart to the positional pattern in
-`classifySpecFields`. It is used by the adapter to detect any drift between the
-legacy spec schema and its classification decisions. -/
-def specFieldNames : Array String := #[
-  "name",
-  "module",
-  "intents",
-  "upgradePolicy?",
-  "proxyPattern?",
-  "constructorParams",
-  "constructorInitBindings",
-  "quintInvariants",
-  "quintLiveness",
-  "leanInvariants"
-]
 
 end ProofForge.IR.Legacy

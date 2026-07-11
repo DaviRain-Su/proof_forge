@@ -44,6 +44,8 @@ structure InterfaceEntrypoint where
   functionId : FunctionId
   kind : String
   mutatesState : Bool
+  params : Array CoreType
+  retType : CoreType
   deriving Repr, BEq
 
 structure InterfaceContract where
@@ -179,7 +181,7 @@ instance : Inhabited SourceMap where default := { entries := #[] }
 instance : Inhabited VerificationAnnotations where default := {}
 instance : Inhabited LegacyClassificationEvidence where default := { nodeTag := "", decision := "", reason := "" }
 instance : Inhabited CanonicalEvidence where default := { sourceMap := default, verification := default, legacyClassification := #[] }
-instance : Inhabited InterfaceEntrypoint where default := { functionId := ⟨0⟩, kind := "", mutatesState := false }
+instance : Inhabited InterfaceEntrypoint where default := { functionId := ⟨0⟩, kind := "", mutatesState := false, params := #[], retType := .unit }
 instance : Inhabited InterfaceContract where default := { entrypoints := #[] }
 instance : Inhabited ConstructorBinding where default := { stateId := ⟨0⟩, value := .unitLit }
 instance : Inhabited MaterializationContract where default := {

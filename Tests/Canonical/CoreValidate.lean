@@ -9,7 +9,7 @@ open ProofForge.IR.Canonical
 
 def baseModule : Module := {
   name := "CoreValidate"
-  structs := #[⟨⟨10⟩, #[⟨⟨20⟩, .u64⟩]⟩]
+  structs := #[{ id := ⟨10⟩, fields := #[{ id := ⟨20⟩, type := .u64 }] }]
   state := #[
     ⟨⟨0⟩, .scalar .u64⟩,
     ⟨⟨1⟩, .map .address .u128 (some 100)⟩,
@@ -39,7 +39,10 @@ def baseModule : Module := {
 }
 
 def baseInterface : InterfaceContract := {
-  entrypoints := #[⟨⟨0⟩, "call", true⟩]
+  entrypoints := #[{
+    functionId := ⟨0⟩, kind := "call", mutatesState := true,
+    params := #[.u64], retType := .u64
+  }]
 }
 
 def baseMaterialization : MaterializationContract := {
@@ -149,7 +152,7 @@ def literalOutOfRangeContract : CanonicalContract := {
         id := ⟨0⟩
         params := #[]
         instructions := #[
-          ⟨#[⟨⟨1⟩, .u8⟩], .pure (.literal (.u32Lit 256))⟩
+          ⟨#[⟨⟨1⟩, .u8⟩], .pure (.literal (.u8Lit 256))⟩
         ]
         terminator := .return #[{ id := ⟨1⟩, type := .u8 }]
       }]
@@ -318,7 +321,10 @@ def invalidReturnContract : CanonicalContract := {
 def invalidInterfaceContract : CanonicalContract := {
   baseContract with
   interface := {
-    entrypoints := #[⟨⟨99⟩, "call", true⟩]
+    entrypoints := #[{
+      functionId := ⟨99⟩, kind := "call", mutatesState := true,
+      params := #[], retType := .unit
+    }]
   }
 }
 
@@ -388,7 +394,10 @@ def duplicateValueIdContract : CanonicalContract := {
 def unknownFunctionRefContract : CanonicalContract := {
   baseContract with
   interface := {
-    entrypoints := #[⟨⟨99⟩, "call", true⟩]
+    entrypoints := #[{
+      functionId := ⟨99⟩, kind := "call", mutatesState := true,
+      params := #[], retType := .unit
+    }]
   }
 }
 
@@ -632,6 +641,9 @@ def modulePassOrderContract : CanonicalContract := {
   baseContract with
   module := {
     baseModule with
+    errors := #[{
+      id := ⟨0⟩, namespace_ := "test", name := "Failure", code := 1
+    }]
     functions := #[
       {
         id := ⟨0⟩
@@ -642,7 +654,7 @@ def modulePassOrderContract : CanonicalContract := {
           id := ⟨0⟩
           params := #[]
           instructions := #[
-            ⟨#[], .assert { id := ⟨99⟩, type := .bool } ⟨"test", 1⟩⟩
+            ⟨#[], .assert { id := ⟨99⟩, type := .bool } { id := ⟨0⟩ }⟩
           ]
           terminator := .return #[]
         }]

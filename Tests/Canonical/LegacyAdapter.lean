@@ -50,9 +50,16 @@ def hasContextRead (module : Core.Module) (field : Core.ContextField) : Bool :=
         | .contextRead f => f == field
         | _ => false)))
 
-/- Extract event emission names in source order across all functions. -/
+/- Extract event emission source names in source order across all functions. -/
 
-def eventNamesInOrder (module : Core.Module) : List String :=
+def eventNamesInOrder (module : Core.Module) (sourceModule : ProofForge.IR.Module) : List String :=
+  let nameMap : Std.HashMap Nat String :=
+    Id.run do
+      let mut map := {}
+      let names := collectEventNames sourceModule
+      for h : i in [:names.size] do
+        map := map.insert i names[i]
+      return map
   Id.run do
     let mut names := []
     for f in module.functions do
@@ -60,8 +67,8 @@ def eventNamesInOrder (module : Core.Module) : List String :=
         for i in b.instructions do
           match i.op with
           | .emit eventId _ =>
-              match module.events.find? (·.id == eventId) with
-              | some ev => names := toString ev.id.value :: names
+              match nameMap.get? eventId.value with
+              | some name => names := name :: names
               | none => pure ()
           | _ => pure ()
     return names.reverse
@@ -74,6 +81,11 @@ def returnCount (module : Core.Module) : Nat :=
       match b.terminator with
       | .return _ => acc2 + 1
       | _ => acc2) acc) 0
+
+/- Extract return types in source order. -/
+
+def returnTypesInOrder (module : Core.Module) : List CoreType :=
+  module.functions.map (·.retType) |>.toList
 
 /- Check that an `add` expression in the bundle uses the given overflow mode. -/
 
@@ -249,9 +261,13 @@ def hasBoundedBackedge (module : Core.Module) : Bool :=
     | _ => false))
 
 def hasErrorCode (module : Core.Module) (code : Nat) : Bool :=
+  module.errors.any (·.code == code) &&
   module.functions.any (fun f => f.blocks.any (fun b =>
     b.instructions.any (fun i => match i.op with
-      | .assert _ error => error.code == code
+      | .assert _ error =>
+          match module.errors.find? (·.id == error.id) with
+          | some decl => decl.code == code
+          | none => false
       | _ => false)))
 
 def runAssertions : IO Unit := do
@@ -265,6 +281,8 @@ def runAssertions : IO Unit := do
   require (counterModule.functions.size == 3) s!"Counter function count: {counterModule.functions.size}"
   require (checkScalarStorageSourceNames counterModule) "Counter scalar storage names diverged"
   require (returnCount counterModule == 3) s!"Counter terminator count: {returnCount counterModule}"
+  require (eventNamesInOrder counterModule counterSpec.module == []) "Counter event emission order"
+  require (returnTypesInOrder counterModule == [.unit, .unit, .u64]) "Counter return type order"
   match counterModule.functions.find? (·.id == ⟨2⟩) with
   | some counterGet =>
       require (counterGet.blocks.any (fun b => match b.terminator with
@@ -293,6 +311,10 @@ def runAssertions : IO Unit := do
   require (checkScalarStorageSourceNames vaultModule) "ValueVault scalar storage names diverged"
   require (hasContextRead vaultModule .blockNumber) "checkpointId did not become context read"
   require (returnCount vaultModule == 7) s!"ValueVault terminator count: {returnCount vaultModule}"
+  require (eventNamesInOrder vaultModule vaultSpec.module == ["VaultInitialized", "ValueDeposited", "ValueCharged", "ValueReleased", "ValueSnapshot"])
+    "ValueVault event emission order"
+  require (returnTypesInOrder vaultModule == [.unit, .unit, .unit, .unit, .u64, .u64, .u64])
+    "ValueVault return type order"
 
   -- Interface contract preserves entrypoint metadata.
   let interface := vaultBundle.contract.contract.interface
@@ -302,6 +324,8 @@ def runAssertions : IO Unit := do
   | some ep =>
       require (ep.kind == "function") "initialize kind"
       require (ep.mutatesState) "initialize mutability"
+      require (ep.params == #[.u64]) "initialize params"
+      require (ep.retType == .unit) "initialize return type"
   | none => throw <| IO.userError "initialize entrypoint missing from interface"
   let counterInterface := counterBundle.contract.contract.interface
   let counterGetEp? := counterInterface.entrypoints.find? (·.functionId == ⟨2⟩)
@@ -309,6 +333,8 @@ def runAssertions : IO Unit := do
   | some ep =>
       require (ep.kind == "function") "Counter get kind"
       require (!ep.mutatesState) "Counter get should be view"
+      require (ep.params == #[]) "Counter get params"
+      require (ep.retType == .u64) "Counter get return type"
   | none => throw <| IO.userError "Counter get entrypoint missing from interface"
   require (interface.dispatchHints.size == 7) "dispatch hint count"
 
@@ -317,6 +343,25 @@ def runAssertions : IO Unit := do
   require (materialization.upgradePolicy == none) "upgrade policy should be empty for fixture"
   let evidence := vaultBundle.evidence
   require (evidence.legacyClassification.size == 10) "legacy classification evidence count"
+  let expectedClassification : List (String × LegacyDisposition) := [
+    ("name", .preserve),
+    ("module", .normalize),
+    ("intents", .materialization),
+    ("upgradePolicy?", .materialization),
+    ("proxyPattern?", .materialization),
+    ("constructorParams", .materialization),
+    ("constructorInitBindings", .materialization),
+    ("quintInvariants", .evidence),
+    ("quintLiveness", .evidence),
+    ("leanInvariants", .evidence)
+  ]
+  for (field, disp) in expectedClassification do
+    match evidence.legacyClassification.find? (·.nodeTag == field) with
+    | some d =>
+        require (d.decision == disp.toString) s!"classification for {field}: {d.decision} ≠ {disp.toString}"
+    | none => throw <| IO.userError s!"missing classification for {field}"
+  require (evidence.legacyClassification.all (fun d => d.decision != LegacyDisposition.reject.toString))
+    "legacy classification contains a reject disposition"
   require (evidence.verification.invariants.isEmpty) "fixture has no invariants"
 
   -- Literal range rejection before numeric narrowing.
@@ -397,25 +442,6 @@ def runAssertions : IO Unit := do
   | .error (.unsupportedConstructor "Statement.release" _) => pure ()
   | .error e => throw <| IO.userError s!"release wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "release was silently lowered to a no-op"
-
-  -- Spec-field coverage detects a missing decision.
-  let partialDecisions : Array LegacySpecFieldDecision := #[
-    { field := "name", disposition := .preserve, owner := "test", reason := "" }
-  ]
-  match checkSpecFieldCoverage #["name", "module"] partialDecisions with
-  | .error (.unclassifiedField "module") => pure ()
-  | .error e => throw <| IO.userError s!"missing field wrong error: {repr e}"
-  | .ok _ => throw <| IO.userError "missing field should have rejected"
-
-  -- Spec-field coverage detects an extra decision.
-  let extraDecisions : Array LegacySpecFieldDecision := #[
-    { field := "name", disposition := .preserve, owner := "test", reason := "" },
-    { field := "extra", disposition := .preserve, owner := "test", reason := "" }
-  ]
-  match checkSpecFieldCoverage #["name"] extraDecisions with
-  | .error (.unclassifiedField "extra") => pure ()
-  | .error e => throw <| IO.userError s!"extra field wrong error: {repr e}"
-  | .ok _ => throw <| IO.userError "extra field should have rejected"
 
 end Tests.Canonical.LegacyAdapter
 

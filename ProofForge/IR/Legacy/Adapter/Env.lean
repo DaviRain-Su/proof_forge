@@ -40,11 +40,15 @@ structure AdapterEnv where
   stateIds : Std.HashMap String (StateId × StateShape)
   functionIds : Std.HashMap String FunctionId
   eventIds : Std.HashMap String EventId
+  errorIds : Std.HashMap (String × String) ErrorId
+  errorDecls : Array ErrorDecl
+  overflowMode : OverflowMode
   localValues : Std.HashMap String ValueRef
   nextTypeId : Nat
   nextStateId : Nat
   nextFunctionId : Nat
   nextEventId : Nat
+  nextErrorId : Nat
   deriving Repr
 
 structure AdapterState where
@@ -90,6 +94,31 @@ def freshEventId : AdapterM EventId := do
   let id := s.env.nextEventId
   modify (fun s => { s with env := { s.env with nextEventId := id + 1 } })
   return ⟨id⟩
+
+def freshErrorId : AdapterM ErrorId := do
+  let s ← get
+  let id := s.env.nextErrorId
+  modify (fun s => { s with env := { s.env with nextErrorId := id + 1 } })
+  return ⟨id⟩
+
+def registerError (namespace_ name : String) (code : Nat) : AdapterM ErrorId := do
+  let s ← get
+  match Std.HashMap.get? s.env.errorIds (namespace_, name) with
+  | some id => return id
+  | none =>
+    let id ← freshErrorId
+    modify (fun s => { s with
+      env := { s.env with
+        errorIds := s.env.errorIds.insert (namespace_, name) id,
+        errorDecls := s.env.errorDecls.push {
+          id := id,
+          namespace_ := namespace_,
+          name := name,
+          code := code
+        }
+      }
+    })
+    return id
 
 def lookupType (name : String) : AdapterM TypeId := do
   match Std.HashMap.get? (← get).env.typeIds name with
@@ -182,11 +211,15 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     stateIds := {},
     functionIds := {},
     eventIds := {},
+    errorIds := {},
+    errorDecls := #[],
+    overflowMode := if m.overflowChecked then .checked else .wrapping,
     localValues := {},
     nextTypeId := 0,
     nextStateId := 0,
     nextFunctionId := 0,
-    nextEventId := 0
+    nextEventId := 0,
+    nextErrorId := 0
   }
   for struct in m.structs do
     let id := ⟨env.nextTypeId⟩

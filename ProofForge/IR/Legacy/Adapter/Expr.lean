@@ -47,16 +47,16 @@ ranges before any narrowing occurs. -/
 def adaptLiteral (l : Literal) : Except CanonicalizeError CoreLiteral :=
   match l with
   | .u8 n =>
-      if n < 256 then .ok (.u8Lit (UInt8.ofNat n))
+      if n < 256 then .ok (.u8Lit n)
       else .error (CanonicalizeError.literalOutOfRange "u8" (toString n))
   | .u32 n =>
-      if n < 4294967296 then .ok (.u32Lit (UInt32.ofNat n))
+      if n < 4294967296 then .ok (.u32Lit n)
       else .error (CanonicalizeError.literalOutOfRange "u32" (toString n))
   | .u64 n =>
-      if n < 18446744073709551616 then .ok (.u64Lit (UInt64.ofNat n))
+      if n < 18446744073709551616 then .ok (.u64Lit n)
       else .error (CanonicalizeError.literalOutOfRange "u64" (toString n))
   | .u128 n =>
-      if n < 340282366920938463463374607431768211456 then .ok (.u128Lit (BitVec.ofNat 128 n))
+      if n < 340282366920938463463374607431768211456 then .ok (.u128Lit n)
       else .error (CanonicalizeError.literalOutOfRange "u128" (toString n))
   | .bool b => .ok (.boolLit b)
   | .hash4 _ _ _ _ => .error (CanonicalizeError.unsupportedConstructor "Literal.hash4" "hash4 literal not in initial fragment")
@@ -335,7 +335,53 @@ def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         "Core has no two-input hash primitive")
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
-  | other =>
-      throw (CanonicalizeError.unsupportedConstructor (exprTag other) "expression not in initial fragment")
+  | .arrayLit _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.arrayLit" "array literal not in initial fragment")
+  | .arrayGet _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.arrayGet" "array get not in initial fragment")
+  | .memoryArrayNew _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayNew" "memory array not in initial fragment")
+  | .memoryArrayLength _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayLength" "memory array length not in initial fragment")
+  | .memoryArrayGet _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayGet" "memory array get not in initial fragment")
+  | .structLit _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.structLit" "struct literal not in initial fragment")
+  | .field _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.field" "field projection not in initial fragment")
+  | .hashValue _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.hashValue" "four-input hash not in initial fragment")
+  | .ecrecover _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.ecrecover" "ecrecover not in initial fragment")
+  | .eip712PermitDigest _ _ _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.eip712PermitDigest" "EIP-712 permit digest not in initial fragment")
+  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallAbiPacked" "crosscall ABI packing not in initial fragment")
+  | .crosscallInvoke _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvoke" "crosscall invoke not in initial fragment")
+  | .crosscallInvokeTyped _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeTyped" "typed crosscall invoke not in initial fragment")
+  | .crosscallInvokeValueTyped _ _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeValueTyped" "value-typed crosscall invoke not in initial fragment")
+  | .crosscallInvokeStaticTyped _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeStaticTyped" "static typed crosscall invoke not in initial fragment")
+  | .crosscallInvokeDelegateTyped _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeDelegateTyped" "delegate typed crosscall invoke not in initial fragment")
+  | .crosscallCreate _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate" "crosscall create not in initial fragment")
+  | .crosscallCreate2 _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate2" "crosscall create2 not in initial fragment")
+  | .crosscallNamed _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallNamed" "named crosscall not in initial fragment")
+  | .nearCrosscallInvokePool _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.nearCrosscallInvokePool" "NEAR crosscall invoke pool not in initial fragment")
+  | .nearPromiseThen _ _ _ _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseThen" "NEAR promise then not in initial fragment")
+  | .nearPromiseResultsCount =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultsCount" "NEAR promise results count not in initial fragment")
+  | .nearPromiseResultStatus _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultStatus" "NEAR promise result status not in initial fragment")
+  | .nearPromiseResultU64 _ =>
+      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultU64" "NEAR promise result u64 not in initial fragment")
 
 end ProofForge.IR.Legacy.Adapter

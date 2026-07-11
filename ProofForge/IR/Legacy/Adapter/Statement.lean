@@ -93,10 +93,14 @@ private def changedOuterLocal? (outer candidate : Std.HashMap String ValueRef) :
 
 /- Default error reference for unconditional reverts. -/
 
-def defaultRevertError : CoreErrorRef := { namespace_ := "legacy", code := 0 }
+def defaultRevertError : AdapterM CoreErrorRef := do
+  let id ← registerError "legacy" "Revert" 0
+  return { id := id, args := #[] }
 
-def errorRefOf (r : ErrorRef) : CoreErrorRef :=
-  { namespace_ := "legacy", code := r.assertionId.toNat }
+def errorRefOf (r : ErrorRef) : AdapterM CoreErrorRef := do
+  let name := r.userCode?.getD s!"Error{r.assertionId}"
+  let id ← registerError "legacy" name r.assertionId.toNat
+  return { id := id, args := #[] }
 
 /- Normalize a legacy `Effect` into the function builder. -/
 
@@ -116,7 +120,8 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
       let loadRef ← emitValueInstruction (.storageLoad path) resultType
       let nv ← normalizeExpr value
       let arithOp ← liftExcept (adaptAssignOp op)
-      let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp .wrapping loadRef.value nv.value)) resultType
+      let mode := (← get).env.overflowMode
+      let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp mode loadRef.value nv.value)) resultType
       let storeInstr := { results := #[], op := .storageStore path arithRef.value }
       let fb ← liftExcept (loadRef.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
@@ -187,7 +192,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
           let loadRef ← emitValueInstruction (.storageLoad path) resultType
           let nv ← normalizeExpr value
           let arithOp ← liftExcept (adaptAssignOp op)
-          let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp .wrapping loadRef.value nv.value)) resultType
+          let mode := (← get).env.overflowMode
+          let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp mode loadRef.value nv.value)) resultType
           let storeInstr := { results := #[], op := .storageStore path arithRef.value }
           let fb ← liftExcept (loadRef.instructions.foldlM FunctionBuilder.emitInstr fb)
           let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
@@ -197,7 +203,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
           let current ← lookupLocal name
           let nv ← normalizeExpr value
           let arithOp ← liftExcept (adaptAssignOp op)
-          let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp .wrapping current nv.value)) current.type
+          let mode := (← get).env.overflowMode
+          let arithRef ← emitValueInstruction (.pure (.arithmetic arithOp mode current nv.value)) current.type
           let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
           let fb ← liftExcept (arithRef.instructions.foldlM FunctionBuilder.emitInstr fb)
           bindLocal name arithRef.value
@@ -207,7 +214,9 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
   | .assert cond _msg errorRef? => do
       let nv ← normalizeExpr cond
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let error := errorRef?.map errorRefOf |>.getD defaultRevertError
+      let error ← match errorRef? with
+        | some r => errorRefOf r
+        | none => defaultRevertError
       let instr := { results := #[], op := .assert nv.value error }
       liftExcept (fb.emitInstr instr)
   | .assertEq lhs rhs _msg errorRef? => do
@@ -217,13 +226,17 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let fb ← liftExcept (nl.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nr.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nc.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let error := errorRef?.map errorRefOf |>.getD defaultRevertError
+      let error ← match errorRef? with
+        | some r => errorRefOf r
+        | none => defaultRevertError
       let instr := { results := #[], op := .assert nc.value error }
       liftExcept (fb.emitInstr instr)
-  | .revert _msg =>
-      liftExcept (fb.setTerminator (.revert defaultRevertError))
-  | .revertWithError ref =>
-      liftExcept (fb.setTerminator (.revert (errorRefOf ref)))
+  | .revert _msg => do
+      let error ← defaultRevertError
+      liftExcept (fb.setTerminator (.revert error))
+  | .revertWithError ref => do
+      let error ← errorRefOf ref
+      liftExcept (fb.setTerminator (.revert error))
   | .release _ =>
       throw (CanonicalizeError.unsupportedConstructor "Statement.release"
         "ownership-aware memory release is not implemented in canonical normalization")

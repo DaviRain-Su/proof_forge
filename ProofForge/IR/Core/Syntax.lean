@@ -2,12 +2,23 @@ import ProofForge.IR.Core.Storage
 
 namespace ProofForge.IR.Core
 
-/- Cross-call specification. Gas and value are optional value references. -/
+/- Portable cross-calls have a closed mode and explicit typed operands. Target-
+specific forms such as CREATE, CPI, and NEAR promises remain HostOps. -/
+
+inductive CoreCrosscallMode
+  | invoke
+  | staticInvoke
+  | delegateInvoke
+  deriving BEq, DecidableEq, Repr, Inhabited
 
 structure CoreCrosscallSpec where
-  family : String
-  gas : Option ValueRef
-  value : Option ValueRef
+  mode : CoreCrosscallMode
+  target : ValueRef
+  method : ValueRef
+  gas : Option ValueRef := none
+  value : Option ValueRef := none
+  paramTypes : Array CoreType := #[]
+  returnType : CoreType
   deriving BEq, Repr
 
 /- Typed host-operation identifiers (Wave 3 extension point). Exact versions
@@ -17,13 +28,13 @@ structure HostOpVersion where
   major : Nat
   minor : Nat
   patch : Nat
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 structure HostOpId where
   namespace_ : String
   name : String
   version : HostOpVersion
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 structure HostOpCall where
   id : HostOpId
@@ -107,14 +118,44 @@ structure Function where
 
 /- Module-level declarations. -/
 
+inductive FieldOwnership
+  | value
+  | reference
+  deriving BEq, Repr, Inhabited
+
+inductive StructSemantics
+  | value
+  | linearRecord
+  deriving BEq, Repr, Inhabited
+
+structure FieldDecl where
+  id : FieldId
+  type : CoreType
+  ownership : FieldOwnership := .value
+  deriving BEq, Repr, Inhabited
+
+structure EventFieldDecl where
+  id : EventFieldId
+  type : CoreType
+  deriving BEq, Repr, Inhabited
+
+structure ErrorDecl where
+  id : ErrorId
+  namespace_ : String
+  name : String
+  code : Nat
+  params : Array CoreType := #[]
+  deriving BEq, Repr, Inhabited
+
 structure Struct where
   id : TypeId
-  fields : Array ValueDef
+  fields : Array FieldDecl
+  semantics : StructSemantics := .value
   deriving BEq, Repr
 
 structure Event where
   id : EventId
-  fields : Array ValueDef
+  fields : Array EventFieldDecl
   deriving BEq, Repr
 
 structure StateDecl where
@@ -131,6 +172,7 @@ structure Module where
   state : Array StateDecl := #[]
   functions : Array Function := #[]
   events : Array Event := #[]
+  errors : Array ErrorDecl := #[]
   deriving BEq, Repr, Inhabited
 
 end ProofForge.IR.Core

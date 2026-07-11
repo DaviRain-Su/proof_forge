@@ -50,6 +50,45 @@ echo "$check_err" | grep -Fq "unknown target" && fail "check returned unknown ta
 # Fixture check for Cloudflare should resolve the profile and pass.
 lake env proof-forge check --target wasm-cloudflare-workers --fixture counter >/dev/null
 
+# Every generic legacy EmitWat entrypoint must resolve --target through the
+# public registry and reject unknown, hidden *-core, and non-EmitWat profiles
+# before creating its output directory.
+legacy_emitwat_flags=(
+  --emit-counter-emitwat
+  --emit-error-ref-emitwat
+  --emit-context-emitwat
+  --emit-hash-emitwat
+  --emit-map-emitwat
+  --contract-source-emitwat
+)
+invalid_emitwat_targets=(
+  not-a-target
+  evm-core
+  solana-sbpf-asm-core
+  wasm-near-core
+  evm
+  wasm-cloudflare-workers
+)
+for flag in "${legacy_emitwat_flags[@]}"; do
+  for target in "${invalid_emitwat_targets[@]}"; do
+    slug="${flag#--}-$target"
+    out="$OUT/$slug"
+    rm -rf "$out"
+    args=("$flag" --target "$target" -o "$out")
+    if [[ "$flag" == "--contract-source-emitwat" ]]; then
+      args+=(--root . Examples/Product/Counter.lean)
+    fi
+    set +e
+    err="$(lake env proof-forge "${args[@]}" 2>&1)"
+    st=$?
+    set -e
+    [[ "$st" -ne 0 ]] || fail "$flag accepted invalid EmitWat target $target"
+    [[ ! -e "$out" ]] || fail "$flag created an artifact path for invalid target $target"
+    echo "$err" | grep -Fq "EmitWat target" || \
+      fail "$flag returned an unrelated diagnostic for $target: $err"
+  done
+done
+
 # No listed target id falls through to "unknown target '<id>'" on source build.
 while IFS= read -r target; do
   [[ -n "$target" ]] || continue

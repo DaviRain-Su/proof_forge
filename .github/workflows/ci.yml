@@ -163,9 +163,20 @@ jobs:
       - name: Check target registry
         run: just target-registry
 
+      - name: Check target backend, support, and registry command boundaries
+        run: |
+          just target-backend
+          just target-support
+          just registry-command
+
       - name: Check canonical IR foundation
         run: |
-          just legacy-freeze
+          legacy_base='${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}'
+          if [[ -n "$legacy_base" && ! "$legacy_base" =~ ^0+$ ]]; then
+            LEGACY_FREEZE_BASE="$legacy_base" just legacy-freeze
+          else
+            just legacy-freeze
+          fi
           just canonical-foundation
 
       - name: Check ContractSpec JSON schema

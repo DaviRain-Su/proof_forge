@@ -37,7 +37,54 @@ def requireErrorContains (args : List String) (needles : Array String) : IO Unit
       for needle in needles do
         require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
 
+def requireEmitWatTarget
+    (targetId? : Option String)
+    (expectedId : String)
+    (expectedBridge : ProofForge.Target.HostBridge) : IO Unit := do
+  match ProofForge.Cli.resolveEmitWatTarget { targetId? := targetId? } with
+  | .ok (profile, bridge) =>
+      require (profile.id == expectedId && bridge == expectedBridge)
+        s!"EmitWat target resolution mismatch for {repr targetId?}"
+  | .error err =>
+      throw <| IO.userError s!"unexpected EmitWat target error for {repr targetId?}: {err}"
+
+def requireEmitWatTargetError (targetId : String) : IO Unit := do
+  match ProofForge.Cli.resolveEmitWatTarget { targetId? := some targetId } with
+  | .ok (profile, _) =>
+      throw <| IO.userError s!"invalid EmitWat target {targetId} resolved as {profile.id}"
+  | .error err =>
+      require (err.contains "EmitWat target")
+        s!"invalid EmitWat target {targetId} returned unrelated error: {err}"
+
+def requireEmitWatPlanTargetCheck
+    (profileId planTargetId : String) (shouldPass : Bool) : IO Unit := do
+  let profile ← match ProofForge.Cli.resolveEmitWatTarget { targetId? := some profileId } with
+    | .ok (profile, _) => pure profile
+    | .error err => throw <| IO.userError s!"unexpected profile resolution error: {err}"
+  let result := ProofForge.Cli.requireEmitWatPlanTarget profile {
+    targetId := planTargetId
+    calls := #[]
+  }
+  match result, shouldPass with
+  | .ok (), true => pure ()
+  | .error err, false =>
+      require (err.contains planTargetId && err.contains profileId)
+        s!"plan-target mismatch diagnostic lacks both targets: {err}"
+  | .ok (), false =>
+      throw <| IO.userError s!"EmitWat plan target {planTargetId} unexpectedly matched {profileId}"
+  | .error err, true =>
+      throw <| IO.userError s!"EmitWat plan target {planTargetId} unexpectedly rejected: {err}"
+
 def main : IO UInt32 := do
+  requireEmitWatTarget none "wasm-near" .near
+  requireEmitWatTarget (some "wasm-near") "wasm-near" .near
+  requireEmitWatTarget (some "wasm-cosmwasm") "wasm-cosmwasm" .cosmWasm
+  requireEmitWatTarget (some "wasm-stellar-soroban") "wasm-stellar-soroban" .soroban
+  for targetId in #["not-a-target", "evm-core", "solana-sbpf-asm-core", "wasm-near-core",
+      "evm", "wasm-cloudflare-workers"] do
+    requireEmitWatTargetError targetId
+  requireEmitWatPlanTargetCheck "wasm-near" "wasm-near" true
+  requireEmitWatPlanTargetCheck "wasm-near" "wasm-cosmwasm" false
   requireErrorContains
     ["check", "--target", "evm"]
     #["native dispatch", "does not use the legacy mapper"]

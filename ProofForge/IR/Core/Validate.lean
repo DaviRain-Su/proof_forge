@@ -11,6 +11,7 @@ open ProofForge.IR.Core
 open ProofForge.IR.Core.Error
 
 structure CheckedModule where
+  private mk ::
   module : Module
 
 instance : Inhabited Instruction where
@@ -31,26 +32,24 @@ private def error (tag : ValidationErrorTag) (pass : String)
 /- Fixed-width literal range checking. A literal must fit its declared result
 type; narrowing casts are a separate operation and are checked elsewhere. -/
 
-private def literalFitsType (lit : CoreLiteral) (ty : CoreType) : Bool :=
+private def literalFitsConstructor : CoreLiteral → Bool
+  | .u8Lit n => n < 256
+  | .u32Lit n => n < 4294967296
+  | .u64Lit n => n < 18446744073709551616
+  | .u128Lit n => n < 340282366920938463463374607431768211456
+  | .bytesLit bytes => bytes.size ≤ maxLogicalCollectionLength
+  | .stringLit string => string.toUTF8.size ≤ maxLogicalCollectionLength
+  | .unitLit | .boolLit _ => true
+  | .addressLit value | .hashLit value => value.toUTF8.size ≤ maxLogicalCollectionLength
+
+private def literalFitsResultType (lit : CoreLiteral) (ty : CoreType) : Bool :=
   match lit, ty with
   | .unitLit, .unit => true
   | .boolLit _, .bool => true
   | .u8Lit _, .u8 => true
-  | .u8Lit _, .u32 => true
-  | .u8Lit _, .u64 => true
-  | .u8Lit _, .u128 => true
   | .u32Lit _, .u32 => true
-  | .u32Lit n, .u8 => n.toNat ≤ 255
-  | .u32Lit _, .u64 => true
-  | .u32Lit _, .u128 => true
   | .u64Lit _, .u64 => true
-  | .u64Lit n, .u8 => n.toNat ≤ 255
-  | .u64Lit n, .u32 => n.toNat ≤ 4294967295
-  | .u64Lit _, .u128 => true
   | .u128Lit _, .u128 => true
-  | .u128Lit n, .u8 => n.toNat ≤ 255
-  | .u128Lit n, .u32 => n.toNat ≤ 4294967295
-  | .u128Lit n, .u64 => n.toNat ≤ 18446744073709551615
   | .addressLit _, .address => true
   | .bytesLit _, .bytes => true
   | .stringLit _, .string => true
@@ -74,15 +73,23 @@ private def isIntegerLike : CoreType → Bool
   | .u8 | .u32 | .u64 | .u128 => true
   | _ => false
 
+private def isArrayIndex : CoreType → Bool
+  | .u32 | .u64 => true
+  | .unit | .bool | .u8 | .u128 | .address | .bytes | .string | .hash |
+      .fixedArray _ _ | .array _ | .memoryRef _ | .structType _ => false
+
 private def isMemoryLike : CoreType → Bool
-  | .bytes | .array _ | .fixedArray _ _ => true
-  | _ => false
+  | .memoryRef _ => true
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes |
+      .string | .hash | .fixedArray _ _ | .array _ | .structType _ => false
 
 private def elementType? : CoreType → Option CoreType
   | .bytes => some .u8
   | .array e => some e
   | .fixedArray e _ => some e
-  | _ => none
+  | .memoryRef e => some e
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .string |
+      .hash | .structType _ => none
 
 private def isScalar : CoreType → Bool
   | .unit | .bool | .u8 | .u32 | .u64 | .u128 => true
@@ -91,6 +98,17 @@ private def isScalar : CoreType → Bool
 private def isPortableIdentity : CoreType → Bool
   | .address => true
   | _ => false
+
+private def supportsEquality : CoreType → Bool
+  | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes | .string | .hash => true
+  | .unit | .fixedArray _ _ | .array _ | .memoryRef _ | .structType _ => false
+
+private def supportsCast (fromTy toTy : CoreType) : Bool :=
+  (isIntegerLike fromTy && isIntegerLike toTy) ||
+    (fromTy == toTy && match fromTy with
+      | .unit | .bool | .address | .bytes | .string | .hash => true
+      | .u8 | .u32 | .u64 | .u128 | .fixedArray _ _ | .array _ |
+          .memoryRef _ | .structType _ => false)
 
 /- Symbol tables built from the module. -/
 
@@ -107,23 +125,131 @@ private def collectEventIds (m : Module) : Std.HashSet EventId :=
   m.events.foldl (fun s e => s.insert e.id) {}
 
 private def coreTypeReferences : CoreType → Array TypeId
-  | .fixedArray element _ | .array element => coreTypeReferences element
+  | .fixedArray element _ | .array element | .memoryRef element => coreTypeReferences element
   | .structType typeId => #[typeId]
   | _ => #[]
+
+private def coreTypeDepth : CoreType → Nat
+  | .fixedArray element _ | .array element | .memoryRef element => coreTypeDepth element + 1
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes |
+      .string | .hash | .structType _ => 1
+
+private def moduleTypeFuel (m : Module) (root : CoreType) : Nat :=
+  m.structs.foldl (fun total declaration =>
+    declaration.fields.foldl (fun fieldTotal field =>
+      fieldTotal + coreTypeDepth field.type) total)
+    (coreTypeDepth root + m.structs.size + 1)
+
+private def saturatingAdd (lhs rhs : Nat) : Nat :=
+  if lhs > maxLogicalCollectionLength || rhs > maxLogicalCollectionLength - lhs then
+    maxLogicalCollectionLength + 1
+  else lhs + rhs
+
+private def saturatingMul (lhs rhs : Nat) : Nat :=
+  if lhs == 0 || rhs == 0 then 0
+  else if lhs > maxLogicalCollectionLength / rhs then maxLogicalCollectionLength + 1
+  else lhs * rhs
+
+private def typeFootprintFuel (m : Module) : Nat → CoreType → Nat
+  | 0, _ => maxLogicalCollectionLength + 1
+  | fuel + 1, type => match type with
+    | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes |
+        .string | .hash | .memoryRef _ => 1
+    | .fixedArray element length =>
+        max 1 (saturatingMul length (typeFootprintFuel m fuel element))
+    | .array _ => 1
+    | .structType typeId =>
+        match m.structs.find? (·.id == typeId) with
+        | none => maxLogicalCollectionLength + 1
+        | some declaration => max 1 <| declaration.fields.foldl (fun total field =>
+            saturatingAdd total (typeFootprintFuel m fuel field.type)) 0
+
+private def typeFootprint (m : Module) (type : CoreType) : Nat :=
+  typeFootprintFuel m (moduleTypeFuel m type) type
+
+private def stateShapeFootprint (m : Module) (shape : StateShape) : Nat :=
+  match shape with
+  | .scalar type => typeFootprint m type
+  | .record typeId => typeFootprint m (.structType typeId)
+  | .fixedArray element length =>
+      max 1 (saturatingMul length (typeFootprint m element))
+  | .dynamicArray _ => 1
+  | .map key value (some capacity) =>
+      max 1 (saturatingMul capacity
+        (saturatingAdd (typeFootprint m key) (typeFootprint m value)))
+  | .map key value none =>
+      max 1 (saturatingAdd (typeFootprint m key) (typeFootprint m value))
+
+private def containsMemoryRef : CoreType → Bool
+  | .memoryRef _ => true
+  | .fixedArray element _ | .array element => containsMemoryRef element
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes |
+      .string | .hash | .structType _ => false
+
+private def rejectEphemeralType (ty : CoreType) (context : String)
+    (function : Option FunctionId := none) (block : Option BlockId := none)
+    (instruction : Option Nat := none) : Except ValidationError Unit := do
+  if containsMemoryRef ty then
+    .error <| error .typeMismatch "state-shape" function block instruction
+      s!"{context} cannot contain ephemeral memoryRef type {repr ty}"
+
+private def reachesStruct (m : Module) (target : TypeId) : Nat → TypeId → Bool
+  | 0, _ => false
+  | fuel + 1, current =>
+      match m.structs.find? (·.id == current) with
+      | none => false
+      | some declaration => declaration.fields.any fun field =>
+          field.ownership == .value &&
+            (coreTypeReferences field.type).any fun next =>
+              next == target || reachesStruct m target fuel next
+
+private def checkStructAcyclic (m : Module) : Except ValidationError Unit := do
+  for declaration in m.structs do
+    if reachesStruct m declaration.id (m.structs.size + 1) declaration.id then
+      .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+        s!"recursive by-value struct cycle reaches {repr declaration.id}"
 
 private def checkCoreTypeReferences (m : Module) (ty : CoreType)
     (context : String) (function : Option FunctionId := none)
     (block : Option BlockId := none) (instruction : Option Nat := none) :
     Except ValidationError Unit := do
+  let rec checkBounds : CoreType → Except ValidationError Unit
+    | .fixedArray element length => do
+        if length > maxLogicalCollectionLength then
+          .error <| error .typeMismatch "state-shape" function block instruction
+            s!"{context} fixed-array length {length} exceeds {maxLogicalCollectionLength}"
+        checkBounds element
+    | .array element | .memoryRef element => checkBounds element
+    | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes |
+        .string | .hash | .structType _ => pure ()
+  checkBounds ty
   for typeId in coreTypeReferences ty do
     unless m.structs.any (·.id == typeId) do
       .error <| error .unknownReference "state-shape" function block instruction
         s!"{context} references unknown struct type {repr typeId}"
+  let checkFootprint (type : CoreType) : Except ValidationError Unit := do
+      let footprint := typeFootprint m type
+      if footprint > maxLogicalCollectionLength then
+        .error <| error .typeMismatch "state-shape" function block instruction
+          s!"{context} total footprint {footprint} exceeds {maxLogicalCollectionLength}"
+  let rec checkFootprints : CoreType → Except ValidationError Unit
+    | .fixedArray element length => do
+        checkFootprint (.fixedArray element length)
+        checkFootprints element
+    | .array element => do
+        checkFootprint (.array element)
+        checkFootprints element
+    | .memoryRef element => do
+        checkFootprint (.memoryRef element)
+        checkFootprints element
+    | type => checkFootprint type
+  checkFootprints ty
 
 private def stateShapeTypes : StateShape → Array CoreType
   | .scalar value => #[value]
   | .map key value _ => #[key, value]
-  | .fixedArray element _ | .dynamicArray element => #[element]
+  | .fixedArray element length => #[.fixedArray element length]
+  | .dynamicArray element => #[.array element]
   | .record typeId => #[.structType typeId]
 
 /- Pass 1: globally unique type, state, function, event, block, and value
@@ -144,6 +270,18 @@ def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
   checkUnique .duplicateId "state" (m.state.map (·.id))
   checkUnique .duplicateId "function" (m.functions.map (·.id))
   checkUnique .duplicateId "event" (m.events.map (·.id))
+  checkUnique .duplicateId "error" (m.errors.map (·.id))
+  for struct in m.structs do
+    checkUnique .duplicateId s!"field in struct {repr struct.id}" (struct.fields.map (·.id))
+  for event in m.events do
+    checkUnique .duplicateId s!"field in event {repr event.id}" (event.fields.map (·.id))
+  let errorIdentities := m.errors.map (fun declaration =>
+    (declaration.namespace_, declaration.name, declaration.code))
+  checkUnique .duplicateId "error identity" errorIdentities
+  for declaration in m.errors do
+    if declaration.namespace_.isEmpty || declaration.name.isEmpty then
+      .error <| ValidationError.mkSimple .unknownReference "symbol-uniqueness"
+        s!"error {repr declaration.id} has empty namespace or name"
   for f in m.functions do
     let mut blockIds : Std.HashSet BlockId := {}
     for b in f.blocks do
@@ -173,22 +311,62 @@ def checkSymbolUniqueness (m : Module) : Except ValidationError Unit := do
 /- Pass 2: state-shape reference resolution. Every storage root must exist and
 path segments must match the declared shape. -/
 
+private inductive StorageCursor
+  | scalar (type : CoreType)
+  | fixedArray (element : CoreType) (length : Nat)
+  | dynamicArray (element : CoreType)
+  | record (type : TypeId)
+  | map (key value : CoreType)
+
+private def cursorOfType : CoreType → StorageCursor
+  | .fixedArray element length => .fixedArray element length
+  | .array element => .dynamicArray element
+  | .memoryRef type => .scalar (.memoryRef type)
+  | .structType type => .record type
+  | .unit => .scalar .unit
+  | .bool => .scalar .bool
+  | .u8 => .scalar .u8
+  | .u32 => .scalar .u32
+  | .u64 => .scalar .u64
+  | .u128 => .scalar .u128
+  | .address => .scalar .address
+  | .bytes => .scalar .bytes
+  | .string => .scalar .string
+  | .hash => .scalar .hash
+
+private def cursorOfShape : StateShape → StorageCursor
+  | .scalar type => cursorOfType type
+  | .map key value _ => .map key value
+  | .fixedArray element length => .fixedArray element length
+  | .dynamicArray element => .dynamicArray element
+  | .record type => .record type
+
+private def cursorType? : StorageCursor → Option CoreType
+  | .scalar type => some type
+  | .fixedArray element length => some (.fixedArray element length)
+  | .dynamicArray element => some (.array element)
+  | .record type => some (.structType type)
+  | .map _ _ => none
+
 private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
-    (idx : Nat) (path : StorageRef) : Except ValidationError Unit := do
+    (idx : Nat) (path : StorageRef) (requirePresence : Bool := false) :
+    Except ValidationError Unit := do
   let state? := m.state.find? (·.id == path.root)
   match state? with
   | none =>
     .error <| error .unknownReference "state-shape" (some fid) (some bid) (some idx)
       s!"unknown storage root {repr path.root}"
   | some decl =>
-    let mut shape := decl.shape
+    let mut cursor := cursorOfShape decl.shape
+    let mut hasPresence := false
     for seg in path.path do
-      match seg, shape with
-      | .mapKey key, .map keyTy valTy _ =>
+      match seg, cursor with
+      | .mapKey key, .map keyTy valTy =>
         unless key.type == keyTy do
           .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
             s!"map key type {repr key.type} does not match {repr keyTy}"
-        shape := .scalar valTy
+        cursor := cursorOfType valTy
+        hasPresence := true
       | .mapKey _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
           s!"map key on non-map state {repr path.root}"
@@ -196,12 +374,14 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
         unless idxRef.type == .u32 || idxRef.type == .u64 do
           .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
             s!"array index must be integer, got {repr idxRef.type}"
-        shape := .scalar elem
+        cursor := cursorOfType elem
+        hasPresence := true
       | .index idxRef, .dynamicArray elem =>
         unless idxRef.type == .u32 || idxRef.type == .u64 do
           .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
             s!"array index must be integer, got {repr idxRef.type}"
-        shape := .scalar elem
+        cursor := cursorOfType elem
+        hasPresence := true
       | .index _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
           s!"array index on non-array state {repr path.root}"
@@ -212,24 +392,28 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
           .error <| error .unknownReference "state-shape" (some fid) (some bid) (some idx)
             s!"unknown struct type {repr typeId}"
         | some struct =>
-          let field? := struct.fields.find? (fun f => f.id.value == fieldId.value)
+          let field? := struct.fields.find? (·.id == fieldId)
           match field? with
           | none =>
             .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
               s!"unknown field {repr fieldId} in struct {repr typeId}"
           | some fieldDef =>
-            shape := .scalar fieldDef.type
+            cursor := cursorOfType fieldDef.type
+            hasPresence := true
       | .field _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
           s!"field access on non-record state {repr path.root}"
-    match shape with
-    | .scalar resultShapeType =>
+    if requirePresence && !hasPresence then
+      .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
+        "storageContains requires a map key, array index, or record field"
+    match cursorType? cursor with
+    | some resultShapeType =>
       unless resultShapeType == path.resultType do
         .error <| error .typeMismatch "state-shape" (some fid) (some bid) (some idx)
           s!"storage result type {repr path.resultType} does not match shape {repr resultShapeType}"
-    | _ =>
+    | none =>
       .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
-        s!"storage path for root {repr path.root} does not select a scalar leaf"
+        s!"storage path for root {repr path.root} does not select a typed value"
 
 /- Pass 2: state-shape reference resolution. Every storage root must exist and
 path segments must match the declared shape. This pass is intentionally
@@ -237,19 +421,60 @@ separated from instruction typing so that reference errors are reported before
 type and control-flow passes. -/
 
 def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
+  checkStructAcyclic m
   for struct in m.structs do
+    unless struct.semantics == .value do
+      .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+        s!"struct {repr struct.id} uses unsupported linear-record semantics"
     for field in struct.fields do
+      unless field.ownership == .value do
+        .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+          s!"struct {repr struct.id} field {repr field.id} uses unsupported reference ownership"
+      rejectEphemeralType field.type s!"struct {repr struct.id} field {repr field.id}"
       checkCoreTypeReferences m field.type s!"struct {repr struct.id} field {repr field.id}"
   for event in m.events do
     for field in event.fields do
+      rejectEphemeralType field.type s!"event {repr event.id} field {repr field.id}"
       checkCoreTypeReferences m field.type s!"event {repr event.id} field {repr field.id}"
+  for errorDecl in m.errors do
+    for param in errorDecl.params do
+      rejectEphemeralType param s!"error {repr errorDecl.id} parameter"
+      checkCoreTypeReferences m param s!"error {repr errorDecl.id} parameter"
   for decl in m.state do
+    match decl.shape with
+    | .map _ _ (some capacity) =>
+        if capacity > maxLogicalCollectionLength then
+          .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+            s!"state {repr decl.id} map capacity {capacity} exceeds {maxLogicalCollectionLength}"
+    | .fixedArray _ length =>
+        if length > maxLogicalCollectionLength then
+          .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+            s!"state {repr decl.id} fixed-array length {length} exceeds {maxLogicalCollectionLength}"
+    | .scalar _ | .map _ _ none | .dynamicArray _ | .record _ => pure ()
     for ty in stateShapeTypes decl.shape do
+      rejectEphemeralType ty s!"state {repr decl.id}"
       checkCoreTypeReferences m ty s!"state {repr decl.id}"
+    match decl.shape with
+    | .map keyType valueType (some capacity) =>
+        let entryFootprint := saturatingAdd (typeFootprint m keyType)
+          (typeFootprint m valueType)
+        let totalFootprint := saturatingMul capacity entryFootprint
+        if totalFootprint > maxLogicalCollectionLength then
+          .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+            s!"state {repr decl.id} map capacity footprint {totalFootprint} exceeds {maxLogicalCollectionLength}"
+    | .scalar _ | .map _ _ none | .fixedArray _ _ | .dynamicArray _ | .record _ =>
+        pure ()
+    let footprint := stateShapeFootprint m decl.shape
+    if footprint > maxLogicalCollectionLength then
+      .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+        s!"state {repr decl.id} shape footprint {footprint} exceeds {maxLogicalCollectionLength}"
   for f in m.functions do
     for param in f.params do
+      rejectEphemeralType param.type s!"function {repr f.id} parameter {repr param.id}"
+        (some f.id)
       checkCoreTypeReferences m param.type s!"function {repr f.id} parameter {repr param.id}"
         (some f.id)
+    rejectEphemeralType f.retType s!"function {repr f.id} return type" (some f.id)
     checkCoreTypeReferences m f.retType s!"function {repr f.id} return type" (some f.id)
     for b in f.blocks do
       for param in b.params do
@@ -261,12 +486,47 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
           checkCoreTypeReferences m result.type s!"instruction result {repr result.id}"
             (some f.id) (some b.id) (some idx)
         match instr.op with
-        | .storageLoad path | .storageContains path | .storageStore path _ =>
+        | .storageLoad path | .storageStore path _ =>
           checkStoragePath m f.id b.id idx path
-        | .storageLength root | .storageResize root _ =>
-          unless m.state.any (·.id == root) do
+        | .storageContains path =>
+          checkStoragePath m f.id b.id idx path true
+        | .storageLength root =>
+          let declaration ← match m.state.find? (·.id == root) with
+          | none =>
             .error <| error .unknownReference "state-shape" (some f.id) (some b.id) (some idx)
               s!"unknown storage root {repr root}"
+          | some declaration => pure declaration
+          match declaration.shape with
+          | .fixedArray _ _ | .dynamicArray _ => pure ()
+          | .scalar _ | .map _ _ _ | .record _ =>
+            .error <| error .invalidStoragePath "state-shape" (some f.id) (some b.id) (some idx)
+              s!"storageLength requires array root, got {repr declaration.shape}"
+        | .storageResize root _ =>
+          let declaration ← match m.state.find? (·.id == root) with
+          | none =>
+            .error <| error .unknownReference "state-shape" (some f.id) (some b.id) (some idx)
+              s!"unknown storage root {repr root}"
+          | some declaration => pure declaration
+          match declaration.shape with
+          | .dynamicArray _ => pure ()
+          | .scalar _ | .map _ _ _ | .fixedArray _ _ | .record _ =>
+            .error <| error .invalidStoragePath "state-shape" (some f.id) (some b.id) (some idx)
+              s!"storageResize requires dynamic-array root, got {repr declaration.shape}"
+        | .memoryAlloc type _ =>
+          rejectEphemeralType type "memory allocation element type"
+            (some f.id) (some b.id) (some idx)
+          checkCoreTypeReferences m type "memory allocation element type"
+            (some f.id) (some b.id) (some idx)
+        | .crosscall spec _ =>
+          rejectEphemeralType spec.returnType "crosscall return type"
+            (some f.id) (some b.id) (some idx)
+          checkCoreTypeReferences m spec.returnType "crosscall return type"
+            (some f.id) (some b.id) (some idx)
+          for type in spec.paramTypes do
+            rejectEphemeralType type "crosscall parameter type"
+              (some f.id) (some b.id) (some idx)
+            checkCoreTypeReferences m type "crosscall parameter type"
+              (some f.id) (some b.id) (some idx)
         | _ => pure ()
 
 /- Pass 3: CFG shape, reachability, and cycle bounds. -/
@@ -340,6 +600,13 @@ private def checkCfgAndBounds (f : Function) :
         .error <| error .unknownReference "cfg" (some f.id) (some b.id) none
           s!"block {repr b.id} is unreachable"
     for b in f.blocks do
+      match b.terminator with
+      | .jump target _ (some _) =>
+          unless isReachable f target b.id do
+            .error <| error .typeMismatch "cfg" (some f.id) (some b.id) none
+              s!"LoopBound is only valid on a cycle edge, got {repr b.id} -> {repr target}"
+      | .jump _ _ none | .branch _ _ _ | .return _ | .revert _ => pure ()
+    for b in f.blocks do
       for succ in traversalSuccessors true b.terminator do
         if isReachable f succ b.id none true then
           .error <| error .missingLoopBound "cfg" (some f.id) (some b.id) none
@@ -379,9 +646,10 @@ private def referencedValueRefs (op : InstructionOp) : Array ValueRef :=
   | .memoryRelease base => #[base]
   | .contextRead _ => #[]
   | .emit _ args => args
-  | .assert condition _ => #[condition]
+  | .assert condition error => #[condition] ++ error.args
   | .crosscall spec args =>
-    optionalValueRef spec.gas ++ optionalValueRef spec.value ++ args
+    #[spec.target, spec.method] ++ optionalValueRef spec.gas ++
+      optionalValueRef spec.value ++ args
   | .hostCall call => call.args
 
 private def referencedValueRefsTerminator (t : Terminator) : Array ValueRef :=
@@ -389,7 +657,7 @@ private def referencedValueRefsTerminator (t : Terminator) : Array ValueRef :=
   | .jump _ args _ => args
   | .branch condition _ _ => #[condition]
   | .return values => values
-  | .revert _ => #[]
+  | .revert error => error.args
 
 private inductive ValueDefinitionSite
   | functionParameter
@@ -474,9 +742,12 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
     Except ValidationError Unit := do
   match p, results with
   | .literal lit, #[r] =>
-    unless literalFitsType lit r.type do
+    unless literalFitsConstructor lit do
       .error <| error .literalOutOfRange "instruction-typing" (some fid) (some bid) (some idx)
-        s!"literal {repr lit} does not fit result type {repr r.type}"
+        s!"literal {literalTypeName lit} payload exceeds its constructor range or collection limit"
+    unless literalFitsResultType lit r.type do
+      .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
+        s!"literal constructor {literalTypeName lit} does not match result type {repr r.type}"
   | .unary op arg, #[r] =>
     match op with
     | .not =>
@@ -491,18 +762,21 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
     unless lhs.type == rhs.type && r.type == lhs.type && isIntegerLike lhs.type do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"arithmetic operands/results must be matching integers, got {repr lhs.type}, {repr rhs.type} -> {repr r.type}"
-  | .compare _ lhs rhs, #[r] =>
-    unless lhs.type == rhs.type && r.type == .bool do
+  | .compare op lhs rhs, #[r] =>
+    unless lhs.type == rhs.type && r.type == .bool && supportsEquality lhs.type do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"compare operands must match and result bool, got {repr lhs.type}, {repr rhs.type} -> {repr r.type}"
+    if !isIntegerLike lhs.type && op != .eq && op != .ne then
+      .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
+        s!"non-integer comparison {repr op} is not portable"
   | .cast to arg, #[r] =>
-    unless r.type == to && isScalar arg.type do
+    unless r.type == to && supportsCast arg.type to do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"cast expects scalar operand and target type, got {repr arg.type} -> {repr to}"
-  | .hash _, #[r] =>
-    unless r.type == .hash do
+  | .hash arg, #[r] =>
+    unless arg.type == .hash && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
-        s!"hash result must be hash, got {repr r.type}"
+        s!"hash input/result must be hash, got {repr arg.type} -> {repr r.type}"
   | _, _ =>
     .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
       s!"pure operation produced {results.size} results, expected 1"
@@ -527,8 +801,31 @@ private def expectedResultCount (op : InstructionOp) : Nat :=
   | .contextRead _ => 1
   | .emit _ _ => 0
   | .assert _ _ => 0
-  | .crosscall _ _ => 1
+  | .crosscall spec _ => if spec.returnType == .unit then 0 else 1
   | .hostCall _ => 1
+
+private def checkErrorRef (m : Module) (f : Function) (b : Block)
+    (instruction : Option Nat) (errorRef : CoreErrorRef) :
+    Except ValidationError Unit := do
+  let declaration ← match m.errors.find? (·.id == errorRef.id) with
+    | none =>
+      .error <| error .unknownReference "error-reference" (some f.id) (some b.id)
+        instruction s!"unknown error {repr errorRef.id}"
+    | some declaration => pure declaration
+  unless errorRef.args.size == declaration.params.size do
+    .error <| error .typeMismatch "error-reference" (some f.id) (some b.id)
+      instruction
+      s!"error {repr errorRef.id} expects {declaration.params.size} args, got {errorRef.args.size}"
+  for i in [:errorRef.args.size] do
+    unless errorRef.args[i]!.type == declaration.params[i]! do
+      .error <| error .typeMismatch "error-reference" (some f.id) (some b.id)
+        instruction
+        s!"error arg {i} type mismatch: expected {repr declaration.params[i]!}, got {repr errorRef.args[i]!.type}"
+
+private def validCrosscallMethodType : CoreType → Bool
+  | .string | .bytes | .hash => true
+  | .unit | .bool | .u8 | .u32 | .u64 | .u128 | .address |
+      .fixedArray _ _ | .array _ | .memoryRef _ | .structType _ => false
 
 private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     (idx : Nat) (instr : Instruction) : Except ValidationError Unit := do
@@ -575,12 +872,12 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
         s!"memoryAlloc length must be u64, got {repr length.type}"
     match instr.results with
     | #[r] =>
-      unless r.type == .array ty do
+      unless r.type == .memoryRef ty do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-          s!"memoryAlloc result type {repr r.type} does not match array {repr ty}"
+          s!"memoryAlloc result type {repr r.type} does not match memory reference {repr ty}"
     | _ => pure ()
   | .memoryLoad base index =>
-    unless isMemoryLike base.type && isIntegerLike index.type do
+    unless isMemoryLike base.type && isArrayIndex index.type do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"memoryLoad base/index types invalid: {repr base.type}, {repr index.type}"
     match instr.results with
@@ -590,7 +887,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
           s!"memoryLoad result type {repr r.type} does not match base element"
     | _ => pure ()
   | .memoryStore base index value =>
-    unless isMemoryLike base.type && isIntegerLike index.type do
+    unless isMemoryLike base.type && isArrayIndex index.type do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"memoryStore base/index types invalid: {repr base.type}, {repr index.type}"
     unless some value.type == elementType? base.type do
@@ -599,7 +896,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
   | .memoryRelease base =>
     unless isMemoryLike base.type do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-        s!"memoryRelease base must be array/bytes, got {repr base.type}"
+        s!"memoryRelease base must be memoryRef, got {repr base.type}"
   | .contextRead field =>
     match instr.results with
     | #[r] =>
@@ -625,26 +922,55 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
         unless args[i]!.type == event.fields[i]!.type do
           .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
             s!"event arg {i} type mismatch: expected {repr event.fields[i]!.type}, got {repr args[i]!.type}"
-  | .assert condition _ =>
+  | .assert condition errorRef =>
     unless condition.type == .bool do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"assert condition must be bool, got {repr condition.type}"
-  | .crosscall _ args =>
-    for arg in args do
-      unless isScalar arg.type || isPortableIdentity arg.type do
+    checkErrorRef m f b (some idx) errorRef
+  | .crosscall spec args =>
+    unless spec.target.type == .address do
+      .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+        s!"crosscall target must be address, got {repr spec.target.type}"
+    unless validCrosscallMethodType spec.method.type do
+      .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+        s!"crosscall method must be string, bytes, or hash, got {repr spec.method.type}"
+    match spec.gas with
+    | some gas => unless gas.type == .u64 do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-          s!"crosscall arg type {repr arg.type} is not a portable scalar/identity"
-    match instr.results with
-    | #[r] =>
-      unless r.type == .u64 do
+          s!"crosscall gas must be u64, got {repr gas.type}"
+    | none => pure ()
+    match spec.value with
+    | some value =>
+        unless value.type == .u128 do
+          .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+            s!"crosscall value must be u128, got {repr value.type}"
+        if spec.mode == .staticInvoke || spec.mode == .delegateInvoke then
+          .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+            "static/delegate crosscall cannot carry value"
+    | none => pure ()
+    unless args.size == spec.paramTypes.size do
+      .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+        s!"crosscall expects {spec.paramTypes.size} args, got {args.size}"
+    for i in [:args.size] do
+      unless args[i]!.type == spec.paramTypes[i]! do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-          s!"crosscall result must be u64 (call handle), got {repr r.type}"
-    | _ => pure ()
+          s!"crosscall arg {i} type mismatch: expected {repr spec.paramTypes[i]!}, got {repr args[i]!.type}"
+    if spec.returnType == .unit then
+      unless instr.results.isEmpty do
+        .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+          "unit crosscall must not bind a result"
+    else
+      match instr.results with
+      | #[r] =>
+        unless r.type == spec.returnType do
+          .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+            s!"crosscall result type {repr r.type} does not match {repr spec.returnType}"
+      | _ => pure ()
   | .hostCall _ => pure ()
 
 /- Pass 6: terminator and return typing. -/
 
-private def checkTerminator (f : Function) (b : Block) :
+private def checkTerminator (m : Module) (f : Function) (b : Block) :
     Except ValidationError Unit := do
   let pass := "terminator"
   match b.terminator with
@@ -689,7 +1015,7 @@ private def checkTerminator (f : Function) (b : Block) :
       | none =>
         .error <| error .invalidReturn pass (some f.id) (some b.id) none
           s!"missing return value for type {repr f.retType}"
-  | .revert _ => pure ()
+  | .revert errorRef => checkErrorRef m f b none errorRef
 
 /- Pass 7: capability and HostOp references. Wave 3 will add the typed host-op
 catalog; here we verify that host calls are well-formed and requirements are
@@ -713,7 +1039,7 @@ private def checkCapabilityAndHostOp (m : Module) :
 HostOp/capability references. Exposed so that `ProofForge.IR.Canonical` can
 insert canonical-level reference checks between pass 1 and pass 3. -/
 
-def validateModulePhases (m : Module) : Except ValidationError CheckedModule := do
+def validateModulePhases (m : Module) : Except ValidationError Unit := do
   for f in m.functions do
     checkCfgAndBounds f
   for f in m.functions do
@@ -724,9 +1050,9 @@ def validateModulePhases (m : Module) : Except ValidationError CheckedModule := 
         checkInstructionTyping m f b idx b.instructions[idx]!
   for f in m.functions do
     for b in f.blocks do
-      checkTerminator f b
+      checkTerminator m f b
   checkCapabilityAndHostOp m
-  return { module := m }
+  return ()
 
 /- Entry point: run all validation passes in the required order. -/
 
@@ -734,5 +1060,6 @@ def validateModule (m : Module) : Except ValidationError CheckedModule := do
   checkSymbolUniqueness m
   checkStateShapeReferences m
   validateModulePhases m
+  return { module := m }
 
 end ProofForge.IR.Core.Validate

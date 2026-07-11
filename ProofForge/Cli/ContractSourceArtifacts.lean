@@ -202,6 +202,12 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
+  -- Resolve before loading the source so unknown, hidden `*-core`, and
+  -- non-EmitWat profiles fail without elaboration or artifact side effects.
+  let resolved ← match resolveEmitWatTarget opts with
+    | .ok resolved => pure resolved
+    | .error msg => throw <| IO.userError msg
+  let profile := resolved.1
   let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
   let fixtureSlug := spec.name.toLower
   let outputDir ← match opts.output? with
@@ -212,14 +218,6 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
           pure out
     | none =>
         throw <| IO.userError "contract source EmitWat build requires -o output directory (or .wat path)"
-  -- PF-P0-04: resolve the requested Wasm-host profile (NEAR vs Soroban), never alias to NEAR.
-  let targetId := opts.targetId?.getD ProofForge.Target.wasmNear.id
-  let profile ←
-    match ProofForge.Target.find? targetId with
-    | some profile => pure profile
-    | none =>
-        throw <| IO.userError
-          s!"unknown EmitWat target '{targetId}'; known targets: {String.intercalate ", " ProofForge.Target.knownIds.toList}"
   let opts' := { opts with
     output? := some outputDir
     targetId? := some profile.id

@@ -6,7 +6,7 @@ namespace ProofForge.IR.Core
 
 structure FieldId where value : Nat
 
-deriving instance BEq, Repr, Inhabited for FieldId
+deriving instance BEq, ReflBEq, LawfulBEq, DecidableEq, Repr, Inhabited, Hashable for FieldId
 
 /- State shapes describe the logical layout of a persistent state variable.
 They contain no target allocation information such as EVM slots, Solana
