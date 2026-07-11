@@ -118,6 +118,184 @@ def classifyEntrypointMutability : EntrypointMutability → LegacyDecision
   | .call => payloadDecision "EntrypointMutability.call" .preserve "canonical-interface" "state-mutating invocation metadata is preserved"
   | .view => payloadDecision "EntrypointMutability.view" .preserve "canonical-interface" "read-only invocation metadata is preserved"
 
+def classifyStateKind : StateKind → LegacyDecision
+  | .scalar => payloadDecision "StateKind.scalar" .normalize "canonical-core" "scalar state maps to canonical scalar storage"
+  | .map _ _ => payloadDecision "StateKind.map" .normalize "canonical-core-maps" "map key type and capacity are classified before canonical storage lowering"
+  | .array _ => payloadDecision "StateKind.array" .normalize "canonical-core-arrays" "fixed array length is classified before canonical storage lowering"
+  | .dynamicArray => payloadDecision "StateKind.dynamicArray" .normalize "canonical-core-arrays" "dynamic array shape is classified before canonical storage lowering"
+
+def classifyStateKindPayload : StateKind → Array LegacyDecision
+  | .scalar => #[]
+  | .map _ _ => #[
+      payloadDecision "StateKind.map.keyType" .normalize "canonical-core-maps" "map key type maps recursively to canonical Core",
+      payloadDecision "StateKind.map.capacity" .materialization "target-plan-storage" "bounded map capacity is resolved by the target storage plan"
+    ]
+  | .array _ => #[
+      payloadDecision "StateKind.array.length" .normalize "canonical-core-arrays" "fixed array length is preserved in canonical storage shape"
+    ]
+  | .dynamicArray => #[]
+
+def classifyStructSemantics : StructSemantics → LegacyDecision
+  | .value => payloadDecision "StructSemantics.value" .normalize "canonical-core-structs" "copyable struct semantics map to canonical record types"
+  | .linearRecord => payloadDecision "StructSemantics.linearRecord" .reject "canonical-core-ownership" "linear record ownership is rejected until canonical ownership semantics cover records"
+
+def classifyAllocatorStrategy : AllocatorStrategy → LegacyDecision
+  | .bump => payloadDecision "AllocatorStrategy.bump" .materialization "target-plan-allocator" "bump allocation is materialized by the selected target plan"
+  | .bumpReset => payloadDecision "AllocatorStrategy.bumpReset" .materialization "target-plan-allocator" "resetting bump allocation is materialized by the selected target plan"
+  | .freeList => payloadDecision "AllocatorStrategy.freeList" .materialization "target-plan-allocator" "free-list allocation is materialized by the selected target plan"
+  | .hostImport => payloadDecision "AllocatorStrategy.hostImport" .materialization "target-plan-allocator" "host allocation imports are materialized by the selected target plan"
+
+def classifyAllocatorRelease : AllocatorRelease → LegacyDecision
+  | .none => payloadDecision "AllocatorRelease.none" .materialization "target-plan-allocator" "unsupported release is enforced by the selected target plan"
+  | .noop => payloadDecision "AllocatorRelease.noop" .materialization "target-plan-allocator" "no-op release is materialized by the selected target plan"
+  | .reuse => payloadDecision "AllocatorRelease.reuse" .materialization "target-plan-allocator" "storage reuse is materialized by the selected target plan"
+
+def classifyConstructorInitKind : ProofForge.Contract.ConstructorInitKind → LegacyDecision
+  | .scalarU64 => payloadDecision "ConstructorInitKind.scalarU64" .materialization "target-plan-constructor" "scalar constructor initialization is target materialization"
+  | .addressWord => payloadDecision "ConstructorInitKind.addressWord" .materialization "target-plan-constructor" "address-word constructor initialization is target materialization"
+  | .addressKeccak => payloadDecision "ConstructorInitKind.addressKeccak" .materialization "target-plan-constructor" "address hashing during construction is target materialization"
+  | .stringLength => payloadDecision "ConstructorInitKind.stringLength" .materialization "target-plan-constructor" "string length initialization is target materialization"
+  | .stringKeccak => payloadDecision "ConstructorInitKind.stringKeccak" .materialization "target-plan-constructor" "string hashing during construction is target materialization"
+  | .bytesLength => payloadDecision "ConstructorInitKind.bytesLength" .materialization "target-plan-constructor" "byte length initialization is target materialization"
+  | .bytesKeccak => payloadDecision "ConstructorInitKind.bytesKeccak" .materialization "target-plan-constructor" "byte hashing during construction is target materialization"
+  | .arrayLength => payloadDecision "ConstructorInitKind.arrayLength" .materialization "target-plan-constructor" "array length initialization is target materialization"
+  | .arraySumU64 => payloadDecision "ConstructorInitKind.arraySumU64" .materialization "target-plan-constructor" "array reduction during construction is target materialization"
+
+def classifyIntentKind : ProofForge.Contract.IntentKind → LegacyDecision
+  | .module => payloadDecision "IntentKind.module" .materialization "target-plan-intent" "module intent is retained for materialization"
+  | .state => payloadDecision "IntentKind.state" .materialization "target-plan-intent" "state intent is retained for materialization"
+  | .entrypoint => payloadDecision "IntentKind.entrypoint" .materialization "target-plan-intent" "entrypoint intent is retained for materialization"
+  | .capability => payloadDecision "IntentKind.capability" .materialization "target-plan-intent" "capability intent is retained for materialization"
+
+def classifyUpgradePolicy : ProofForge.Contract.UpgradePolicy → LegacyDecision
+  | .immutable => payloadDecision "UpgradePolicy.immutable" .materialization "target-plan-upgrade" "immutable deployment policy is target materialization"
+  | .authority _ => payloadDecision "UpgradePolicy.authority" .materialization "target-plan-upgrade" "authority-controlled upgrades are target materialization"
+  | .governance _ => payloadDecision "UpgradePolicy.governance" .materialization "target-plan-upgrade" "governance-controlled upgrades are target materialization"
+
+def classifyUpgradePolicyPayload : ProofForge.Contract.UpgradePolicy → Array LegacyDecision
+  | .immutable => #[]
+  | .authority _ => #[
+      payloadDecision "UpgradePolicy.authority.keyRef" .materialization "target-plan-upgrade" "upgrade authority key reference is preserved for target materialization"
+    ]
+  | .governance _ => #[
+      payloadDecision "UpgradePolicy.governance.ref" .materialization "target-plan-upgrade" "governance reference is preserved for target materialization"
+    ]
+
+def classifyProxyPattern : ProofForge.Contract.ProxyPattern → LegacyDecision
+  | .uups => payloadDecision "ProxyPattern.uups" .materialization "target-plan-upgrade" "UUPS proxy layout is target materialization"
+  | .transparent => payloadDecision "ProxyPattern.transparent" .materialization "target-plan-upgrade" "transparent proxy layout is target materialization"
+
+/- Structure classifiers use positional patterns deliberately. Adding a field,
+even one with a default value, must make this file fail to compile until that
+field has an explicit migration decision. -/
+
+def classifyStructFieldFields : StructField → Array LegacyDecision
+  | ⟨_, _, _, _⟩ => #[
+      payloadDecision "StructField.id" .preserve "canonical-core-structs" "field identity is preserved in canonical type declarations",
+      payloadDecision "StructField.type" .normalize "canonical-core-structs" "field value type maps recursively to canonical Core",
+      payloadDecision "StructField.isPublic" .evidence "canonical-interface" "field visibility is retained as interface evidence",
+      payloadDecision "StructField.isRef" .normalize "canonical-core-ownership" "reference ownership is checked during canonical normalization"
+    ]
+
+def classifyStructDeclFields : StructDecl → Array LegacyDecision
+  | ⟨_, _, _, _, _⟩ => #[
+      payloadDecision "StructDecl.name" .preserve "canonical-core-structs" "struct identity is preserved in canonical type declarations",
+      payloadDecision "StructDecl.fields" .normalize "canonical-core-structs" "struct fields are classified individually before canonical normalization",
+      payloadDecision "StructDecl.deriveStorage" .materialization "target-plan-storage" "derived storage representation is selected by the target plan",
+      payloadDecision "StructDecl.isPublic" .evidence "canonical-interface" "struct visibility is retained as interface evidence",
+      payloadDecision "StructDecl.isRecord" .normalize "canonical-core-ownership" "record ownership semantics are classified explicitly"
+    ]
+
+def classifyStateDeclFields : StateDecl → Array LegacyDecision
+  | ⟨_, _, _⟩ => #[
+      payloadDecision "StateDecl.id" .preserve "canonical-core-storage" "state identity is preserved in canonical storage declarations",
+      payloadDecision "StateDecl.kind" .normalize "canonical-core-storage" "state shape is classified by StateKind",
+      payloadDecision "StateDecl.type" .normalize "canonical-core-storage" "stored value type maps recursively to canonical Core"
+    ]
+
+def classifyErrorRefFields : ErrorRef → Array LegacyDecision
+  | ⟨_, _, _, _, _⟩ => #[
+      payloadDecision "ErrorRef.assertionId" .normalize "canonical-core-errors" "portable assertion identity is preserved by canonical control flow",
+      payloadDecision "ErrorRef.userCode?" .evidence "canonical-interface" "user error code is retained as structured diagnostic evidence",
+      payloadDecision "ErrorRef.soliditySelector?" .materialization "evm-adapter" "Solidity selector is EVM materialization metadata",
+      payloadDecision "ErrorRef.solidityArgWords" .materialization "evm-adapter" "Solidity static error arguments are EVM materialization metadata",
+      payloadDecision "ErrorRef.solidityArgTypes" .materialization "evm-adapter" "Solidity error ABI types are EVM materialization metadata"
+    ]
+
+def classifyEntrypointFields : Entrypoint → Array LegacyDecision
+  | ⟨_, _, _, _, _, _, _, _⟩ => #[
+      payloadDecision "Entrypoint.name" .preserve "canonical-interface" "entrypoint identity is preserved in the canonical interface",
+      payloadDecision "Entrypoint.kind" .preserve "canonical-interface" "dispatch kind is preserved in the canonical interface",
+      payloadDecision "Entrypoint.mutability" .preserve "canonical-interface" "host-visible mutability is preserved in the canonical interface",
+      payloadDecision "Entrypoint.selector?" .materialization "target-plan-dispatch" "optional dispatch selector is resolved by the target plan",
+      payloadDecision "Entrypoint.params" .normalize "canonical-interface" "entrypoint parameters map to typed canonical parameters",
+      payloadDecision "Entrypoint.paramAbiWords" .materialization "target-plan-abi" "ABI word overrides are resolved by the target plan",
+      payloadDecision "Entrypoint.returns" .normalize "canonical-interface" "return type maps to the canonical interface",
+      payloadDecision "Entrypoint.body" .normalize "canonical-core" "entrypoint statements normalize to canonical control flow"
+    ]
+
+def classifyEventAbiWordFields : EventAbiWord → Array LegacyDecision
+  | ⟨_, _, _⟩ => #[
+      payloadDecision "EventAbiWord.eventName" .materialization "target-plan-events" "event identity is preserved for target event materialization",
+      payloadDecision "EventAbiWord.fieldName" .materialization "target-plan-events" "event field identity is preserved for target event materialization",
+      payloadDecision "EventAbiWord.abiWord" .materialization "target-plan-events" "event ABI override is target materialization metadata"
+    ]
+
+def classifyModuleFields : Module → Array LegacyDecision
+  | ⟨_, _, _, _, _, _, _, _, _⟩ => #[
+      payloadDecision "Module.name" .preserve "canonical-core" "module identity is preserved by canonical Core",
+      payloadDecision "Module.structs" .normalize "canonical-core-structs" "struct declarations are classified field-by-field",
+      payloadDecision "Module.state" .normalize "canonical-core-storage" "state declarations are classified field-by-field",
+      payloadDecision "Module.entrypoints" .normalize "canonical-core" "entrypoints are classified field-by-field",
+      payloadDecision "Module.eventAbiWords" .materialization "target-plan-events" "event ABI overrides are target materialization metadata",
+      payloadDecision "Module.allocator" .materialization "target-plan-allocator" "allocator model is classified field-by-field for target materialization",
+      payloadDecision "Module.proxyPattern?" .materialization "target-plan-upgrade" "module proxy layout is target materialization metadata",
+      payloadDecision "Module.nearCrosscallStrings" .materialization "near-adapter" "NEAR host string pool is target materialization metadata",
+      payloadDecision "Module.overflowChecked" .normalize "canonical-core-arithmetic" "overflow mode selects canonical arithmetic semantics"
+    ]
+
+def classifyAllocatorRegionFields : AllocatorRegion → Array LegacyDecision
+  | ⟨_, _, _⟩ => #[
+      payloadDecision "AllocatorRegion.base" .materialization "target-plan-allocator" "allocator base address is target materialization metadata",
+      payloadDecision "AllocatorRegion.size?" .materialization "target-plan-allocator" "allocator region bound is target materialization metadata",
+      payloadDecision "AllocatorRegion.growable" .materialization "target-plan-allocator" "allocator growth policy is target materialization metadata"
+    ]
+
+def classifyAllocatorModelFields : AllocatorModel → Array LegacyDecision
+  | ⟨_, _, _, _⟩ => #[
+      payloadDecision "AllocatorModel.strategy" .materialization "target-plan-allocator" "allocator strategy is classified explicitly",
+      payloadDecision "AllocatorModel.region" .materialization "target-plan-allocator" "allocator region is classified field-by-field",
+      payloadDecision "AllocatorModel.release" .materialization "target-plan-allocator" "allocator release semantics are classified explicitly",
+      payloadDecision "AllocatorModel.hostProvided" .materialization "target-plan-allocator" "host allocation requirement is target materialization metadata"
+    ]
+
+def classifyAllocatorConfigFields : AllocatorConfig → Array LegacyDecision
+  | ⟨_⟩ => #[
+      payloadDecision "AllocatorConfig.model" .materialization "target-plan-allocator" "allocator model is classified field-by-field"
+    ]
+
+def classifyConstructorParamFields : ProofForge.Contract.ConstructorParam → Array LegacyDecision
+  | ⟨_, _⟩ => #[
+      payloadDecision "ConstructorParam.name" .materialization "target-plan-constructor" "constructor parameter identity is preserved for deploy materialization",
+      payloadDecision "ConstructorParam.abiType" .materialization "target-plan-constructor" "constructor ABI type is target materialization metadata"
+    ]
+
+def classifyConstructorInitBindingFields : ProofForge.Contract.ConstructorInitBinding → Array LegacyDecision
+  | ⟨_, _, _⟩ => #[
+      payloadDecision "ConstructorInitBinding.stateId" .materialization "target-plan-constructor" "constructor storage destination is target materialization metadata",
+      payloadDecision "ConstructorInitBinding.paramName" .materialization "target-plan-constructor" "constructor parameter reference is target materialization metadata",
+      payloadDecision "ConstructorInitBinding.kind" .materialization "target-plan-constructor" "constructor initialization operation is classified explicitly"
+    ]
+
+def classifyIntentFields : ProofForge.Contract.Intent → Array LegacyDecision
+  | ⟨_, _, _, _, _⟩ => #[
+      payloadDecision "Intent.kind" .materialization "target-plan-intent" "intent kind is classified explicitly",
+      payloadDecision "Intent.label" .materialization "target-plan-intent" "intent identity is retained for target planning",
+      payloadDecision "Intent.capability?" .materialization "target-plan-intent" "intent capability is retained for target planning",
+      payloadDecision "Intent.source?" .evidence "canonical-evidence" "intent source location is retained as evidence",
+      payloadDecision "Intent.metadata" .materialization "target-plan-intent" "intent metadata is retained for target planning"
+    ]
+
 /--! Classify a legacy `Effect` constructor.
 
 No wildcard arms: adding a new `Effect` constructor makes this function fail to
@@ -621,6 +799,39 @@ def entrypointMutabilityInventory : Array EntrypointMutability := #[
   .call, .view
 ]
 
+def stateKindInventory : Array StateKind := #[
+  .scalar, .map .u64 1, .array 1, .dynamicArray
+]
+
+def structSemanticsInventory : Array StructSemantics := #[
+  .value, .linearRecord
+]
+
+def allocatorStrategyInventory : Array AllocatorStrategy := #[
+  .bump, .bumpReset, .freeList, .hostImport
+]
+
+def allocatorReleaseInventory : Array AllocatorRelease := #[
+  .none, .noop, .reuse
+]
+
+def constructorInitKindInventory : Array ProofForge.Contract.ConstructorInitKind := #[
+  .scalarU64, .addressWord, .addressKeccak, .stringLength, .stringKeccak,
+  .bytesLength, .bytesKeccak, .arrayLength, .arraySumU64
+]
+
+def intentKindInventory : Array ProofForge.Contract.IntentKind := #[
+  .module, .state, .entrypoint, .capability
+]
+
+def upgradePolicyInventory : Array ProofForge.Contract.UpgradePolicy := #[
+  .immutable, .authority "key", .governance "governance"
+]
+
+def proxyPatternInventory : Array ProofForge.Contract.ProxyPattern := #[
+  .uups, .transparent
+]
+
 def allPayloadDecisions : Array LegacyDecision :=
   valueTypeInventory.map classifyValueType ++
   literalInventory.map classifyLiteral ++
@@ -628,7 +839,17 @@ def allPayloadDecisions : Array LegacyDecision :=
   storagePathSegmentInventory.map classifyStoragePathSegment ++
   contextFieldInventory.map classifyContextField ++
   entrypointKindInventory.map classifyEntrypointKind ++
-  entrypointMutabilityInventory.map classifyEntrypointMutability
+  entrypointMutabilityInventory.map classifyEntrypointMutability ++
+  stateKindInventory.map classifyStateKind ++
+  stateKindInventory.flatMap classifyStateKindPayload ++
+  structSemanticsInventory.map classifyStructSemantics ++
+  allocatorStrategyInventory.map classifyAllocatorStrategy ++
+  allocatorReleaseInventory.map classifyAllocatorRelease ++
+  constructorInitKindInventory.map classifyConstructorInitKind ++
+  intentKindInventory.map classifyIntentKind ++
+  upgradePolicyInventory.map classifyUpgradePolicy ++
+  upgradePolicyInventory.flatMap classifyUpgradePolicyPayload ++
+  proxyPatternInventory.map classifyProxyPattern
 
 /--! Representative expression for every `Expr` constructor.
 
@@ -735,6 +956,32 @@ def statementInventory : Array Statement := #[
   .return (.local "x")
 ]
 
+def allStructureFieldDecisions : Array LegacyDecision :=
+  classifyStructFieldFields {
+    id := "field", type := .u64, isPublic := true, isRef := false
+  } ++
+  classifyStructDeclFields {
+    name := "S", fields := #[], deriveStorage := false,
+    isPublic := true, isRecord := false
+  } ++
+  classifyStateDeclFields { id := "state", kind := .scalar, type := .u64 } ++
+  classifyErrorRefFields { assertionId := 0 } ++
+  classifyEntrypointFields { name := "run", body := #[] } ++
+  classifyEventAbiWordFields {
+    eventName := "E", fieldName := "value", abiWord := "uint64"
+  } ++
+  classifyModuleFields {
+    name := "LegacyInventory", state := #[], entrypoints := #[]
+  } ++
+  classifyAllocatorRegionFields {} ++
+  classifyAllocatorModelFields defaultAllocator.model ++
+  classifyAllocatorConfigFields defaultAllocator ++
+  classifyConstructorParamFields { name := "owner", abiType := "address" } ++
+  classifyConstructorInitBindingFields {
+    stateId := "owner", paramName := "owner", kind := .addressWord
+  } ++
+  classifyIntentFields { kind := .module, label := "LegacyInventory" }
+
 /--! All constructor decisions.
 
 Every current payload, `Expr`, `Effect`, and `Statement` constructor has a
@@ -743,7 +990,8 @@ def allDecisions : Array LegacyDecision :=
   allPayloadDecisions ++
   exprInventory.map classifyExpr ++
   effectInventory.map classifyEffect ++
-  statementInventory.map classifyStatement
+  statementInventory.map classifyStatement ++
+  allStructureFieldDecisions
 
 /--! All node tags extracted from `allDecisions`. -/
 def allNodeTags : Array String :=
@@ -762,9 +1010,9 @@ def classifySpecFields : ProofForge.Contract.ContractSpec → Array LegacySpecFi
         owner := "canonical-core"
         reason := "contract name metadata preserved by canonical core" },
       { field := "module"
-        disposition := .preserve
+        disposition := .normalize
         owner := "canonical-core"
-        reason := "IR module preserved by canonical core" },
+        reason := "IR module is classified field-by-field; target materialization fields are not blanket-preserved" },
       { field := "intents"
         disposition := .materialization
         owner := "target-plan"
