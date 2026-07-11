@@ -1,11 +1,20 @@
+import ProofForge.Backend.Evm.CorePlan
+import ProofForge.Backend.Evm.CoreLower
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.Validate
+import ProofForge.Backend.Solana.CorePlan
+import ProofForge.Backend.Solana.CoreLower
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.WasmHost.CorePlan
+import ProofForge.Backend.WasmHost.CoreLower
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.IR
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Compiler.Yul.Printer
+import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.Backend
+import ProofForge.Target.CoreBackend
 import ProofForge.Target.HostBridge
 import ProofForge.Target.Registry
 
@@ -95,6 +104,32 @@ def nearBackend : TargetBackend := {
   ensurePackage? := some nearEnsurePackage
 }
 
+/-! ### Core IR + target plan decoupling backends (Task 10, experimental) -/
+
+def evmCoreBackend : TargetBackend :=
+  CoreBackend.mkCoreBackend
+    { profile := evmCore
+    , buildPlan := ProofForge.Backend.Evm.CorePlan.buildEvmCorePlan
+    , lowerToCode := ProofForge.Backend.Evm.CoreLower.lowerEvmCorePlan
+    , printCode := Lean.Compiler.Yul.Printer.render
+    }
+
+def solanaCoreBackend : TargetBackend :=
+  CoreBackend.mkCoreBackend
+    { profile := solanaSbpfAsmCore
+    , buildPlan := ProofForge.Backend.Solana.CorePlan.buildSolanaCorePlan
+    , lowerToCode := ProofForge.Backend.Solana.CoreLower.lowerSolanaCorePlan
+    , printCode := fun nodes => ProofForge.Backend.Solana.Asm.renderNodes nodes.toArray
+    }
+
+def wasmHostCoreBackend : TargetBackend :=
+  CoreBackend.mkCoreBackend
+    { profile := wasmNearCore
+    , buildPlan := ProofForge.Backend.WasmHost.CorePlan.buildWasmCorePlan
+    , lowerToCode := ProofForge.Backend.WasmHost.CoreLower.lowerWasmCorePlan
+    , printCode := ProofForge.Compiler.Wasm.Printer.render
+    }
+
 def primaryTriadBackends : Array TargetBackend := #[
   evmBackend,
   solanaBackend,
@@ -113,6 +148,12 @@ def backendForProfile (profile : TargetProfile) : TargetBackend :=
     solanaBackend
   else if profile.id == "wasm-near" then
     nearBackend
+  else if profile.id == "evm-core" then
+    evmCoreBackend
+  else if profile.id == "solana-sbpf-asm-core" then
+    solanaCoreBackend
+  else if profile.id == "wasm-near-core" then
+    wasmHostCoreBackend
   else
     TargetBackend.ofProfile profile
 

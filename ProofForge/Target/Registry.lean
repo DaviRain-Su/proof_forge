@@ -305,6 +305,72 @@ def solanaSbpfAsm : TargetProfile := {
     #[{ tool := "sbpf", stage := "final-deployable" }]
 }
 
+/-- Core IR + target plan decoupling lane for EVM (Task 10). Experimental
+backend that lowers portable IR to `EvmCorePlan` and then to a Yul object,
+exposing the new plan boundary without replacing the primary `evm` backend. -/
+def evmCore : TargetProfile := {
+  id := "evm-core"
+  family := .evm
+  artifactKind := .yul
+  deploymentAllocator? := some (ProofForge.IR.AllocatorConfig.evm)
+  capabilities := evm.capabilities
+  requiredTools := #["solc"]
+  support := {
+    maturity := .experimental
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.intermediate]
+    validationLevel := .package
+    supportedFragment :=
+      "portable IR → EvmCorePlan → Yul object (intermediate); mirrors evm capability surface"
+    toolStages := #[{ tool := "solc", stage := "final-deployable" }]
+  }
+}
+
+/-- Core IR + target plan decoupling lane for Solana sBPF assembly (Task 10).
+Experimental backend that lowers portable IR to `SolanaCorePlan` and then to
+sBPF assembly AST nodes. -/
+def solanaSbpfAsmCore : TargetProfile := {
+  id := "solana-sbpf-asm-core"
+  family := .solana
+  artifactKind := .solanaElf
+  capabilities := solanaSbpfAsm.capabilities
+  requiredTools := #["sbpf"]
+  support := {
+    maturity := .experimental
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.intermediate]
+    validationLevel := .package
+    supportedFragment :=
+      "portable IR → SolanaCorePlan → sBPF assembly (intermediate); mirrors solana-sbpf-asm capability surface"
+    toolStages := #[{ tool := "sbpf", stage := "final-deployable" }]
+  }
+}
+
+/-- Core IR + target plan decoupling lane for NEAR Wasm (Task 10). Experimental
+backend that lowers portable IR to `WasmCorePlan` and then to a WAT module. -/
+def wasmNearCore : TargetProfile := {
+  id := "wasm-near-core"
+  family := .wasmHost
+  artifactKind := .wasm
+  deploymentAllocator? := some (ProofForge.IR.AllocatorConfig.nearWeeModel)
+  offlineAllocators := #[ProofForge.IR.AllocatorConfig.hostBump]
+  capabilities := wasmNear.capabilities
+  hostBridge? := some .near
+  requiredTools := #["wat2wasm"]
+  support := {
+    maturity := .experimental
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.intermediate, .finalDeployable]
+    validationLevel := .package
+    supportedFragment :=
+      "portable IR → WasmCorePlan → WAT intermediate → wat2wasm Wasm final; mirrors wasm-near capability surface"
+    toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
+  }
+}
+
 def solanaZigFork : TargetProfile := {
   -- Fallback/reference track (D-005), not the primary product path.
   -- Excluded from `all`/`find?`/`knownIds` via deprecated := true.
@@ -458,7 +524,10 @@ def allIncludingDeprecated : Array TargetProfile := #[
   moveAptos,
   moveSui,
   psyDpn,
-  aleoLeo
+  aleoLeo,
+  evmCore,
+  solanaSbpfAsmCore,
+  wasmNearCore
 ]
 
 /-- Active (non-deprecated) profiles. This is the public target surface:

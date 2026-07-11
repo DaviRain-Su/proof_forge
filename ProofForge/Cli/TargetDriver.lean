@@ -213,6 +213,30 @@ def nearResolveEmit (req : EmitRequest) : Except String String :=
     else
       Except.error s!"emit --target wasm-near --fixture {f} is not yet mapped"
 
+/-! ### Core IR + target plan decoupling drivers (Task 10) -/
+
+def coreTargetBuildUnsupported (target : String) : String :=
+  s!"proof-forge build --target {target}: build/emit for -core experimental targets is not yet implemented; \
+use `proof-forge check --target {target} <Contract.lean>` to exercise the core IR plan path"
+
+def evmCoreResolveBuild (_req : BuildRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "evm-core")
+
+def evmCoreResolveEmit (_req : EmitRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "evm-core")
+
+def solanaCoreResolveBuild (_req : BuildRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "solana-sbpf-asm-core")
+
+def solanaCoreResolveEmit (_req : EmitRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "solana-sbpf-asm-core")
+
+def wasmNearCoreResolveBuild (_req : BuildRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "wasm-near-core")
+
+def wasmNearCoreResolveEmit (_req : EmitRequest) : Except String String :=
+  Except.error (coreTargetBuildUnsupported "wasm-near-core")
+
 /-! ### Secondary / fixture drivers -/
 
 def sorobanResolveBuild (req : BuildRequest) : Except String String :=
@@ -375,6 +399,9 @@ def cliDrivers : Array TargetCliDriver := #[
   { id := "evm", resolveBuild := evmResolveBuild, resolveEmit := evmResolveEmit },
   { id := "solana-sbpf-asm", resolveBuild := solanaResolveBuild, resolveEmit := solanaResolveEmit },
   { id := "wasm-near", resolveBuild := nearResolveBuild, resolveEmit := nearResolveEmit },
+  { id := "evm-core", resolveBuild := evmCoreResolveBuild, resolveEmit := evmCoreResolveEmit },
+  { id := "solana-sbpf-asm-core", resolveBuild := solanaCoreResolveBuild, resolveEmit := solanaCoreResolveEmit },
+  { id := "wasm-near-core", resolveBuild := wasmNearCoreResolveBuild, resolveEmit := wasmNearCoreResolveEmit },
   { id := "wasm-stellar-soroban", resolveBuild := sorobanResolveBuild, resolveEmit := sorobanResolveEmit },
   { id := "wasm-cosmwasm", resolveBuild := cosmwasmResolveBuild, resolveEmit := cosmwasmResolveEmit },
   { id := "psy-dpn", resolveBuild := psyResolveBuild, resolveEmit := psyResolveEmit },
