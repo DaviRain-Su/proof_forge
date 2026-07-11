@@ -411,6 +411,12 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .irQuint }
   | "--emit-ir-quint-scenario" :: rest, opts =>
       parseArgs rest { opts with mode := .irQuintScenario }
+  | "--contract-source-evm-core-yul" :: rest, opts =>
+      parseArgs rest { opts with mode := .evmCoreYul }
+  | "--contract-source-solana-core-sbpf" :: rest, opts =>
+      parseArgs rest { opts with mode := .solanaCoreSbpf }
+  | "--contract-source-wasm-core-wat" :: rest, opts =>
+      parseArgs rest { opts with mode := .wasmCoreWat }
   | "-h" :: _, _ =>
       .error usage
   | "--help" :: _, _ =>

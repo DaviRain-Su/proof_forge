@@ -215,27 +215,57 @@ def nearResolveEmit (req : EmitRequest) : Except String String :=
 
 /-! ### Core IR + target plan decoupling drivers (Task 10) -/
 
-def coreTargetBuildUnsupported (target : String) : String :=
-  s!"proof-forge build --target {target}: build/emit for -core experimental targets is not yet implemented; \
-use `proof-forge check --target {target} <Contract.lean>` to exercise the core IR plan path"
+def coreTargetSourceUnsupported (target : String) : String :=
+  s!"proof-forge build --target {target} requires a contract_source .lean module; \
+use `proof-forge check --target {target} <Contract.lean>` to exercise the core IR plan path without emitting artifacts"
 
-def evmCoreResolveBuild (_req : BuildRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "evm-core")
+def evmCoreResolveBuild (req : BuildRequest) : Except String String :=
+  if isLearnInput req.input? then
+    Except.error s!"proof-forge build --target evm-core from .learn source is not yet implemented"
+  else if req.token then
+    Except.error "proof-forge build --target evm-core --token: no TokenSpec lane; use --target evm | solana-sbpf-asm | wasm-near"
+  else if isLeanSourceFile req.input? then
+    if req.format?.isSome && req.format? != some "yul" then
+      Except.error s!"proof-forge build --target evm-core does not support format '{req.format?.getD ""}'; use --format yul"
+    else
+      Except.ok "--contract-source-evm-core-yul"
+  else
+    Except.error (coreTargetSourceUnsupported "evm-core")
 
 def evmCoreResolveEmit (_req : EmitRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "evm-core")
+  Except.error "proof-forge emit --target evm-core is not yet implemented; use `proof-forge build --target evm-core <Contract.lean>`"
 
-def solanaCoreResolveBuild (_req : BuildRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "solana-sbpf-asm-core")
+def solanaCoreResolveBuild (req : BuildRequest) : Except String String :=
+  if isLearnInput req.input? then
+    Except.error s!"proof-forge build --target solana-sbpf-asm-core from .learn source is not yet implemented"
+  else if req.token then
+    Except.error "proof-forge build --target solana-sbpf-asm-core --token: no TokenSpec lane; use --target evm | solana-sbpf-asm | wasm-near"
+  else if isLeanSourceFile req.input? then
+    if req.format?.isSome && req.format? != some "s" then
+      Except.error s!"proof-forge build --target solana-sbpf-asm-core does not support format '{req.format?.getD ""}'; use --format s"
+    else
+      Except.ok "--contract-source-solana-core-sbpf"
+  else
+    Except.error (coreTargetSourceUnsupported "solana-sbpf-asm-core")
 
 def solanaCoreResolveEmit (_req : EmitRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "solana-sbpf-asm-core")
+  Except.error "proof-forge emit --target solana-sbpf-asm-core is not yet implemented; use `proof-forge build --target solana-sbpf-asm-core <Contract.lean>`"
 
-def wasmNearCoreResolveBuild (_req : BuildRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "wasm-near-core")
+def wasmNearCoreResolveBuild (req : BuildRequest) : Except String String :=
+  if isLearnInput req.input? then
+    Except.error s!"proof-forge build --target wasm-near-core from .learn source is not yet implemented"
+  else if req.token then
+    Except.error "proof-forge build --target wasm-near-core --token: no TokenSpec lane; use --target evm | solana-sbpf-asm | wasm-near"
+  else if isLeanSourceFile req.input? then
+    if req.format?.isSome && req.format? != some "wat" then
+      Except.error s!"proof-forge build --target wasm-near-core does not support format '{req.format?.getD ""}'; use --format wat"
+    else
+      Except.ok "--contract-source-wasm-core-wat"
+  else
+    Except.error (coreTargetSourceUnsupported "wasm-near-core")
 
 def wasmNearCoreResolveEmit (_req : EmitRequest) : Except String String :=
-  Except.error (coreTargetBuildUnsupported "wasm-near-core")
+  Except.error "proof-forge emit --target wasm-near-core is not yet implemented; use `proof-forge build --target wasm-near-core <Contract.lean>`"
 
 /-! ### Secondary / fixture drivers -/
 
