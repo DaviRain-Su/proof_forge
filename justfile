@@ -41,6 +41,15 @@ canonical-foundation:
     lake env lean Tests/Canonical/CoreSemanticsProofs.lean
     lake env lean --run Tests/Canonical/LegacyAdapter.lean
 
+# Wave 2 Task 7: legacy-to-Core observable parity gate.
+canonical-core:
+    lake env lean --run Tests/Canonical/CoreSchema.lean
+    lake env lean --run Tests/Canonical/CoreValidate.lean
+    lake env lean --run Tests/Canonical/CoreSemantics.lean
+    lake env lean --run Tests/Canonical/LegacyAdapter.lean
+    lake env lean --run Tests/Canonical/LegacyParity.lean
+    lake env lean Tests/Canonical/LegacyRefinement.lean
+
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
     lake env lean Tests/TargetBackend.lean

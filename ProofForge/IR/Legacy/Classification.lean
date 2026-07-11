@@ -1047,4 +1047,9 @@ def classifySpecFields : ProofForge.Contract.ContractSpec → Array LegacySpecFi
         reason := "Lean invariants are verification evidence" }
     ]
 
+/-- A decision is inside the scalar fragment iff it is marked `preserve` or
+`normalize`. -/
+def isScalarAcceptable (d : LegacyDecision) : Bool :=
+  d.disposition == .preserve || d.disposition == .normalize
+
 end ProofForge.IR.Legacy
