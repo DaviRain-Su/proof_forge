@@ -66,6 +66,8 @@ canonical-near-plan:
     lake env lean --run Tests/Backend/Wasm/CanonicalNearPlan.lean
     bash scripts/canonical/near-parity.sh
 
+canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan
+
 # Wave 3B Task 12.1: canonical product matrix and coverage gate.
 canonical-product:
     lake env lean --run Tests/Canonical/ProductMatrix.lean
@@ -112,6 +114,7 @@ canonical-near-route:
 
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
+    scripts/canonical/check-boundary-self-test.sh
     scripts/canonical/check-boundary.sh
     lake env lean --run Tests/Canonical/Boundary.lean
 
@@ -1478,7 +1481,7 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build build-test-deps product target-registry legacy-freeze canonical-foundation canonical-boundary target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check: build build-test-deps product target-registry legacy-freeze canonical-foundation canonical-boundary canonical-core canonical-parity canonical-product target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:

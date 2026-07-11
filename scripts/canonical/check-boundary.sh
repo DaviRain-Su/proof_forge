@@ -14,19 +14,19 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="${PROOF_FORGE_BOUNDARY_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO_ROOT"
 
 FAIL=0
 report() { echo "canonical-boundary: $1"; FAIL=1; }
 
 # ── 1. No public target ID ending in -core ──────────────────────────
-if grep -rn '\-core' ProofForge/Target/Registry.lean | grep -v '^\s*//' | grep -q '\-core'; then
+if rg -n '^\s*id\s*:=\s*"[^"]*-core"' ProofForge/Target/Registry.lean >/dev/null; then
   report "public target ID ending in -core found in Registry.lean"
 fi
 
 # ── 2. No backend importing ProofForge.Frontend.Surface ─────────────
-if grep -rn 'import ProofForge.Frontend.Surface' ProofForge/Backend/ 2>/dev/null | grep -v '^\s*//'; then
+if rg -n '^\s*import\s+ProofForge\.Frontend\.Surface(\s|$)' ProofForge/Backend/ >/dev/null 2>&1; then
   report "backend imports ProofForge.Frontend.Surface"
 fi
 
@@ -38,7 +38,7 @@ CANONICAL_BUILDERS=(
   ProofForge/Backend/WasmHost/NearModulePlan/Core.lean
 )
 for f in "${CANONICAL_BUILDERS[@]}"; do
-  if grep -q 'import ProofForge.IR.Contract' "$f" 2>/dev/null; then
+  if rg -n '^\s*import\s+ProofForge\.IR\.Contract(\s|$)' "$f" >/dev/null 2>&1; then
     report "canonical builder $f imports ProofForge.IR.Contract"
   fi
 done
@@ -53,16 +53,40 @@ PLAN_FILES=(
   ProofForge/Backend/WasmHost/Plan.lean
 )
 for f in "${PLAN_FILES[@]}"; do
-  # Check only structure/inductive declarations, not the lowering functions
-  # that legitimately reference target AST types.
-  if grep -nE '^\s*(structure|inductive)\s.*\b(Yul\.Statement|Asm\.AstNode|Wasm\.Insn)\b' "$f" 2>/dev/null | grep -q .; then
+  if ! python3 - "$f" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read().splitlines()
+declaration = []
+in_plan_type = False
+banned = re.compile(r"\b(?:Yul\.Statement|Asm\.AstNode|Wasm\.Insn)\b")
+top_level = re.compile(r"^(?:structure|inductive|def|private def|protected def|abbrev|instance|namespace|end)\b")
+
+for line in text + ["def __boundary_sentinel := ()"]:
+    if line.startswith(("structure ", "inductive ")):
+        if in_plan_type and banned.search("\n".join(declaration)):
+            raise SystemExit(1)
+        declaration = [line]
+        in_plan_type = True
+    elif in_plan_type and top_level.match(line):
+        if banned.search("\n".join(declaration)):
+            raise SystemExit(1)
+        declaration = []
+        in_plan_type = False
+    elif in_plan_type:
+        declaration.append(line)
+PY
+  then
     report "target plan $f contains raw target AST in plan type declaration"
   fi
 done
 
 # ── 5. Legacy IR freeze: constructor change without classification ──
 # (Reuse the existing legacy-freeze script.)
-if [ -x scripts/canonical/check-legacy-freeze.sh ]; then
+if [ "${PROOF_FORGE_BOUNDARY_SKIP_LEGACY_FREEZE:-0}" != "1" ] && \
+    [ -x scripts/canonical/check-legacy-freeze.sh ]; then
   if ! scripts/canonical/check-legacy-freeze.sh; then
     FAIL=1
   fi

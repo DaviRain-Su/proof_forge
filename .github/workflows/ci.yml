@@ -179,6 +179,9 @@ jobs:
           fi
           just canonical-foundation
           just canonical-boundary
+          just canonical-core
+          just canonical-parity
+          just canonical-product
 
       - name: Check ContractSpec JSON schema
         run: just contract-spec-json
