@@ -1,8 +1,28 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Target.Capability
+import ProofForge.IR.Core.Syntax
+import ProofForge.IR.Core.HostOp
 
 namespace ProofForge.Target
+
+/-! ## Typed Capability Operations
+
+A capability operation is either a builtin (rendered to its old string form)
+or a typed host operation (rendered to `namespace/name@major.minor.patch`).
+JSON and learn artifacts remain wire-compatible through `.render`. -/
+
+inductive CapabilityOperation
+  | builtin (name : String)
+  | hostOp (id : ProofForge.IR.Core.HostOpId)
+  deriving BEq, Repr
+
+def CapabilityOperation.render : CapabilityOperation → String
+  | .builtin name => name
+  | .hostOp id => id.render
+
+instance : ToString CapabilityOperation where
+  toString := CapabilityOperation.render
 
 structure TargetMetadata where
   key : String
@@ -11,7 +31,7 @@ structure TargetMetadata where
 
 structure CapabilityCall where
   capability : Capability
-  operation : String
+  operation : CapabilityOperation
   source? : Option String := none
   metadata : Array TargetMetadata := #[]
   deriving Repr, BEq
@@ -19,7 +39,7 @@ structure CapabilityCall where
 def CapabilityCall.fromCapability (capability : Capability) (source? : Option String := none)
     (metadata : Array TargetMetadata := #[]) : CapabilityCall := {
   capability := capability
-  operation := capability.id
+  operation := .builtin capability.id
   source? := source?
   metadata := metadata
 }

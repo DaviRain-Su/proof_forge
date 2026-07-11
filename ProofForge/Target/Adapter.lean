@@ -30,7 +30,7 @@ def intentCapabilityCalls (spec : ProofForge.Contract.ContractSpec) : Array Capa
       match intent.capability? with
       | some capability => calls.push {
           capability := capability
-          operation := intent.label
+          operation := .builtin intent.label
           source? := intent.source?
           metadata := intent.metadata
         }
@@ -90,7 +90,7 @@ def targetExtensionMetadataAllowed (profile : TargetProfile) (calls : Array Capa
   | some _ => profile.family == .solana
 
 def solanaExtensionMetadataError (profile : TargetProfile) (call : CapabilityCall) : Diagnostic := {
-  message := s!"target `{profile.id}` cannot use Solana target extension metadata on operation `{call.operation}`"
+  message := s!"target `{profile.id}` cannot use Solana target extension metadata on operation `{call.operation.render}`"
 }
 
 def firstUnsupportedCapabilityCall? (profile : TargetProfile) (calls : Array CapabilityCall) :
@@ -102,7 +102,7 @@ def unsupportedCapabilityCallDiagnostic (profile : TargetProfile) (call : Capabi
   let sourceFragment :=
     match call.source? with
     | none => ""
-    | some source => s!" on operation `{call.operation}` at `{source}`"
+    | some source => s!" on operation `{call.operation.render}` at `{source}`"
   {
     message :=
       s!"target `{profile.id}` does not support capability `{call.capability.id}`{sourceFragment}: capability is not present in the target profile"

@@ -3,8 +3,8 @@ import ProofForge.IR.Core.Type
 import ProofForge.IR.Core.Storage
 import ProofForge.IR.Core.Syntax
 import ProofForge.IR.Core.Error
+import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Core.Semantics
-import ProofForge.IR.Core.Semantics.Lemmas
 
 namespace ProofForge.IR.Core
 

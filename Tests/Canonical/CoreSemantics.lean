@@ -1,8 +1,9 @@
 import ProofForge.IR.Core
 import ProofForge.IR.Core.Semantics
+import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Canonical
-
 open ProofForge.IR.Core
+open ProofForge.IR.Core.HostOp
 open ProofForge.IR.Core.Semantics
 open ProofForge.IR.Canonical
 
@@ -71,11 +72,87 @@ def runEntry (contract : CheckedCanonicalContract) (f : FunctionId) (args : Arra
 
 def interfaceEntrypoint (function : Function) (mutatesState : Bool) : InterfaceEntrypoint := {
   functionId := function.id
-  kind := "call"
-  mutatesState := mutatesState
-  params := function.params.map (·.type)
+  name := s!"function_{function.id.value}"
+  kind := .function
+  mutability := if mutatesState then .call else .view
+  params := function.params.mapIdx (fun index param => {
+    valueId := param.id
+    name := s!"arg_{index}"
+    type := param.type
+  })
   retType := function.retType
 }
+
+def testInterface (entrypoints : Array InterfaceEntrypoint)
+    (events : Array Event := #[]) (errors : Array ErrorDecl := #[]) : InterfaceContract := {
+  contractName := "CoreSemantics"
+  entrypoints := entrypoints
+  events := events.map (fun event => {
+    eventId := event.id
+    name := s!"event_{event.id.value}"
+    fields := event.fields.map (fun field => {
+      fieldId := field.id
+      name := s!"field_{field.id.value}"
+      type := field.type
+    })
+  })
+  errors := errors.map (fun error => {
+    errorId := error.id
+    namespace_ := error.namespace_
+    coreName := error.name
+    name := error.name
+    userCode? := none
+    code := error.code
+    message := ""
+    params := error.params
+  })
+}
+
+def testMaterialization (state : Array StateDecl := #[])
+    (structs : Array Struct := #[]) (events : Array Event := #[])
+    (errors : Array ErrorDecl := #[]) : MaterializationContract := {
+  stateSymbols := state.map (fun declaration => {
+    stateId := declaration.id
+    name := s!"state_{declaration.id.value}"
+  })
+  typeLayouts := structs.map (fun declaration => {
+    typeId := declaration.id
+    name := s!"type_{declaration.id.value}"
+    isPublic := true
+    deriveStorage := false
+    fields := declaration.fields.map (fun field => {
+      fieldId := field.id
+      name := s!"field_{field.id.value}"
+      isPublic := true
+    })
+  })
+  eventEncodings := events.map (fun event => { eventId := event.id, fields := #[] })
+  errorEncodings := errors.map (fun error => {
+    errorId := error.id
+    form := .proofForgeEnvelope
+  })
+}
+def testHostOpCatalog : HostOpCatalog :=
+  let sigs := #[
+    { id := { namespace_ := "test", name := "unknown", version := { major := 1, minor := 0, patch := 0 } },
+      params := #[], results := #[.u64], effectClass := .external, requiredCapabilities := #[] : HostOpSig },
+    { id := { namespace_ := "test", name := "must-not-run", version := { major := 1, minor := 0, patch := 0 } },
+      params := #[], results := #[.u64], effectClass := .external, requiredCapabilities := #[] : HostOpSig },
+    { id := { namespace_ := "test", name := "trace", version := { major := 1, minor := 0, patch := 0 } },
+      params := #[.u64], results := #[.u64], effectClass := .external, requiredCapabilities := #[] : HostOpSig }
+  ]
+  sigs.foldl (fun cat sig =>
+    match cat.register sig with
+    | .ok c => c
+    | .error _ => cat) HostOpCatalog.empty
+
+def validateTestCanonical (contract : CanonicalContract) :
+    Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
+  validateCanonical {
+    contract with
+    requirements := deriveCapabilityRequirements contract.module contract.materialization
+    hostOpCatalog := testHostOpCatalog
+  }
 
 /- Two logical scalar states remain isolated. -/
 
@@ -97,7 +174,7 @@ def scalarIsolationFunction : Function := {
 }
 
 def scalarIsolationContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := {
       name := "CoreSemantics"
@@ -106,8 +183,10 @@ def scalarIsolationContract : Except ProofForge.IR.Core.Error.ValidationError Ch
       events := #[]
       functions := #[scalarIsolationFunction]
     }
-    interface := { entrypoints := #[interfaceEntrypoint scalarIsolationFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint scalarIsolationFunction true]
+    materialization := testMaterialization #[
+      ⟨⟨0⟩, .scalar .u64⟩, ⟨⟨1⟩, .scalar .u64⟩
+    ]
     requirements := #[]
   }
 
@@ -131,11 +210,11 @@ def wrappingAddFunction : Function := {
 }
 
 def wrappingAddContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[], events := #[], functions := #[wrappingAddFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint wrappingAddFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint wrappingAddFunction true]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -159,11 +238,11 @@ def checkedAddFunction : Function := {
 }
 
 def checkedAddContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[], events := #[], functions := #[checkedAddFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint checkedAddFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint checkedAddFunction true]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -233,7 +312,7 @@ def assertArgFunction : Function := {
 }
 
 def errorContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := {
       name := "CoreSemantics"
@@ -247,13 +326,21 @@ def errorContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanon
       ]
       functions := #[divZeroFunction, assertFailFunction, revertFunction, assertArgFunction]
     }
-    interface := { entrypoints := #[
+    interface := testInterface #[
       interfaceEntrypoint divZeroFunction true,
       interfaceEntrypoint assertFailFunction true,
       interfaceEntrypoint revertFunction true,
       interfaceEntrypoint assertArgFunction true
-    ] }
-    materialization := { constructorBindings := #[] }
+    ] #[] #[
+      { id := ⟨1⟩, namespace_ := "test", name := "Assertion", code := 1 },
+      { id := ⟨2⟩, namespace_ := "test", name := "Revert", code := 2 },
+      { id := ⟨3⟩, namespace_ := "test", name := "WithArg", code := 3, params := #[.u8] }
+    ]
+    materialization := testMaterialization #[] #[] #[] #[
+      { id := ⟨1⟩, namespace_ := "test", name := "Assertion", code := 1 },
+      { id := ⟨2⟩, namespace_ := "test", name := "Revert", code := 2 },
+      { id := ⟨3⟩, namespace_ := "test", name := "WithArg", code := 3, params := #[.u8] }
+    ]
     requirements := #[]
   }
 
@@ -281,11 +368,11 @@ def mapIsolationFunction : Function := {
 }
 
 def mapIsolationContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[⟨⟨2⟩, .map .u64 .u64 (some 10)⟩], events := #[], functions := #[mapIsolationFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint mapIsolationFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint mapIsolationFunction true]
+    materialization := testMaterialization #[⟨⟨2⟩, .map .u64 .u64 (some 10)⟩]
     requirements := #[]
   }
 
@@ -329,14 +416,14 @@ def arrayOutOfBoundsFunction : Function := {
 }
 
 def arrayContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[⟨⟨3⟩, .fixedArray .u64 4⟩], events := #[], functions := #[arrayIsolationFunction, arrayOutOfBoundsFunction] }
-    interface := { entrypoints := #[
+    interface := testInterface #[
       interfaceEntrypoint arrayIsolationFunction true,
       interfaceEntrypoint arrayOutOfBoundsFunction true
-    ] }
-    materialization := { constructorBindings := #[] }
+    ]
+    materialization := testMaterialization #[⟨⟨3⟩, .fixedArray .u64 4⟩]
     requirements := #[]
   }
 
@@ -376,11 +463,11 @@ def branchFunction : Function := {
 }
 
 def branchContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[], events := #[], functions := #[branchFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint branchFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint branchFunction true]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -433,11 +520,11 @@ def loopFunction : Function := {
 }
 
 def loopContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[⟨⟨4⟩, .scalar .u64⟩], events := #[], functions := #[loopFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint loopFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint loopFunction true]
+    materialization := testMaterialization #[⟨⟨4⟩, .scalar .u64⟩]
     requirements := #[]
   }
 
@@ -462,11 +549,11 @@ def unknownHostFunction : Function := {
 }
 
 def hostContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "CoreSemantics", structs := #[], state := #[], events := #[], functions := #[unknownHostFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint unknownHostFunction true] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint unknownHostFunction true]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -496,7 +583,7 @@ def dominatingJumpFunction : Function := {
 }
 
 def dominatingJumpContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := {
       name := "DominatingJump"
@@ -505,8 +592,8 @@ def dominatingJumpContract : Except ProofForge.IR.Core.Error.ValidationError Che
       events := #[]
       functions := #[dominatingJumpFunction]
     }
-    interface := { entrypoints := #[interfaceEntrypoint dominatingJumpFunction false] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint dominatingJumpFunction false]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -527,7 +614,7 @@ def wideningCastFunction : Function := {
 }
 
 def wideningCastContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := {
       name := "WideningCast"
@@ -536,8 +623,8 @@ def wideningCastContract : Except ProofForge.IR.Core.Error.ValidationError Check
       events := #[]
       functions := #[wideningCastFunction]
     }
-    interface := { entrypoints := #[interfaceEntrypoint wideningCastFunction false] }
-    materialization := { constructorBindings := #[] }
+    interface := testInterface #[interfaceEntrypoint wideningCastFunction false]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -749,11 +836,11 @@ def memoryLifecycleFunction : Function := {
 }
 
 def memoryLifecycleContract : Except ProofForge.IR.Core.Error.ValidationError CheckedCanonicalContract :=
-  validateCanonical {
+  validateTestCanonical {
     schemaVersion := 1
     module := { name := "MemoryLifecycle", functions := #[memoryLifecycleFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint memoryLifecycleFunction false] }
-    materialization := {}
+    interface := testInterface #[interfaceEntrypoint memoryLifecycleFunction false]
+    materialization := testMaterialization
     requirements := #[]
   }
 
@@ -1034,21 +1121,21 @@ def main : IO Unit := do
     readPath nestedStorageModule nestedEnv nestedState nestedStoragePath
   require (nestedValue == .u8 9) "nested map/record/array path changed value"
 
-  let hiddenChecked ← expectChecked "hidden function contract" <| validateCanonical {
+  let hiddenChecked ← expectChecked "hidden function contract" <| validateTestCanonical {
     schemaVersion := 1
     module := { name := "Hidden", functions := #[hiddenFunction] }
-    interface := { entrypoints := #[] }
-    materialization := {}
+    interface := testInterface #[]
+    materialization := testMaterialization
     requirements := #[]
   }
   expectError .missingFunction <|
     execute defaultHostSemantics 10 hiddenChecked ⟨50⟩ #[] emptyState
 
-  let aggregateChecked ← expectChecked "aggregate argument contract" <| validateCanonical {
+  let aggregateChecked ← expectChecked "aggregate argument contract" <| validateTestCanonical {
     schemaVersion := 1
     module := { name := "AggregateArg", functions := #[aggregateArgFunction] }
-    interface := { entrypoints := #[interfaceEntrypoint aggregateArgFunction false] }
-    materialization := {}
+    interface := testInterface #[interfaceEntrypoint aggregateArgFunction false]
+    materialization := testMaterialization
     requirements := #[]
   }
   expectError .argMismatch <| execute defaultHostSemantics 10 aggregateChecked ⟨51⟩

@@ -254,6 +254,120 @@ def releaseModule : ProofForge.IR.Module := {
   }]
 }
 
+def envelopeProbeModule : ProofForge.IR.Module := {
+  name := "EnvelopeRuntime"
+  structs := #[{
+    name := "PrivateRecord"
+    isPublic := false
+    deriveStorage := true
+    fields := #[{
+      id := "secret"
+      type := .u64
+      isPublic := false
+    }]
+  }]
+  state := #[
+    { id := "labelLength", kind := .scalar, type := .u64 },
+    { id := "labelHash", kind := .scalar, type := .hash },
+    { id := "quota", kind := .map .address 17, type := .u64 }
+  ]
+  entrypoints := #[
+    {
+      name := "configure"
+      selector? := some "11223344"
+      params := #[("owner", .address)]
+      paramAbiWords := #[some "address"]
+      body := #[
+        .effect (.eventEmitIndexed "Configured"
+          #[("owner", .local "owner")]
+          #[("value", .literal (.u64 7))]),
+        .assert (.literal (.bool false)) "denied" (some {
+          assertionId := 77
+          userCode? := some "Denied"
+          soliditySelector? := some "DEADBEEF"
+          solidityArgWords := #[7]
+          solidityArgTypes := #["uint256"]
+        })
+      ]
+    },
+    {
+      name := "selector_gap"
+      mutability := .view
+      body := #[]
+    }
+  ]
+  eventAbiWords := #[
+    { eventName := "Configured", fieldName := "owner", abiWord := "address" },
+    { eventName := "Configured", fieldName := "value", abiWord := "uint256" }
+  ]
+  allocator := { model := {
+    strategy := .hostImport
+    region := { base := 4096, size? := some 8192, growable := false }
+    release := .reuse
+    hostProvided := true
+  } }
+  proxyPattern? := some "uups"
+  nearCrosscallStrings := #["remote.near", "configure"]
+}
+
+def envelopeProbeSpec : ContractSpec := {
+  name := "EnvelopeDisplayName"
+  module := envelopeProbeModule
+  intents := #[{
+    kind := .capability
+    label := "emit-configured"
+    capability? := some .eventsEmit
+    source? := some "EnvelopeProbe.lean:42"
+    metadata := #[{ key := "event", value := "Configured" }]
+  }]
+  upgradePolicy? := some (.authority "deployment-admin")
+  proxyPattern? := some .uups
+  constructorParams := #[{ name := "label", abiType := "string" }]
+  constructorInitBindings := #[
+    { stateId := "labelLength", paramName := "label", kind := .stringLength },
+    { stateId := "labelHash", paramName := "label", kind := .stringKeccak }
+  ]
+  quintInvariants := #[("label_nonempty", "labelLength > 0")]
+  quintLiveness := #[("eventually_configured", "eventually configured")]
+  leanInvariants := #[("label_bound", "Envelope.labelBound")]
+}
+
+def conflictingEventModule : ProofForge.IR.Module := {
+  name := "ConflictingEvent"
+  state := #[]
+  entrypoints := #[{
+    name := "emit_conflict"
+    body := #[
+      .effect (.eventEmit "Conflict" #[("left", .literal (.u64 1))]),
+      .effect (.eventEmitIndexed "Conflict" #[("right", .literal (.u64 2))] #[])
+    ]
+  }]
+}
+
+def duplicateEntrypointModule : ProofForge.IR.Module := {
+  name := "DuplicateEntrypoint"
+  state := #[]
+  entrypoints := #[
+    { name := "duplicate", body := #[] },
+    { name := "duplicate", body := #[] }
+  ]
+}
+
+def structReferenceModule : ProofForge.IR.Module := {
+  name := "StructReference"
+  structs := #[{
+    name := "Box"
+    fields := #[{ id := "value", type := .u64 }]
+  }]
+  state := #[{ id := "stored", kind := .scalar, type := .structType "Box" }]
+  entrypoints := #[{
+    name := "echo"
+    params := #[("box", .structType "Box")]
+    returns := .structType "Box"
+    body := #[.return (.local "box")]
+  }]
+}
+
 def hasBoundedBackedge (module : Core.Module) : Bool :=
   module.functions.any (fun f => f.blocks.any (fun b =>
     match b.terminator with
@@ -318,29 +432,32 @@ def runAssertions : IO Unit := do
 
   -- Interface contract preserves entrypoint metadata.
   let interface := vaultBundle.contract.contract.interface
+  require (interface.contractName == vaultSpec.name) "interface contract name"
   require (interface.entrypoints.size == 7) "interface entrypoint count"
   let initEp? := interface.entrypoints.find? (·.functionId == ⟨0⟩)
   match initEp? with
   | some ep =>
-      require (ep.kind == "function") "initialize kind"
-      require (ep.mutatesState) "initialize mutability"
-      require (ep.params == #[.u64]) "initialize params"
+      require (ep.name == "initialize") "initialize name"
+      require (ep.kind == .function) "initialize kind"
+      require (ep.mutability == .call) "initialize mutability"
+      require (ep.params.map (·.type) == #[.u64]) "initialize params"
       require (ep.retType == .unit) "initialize return type"
   | none => throw <| IO.userError "initialize entrypoint missing from interface"
   let counterInterface := counterBundle.contract.contract.interface
   let counterGetEp? := counterInterface.entrypoints.find? (·.functionId == ⟨2⟩)
   match counterGetEp? with
   | some ep =>
-      require (ep.kind == "function") "Counter get kind"
-      require (!ep.mutatesState) "Counter get should be view"
+      require (ep.name == "get") "Counter get name"
+      require (ep.kind == .function) "Counter get kind"
+      require (ep.mutability == .view) "Counter get should be view"
       require (ep.params == #[]) "Counter get params"
       require (ep.retType == .u64) "Counter get return type"
   | none => throw <| IO.userError "Counter get entrypoint missing from interface"
-  require (interface.dispatchHints.size == 7) "dispatch hint count"
+  require ((interface.entrypoints.filterMap (·.selector?)).size == 7) "selector count"
 
   -- Materialization and evidence cover the spec fields.
   let materialization := vaultBundle.contract.contract.materialization
-  require (materialization.upgradePolicy == none) "upgrade policy should be empty for fixture"
+  require (materialization.upgradePolicy? == none) "upgrade policy should be empty for fixture"
   let evidence := vaultBundle.evidence
   require (evidence.legacyClassification.size == 10) "legacy classification evidence count"
   let expectedClassification : List (String × LegacyDisposition) := [
@@ -362,7 +479,159 @@ def runAssertions : IO Unit := do
     | none => throw <| IO.userError s!"missing classification for {field}"
   require (evidence.legacyClassification.all (fun d => d.decision != LegacyDisposition.reject.toString))
     "legacy classification contains a reject disposition"
-  require (evidence.verification.invariants.isEmpty) "fixture has no invariants"
+  require (evidence.verification.quintInvariants.isEmpty) "fixture has no Quint invariants"
+  require (evidence.verification.quintLiveness.isEmpty) "fixture has no Quint liveness"
+  require (evidence.verification.leanInvariants.isEmpty) "fixture has no Lean invariants"
+
+  -- Non-default envelope metadata is readable from the canonical bundle alone.
+  let probeBundle ← match adaptLegacy envelopeProbeSpec with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"envelope probe adapt failed: {repr e}"
+  let probe := probeBundle.contract.contract
+  require (probe.schemaVersion == ProofForge.IR.Canonical.canonicalSchemaVersion)
+    "canonical schema version changed"
+  require (probe.interface.contractName == "EnvelopeDisplayName")
+    "ContractSpec name was not preserved"
+  let configure ← match probe.interface.entrypoints.find? (·.name == "configure") with
+    | some entrypoint => pure entrypoint
+    | none => throw <| IO.userError "configure interface entrypoint missing"
+  require (configure.selector? == some "11223344") "selector was not preserved"
+  require (configure.params.size == 1) "configure parameter count"
+  require (configure.params[0]!.name == "owner" &&
+      configure.params[0]!.type == .address &&
+      configure.params[0]!.abiWord? == some "address")
+    "parameter identity/type/ABI was not preserved"
+  let selectorGap ← match probe.interface.entrypoints.find? (·.name == "selector_gap") with
+    | some entrypoint => pure entrypoint
+    | none => throw <| IO.userError "selector-gap entrypoint missing"
+  require (selectorGap.selector?.isNone && selectorGap.mutability == .view)
+    "optional selector gap or mutability was changed"
+
+  let configuredEvent ← match probe.interface.events.find? (·.name == "Configured") with
+    | some event => pure event
+    | none => throw <| IO.userError "Configured interface event missing"
+  require (configuredEvent.fields.map (·.name) == #["owner", "value"])
+    "event field names/order changed"
+  require (configuredEvent.fields.map (·.indexed) == #[true, false])
+    "indexed event partition changed"
+  require (configuredEvent.fields.map (·.abiWord?) == #[some "address", some "uint256"])
+    "event ABI overrides changed"
+
+  let configuredError ← match probe.interface.errors.find? (·.name == "Denied") with
+    | some error => pure error
+    | none => throw <| IO.userError "Denied interface error missing"
+  require (configuredError.userCode? == some "Denied" &&
+      configuredError.code == 77 && configuredError.message == "denied")
+    "portable error catalogue changed"
+  let errorEncoding ← match probe.materialization.errorEncodings.find?
+      (·.errorId == configuredError.errorId) with
+    | some encoding => pure encoding
+    | none => throw <| IO.userError "Denied materialization encoding missing"
+  require (errorEncoding.form == .solidityCustom &&
+      errorEncoding.soliditySelector? == some "deadbeef" &&
+      errorEncoding.solidityArgTypes == #["uint256"] &&
+      errorEncoding.solidityArgWords == #[7])
+    "custom error selector/schema/words changed"
+
+  let probeMaterialization := probe.materialization
+  require (probeMaterialization.constructorParams == #[{
+    name := "label", abiType := "string"
+  }]) "dynamic constructor parameter changed"
+  require (probeMaterialization.constructorBindings == #[
+    { stateId := ⟨0⟩, paramName := "label", kind := .stringLength },
+    { stateId := ⟨1⟩, paramName := "label", kind := .stringKeccak }
+  ]) "typed constructor bindings changed"
+  require (probeMaterialization.allocator.model.strategy == .hostImport &&
+      probeMaterialization.allocator.model.region.base == 4096 &&
+      probeMaterialization.allocator.model.region.size? == some 8192 &&
+      !probeMaterialization.allocator.model.region.growable &&
+      probeMaterialization.allocator.model.release == .reuse &&
+      probeMaterialization.allocator.model.hostProvided)
+    "allocator configuration changed"
+  require (probeMaterialization.upgradePolicy? == some (.authority "deployment-admin"))
+    "upgrade authority keyRef changed"
+  require (probeMaterialization.proxyPattern? == some .uups &&
+      probeMaterialization.moduleProxyPattern? == some .uups)
+    "spec/module proxy policy changed"
+  require (probeMaterialization.nearHostStrings == #["remote.near", "configure"])
+    "NEAR host string pool changed"
+  require (probeMaterialization.stateSymbols.map (·.name) ==
+      #["labelLength", "labelHash", "quota"])
+    "state display symbols changed"
+  let quotaSymbol ← match probeMaterialization.stateSymbols.find? (·.name == "quota") with
+    | some symbol => pure symbol
+    | none => throw <| IO.userError "quota state symbol missing"
+  match probe.module.state.find? (·.id == quotaSymbol.stateId) with
+  | some { shape := .map .address .u64 (some 17), .. } => pure ()
+  | some state => throw <| IO.userError s!"quota map capacity changed: {repr state.shape}"
+  | none => throw <| IO.userError "quota Core state missing"
+  let privateLayout ← match probeMaterialization.typeLayouts.find? (·.name == "PrivateRecord") with
+    | some layout => pure layout
+    | none => throw <| IO.userError "type layout metadata missing"
+  require (!privateLayout.isPublic && privateLayout.deriveStorage &&
+      privateLayout.fields.map (·.name) == #["secret"] &&
+      privateLayout.fields.all (fun field => !field.isPublic))
+    "struct/field materialization metadata changed"
+  require (probeMaterialization.intents == #[{
+      kind := .capability
+      label := "emit-configured"
+      capability? := some .eventsEmit
+      metadata := #[{ key := "event", value := "Configured" }]
+    }]) "source-free materialization intent changed"
+  require (probe.requirements == #[
+      {
+        capability := .eventsEmit
+        operation := .builtin "emit-configured"
+        source? := none
+        metadata := #[{ key := "event", value := "Configured" }]
+      },
+      ProofForge.Target.CapabilityCall.fromCapability .dataStruct,
+      ProofForge.Target.CapabilityCall.fromCapability .storageScalar,
+      ProofForge.Target.CapabilityCall.fromCapability .storageMap,
+      ProofForge.Target.CapabilityCall.fromCapability .eventsEmit,
+      ProofForge.Target.CapabilityCall.fromCapability .assertions
+    ]) "canonical capability requirement union changed"
+  require (probe.requirements == ProofForge.IR.Canonical.deriveCapabilityRequirements
+      probe.module probe.materialization)
+    "requirements were not derived from canonical payload"
+  require (probeBundle.evidence.intentSources == #[{
+    intentIndex := 0, source := "EnvelopeProbe.lean:42"
+  }]) "intent source evidence changed"
+  require (probeBundle.evidence.verification.quintInvariants == #[{
+    name := "label_nonempty", body := "labelLength > 0"
+  }]) "Quint invariant body changed"
+  require (probeBundle.evidence.verification.quintLiveness == #[{
+    name := "eventually_configured", body := "eventually configured"
+  }]) "Quint liveness body changed"
+  require (probeBundle.evidence.verification.leanInvariants == #[{
+    name := "label_bound", body := "Envelope.labelBound"
+  }]) "Lean invariant body changed"
+
+  let structBundle ← match adaptLegacy (ContractSpec.fromIR structReferenceModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"named struct reference adapt failed: {repr e}"
+  let structContract := structBundle.contract.contract
+  let boxLayout ← match structContract.materialization.typeLayouts.find? (·.name == "Box") with
+    | some layout => pure layout
+    | none => throw <| IO.userError "Box layout missing"
+  let storedState ← match structContract.module.state.find? (·.id == ⟨0⟩) with
+    | some state => pure state
+    | none => throw <| IO.userError "stored struct state missing"
+  match storedState.shape with
+  | .scalar (.structType typeId) =>
+      require (typeId == boxLayout.typeId) "state struct TypeId diverged from layout"
+  | shape => throw <| IO.userError s!"named struct state changed shape: {repr shape}"
+  let echoFunction ← match structContract.module.functions.find? (·.id == ⟨0⟩) with
+    | some function => pure function
+    | none => throw <| IO.userError "echo Core function missing"
+  require (echoFunction.params.map (·.type) == #[.structType boxLayout.typeId] &&
+      echoFunction.retType == .structType boxLayout.typeId)
+    "function param/return struct TypeId was not resolved"
+  let echoInterface ← match structContract.interface.entrypoints.find? (·.functionId == ⟨0⟩) with
+    | some entrypoint => pure entrypoint
+    | none => throw <| IO.userError "echo interface entrypoint missing"
+  require (echoInterface.params.map (·.type) == #[.structType boxLayout.typeId])
+    "interface struct TypeId diverged from Core"
 
   -- Literal range rejection before numeric narrowing.
   match adaptLegacy (ContractSpec.fromIR (outOfRangeModule .u8 256)) with
@@ -421,6 +690,12 @@ def runAssertions : IO Unit := do
   | some event =>
       require (event.fields.map (·.type) == #[.bool]) "bool event schema was not inferred"
   | none => throw <| IO.userError "bool event declaration missing"
+  match boolEventBundle.contract.contract.interface.events.find? (·.eventId == ⟨0⟩) with
+  | some event =>
+      require (event.name == "Flag") "bool event name was not preserved"
+      require (event.fields.map (·.name) == #["enabled"]) "bool event field name was not preserved"
+      require (event.fields.map (·.indexed) == #[false]) "bool event indexed flag changed"
+  | none => throw <| IO.userError "bool event interface schema missing"
 
   let nestedBundle ← match adaptLegacy (ContractSpec.fromIR nestedTerminatingIfModule) with
     | .ok bundle => pure bundle
@@ -442,6 +717,17 @@ def runAssertions : IO Unit := do
   | .error (.unsupportedConstructor "Statement.release" _) => pure ()
   | .error e => throw <| IO.userError s!"release wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "release was silently lowered to a no-op"
+
+  match adaptLegacy (ContractSpec.fromIR conflictingEventModule) with
+  | .error (.conflictingEventSchema "Conflict" _) => pure ()
+  | .error e => throw <| IO.userError s!"conflicting event schema wrong error: {repr e}"
+  | .ok _ => throw <| IO.userError "conflicting event schema was silently accepted"
+
+  match adaptLegacy (ContractSpec.fromIR duplicateEntrypointModule) with
+  | .error (.validation error) =>
+      require (error.tag == .duplicateId) "structured validation error tag changed"
+  | .error e => throw <| IO.userError s!"duplicate entrypoint lost validation error: {repr e}"
+  | .ok _ => throw <| IO.userError "duplicate entrypoint unexpectedly validated"
 
 end Tests.Canonical.LegacyAdapter
 

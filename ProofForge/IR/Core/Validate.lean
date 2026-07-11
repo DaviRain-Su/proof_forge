@@ -3,11 +3,13 @@ import ProofForge.IR.Core.Type
 import ProofForge.IR.Core.Storage
 import ProofForge.IR.Core.Syntax
 import ProofForge.IR.Core.Error
+import ProofForge.IR.Core.HostOp
 import Std
 
 namespace ProofForge.IR.Core.Validate
 
 open ProofForge.IR.Core
+open ProofForge.IR.Core.HostOp
 open ProofForge.IR.Core.Error
 
 structure CheckedModule where
@@ -1017,11 +1019,12 @@ private def checkTerminator (m : Module) (f : Function) (b : Block) :
           s!"missing return value for type {repr f.retType}"
   | .revert errorRef => checkErrorRef m f b none errorRef
 
-/- Pass 7: capability and HostOp references. Wave 3 will add the typed host-op
-catalog; here we verify that host calls are well-formed and requirements are
-non-empty only when host calls are present. -/
+/- Pass 7: capability and HostOp references. When a catalog is provided, verify
+that each `hostCall` has a known signature, argument types match, result types
+match, and the effect class is not pure. Without a catalog, fall back to the
+basic empty-namespace/name check. -/
 
-private def checkCapabilityAndHostOp (m : Module) :
+private def checkCapabilityAndHostOp (m : Module) (catalog? : Option HostOpCatalog) :
     Except ValidationError Unit := do
   let pass := "capability-hostop"
   for f in m.functions do
@@ -1033,13 +1036,38 @@ private def checkCapabilityAndHostOp (m : Module) :
           if call.id.namespace_.isEmpty || call.id.name.isEmpty then
             .error <| error .unknownReference pass (some f.id) (some b.id) (some idx)
               s!"hostCall has empty namespace or name"
+          match catalog? with
+          | none => pure ()
+          | some catalog =>
+              match catalog.lookup call.id with
+              | Except.error _ =>
+                  .error <| error .unknownReference pass (some f.id) (some b.id) (some idx)
+                    s!"hostCall references unknown host op {call.id.render}"
+              | Except.ok sig =>
+                  let argTypes := call.args.map (·.type)
+                  match HostOpCatalog.validateCall sig argTypes with
+                  | Except.error e =>
+                      .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+                        s!"hostCall argument validation failed: {repr e}"
+                  | Except.ok _ =>
+                      let resultTypes := instr.results.map (·.type)
+                      match HostOpCatalog.validateResults sig resultTypes with
+                      | Except.error e =>
+                          .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+                            s!"hostCall result validation failed: {repr e}"
+                      | Except.ok _ =>
+                          match HostOpCatalog.validateCallUsage sig with
+                          | Except.error e =>
+                              .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+                                s!"hostCall effect class mismatch: {repr e}"
+                          | Except.ok _ => pure ()
         | _ => pure ()
 
 /- Passes 3-7: CFG, dominance, instruction typing, terminator typing, and
 HostOp/capability references. Exposed so that `ProofForge.IR.Canonical` can
 insert canonical-level reference checks between pass 1 and pass 3. -/
 
-def validateModulePhases (m : Module) : Except ValidationError Unit := do
+def validateModulePhases (m : Module) (catalog? : Option HostOpCatalog := none) : Except ValidationError Unit := do
   for f in m.functions do
     checkCfgAndBounds f
   for f in m.functions do
@@ -1051,15 +1079,15 @@ def validateModulePhases (m : Module) : Except ValidationError Unit := do
   for f in m.functions do
     for b in f.blocks do
       checkTerminator m f b
-  checkCapabilityAndHostOp m
+  checkCapabilityAndHostOp m catalog?
   return ()
 
 /- Entry point: run all validation passes in the required order. -/
 
-def validateModule (m : Module) : Except ValidationError CheckedModule := do
+def validateModule (m : Module) (catalog? : Option HostOpCatalog := none) : Except ValidationError CheckedModule := do
   checkSymbolUniqueness m
   checkStateShapeReferences m
-  validateModulePhases m
+  validateModulePhases m catalog?
   return { module := m }
 
 end ProofForge.IR.Core.Validate

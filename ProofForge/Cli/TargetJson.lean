@@ -22,7 +22,7 @@ def capabilityCallJson (call : ProofForge.Target.CapabilityCall) : String :=
     | none => "null"
   jsonObject #[
     ("capability", jsonString call.capability.id),
-    ("operation", jsonString call.operation),
+    ("operation", jsonString call.operation.render),
     ("source", sourceValue),
     ("metadata", jsonArray (call.metadata.map targetMetadataJson))
   ]

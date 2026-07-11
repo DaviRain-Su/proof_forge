@@ -402,7 +402,7 @@ def ProgramExtensions.addDeclaredAccount (acc : ProgramExtensions)
 def declaredAccountFromCall? (call : CapabilityCall) : Option DeclaredAccount :=
   if call.capability == .accountExplicit &&
       metadataValue? call.metadata "solana.extension" == some "account" then
-    let name := metadataValue? call.metadata "solana.account.name" |>.getD call.operation
+    let name := metadataValue? call.metadata "solana.account.name" |>.getD call.operation.render
     some {
       name := name
       access := metadataValue? call.metadata "solana.account.access" |>.getD "readonly"
@@ -462,8 +462,8 @@ def allocatorFromCall? (call : CapabilityCall) : Option RuntimeAllocator :=
     none
 
 def pdaFromCall? (call : CapabilityCall) : Option PdaDerive :=
-  if call.operation == "solana.pda.derive" then
-    let name := metadataValue? call.metadata "solana.pda.name" |>.getD call.operation
+  if call.operation.render == "solana.pda.derive" then
+    let name := metadataValue? call.metadata "solana.pda.name" |>.getD call.operation.render
     some {
       name := name
       seeds := pdaMetadataSeeds call
@@ -477,7 +477,7 @@ def pdaFromCall? (call : CapabilityCall) : Option PdaDerive :=
 
 def cpiFromCall? (call : CapabilityCall) : Option CpiInvoke :=
   if call.capability == .crosscallCpi then
-    let name := metadataValue? call.metadata "solana.cpi.name" |>.getD call.operation
+    let name := metadataValue? call.metadata "solana.cpi.name" |>.getD call.operation.render
     let program := metadataValue? call.metadata "solana.cpi.program" |>.getD ""
     let instruction := metadataValue? call.metadata "solana.cpi.instruction" |>.getD ""
     some {
@@ -489,7 +489,7 @@ def cpiFromCall? (call : CapabilityCall) : Option CpiInvoke :=
       protocol? := metadataValue? call.metadata "solana.cpi.protocol"
       dataLayout? := metadataValue? call.metadata "solana.cpi.data_layout"
       metadata := call.metadata
-      signed := call.operation == "solana.cpi.invoke_signed"
+      signed := call.operation.render == "solana.cpi.invoke_signed"
       entrypoint? := entrypoint? call
     }
   else
@@ -500,7 +500,7 @@ def memoryFromCall? (call : CapabilityCall) : Option MemoryAction :=
     match entrypoint? call, metadataValue? call.metadata "solana.memory.op" >>= memoryOpFromString? with
     | some entrypoint, some op =>
         some {
-          name := metadataValue? call.metadata "solana.memory.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.memory.name" |>.getD call.operation.render
           op := op
           dstState? := metadataValue? call.metadata "solana.memory.dst_state"
           srcState? := metadataValue? call.metadata "solana.memory.src_state"
@@ -521,7 +521,7 @@ def cryptoHashFromCall? (call : CapabilityCall) : Option CryptoHashAction :=
     match entrypoint? call, metadataValue? call.metadata "solana.crypto.op" >>= cryptoHashOpFromString? with
     | some entrypoint, some op =>
         some {
-          name := metadataValue? call.metadata "solana.crypto.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.crypto.name" |>.getD call.operation.render
           op := op
           inputState := metadataValue? call.metadata "solana.crypto.input_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.crypto.bytes" |>.getD 0
@@ -543,7 +543,7 @@ def sysvarFromCall? (call : CapabilityCall) : Option SysvarReadAction :=
     | some entrypoint, some kind, some field =>
         if field.kind == kind then
           some {
-            name := metadataValue? call.metadata "solana.sysvar.name" |>.getD call.operation
+            name := metadataValue? call.metadata "solana.sysvar.name" |>.getD call.operation.render
             kind := kind
             field := field
             outputState := metadataValue? call.metadata "solana.sysvar.output_state" |>.getD ""
@@ -562,7 +562,7 @@ def returnDataFromCall? (call : CapabilityCall) : Option ReturnDataAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation.render
           sourceState := metadataValue? call.metadata "solana.return_data.source_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.return_data.bytes" |>.getD 0
           entrypoint := entrypoint
@@ -578,7 +578,7 @@ def returnDataReadFromCall? (call : CapabilityCall) : Option ReturnDataReadActio
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation.render
           destinationState := metadataValue? call.metadata "solana.return_data.destination_state" |>.getD ""
           maxBytes := natFromMetadata? call.metadata "solana.return_data.max_bytes" |>.getD 0
           lengthState? := metadataValue? call.metadata "solana.return_data.length_state"
@@ -597,7 +597,7 @@ def computeUnitsFromCall? (call : CapabilityCall) : Option ComputeUnitsAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation.render
           outputState := metadataValue? call.metadata "solana.compute_units.output_state" |>.getD ""
           featureGated := metadataValue? call.metadata "solana.compute_units.feature_gated"
             |>.map boolFromString |>.getD true
@@ -614,7 +614,7 @@ def computeUnitsLogFromCall? (call : CapabilityCall) : Option ComputeUnitsLogAct
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation.render
           entrypoint := entrypoint
         }
     | none => none
@@ -628,7 +628,7 @@ def computeBudgetFromCall? (call : CapabilityCall) : Option ComputeBudgetAdvice 
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_budget.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_budget.name" |>.getD call.operation.render
           unitLimit? := natFromMetadata? call.metadata "solana.compute_budget.unit_limit"
           unitPriceMicroLamports? :=
             natFromMetadata? call.metadata "solana.compute_budget.unit_price_micro_lamports"
@@ -645,7 +645,7 @@ def pubkeyLogFromCall? (call : CapabilityCall) : Option PubkeyLogAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.log.account" |>.getD ""
           entrypoint := entrypoint
         }
@@ -660,7 +660,7 @@ def dataLogFromCall? (call : CapabilityCall) : Option DataLogAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation.render
           sourceState := metadataValue? call.metadata "solana.log.source_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.log.bytes" |>.getD 0
           entrypoint := entrypoint
@@ -675,7 +675,7 @@ def accountReallocFromCall? (call : CapabilityCall) : Option AccountReallocActio
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.account_realloc.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.account_realloc.name" |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.account_realloc.account" |>.getD ""
           newSize := natFromMetadata? call.metadata "solana.account_realloc.new_size" |>.getD 0
           entrypoint := entrypoint
@@ -698,7 +698,7 @@ def transferHookExtraAccountMetaListFromCall? (call : CapabilityCall) :
                 |>.map splitComma |>.getD #[]
         some {
           name := metadataValue? call.metadata "solana.transfer_hook_extra_meta.name"
-            |>.getD call.operation
+            |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.transfer_hook_extra_meta.account"
             |>.getD ""
           extraAccounts := extraAccounts
