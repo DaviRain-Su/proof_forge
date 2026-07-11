@@ -6,6 +6,7 @@ import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.IR.Core.HostOp
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
 
 /-! # Canonical NEAR Promise Backend Test
 
@@ -44,8 +45,8 @@ def promiseContract : SurfaceContract := {
         .hostCallBind "promiseIdx" .u64 pcId
           #[.literal (.stringLit "alice.near"),
            .literal (.stringLit "methodName"),
-           .literal (.bytesLit ByteArray.empty),
-           .literal (.u128Lit 0),
+           .literal (.bytesLit (ByteArray.mk #[42, 7])),
+           .literal (.u128Lit 18446744073709551619),
            .literal (.u64Lit 1000)],
         .returnExpr (.local "promiseIdx")
       ]
@@ -110,5 +111,39 @@ def main : IO Unit := do
   /- Check 10: NEAR does NOT report missingHostOpHandler for promise.create. -/
   let nearErrors := checkHostOpHandlers "wasm-near" bundle.contract
   require (nearErrors.size == 0) "NEAR should not report missingHostOpHandler"
+
+  /- Check 11: the actual Core -> NEAR plan consumes the typed HostOp. -/
+  let capabilities : ProofForge.Target.CapabilityPlan := {
+    targetId := "wasm-near", calls := bundle.contract.contract.requirements, metadata := #[] }
+  let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore
+      bundle.contract capabilities with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"promise Core -> NEAR plan failed: {e.message}"
+  let hasPromise := plan.functions.any fun function => function.blocks.any fun block =>
+    block.ops.any fun op => match op with
+      | .promiseCreate _ "alice.near" "methodName" payload deposit 1000 =>
+          payload == ByteArray.mk #[42, 7] && deposit == 18446744073709551619
+      | _ => false
+  require hasPromise "NEAR plan did not preserve promise.create payload"
+
+  /- Check 12: required capability is enforced by the target plan boundary. -/
+  match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore bundle.contract {
+      targetId := "wasm-near", calls := #[], metadata := #[] } with
+  | .error e =>
+      require (e.message.contains "capability")
+        s!"missing capability diagnostic: {e.message}"
+  | .ok _ => throw <| IO.userError "NEAR promise plan accepted no nearPromise capability"
+
+  /- Check 13: lower the promise plan to real WAT. -/
+  let module ← match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan with
+    | .ok module => pure module
+    | .error e => throw <| IO.userError s!"promise NEAR lowering failed: {e.message}"
+  let wat := ProofForge.Compiler.Wasm.Printer.render module
+  require (wat.contains "(import \"env\" \"promise_create\"") "promise_create import missing"
+  require (wat.contains "call $promise_create") "promise_create call missing"
+  require (wat.contains "alice.near" && wat.contains "methodName") "promise string data missing"
+  require (wat.contains "i32.const 42" && wat.contains "i32.const 7") "promise args bytes missing"
+  IO.FS.createDirAll "build/canonical/near-promise"
+  IO.FS.writeFile "build/canonical/near-promise/contract.wat" wat
 
   IO.println "canonical-near-promise: ok"

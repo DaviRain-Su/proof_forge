@@ -125,6 +125,8 @@ inductive NearOpPlan where
   | context (result : NearValuePlan) (field : String)
   | log (eventName : String) (fields : Array (String × NearValuePlan))
   | assert (condition : NearValuePlan) (errorCode : Nat)
+  | promiseCreate (result : NearValuePlan) (accountId methodName : String)
+      (args : ByteArray) (deposit gas : Nat)
   deriving Repr, BEq, Inhabited
 
 inductive NearTerminatorPlan where
@@ -432,7 +434,23 @@ private def canonicalEventStrings (plan : NearModulePlan) : Array Layout.StringI
         | _ => pure ()
   strings
 
-private def lowerCanonicalNearOp (plan : NearModulePlan) (eventStrings : Array Layout.StringInfo) :
+private def canonicalPromiseStrings (plan : NearModulePlan) : Array Layout.StringInfo := Id.run do
+  let mut strings := #[]
+  let mut ptr := Memory.CROSSCALL_STRING_BASE
+  for fn in plan.functions do
+    for block in fn.blocks do
+      for op in block.ops do
+        match op with
+        | .promiseCreate _ accountId methodName _ _ _ =>
+            for value in #[accountId, methodName] do
+              if !strings.any (fun entry => entry.str == value) then
+                strings := strings.push { str := value, ptr, len := value.length }
+                ptr := ptr + value.length
+        | _ => pure ()
+  strings
+
+private def lowerCanonicalNearOp (plan : NearModulePlan)
+    (eventStrings promiseStrings : Array Layout.StringInfo) :
     NearOpPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
   | .literal result value => .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
   | .boolLiteral result value => .ok #[.i32Const (if value then 1 else 0), .localSet s!"v{result.id}"]
@@ -513,6 +531,28 @@ private def lowerCanonicalNearOp (plan : NearModulePlan) (eventStrings : Array L
         insns := insns ++ (<- Event.evtFieldInsns field key #[.localGet s!"v{value.id}"]
           (canonicalNearType value.typeName))
       return insns ++ Event.evtFooterInsns
+  | .promiseCreate result accountId methodName args deposit gas => do
+      let account ← match promiseStrings.find? (fun entry => entry.str == accountId) with
+        | some entry => pure entry
+        | none => Diagnostics.err "canonical NEAR promise account id is missing from the data plan"
+      let method ← match promiseStrings.find? (fun entry => entry.str == methodName) with
+        | some entry => pure entry
+        | none => Diagnostics.err "canonical NEAR promise method name is missing from the data plan"
+      let mut argStores := #[]
+      for index in [:args.size] do
+        argStores := argStores ++ #[
+          .i32Const (Memory.CROSSCALL_BUF + index),
+          .i32Const args[index]!.toNat,
+          .store "i32.store8" 0]
+      let wordMod := 18446744073709551616
+      return argStores ++ #[
+        .i32Const Memory.RET_BUF, .i64Const (deposit % wordMod), .store "i64.store" 0,
+        .i32Const (Memory.RET_BUF + 8), .i64Const (deposit / wordMod), .store "i64.store" 0,
+        .i64Const account.len, .i64Const account.ptr,
+        .i64Const method.len, .i64Const method.ptr,
+        .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
+        .i64Const Memory.RET_BUF, .i64Const gas,
+        .call "promise_create", .localSet s!"v{result.id}"]
 
 private def lowerCanonicalNearTerminator : NearTerminatorPlan -> Array ProofForge.Compiler.Wasm.Insn
   | .return values => match values[0]? with
@@ -531,12 +571,15 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
       | .literal result _ | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
-        .arithmetic result .. | .compare result .. | .context result _ => #[result]
+        .arithmetic result .. | .compare result .. | .context result _ |
+        .promiseCreate result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let mut dispatch := #[]
+  let promiseStrings := canonicalPromiseStrings plan
   for block in fn.blocks do
     let mut body := #[]
-    for op in block.ops do body := body ++ (<- lowerCanonicalNearOp plan eventStrings op)
+    for op in block.ops do
+      body := body ++ (<- lowerCanonicalNearOp plan eventStrings promiseStrings op)
     body := body ++ lowerCanonicalNearTerminator block.terminator
     dispatch := dispatch ++ #[.localGet "pc", .i32Const block.id, .plain "i32.eq",
       .if_ { insns := body } { insns := #[] }]
@@ -553,6 +596,9 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
 def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
   unless plan.targetId == "wasm-near" do Diagnostics.err "canonical NEAR plan has wrong target"
   let eventStrings := canonicalEventStrings plan
+  let promiseStrings := canonicalPromiseStrings plan
+  if promiseStrings.any (fun entry => entry.ptr + entry.len > Memory.ZERO_HASH_BUF) then
+    Diagnostics.err "canonical NEAR promise string pool exceeds reserved memory"
   let funcs <- plan.functions.mapM (lowerCanonicalNearFunction plan eventStrings)
   let scalarTypes := plan.layout.scalars.foldl (fun acc state =>
     if acc.contains state.type then acc else acc.push state.type) #[]
@@ -572,7 +618,8 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
       { offset := Memory.HEX_LUT_PTR, bytes := "0123456789abcdef" }] ++
     (if eventStrings.isEmpty then #[] else #[{
       offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
-    }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
+    }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
+    promiseStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment })
   return { imports := imports, globals := if eventStrings.isEmpty then #[] else Event.evtGlobals, funcs := helperFuncs ++ mapHelpers ++ returnFuncs ++ eventHelpers ++ funcs, memory := some { min := 1 }, dataSegments := data }
 
 end ProofForge.Backend.WasmHost.NearModulePlan

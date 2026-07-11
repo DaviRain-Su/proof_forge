@@ -3,6 +3,7 @@ import ProofForge.IR.Canonical
 import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.NearModulePlan
+import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Target.Plan
 
 /-! # Build Existing NEAR Plan from Canonical Core
@@ -215,6 +216,12 @@ private def nearResult (instr : Instruction) : Except PlanError NearValuePlan :=
   | #[result] => .ok { id := result.id.value, typeName := reprStr result.type }
   | _ => .error { message := "NEAR value-producing operation requires exactly one result" }
 
+private def literalFor (literals : Array (ValueId × CoreLiteral)) (value : ValueRef) :
+    Except PlanError CoreLiteral :=
+  match literals.find? (fun entry => entry.fst == value.id) with
+  | some entry => .ok entry.snd
+  | none => .error { message := s!"canonical NEAR HostOp argument {value.id.value} must be a literal" }
+
 private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
   | .add => .add | .sub => .sub | .mul => .mul | .div => .div | .mod => .mod
   | .and => .bitAnd | .or => .bitOr | .xor => .bitXor | .shl => .shiftLeft | .shr => .shiftRight
@@ -222,12 +229,18 @@ private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
 private def nearCompare : CompareOp -> NearComparePlan
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
 
-private def lowerNearOp (iface : InterfaceContract) (instr : Instruction) : Except PlanError NearOpPlan := do
+private def lowerNearOp (iface : InterfaceContract)
+    (literals : Array (ValueId × CoreLiteral)) (instr : Instruction) :
+    Except PlanError NearOpPlan := do
   match instr.op with
   | .pure (.literal (.boolLit value)) => return .boolLiteral (<- nearResult instr) value
   | .pure (.literal (.u8Lit value)) | .pure (.literal (.u32Lit value)) |
-    .pure (.literal (.u64Lit value)) | .pure (.literal (.u128Lit value)) =>
+    .pure (.literal (.u64Lit value)) =>
       return .literal (<- nearResult instr) value
+  | .pure (.literal (.u128Lit value)) =>
+      /- Wasm locals are at most i64. The full u128 remains attached to the
+      typed promise plan; this literal local is only its low word. -/
+      return .literal (<- nearResult instr) (value % 18446744073709551616)
   | .pure (.literal (.addressLit _)) | .pure (.literal (.stringLit _)) |
     .pure (.literal (.bytesLit _)) | .pure (.literal (.hashLit _)) =>
       /- Non-numeric literals are metadata-only on NEAR; materialize as
@@ -259,6 +272,30 @@ private def lowerNearOp (iface : InterfaceContract) (instr : Instruction) : Exce
         throw { message := s!"NEAR event `{decl.name}` field arity mismatch" }
       return .log decl.name (decl.fields.zip (args.map nearValue) |>.map fun (field, value) => (field.name, value))
   | .assert condition error => return .assert (nearValue condition) error.id.value
+  | .hostCall call =>
+      let registry ← match HostOps.nearPromiseRegistry with
+        | .ok registry => pure registry
+        | .error message => throw { message }
+      let handler ← match registry.lookup "wasm-near" call.id with
+        | some handler => pure handler
+        | none => throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
+      unless handler.lower == #[HostOps.NearOpPlan.promiseCreate] do
+        throw { message := s!"invalid HostOp plan for {call.id.render}" }
+      unless call.id == HostOps.promiseCreateId do
+        throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
+      unless call.args.size == 5 do
+        throw { message := "near.promise.create@1.0.0 requires five arguments" }
+      let account ← literalFor literals call.args[0]!
+      let method ← literalFor literals call.args[1]!
+      let args ← literalFor literals call.args[2]!
+      let deposit ← literalFor literals call.args[3]!
+      let gas ← literalFor literals call.args[4]!
+      match account, method, args, deposit, gas with
+      | .stringLit accountId, .stringLit methodName, .bytesLit payload,
+          .u128Lit deposit, .u64Lit gas =>
+          return .promiseCreate (<- nearResult instr) accountId methodName payload deposit gas
+      | _, _, _, _, _ =>
+          throw { message := "near.promise.create@1.0.0 literal argument types do not match its signature" }
   | op => throw { message := s!"unsupported canonical NEAR operation `{repr op}`" }
 
 private def lowerNearTerminator : Terminator -> NearTerminatorPlan
@@ -271,8 +308,12 @@ private def lowerNearFunction (iface : InterfaceContract) (fn : Function) : Exce
   let ep <- match iface.entrypoints.find? (fun ep => ep.functionId == fn.id) with
     | some ep => pure ep
     | none => throw { message := s!"missing NEAR interface entrypoint {fn.id.value}" }
+  let literals := fn.blocks.flatMap fun block => block.instructions.filterMap fun instruction =>
+    match instruction.results, instruction.op with
+    | #[result], .pure (.literal literal) => some (result.id, literal)
+    | _, _ => none
   let blocks <- fn.blocks.mapM fun block => do
-    let ops <- block.instructions.mapM (lowerNearOp iface)
+    let ops <- block.instructions.mapM (lowerNearOp iface literals)
     return {
       id := block.id.value
       params := block.params.map (fun p => { id := p.id.value, typeName := reprStr p.type })
