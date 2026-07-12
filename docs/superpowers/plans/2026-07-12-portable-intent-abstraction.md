@@ -189,11 +189,11 @@
 - Produces: strict canonical Counter planning and artifact routing for Soroban.
 - Rejects: NEAR-only HostOps and unsupported ABI/auth operations.
 
-- [x] Add failing strict-gate tests.
-- [x] Implement Soroban ABI, auth, and bridge-plan selection.
-- [x] Add Counter host-interpreter parity and artifact checks.
+- [ ] Add failing strict-gate tests.
+- [ ] Implement Soroban ABI, auth, and bridge-plan selection.
+- [ ] Add Counter host-interpreter parity and artifact checks.
 - [ ] Add RemoteCall only after `invoke_contract` parity passes.
-- [x] Run Soroban, canonical, product, docs, check, and diff gates; commit without changing primary-triad status.
+- [ ] Run Soroban, canonical, product, docs, check, and diff gates; commit without changing primary-triad status.
 
 ## Workstream C: ZK Target Promotion
 

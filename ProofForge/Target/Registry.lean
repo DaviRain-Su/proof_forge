@@ -223,8 +223,7 @@ def wasmStellarSoroban : TargetProfile := {
     .controlBoundedLoop,
     .dataFixedArray,
     .dataStruct,
-    .assertions,
-    .checkedArithmetic
+    .assertions
   ]
   hostBridge? := some .soroban
   requiredTools := #["wat2wasm"]
