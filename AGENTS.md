@@ -145,7 +145,7 @@ changes and `git diff --check` before handoff.
 | Surface | Targets |
 |---|---|
 | Primary triad `contract_source` compilers (maturity `experimental`) | `evm`, `solana-sbpf-asm`, `wasm-near` |
-| `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `wasm-stellar-soroban`, `move-aptos`, `move-sui`, `psy-dpn`, `aleo-leo` |
+| `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`, `wasm-stellar-soroban`, `wasm-arbitrum-stylus`, `move-aptos`, `move-sui`, `psy-dpn`, `aleo-leo` |
 | `proof-forge emit --target ...` fixture whitelist | Above plus `quint` (verification; CLI-only). `wasm-stellar-soroban` uses EmitWat plus `HostBridge.soroban`, not a separate codegen core. |
 
 The remaining registry entries are Counter-MVP, fixture, or research spikes.

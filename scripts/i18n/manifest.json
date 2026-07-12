@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "331918c9593e926d66be584e1f9f0a7152d9b9d07a122a35fa3bb2a9f59e46fc",
+    "sha256": "f3e2354da226eac4b088b683ed0676f4b68c6f2670603a3e40536e1b89f27c1f",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for parallel, fast, and serial test commands"
+    "note": "manually synced for Arbitrum Stylus research backend status"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",

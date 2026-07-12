@@ -6,8 +6,10 @@ namespace ProofForge.Backend.Stylus.Artifact
 open ProofForge.Backend.Stylus
 open ProofForge.Target.ArtifactBundle
 
-def rustSdkBundle (source : SourceIdentity) (cargoPath libPath : String)
-    (cargoSha libSha : String) (cargoBytes libBytes : Nat)
+def rustSdkBundle (source : SourceIdentity)
+    (cargoPath libPath abiPath clientPath wasmPath deployPath : String)
+    (cargoSha libSha abiSha clientSha wasmSha deploySha : String)
+    (cargoBytes libBytes abiBytes clientBytes wasmBytes deployBytes : Nat)
     (sourceTools : Array ToolProvenance := #[]) : ArtifactBundle := {
   targetId := "wasm-arbitrum-stylus"
   source
@@ -15,21 +17,29 @@ def rustSdkBundle (source : SourceIdentity) (cargoPath libPath : String)
     { kind := "stylus-rust-cargo", role := .sidecar, path? := some cargoPath,
       sha256? := some cargoSha, bytes? := some cargoBytes },
     { kind := "stylus-rust-source", role := .primary, path? := some libPath,
-      sha256? := some libSha, bytes? := some libBytes }
+      sha256? := some libSha, bytes? := some libBytes },
+    { kind := "solidity-abi", role := .sidecar, path? := some abiPath,
+      sha256? := some abiSha, bytes? := some abiBytes },
+    { kind := "typescript-client", role := .sidecar, path? := some clientPath,
+      sha256? := some clientSha, bytes? := some clientBytes },
+    { kind := "wasm", role := .intermediate, path? := some wasmPath,
+      sha256? := some wasmSha, bytes? := some wasmBytes },
+    { kind := "deploy-manifest", role := .sidecar, path? := some deployPath,
+      sha256? := some deploySha, bytes? := some deployBytes }
   ]
   primaryOutput? := some "stylus-rust-source"
   finalOutput? := none
   toolchain := sourceTools ++ #[
-    { tool := "rustc", stage := "wasm-bootstrap", available := false,
-      declaredVersion? := some "1.91.0" },
+    { tool := "rustc", stage := "wasm-bootstrap", available := true,
+      version? := some "1.91.0", declaredVersion? := some "1.91.0",
+      observedVersion? := some "1.91.0" },
     { tool := "cargo-stylus", stage := "artifact-check", available := false,
       declaredVersion? := some "0.10.8" }
   ]
   validations := #[
     { name := "canonical-plan", state := .passed },
     { name := "rust-sdk-render", state := .passed },
-    { name := "wasm-bootstrap", state := .unavailable,
-      detail? := some "source bundle route does not run Rust compilation" },
+    { name := "wasm-bootstrap", state := .passed },
     { name := "artifact-check", state := .unavailable,
       detail? := some "source bundle route does not run cargo stylus check" }
   ]

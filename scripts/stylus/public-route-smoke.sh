@@ -28,6 +28,10 @@ assert data["plan"]["selectors"] == {
 for output in bundle["outputs"]:
     path = root / output["path"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == output["sha256"]
-assert not (root / "contract.wasm").exists()
+assert (root / "contract.wasm").read_bytes()[:4] == b"\x00asm"
+assert json.loads((root / "proof-forge-abi.json").read_text())[0]["name"] == "initialize"
+assert "export const ABI" in (root / "proof-forge-client.ts").read_text()
+deploy = json.loads((root / "proof-forge-deploy.json").read_text())
+assert deploy["broadcast"] is False and deploy["activationValidation"] == "notRun"
 print("stylus-public-route-artifact: ok")
 PY

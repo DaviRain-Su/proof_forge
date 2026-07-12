@@ -13,6 +13,12 @@ namespace ProofForge.Cli
 
 open System
 
+private def runProcessEnv (cmd : String) (args : Array String)
+    (env : Array (String × Option String)) : IO Unit := do
+  let output <- IO.Process.output { cmd, args, env }
+  if output.exitCode != 0 then
+    throw <| IO.userError s!"{cmd} failed with exit code {output.exitCode}: {output.stderr}"
+
 unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln "Stylus build requires a Lean contract_source input"
@@ -41,14 +47,51 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   | .ok () => pure ()
   let cargoPath := output / "Cargo.toml"
   let libPath := output / "src/lib.rs"
+  let abiPath := output / "proof-forge-abi.json"
+  let clientPath := output / "proof-forge-client.ts"
+  let wasmPath := output / "contract.wasm"
+  let deployPath := output / "proof-forge-deploy.json"
+  let abi <- match ProofForge.Contract.Client.abiJson spec.module with
+    | .ok abi => pure abi
+    | .error error => throw <| IO.userError error
+  let client <- match ProofForge.Contract.Client.renderEvmAbiWrapper spec "contract" with
+    | .ok client => pure client
+    | .error error => throw <| IO.userError error
+  IO.FS.writeFile abiPath (abi ++ "\n")
+  IO.FS.writeFile clientPath (client ++ "\n")
+  let rustc <- runProcess "rustup" #["which", "--toolchain", "1.91.0", "rustc"]
+  let rustdoc <- runProcess "rustup" #["which", "--toolchain", "1.91.0", "rustdoc"]
+  let cargoTarget := output / ".cargo-target"
+  runProcessEnv "rustup" #["run", "1.91.0", "cargo", "build", "--manifest-path",
+    cargoPath.toString, "--target", "wasm32-unknown-unknown", "--release"] #[
+      ("RUSTC", some rustc.trimAscii.toString),
+      ("RUSTDOC", some rustdoc.trimAscii.toString),
+      ("CARGO_TARGET_DIR", some cargoTarget.toString)
+    ]
+  let wasmFileName := crate.name.replace "-" "_" ++ ".wasm"
+  let builtWasm := cargoTarget / "wasm32-unknown-unknown/release" / wasmFileName
+  IO.FS.writeBinFile wasmPath (← IO.FS.readBinFile builtWasm)
+  IO.FS.removeDirAll cargoTarget
+  let deployJson := "{\"schemaVersion\":\"1\",\"target\":\"wasm-arbitrum-stylus\"," ++
+    "\"renderer\":\"rust-sdk-0.10.8\",\"wasm\":\"contract.wasm\"," ++
+    "\"broadcast\":false,\"contractAddress\":null,\"transactionHash\":null," ++
+    "\"activationValidation\":\"notRun\"}\n"
+  IO.FS.writeFile deployPath deployJson
   let cargoDigest <- fileDigestAndBytes cargoPath
   let libDigest <- fileDigestAndBytes libPath
+  let abiDigest <- fileDigestAndBytes abiPath
+  let clientDigest <- fileDigestAndBytes clientPath
+  let wasmDigest <- fileDigestAndBytes wasmPath
+  let deployDigest <- fileDigestAndBytes deployPath
   let source : ProofForge.Target.ArtifactBundle.SourceIdentity := {
     moduleName := spec.name, path? := some input.toString, leanElaborated := true
   }
   let sourceTools <- ProofForge.Target.ArtifactBundle.sourceElaborationToolchain source opts.root?
   let artifactBundle := ProofForge.Backend.Stylus.Artifact.rustSdkBundle source
-    "Cargo.toml" "src/lib.rs" cargoDigest.1 libDigest.1 cargoDigest.2 libDigest.2 sourceTools
+    "Cargo.toml" "src/lib.rs" "proof-forge-abi.json" "proof-forge-client.ts" "contract.wasm"
+    "proof-forge-deploy.json"
+    cargoDigest.1 libDigest.1 abiDigest.1 clientDigest.1 wasmDigest.1 deployDigest.1
+    cargoDigest.2 libDigest.2 abiDigest.2 clientDigest.2 wasmDigest.2 deployDigest.2 sourceTools
   match ProofForge.Target.ArtifactBundle.validateHonesty artifactBundle with
   | .error error => throw <| IO.userError error.message
   | .ok () => pure ()

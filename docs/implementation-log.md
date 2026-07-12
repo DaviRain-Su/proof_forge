@@ -617,3 +617,17 @@ Rules:
   - `git diff --check` passed
 - Remaining: Solidity ABI and TypeScript client sidecars, compiled Wasm/tool
   evidence, deploy JSON, and full Task 7 documentation/route promotion.
+
+### Task 7 artifact checkpoint
+
+- Added Solidity ABI and TypeScript EVM-compatible client sidecars derived
+  from the hydrated source contract.
+- The CLI now compiles the pinned Rust SDK crate with Rust `1.91.0` for
+  `wasm32-unknown-unknown`, records the Wasm hash/size as an intermediate
+  output, and deletes its temporary Cargo target directory.
+- Added a non-broadcast deploy manifest with null address/transaction fields
+  and `activationValidation=notRun`. The ArtifactBundle deliberately retains
+  `finalOutput=null` until cargo-stylus activation validation is executed.
+- Remaining Task 7 issue: publish all sidecars and metadata through one atomic
+  directory rename; the crate itself is atomic, but later sidecar failure can
+  currently leave a partial output directory.
