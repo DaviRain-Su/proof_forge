@@ -30,9 +30,6 @@ structure BuildResult where
   nativeOp? : Option NativeBuildOp := none
   deriving Repr
 
-def legacyBuildResult (result : Except String String) : Except String BuildResult :=
-  result.map fun flag => { dispatchKind := .legacy, legacyFlag? := some flag }
-
 /-- Per-target CLI driver (PF-P1-01 compat surface).
 
 Owns build/emit legacy-flag mapping until emit modes are absorbed into real
