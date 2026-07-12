@@ -257,6 +257,10 @@ Rules:
   issue in `intent-registry`: its test imports the `ProofForge.Contract`
   umbrella while the recipe built only the registry leaf. The recipe now
   builds the imported umbrella target explicitly.
+- Run `29192133516` passed the repaired cold-cache product gate and started all
+  four lanes. Its EVM lane showed that the new independent matrix runners also
+  need the old job's package bootstrap; every lane now runs `lake build` before
+  its manifest recipes.
 
 ### Local parallel qualification
 

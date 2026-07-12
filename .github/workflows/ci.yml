@@ -156,6 +156,9 @@ jobs:
       - name: Validate lane manifest
         run: just test-manifest
 
+      - name: Build Lean package
+        run: lake build
+
       - name: Run ${{ matrix.lane }} lane
         run: just check-lane ${{ matrix.lane }}
 
