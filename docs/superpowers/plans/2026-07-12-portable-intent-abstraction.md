@@ -159,7 +159,7 @@
 - [x] Move Borsh planning behind a NEAR ABI builder.
 - [x] Update EmitWat to consume the neutral plan.
 - [x] Run canonical parity, NEAR ABI, promise, FT E2E, product, check, and diff gates.
-- [ ] Commit the extraction without adding Soroban behavior.
+- [x] Commit the extraction without adding Soroban behavior.
 
 ### Task 8: Add a Strict Canonical Target Gate
 
