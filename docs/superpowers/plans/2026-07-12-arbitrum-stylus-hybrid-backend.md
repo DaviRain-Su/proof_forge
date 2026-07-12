@@ -104,7 +104,7 @@
 - Consumes: `ProofForge.IR.Canonical.CheckedCanonicalContract`, shared canonical ids, and neutral ABI/storage primitives.
 - Produces: `StylusPlan`, `StylusAbiPlan`, `StylusStoragePlan`, `StylusFunctionPlan`, `StylusEventPlan`, `StylusCallPlan`, `StylusHostOpPlan`, `StylusResourcePlan`, and `StylusArtifactPlan`.
 
-- [ ] **Step 1: Write the failing plan-contract test**
+- [x] **Step 1: Write the failing plan-contract test**
 
   Create `Tests/Stylus/PlanContract.lean` with compile-time fixtures that construct a plan and assert stable fields:
 
@@ -134,7 +134,7 @@
 
   Run `lake env lean --run Tests/Stylus/PlanContract.lean`; expect unknown-module failure.
 
-- [ ] **Step 2: Implement focused plan types**
+- [x] **Step 2: Implement focused plan types**
 
   Define exact enums for ABI types, slot expressions, host operations, and call modes. Use stable ids rather than embedded Rust/WAT:
 
@@ -161,7 +161,7 @@
 
   Validate integer widths in `{8,16,32,64,128,160,256}` and fixed bytes in `1..32` through smart constructors, not renderer checks.
 
-- [ ] **Step 3: Add the Just gate and pass it**
+- [x] **Step 3: Add the Just gate and pass it**
 
   Add:
 
@@ -172,7 +172,7 @@
 
   Run `just stylus-plan-contract`, `lake build ProofForge.Backend.Stylus.Plan`, and `git diff --check`; expect pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
   ```bash
   git add ProofForge/Backend/Stylus Tests/Stylus justfile lakefile.lean

@@ -84,6 +84,11 @@ soroban-counter-offline:
     lake build proof-forge
     bash scripts/soroban/counter-offline-smoke.sh
 
+# Stable renderer-neutral Arbitrum Stylus plan contract.
+stylus-plan-contract:
+    lake build ProofForge.Backend.Stylus.Plan
+    lake env lean --run Tests/Stylus/PlanContract.lean
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

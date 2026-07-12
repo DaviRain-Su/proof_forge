@@ -301,6 +301,22 @@ Rules:
   `just docs-check`, and `git diff --check` passed.
 - Next: Task 2, stable `StylusPlan` data contract.
 
+## 2026-07-12 - Arbitrum Stylus Task 2 plan contract
+
+- Status: `done`
+- Added renderer-neutral `StylusPlan` data types for ABI methods/errors, 256-bit
+  slot expressions, storage words, functions, events, calls, HostOps, resources,
+  artifacts, and per-renderer support state.
+- Stable bytes are represented as `Array UInt8`; the plan does not install
+  global instances for Lean's `ByteArray` or depend on Rust/WAT syntax.
+- Added smart constructors that accept integer widths
+  `8/16/32/64/128/160/256` and fixed bytes `1..32`, rejecting invalid widths at
+  plan construction rather than in a renderer.
+- Registry and CLI routing remain unchanged.
+- Verification: `just stylus-plan-contract`,
+  `lake build ProofForge.Backend.Stylus.Plan`, and `git diff --check` passed.
+- Next: Task 3, canonical-to-plan builder and strict validation.
+
 ### Local parallel qualification
 
 - `check-serial` warm-cache baseline: 1297.26 seconds.
