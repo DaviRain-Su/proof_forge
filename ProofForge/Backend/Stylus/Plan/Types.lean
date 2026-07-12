@@ -79,6 +79,8 @@ inductive StylusOpPlan where
       (lhs rhs : StylusValueId)
   | storageLoad (result : StylusValueId) (wordId : String)
   | storageCache (wordId : String) (value : StylusValueId)
+  | storagePathLoad (result : StylusValueId) (wordId : String) (keys : Array StylusValueId)
+  | storagePathCache (wordId : String) (keys : Array StylusValueId) (value : StylusValueId)
   | contextRead (result : StylusValueId) (type : StylusAbiType) (operation : StylusHostOp)
   | compare (result : StylusValueId) (type : StylusAbiType) (op : StylusCompareOp)
       (lhs rhs : StylusValueId)
@@ -148,6 +150,7 @@ structure StylusStorageWordPlan where
   byteOffset : Nat := 0
   byteWidth : Nat := 32
   type : StylusAbiType
+  keyTypes : Array StylusAbiType := #[]
   deriving Repr, BEq
 
 structure StylusStoragePlan where

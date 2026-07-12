@@ -155,6 +155,10 @@ stylus-value-vault-canonical:
     lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/value-vault-canonical.sh
 
+stylus-mapping-events:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/mapping-events.sh
+
 stylus-scalar-params:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     lake env lean --run Tests/Stylus/ScalarParams.lean

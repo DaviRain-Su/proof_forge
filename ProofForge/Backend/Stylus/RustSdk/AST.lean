@@ -23,13 +23,15 @@ inductive RustReturnType where
 inductive RustStmt where
   | letLiteral (name typeName value : String)
   | letStorageGet (name field : String) (type : StylusAbiType)
+  | letMapGet (name field key : String) (type : StylusAbiType)
   | letAdd (name typeName lhs rhs : String) (mode : StylusOverflowMode)
   | letArithmetic (name typeName lhs rhs method : String) (mode : StylusOverflowMode)
   | letContext (name expression : String)
   | letCompare (name lhs rhs : String) (op : StylusCompareOp)
   | assert_ (condition message : String)
-  | emitEvent (signature : String) (values : Array String)
+  | emitEvent (signature : String) (indexed data : Array String)
   | storageSet (field value : String) (type : StylusAbiType)
+  | mapSet (field key value : String) (type : StylusAbiType)
   | returnValue (value : String)
   | okValue (value : String)
   | okUnit

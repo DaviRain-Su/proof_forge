@@ -25,6 +25,8 @@ private def opName : StylusOpPlan -> String
   | .div result .. => s!"div-{result}"
   | .storageLoad result wordId => s!"storage-load-{wordId}-{result}"
   | .storageCache wordId value => s!"storage-cache-{wordId}-{value}"
+  | .storagePathLoad result wordId _ => s!"storage-path-load-{wordId}-{result}"
+  | .storagePathCache wordId _ value => s!"storage-path-cache-{wordId}-{value}"
   | .contextRead result _ operation => s!"context-{repr operation}-{result}"
   | .compare result _ operation .. => s!"compare-{repr operation}-{result}"
   | .assert_ condition _ => s!"assert-{condition}"
@@ -163,12 +165,29 @@ private def scalarWidth : StylusAbiType -> Except LowerError Nat
       else fail s!"direct Counter scalar lowering supports uint widths through 64, received uint{bits}"
   | type => fail s!"direct Counter scalar lowering has no handler for `{repr type}`"
 
+private def mappingSlot (word : StylusStorageWordPlan) (keys : Array StylusValueId) :
+    Except LowerError (Array Insn) := do
+  unless keys.size == word.keyTypes.size do fail s!"Stylus mapping `{word.id}` key arity mismatch"
+  let base <- literalSlot word
+  let mut insns := writeBytes 32 base
+  for index in [0:keys.size] do
+    let some key := keys[index]? | fail s!"Stylus mapping `{word.id}` key index is invalid"
+    let some type := word.keyTypes[index]? | fail s!"Stylus mapping `{word.id}` key type is missing"
+    insns := insns ++ clearWord 0
+    match type with
+    | .address => insns := insns ++ copyPointerBytes 12 (valueLocal key) 20
+    | type =>
+        let width <- scalarWidth type
+        insns := insns ++ encodeUnsigned (32 - width) width (valueLocal key)
+    insns := insns ++ #[.i32Const 0, .i32Const 64, .i32Const 32, .call "native_keccak256"]
+  pure insns
+
 private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   match op with
   | .literal result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
-  | .storageLoad result ..
+  | .storageLoad result .. | .storagePathLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
-  | .storageCache .. | .assert_ .. | .emitEvent .. => #[]
+  | .storageCache .. | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
   let mut ids := #[]
@@ -267,6 +286,30 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             diagnostic plan function block (opName op) "storage.cache" error.message
           pure <| writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
             #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
+  | .storagePathLoad result wordId keys => do
+      let word <- wordFor plan wordId
+      let slot <- mappingSlot word keys |>.mapError fun error =>
+        diagnostic plan function block (opName op) "storage.mapping" error.message
+      let load := slot ++ #[.i32Const 32, .i32Const 64, .call "storage_load_bytes32"]
+      match word.type with
+      | .uint 128 => pure <| load ++ copyFixedBytes (widePtr result) 80 16 ++
+          #[.i64Const (widePtr result), .localSet (valueLocal result)]
+      | type =>
+          let width <- scalarWidth type |>.mapError fun error =>
+            diagnostic plan function block (opName op) "storage.mapping" error.message
+          pure <| load ++ decodeUnsigned (96 - width) width (valueLocal result)
+  | .storagePathCache wordId keys value => do
+      let word <- wordFor plan wordId
+      let slot <- mappingSlot word keys |>.mapError fun error =>
+        diagnostic plan function block (opName op) "storage.mapping" error.message
+      match word.type with
+      | .uint 128 => pure <| slot ++ clearWord 64 ++ copyPointerBytes 80 (valueLocal value) 16 ++
+          #[.i32Const 32, .i32Const 64, .call "storage_cache_bytes32"]
+      | type =>
+          let width <- scalarWidth type |>.mapError fun error =>
+            diagnostic plan function block (opName op) "storage.mapping" error.message
+          pure <| slot ++ clearWord 64 ++ encodeUnsigned (96 - width) width (valueLocal value) ++
+            #[.i32Const 32, .i32Const 64, .call "storage_cache_bytes32"]
   | .contextRead result type operation =>
       match type, operation with
       | .address, .msgSender => pure #[.i32Const senderPtr, .call "msg_sender", .i64Const senderPtr,
@@ -315,12 +358,15 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
         | throw <| diagnostic plan function block (opName op) "event.emit" "event plan is missing"
       if event.fields.size != values.size then
         throw <| diagnostic plan function block (opName op) "event.emit" "field/value arity mismatch"
-      if event.fields.any (fun field => field.indexed) then
-        throw <| diagnostic plan function block (opName op) "event.emit" "indexed fields are not implemented"
+      let topicCount := 1 + (event.fields.filter fun field => field.indexed).size
+      if topicCount > 4 then
+        throw <| diagnostic plan function block (opName op) "event.emit" "more than four topics"
       let signature := event.canonicalSignature.toUTF8.data
       let eventPtr := 256
       let mut insns := writeBytes eventPtr signature ++ #[.i32Const eventPtr,
         .i32Const signature.size, .i32Const eventPtr, .call "native_keccak256"]
+      let mut topicIndex := 1
+      let mut dataIndex := 0
       for index in [0:values.size] do
         let some value := values[index]?
           | throw <| diagnostic plan function block (opName op) "event.emit" "value index is invalid"
@@ -328,10 +374,12 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           | throw <| diagnostic plan function block (opName op) "event.emit" "field index is invalid"
         let width <- scalarWidth field.type |>.mapError fun error =>
           diagnostic plan function block (opName op) "event.emit" error.message
-        insns := insns ++ clearWord (eventPtr + 32 + index * 32) ++
-          encodeUnsigned (eventPtr + 64 + index * 32 - width) width (valueLocal value)
-      pure <| insns ++ #[.i32Const eventPtr, .i32Const (32 + values.size * 32),
-        .i32Const 1, .call "emit_log"]
+        let wordIndex := if field.indexed then topicIndex else topicCount + dataIndex
+        insns := insns ++ clearWord (eventPtr + wordIndex * 32) ++
+          encodeUnsigned (eventPtr + (wordIndex + 1) * 32 - width) width (valueLocal value)
+        if field.indexed then topicIndex := topicIndex + 1 else dataIndex := dataIndex + 1
+      pure <| insns ++ #[.i32Const eventPtr, .i32Const ((topicCount + dataIndex) * 32),
+        .i32Const topicCount, .call "emit_log"]
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do

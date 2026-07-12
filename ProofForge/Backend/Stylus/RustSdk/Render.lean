@@ -86,6 +86,18 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
         | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
       pure (.storageSet field.name (localName value) word.type)
+  | .storagePathLoad result wordId keys => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let #[key] := keys | fail "Rust SDK mapping access currently requires one key"
+      pure (.letMapGet (localName result) field.name (localName key) word.type)
+  | .storagePathCache wordId keys value => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let #[key] := keys | fail "Rust SDK mapping access currently requires one key"
+      pure (.mapSet field.name (localName key) (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
   | .sub result type mode lhs rhs => do
@@ -102,9 +114,13 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
   | .emitEvent eventId values => do
       let some event := plan.events.find? (fun item => item.id == eventId)
         | fail s!"Rust SDK operation references unknown event `{eventId}`"
-      if event.fields.any (fun field => field.indexed) then
-        fail s!"Rust SDK event `{eventId}` has unsupported indexed fields"
-      pure (.emitEvent event.canonicalSignature (values.map localName))
+      let topicCount := 1 + (event.fields.filter fun field => field.indexed).size
+      if topicCount > 4 then fail s!"Rust SDK event `{eventId}` has more than four topics"
+      let indexed := (event.fields.zip values).filterMap fun (field, value) =>
+        if field.indexed then some (localName value) else none
+      let data := (event.fields.zip values).filterMap fun (field, value) =>
+        if field.indexed then none else some (localName value)
+      pure (.emitEvent event.canonicalSignature indexed data)
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
@@ -166,7 +182,13 @@ private def renderStmt (stmt : RustStmt) : Array String :=
   match stmt with
   | .letLiteral name typeName value => #[s!"let {name}: {typeName} = {value};"]
   | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
+  | .letMapGet name field key (.uint bits) =>
+      #[s!"let {name} = self.{field}.get({key}).to::<u{bits}>();"]
+  | .letMapGet name field key _ => #[s!"let {name} = self.{field}.get({key});"]
   | .storageSet field value type => #[storageWrite field value type]
+  | .mapSet field key value (.uint bits) =>
+      #[s!"self.{field}.insert({key}, U{bits}::from({value}));"]
+  | .mapSet field key value _ => #[s!"self.{field}.insert({key}, {value});"]
   | .returnValue value => #[value]
   | .okValue value => #[s!"Ok({value})"]
   | .okUnit => #["Ok(())"]
@@ -190,10 +212,11 @@ private def renderStmt (stmt : RustStmt) : Array String :=
   | .assert_ condition message => #[
       "if !" ++ condition ++ " {", "    return Err(b\"" ++ message ++ "\".to_vec());", "}"
     ]
-  | .emitEvent signature values =>
+  | .emitEvent signature indexed data =>
       #["let mut __pf_event = self.vm().native_keccak256(b\"" ++ signature ++ "\").to_vec();"] ++
-      values.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
-      #["self.vm().emit_log(&__pf_event, 1);"]
+      indexed.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
+      data.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
+      #[s!"self.vm().emit_log(&__pf_event, {1 + indexed.size});"]
 
 private def renderFunctionText (function : RustFunction) : String :=
   let receiver := match function.receiver with | .shared => "&self" | .mutable => "&mut self"
@@ -219,7 +242,7 @@ private def renderLib (contract : RustContract) : String :=
   String.intercalate "\n" <| (#[] ++ #[
     "#![cfg_attr(not(any(test, feature = \"export-abi\")), no_main)]",
     "#![cfg_attr(not(test), no_std)]", "", "extern crate alloc;", "",
-    "use alloc::{vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*};", "",
+    "use alloc::{vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};", "",
     "sol_storage! {", s!"{indent 1}#[entrypoint]", indent 1 ++ "pub struct " ++ contract.name ++ " {"
   ] ++ storage ++ #[indent 1 ++ "}", "}", "", "#[public]", "impl " ++ contract.name ++ " {"] ++
     (functions.toList.intersperse "").toArray ++ #["}", ""]).toList
@@ -233,7 +256,17 @@ private def crateSlug (moduleName : String) : String :=
 def renderCrate (plan : StylusPlan) : Except RenderError RustCrate := do
   fromPlanError (validateForRenderer .rustSdk plan)
   let storage <- plan.storage.words.mapM fun word => do
-    pure { name := word.id, typeName := ← storageTypeName word.type }
+    let valueType <- storageTypeName word.type
+    let typeName <- match word.keyTypes with
+      | #[] => pure valueType
+      | #[key] => do
+          let keyType <- rustTypeName key
+          let storageValue <- match storageRustAlias word.type with
+            | some alias => pure s!"Storage{alias}"
+            | none => fail s!"Rust SDK mapping `{word.id}` has unsupported value type"
+          pure s!"StorageMap<{keyType}, {storageValue}>"
+      | _ => fail s!"Rust SDK mapping `{word.id}` has unsupported nested keys"
+    pure { name := word.id, typeName }
   let functions <- plan.functions.mapM (renderFunction plan)
   let contract : RustContract := { name := plan.moduleName, storage, functions }
   let name := crateSlug plan.moduleName

@@ -21,6 +21,7 @@ private def loadSelector : Array Insn := #[
 
 private def scalarParamWidth : StylusAbiType -> Except LowerError Nat
   | .bool => pure 1
+  | .address => pure 20
   | .uint bits =>
       if bits > 0 && bits <= 128 && bits % 8 == 0 then pure (bits / 8)
       else throw { message := s!"direct Wasm ABI parameters require widths through uint128, received uint{bits}" }
@@ -101,6 +102,9 @@ private def wideResult? (plan : StylusPlan) : StylusOpPlan -> Option StylusValue
   | .literal result (.uint 128) _ | .add result (.uint 128) ..
   | .sub result (.uint 128) .. | .mul result (.uint 128) .. | .div result (.uint 128) .. => some result
   | .storageLoad result wordId =>
+      if plan.storage.words.any (fun word => word.id == wordId && word.type == .uint 128)
+      then some result else none
+  | .storagePathLoad result wordId _ =>
       if plan.storage.words.any (fun word => word.id == wordId && word.type == .uint 128)
       then some result else none
   | _ => none

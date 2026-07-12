@@ -79,13 +79,15 @@
 - Produces: resolved mapping-key preimages/slots and event topic/data layouts in `StylusPlan`; renderers only execute offsets and buffers.
 
 - [x] Add canonical non-indexed scalar event plans and direct/Rust rendering through official HostIO.
+- [x] Pin Foundry vectors for `mapping(uint64 => uint64)`, `mapping(address => uint128)`, and indexed scalar event topic/data layouts.
+- [x] Add plan types for single-key resolved storage paths and indexed event emissions, including the maximum-four-topics check.
+- [x] Implement `keccak256` HostIO envelopes with exact 32-byte outputs and checked static key types.
+- [x] Implement `emit_log` buffers for static indexed/data words; reject more than four topics and dynamic indexed values not pre-hashed by the plan.
 - [ ] Pin Foundry vectors for `mapping(address => uint128)`, nested allowance mappings, `Transfer`, and `Approval` topics/data.
-- [ ] Add plan types for resolved storage paths and event emissions, including indexed flags and maximum four topics.
-- [ ] Implement `keccak256` HostIO envelopes with checked memory ranges and exact 32-byte outputs.
-- [ ] Implement `emit_log` buffers; reject more than four topics and dynamic indexed values not pre-hashed by the plan.
-- [ ] Render identical Rust/direct layouts and compare them to Foundry vectors.
-- [ ] Run `just stylus-mapping-events`, `just stylus-rust-render`, and `just stylus-diagnostics`.
-- [ ] Commit as `feat(stylus): add mapping and event layouts`.
+- [x] Render identical Rust/direct layouts and compare single-key/static-event paths to Foundry vectors.
+- [x] Run `just stylus-mapping-events`, `just stylus-rust-render`, and `just stylus-diagnostics`.
+- [ ] Extend canonical Core beyond its current single-key `StateShape.map` model before claiming nested allowance compatibility.
+- [ ] Commit the full nested slice as `feat(stylus): add mapping and event layouts`.
 
 ### Task 4: ERC-20 State Machine and EVM Interoperability
 

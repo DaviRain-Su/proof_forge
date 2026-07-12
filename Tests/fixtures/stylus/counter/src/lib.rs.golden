@@ -4,7 +4,7 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use stylus_sdk::{alloy_primitives::*, prelude::*};
+use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};
 
 sol_storage! {
     #[entrypoint]

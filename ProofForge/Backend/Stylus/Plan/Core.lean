@@ -147,9 +147,19 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
       | .div => pure (.div result type mode lhs.id.value rhs.id.value)
       | operation => fail s!"Stylus arithmetic `{repr operation}` is not implemented"
   | .storageLoad path => do
-      pure (.storageLoad (← resultId instruction) (← stateSymbol contract path.root))
+      let keys := path.path.filterMap fun segment => match segment with
+        | .mapKey key => some key.id.value | _ => none
+      unless keys.size == path.path.size do fail "Stylus storage paths support map keys only"
+      let wordId <- stateSymbol contract path.root
+      if keys.isEmpty then pure (.storageLoad (← resultId instruction) wordId)
+      else pure (.storagePathLoad (← resultId instruction) wordId keys)
   | .storageStore path value => do
-      pure (.storageCache (← stateSymbol contract path.root) value.id.value)
+      let keys := path.path.filterMap fun segment => match segment with
+        | .mapKey key => some key.id.value | _ => none
+      unless keys.size == path.path.size do fail "Stylus storage paths support map keys only"
+      let wordId <- stateSymbol contract path.root
+      if keys.isEmpty then pure (.storageCache wordId value.id.value)
+      else pure (.storagePathCache wordId keys value.id.value)
   | .contextRead field => do
       let operation <- match contextHostOp field with
         | some operation => pure operation
@@ -197,13 +207,17 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
   for state in contract.module.state do
     let type <- match state.shape with
       | .scalar type => coreTypeToAbi type
-      | .map .. => fail "Stylus mapping storage is scheduled for the Token slice"
+      | .map _ value _ => coreTypeToAbi value
       | .fixedArray .. | .dynamicArray .. | .record .. =>
           fail "Stylus aggregate storage is scheduled for the aggregate slice"
+    let keyTypes <- match state.shape with
+      | .map key _ _ => pure #[← coreTypeToAbi key]
+      | _ => pure #[]
     words := words.push {
       id := ← stateSymbol contract state.id
       slot := .literal (slotBytes index)
       type
+      keyTypes
       byteWidth := match type with
         | .bool => 1 | .uint bits => bits / 8 | .address => 20 | .fixedBytes n => n
         | _ => 32
@@ -213,8 +227,10 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
 
 private def instructionHostOps (instruction : Instruction) : Except PlanError (Array StylusHostOp) :=
   match instruction.op with
-  | .storageLoad .. | .storageContains .. => pure #[.storageLoad]
-  | .storageStore .. => pure #[.storageCache]
+  | .storageLoad path | .storageContains path =>
+      pure <| if path.path.isEmpty then #[.storageLoad] else #[.keccak256, .storageLoad]
+  | .storageStore path _ =>
+      pure <| if path.path.isEmpty then #[.storageCache] else #[.keccak256, .storageCache]
   | .contextRead field => match contextHostOp field with
       | some op => pure #[op]
       | none => fail s!"Stylus plan has no context HostIO handler for `{repr field}`"

@@ -65,6 +65,10 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
     for param in error.params do validateAbiType param.type
   for word in plan.storage.words do
     validateAbiType word.type
+    for keyType in word.keyTypes do
+      validateAbiType keyType
+      if keyType == .bytes || keyType == .string then
+        fail s!"Stylus mapping `{word.id}` dynamic keys must be pre-hashed by the plan"
     if word.byteWidth == 0 || word.byteWidth > 32 then
       fail s!"Stylus storage word `{word.id}` has invalid byte width {word.byteWidth}"
     if word.byteOffset + word.byteWidth > 32 then
@@ -74,6 +78,14 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
         unless bytes.size == 32 do
           fail s!"Stylus storage word `{word.id}` literal slot must be 32 bytes"
     | _ => pure ()
+  for event in plan.events do
+    let indexed := event.fields.filter (fun field => field.indexed)
+    if indexed.size > 3 then
+      fail s!"Stylus event `{event.id}` exceeds the four-topic EVM limit"
+    for field in event.fields do
+      validateAbiType field.type
+      if field.indexed && (field.type == .bytes || field.type == .string) then
+        fail s!"Stylus event `{event.id}` dynamic indexed field `{field.name}` must be pre-hashed"
   for function in plan.functions do
     let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
       | fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"

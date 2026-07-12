@@ -896,6 +896,19 @@ Rules:
   self-tests pass; live execution is currently blocked only by the unavailable
   local Docker daemon/RPC.
 
+## 2026-07-13 - Stylus mapping slots and indexed scalar events
+
+- Status: `done for single-key static maps/events; nested allowance layout pending`
+- Added Plan-owned mapping key types and storage-path operations. Core preserves
+  the key SSA id; direct Wasm executes the planned `keccak256(paddedKey ||
+  baseSlot)` envelope and Rust renders the same plan as `StorageMap` access.
+- Foundry-backed runtime vectors cover `uint64 -> uint64` and `address ->
+  uint128`, including a value above u64. Direct storage slots/results match the
+  generated Rust crate's SDK types.
+- Added indexed scalar event layout with topic0, indexed words, and data words.
+  Validation enforces the four-topic limit and rejects dynamic indexed/key
+  values unless a future plan pass supplies a pre-hash.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
