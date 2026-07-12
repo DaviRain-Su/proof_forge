@@ -275,6 +275,9 @@ def u32 (value : Nat) : Expr :=
 def u64 (value : Nat) : Expr :=
   .literal (.u64 value)
 
+def u128 (value : Nat) : Expr :=
+  .literal (.u128 value)
+
 def bool (value : Bool) : Expr :=
   .literal (.bool value)
 

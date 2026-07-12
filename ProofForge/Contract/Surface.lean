@@ -235,6 +235,9 @@ def randomSeed : ProofForge.IR.Expr :=
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.u64 value
 
+def u128 (value : Nat) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.u128 value
+
 def u32 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.u32 value
 
