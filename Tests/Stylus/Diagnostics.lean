@@ -47,6 +47,22 @@ def main : IO Unit := do
   }
   requireErrorContains "uint24" (validatePlan invalidTypePlan)
 
+  let valueCall : StylusCallPlan := {
+    id := "value-call", mode := .call, canonicalSignature := "pay()"
+    target := 1, method := 2, returnType := .uint 64
+    value? := some 3, valueType? := some (.uint 128)
+  }
+  let invalidStaticValue := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[{ valueCall with mode := .staticCall }]
+  }
+  requireErrorContains "only valid for call mode" (validatePlan invalidStaticValue)
+  let invalidBoolValue := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[{ valueCall with valueType? := some .bool }]
+  }
+  requireErrorContains "unsupported value type" (validatePlan invalidBoolValue)
+
   let incomplete := { invalidTypePlan with
     abi := { methods := #[], errors := #[] }
     hostOps := #[{

@@ -92,6 +92,14 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
       fail s!"Stylus call `{call.id}` argument/type arity mismatch"
     for type in call.paramTypes do validateAbiType type
     validateAbiType call.returnType
+    if call.value?.isSome != call.valueType?.isSome then
+      fail s!"Stylus call `{call.id}` value id/type mismatch"
+    if let some type := call.valueType? then
+      if call.mode != .call then
+        fail s!"Stylus call `{call.id}` value is only valid for call mode"
+      match type with
+      | .uint 64 | .uint 128 | .uint 256 => pure ()
+      | _ => fail s!"Stylus call `{call.id}` has unsupported value type {repr type}"
   for function in plan.functions do
     let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
       | fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"

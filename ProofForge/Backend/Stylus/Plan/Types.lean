@@ -206,6 +206,7 @@ structure StylusCallPlan where
   paramTypes : Array StylusAbiType := #[]
   returnType : StylusAbiType
   value? : Option StylusValueId := none
+  valueType? : Option StylusAbiType := none
   gas? : Option StylusValueId := none
   support : RendererSupportPlan := {}
   deriving Repr, BEq

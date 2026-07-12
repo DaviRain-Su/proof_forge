@@ -29,13 +29,17 @@ args_selector="$(cast sig 'ping(uint64,uint64)' | sed 's/^0x//')"
 args="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/remote-call/call.wasm --mock-call "$target=0:$success_word" \
   --calldata ca110004${target_word}$(printf '%064x' 42)$(printf '%064x' 7) --invoke user_entrypoint)"
+wide_value="0000000000000001000000000000002a"
+value_call="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$success_word" \
+  --calldata ca110005${target_word}$(printf '00%.0s' {1..16})${wide_value} --invoke user_entrypoint)"
 
-python3 - "$selector" "$args_selector" "$target" "$success" "$revert" "$static" "$delegate" "$args" <<'PY'
+python3 - "$selector" "$args_selector" "$target" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" <<'PY'
 import json
 import sys
 
 selector, args_selector, target = sys.argv[1:4]
-success, revert, static, delegate, args = map(json.loads, sys.argv[4:9])
+success, revert, static, delegate, args, value_call = map(json.loads, sys.argv[4:10])
 assert success["calls"][0]["status"] == 0
 assert success["result"] == "00" * 31 + "2a"
 calls = [item for item in success["trace"] if item["event"] == "call_contract"]
@@ -49,5 +53,8 @@ assert any(item["event"] == "delegate_call_contract" for item in delegate["trace
 arg_calls = [item for item in args["trace"] if item["event"] == "call_contract"]
 assert len(arg_calls) == 1
 assert arg_calls[0]["calldata"] == args_selector + "00" * 31 + "2a" + "00" * 31 + "07"
+pay_calls = [item for item in value_call["trace"] if item["event"] == "call_contract"]
+assert len(pay_calls) == 1
+assert pay_calls[0]["value"] == "00" * 16 + "0000000000000001000000000000002a"
 print("stylus-remote-call-differential-runtime: ok")
 PY

@@ -415,8 +415,8 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
   | .call result _ callId =>
       let call <- callFor plan callId |>.mapError fun error =>
         diagnostic plan function block (opName op) "crosscall" error.message
-      if call.value?.isSome then
-        throw <| diagnostic plan function block (opName op) "crosscall.value" "value calls are not implemented"
+      if call.value?.isSome != call.valueType?.isSome then
+        throw <| diagnostic plan function block (opName op) "crosscall.value" "value id/type mismatch"
       if call.paramTypes.size != call.arguments.size then
         throw <| diagnostic plan function block (opName op) "crosscall" "argument/type arity mismatch"
       let signature := call.canonicalSignature.toUTF8.data
@@ -436,33 +436,46 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       let gas := match call.gas? with
         | some value => #[.localGet (valueLocal value)]
         | none => #[.i64Const 18446744073709551615]
-      match call.mode with
-      | .call =>
-          insns := insns ++ clearWord callValuePtr ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+      let valueInsns <- match (call.value?, call.valueType?) with
+        | (some value, some (.uint 128)) =>
+            pure <| copyPointerBytes (callValuePtr + 16) (valueLocal value) 16
+        | (some value, some (.uint 256)) =>
+            pure <| copyPointerBytes callValuePtr (valueLocal value) 32
+        | (some value, some (.uint 64)) =>
+            pure <| encodeUnsigned (callValuePtr + 24) 8 (valueLocal value)
+        | (none, none) => pure #[]
+        | (_, some type) =>
+            throw <| diagnostic plan function block (opName op) "crosscall.value"
+              s!"unsupported value type {repr type}"
+        | _ =>
+            throw <| diagnostic plan function block (opName op) "crosscall.value" "value id/type mismatch"
+      let callInsns <- match call.mode with
+        | .call =>
+          pure <| clearWord callValuePtr ++ valueInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
               .i32Const callDataPtr, .i32Const calldataLen, .i32Const callValuePtr] ++ gas ++
               #[.i32Const callReturnLenPtr, .call "call_contract", .localSet "callStatus"]
-      | .staticCall =>
-          insns := insns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+        | .staticCall =>
+          pure <| #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
             .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
             .call "static_call_contract", .localSet "callStatus"]
-      | .delegateCall =>
-          insns := insns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+        | .delegateCall =>
+          pure <| #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
             .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
             .call "delegate_call_contract", .localSet "callStatus"]
-      insns := insns ++ #[.i32Const callReturnLenPtr, .load "i32.load" 0,
+      let checkedInsns := insns ++ callInsns ++ #[.i32Const callReturnLenPtr, .load "i32.load" 0,
         .localSet "callReturnLen", .localGet "callReturnLen", .i32Const callReturnMaxBytes,
         .plain "i32.gt_u", .if_ (.mk <| writeBytes 32 "stylus: return data exceeds limit".toUTF8.data ++ #[
           .i32Const 32, .i32Const "stylus: return data exceeds limit".toUTF8.data.size,
           .call "write_result", .i32Const 1, .return_]) .empty]
       let copyReturn := #[.i32Const callReturnPtr, .i32Const 0, .localGet "callReturnLen",
         .call "read_return_data", .plain "drop"]
-      insns := insns ++ #[.localGet "callStatus", .if_ (.mk <| copyReturn ++ #[
+      let statusInsns := #[.localGet "callStatus", .if_ (.mk <| copyReturn ++ #[
         .i32Const callReturnPtr, .localGet "callReturnLen", .call "write_result",
         .i32Const 1, .return_]) .empty]
       if call.returnType != .uint 64 then
         throw <| diagnostic plan function block (opName op) "crosscall.return"
           s!"unsupported return type {repr call.returnType}"
-      pure <| insns ++ #[.localGet "callReturnLen", .i32Const 32, .plain "i32.ne",
+      pure <| checkedInsns ++ statusInsns ++ #[.localGet "callReturnLen", .i32Const 32, .plain "i32.ne",
         .if_ (.mk <| writeBytes 32 "stylus: malformed return data".toUTF8.data ++ #[
           .i32Const 32, .i32Const "stylus: malformed return data".toUTF8.data.size,
           .call "write_result", .i32Const 1, .return_]) .empty] ++ copyReturn ++

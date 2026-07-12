@@ -955,7 +955,7 @@ Rules:
 
 ## 2026-07-13 - Stylus direct remote-call HostIO foundation
 
-- Status: `done for static args/u64 return; advanced lifecycle pending`
+- Status: `done for static args/u64 return/value calls; advanced lifecycle pending`
 - Added the pinned official `call_contract`, `static_call_contract`,
   `delegate_call_contract`, and `read_return_data` imports. Direct lowering
   hashes the plan-owned canonical signature, emits the selector and static ABI
@@ -964,11 +964,18 @@ Rules:
   malformed successful return data fail closed with named diagnostics.
 - The VM runner now accepts deterministic `--mock-call ADDRESS=STATUS:HEX`
   bindings and traces target, calldata, value, gas, status, and return bytes.
-  Runtime vectors cover all three modes, two-u64 calldata, success, and revert.
+  Runtime vectors cover all three modes, two-u64 calldata, success, revert,
+  and a uint128 call value above the uint64 range.
+- `StylusCallPlan` now preserves the canonical value type alongside its value
+  id. Strict validation admits only uint64/128/256 values on ordinary call mode;
+  static/delegate values and unsupported value types fail before rendering.
+- Direct Wasm encodes call values as full 32-byte big-endian words. The runner
+  trace locks the uint128 vector `0x0000000000000001000000000000002a`, proving
+  that high bits survive the HostIO boundary.
 - The real `Examples.Product.RemoteCall` passes canonical envelope assertions;
   the direct executable vectors use the same plan contract without depending
-  on Nitro. Value calls, dynamic returns, reentrancy/cache transitions, and
-  two-contract Nitro execution remain pending.
+  on Nitro. Dynamic returns, reentrancy/cache transitions, and two-contract
+  Nitro execution remain pending.
 
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 

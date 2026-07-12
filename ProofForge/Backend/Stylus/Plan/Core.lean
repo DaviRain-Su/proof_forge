@@ -322,6 +322,9 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
             let methodName <- stringLiteralFor function spec.method.id
             let paramTypes <- spec.paramTypes.mapM coreTypeToAbi
+            let valueType? <- match spec.value with
+              | some value => pure (some (← coreTypeToAbi value.type))
+              | none => pure none
             let signature := s!"{methodName}({String.intercalate "," (paramTypes.toList.map abiTypeName)})"
             calls := calls.push {
               id := s!"call-{result}", mode, canonicalSignature := signature,
@@ -331,6 +334,7 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               paramTypes,
               returnType := ← coreTypeToAbi spec.returnType,
               value? := spec.value.map fun value => value.id.value,
+              valueType?,
               gas? := spec.gas.map fun value => value.id.value,
               support := { rustSdk := .planned, directWasm := .implemented }
             }
