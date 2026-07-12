@@ -1,5 +1,9 @@
 # Unified Support Roadmap — HostEnv · Crosscall · FV · Platform
 
+Status: **Historical consolidation roadmap (archived 2026-07-12).** Retained
+for HostEnv/crosscall/FV provenance. Current scheduling is the 2026-07-12
+Portable Intent and Target Promotion plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Gradually make ProofForge a *unified* multi-host product: authors write business intent only; primary triad (`evm` · `solana-sbpf-asm` · `wasm-near`) materializes honestly; FV trust boundary grows with each feature — without reopening product α–ε or opening new chains by default.

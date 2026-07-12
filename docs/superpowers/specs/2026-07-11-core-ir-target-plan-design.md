@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted architecture; implementation pending.
+Accepted and implemented baseline. Task 22 plus the 2026-07-12 merge established
+the checked Canonical Core, Legacy adapter inventory, primary target-plan
+builders, typed HostOps, canonical parity gates, and public-route integration.
+Remaining Legacy replacement is incremental work under the 2026-07-12 Portable
+Intent architecture; this document remains the canonical Core boundary spec.
 
 This document replaces the earlier API-spike design. The spike proved that a
 Lean-defined intermediate layer can be wired into the repository, but its

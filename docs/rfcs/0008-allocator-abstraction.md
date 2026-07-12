@@ -1,6 +1,6 @@
 # RFC 0008: Chain-Decoupled Allocator Abstraction
 
-Status: **Draft**
+Status: **Accepted and partially implemented (D-036/D-038).**
 Date: 2026-07-02
 
 ## Problem

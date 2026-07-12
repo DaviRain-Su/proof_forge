@@ -1,6 +1,7 @@
 # Platform Gap Analysis (2026-07)
 
-Status: **Draft planning survey; reviewed 2026-07-03**
+Status: **Historical planning survey (archived 2026-07-12).** Current open
+work must be represented in the implementation backlog.
 
 The current planning corpus covers architecture convergence (Workstream 24),
 formal verification (25), the unified testkit (26), allocator unification

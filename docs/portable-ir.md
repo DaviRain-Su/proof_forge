@@ -1,6 +1,8 @@
 # Portable Contract IR
 
-Status: **Draft spec (Phase 1)**
+Status: **Current Legacy compatibility IR reference (2026-07-12).** New
+architecture work targets the checked Canonical Core; this file documents the
+compatibility input being migrated.
 
 The portable contract IR sits between the chain-neutral Contract Intent API and
 target backends. It expresses chain-independent business logic plus the

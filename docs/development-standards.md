@@ -8,6 +8,7 @@ source-of-truth docs and states when they must be updated.
 | Topic | Authoritative doc |
 |---|---|
 | Documentation map | `docs/INDEX.md` |
+| Documentation lifecycle and archive classification | `docs/document-status.md` |
 | Settled architecture and roadmap decisions | `docs/decisions.md` |
 | Accepted product / target direction | `docs/rfcs/0001-multichain-platform.md`, `docs/rfcs/0002-target-implementation-design.md` |
 | Portable IR and runtime/capability lowering | `docs/portable-ir.md`, `docs/rfcs/0003-portable-ir-and-runtime.md` |
@@ -15,7 +16,8 @@ source-of-truth docs and states when they must be updated.
 | Target lifecycle and per-target notes | `docs/targets/README.md`, then the specific `docs/targets/*.md` note |
 | EVM baseline details | `docs/targets/evm.md`, `Examples/Backend/Evm/README.md` |
 | Shared cross-target Counter scenario | `docs/shared-scenario.md` |
-| Current project-wide gaps and remediation priority | `docs/multi-chain-gap-audit-2026-07-10.md` |
+| Current architecture and next execution order | `docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md`, `docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md` |
+| Historical July 10 gap/remediation evidence | `docs/multi-chain-gap-audit-2026-07-10.md` |
 | Execution backlog and acceptance criteria | `docs/implementation-backlog.md` |
 | Validation commands and tool prerequisites | `docs/validation-gates.md` |
 | Chinese narrative / strategy docs | `docs/zh/*.md`; they must align to English engineering docs and must not introduce independent engineering policy |

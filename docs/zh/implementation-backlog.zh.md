@@ -3,6 +3,8 @@
 
 # 实现待办事项
 
+状态：**当前可执行 backlog（2026-07-12 刷新）**
+
 此待办事项将多链设计转化为可评审的工程切片。
 它被有意限定在本地编译器、制品和冒烟测试工作范围内。
 云平台应等到至少两个实质上不同的目标在本地正常工作后再开始。
@@ -17,6 +19,31 @@
 - [目标说明](../targets/README.md)
 - [验证门禁](../validation-gates.md)
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
+- [Portable Intent 设计 (2026-07-12)](../superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
+- [当前实施计划 (2026-07-12)](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+
+## 当前架构计划（D-052）
+
+7 月 10 日审查与早期 PF waves 现在属于历史证据。新工作按以下顺序选择；
+具体步骤与文件所有权以 7 月 12 日实施计划为准。
+
+| 顺序 | 切片 | 状态 | 验收边界 |
+|---:|---|---|---|
+| A1 | 将 Solana 语法隔离到 `Source.Solana` | pending | portable import 拒绝 PDA/CPI；Solana fixture 不变 |
+| A2 | `IntentContract` 与 materializer registry | pending | 防重复 registry；frontend 不按 target 分支 |
+| A3 | 目标中立 `NFTSpec` | pending | target 选择前校验 asset model 与 feature 冲突 |
+| A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | pending | 最小生命周期与明确合规限制 |
+| A5 | 主三链 NFT intent 物化 | pending | 接受的输入进入严格 target plan |
+| A6 | NFT CLI/product/runtime 路线 | pending | 一个输入产生三套诚实制品与生命周期证据 |
+| B1 | 中立 Wasm-host plan 与 ABI | A6 后 pending | 保持 NEAR 输出与运行时行为 |
+| B2 | 严格 canonical target gate | B1 后 pending | adapter/validator/HostOp/builder 错误 fail closed |
+| B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
+| C1 | PSy canonical plan | A6 后 pending | 严格 fixture gate；不改变成熟度 |
+| C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
+| C3 | 有来源的 OpenVM brief | pending | 写代码前完成 go/defer 决策 |
+
+Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
+才能删除对应 adapter 或兼容调用。
 
 ## 主三链完成规约（D-045）
 

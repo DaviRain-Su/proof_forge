@@ -1,6 +1,7 @@
 # EVM Completeness Gap Analysis & Phased Roadmap
 
-Status: **Draft implementation plan**  
+Status: **Historical EVM gap plan (archived 2026-07-12).** Current EVM work is
+selected from the implementation backlog and verified against current gates.
 Scope: ProofForge EVM backend (`evm` target) in `/Users/davirian/orca/workspaces/proof_forge/evm-full`.  
 Last updated: 2026-07-04.
 

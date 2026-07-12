@@ -1,11 +1,16 @@
 # Product Authoring Architecture
 
-Status: **Planning (2026-07-09)**  
+Status: **Accepted product direction; historical layer sketch (refreshed
+2026-07-12).** The current intent/materializer boundary is defined by D-052.
 Audience: product + compiler design  
 Related: [authoring-model](authoring-model.md), [D-028](decisions.md),
 [D-027](decisions.md), [D-050](decisions.md),
 [RFC 0006 Token SDK](rfcs/0006-multichain-token-sdk.md),
 [IR portability remediation](ir-portability-remediation.md).
+
+This file retains the product thesis and earlier layer analysis. Where its
+concrete types or phases conflict with the July 12 design, the newer design
+wins.
 
 ## 1. Product thesis (north star)
 

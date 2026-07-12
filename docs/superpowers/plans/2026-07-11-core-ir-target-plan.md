@@ -1,5 +1,10 @@
 # Canonical Core IR and Target-Plan Migration Implementation Plan
 
+Status: **Completed architecture migration record (archived 2026-07-12).**
+Task 22 and merge integration established the Canonical Core baseline. Future
+Legacy replacement slices are scheduled by the 2026-07-12 Portable Intent
+plan; this file remains task/evidence history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the current fail-open Core API spike with one checked Canonical Core boundary, migrate the three primary targets through their existing plan types, then prove the boundary with Queue/Set normalization and a typed NEAR HostOp.

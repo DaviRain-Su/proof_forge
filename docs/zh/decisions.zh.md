@@ -82,6 +82,19 @@
 | ZK 电路源代码生成 | `psy-dpn` | 可移植 IR → `.psy` 包 → Dargo → DPN 电路 JSON |
 | UTXO 契约 Research | `kaspa-toccata`（候选，仅文档） | 可移植 IR → covenant/Silverscript 包 + 交易 v1 清单 + 可选的证明结算制品元数据 |
 
+## 2026-07-12 架构更新（D-052）
+
+采用目标中立的 `IntentContract` 物化与渐进式 Legacy 替换作为下一架构
+阶段。Portable spec 不按 `targetId` 分支；`IntentMaterializer` registry 将
+`(target, intent family)` 解析为真实 `ContractSpec`、Canonical contract、
+capability plan 与既有 target plan。第一个产品切片是主三链最小 unique NFT
+生命周期。Solana 语法迁移到 `Source.Solana`；Wasm-host 晋级前先抽取中立
+plan/ABI；PSy/Aleo 在任何公开成熟度变化前先建立严格 canonical plan gate。
+
+这项决策扩展 D-028 与已经完成的 Canonical Core 迁移，不增加 target-specific
+Core constructor。Legacy adapter 保留为兼容输入，并只通过行为保持、fail-closed
+的切片逐步移除。D-052 取代 D-034 作为默认下一排期顺序。
+
 ## 路线图摘要
 
 已被 [target-roadmap](../target-roadmap.md) (D-034) 中的 Tier/Gate 模型、Tier-0

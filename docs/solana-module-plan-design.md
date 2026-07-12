@@ -1,6 +1,7 @@
 # SolanaModulePlan — Field-Level Design Draft
 
-Status: **Draft** (design only — not implemented)
+Status: **Historical design record; implemented plan baseline (2026-07-12).**
+Current code in `ProofForge.Backend.Solana.Plan` and `Plan.Core` is authoritative.
 
 Date: 2026-07-06
 
@@ -10,10 +11,10 @@ Companion: [target-lowering-interface.md](target-lowering-interface.md) (Solana 
 
 ## 1. Purpose & status
 
-This document specifies the **field-level shape** of the proposed
+This document specified the **field-level shape** of the proposed
 `SolanaModulePlan` and its sub-plans, so it can be reviewed before Phase 2
-implementation touches any Lean code. Nothing here is implemented yet. The
-intent is to lock down:
+implementation before the plan migration. The plan is now implemented; the
+original intent was to lock down:
 
 - Which sub-plans exist and what each contains.
 - Where every plan field is sourced from in today's code.

@@ -1,6 +1,6 @@
 # Gate Completion Records
 
-Status: **Live (2026-07-04)**
+Status: **Live (refreshed 2026-07-12)**
 
 This page is the authoritative per-gate completion ledger for the tiered
 portfolio ([target-roadmap](target-roadmap.md), D-034). Each Gate has one
@@ -13,6 +13,24 @@ behavior/budget slice.
 Unlike [development-log](development-log.md) (a stream of engineering
 milestones), this page records the *phase boundary* decisions: whether the
 current phase's Definition of Done is satisfied, with auditable evidence.
+
+## Gate A1 — Portable Intent and NFT vertical slice
+
+**Status: Open (2026-07-12).** This is the current architecture gate under
+D-052. It does not reopen closed G0/P0 evidence.
+
+| # | Criterion | Status | Evidence required |
+|---|---|---|---|
+| A1-1 | Solana grammar isolated from portable `Source` | pending | isolation test plus unchanged Solana gates |
+| A1-2 | Target-neutral Intent materializer registry | pending | duplicate-safe registry; no frontend target dispatch |
+| A1-3 | Minimal NFT intent and implementation contracts | pending | intent validation plus three audited candidates |
+| A1-4 | Strict primary-triad NFT materialization | pending | canonical validation and target plans |
+| A1-5 | Product artifacts and lifecycle runtime evidence | pending | three bundles plus mint/transfer/rejection checks |
+| A1-6 | Aggregate acceptance | pending | product, targeted runtime, check, and docs gates |
+
+Gate A1 closes only when every row is met on one tested revision. Wasm-host or
+ZK research may proceed independently, but public promotion requires its own
+strict gate and does not count toward A1.
 
 ## How to use
 

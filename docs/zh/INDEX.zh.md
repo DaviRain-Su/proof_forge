@@ -2,12 +2,12 @@
 
 ProofForge 是一个 Lean 优先的多链智能合约平台。主干包含 EVM 基准，以及 Solana (sBPF 汇编)、NEAR (EmitWat)、Sui (Counter MVP)、CosmWasm 和 Aptos (Counter spikes)、Psy/DPN、Aleo Leo 和 Cloudflare Workers (TypeScript spike) 后端，它们统一在同一个可移植 IR 和能力注册表之下，遵循 2026-07 分支合并。
 
-**当前阶段：** Gate P0 已关闭；
-[2026-07-10 多链修复任务](../agent-goal-prompt.md)仍在推进 PF-P3-02
-次级目标成熟度工作。并行的
-[后审查主链深化计划](../superpowers/plans/2026-07-10-post-review-execution.md)
-覆盖 NEAR/EVM/Solana 产品深度、平台债务和诚实的 FV 片段扩展，且不会把尚未完成的
-次级目标工作声明为已完成。
+**当前阶段（2026-07-12）：** Gate P0 与 Canonical Core 迁移已在各自
+记录的范围内关闭。当前执行入口是
+[Portable Intent 与目标晋级计划](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)：
+先隔离链特定语法，建立目标中立的 intent materializer，完成主三链 NFT
+纵向切片，再抽取中立 Wasm-host plan 并建立严格的次级目标晋级门禁。
+使用旧计划前请先阅读[文档状态索引](../document-status.md)。
 
 ## 文档地图
 
@@ -16,6 +16,7 @@ ProofForge 是一个 Lean 优先的多链智能合约平台。主干包含 EVM �
 | 新贡献者 | 本页面 + [README](README-root.zh.md) + [入职指南](onboarding.zh.md) | [可移植三目标教程](tutorials/portable-contract-three-targets.zh.md), [验证门禁](validation-gates.zh.md), [待办事项](implementation-backlog.zh.md) |
 | 实现后端 | [RFC 0002](rfcs/0002-target-implementation-design.zh.md) | [决策](decisions.zh.md), [可移植 IR](portable-ir.zh.md), 目标笔记 |
 | 评审设计 | [评审清单](review-checklist.zh.md) | RFCs, [能力注册表](capability-registry.zh.md), [共享场景](shared-scenario.zh.md) |
+| 选择当前任务 | [文档状态索引](../document-status.md) | [7 月 12 日实施计划](../superpowers/plans/2026-07-12-portable-intent-abstraction.md), [待办事项](implementation-backlog.zh.md) |
 | 策略 / 中文读者 | [zh/README](README.md) | [可行性分析](feasibility-analysis.md), [决策](decisions.zh.md) |
 
 ```mermaid

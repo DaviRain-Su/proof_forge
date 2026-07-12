@@ -1,0 +1,80 @@
+# Documentation Status and Archive Index
+
+Status: **Authoritative documentation lifecycle index (2026-07-12)**
+
+This page answers which documents are current, which are execution ledgers,
+and which are retained only as historical evidence. Code, runnable gates, and
+generated artifacts remain the implementation truth.
+
+## Current Documents
+
+| Responsibility | Authoritative document |
+|---|---|
+| Settled decisions | [decisions.md](decisions.md) |
+| Current compiler architecture | [Canonical Core design](superpowers/specs/2026-07-11-core-ir-target-plan-design.md) |
+| Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
+| Current execution order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
+| Current executable work inventory | [implementation-backlog.md](implementation-backlog.md) |
+| Target portfolio sequencing | [target-roadmap.md](target-roadmap.md) |
+| Phase/gate decisions | [gate-status.md](gate-status.md) |
+| Validation commands | [validation-gates.md](validation-gates.md) |
+| Target maturity and per-target facts | [targets/README.md](targets/README.md) and target notes |
+| Wasm-host promotion analysis | [Wasm-host analysis](superpowers/specs/2026-07-12-wasm-host-target-analysis.md) |
+| ZK promotion analysis | [ZK target analysis](superpowers/specs/2026-07-12-psy-integration-analysis.md) |
+
+## Historical Baselines
+
+These files remain at their original paths so old commits, reviews, and links
+stay traceable. They must not be used as current scheduling authority.
+
+| Document | Archived role | Successor |
+|---|---|---|
+| `multi-chain-gap-audit-2026-07-10.md` | July 10 audit and remediation evidence | July 12 design plus current backlog |
+| `agent-goal-prompt.md` | PF-P0/P1/P2/P3 long-running remediation ledger | July 12 implementation plan |
+| `superpowers/plans/2026-07-08-project-completion-roadmap.md` | pre-consolidation completion proposal | current backlog and roadmap |
+| `superpowers/plans/2026-07-09-portable-sdk-unification.md` | completed portable SDK waves | July 12 intent design |
+| `superpowers/plans/2026-07-09-unified-support-roadmap.md` | HostEnv/crosscall/FV consolidation history | July 12 intent and target analyses |
+| `superpowers/plans/2026-07-10-post-review-execution.md` | triad hardening and benchmark execution history | July 12 implementation plan |
+| `superpowers/plans/2026-07-11-core-ir-target-plan.md` | completed Canonical Core migration tasks | Canonical Core design and current code |
+| `superpowers/plans/2026-07-11-primary-triad-runtime-handoff.md` | branch/checkpoint handoff | primary-triad roadmap history |
+| `doc-code-sync-audit-2026-07.md` | point-in-time documentation audit | this lifecycle index and docs gates |
+
+The primary-triad runtime roadmap remains an architecture/product evidence
+record until its remaining waves are formally closed. It does not override the
+July 12 execution order.
+
+## Lifecycle Rules
+
+1. A design spec defines an accepted boundary; it is not an execution ledger.
+2. One plan at a time is marked as the current execution order.
+3. Completed or superseded plans receive a `Historical` status at their
+   original path instead of being deleted or silently rewritten.
+4. `implementation-backlog.md` contains current reviewable slices; completed
+   detail may remain for traceability but must be labeled historical.
+5. `target-roadmap.md` sequences target promotion; it does not claim code is
+   implemented.
+6. `gate-status.md` records closed/open phase decisions with reproducible
+   evidence.
+7. New architecture work updates decisions, this index, the relevant design,
+   backlog, roadmap, gates, and validation docs in the same documentation
+   phase before code implementation begins.
+8. Legacy code is migrated incrementally behind tests. Documentation must name
+   the legacy boundary and intended replacement rather than pretending the old
+   path has already been deleted.
+
+## Current Migration Principle
+
+Legacy `ContractSpec` and adapters remain compatibility inputs while product
+surfaces move toward:
+
+```text
+portable authoring
+  -> IntentContract / Frontend Surface
+  -> CheckedCanonicalContract
+  -> CapabilityPlan + target materializer
+  -> target plan
+  -> artifact and runtime evidence
+```
+
+Each replacement slice must preserve observable behavior, add a strict gate,
+and remove legacy code only after all callers and fixtures have migrated.

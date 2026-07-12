@@ -1,5 +1,8 @@
 # Project Completion Roadmap — what's done, what's left, agent handoff (2026-07-08)
 
+Status: **Historical pre-consolidation roadmap (archived 2026-07-12).** Current
+architecture and scheduling are defined by the July 12 design/plan and backlog.
+
 > Single hand-off page: the current state of ProofForge's FV + correctness + breadth work,
 > in phases an agent can execute IN ORDER. Each item points to its detailed task card.
 > Detailed plans: [FV target-semantics](2026-07-07-fv-target-semantics.md),

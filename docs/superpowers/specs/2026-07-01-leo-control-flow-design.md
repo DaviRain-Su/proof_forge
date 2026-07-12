@@ -1,7 +1,7 @@
 # Leo Control Flow and Pure-Function Entrypoints Design
 
 **Date:** 2026-07-01  
-**Status:** Design spec (awaiting review)  
+**Status:** Historical Leo control-flow design record (archived 2026-07-12).
 **Scope:** Extend the Aleo Leo backend to support entrypoint parameters/return values for pure functions and the portable IR control-flow/assignment statements (`assert`, `ifElse`, `boundedFor`, `assign`, `assignOp`).  
 **Related docs:**
 - [Leo AST mirror design](./2026-07-01-leo-ast-mirror-design.md)

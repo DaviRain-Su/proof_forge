@@ -3,6 +3,8 @@
 
 # Implementation Backlog
 
+Status: **Current executable backlog (refreshed 2026-07-12)**
+
 This backlog turns the multi-chain design into reviewable engineering slices.
 It is intentionally scoped to local compiler, artifact, and smoke-test work.
 The cloud platform should wait until at least two materially different targets
@@ -18,6 +20,33 @@ Related docs:
 - [Target notes](targets/README.md)
 - [Validation gates](validation-gates.md)
 - [Multi-chain vision gap audit (2026-07-10)](multi-chain-gap-audit-2026-07-10.md)
+- [Portable Intent design (2026-07-12)](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
+- [Current implementation plan (2026-07-12)](superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+
+## Current Architecture Program (D-052)
+
+The July 10 audit and earlier PF waves are historical evidence. New work is
+selected from this ordered program; detailed steps and ownership live in the
+July 12 implementation plan.
+
+| Order | Slice | State | Acceptance boundary |
+|---:|---|---|---|
+| A1 | Isolate Solana grammar in `Source.Solana` | pending | portable import rejects PDA/CPI; Solana fixtures unchanged |
+| A2 | Add `IntentContract` and materializer registry | pending | duplicate-safe registry; no frontend target dispatch |
+| A3 | Define target-neutral `NFTSpec` | pending | asset model and feature conflicts validated before target selection |
+| A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | pending | minimal lifecycle and explicit compliance limits |
+| A5 | Materialize NFT intent on the primary triad | pending | accepted cases reach strict target plans |
+| A6 | Open NFT CLI/product/runtime route | pending | one input produces three honest bundles and lifecycle evidence |
+| B1 | Extract neutral Wasm-host plan and ABI | pending after A6 | NEAR output/runtime preservation |
+| B2 | Add strict canonical target gate | pending after B1 | adapter/validator/HostOp/builder errors fail closed |
+| B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
+| C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
+| C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
+| C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |
+
+Legacy replacement is incremental. A legacy adapter or compatibility call is
+removed only after tests establish observable equivalence and all callers use
+the new boundary.
 
 ## Primary-chain completion covenant (D-045)
 

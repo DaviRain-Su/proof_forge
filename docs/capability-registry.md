@@ -1,6 +1,7 @@
 # Capability Registry
 
-Status: **Draft spec (Phase 1)**
+Status: **Current human-readable capability reference (2026-07-12).** The
+machine-readable source of truth is `ProofForge/Target/Registry.lean`.
 
 Canonical capability ids for target profiles, artifact metadata, and compile-time
 rejection. Semantic meanings align with the matrix in
@@ -51,7 +52,7 @@ remain uniform.
 | `control.conditional` | Statement-level conditional branches with target-supported boolean predicates | P | P | N | Y | N | N | P | N |
 | `control.bounded_loop` | Static bounded loops that can be flattened or unrolled by the target | P | P | N | P | N | N | P | N |
 | `data.fixed_array` | Fixed-size array value type, literals, and index expressions | P | P | N | Y | N | N | P | N |
-| `data.dynamic_bytes` | Dynamic-length bytes/string value type with head-tail ABI encoding | Y | N | N | N | N | N | N | N |
+| `data.dynamic_bytes` | Dynamic-length bytes/string value type with head-tail ABI encoding | Y | N | N | P | N | N | N | N |
 | `data.struct` | Struct value type, literals, and field access | P | P | N | Y | N | N | P | N |
 | `crypto.hash` | Host or library hashing | Y | Y | Y | Y | Y | N | Y | N |
 | `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | Y | Y | N |

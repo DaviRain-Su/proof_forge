@@ -1,6 +1,6 @@
 # Gate 完成记录
 
-状态：**Live (2026-07-04)**
+状态：**Live（2026-07-12 刷新）**
 
 本页是分层目标组合的逐 Gate 完成台账（[target-roadmap](../target-roadmap.md)，
 D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、证据和签署日期。
@@ -10,6 +10,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 不同于记录工程里程碑流水的 [development-log](../development-log.md)，本页记录
 的是*阶段边界*决策：当前阶段的 Definition of Done 是否已经满足，并且证据可审计。
+
+## Gate A1 —— Portable Intent 与 NFT 纵向切片
+
+**状态：Open（2026-07-12）。** 这是 D-052 下当前的架构门禁，不会重新
+打开已经关闭的 G0/P0 证据。
+
+| # | 标准 | 状态 | 所需证据 |
+|---|---|---|---|
+| A1-1 | 从 portable `Source` 隔离 Solana 语法 | pending | 隔离测试与不变的 Solana 门禁 |
+| A1-2 | 目标中立的 Intent materializer registry | pending | 防重复 registry；frontend 不按 target 分支 |
+| A1-3 | 最小 NFT intent 与实现契约 | pending | intent 校验与三个经过审查的候选实现 |
+| A1-4 | 主三链严格 NFT 物化 | pending | canonical 校验与 target plan |
+| A1-5 | 产品制品与生命周期运行时证据 | pending | 三套制品以及 mint/transfer/reject 检查 |
+| A1-6 | 聚合验收 | pending | product、目标运行时、check 与 docs 门禁 |
 
 ## 使用方式
 

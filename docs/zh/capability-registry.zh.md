@@ -1,6 +1,7 @@
 # 能力注册表
 
-状态：**草案规范 (Phase 1)**
+状态：**当前的人类可读能力参考（2026-07-12）。** 机器可读真值来源是
+`ProofForge/Target/Registry.lean`。
 
 用于目标 profile、制品元数据和编译时拒绝的规范能力 id。语义含义与 [RFC 0002](rfcs/0002-target-implementation-design.zh.md) 中的矩阵保持一致。
 
@@ -40,7 +41,7 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 | `control.conditional` | 使用目标支持的布尔谓词进行语句级条件分支 | P | P | N | Y | N | N | P | N |
 | `control.bounded_loop` | 目标可展开或静态处理的有界循环 | P | P | N | P | N | N | P | N |
 | `data.fixed_array` | 固定大小数组值类型、字面量和索引表达式 | P | P | N | Y | N | N | P | N |
-| `data.dynamic_bytes` | 动态长度 bytes/string 值类型和 head-tail ABI 编码 | Y | N | N | N | N | N | N | N |
+| `data.dynamic_bytes` | 动态长度 bytes/string 值类型和 head-tail ABI 编码 | Y | N | N | P | N | N | N | N |
 | `data.struct` | 结构体值类型、字面量和字段访问 | P | P | N | Y | N | N | P | N |
 | `crypto.hash` | 宿主或库哈希 | Y | Y | Y | Y | Y | N | Y | N |
 | `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | Y | Y | N |

@@ -1,6 +1,6 @@
 # RFC 0006: Multi-Chain Token SDK
 
-Status: **Draft**
+Status: **Accepted; primary-triad TokenSpec slice implemented (D-028).**
 Date: 2026-07-02
 
 ## Summary

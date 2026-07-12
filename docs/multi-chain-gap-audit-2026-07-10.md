@@ -1,21 +1,19 @@
 # Multi-chain Vision Gap Audit
 
-Status: **Active remediation source of truth** — Delivery Wave 0 (P0
-correctness & claim-honesty gates) is **closed** as of commit `1599f37d`
-(2026-07-11); every PF-P0-0N gate named below now runs in `just check`.
-The finding bodies are retained verbatim as the traceable remediation record;
-their per-task acceptance was re-checked against the gates listed in the
-*Wave 0 closure* section.
+Status: **Historical remediation baseline (archived 2026-07-12)** — Delivery
+Wave 0 and the subsequent Canonical Core integration are closed at their
+documented scopes. The finding bodies remain traceable evidence, not the
+current execution queue. Use the 2026-07-12 Portable Intent design/plan,
+`implementation-backlog.md`, and `document-status.md` for current work.
 
 Date: 2026-07-10 (audit). Wave 0 closure verified 2026-07-11.
 
-This audit compares the product vision -- maintain one body of business logic
-and select a target at build time -- with the code and runnable gates on
-`main`. It is the current priority source for cross-project remediation. Older
-backlogs and phase plans remain useful implementation history, but they do not
-override the findings or ordering in this document.
+This point-in-time audit compares the product vision -- maintain one body of
+business logic and select a target at build time -- with its audit baseline.
+Later code and gates supersede its status claims. It is retained for finding
+provenance only.
 
-Long-running execution entrypoint:
+Historical long-running execution entrypoint:
 [`Durable multi-chain remediation agent goal`](agent-goal-prompt.md).
 
 The official general-purpose business-logic surface is `contract_source`,

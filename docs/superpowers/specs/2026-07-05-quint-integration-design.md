@@ -1,7 +1,7 @@
 # Quint Integration Design: From ProofForge IR to Executable Model
 
 **Date:** 2026-07-05  
-**Status:** Design spec (awaiting review)  
+**Status:** Historical Quint integration design record; current behavior is documented by `docs/quint.md` and runnable gates.
 **Scope:** Document-only design for introducing Quint as a specification and model-checking layer for ProofForge contracts. This round produces the architectural contract and phase boundaries; implementation code is out of scope.  
 **Related docs:**
 - [Formal verification roadmap](../../../formal-verification.md)
