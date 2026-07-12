@@ -85,7 +85,9 @@ just --list        # all recipes
 just build         # lake build
 just product       # product-first: Examples/Product multi-target matrix (required CI)
 just canonical-parity  # EVM/Solana/NEAR canonical plan and artifact parity
-just check         # product + backend static gates (Lean + Solana-light + NEAR + Psy + testkit + …)
+just check-fast    # affected-path inner loop (core/product + focused target gates)
+just check         # parallel full baseline, automatically capped at four workers
+just check-serial  # serial full reference for suspected race diagnosis
 just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
 just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
 just sui-counter-smoke                 # local Sui Move Counter build/test
