@@ -1,4 +1,5 @@
 import ProofForge.Cli.Fixture
+import ProofForge.Cli.NativeBuildOp
 import ProofForge.Cli.Quint
 
 namespace ProofForge.Cli
@@ -18,6 +19,17 @@ structure EmitRequest where
   format? : Option String := none
   deriving Inhabited
 
+inductive DispatchKind
+  | legacy
+  | native
+  deriving BEq, Repr
+
+structure BuildResult where
+  dispatchKind : DispatchKind
+  legacyFlag? : Option String := none
+  nativeOp? : Option NativeBuildOp := none
+  deriving Repr
+
 /-- Per-target CLI driver (PF-P1-01 compat surface).
 
 Owns build/emit legacy-flag mapping until emit modes are absorbed into real
@@ -25,7 +37,7 @@ package operations. Registered by target id so `TargetFirst` dispatches via
 lookup rather than a central target-id match. -/
 structure TargetCliDriver where
   id : String
-  resolveBuild : BuildRequest → Except String String
+  resolveBuild : BuildRequest → Except String BuildResult
   resolveEmit : EmitRequest → Except String String
 
 def isLeanSourceFile (input? : Option String) : Bool :=
