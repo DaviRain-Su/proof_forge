@@ -38,6 +38,8 @@ def u128SubName : String := "__pf_u128_sub"
 def u128MulName : String := "__pf_u128_mul"
 def u128EqName  : String := "__pf_u128_eq"
 def u128LtName  : String := "__pf_u128_lt"
+def u128Divmod10Name : String := "__pf_u128_divmod10"
+def u128FmtName      : String := "__pf_fmt_u128"
 
 def storageScalarStateInfo (scalars : Array StateInfo) (id : String) :
     Except EmitError StateInfo :=
@@ -643,7 +645,78 @@ def u128LtFunc : Func :=
       .localGet "lo_lt", .plain "i32.and",
       .plain "i32.or" ] } }
 
-def u128ArithFuncs : Array Func := #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc]
+def u128Divmod10Func : Func :=
+  { name := u128Divmod10Name,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 }],
+    results := #[.i64],
+    locals := #[{ name := "rem", type := .i64 }, { name := "cur", type := .i64 },
+      { name := "ql0", type := .i64 }, { name := "ql1", type := .i64 },
+      { name := "ql2", type := .i64 }, { name := "ql3", type := .i64 }],
+    body := { insns := #[
+      .i64Const 0, .localSet "rem",
+      -- limb3 = ahi >> 32 ; cur = (rem << 32) | l3
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "ahi", .i64Const 32, .plain "i64.shr_u", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql3",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb2 = ahi & 0xffffffff
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "ahi", .i64Const 0xffffffff, .plain "i64.and", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql2",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb1 = alo >> 32
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "alo", .i64Const 32, .plain "i64.shr_u", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql1",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb0 = alo & 0xffffffff
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "alo", .i64Const 0xffffffff, .plain "i64.and", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql0",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- reassemble quotient and write to U128_RESULT_BUF
+      .i32Const U128_RESULT_BUF,
+        .localGet "ql0", .localGet "ql1", .i64Const 32, .plain "i64.shl", .plain "i64.or",
+        .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8),
+        .localGet "ql2", .localGet "ql3", .i64Const 32, .plain "i64.shl", .plain "i64.or",
+        .store "i64.store" 0,
+      .localGet "rem" ] } }
+
+/-! `__pf_fmt_u128(alo, ahi) -> i32 ptr`: write the unsigned decimal string of
+    the u128 backwards into RET_BUF (end = RET_BUF + 40; max 39 digits) and
+    return the start pointer. Reuses `__pf_u128_divmod10` per digit. This is
+    the JSON U128 primitive shared by event fields, crosscall args, and view
+    returns (Phase 4). -/
+def u128FmtFunc : Func :=
+  { name := u128FmtName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 }],
+    results := #[.i32],
+    locals := #[{ name := "ql", type := .i64 }, { name := "qh", type := .i64 },
+      { name := "rem", type := .i64 }, { name := "p", type := .i32 }],
+    body := { insns := #[
+      .localGet "alo", .localSet "ql",
+      .localGet "ahi", .localSet "qh",
+      .i32Const (RET_BUF + 40), .localSet "p",
+      -- zero case: emit a single '0'
+      .localGet "ql", .plain "i64.eqz",
+      .localGet "qh", .plain "i64.eqz", .plain "i32.and",
+      .if_ { insns := #[
+        .i32Const (RET_BUF + 39), .i32Const 48, .store "i32.store8" 0,
+        .i32Const (RET_BUF + 39), .localSet "p" ] }
+        { insns := #[ .block_ { insns := #[ .loop_ { insns := #[
+          .localGet "ql", .plain "i64.eqz",
+          .localGet "qh", .plain "i64.eqz", .plain "i32.and", .brIf 1,
+          .localGet "ql", .localGet "qh", .call u128Divmod10Name, .localSet "rem",
+          .i32Const U128_RESULT_BUF, .load "i64.load" 0, .localSet "ql",
+          .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0, .localSet "qh",
+          .localGet "p", .i32Const 1, .plain "i32.sub", .localTee "p",
+          .i32Const 48, .localGet "rem", .plain "i32.wrap_i64", .plain "i32.add",
+          .store "i32.store8" 0, .br 0 ] } ] } ] },
+      .localGet "p" ] } }
+
+def u128ArithFuncs : Array Func :=
+  #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc, u128Divmod10Func, u128FmtFunc]
 
 def powName (vt : ValueType) : String := "__pf_pow_" ++ typeSuffix vt
 

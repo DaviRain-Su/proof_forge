@@ -380,6 +380,7 @@ mutual
     let (vis, vt) ← lowerExpr ctx env arg
     match vt with
     | .u64 => .ok (vis, #[.call crosscallArgsPutu64Name])
+    | .u128 => .ok (vis, #[.call crosscallArgsPutu128Name])
     | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
     | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
     | .hash => .ok (vis, #[.call crosscallArgsPuthashName])

@@ -10,6 +10,7 @@ import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.HostABI
+import ProofForge.Backend.WasmHost.Scalar
 
 namespace ProofForge.Backend.WasmHost.Event
 
@@ -20,6 +21,7 @@ open ProofForge.Backend.WasmHost.Diagnostics
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
+open ProofForge.Backend.WasmHost.Scalar
 
 /-! JSON event-buffer helper functions for EmitWat. -/
 
@@ -93,6 +95,20 @@ def evtPutu64Func : Func :=
           .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] }
     ] } }
 
+def evtPutu128Name : String := "__pf_evt_putu128"
+
+/-! `__pf_evt_putu128(lo, hi)`: append the unsigned decimal string of the u128
+    to the event JSON buffer. Uses `__pf_fmt_u128` then memcpy. -/
+def evtPutu128Func : Func :=
+  { name := evtPutu128Name,
+    params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .localGet "lo", .localGet "hi", .call u128FmtName, .localSet "p",
+      .i32Const (RET_BUF + 40), .localGet "p", .plain "i32.sub", .localSet "len",
+      .globalGet evtPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
+      .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] } }
+
 def evtPutboolFunc : Func :=
   { name := evtPutboolName, params := #[{ name := "b", type := .i32 }],
     body := { insns := #[
@@ -130,6 +146,7 @@ def evtHelperFuncsForModulePlan (plan : ModulePlan)
   (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
     (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
     (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
+    (if plan.usesEventNumeric then #[evtPutu128Func] else #[]) ++
     (if plan.usesEventBool then #[evtPutboolFunc] else #[]) ++
     (if plan.usesEventHash then #[evtPutHashFunc] else #[]) ++
     (if plan.usesEventApi then #[evtLogFunc bridge] else #[])
@@ -151,6 +168,7 @@ def evtValueInsnsForType (fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
   match type with
   | .u64 => .ok #[.call evtPutu64Name]
+  | .u128 => .ok #[.call evtPutu128Name]
   | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
   | .bool => .ok #[.call evtPutboolName]
   | .hash => .ok #[.call evtPutHashName]

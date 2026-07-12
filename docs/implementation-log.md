@@ -1204,3 +1204,30 @@ Rules:
   `just emitwat-aggregate-abi`; `just near-map-hash-alias`;
   `manifest.py --check` + `check_equivalence.py` (115 recipes).
 - Next (Phase 2): convert `NearFungibleToken` amounts u64→u128.
+
+## 2026-07-13 - Phase 1.3/1.4: u128 literal sugar + decimal formatter + event/crosscall u128
+
+- Status: `done (verified by `just near-u128-fmt-smoke`)`
+- Result. Completed the u128 plumbing the FT conversion needs across events and
+  crosscall args, plus the key JSON U128 primitive:
+  - `Builder.u128` / `Surface.u128` literal sugar (mirror u64) — unblocks FT
+    amount authoring (`u128 0`, `u128 18`).
+  - `__pf_u128_divmod10(alo, ahi) -> rem` (4-limb long-division by 10, no i128
+    needed) + `__pf_fmt_u128(alo, ahi) -> ptr` (writes the unsigned decimal
+    string backwards into RET_BUF). The JSON U128 decimal primitive, shared by
+    event fields, crosscall args, and (Phase 4) JSON view returns.
+  - `__pf_evt_putu128(lo, hi)` + `evtValueInsnsForType` `.u128` dispatch +
+    `eventFieldSurfaceForType` admits `.u128` to `usesEventNumeric`.
+  - `__pf_crosscall_args_putu128(lo, hi)` + the crosscall-arg type dispatch
+    (`.u128`), emitted self-contained with its `__pf_fmt_u128`/divmod deps.
+- Evidence. `U128FmtProbe` emits a JSON event with two u128 fields; `just
+  near-u128-fmt-smoke` runs it in `runtime/offline-host` and asserts the log
+  contains `"simple":100` and `"big":36893488147419103230` (the latter = 2 ×
+  u64-max, exercising the high word of the divmod — proving the formatter
+  correct for both lo-only and hi≠0 u128 values).
+- Verification (all passed): `just near-u128-fmt-smoke`; `just near-vm-u128-scalar`;
+  `just near-vm-u128-map`; `just near-vm-conformance-ft`; `just near-vm-conformance`;
+  `just wasm-near-plan`; `just emitwat-aggregate-abi`; `just near-ft-security`;
+  `manifest.py --check` + `check_equivalence.py` (116 recipes).
+- Next: Phase 2 (NearFungibleToken u64→u128). Remaining plumbing: u128 promise
+  result read (`nearPromiseResultU128`, binary) for `ft_resolve_transfer`.

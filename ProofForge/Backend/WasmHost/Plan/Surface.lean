@@ -352,7 +352,7 @@ def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
 
 def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
-  | .u64 | .u32 => ModuleSurface.withEventNumeric
+  | .u64 | .u32 | .u128 => ModuleSurface.withEventNumeric
   | .bool => ModuleSurface.withEventBool
   | .hash => ModuleSurface.withEventHash
   | _ => ModuleSurface.withEventApi
