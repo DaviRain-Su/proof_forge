@@ -728,3 +728,48 @@ Rules:
   authorization assertions in `StylusPlan`; lower them in both renderers; bind
   payable policy to canonical functions; and execute the generated direct WAT
   against a Stylus-compatible `vm_hooks` host.
+
+## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
+
+- Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
+- Result: turned `tools/near-vm-runner` from a false-success placeholder into a
+  real, honest conformance gate. The Counter fixture (legacy + canonical
+  pipelines) now prepares, links, and executes on the *unmodified upstream*
+  NEAR VM (near-vm-runner 0.37 / Wasmtime): after `initialize + increment*2`,
+  `get` returns `0200000000000000` (LE u64 = 2) with real gas accounting and
+  persistent storage across calls. The runner inspects `outcome.aborted`
+  (previously ignored, masking every failure as success) and threads
+  `storage_usage` across calls so storage-eviction accounting does not
+  underflow on the second write.
+- Root causes fixed in EmitWat codegen:
+  1. **Multi-value returns**: `__pf_u128_{add,sub,mul}` used `(result i64 i64)`,
+     but the NEAR VM validator disables `multi_value`, so every NEAR contract
+     failed `Prepare` with `PrepareError::Deserialization`. Helpers are now void
+     and stash (lo, hi) into a new registered, machine-checked non-overlapping
+     `U128_RESULT_BUF`; callers reload both words after the call.
+  2. **`storage_remove` ABI**: declared `(param i64 i64)` but real NEAR is
+     `(key_len, key_ptr, register_id) -> u64` (3 params). Wasmtime links all
+     imports, so the unused import still failed linking. Fixed in `HostBridge`,
+     the `Map.lean` call site, and the `runtime/offline-host` handler.
+- Verification (all passed): `just near-vm-conformance` (new gate),
+  `bash scripts/canonical/near-parity.sh` (legacy==canonical offline-host
+  parity incl. ValueVault inputs), `just portable-counter-multi-target`,
+  `bash scripts/portable/value-vault-smoke.sh`, `just wasm-near-scalar-safety`
+  (exercises u128 helpers), `just value-vault-wasm-refinement-smoke`,
+  `just near-budget-honesty`, `just wasm-near-host-smoke`, `just near-ft-security`,
+  `just emitwat-aggregate-abi`, `just near-plan-smoke`. Independent
+  wasmparser validation confirms the regenerated wasm is valid under NEAR's
+  feature set (`multi_value=false`).
+- Pre-existing (not caused by this change): `just product` fails in
+  `Tests/Product/Matrix.lean` at `OwnableHash Soroban: ... scalar _get ABI`;
+  reproduced on the clean tree with these changes stashed.
+- Remaining: `promise_create` (8 vs 9 params) and `promise_then` (9 vs 10) host
+  imports still use ProofForge's simplified amount-as-pointer convention and
+  will not link on the real NEAR VM; promise fixtures are therefore out of the
+  conformance gate's scope until the promise ABI migrates to real NEAR. The
+  runner documents this gap; it only asserts the no-input Counter fixture.
+- Documentation: `docs/implementation-log.md` (this entry); runner header
+  comments; `scripts/near/vm-conformance-smoke.sh`; `justfile` target added to
+  `wave-t-baseline` and `check-serial`; updated the four
+  `Examples/Backend/WasmNear/*.golden.wat` fixtures to the corrected
+  `storage_remove` signature.

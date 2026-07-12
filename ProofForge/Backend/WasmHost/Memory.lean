@@ -99,6 +99,9 @@ def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-val
 def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
 def STRUCT_BUF      : Nat := 52000  -- buffer for reading/writing struct-valued scalar state
 def PROMISE_RESULT_BUF : Nat := 51000  -- scratch for Borsh U64 promise callback payloads
+def U128_RESULT_BUF : Nat := 56000  -- 16-byte transient slot for u128 arith helpers (lo@0, hi@8)
+  -- NEAR VM disables `multi_value`, so __pf_u128_{add,sub,mul} are void and
+  -- write their (lo, hi) result here; callers reload both words onto the stack.
 def crosscallPoolPtrName : String := "__pf_crosscall_pool_ptr"
 def crosscallPoolLenName : String := "__pf_crosscall_pool_len"
 
@@ -122,7 +125,8 @@ def memoryLayoutNonoverlap : Bool :=
     (INPUT_BUF, 2000), (PARAM_HASH_BUF, 1000), (CROSSCALL_BUF, 1100),
     (CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN),
     (CROSSCALL_STRING_BASE, 1000), (ZERO_HASH_BUF, 32),
-    (OLD_HASH_BUF, 32), (PROMISE_RESULT_BUF, 8), (STRUCT_BUF, 4000)
+    (OLD_HASH_BUF, 32), (PROMISE_RESULT_BUF, 8), (STRUCT_BUF, 4000),
+    (U128_RESULT_BUF, 16)
   ]
   regions.all (fun (a0, aSz) =>
     regions.all (fun (b0, bSz) =>

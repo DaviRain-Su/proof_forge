@@ -230,9 +230,11 @@ def mapWriteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .nea
           ] ++ mapStorageWriteHostInsns 8 (scalarWidth vt) .near ++ #[
             .localGet "r" ] } }
 
-/-- NEAR: storage_remove(key_len_i64, key_ptr_i64) → found i64. -/
+/-- NEAR: storage_remove(key_len_i64, key_ptr_i64, register_id_i64) → found i64.
+    Real NEAR takes a register id and writes the evicted value there; we pass
+    register 0 and ignore the evicted bytes (map delete only needs the status). -/
 def mapStorageRemoveHostInsnsNear (keyBytes : Nat) : Array Insn :=
-  mapKeyByteLenInsns keyBytes ++ #[.i64Const MAPKEY_BUF, .call "storage_remove"]
+  mapKeyByteLenInsns keyBytes ++ #[.i64Const MAPKEY_BUF, .i64Const 0, .call "storage_remove"]
 
 def mapDeleteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with

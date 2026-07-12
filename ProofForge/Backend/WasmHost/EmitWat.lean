@@ -212,7 +212,7 @@ export ProofForge.Backend.WasmHost.Memory (
   HASH_CONCAT_BUF CTX_BUF EVENT_BUF EVT_KEY_PTR STRING_BASE INPUT_BUF
   CROSSCALL_BUF CROSSCALL_ARGS_EMPTY_PTR CROSSCALL_ARGS_EMPTY_LEN
   CROSSCALL_STRING_BASE crosscallDefaultGas PARAM_HASH_BUF ZERO_HASH_BUF
-  OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF crosscallPoolPtrName
+  OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF U128_RESULT_BUF crosscallPoolPtrName
   crosscallPoolLenName disjointRegions memoryLayoutNonoverlap
   memoryLayoutNonoverlap_valid
 )
@@ -853,7 +853,14 @@ mutual
       if helperName.isEmpty then
         err s!"EmitWat: U128 operation `{op}` not supported"
       else
-        .ok (la ++ lb ++ #[.call helperName], .u128)
+        -- Helpers are void (NEAR VM disables multi_value); they stash the
+        -- (lo, hi) result in U128_RESULT_BUF. Reload both words so the
+        -- u128 value is represented as (lo, hi) on the operand stack.
+        .ok (la ++ lb ++ #[
+          .call helperName,
+          .i32Const U128_RESULT_BUF, .load "i64.load" 0,
+          .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0
+        ], .u128)
     | _ =>
       .ok (la ++ lb ++ #[.plain (widthOf t ++ "." ++ op)], t)
 

@@ -494,12 +494,15 @@ def u128AddName : String := "__pf_u128_add"
 def u128SubName : String := "__pf_u128_sub"
 def u128MulName : String := "__pf_u128_mul"
 
-/-- `__pf_u128_add(alo, ahi, blo, bhi)`: returns (lo, hi) = a + b with carry. -/
+/-- `__pf_u128_add(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a + b to
+    `U128_RESULT_BUF`. NEAR VM disables `multi_value`, so u128 helpers return
+    void and stash their (lo, hi) result in a 16-byte scratch slot; callers
+    reload both words onto the stack immediately after the call. -/
 def u128AddFunc : Func :=
   { name := u128AddName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
+    results := #[],
     locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
                { name := "carry", type := .i64 }],
     body := { insns := #[
@@ -507,15 +510,17 @@ def u128AddFunc : Func :=
       .localGet "lo", .localGet "alo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
       .i64Const 1, .plain "i64.and", .localSet "carry",
       .localGet "ahi", .localGet "bhi", .plain "i64.add", .localGet "carry", .plain "i64.add", .localSet "hi",
-      .localGet "lo", .localGet "hi"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
-/-- `__pf_u128_sub(alo, ahi, blo, bhi)`: returns (lo, hi) = a - b with borrow. -/
+/-- `__pf_u128_sub(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a - b to
+    `U128_RESULT_BUF`. See `u128AddFunc` for the multi_value workaround. -/
 def u128SubFunc : Func :=
   { name := u128SubName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
+    results := #[],
     locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
                { name := "borrow", type := .i64 }],
     body := { insns := #[
@@ -523,24 +528,28 @@ def u128SubFunc : Func :=
       .localGet "alo", .localGet "blo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
       .i64Const 1, .plain "i64.and", .localSet "borrow",
       .localGet "ahi", .localGet "bhi", .plain "i64.sub", .localGet "borrow", .plain "i64.sub", .localSet "hi",
-      .localGet "lo", .localGet "hi"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
-/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: returns (lo, hi) = a * b.
-    Simplified: only computes lo = alo * blo, hi = alo * bhi + ahi * blo (cross terms).
-    Full 128-bit mul would need 192-bit intermediates; this handles common cases. -/
+/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a * b to
+    `U128_RESULT_BUF`. Simplified: only computes lo = alo * blo,
+    hi = alo * bhi + ahi * blo (cross terms). Full 128-bit mul would need
+    192-bit intermediates; this handles common cases. See `u128AddFunc` for
+    the multi_value workaround. -/
 def u128MulFunc : Func :=
   { name := u128MulName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
+    results := #[],
     locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
     body := { insns := #[
       .localGet "alo", .localGet "blo", .plain "i64.mul", .localSet "lo",
       .localGet "alo", .localGet "bhi", .plain "i64.mul",
       .localGet "ahi", .localGet "blo", .plain "i64.mul",
       .plain "i64.add", .localSet "hi",
-      .localGet "lo", .localGet "hi"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
 def u128EqName : String := "__pf_u128_eq"

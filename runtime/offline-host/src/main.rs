@@ -852,10 +852,22 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "env",
         "storage_remove",
-        |mut caller: Caller<'_, HostState>, key_len: i64, key_ptr: i64| -> Result<i64> {
+        |mut caller: Caller<'_, HostState>,
+         key_len: i64,
+         key_ptr: i64,
+         register_id: i64|
+         -> Result<i64> {
             let key = read_memory(&mut caller, key_ptr, key_len)?;
-            let existed = caller.data_mut().storage.remove(&key).is_some();
-            Ok(i64::from(existed))
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let evicted = caller.data_mut().storage.remove(&key);
+            match evicted {
+                Some(value) => {
+                    caller.data_mut().registers.insert(register_id, value);
+                    Ok(1)
+                }
+                None => Ok(0),
+            }
         },
     )?;
 
