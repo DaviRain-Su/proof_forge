@@ -69,6 +69,9 @@ def randomSeed : ProofForge.IR.Expr :=
 def u64 (value : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.u64 value
 
+def u128 (value : Nat) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.u128 value
+
 def boolLit (value : Bool) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.bool value
 

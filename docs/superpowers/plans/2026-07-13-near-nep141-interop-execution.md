@@ -88,15 +88,34 @@ input param echoed back — all on the real VM.
 **Acceptance:** a u128 value can be let-bound, asserted, stored in a map, read
 from a call argument, and returned — coherently — on the unmodified NEAR VM.
 
-## Phase 2 — NearFungibleToken U128 conversion  (effort M; depends 1)
+## Phase 2 — NearFungibleToken U128 conversion  (BLOCKED on Phase 1C)
 
-Mechanical once Phase 1 lands: `totalSupply`, `balances`, `allowances`,
-`pendingAmounts`, and all `amount` params/returns u64 → u128. `ft_mint` /
-`ft_burn` / `ft_transfer` / `ft_transfer_call` / `ft_resolve_transfer` /
-`ft_balance_of` / `ft_total_supply` all u128 arithmetic + 16-byte LE returns.
-**Gate:** update `just near-vm-conformance-ft` (amounts now u128).
-**Acceptance:** FT amounts are full u128 on the real VM; `ft_total_supply`
-returns a 16-byte LE u128 after mint.
+**2026-07-13 critical discovery:** `contract_source` (Surface v2 — the FT's
+authoring surface) lowers via the **canonical `NearModulePlan` path**, NOT the
+legacy `EmitWat`/`renderModule` path. Phase 1's u128 model lives entirely in
+the legacy path; the canonical path has **no u128 support** (u128 returns fall
+through to `__pf_return_u64`, truncating; no `__pf_read/write_u128`,
+`__pf_u128_add`, `__pf_map_read_hash_u128`). The `near-vm-u128-*` gates all use
+`renderModule` (legacy), so they verify the legacy path only — they do NOT
+cover the FT.
+
+So Phase 2 is **blocked on Phase 1C**: porting the u128 model to the canonical
+`NearModulePlan` path. Phase 1 (legacy) is not wasted (legacy is used by
+IR-fixture probes and some tests) but the FT specifically needs canonical.
+
+### Phase 1C — u128 in the canonical NearModulePlan path  (effort L; BLOCKER)
+
+Port the two-word u128 model to the canonical lowering (`NearModulePlan/Core.lean`
++ `NearModulePlan.lean`): u128 return (16-byte LE), u128 scalar + map storage
+read/write, u128 arithmetic / comparison / locals / decimal formatter. Mirrors
+Phase 1.1–1.4 but for the canonical path. **Gate:** a canonical-path u128 probe
+on the real VM (e.g. a `proof-forge build`-emitted module asserting u128
+returns), or extend `near-vm-u128-*` to exercise the canonical lowering.
+
+Once Phase 1C lands, the FT u64→u128 stdlib conversion + the cascading
+Borsh-input test updates (`WasmNearFtTransferCall`, `near-ft-security`,
+`ft-transfer-call-smoke.sh`, `near-vm-conformance-ft`, compare harness — amount
+8→16 bytes) becomes mechanical.
 
 ## Phase 3 — AccountId string keys  (effort M; depends 1)
 
