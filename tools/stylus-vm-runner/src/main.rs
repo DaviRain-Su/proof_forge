@@ -17,6 +17,8 @@ struct HostState {
     block_timestamp: u64,
     calldata: Vec<u8>,
     result: Vec<u8>,
+    return_data: Vec<u8>,
+    mock_calls: BTreeMap<[u8; 20], (i32, Vec<u8>)>,
     trace: Vec<Value>,
 }
 
@@ -262,6 +264,55 @@ fn register_hooks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             Ok(())
         },
     )?;
+    linker.func_wrap(
+        "vm_hooks",
+        "call_contract",
+        |mut caller: Caller<'_, HostState>, address_ptr: i32, calldata_ptr: i32,
+         calldata_len: i32, value_ptr: i32, gas: i64, return_len_ptr: i32| -> wasmtime::Result<i32> {
+            let address = read::<20>(&mut caller, address_ptr)?;
+            let calldata = read_vec(&mut caller, calldata_ptr, calldata_len)?;
+            let value = read::<32>(&mut caller, value_ptr)?;
+            let (status, output) = caller.data().mock_calls.get(&address).cloned().unwrap_or((1, Vec::new()));
+            write(&mut caller, return_len_ptr, &(output.len() as u32).to_le_bytes())?;
+            caller.data_mut().return_data = output.clone();
+            caller.data_mut().trace.push(json!({"event":"call_contract","address":hex(&address),
+                "calldata":hex(&calldata),"value":hex(&value),"gas":gas as u64,
+                "status":status,"returnData":hex(&output)}));
+            Ok(status)
+        },
+    )?;
+    for name in ["static_call_contract", "delegate_call_contract"] {
+        linker.func_wrap(
+            "vm_hooks", name,
+            move |mut caller: Caller<'_, HostState>, address_ptr: i32, calldata_ptr: i32,
+             calldata_len: i32, gas: i64, return_len_ptr: i32| -> wasmtime::Result<i32> {
+                let address = read::<20>(&mut caller, address_ptr)?;
+                let calldata = read_vec(&mut caller, calldata_ptr, calldata_len)?;
+                let (status, output) = caller.data().mock_calls.get(&address).cloned().unwrap_or((1, Vec::new()));
+                write(&mut caller, return_len_ptr, &(output.len() as u32).to_le_bytes())?;
+                caller.data_mut().return_data = output.clone();
+                caller.data_mut().trace.push(json!({"event":name,"address":hex(&address),
+                    "calldata":hex(&calldata),"gas":gas as u64,"status":status,
+                    "returnData":hex(&output)}));
+                Ok(status)
+            },
+        )?;
+    }
+    linker.func_wrap(
+        "vm_hooks", "read_return_data",
+        |mut caller: Caller<'_, HostState>, dest: i32, offset: i32, size: i32| -> wasmtime::Result<i32> {
+            if offset < 0 || size < 0 { return Err(wasmtime::Error::msg("negative return-data range")); }
+            let start = offset as usize;
+            let output = if start >= caller.data().return_data.len() { Vec::new() } else {
+                let end = (start + size as usize).min(caller.data().return_data.len());
+                caller.data().return_data[start..end].to_vec()
+            };
+            write(&mut caller, dest, &output)?;
+            caller.data_mut().trace.push(json!({"event":"read_return_data","offset":offset,
+                "requested":size,"copied":output.len(),"value":hex(&output)}));
+            Ok(output.len() as i32)
+        },
+    )?;
     Ok(())
 }
 
@@ -314,6 +365,14 @@ fn main() -> Result<()> {
                     parse_hex(slot, "storage slot")?,
                     parse_hex(word, "storage word")?,
                 );
+                index += 2;
+            }
+            "--mock-call" => {
+                let binding = value(index)?;
+                let (address, response) = binding.split_once('=').context("mock call must be ADDRESS=STATUS:HEX")?;
+                let (status, output) = response.split_once(':').context("mock call response must be STATUS:HEX")?;
+                host.mock_calls.insert(parse_hex(address, "mock call address")?,
+                    (status.parse().context("invalid mock call status")?, parse_hex_vec(output, "mock call output")?));
                 index += 2;
             }
             "--invoke" => {

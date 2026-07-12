@@ -163,6 +163,10 @@ stylus-aggregate-differential:
     lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/aggregate-differential.sh
 
+stylus-remote-call-differential:
+    lake build Examples.Product.RemoteCall ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module
+    scripts/stylus/remote-call-differential.sh
+
 stylus-scalar-params:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     lake env lean --run Tests/Stylus/ScalarParams.lean

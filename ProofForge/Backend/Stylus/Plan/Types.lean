@@ -199,6 +199,7 @@ structure StylusEventPlan where
 structure StylusCallPlan where
   id : String
   mode : StylusCallMode
+  canonicalSignature : String
   target : StylusValueId
   method : StylusValueId
   arguments : Array StylusValueId := #[]

@@ -242,9 +242,9 @@ private def instructionHostOps (instruction : Instruction) : Except PlanError (A
       | none => fail s!"Stylus plan has no context HostIO handler for `{repr field}`"
   | .emit .. => pure #[.keccak256, .emitLog]
   | .crosscall spec .. => match spec.mode with
-      | .invoke => pure #[.callContract]
-      | .staticInvoke => pure #[.staticCallContract]
-      | .delegateInvoke => pure #[.delegateCallContract]
+      | .invoke => pure #[.keccak256, .callContract, .readReturnData]
+      | .staticInvoke => pure #[.keccak256, .staticCallContract, .readReturnData]
+      | .delegateInvoke => pure #[.keccak256, .delegateCallContract, .readReturnData]
       | .nearPoolInvoke | .nearPromiseThen =>
           fail "Stylus plan rejects NEAR promise crosscall modes"
   | .pure (.hash ..) | .pure (.hashTwoToOne ..) => pure #[.keccak256]
@@ -298,6 +298,15 @@ private def buildEvents (contract : CanonicalContract) : Except PlanError (Array
       support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
+private def stringLiteralFor (function : Function) (id : ValueId) : Except PlanError String := do
+  for block in function.blocks do
+    for instruction in block.instructions do
+      match instruction.results, instruction.op with
+      | #[result], .pure (.literal (.stringLit value)) =>
+          if result.id == id then return value
+      | _, _ => pure ()
+  fail s!"Stylus call method value {id.value} must be a canonical string literal"
+
 private def buildCalls (contract : CanonicalContract) : Except PlanError (Array StylusCallPlan) := do
   let mut calls := #[]
   for function in contract.module.functions do
@@ -311,15 +320,19 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               | .staticInvoke => pure .staticCall
               | .delegateInvoke => pure .delegateCall
               | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
+            let methodName <- stringLiteralFor function spec.method.id
+            let paramTypes <- spec.paramTypes.mapM coreTypeToAbi
+            let signature := s!"{methodName}({String.intercalate "," (paramTypes.toList.map abiTypeName)})"
             calls := calls.push {
-              id := s!"call-{result}", mode, target := spec.target.id.value,
+              id := s!"call-{result}", mode, canonicalSignature := signature,
+              target := spec.target.id.value,
               method := spec.method.id.value,
               arguments := arguments.map fun value => value.id.value,
-              paramTypes := ← spec.paramTypes.mapM coreTypeToAbi,
+              paramTypes,
               returnType := ← coreTypeToAbi spec.returnType,
               value? := spec.value.map fun value => value.id.value,
               gas? := spec.gas.map fun value => value.id.value,
-              support := { rustSdk := .implemented, directWasm := .implemented }
+              support := { rustSdk := .planned, directWasm := .implemented }
             }
         | _ => pure ()
   pure calls

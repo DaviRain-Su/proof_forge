@@ -44,6 +44,11 @@ private def wordFor (plan : StylusPlan) (id : String) : Except LowerError Stylus
   | some word => pure word
   | none => fail s!"Stylus direct lowering references missing storage word `{id}`"
 
+private def callFor (plan : StylusPlan) (id : String) : Except LowerError StylusCallPlan :=
+  match plan.calls.find? (fun call => call.id == id) with
+  | some call => pure call
+  | none => fail s!"Stylus direct lowering references missing call envelope `{id}`"
+
 private def literalSlot (word : StylusStorageWordPlan) : Except LowerError Bytes :=
   match word.slot with
   | .literal bytes => normalizeWord bytes |>.mapError fun error => { message := error.message }
@@ -214,7 +219,11 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
       | .literal result .bytes _ | .literal result .string _ =>
           if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | _ => pure ()
-  return values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
+  let values := values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
+  let hasCall := function.blocks.any fun block => block.operations.any fun op =>
+    match op with | .call .. => true | _ => false
+  return if hasCall then values ++ #[{ name := "callStatus", type := .i32 },
+    { name := "callReturnLen", type := .i32 }] else values
 
 private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : StylusOpPlan) : Except LowerError (Array Insn) := do
@@ -403,9 +412,61 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
         if field.indexed then topicIndex := topicIndex + 1 else dataIndex := dataIndex + 1
       pure <| insns ++ #[.i32Const eventPtr, .i32Const ((topicCount + dataIndex) * 32),
         .i32Const topicCount, .call "emit_log"]
-  | .call _ _ callId =>
-      throw <| diagnostic plan function block (opName op) "crosscall"
-        s!"call envelope `{callId}` lowering is not implemented"
+  | .call result _ callId =>
+      let call <- callFor plan callId |>.mapError fun error =>
+        diagnostic plan function block (opName op) "crosscall" error.message
+      if call.value?.isSome then
+        throw <| diagnostic plan function block (opName op) "crosscall.value" "value calls are not implemented"
+      if call.paramTypes.size != call.arguments.size then
+        throw <| diagnostic plan function block (opName op) "crosscall" "argument/type arity mismatch"
+      let signature := call.canonicalSignature.toUTF8.data
+      let mut insns := writeBytes callDataPtr signature ++ #[.i32Const callDataPtr,
+        .i32Const signature.size, .i32Const callDataPtr, .call "native_keccak256"]
+      for index in [0:call.arguments.size] do
+        let some argument := call.arguments[index]?
+          | throw <| diagnostic plan function block (opName op) "crosscall" "argument index is invalid"
+        let some type := call.paramTypes[index]?
+          | throw <| diagnostic plan function block (opName op) "crosscall" "argument type is missing"
+        let width <- scalarWidth type |>.mapError fun error =>
+          diagnostic plan function block (opName op) "crosscall.argument" error.message
+        insns := insns ++ clearWord (callDataPtr + 4 + index * 32) ++
+          encodeUnsigned (callDataPtr + 36 + index * 32 - width) width (valueLocal argument)
+      insns := insns ++ clearWord callReturnLenPtr
+      let calldataLen := 4 + call.arguments.size * 32
+      let gas := match call.gas? with
+        | some value => #[.localGet (valueLocal value)]
+        | none => #[.i64Const 18446744073709551615]
+      match call.mode with
+      | .call =>
+          insns := insns ++ clearWord callValuePtr ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+              .i32Const callDataPtr, .i32Const calldataLen, .i32Const callValuePtr] ++ gas ++
+              #[.i32Const callReturnLenPtr, .call "call_contract", .localSet "callStatus"]
+      | .staticCall =>
+          insns := insns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+            .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
+            .call "static_call_contract", .localSet "callStatus"]
+      | .delegateCall =>
+          insns := insns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+            .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
+            .call "delegate_call_contract", .localSet "callStatus"]
+      insns := insns ++ #[.i32Const callReturnLenPtr, .load "i32.load" 0,
+        .localSet "callReturnLen", .localGet "callReturnLen", .i32Const callReturnMaxBytes,
+        .plain "i32.gt_u", .if_ (.mk <| writeBytes 32 "stylus: return data exceeds limit".toUTF8.data ++ #[
+          .i32Const 32, .i32Const "stylus: return data exceeds limit".toUTF8.data.size,
+          .call "write_result", .i32Const 1, .return_]) .empty]
+      let copyReturn := #[.i32Const callReturnPtr, .i32Const 0, .localGet "callReturnLen",
+        .call "read_return_data", .plain "drop"]
+      insns := insns ++ #[.localGet "callStatus", .if_ (.mk <| copyReturn ++ #[
+        .i32Const callReturnPtr, .localGet "callReturnLen", .call "write_result",
+        .i32Const 1, .return_]) .empty]
+      if call.returnType != .uint 64 then
+        throw <| diagnostic plan function block (opName op) "crosscall.return"
+          s!"unsupported return type {repr call.returnType}"
+      pure <| insns ++ #[.localGet "callReturnLen", .i32Const 32, .plain "i32.ne",
+        .if_ (.mk <| writeBytes 32 "stylus: malformed return data".toUTF8.data ++ #[
+          .i32Const 32, .i32Const "stylus: malformed return data".toUTF8.data.size,
+          .call "write_result", .i32Const 1, .return_]) .empty] ++ copyReturn ++
+        decodeUnsigned (callReturnPtr + 24) 8 (valueLocal result)
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do

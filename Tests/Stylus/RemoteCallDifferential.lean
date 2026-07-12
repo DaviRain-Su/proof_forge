@@ -1,11 +1,16 @@
 import Examples.Product.RemoteCall
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.Contract.Spec
-import ProofForge.Cli.EvmAbi
 import ProofForge.IR.Legacy.Adapter
 
 def main : IO Unit := do
-  let hydrated <- ProofForge.Cli.hydrateEvmSelectors "cast" Examples.Product.RemoteCall.module
+  let hydrated := { Examples.Product.RemoteCall.module with
+    entrypoints := Examples.Product.RemoteCall.module.entrypoints.map fun entrypoint =>
+      { entrypoint with selector? := match entrypoint.name with
+        | "initialize" => some "8129fc1c"
+        | "call_remote" => some "e8902e74"
+        | "call_with_args" => some "728f8748"
+        | _ => entrypoint.selector? } }
   let spec := ProofForge.Contract.ContractSpec.fromIR hydrated
   let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
     | .ok value => pure value

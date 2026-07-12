@@ -25,6 +25,10 @@ def importForHostOp? : StylusHostOp -> Option Import
   | .blockTimestamp => some (vmImport "block_timestamp" #[] #[.i64])
   | .keccak256 => some (vmImport "native_keccak256" #[.i32, .i32, .i32])
   | .emitLog => some (vmImport "emit_log" #[.i32, .i32, .i32])
+  | .callContract => some (vmImport "call_contract" #[.i32, .i32, .i32, .i32, .i64, .i32] #[.i32])
+  | .staticCallContract => some (vmImport "static_call_contract" #[.i32, .i32, .i32, .i64, .i32] #[.i32])
+  | .delegateCallContract => some (vmImport "delegate_call_contract" #[.i32, .i32, .i32, .i64, .i32] #[.i32])
+  | .readReturnData => some (vmImport "read_return_data" #[.i32, .i32, .i32] #[.i32])
   | _ => none
 
 def validateImports (candidates : Array Import) : Except DirectError (Array Import) := do

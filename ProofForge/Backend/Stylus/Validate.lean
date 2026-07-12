@@ -86,6 +86,12 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
       validateAbiType field.type
       if field.indexed && (field.type == .bytes || field.type == .string) then
         fail s!"Stylus event `{event.id}` dynamic indexed field `{field.name}` must be pre-hashed"
+  for call in plan.calls do
+    if call.canonicalSignature.isEmpty then fail s!"Stylus call `{call.id}` has an empty signature"
+    if call.arguments.size != call.paramTypes.size then
+      fail s!"Stylus call `{call.id}` argument/type arity mismatch"
+    for type in call.paramTypes do validateAbiType type
+    validateAbiType call.returnType
   for function in plan.functions do
     let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
       | fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"
