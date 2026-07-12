@@ -233,6 +233,11 @@ Rules:
   - `CHECK_BASE=HEAD just check-fast` passed in 238.73 seconds
   - the first fast run selected 11 of 108 full recipes; `product` was the
     slowest recipe at 124.26 seconds
+  - `JOBS=4 just check-parallel` passed all 108 recipes in 1027.62 seconds
+    after the isolated worktree's Lake/npm dependencies were installed
+  - the first full run identified `rebuild-hash` (322.29 seconds),
+    `solana-light` (142.09 seconds), `testkit` (136.18 seconds), and
+    `quint-mbt-gate` (101.73 seconds) as the dominant critical-path work
   - `git diff --check` passed
 - Remaining: full parallel/serial entrypoints, equivalence gate, repeated
   stability and performance qualification, then CI integration.
