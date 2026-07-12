@@ -2,6 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$HOME/.foundry/bin:$PATH"
 endpoint="${PROOF_FORGE_STYLUS_ENDPOINT:-http://127.0.0.1:8547}"
 [[ "$endpoint" == "http://127.0.0.1:8547" ]] || {
   echo "stylus-nitro-e2e: local Nitro E2E only accepts http://127.0.0.1:8547" >&2

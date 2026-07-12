@@ -787,10 +787,16 @@ Rules:
   E2E scripts against `http://127.0.0.1:8547`, plus a separately guarded
   Sepolia workflow requiring an explicit private-key path. No automatic
   mainnet deployment command exists.
-- Verification: `just stylus-nitro-scripts` passed; `just
-  stylus-nitro-install` cloned the official repository, checked out the pinned
-  revision, and initialized its Blockscout submodule. Docker chain init and
-  cargo-stylus E2E remain unexecuted because cargo-stylus is not installed.
+- Verification: `cargo-stylus 0.10.8` was installed under Rust `1.91.0`; the
+  pinned Nitro chain initialized with L2 chain ID `412346`; `just
+  stylus-nitro-check` accepted the 810-byte direct Wasm; and `just
+  stylus-nitro-e2e` deployed and activated it before executing `initialize`,
+  `increment`, and `get` through Solidity ABI and observing `1` on-chain.
+- Follow-up repair: cargo-stylus 0.10.8 loads Cargo and `Stylus.toml` metadata
+  even for `--wasm-file`, so the scripts now execute inside an isolated empty
+  workspace rather than pretending the direct artifact belongs to the Rust
+  oracle. Deployment-address parsing strips cargo-stylus ANSI formatting, and
+  the E2E script supplies the documented Foundry path in non-interactive shells.
 
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 

@@ -130,6 +130,9 @@ just stylus-nitro-down
 After the first initialization, use `just stylus-nitro-up` to restart without
 resetting chain data. The local developer key written under `build/` is the
 well-known Nitro Testnode key and must never be used on a public network.
+For direct `--wasm-file` commands, the scripts create an ignored empty
+Cargo/Stylus workspace under `build/`; cargo-stylus 0.10.8 otherwise attempts
+to load project metadata even though it does not compile a Rust crate.
 
 Sepolia is deliberately separate and requires an explicit key path:
 

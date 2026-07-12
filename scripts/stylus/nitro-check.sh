@@ -12,4 +12,5 @@ rustup run "$toolchain" cargo stylus --version >/dev/null 2>&1 || {
   echo "stylus-nitro-check: install the pinned cargo-stylus for Rust $toolchain" >&2
   exit 1
 }
-rustup run "$toolchain" cargo stylus check --wasm-file="$wasm" --endpoint="$endpoint"
+workspace="$("$root/scripts/stylus/cargo-stylus-workspace.sh")"
+(cd "$workspace" && rustup run "$toolchain" cargo stylus check --wasm-file="$wasm" --endpoint="$endpoint")

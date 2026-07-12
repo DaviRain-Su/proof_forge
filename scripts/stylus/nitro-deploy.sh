@@ -23,16 +23,9 @@ deploy_args=(stylus deploy --wasm-file="$wasm" --endpoint="$endpoint" --private-
 if [[ "$endpoint" == "http://127.0.0.1:8547" ]]; then
   deploy_args+=(--no-verify)
 fi
-rustup run "$toolchain" cargo "${deploy_args[@]}" | tee "$log"
-address="$(python3 - "$log" <<'PY'
-import re
-import sys
-
-text = open(sys.argv[1], encoding="utf-8").read()
-matches = re.findall(r"deployed code at address:\s*(0x[0-9a-fA-F]{40})", text, re.IGNORECASE)
-print(matches[-1] if matches else "")
-PY
-)"
+workspace="$("$root/scripts/stylus/cargo-stylus-workspace.sh")"
+(cd "$workspace" && rustup run "$toolchain" cargo "${deploy_args[@]}") | tee "$log"
+address="$(python3 "$root/scripts/stylus/parse-deployed-address.py" "$log")"
 [[ "$address" =~ ^0x[0-9a-fA-F]{40}$ ]] || {
   echo "stylus-nitro-deploy: could not parse deployed address from $log" >&2
   exit 1

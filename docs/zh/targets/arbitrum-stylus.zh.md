@@ -113,6 +113,9 @@ just stylus-nitro-down
 
 首次初始化后使用 `just stylus-nitro-up` 重启，不会重置链数据。写入 `build/`
 的本地开发密钥是公开的 Nitro Testnode key，绝不能用于公共网络。
+对于 direct `--wasm-file` 命令，脚本会在 `build/` 下创建被忽略的空
+Cargo/Stylus workspace；否则 cargo-stylus 0.10.8 即使不编译 Rust crate，仍会
+尝试加载项目 metadata。
 
 Sepolia 流程单独提供，并强制显式指定密钥：
 
