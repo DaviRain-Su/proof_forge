@@ -289,7 +289,7 @@ Rules:
   - `lake env lean --run Tests/NftArtifactSchema.lean` passed
   - `scripts/portable/nft-multi-target.sh` passed
   - `just product` passed
-  - `just check` pending/awaiting (running in background; will be updated when it finishes)
+  - `just check` passed
   - `git diff --check` passed
 - Remaining: migrate Counter, ValueVault, Token, RemoteCall, and secondary targets
   to native dispatch before D4 reaches `default_switched`.
