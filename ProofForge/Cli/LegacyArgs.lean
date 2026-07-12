@@ -99,6 +99,8 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .learnTarget }
   | "--learn-token" :: rest, opts =>
       parseArgs rest { opts with mode := .learnTokenTarget }
+  | "--nft" :: rest, opts =>
+      parseArgs rest { opts with nft := true }
   | "--learn-target" :: targetId :: rest, opts =>
       parseArgs rest { opts with mode := .learnTarget, targetId? := some targetId }
   | "--learn-target" :: [], _ =>

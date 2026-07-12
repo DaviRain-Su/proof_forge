@@ -29,7 +29,8 @@ def initialized : ScalarRef :=
   ProofForge.Contract.Surface.slot "erc721Initialized" .u64
 
 def mintAuthority : ScalarRef :=
-  ProofForge.Contract.Surface.slot "erc721MintAuthority" .address
+  /- Portable callers are represented by the canonical u64 identity handle. -/
+  ProofForge.Contract.Surface.slot "erc721MintAuthority" .u64
 
 contract_mixin ERC721Mixin do
   use ProofForge.Contract.Surface.scalar initialized

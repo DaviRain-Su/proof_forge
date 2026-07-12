@@ -29,6 +29,7 @@ structure NewCommandParseState where
   evmConstructorArgsHex : String := ""
   solanaSbpfArch? : Option String := none
   token : Bool := false
+  nft : Bool := false
   /-- Accumulated `--peer logical=host` bindings (forwarded to legacy). -/
   peers : Array String := #[]
   peersDemo : Bool := false
@@ -108,6 +109,8 @@ partial def parseNewOptions : List String → NewCommandParseState → Except St
         .error s!"invalid --solana-sbpf-arch '{arch}', expected v0 or v3"
   | "--token" :: rest, state =>
       parseNewOptions rest { state with token := true }
+  | "--nft" :: rest, state =>
+      parseNewOptions rest { state with nft := true }
   | "--peer" :: rest, state => do
       let (spec, rest) ← takeOption rest "--peer"
       parseNewOptions rest { state with peers := state.peers.push spec }
@@ -149,12 +152,13 @@ def targetFirstYulOutput? (target flag : String) (out? yulOut? : Option String) 
 
 /-- Build legacy flag via registry-backed `TargetCliDriver` (PF-P1-01). -/
 def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Option String := none)
-    (format? : Option String := none) (token : Bool := false) : Except String String :=
+    (format? : Option String := none) (token : Bool := false) (nft : Bool := false) : Except String String :=
   resolveBuildLegacyFlag target {
     input? := input?
     fixture? := fixture?
     format? := format?
     token := token
+    nft := nft
   }
 
 /-- Emit legacy flag via registry-backed `TargetCliDriver` (PF-P1-01). -/
@@ -167,7 +171,7 @@ def emitLegacyFlag (target fixture : String) (format? : Option String) : Except 
 def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Except String (List String) := do
   if cmd == "build" then
     let target ← match state.target? with | some t => Except.ok t | none => Except.error "build requires --target <id>"
-    let flag ← buildLegacyFlag target state.input? state.fixture? state.format? state.token
+    let flag ← buildLegacyFlag target state.input? state.fixture? state.format? state.token state.nft
     let mut legacy := [flag]
     if let some out := state.out? then legacy := legacy ++ ["-o", targetFirstNativeOutput target flag out]
     if let some root := state.root? then legacy := legacy ++ ["--root", root]
@@ -188,6 +192,7 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
     -- EmitWat host bridge (NEAR vs Soroban) is selected from --target.
     if flag == "--contract-source-emitwat" then
       legacy := legacy ++ ["--target", target]
+    if state.nft then legacy := legacy ++ ["--nft"]
     if target == "solana-sbpf-asm" then
       if let some arch := state.solanaSbpfArch? then
         legacy := legacy ++ ["--solana-sbpf-arch", arch]

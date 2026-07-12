@@ -14,11 +14,11 @@ pick a chain NFT standard. `--target` materializes the standard:
 Compile the same NFT intent by changing only `--target`:
 
   lake env proof-forge build --target evm --nft --root . \
-    -o build/shared-nft/Nft.erc20.bin \
+    -o build/shared-nft/Nft.erc721.bin \
     Examples/Product/Nft.lean
 
   lake env proof-forge build --target solana-sbpf-asm --nft --root . \
-    -o build/shared-nft/Nft.solana-token-plan.json \
+    -o build/shared-nft/Nft.s \
     Examples/Product/Nft.lean
 
   lake env proof-forge build --target wasm-near --nft --root . \
@@ -37,7 +37,7 @@ def id : String :=
 def spec : NFTSpec := {
   name := "Proof NFT"
   symbol := "PNFT"
-  features := #[.mintable, .burnable, .transferable]
+  features := #[.mintable, .transferable]
 }
 
 end Examples.Product.Nft

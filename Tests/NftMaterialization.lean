@@ -33,6 +33,11 @@ def main : IO Unit := do
   require (evmMat.targetId == "evm") "evm targetId"
   require (evmMat.standardId == "erc-721") s!"evm standardId should be erc-721, got {evmMat.standardId}"
   require (evmMat.contractSpec.name == "ERC721") s!"evm contractSpec name should be ERC721, got {evmMat.contractSpec.name}"
+  let evmSelectors := evmMat.contractSpec.module.entrypoints.map fun ep => (ep.name, ep.selector?)
+  require (evmSelectors.contains ("init", some "e1c7392a")) "evm init() selector"
+  require (evmSelectors.contains ("mint", some "40c10f19")) "evm mint(address,uint256) selector"
+  require (evmSelectors.contains ("transferFrom", some "23b872dd")) "evm transferFrom selector"
+  require (evmSelectors.contains ("ownerOf", some "6352211e")) "evm ownerOf selector"
 
   -- Test 2: Solana materializer resolves to Metaplex standard
   let solResult ← match IntentRegistry.resolve registry "solana-sbpf-asm" .nonFungibleToken with

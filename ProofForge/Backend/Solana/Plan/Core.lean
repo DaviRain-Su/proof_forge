@@ -49,7 +49,9 @@ def coreScalarByteSize : CoreType -> Except PlanError Nat
   | .u32 => .ok 4
   | .u64 => .ok 8
   | .u128 => .ok 16
-  | .address | .hash => .ok 32
+  /- Canonical Solana represents identities as the portable SHA-256 limb-0
+     handle used by callerHash and the existing product materializer. -/
+  | .address | .hash => .ok 8
   | ty => .error { message := s!"unsupported Solana scalar type `{repr ty}`" }
 
 def coreStateByteSize : StateShape → Except PlanError Nat

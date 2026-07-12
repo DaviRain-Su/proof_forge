@@ -627,8 +627,9 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
         .instruction { opcode := .ja, off := some (.sym "assert_fail") },
         .label done]
   | .loadMap result _ absOff capacity keyByteSize valueByteSize key => do
-      unless keyByteSize == 8 && valueByteSize == 1 do
-        throw { message := "canonical Solana Set map requires u64 keys and bool values" }
+      unless keyByteSize == 8 && (valueByteSize == 1 || valueByteSize == 8) do
+        throw { message := "canonical Solana map requires 8-byte keys and 1- or 8-byte values" }
+      let valueLoad := if valueByteSize == 1 then Opcode.ldxb else .ldxdw
       let done := s!"core_map_load_{fnId}_{blockId}_{opIndex}_done"
       let mut nodes := #[
         .instruction { opcode := .mov64, dst := some .r4, imm := some (.num 0) },
@@ -641,14 +642,15 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
           .instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym next) },
           .instruction { opcode := .ldxdw, dst := some .r3, src := some .r1, off := some (.num (entryOff + 1)) },
           .instruction { opcode := .jne, dst := some .r3, src := some .r2, off := some (.sym next) },
-          .instruction { opcode := .ldxb, dst := some .r4, src := some .r1, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := valueLoad, dst := some .r4, src := some .r1, off := some (.num (entryOff + 1 + keyByteSize)) },
           .instruction { opcode := .ja, off := some (.sym done) },
           .label next]
       nodes := nodes ++ #[.label done, canonicalStoreValue result .r4]
       return nodes
   | .storeMap _ absOff capacity keyByteSize valueByteSize key value => do
-      unless keyByteSize == 8 && valueByteSize == 1 do
-        throw { message := "canonical Solana Set map requires u64 keys and bool values" }
+      unless keyByteSize == 8 && (valueByteSize == 1 || valueByteSize == 8) do
+        throw { message := "canonical Solana map requires 8-byte keys and 1- or 8-byte values" }
+      let valueStore := if valueByteSize == 1 then Opcode.stxb else .stxdw
       let searchEmpty := s!"core_map_store_{fnId}_{blockId}_{opIndex}_empty"
       let done := s!"core_map_store_{fnId}_{blockId}_{opIndex}_done"
       let mut nodes := #[canonicalLoadValue key .r2, canonicalLoadValue value .r4]
@@ -660,7 +662,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
           .instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym next) },
           .instruction { opcode := .ldxdw, dst := some .r3, src := some .r1, off := some (.num (entryOff + 1)) },
           .instruction { opcode := .jne, dst := some .r3, src := some .r2, off := some (.sym next) },
-          .instruction { opcode := .stxb, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := valueStore, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
           .instruction { opcode := .ja, off := some (.sym done) },
           .label next]
       nodes := nodes.push (.instruction { opcode := .ja, off := some (.sym searchEmpty) })
@@ -674,7 +676,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
           .instruction { opcode := .mov64, dst := some .r3, imm := some (.num 1) },
           .instruction { opcode := .stxb, dst := some .r1, src := some .r3, off := some (.num entryOff) },
           .instruction { opcode := .stxdw, dst := some .r1, src := some .r2, off := some (.num (entryOff + 1)) },
-          .instruction { opcode := .stxb, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
+          .instruction { opcode := valueStore, dst := some .r1, src := some .r4, off := some (.num (entryOff + 1 + keyByteSize)) },
           .instruction { opcode := .ja, off := some (.sym done) },
           .label next]
       nodes := nodes ++ #[

@@ -315,6 +315,8 @@ def writeEmitWatArtifactMetadata
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString targetId),
+    ("standardId", match opts.nftStandardId? targetId with
+      | some standardId => jsonString standardId | none => "null"),
     ("targetFamily", jsonString "wasmHost"),
     ("storageBinding", jsonString (match ProofForge.Target.storageBindingForTargetId? targetId with
       | some binding => binding.id

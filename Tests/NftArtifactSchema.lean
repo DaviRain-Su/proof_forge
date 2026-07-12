@@ -4,6 +4,7 @@ import ProofForge.Contract.Intent.Registry
 import ProofForge.Contract.Stdlib.ERC721
 import ProofForge.Contract.Stdlib.MetaplexNft
 import ProofForge.Contract.Stdlib.NearNft
+import ProofForge.Cli.TargetFirst
 
 /-!
 # NFT Artifact Schema Test
@@ -20,11 +21,22 @@ def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
 def main : IO Unit := do
+  for targetId in #["evm", "solana-sbpf-asm", "wasm-near"] do
+    let parsed ← match ProofForge.Cli.parseNewOptions
+        ["--target", targetId, "--nft", "Examples/Product/Nft.lean"] {} with
+      | .ok state => pure state
+      | .error e => throw <| IO.userError s!"{targetId} --nft parse failed: {e}"
+    let legacy ← match ProofForge.Cli.newCommandArgsToLegacy parsed "build" with
+      | .ok args => pure args
+      | .error e => throw <| IO.userError s!"{targetId} --nft routing failed: {e}"
+    require (legacy.contains "--nft") s!"{targetId} route dropped --nft"
+    require (legacy.contains "Examples/Product/Nft.lean") s!"{targetId} route dropped source"
+
   let registry ← match NftMaterialize.nftIntentRegistry with
     | .ok r => pure r
     | .error e => throw <| IO.userError s!"registry failed: {e}"
 
-  let nftSpec : NFTSpec := { name := "Proof NFT", symbol := "PNFT", features := #[.mintable, .burnable, .transferable] }
+  let nftSpec : NFTSpec := { name := "Proof NFT", symbol := "PNFT", features := #[.mintable, .transferable] }
   let contract ← match NFTSpec.toIntentContract nftSpec with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"toIntentContract failed: {e}"

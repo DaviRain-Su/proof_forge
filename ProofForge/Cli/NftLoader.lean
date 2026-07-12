@@ -55,10 +55,7 @@ unsafe def loadAndMaterializeNft
   let registry ← match ProofForge.Contract.NftMaterialize.nftIntentRegistry with
     | .ok r => pure r
     | .error e => throw <| IO.userError s!"NFT registry creation failed: {e}"
-  let materializer ← match ProofForge.Contract.IntentRegistry.resolve registry targetId .nonFungibleToken with
-    | .ok m => pure m
-    | .error e => throw <| IO.userError s!"{e}"
-  let materialization ← match materializer.materialize intentContract with
+  let materialization ← match ProofForge.Contract.materializeIntent registry targetId intentContract with
     | .ok mat => pure mat
     | .error e => throw <| IO.userError s!"NFT materialization failed for target `{targetId}`: {e}"
   pure materialization.contractSpec

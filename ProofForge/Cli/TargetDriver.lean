@@ -9,6 +9,7 @@ structure BuildRequest where
   fixture? : Option String := none
   format? : Option String := none
   token : Bool := false
+  nft : Bool := false
   deriving Inhabited
 
 /-- Inputs for target-first `emit` legacy-flag resolution. -/
@@ -47,7 +48,10 @@ def isLearnInput (input? : Option String) : Bool :=
 def evmResolveBuild (req : BuildRequest) : Except String String :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  if isLearn then
+  if req.nft then
+    if isLeanSource then Except.ok "--evm-bytecode"
+    else Except.error "proof-forge build --target evm --nft requires a .lean NFTSpec source"
+  else if isLearn then
     match req.format?, req.token with
     | some "yul", false => Except.ok "--learn-yul"
     | some "yul", true =>
@@ -94,7 +98,10 @@ def evmResolveEmit (req : EmitRequest) : Except String String :=
 def solanaResolveBuild (req : BuildRequest) : Except String String :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  match isLearn, req.token with
+  if req.nft then
+    if isLeanSource then Except.ok "--contract-source-sbpf"
+    else Except.error "proof-forge build --target solana-sbpf-asm --nft requires a .lean NFTSpec source"
+  else match isLearn, req.token with
   | true, true => Except.ok "--learn-token"
   | true, false => Except.ok "--learn"
   | false, true =>
@@ -175,7 +182,10 @@ def solanaResolveEmit (req : EmitRequest) : Except String String :=
 def nearResolveBuild (req : BuildRequest) : Except String String :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  if isLearn then
+  if req.nft then
+    if isLeanSource then Except.ok "--contract-source-emitwat"
+    else Except.error "proof-forge build --target wasm-near --nft requires a .lean NFTSpec source"
+  else if isLearn then
     Except.error "proof-forge build --target wasm-near from .learn source is not yet implemented"
   else if req.token then
     if isLeanSource then

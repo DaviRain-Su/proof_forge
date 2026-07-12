@@ -69,7 +69,7 @@ def withErc721Selectors (spec : ContractSpec) : ContractSpec :=
   { spec with module := { spec.module with
       entrypoints := spec.module.entrypoints.map fun ep =>
         match ep.name with
-        | "init" => { ep with selector? := some "8129fc1c" }
+        | "init" => { ep with selector? := some "e1c7392a" }
         | "mint" => { ep with selector? := some "40c10f19" }
         | "transferFrom" => { ep with selector? := some "23b872dd" }
         | "ownerOf" => { ep with selector? := some "6352211e" }

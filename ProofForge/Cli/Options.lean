@@ -49,10 +49,18 @@ structure CliOptions where
   scenario? : Option FilePath := none
   mode : EmitMode := .yul
   fromNewSurface : Bool := false
+  nft : Bool := false
   /-- Deploy-time logical peer → host identity. Default **identity** (no silent
   rewrite). Use `--peer logical=host` and/or `--peers-demo`. -/
   peerMap : ProofForge.Target.PeerMap.Map := ProofForge.Target.PeerMap.identity
   deriving Inhabited
+
+def CliOptions.nftStandardId? (opts : CliOptions) (targetId : String) : Option String :=
+  if !opts.nft then none
+  else if targetId == "evm" then some "erc-721"
+  else if targetId == "solana-sbpf-asm" then some "metaplex"
+  else if targetId == "wasm-near" then some "nep-171"
+  else none
 
 def CliOptions.emitsEvmDeployManifest (opts : CliOptions) : Bool :=
   opts.mode.emitsEvmDeployManifest ||

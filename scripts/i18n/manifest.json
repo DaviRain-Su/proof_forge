@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "98eca75e3c5c1302bdc75ddcc599b38b6cd42dd4d93c805b5c9c652e991ab5bd",
+    "sha256": "4352277c9b9baeb731ae2a9fe999dd4ef6925ec7f0e161b4f840599e6ee64c3a",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh A5 Solana strict closure"
+    "note": "synced EN/zh A6 artifact review status"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -168,10 +168,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/gate-status.md": {
-    "sha256": "7fff0918bbdc238e9347d997c36518683a19870da7032e0d3f463a6362751b0c",
+    "sha256": "5b2c9b24770ebf360c97a5228a215b28ca4a9a35b3dcf4f4dfdaf5419ac9f0e7",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "7fff0918bbdc238e9347d997c36518683a19870da7032e0d3f463a6362751b0c"
+    "en_sha256": "5b2c9b24770ebf360c97a5228a215b28ca4a9a35b3dcf4f4dfdaf5419ac9f0e7"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
   "docs/tutorials/portable-shared-path.md": {

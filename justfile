@@ -674,6 +674,10 @@ nft-materialization:
 nft-artifact-schema:
     lake build ProofForge.Contract.Nft.Materialize
     lake env lean --run Tests/NftArtifactSchema.lean
+
+# One NFTSpec through the real CLI into three target artifact/SDK bundles.
+portable-nft-multi-target: nft-artifact-schema
+    scripts/portable/nft-multi-target.sh
 # Requirement-level standard manifests and artifact-bound evidence honesty.
 standard-compliance:
     lake build ProofForge.Contract.Compliance
@@ -1419,6 +1423,7 @@ product:
     just nft-intent
     just nft-implementation-contract
     just nft-materialization
+    just portable-nft-multi-target
     just product-matrix
     just portable-counter-multi-target
     just portable-remote-call-multi-target

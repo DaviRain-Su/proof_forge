@@ -583,6 +583,8 @@ def writeEvmArtifactMetadata
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString "evm"),
+    ("standardId", match opts.nftStandardId? "evm" with
+      | some standardId => jsonString standardId | none => "null"),
     ("targetFamily", jsonString "evm"),
     ("storageBinding", jsonString ProofForge.Target.evm.storageBinding.id),
     ("materialization", materializationJson),

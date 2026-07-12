@@ -8,6 +8,7 @@ def usage : String :=
     "  proof-forge init [DIR]                      # Product scaffold (business intent only)",
     "  proof-forge build --target <id> … input.lean  # materialize; id: evm | solana-sbpf-asm | wasm-near | …",
     "  proof-forge build --target <id> --token …    # TokenSpec → chain-native token plan/artifact",
+    "  proof-forge build --target <id> --nft …      # NFTSpec → ERC-721 / Metaplex / NEP-171 artifact",
     "  proof-forge check --target <id> …",
     "  proof-forge --list-targets                  # registered targets with ≥1 CLI command",
     "  proof-forge --list-targets --json           # machine-readable support matrix (PF-P1-02)",

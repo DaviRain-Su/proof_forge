@@ -134,8 +134,8 @@
 - [x] Reuse generic TokenSpec loader/artifact patterns without duplicating target emitters.
 - [ ] Add lifecycle smoke coverage for mint, owner/balance, authorized transfer, unauthorized rejection, and duplicate mint.
 - [x] Add the smoke to `just product` only after all primary targets pass.
-- [x] Run focused tests, the multi-target script, `just product`, `just check`, and `git diff --check`.
-- [x] Commit with `git commit -m "feat(product): add portable NFT primary-triad route"`.
+- [x] Run focused tests, the multi-target script, `just product`, `just check`, and `git diff --check` on the repaired route.
+- [ ] Commit the review repair; keep A6 open until lifecycle runtime evidence passes.
 
 ## Workstream B: Wasm-Host Promotion
 

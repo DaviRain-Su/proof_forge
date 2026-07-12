@@ -43,7 +43,31 @@ echo "portable-nft: NEAR/Wasm"
   -o "$OUT/near" \
   --artifact-output "$OUT/near/Nft.near-artifact.json" \
   "$SOURCE" || { echo "NEAR NFT build failed" >&2; exit 1; }
-[[ -f "$OUT/near/nft.wat" ]] || [[ -f "$OUT/near/erc721.wat" ]] || [[ -f "$OUT/near/erc721mixin.wat" ]] || {
+[[ -f "$OUT/near/nearnft.wat" ]] || {
   echo "NEAR NFT: missing .wat" >&2; exit 1; }
+
+python3 - "$OUT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+cases = [
+    (root / "evm/Nft.evm-artifact.json", "evm", "erc-721", "ERC721", "evm-bytecode"),
+    (root / "solana/Nft.solana-artifact.json", "solana-sbpf-asm", "metaplex", "MetaplexNft", "sbpf-asm"),
+    (root / "near/Nft.near-artifact.json", "wasm-near", "nep-171", "NearNft", "wasm"),
+]
+for path, target, standard, module, output_kind in cases:
+    data = json.loads(path.read_text())
+    assert data["target"] == target, (path, data.get("target"))
+    assert data["standardId"] == standard, (path, data.get("standardId"))
+    bundle = data["artifactBundle"]
+    assert bundle["targetId"] == target
+    assert bundle["source"]["moduleName"] == module
+    assert any(item["kind"] == output_kind for item in bundle["outputs"])
+    for item in bundle["outputs"]:
+        assert item.get("path") and item.get("sha256") and item.get("bytes", 0) > 0
+print("portable-nft-artifacts: ok (target + standard + source + digests)")
+PY
 
 echo "portable-nft-multi-target: ok (evm · solana · near)"

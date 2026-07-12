@@ -16,6 +16,7 @@ import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Cli.TokenLoader
+import ProofForge.Cli.NftLoader
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token.NearSpec
@@ -28,6 +29,13 @@ open System
 open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
+
+unsafe def loadContractSpecForOptions (opts : CliOptions) (input : FilePath)
+    (targetId : String) : IO ProofForge.Contract.ContractSpec :=
+  if opts.nft then
+    ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root? opts.moduleName? targetId
+  else
+    ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
 
 /-- Materialize a NEAR contract exclusively through canonical Core and the
 existing semantic NearModulePlan. Failures are terminal; there is no Legacy
@@ -61,7 +69,7 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
+  let spec ← loadContractSpecForOptions opts input "evm"
   let opts ← match finalizeConstructorOptionsForSpec opts spec with
     | .ok opts => pure opts
     | .error msg => throw <| IO.userError msg
@@ -85,7 +93,7 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
+  let spec ← loadContractSpecForOptions opts input "evm"
   let opts ← match finalizeConstructorOptionsForSpec opts spec with
     | .ok opts => pure opts
     | .error msg => throw <| IO.userError msg
@@ -99,7 +107,7 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
+  let spec ← loadContractSpecForOptions opts input "solana-sbpf-asm"
   let output := opts.output?.getD (siblingPath input s!".{leanBaseName input}.s")
   let plan ←
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
@@ -161,6 +169,8 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
       let metadata := jsonObject #[
         ("schemaVersion", "1"),
         ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
+        ("standardId", match opts.nftStandardId? "solana-sbpf-asm" with
+          | some standardId => jsonString standardId | none => "null"),
         ("targetFamily", jsonString "solana"),
         ("storageBinding", jsonString ProofForge.Target.solanaSbpfAsm.storageBinding.id),
         ("materialization",
@@ -262,10 +272,12 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     | .ok resolved => pure resolved
     | .error msg => throw <| IO.userError msg
   let profile := resolved.1
-  let spec ←
-    match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
-    | .ok spec => pure spec
-    | .error err => throw <| IO.userError err
+  let spec ← if opts.nft then
+      ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root? opts.moduleName? profile.id
+    else
+      match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
+      | .ok spec => pure spec
+      | .error err => throw <| IO.userError err
   let fixtureSlug := spec.name.toLower
   let outputDir ← match opts.output? with
     | some out =>
