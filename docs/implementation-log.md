@@ -941,3 +941,56 @@ Rules:
   `just near-vm-conformance-ft` added to `wave-t-baseline`, `check-serial`,
   and `scripts/test-framework/lanes.json` (`serialCoverage` + `recipes`,
   lane `wasm-other-exclusive`).
+
+## 2026-07-13 - GATE-NEAR-VM-U128: U128 scalar round-trip on the real NEAR VM (NEP-141 foundation)
+
+- Status: `done (verified by `just near-vm-u128-scalar`)`
+- Context. NEP-141/145 interop is a multi-wave effort (Wave-N `N-01`→`N-04`,
+  blocked on Wave-F `F-01`/`F-02`, all `pending`). User chose the NEAR-local
+  minimal-evidence path. Investigation found the portable IR already declares
+  `.u128` (`ValueType`, 16-byte, `isPackedScalar`) and the legacy EmitWat path
+  already had U128 arithmetic (`__pf_u128_add/sub/mul/eq`) plus a return helper
+  — but the path was **incomplete and inconsistent**, so no U128 value had ever
+  round-tripped end-to-end:
+  - `__pf_read_u128` / `__pf_write_u128` were *referenced* by the scalar
+    storage lowering but never defined (wat2wasm: undefined function).
+  - `scalarStorageHelperFuncsForModulePlan` only emitted `.u32/.u64/.bool`
+    (`Scalar.lean`), and `scalarHelperType` (`Plan/Common.lean`) excluded
+    `.u128`, so the survey never recorded a U128 scalar read/write.
+  - `returnU128Func` consumed a pointer via `__pf_memcpy`, but U128 values flow
+    as two stack words (lo, hi) — a representation mismatch.
+- Result. Standardized U128 as **two i64 stack words (lo, hi)** throughout the
+  legacy EmitWat path and completed the wiring:
+  - `__pf_read_u128(kp, kl)` (void; stages 16 bytes at KEY_BUF) +
+    `__pf_write_u128(kp, kl, lo, hi)` (void) on the NEAR register ABI.
+  - `storageScalarReadInsns` special-cases `.u128` (read + reload lo/hi);
+    `storageScalarWriteInsns` already fit u128 via its generic branch.
+    `storageScalarAssignOp` on U128 fails closed for now (explicit read + U128
+    arith + write is the supported shape).
+  - `returnU128Func` now consumes (lo, hi) directly and stages RET_BUF — no
+    `__pf_memcpy` dependency.
+  - `scalarHelperType` admits `.u128`; the helper-emission set emits the U128
+    funcs on the NEAR bridge when the plan reads/writes a U128 scalar.
+- Evidence. New `U128StorageScalarProbe` IR fixture + `just near-vm-u128-scalar`
+  render the probe, compile via `wat2wasm`, and run `storage_lifecycle` on the
+  unmodified upstream NEAR VM. Return is `07000000000000000000000000000000` —
+  the 16-byte little-endian Borsh U128 of 7. This is the foundation for NEP-141
+  U128 token amounts (Wave-N `N-01`).
+- Verification (all passed): `just near-vm-u128-scalar`;
+  `just wasm-near-scalar-safety`; `just wasm-near-plan`; `just near-vm-conformance`
+  (Counter); `just near-vm-conformance-ft` (FT, no regression);
+  `manifest.py --check` + `check_equivalence.py` (114 recipes).
+- Pre-existing (not caused by this change): `just product` fails in
+  `Tests/Product/Matrix.lean` at `OwnableHash Soroban: ... scalar _get ABI`
+  (Soroban 32-byte Hash storage is incompatible with the scalar `_get` ABI);
+  documented in the 2026-07-12 entry and unrelated to U128.
+- Scope / next. This proves U128 scalar storage + Borsh return on the real VM
+  only. Follow-on increments: U128 scalar `assignOp`; U128 map values; U128
+  Borsh input decode; and the full `NearFungibleToken` U128 amount conversion
+  (Wave-N `N-01`→`N-03`), then AccountId-string keys (`F-02`) and JSON codecs
+  for wallet-facing interop.
+- Documentation: `docs/implementation-log.md` (this entry);
+  `docs/validation-gates.md` + `docs/zh/validation-gates.zh.md` (new row);
+  `just near-vm-u128-scalar` added to `wave-t-baseline`, `check-serial`, and
+  `scripts/test-framework/lanes.json` (`serialCoverage` + `recipes`, lane
+  `wasm-other-exclusive`).

@@ -94,7 +94,7 @@ def stateTypeOf (module : Module) (stateId : String) : Except PlanError ValueTyp
 
 def scalarHelperType (type : ValueType) : Option ValueType :=
   match type with
-  | .u32 | .u64 | .bool | .hash => some type
+  | .u32 | .u64 | .u128 | .bool | .hash => some type
   | _ => none
 
 abbrev LocalTypeEnv := Array (String × ValueType)

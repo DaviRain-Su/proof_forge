@@ -303,6 +303,11 @@ def storageScalarWriteInsns (structs : Array ProofForge.IR.StructDecl)
 def storageScalarReadInsns (stateInfo : StateInfo) : Array Insn × ValueType :=
   if stateInfo.packed then
     (#[.i32Const stateInfo.packOffset, .call (packReadName stateInfo.type)], stateInfo.type)
+  else if stateInfo.type == .u128 then
+    -- U128 is two i64 words: stage 16 bytes at KEY_BUF then reload lo/hi.
+    (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call (readName .u128),
+      .i32Const KEY_BUF, .load "i64.load" 0,
+      .i32Const (KEY_BUF + 8), .load "i64.load" 0], .u128)
   else
     let callName := if stateInfo.type == .hash then readHashName else readName stateInfo.type
     (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call callName], stateInfo.type)
@@ -311,6 +316,8 @@ def storageScalarAssignOpTargetType (stateInfo : StateInfo) (id : String) :
     Except EmitError ValueType :=
   if stateInfo.type == .hash then
     err s!"EmitWat: storageScalarAssignOp not supported on Hash scalars (`{id}`)"
+  else if stateInfo.type == .u128 then
+    err s!"EmitWat: storageScalarAssignOp not yet supported on U128 scalars (`{id}`); use explicit read + U128 arith + write"
   else .ok stateInfo.type
 
 def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : AssignOp)
@@ -451,20 +458,51 @@ def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
           .i32Const RET_BUF, .localGet "v", .store "i32.store8" 0,
           .i64Const 1, .i64Const RET_BUF, .call "value_return" ] } }
 
-/-- `__pf_return_u128(ptr)`: Borsh U128 return. Reads 16 bytes from the i32 pointer
-    and writes them to RET_BUF, then calls `value_return(16, RET_BUF)`. -/
+/-! U128 values flow as TWO i64 stack words (lo, hi) throughout EmitWat (see
+    `u128AddFunc` / literal lowering). The return helper consumes those two
+    words directly, staging them into RET_BUF and returning 16 little-endian
+    bytes — the Borsh U128 wire shape. This avoids a `__pf_memcpy` dependency. -/
 def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
   | .cosmWasm | .soroban =>
-      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnU128Name,
+        params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
         body := { insns := #[
-          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i32Const RET_BUF, .localGet "lo", .store "i64.store" 0,
+          .i32Const (RET_BUF + 8), .localGet "hi", .store "i64.store" 0,
           .i32Const RET_BUF, .i32Const 16, .call "set_return_data" ] } }
   | _ =>
-      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnU128Name,
+        params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
         body := { insns := #[
-          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i32Const RET_BUF, .localGet "lo", .store "i64.store" 0,
+          .i32Const (RET_BUF + 8), .localGet "hi", .store "i64.store" 0,
           .i64Const 16, .i64Const RET_BUF, .call "value_return" ] } }
+
+/-- `__pf_read_u128(kp, kl)`: void. NEAR register ABI: `storage_read` into
+    register 0, `read_register` into KEY_BUF (16 bytes, lo@0 hi@8). The caller
+    reloads the two i64 words from KEY_BUF. -/
+def readU128FuncNear : Func :=
+  { name := readName .u128,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    results := #[],
+    body := { insns := #[
+      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
+      .i64Const 0, .call "storage_read", .drop,
+      .i64Const 0, .i64Const KEY_BUF, .call "read_register" ] } }
+
+/-- `__pf_write_u128(kp, kl, lo, hi)`: void. Stages (lo, hi) into KEY_BUF as 16
+    little-endian bytes and writes them with `storage_write`. -/
+def writeU128FuncNear : Func :=
+  { name := writeName .u128,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 },
+      { name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    body := { insns := #[
+      .i32Const KEY_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (KEY_BUF + 8), .localGet "hi", .store "i64.store" 0,
+      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
+      .i64Const 16, .i64Const KEY_BUF, .i64Const 0, .call "storage_write", .drop ] } }
 
 /-- `__pf_return_bytes(ptr)`: Borsh dynamic return. The buffer at `ptr` has a
 4-byte LE length prefix at `ptr - 4`, followed by the payload. Computes
@@ -603,7 +641,16 @@ def scalarStorageHelperFuncsForModulePlan (plan : ModulePlan)
       acc.push (writeFunc type bridge)
     else
       acc
-  funcs
+  -- U128 storage uses a distinct two-word (lo, hi) register ABI on NEAR; the
+  -- single-word `readFunc`/`writeFunc` above do not fit it. Soroban/CosmWasm
+  -- U128 storage is not materialized in this slice.
+  let u128Funcs :=
+    if bridge == .near then
+      (if plan.scalarReadTypes.contains .u128 then #[readU128FuncNear] else #[]) ++
+        (if plan.scalarWriteTypes.contains .u128 then #[writeU128FuncNear] else #[])
+    else
+      #[]
+  funcs ++ u128Funcs
 
 def returnHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
