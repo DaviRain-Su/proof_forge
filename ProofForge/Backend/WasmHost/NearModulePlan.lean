@@ -43,6 +43,7 @@ import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.HostBridge
+import ProofForge.Backend.WasmHost.HostABI
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Backend.WasmHost.Imports
 import ProofForge.Backend.WasmHost.Map
@@ -582,7 +583,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const method.len, .i64Const method.ptr,
         .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
         .i64Const Memory.RET_BUF, .i64Const gas,
-        .call (if plan.hostBridge.bridge == .soroban then "invoke_contract" else "promise_create"), .localSet s!"v{result.id}"]
+        .call (HostABI.crosscallName plan.hostBridge.bridge), .localSet s!"v{result.id}"]
   | .portableCrosscall result accountId methodName args deposit gas => do
       let account ← match promiseStrings.find? (fun entry => entry.str == accountId) with
         | some entry => pure entry
@@ -604,7 +605,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const method.len, .i64Const method.ptr,
         .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
         .i64Const Memory.RET_BUF, .i64Const gas,
-        .call (if plan.hostBridge.bridge == .soroban then "invoke_contract" else "promise_create"), .localSet s!"v{result.id}"] ++
+        .call (HostABI.crosscallName plan.hostBridge.bridge), .localSet s!"v{result.id}"] ++
         (if plan.hostBridge.bridge == .soroban then #[] else #[.localGet s!"v{result.id}", .call "promise_return"])
   | .promiseCreatePool result accountIndex methodIndex args deposit =>
       if plan.hostBridge.bridge == .soroban then

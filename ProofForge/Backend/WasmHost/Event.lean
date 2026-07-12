@@ -9,6 +9,7 @@ import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.HostABI
 
 namespace ProofForge.Backend.WasmHost.Event
 
@@ -119,13 +120,10 @@ def evtPutHashFunc : Func :=
     ] } }
 
 def evtLogFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
-  let logCall := match bridge with
-    | .soroban => "log_from_slice"
-    | _ => "log_utf8"
   { name := evtLogName,
     body := { insns := #[
       .globalGet evtPtrGlobal, .i32Const EVENT_BUF, .plain "i32.sub", .plain "i64.extend_i32_u",
-      .i64Const EVENT_BUF, .call logCall ] } }
+      .i64Const EVENT_BUF, .call (HostABI.logEventName bridge) ] } }
 
 def evtHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
