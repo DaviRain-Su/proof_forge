@@ -60,7 +60,7 @@
 - Produces: `just legacy-replacement-freeze`, which fails when production legacy imports grow beyond the reviewed baseline.
 - Consumes: the five-state lifecycle defined by the companion design.
 
-- [ ] **Step 1: Write the ledger with exact initial rows**
+- [x] **Step 1: Write the ledger with exact initial rows**
 
 Create `docs/legacy-replacement-ledger.md` with this schema and initial states:
 
@@ -78,7 +78,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 | D5-legacy-imports | production imports `IR.Legacy.*` | canonical or isolated test helper | inventoried | D6-D12 | production allowlist empty | pending |
 ```
 
-- [ ] **Step 2: Capture the production import baseline**
+- [x] **Step 2: Capture the production import baseline**
 
 Run:
 
@@ -90,7 +90,7 @@ rg -l '^import ProofForge\.IR\.Legacy' ProofForge \
 Review every row. The baseline must contain paths only under `ProofForge/`, not
 `Tests/`, `Examples/`, `docs/`, or generated output.
 
-- [ ] **Step 3: Extend the freeze check without requiring a false zero**
+- [x] **Step 3: Extend the freeze check without requiring a false zero**
 
 Add this comparison to `scripts/canonical/check-legacy-freeze.sh`:
 
@@ -104,7 +104,7 @@ diff -u scripts/canonical/legacy-production-imports.txt "$actual"
 The check freezes the exact reviewed set. Later migration tasks remove lines
 from the baseline in the same commit as the corresponding production import.
 
-- [ ] **Step 4: Add and document the gate**
+- [x] **Step 4: Add and document the gate**
 
 Add to `justfile`:
 
@@ -116,7 +116,7 @@ legacy-replacement-freeze:
 Add `legacy-replacement-freeze` to `just check` beside `legacy-freeze`, and
 document its purpose in `docs/validation-gates.md`.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 

@@ -70,5 +70,6 @@ reproducible positive and negative gates.
 - **Replacement:** canonical pipeline (`adaptLegacy` → `validateCanonical` → `buildFromCore`) or isolated test helpers
 - **Trigger:** D6-D12 (incremental migration of Counter, ValueVault, Token, RemoteCall, etc.)
 - **Parity:** each migrated module passes strict canonical gate
-- **Current evidence:** baseline captured in `scripts/canonical/legacy-production-imports.txt`
+- **Current evidence:** baseline captured at `21cdd587`; fail-closed missing-file
+  behavior and import-freeze self-tests verified at `5bc3196c`.
 - **Next state:** `replacement_ready` as each module migrates
