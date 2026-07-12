@@ -388,7 +388,7 @@ git commit -m "feat(canonical): add strict intent target gate"
 - Produces: a typed native NFT build request handled by the registered target driver.
 - Guarantees: the NFT command path does not call `newCommandArgsToLegacy` or reparse generated argument strings.
 
-- [ ] **Step 1: Add a native-dispatch marker test**
+- [x] **Step 1: Add a native-dispatch marker test**
 
 Extend `Tests/CliTargetFirst.lean` with an NFT build request and assert that the
 resolved operation is native:
@@ -401,19 +401,19 @@ require (request.targetId == "evm") "typed request lost target identity"
 Use an explicit `DispatchKind` enum in `TargetDriver.lean` if no equivalent
 typed marker exists; do not infer dispatch kind from a legacy flag string.
 
-- [ ] **Step 2: Implement native NFT request resolution**
+- [x] **Step 2: Implement native NFT request resolution**
 
 Parse NFT input and options once into the typed request, resolve the materializer
 registry, run the strict canonical gate, then invoke the existing target
 artifact builder. Do not add an NFT legacy flag.
 
-- [ ] **Step 3: Pin CLI behavior and rejection identity**
+- [x] **Step 3: Pin CLI behavior and rejection identity**
 
 Test all three targets, missing target, unsupported feature, unknown target,
 output path, artifact metadata, and nonzero exit behavior. Confirm that public
 diagnostics do not mention a translated legacy flag.
 
-- [ ] **Step 4: Verify and switch only NFT**
+- [x] **Step 4: Verify and switch only NFT**
 
 Run:
 
@@ -430,7 +430,7 @@ Mark the NFT subrow of D2 and D4 `default_switched`. Do not mark D2 or D4 fully
 switched while Counter, ValueVault, Token, Remote, build, or emit still use
 compatibility dispatch.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit the A6 default switch separately from any legacy deletion:
 
@@ -440,6 +440,11 @@ git add ProofForge/Cli/TargetDriver.lean ProofForge/Cli/TargetFirst.lean \
   scripts/portable/nft-multi-target.sh docs/legacy-replacement-ledger.md
 git commit -m "feat(cli): switch NFT to native target dispatch"
 ```
+
+**Completion note:** Steps 1-5 are complete for NFT `build` on the primary triad
+only. `emit`, `check`, non-NFT product families, and secondary targets still use
+compatibility dispatch, so D4 overall remains `replacement_ready` and only its
+NFT `build` subrow is `default_switched`.
 
 ---
 

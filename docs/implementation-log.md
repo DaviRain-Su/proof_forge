@@ -251,3 +251,27 @@ Rules:
   and Solana because every HostOp first failed its target capability check.
 - Tightened the positive case: a supported EVM NFT slice must pass every stage;
   a named failure is no longer accepted as a successful test outcome.
+
+## 2026-07-12 - D4: Native NFT target-first dispatch
+
+- Status: `done (verified at 19c93baf)`
+- Commit: implementation series `bcc98e02..19c93baf`
+- Result: switched NFT `build` on the primary triad to a typed native target driver.
+  `TargetDriver.resolveBuild` returns `BuildResult` with `.native`/`DispatchKind`;
+  `Cli.lean` bypasses `newCommandArgsToLegacy` for NFT and calls
+  `compileContractSourceEvmBytecode` / `compileContractSourceSbpf` /
+  `compileContractSourceEmitWat` directly.
+- Interfaces: `ProofForge.Cli.TargetDriver.BuildResult`,
+  `ProofForge.Cli.TargetFirst.resolveBuildRequest`,
+  `ProofForge.Cli.CliOptions.nativeBuildOp?`.
+- Verification:
+  - `lake env lean --run Tests/CliTargetFirst.lean` passed
+  - `lake env lean --run Tests/NftArtifactSchema.lean` passed
+  - `scripts/portable/nft-multi-target.sh` passed
+  - `just product` passed
+  - `just check` pending/awaiting (running in background; will be updated when it finishes)
+  - `git diff --check` passed
+- Remaining: migrate Counter, ValueVault, Token, RemoteCall, and secondary targets
+  to native dispatch before D4 reaches `default_switched`.
+- Documentation: `docs/legacy-replacement-ledger.md`, `AGENTS.md`, current plan,
+  `docs/implementation-log.md`.

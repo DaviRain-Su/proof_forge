@@ -7,7 +7,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 | D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + exact import guard + Solana positive IR pins + Solana parity | `52402821`, `c1433b2e`, `b8c03f5`, review repair `6af4eb72` |
 | D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | replacement_ready | A2-A6 | each product family switched | allowlist frozen; `Tests/IntentProductBoundary.lean` passes |
 | D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | replacement_ready | A5/B2 | advertised fragments strict by default | `Tests/Canonical/StrictIntentMaterialization.lean`; `Tests/NftMaterialization.lean` Test 7; `just strict-intent-materialization` |
-| D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | inventoried | A6 | build/emit/check native | pending |
+| D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | replacement_ready; NFT `build` subrow `default_switched` | A6 | build/emit/check native | `Tests/CliTargetFirst.lean`; `scripts/portable/nft-multi-target.sh`; `just product`; `just check` |
 | D5-legacy-imports | production imports `IR.Legacy.*` | canonical or isolated test helper | inventoried | D6-D12 | production allowlist empty | pending |
 
 ## State Lifecycle
@@ -82,8 +82,13 @@ reproducible positive and negative gates.
 - **Replacement:** typed `TargetDriver` dispatch with native build/emit/check
 - **Trigger:** A6 (open the NFT CLI and product route)
 - **Parity:** build/emit/check produce identical artifacts via native vs legacy paths
-- **Current evidence:** none yet
-- **Next state:** `replacement_ready` after A6 implements native CLI
+- **State:** `replacement_ready` overall; NFT `build` subrow is `default_switched`.
+- **Evidence:**
+  - `Tests/CliTargetFirst.lean` asserts NFT primary-triad dispatch kind is `.native`.
+  - Non-NFT Counter/Token/fixture paths still return `.legacy`.
+  - `scripts/portable/nft-multi-target.sh` and `just product` exercise the native path.
+- **Next state:** `default_switched` after Counter, ValueVault, Token, RemoteCall,
+  build/emit/check, and secondary targets migrate to native dispatch.
 
 ## D5-legacy-imports
 
