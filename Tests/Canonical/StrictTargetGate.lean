@@ -72,26 +72,18 @@ def main : IO Unit := do
   requireErrorPrefix "canonical: unknown target"
     (runStrictCanonicalTargetGate "nonexistent-target" counterSpec)
 
-  -- -- Test 5: strict gate rejects a non-primary registered target with a
-  -- capability or buildFromCore diagnostic (not unknown target, but still
-  -- a hard error — verifying the gate does not silently accept it) --
-  let nonPrimaryResult := runStrictCanonicalTargetGate "wasm-cosmwasm" counterSpec
-  match nonPrimaryResult with
-  | .ok _ => throw <| IO.userError "strict gate accepted wasm-cosmwasm (non-primary target)"
-  | .error _ => pure ()  /- capability or buildFromCore rejection is correct -/
+  -- -- Test 5: a registered non-primary target reaches the named capability
+  -- boundary rather than being misclassified as unknown or accepted. --
+  requireErrorPrefix
+    "canonical: capability plan failed: target `wasm-cosmwasm` does not support capability `arith.checked`"
+    (runStrictCanonicalTargetGate "wasm-cosmwasm" counterSpec)
 
   -- -- Test 6: advisory gate and strict gate agree on success --
-  -- Both gates must return the same result for a known-good spec.
+  -- Both gates must succeed for a known-good spec. The strict success was
+  -- checked above; pin the advisory side independently instead of allowing a
+  -- shared regression to count as agreement.
   for targetId in primaryTriad do
-    match runCanonicalValidationGate targetId counterSpec,
-          runStrictCanonicalTargetGate targetId counterSpec with
-    | .ok _, .ok _ => pure ()
-    | .error e1, .error e2 =>
-      -- Both rejected is fine, but both must reject (not just one)
-      IO.println s!"  note: {targetId} rejected by both gates (advisory: {e1.take 60}…, strict: {e2.take 60}…)"
-    | .ok _, .error e =>
-      throw <| IO.userError s!"strict gate rejected {targetId} but advisory accepted: {e}"
-    | .error e, .ok _ =>
-      throw <| IO.userError s!"advisory gate rejected {targetId} but strict accepted: {e}"
+    requireOk (runCanonicalValidationGate targetId counterSpec)
+      s!"advisory gate: Counter on {targetId}"
 
   IO.println "strict-target-gate: ok"
