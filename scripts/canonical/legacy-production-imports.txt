@@ -1,0 +1,11 @@
+ProofForge/Cli/EvmArtifacts.lean
+ProofForge/Cli/SolanaArtifacts.lean
+ProofForge/Compiler/CanonicalPipeline.lean
+ProofForge/IR.lean
+ProofForge/IR/Elaborate.lean
+ProofForge/IR/Elaborate/Smoke.lean
+ProofForge/IR/Legacy/Adapter.lean
+ProofForge/IR/Legacy/Adapter/Expr.lean
+ProofForge/IR/Legacy/Adapter/Statement.lean
+ProofForge/IR/Legacy/Refinement.lean
+ProofForge/IR/Legacy/Validate.lean

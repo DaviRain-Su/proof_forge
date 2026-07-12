@@ -16,6 +16,7 @@ generated artifacts remain the implementation truth.
 | Incremental legacy replacement policy | [Legacy Replacement design](superpowers/specs/2026-07-12-incremental-legacy-replacement-design.md) |
 | Current execution order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
 | Companion legacy migration order | [Legacy Replacement implementation plan](superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Legacy migration ledger | [legacy-replacement-ledger.md](legacy-replacement-ledger.md) |
 | Current executable work inventory | [implementation-backlog.md](implementation-backlog.md) |
 | Agent bootstrap and current checkpoint | [AGENTS.md](../AGENTS.md) |
 | Current concise execution evidence | [implementation-log.md](implementation-log.md) |

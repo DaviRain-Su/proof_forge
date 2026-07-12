@@ -334,3 +334,20 @@ check_transition base index
 check_transition base worktree
 
 echo "legacy-freeze: ok (base=$base_commit; transitions=base->HEAD->index->worktree)"
+
+
+# D0: Production import baseline — fails when production imports of
+# ProofForge.IR.Legacy.* grow beyond the reviewed baseline.
+IMPORTS_BASELINE="scripts/canonical/legacy-production-imports.txt"
+if [ -f "$IMPORTS_BASELINE" ]; then
+  actual="$(mktemp)"
+  trap 'rm -f "$actual"' EXIT
+  rg -l '^import ProofForge\.IR\.Legacy' ProofForge 2>/dev/null | LC_ALL=C sort > "$actual" || true
+  if ! diff -u "$IMPORTS_BASELINE" "$actual" >/dev/null; then
+    echo "legacy-freeze: production legacy imports changed without baseline update" >&2
+    diff -u "$IMPORTS_BASELINE" "$actual" >&2 || true
+    rm -f "$actual"
+    exit 1
+  fi
+  rm -f "$actual"
+fi
