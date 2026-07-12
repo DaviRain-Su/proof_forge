@@ -15,17 +15,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHARED = REPO_ROOT / "Examples" / "Product"
 
-# Imports that pull chain-native authoring into the default product path.
-FORBIDDEN_IMPORT_RE = re.compile(
-    r"^\s*import\s+("
-    r"ProofForge\.Solana"
-    r"|ProofForge\.Contract\.Source\.Solana"
-    r"|ProofForge\.Contract\.Source\.Near"
-    r"|ProofForge\.Backend\.(Solana|Evm|WasmNear|Move)"
-    r"|ProofForge\.Evm\b"
-    r"|Lean\.Evm\b"
-    r")",
-    re.MULTILINE,
+# Lean permits multiple module names in one import command. Continuation lines
+# must be indented, so they cannot be confused with the next top-level command.
+IMPORT_COMMAND_RE = re.compile(
+    r"(?m)^[ \t]*import[ \t]+(?P<modules>[^\n]*"
+    r"(?:\n[ \t]+[A-Za-z_][A-Za-z0-9_'.]*"
+    r"(?:[ \t]+[A-Za-z_][A-Za-z0-9_'.]*)*)*)"
+)
+MODULE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*")
+FORBIDDEN_IMPORT_PREFIXES = (
+    "ProofForge.Solana",
+    "ProofForge.Contract.Source.Solana",
+    "ProofForge.Contract.Source.Near",
+    "ProofForge.Backend.Solana",
+    "ProofForge.Backend.Evm",
+    "ProofForge.Backend.WasmNear",
+    "ProofForge.Backend.Move",
+    "ProofForge.Evm",
+    "Lean.Evm",
 )
 
 # NEAR Promise host-extension must not appear in Shared product sources.
@@ -94,12 +101,27 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def imported_modules(text: str) -> list[str]:
+    modules: list[str] = []
+    for command in IMPORT_COMMAND_RE.finditer(text):
+        modules.extend(MODULE_NAME_RE.findall(command.group("modules")))
+    return modules
+
+
+def forbidden_import(module: str) -> bool:
+    return any(
+        module == prefix or module.startswith(prefix + ".")
+        for prefix in FORBIDDEN_IMPORT_PREFIXES
+    )
+
+
 def check_shared_file(path: Path) -> None:
     rel = path.relative_to(REPO_ROOT).as_posix()
     text = path.read_text(encoding="utf-8")
 
-    for match in FORBIDDEN_IMPORT_RE.finditer(text):
-        fail(f"{rel}: portable Shared must not import chain Surface/backend `{match.group(1)}`")
+    for module in imported_modules(text):
+        if forbidden_import(module):
+            fail(f"{rel}: portable Shared must not import chain Surface/backend `{module}`")
 
     if FORBIDDEN_STANDARD_RE.search(text):
         fail(
@@ -183,37 +205,32 @@ def check_token_api_docs() -> None:
         fail("TokenSpec must not expose an author-facing `standard` field")
 
 
-def check_source_ownership() -> None:
-    """D1: Source.lean must not declare Solana-specific syntax categories.
-
-    After A1, solanaSeed / solanaSignerSeed and all Solana-only productions
-    live in Source/Solana.lean. This is a no-regression guard: if someone
-    re-adds them to Source.lean, the check fails.
-    """
-    source_lean = REPO_ROOT / "ProofForge" / "Contract" / "Source.lean"
-    text = source_lean.read_text(encoding="utf-8")
-    solana_decls = [
-        'declare_syntax_cat solanaSeed',
-        'declare_syntax_cat solanaSignerSeed',
-        'scoped syntax "allocator "',
-        'scoped syntax "account "',
-        'scoped syntax "pda "',
-        'scoped syntax "cpi "',
-        'scoped syntax "derive " "pda "',
-        'scoped syntax "invoke "',
-        'scoped syntax "realloc "',
-        'scoped syntax "init_transfer_hook_extra_meta"',
-        'scoped syntax "literal_seed "',
-        'scoped syntax "account_seed "',
-        'scoped syntax "pda_seed "',
-        'scoped syntax "bump_seed "',
+def self_test() -> None:
+    cases = [
+        (
+            "import ProofForge.Contract.Source ProofForge.Contract.Source.Solana\n",
+            ["ProofForge.Contract.Source", "ProofForge.Contract.Source.Solana"],
+        ),
+        (
+            "import ProofForge.Contract.Source\n  ProofForge.Contract.Source.Solana\n",
+            ["ProofForge.Contract.Source", "ProofForge.Contract.Source.Solana"],
+        ),
+        (
+            "import ProofForge.Contract.Source.Solanaish\n",
+            ["ProofForge.Contract.Source.Solanaish"],
+        ),
     ]
-    for decl in solana_decls:
-        if decl in text:
-            fail(
-                f"ProofForge/Contract/Source.lean: D1 no-regression — "
-                f"Solana syntax `{decl.strip()}` must live in Source/Solana.lean, not Source.lean"
-            )
+    for source, expected in cases:
+        actual = imported_modules(source)
+        if actual != expected:
+            fail(f"import parser self-test mismatch: expected {expected}, got {actual}")
+    if not forbidden_import("ProofForge.Contract.Source.Solana"):
+        fail("import parser self-test failed to reject Source.Solana")
+    if not forbidden_import("ProofForge.Contract.Source.Solana.Extension"):
+        fail("import parser self-test failed to reject a Source.Solana submodule")
+    if forbidden_import("ProofForge.Contract.Source.Solanaish"):
+        fail("import parser self-test rejected a similarly prefixed portable module")
+    print("portable-default import parser self-test: ok")
 
 
 def main() -> int:
@@ -227,11 +244,15 @@ def main() -> int:
     for path in sources:
         check_shared_file(path)
 
-    check_source_ownership()
     check_token_api_docs()
     print(f"portable-default: ok ({len(sources)} shared sources)")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+    elif sys.argv[1:]:
+        fail("usage: check-portable-default.py [--self-test]")
+    else:
+        raise SystemExit(main())

@@ -1326,6 +1326,7 @@ source-dsl-isolation:
 
 # Phase A portable-default: Shared examples are business-intent only (no chain Surface / TokenStandard pick).
 portable-default:
+    python3 scripts/portable/check-portable-default.py --self-test
     python3 scripts/portable/check-portable-default.py
     python3 scripts/examples/check-topology.py
     lake build Examples.Product.FungibleToken Examples.Product.FeeToken Examples.Product.SoulboundToken
