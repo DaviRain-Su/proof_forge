@@ -94,7 +94,7 @@ structure IntentContract where
   family : IntentFamily
   name : String
   symbol? : Option String := none
-  requirements : Array CapabilityRequirement := #[]
+  requirements : Array ProofForge.Target.CapabilityCall := #[]
   featureIds : Array String := #[]
   deriving Repr
 
@@ -109,6 +109,10 @@ structure IntentMaterializer where
   family : IntentFamily
   materialize : IntentContract -> Except String IntentMaterialization
 ```
+
+`CapabilityCall` is the existing target-neutral requirement record used by
+canonical contracts and target planning. A separate `CapabilityRequirement`
+type is intentionally not introduced.
 
 The registry owns the only `(targetId, intent family)` dispatch. Frontend DSL,
 Surface helpers, Canonical Core, and reusable product sources do not.

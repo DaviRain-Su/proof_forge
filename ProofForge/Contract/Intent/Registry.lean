@@ -52,6 +52,7 @@ structure IntentMaterializer where
 /-- A registry of materializers keyed by (targetId, family).
 Duplicate keys are rejected at creation time. -/
 structure IntentRegistry where
+  private mk ::
   entries : Array IntentMaterializer := #[]
 
 /-- The empty registry. -/
@@ -77,5 +78,22 @@ def IntentRegistry.resolve (reg : IntentRegistry) (targetId : String)
   | some m => .ok m
   | none => .error
     s!"no materializer for target `{targetId}` and family {repr family}"
+
+/-- Public registry lookup used by intent frontends and product routes. -/
+def resolveIntentMaterializer (reg : IntentRegistry) (targetId : String)
+    (family : IntentFamily) : Except String IntentMaterializer :=
+  reg.resolve targetId family
+
+/-- Resolve and invoke a materializer while enforcing the registry key contract.
+
+Materializers are target-specific extension points, so their result is checked
+before it crosses back into the target-neutral pipeline. -/
+def materializeIntent (reg : IntentRegistry) (targetId : String)
+    (intent : IntentContract) : Except String IntentMaterialization := do
+  let materializer <- resolveIntentMaterializer reg targetId intent.family
+  let result <- materializer.materialize intent
+  if result.targetId != targetId then
+    throw s!"materializer for target `{targetId}` returned target `{result.targetId}`"
+  pure result
 
 end ProofForge.Contract

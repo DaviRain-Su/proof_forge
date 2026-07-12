@@ -120,3 +120,13 @@ Rules:
   `just product: ok`, `git diff --check: ok`.
 - Remaining: none for A2; A3 (NFT intent) is next.
 - Documentation: `AGENTS.md`, current implementation plan.
+
+### A2 review repair
+
+- Added the promised `resolveIntentMaterializer` public API and the checked
+  `materializeIntent` path, which rejects a target-specific materializer that
+  returns an artifact for a different target.
+- Exported the registry through `ProofForge.Contract` and added the durable
+  `just intent-registry` gate to both `product` and `check`.
+- Expanded the registry test from five to seven cases, including successful
+  checked dispatch and fail-closed target-result validation.

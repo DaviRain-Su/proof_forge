@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "ae53ac3f70a9ab418f1a6e74372eaa320448cdf15f72125cbe8173cefa134ee6",
+    "sha256": "2f64d0f877dd6c1cac31677284e28ba2d90b568cecf02ec40300f87d275f241d",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
+    "note": "synced EN/zh A2 intent registry review status"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -168,10 +168,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/gate-status.md": {
-    "sha256": "e5205644450574e8107565252b6b1f852ae15d9fac11aca50eb6ba9d547a2d38",
+    "sha256": "adaebf04180c720723fb5090fa7eef3cad58c123151430e56edf2546690faac1",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "e5205644450574e8107565252b6b1f852ae15d9fac11aca50eb6ba9d547a2d38"
+    "en_sha256": "adaebf04180c720723fb5090fa7eef3cad58c123151430e56edf2546690faac1"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
   "docs/tutorials/portable-shared-path.md": {

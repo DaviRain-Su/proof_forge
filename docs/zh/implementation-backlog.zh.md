@@ -30,7 +30,7 @@
 | 顺序 | 切片 | 状态 | 验收边界 |
 |---:|---|---|---|
 | A1 | 将 Solana 语法隔离到 `Source.Solana` | done（在 `c1433b2e` 验证） | portable import 拒绝 PDA/CPI/realloc；Source.Solana elaboration 固定 account/PDA/CPI/realloc intent；Solana fixture 不变 |
-| A2 | `IntentContract` 与 materializer registry | pending | 防重复 registry；frontend 不按 target 分支 |
+| A2 | `IntentContract` 与 materializer registry | done（审查修复完成） | 防重复 registry；校验返回 target；frontend 不按 target 分支 |
 | A3 | 目标中立 `NFTSpec` | pending | target 选择前校验 asset model 与 feature 冲突 |
 | A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | pending | 最小生命周期与明确合规限制 |
 | A5 | 主三链 NFT intent 物化 | pending | 接受的输入进入严格 target plan |

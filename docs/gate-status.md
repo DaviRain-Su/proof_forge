@@ -22,7 +22,7 @@ D-052. It does not reopen closed G0/P0 evidence.
 | # | Criterion | Status | Evidence required |
 |---|---|---|---|
 | A1-1 | Solana grammar isolated from portable `Source` | ✅ met | `52402821` moves grammar; `c1433b2e` pins portable rejection plus Source.Solana account/PDA/CPI/realloc IR intents; `just solana-light` and `just product` pass |
-| A1-2 | Target-neutral Intent materializer registry | pending | duplicate-safe registry; no frontend target dispatch |
+| A1-2 | Target-neutral Intent materializer registry | ✅ met | private registry construction; `resolveIntentMaterializer`; checked result target; `just intent-registry` in product/check |
 | A1-3 | Minimal NFT intent and implementation contracts | pending | intent validation plus three audited candidates |
 | A1-4 | Strict primary-triad NFT materialization | pending | canonical validation and target plans |
 | A1-5 | Product artifacts and lifecycle runtime evidence | pending | three bundles plus mint/transfer/rejection checks |
