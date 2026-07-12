@@ -160,6 +160,9 @@ stylus-scalar-params:
 stylus-wide-values:
     scripts/stylus/wide-values.sh
 
+stylus-wide-arithmetic:
+    scripts/stylus/wide-arithmetic.sh
+
 # Compile and execute direct Stylus Wasm against the local vm_hooks runner.
 stylus-vm-runner:
     scripts/stylus/vm-runner-smoke.sh

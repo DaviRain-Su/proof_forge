@@ -68,8 +68,9 @@ Stylus backend must not route through `NearModulePlan`.
    are plan-owned and lowered by both renderers; direct dispatch rejects
    non-canonical ABI padding before the call.
    Direct `uint128` parameters and `msg.value` use checked 16-byte big-endian
-   memory values, with ABI return and equality support; ordering, arithmetic,
-   and storage remain fail-closed pending the rest of the ValueVault slice.
+   memory values, with ABI return, equality, literal, checked/wrapping add, and
+   scalar storage support. Ordering remains fail-closed pending the rest of the
+   ValueVault slice.
 2. ValueVault: address, sender, value, block context, authorization, payable.
 3. Token: mappings, indexed events, allowance, EVM ABI interoperability.
 4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.

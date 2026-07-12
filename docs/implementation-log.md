@@ -843,6 +843,22 @@ Rules:
   and storage words are required before payable ValueVault business logic can
   move to the public artifact route and Nitro E2E.
 
+## 2026-07-13 - Stylus Task 11 checkpoint: u128 arithmetic and storage
+
+- Status: `in_progress`
+- Added stable per-SSA scratch allocation for materialized `uint128` results,
+  16-byte big-endian literals, full-word storage load/cache, and bytewise
+  addition with explicit carry propagation. Checked addition returns the same
+  deterministic overflow bytes before any cache flush; wrapping addition
+  discards only the final carry.
+- Verification: `just stylus-wide-arithmetic` executed a balance above `u64`,
+  added an ABI `uint128`, persisted and returned the exact 128-bit result,
+  proved `2^128 - 1 + 1` rolls back in checked mode, proved the same operation
+  stores zero in wrapping mode, and returned an above-u64 literal. All cases ran
+  as compiled Wasm under `tools/stylus-vm-runner`.
+- Remaining: unsigned `uint128` ordering and scratch-bound validation, followed
+  by the complete payable ValueVault plan and Nitro deployment gate.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

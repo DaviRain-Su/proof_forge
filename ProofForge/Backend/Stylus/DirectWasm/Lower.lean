@@ -15,6 +15,7 @@ private def fail (message : String) : Except LowerError α :=
   .error { message }
 
 private def valueLocal (id : StylusValueId) : String := s!"v{id}"
+private def widePtr (id : StylusValueId) : Nat := 1024 + id * 32
 
 private def opName : StylusOpPlan -> String
   | .literal result .. => s!"literal-{result}"
@@ -91,6 +92,38 @@ private def copyPointerBytes (target : Nat) (source : String) (width : Nat) : Ar
       .i32Const index, .plain "i32.add", .load "i32.load8_u" 0, .store "i32.store8" 0]
   return insns
 
+private def copyFixedBytes (target source width : Nat) : Array Insn := Id.run do
+  let mut insns := #[]
+  for index in [0:width] do
+    insns := insns ++ #[.i32Const (target + index), .i32Const (source + index),
+      .load "i32.load8_u" 0, .store "i32.store8" 0]
+  return insns
+
+private def natBytes (width value : Nat) : Bytes :=
+  (List.range width).toArray.map fun index =>
+    UInt8.ofNat ((value / (2 ^ (8 * (width - 1 - index)))) % 256)
+
+private def addWide128 (result lhs rhs : StylusValueId) (mode : StylusOverflowMode) : Array Insn := Id.run do
+  let target := widePtr result
+  let mut insns : Array Insn := #[.i64Const 0, .localSet "wideCarry"]
+  for reverseIndex in [0:16] do
+    let index := 15 - reverseIndex
+    insns := insns ++ #[
+      .localGet (valueLocal lhs), .plain "i32.wrap_i64", .i32Const index, .plain "i32.add",
+      .load "i32.load8_u" 0, .plain "i64.extend_i32_u",
+      .localGet (valueLocal rhs), .plain "i32.wrap_i64", .i32Const index, .plain "i32.add",
+      .load "i32.load8_u" 0, .plain "i64.extend_i32_u", .plain "i64.add",
+      .localGet "wideCarry", .plain "i64.add", .localSet "wideTmp",
+      .i32Const (target + index), .localGet "wideTmp", .plain "i32.wrap_i64", .store "i32.store8" 0,
+      .localGet "wideTmp", .i64Const 8, .plain "i64.shr_u", .localSet "wideCarry"
+    ]
+  if mode == .checked then
+    let message := "checked arithmetic overflow".toUTF8.data
+    insns := insns ++ #[.localGet "wideCarry", .plain "i64.eqz",
+      .if_ .empty (.mk <| writeBytes 32 message ++ #[.i32Const 32, .i32Const message.size,
+        .call "write_result", .i32Const 1, .return_])]
+  return insns ++ #[.i64Const target, .localSet (valueLocal result)]
+
 private def nonPayablePrologue : Array Insn := Id.run do
   let mut check : Array Insn := #[.i32Const valuePtr, .call "msg_value", .i32Const 0]
   for index in [0:u256Bytes] do
@@ -118,7 +151,11 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
     for op in block.operations do
       for id in resultIds op do
         unless ids.contains id || function.params.any (fun param => param.valueId == id) do ids := ids.push id
-  return ids.map fun id => { name := valueLocal id, type := .i64 }
+  let values := ids.map fun id => { name := valueLocal id, type := .i64 }
+  let hasWideAdd := function.blocks.any fun block => block.operations.any fun op =>
+    match op with | .add _ (.uint 128) .. => true | _ => false
+  return if hasWideAdd then values ++ #[{ name := "wideCarry", type := .i64 },
+    { name := "wideTmp", type := .i64 }] else values
 
 private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : StylusOpPlan) : Except LowerError (Array Insn) := do
@@ -128,27 +165,34 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       | .bool, .bool value => pure #[.i64Const (if value then 1 else 0), .localSet (valueLocal result)]
       | .uint bits, .uint value =>
           if bits <= 64 then pure #[.i64Const value, .localSet (valueLocal result)]
+          else if bits == 128 then pure <| writeBytes (widePtr result) (natBytes 16 value) ++
+            #[.i64Const (widePtr result), .localSet (valueLocal result)]
           else throw <| diagnostic plan function block (opName op) "literal" s!"uint{bits} is not implemented"
       | _, _ => throw <| diagnostic plan function block (opName op) "literal" "literal/type mismatch"
   | .add result type mode lhs rhs => do
-      unless type == .uint 64 do
+      if type == .uint 128 then
+        pure (addWide128 result lhs rhs mode)
+      else if type != .uint 64 then
         throw <| diagnostic plan function block (opName op) "arithmetic.add"
           s!"direct arithmetic currently requires uint64, received {repr type}"
-      let base := #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.add",
-        .localSet (valueLocal result)]
-      match mode with
-      | .wrapping => pure base
-      | .checked => pure <| base ++ #[
-          .localGet (valueLocal result), .localGet (valueLocal lhs), .plain "i64.lt_u",
-          .if_ (.mk <| writeBytes 32 "checked arithmetic overflow".toUTF8.data ++ #[
-            .i32Const 32, .i32Const "checked arithmetic overflow".toUTF8.data.size,
-            .call "write_result", .i32Const 1, .return_]) .empty]
+      else
+        let base := #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.add",
+          .localSet (valueLocal result)]
+        match mode with
+        | .wrapping => pure base
+        | .checked => pure <| base ++ #[
+            .localGet (valueLocal result), .localGet (valueLocal lhs), .plain "i64.lt_u",
+            .if_ (.mk <| writeBytes 32 "checked arithmetic overflow".toUTF8.data ++ #[
+              .i32Const 32, .i32Const "checked arithmetic overflow".toUTF8.data.size,
+              .call "write_result", .i32Const 1, .return_]) .empty]
   | .storageLoad result wordId => do
       let word <- wordFor plan wordId
       let slot <- literalSlot word
       let loadInsns := writeBytes 0 slot ++ #[.i32Const 0, .i32Const 32, .call "storage_load_bytes32"]
       match word.type with
       | .address => pure <| loadInsns ++ #[.i64Const 44, .localSet (valueLocal result)]
+      | .uint 128 => pure <| loadInsns ++ copyFixedBytes (widePtr result) 48 16 ++
+          #[.i64Const (widePtr result), .localSet (valueLocal result)]
       | type =>
           let width <- scalarWidth type |>.mapError fun error =>
             diagnostic plan function block (opName op) "storage.load" error.message
@@ -156,10 +200,15 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
   | .storageCache wordId value => do
       let word <- wordFor plan wordId
       let slot <- literalSlot word
-      let width <- scalarWidth word.type |>.mapError fun error =>
-        diagnostic plan function block (opName op) "storage.cache" error.message
-      pure <| writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
-        #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
+      match word.type with
+      | .uint 128 => pure <| writeBytes 0 slot ++ clearWord 32 ++
+          copyPointerBytes 48 (valueLocal value) 16 ++
+          #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
+      | _ =>
+          let width <- scalarWidth word.type |>.mapError fun error =>
+            diagnostic plan function block (opName op) "storage.cache" error.message
+          pure <| writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
+            #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
   | .contextRead result type operation =>
       match type, operation with
       | .address, .msgSender => pure #[.i32Const senderPtr, .call "msg_sender", .i64Const senderPtr,
