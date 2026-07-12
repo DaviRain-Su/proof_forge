@@ -54,10 +54,10 @@
 - Produces: `IntentFamily`, `IntentContract`, `IntentMaterialization`, `IntentMaterializer`, `resolveIntentMaterializer`.
 - Consumes: `ContractSpec`, capability requirements, target IDs.
 
-- [ ] Test duplicate-key rejection, exact lookup, missing materializer diagnostics, and error preservation.
-- [ ] Implement the exact structures from the companion design.
-- [ ] Make registry creation reject duplicate `(targetId, family)` keys.
-- [ ] Run `Tests/IntentRegistry.lean`, `just token-feature-matrix`, `just product`, and `git diff --check`.
+- [x] Test duplicate-key rejection, exact lookup, missing materializer diagnostics, and error preservation.
+- [x] Implement the exact structures from the companion design.
+- [x] Make registry creation reject duplicate `(targetId, family)` keys.
+- [x] Run `Tests/IntentRegistry.lean`, `just token-feature-matrix`, `just product`, and `git diff --check`.
 - [ ] Commit with `git commit -m "feat(intent): add target materializer contract"`.
 
 ### Task 3: Define NFT Intent
