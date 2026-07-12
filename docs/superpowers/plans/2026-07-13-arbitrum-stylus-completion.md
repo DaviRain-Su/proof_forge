@@ -1,0 +1,199 @@
+# Arbitrum Stylus General-Contract Completion Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Finish the promised `wasm-arbitrum-stylus` general-contract fragment end to end: canonical Core to one checked `StylusPlan`, maintained Rust oracle and direct Wasm renderers, local VM and Nitro execution, then direct-Wasm artifact cutover.
+
+**Architecture:** Canonical Core owns contract meaning; `StylusPlan` owns all Solidity ABI, storage, HostIO, resource, and cache-transition decisions. Rust SDK and direct Wasm consume the same immutable plan and may not infer layouts independently. Direct Wasm becomes the public artifact only after ValueVault, token, remote-call, aggregate, and evidence gates are green.
+
+**Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
+
+## Global Constraints
+
+- Keep `wasm-arbitrum-stylus` at research maturity until Task 7 cutover evidence passes.
+- Never route Stylus through `NearModulePlan`, `EmitWat`, or Soroban host bridges.
+- Unsupported types and HostIO fail before artifact publication with target/function/block/operation diagnostics.
+- No integer truncation: Core `u128` remains 128 bits and EVM/Stylus values remain 256 bits where the plan says U256.
+- Every behavior change follows RED-GREEN-REFACTOR and updates `docs/implementation-log.md` in the same commit.
+- Live Nitro gates are required for ValueVault and the final cutover; Sepolia remains explicit-key and optional; mainnet deployment is never automated.
+- Preserve unrelated NEAR/WasmHost worktree changes and never stage them into Stylus commits.
+
+---
+
+### Task 1: Close Wide-Value Semantics and Scratch Bounds
+
+**Files:**
+- Modify: `ProofForge/Backend/Stylus/DirectWasm/Lower.lean`
+- Modify: `ProofForge/Backend/Stylus/DirectWasm/Module.lean`
+- Modify: `ProofForge/Backend/Stylus/Validate.lean`
+- Extend: `Tests/Stylus/WideArithmetic.lean`
+- Extend: `scripts/stylus/wide-arithmetic.sh`
+
+**Interfaces:**
+- Consumes: pointer-backed 16-byte `uint128` values and `widePtr` scratch allocation.
+- Produces: `uint128` `lt/le/gt/ge`, checked scratch allocation, and named exhaustion diagnostics.
+
+- [ ] Add failing vectors for high-word ordering, equal values, low-word ordering, and all four predicates through `user_entrypoint`.
+- [ ] Add a failing plan whose highest wide SSA id exceeds `maxMemoryPages * 65536`; expect `capability=memory.scratch` before WAT emission.
+- [ ] Implement bytewise unsigned lexicographic comparison over 16-byte big-endian values without comparing pointers.
+- [ ] Replace implicit `1024 + id * 32` trust with a checked layout pass consumed by lowering; reject overlap with ABI/context/result scratch regions.
+- [ ] Run `just stylus-wide-values`, `just stylus-wide-arithmetic`, `just stylus-scalar-params`, `just stylus-counter-differential`, and `git diff --check`.
+- [ ] Commit as `feat(stylus): close u128 semantics and scratch bounds`.
+
+### Task 2: Complete Canonical ValueVault and Nitro E2E
+
+**Files:**
+- Create: `ProofForge/Backend/Stylus/DirectWasm/ValueVault.lean`
+- Extend: `Tests/Stylus/ValueVaultDifferential.lean`
+- Create: `Tests/Stylus/ValueVaultCanonical.lean`
+- Create: `scripts/stylus/value-vault-nitro-e2e.sh`
+- Modify: `tools/stylus-vm-runner/src/main.rs`
+- Modify: `justfile`
+
+**Interfaces:**
+- Consumes: canonical parameters, address authorization, payable policy, u128 arithmetic/storage/ordering.
+- Produces: one canonical ValueVault plan accepted by abstract semantics, Rust oracle, direct Wasm, VM runner, and Nitro.
+
+- [ ] Pin authorized deposit/withdraw, zero/excess value, insufficient balance, nonpayable rejection, block context, exact revert bytes, and rollback vectors.
+- [ ] Build the plan from a canonical contract instead of a hand-authored renderer fixture; assert parameter ids, payable inference, HostOps, and storage words.
+- [ ] Execute the same ordered scenario under abstract semantics, generated Rust `stylus-test`, and direct Wasmtime; compare normalized state/result/status traces.
+- [ ] Extend the runner only where the official `vm_hooks` fragment requires it; rejected calls must discard cache and successful calls must commit once.
+- [ ] Start the pinned Nitro chain, run `cargo stylus check`, deploy/activate ValueVault, execute the scenario with `cast`, and persist address/tx/result evidence under ignored `build/evidence/stylus/`.
+- [ ] Run `just stylus-value-vault-differential`, `just stylus-vm-runner`, `just stylus-nitro-check`, and `just stylus-value-vault-nitro-e2e`.
+- [ ] Mark Task 11 complete and commit as `feat(stylus): complete ValueVault semantics`.
+
+### Task 3: Plan-Owned Mapping Slots and Events
+
+**Files:**
+- Create: `ProofForge/Backend/Stylus/StorageLayout.lean`
+- Create: `ProofForge/Backend/Stylus/DirectWasm/Keccak.lean`
+- Create: `ProofForge/Backend/Stylus/DirectWasm/Event.lean`
+- Extend: `ProofForge/Backend/Stylus/Plan/Types.lean`
+- Extend: `ProofForge/Backend/Stylus/Plan/Core.lean`
+- Extend: `ProofForge/Backend/Stylus/RustSdk/AST.lean`
+- Extend: `ProofForge/Backend/Stylus/RustSdk/Render.lean`
+- Create: `Tests/Stylus/MappingEventVectors.lean`
+- Create: `Tests/fixtures/stylus/token-vectors.json`
+
+**Interfaces:**
+- Produces: resolved mapping-key preimages/slots and event topic/data layouts in `StylusPlan`; renderers only execute offsets and buffers.
+
+- [ ] Pin Foundry vectors for `mapping(address => uint128)`, nested allowance mappings, `Transfer`, and `Approval` topics/data.
+- [ ] Add plan types for resolved storage paths and event emissions, including indexed flags and maximum four topics.
+- [ ] Implement `keccak256` HostIO envelopes with checked memory ranges and exact 32-byte outputs.
+- [ ] Implement `emit_log` buffers; reject more than four topics and dynamic indexed values not pre-hashed by the plan.
+- [ ] Render identical Rust/direct layouts and compare them to Foundry vectors.
+- [ ] Run `just stylus-mapping-events`, `just stylus-rust-render`, and `just stylus-diagnostics`.
+- [ ] Commit as `feat(stylus): add mapping and event layouts`.
+
+### Task 4: ERC-20 State Machine and EVM Interoperability
+
+**Files:**
+- Create: `Tests/Stylus/TokenDifferential.lean`
+- Create: `scripts/stylus/token-evm-interop.sh`
+- Extend: `runtime/stylus-host/src/lib.rs`
+- Modify: `justfile`
+
+**Interfaces:**
+- Consumes: mapping/event layouts.
+- Produces: Solidity-compatible `balanceOf`, `allowance`, `transfer`, `approve`, and `transferFrom` behavior.
+
+- [ ] Pin selector, return, zero-address, insufficient balance/allowance, self-transfer, max allowance, and event vectors.
+- [ ] Materialize the shared token source through canonical Core to one Stylus plan; no target-specific frontend fixture.
+- [ ] Execute normalized abstract/Rust/direct traces for mint/approve/transfer/transferFrom and failure rollback.
+- [ ] Deploy direct Wasm to Nitro and call it through standard Solidity ABI with `cast`; compare storage-visible balances and emitted logs.
+- [ ] Run `just stylus-token-differential`, `just stylus-token-evm-interop`, and `just stylus-nitro-check`.
+- [ ] Mark Task 12 complete and commit as `feat(stylus): complete ERC20 interoperability`.
+
+### Task 5: Remote Calls, Return Data, and Reentrancy
+
+**Files:**
+- Create: `ProofForge/Backend/Stylus/DirectWasm/Call.lean`
+- Extend: `ProofForge/Backend/Stylus/Plan/Types.lean`
+- Extend: `ProofForge/Backend/Stylus/Plan/Core.lean`
+- Extend: `ProofForge/Backend/Stylus/Validate.lean`
+- Extend: `tools/stylus-vm-runner/src/main.rs`
+- Create: `Tests/Stylus/RemoteCallDifferential.lean`
+- Create: `scripts/stylus/remote-call-differential.sh`
+
+**Interfaces:**
+- Produces: call/static/delegate envelopes, bounded return-data slices, status/revert propagation, and explicit cache transitions.
+
+- [ ] Pin success, empty/dynamic result, callee revert, truncation, value call, static write rejection, delegate context, gas bound, and reentrant callback traces.
+- [ ] Lower only official `call_contract`, `static_call_contract`, `delegate_call_contract`, `return_data_len`, and `read_return_data` signatures from the pinned SDK.
+- [ ] Encode pre-call flush, reentrant cache clear, success commit, and failure discard as plan operations; renderers may not invent transitions.
+- [ ] Extend the local runner with deterministic mock callees and nested invocation frames, preserving caller/storage/value identities.
+- [ ] Execute Rust/direct/runner parity and a two-contract Nitro scenario.
+- [ ] Run `just stylus-remote-call-differential` and `just stylus-remote-call-nitro-e2e`.
+- [ ] Mark Task 13 complete and commit as `feat(stylus): complete remote call semantics`.
+
+### Task 6: Aggregate ABI, Dynamic Data, and Resource Bounds
+
+**Files:**
+- Create: `ProofForge/Backend/Stylus/AbiLayout.lean`
+- Create: `ProofForge/Backend/Stylus/StorageLayout/Aggregate.lean`
+- Create: `ProofForge/Backend/Stylus/DirectWasm/Aggregate.lean`
+- Extend: both renderers and validators
+- Create: `Tests/Stylus/AggregateDifferential.lean`
+- Create: `Tests/fixtures/stylus/aggregate-vectors.json`
+- Create: `scripts/stylus/aggregate-differential.sh`
+
+**Interfaces:**
+- Produces: plan-owned static heads, dynamic tails, storage paths, allocation bounds, and maximum memory pages.
+
+- [ ] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
+- [ ] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
+- [ ] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
+- [ ] Render and execute Rust/direct parity for every fixture and record Wasm bytes/pages plus Nitro ink/gas evidence.
+- [ ] Run `just stylus-aggregate-differential`, `just stylus-nitro-check`, and resource-limit adversarial gates.
+- [ ] Mark Task 14 complete and commit as `feat(stylus): complete aggregate ABI and storage`.
+
+### Task 7: Direct-Wasm Public Artifact Cutover
+
+**Files:**
+- Modify: `ProofForge/Cli/StylusArtifacts.lean`
+- Modify: `ProofForge/Cli/Options.lean`
+- Modify: `ProofForge/Target/Registry.lean`
+- Modify: `ProofForge/Backend/Stylus/Artifact.lean`
+- Create: `Tests/Stylus/RendererCutover.lean`
+- Create: `scripts/stylus/check-cutover-evidence.py`
+
+**Interfaces:**
+- Produces: direct `.wasm` as default final output and explicit `--renderer rust-sdk` oracle/source mode.
+
+- [ ] Pin CLI tests for direct default, explicit Rust selection, identical plan/ABI/storage hashes, no fallback, atomic artifacts, and unavailable-renderer diagnostics.
+- [ ] Add renderer selection to CLI options without adding Stylus to the public-beta primary triad.
+- [ ] Publish direct Wasm, WAT, ABI, client, plan metadata, renderer id, tool versions, and evidence hash atomically.
+- [ ] Require a machine-readable evidence manifest whose Task 2-6 gates match the current plan-schema hash and are neither skipped nor stale.
+- [ ] Run literal CLI builds for Counter, ValueVault, Token, RemoteCall, and Aggregate fixtures and inspect artifact bundles.
+- [ ] Commit as `feat(stylus): make direct Wasm the canonical renderer`.
+
+### Task 8: Unified Developer Tooling, CI, and Release Evidence
+
+**Files:**
+- Modify: `tools/stylus-vm-runner/`
+- Modify: `tools/stylus-nitro/manage.sh`
+- Modify: `scripts/test-framework/lanes.json`
+- Modify: `justfile`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `.woodpecker.yml`
+- Modify: `AGENTS.md`, `README.md`, target/gate/roadmap docs and Chinese mirrors
+
+**Interfaces:**
+- Produces: `just stylus-all`, deterministic local doctor/runner/Nitro workflows, parallel static CI, optional live CI, and final evidence bundle.
+
+- [ ] Make `stylus-all` aggregate every static Rust/direct/differential gate with no named SKIP; keep Nitro live jobs separate and explicit.
+- [ ] Register each recipe exactly once in test lanes and serial coverage; run independent static gates in the default four-worker framework.
+- [ ] Add CI artifact upload for WAT/Wasm, Rust crate, normalized traces, Nitro tx/address, timing, and doctor JSON on failure.
+- [ ] Update registry text and documentation to distinguish implemented fragment, research maturity, direct default, Rust oracle, local VM evidence, and Nitro evidence.
+- [ ] Run `just product`, `just stylus-all`, `just test-manifest`, `just test-equivalence`, `just docs-check`, `JOBS=4 just check-parallel`, and `git diff --check`.
+- [ ] Run `just stylus-nitro-doctor`, restore/start Nitro if needed, then run all required Nitro E2E gates and write `build/evidence/stylus/final.json`.
+- [ ] Review the complete commit range for unsupported claims, primary-triad regressions, generated output, and hidden fallbacks.
+- [ ] Mark the plan complete, update `AGENTS.md`, and push the final branch.
+
+## Final Definition of Done
+
+- `wasm-arbitrum-stylus` accepts every canonical contract inside the documented fragment and rejects everything else before partial publication.
+- Counter, ValueVault, ERC-20, remote calls, and aggregate fixtures pass abstract, Rust, direct Wasm, and required Nitro evidence gates.
+- Direct Wasm is the CLI default; Rust SDK remains an explicit maintained oracle.
+- `just stylus-all` contains no skip, `JOBS=4 just check-parallel` passes, translations are synchronized, and the remote branch equals local HEAD.
