@@ -113,6 +113,13 @@ stylus-package:
 stylus-rust-counter:
     scripts/stylus/rust-counter-smoke.sh
 
+# Abstract HostIO and Rust adapter Counter lifecycle.
+stylus-counter-lifecycle:
+    lake build ProofForge.Backend.Stylus.CounterRefinement
+    lake env lean --run Tests/Stylus/CounterLifecycle.lean
+    cargo test --manifest-path runtime/stylus-host/Cargo.toml
+    scripts/stylus/sdk-counter-lifecycle.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

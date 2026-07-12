@@ -569,3 +569,31 @@ Rules:
   - `just test-equivalence` passed (110 recipes)
   - `git diff --check` passed
 - Remaining: abstract HostIO semantics and Counter lifecycle belong to Task 6.
+
+## 2026-07-12 - Stylus Task 6: HostIO Counter semantics
+
+- Status: `done`
+- Result: added a Lean HostIO state with committed storage, transactional
+  cache, calldata, result/revert bytes, logs, calls, context, gas, ink, and
+  normalized trace events. Counter execution consumes the validated plan ABI,
+  uses EVM slot zero and 32-byte words, flushes successful mutations exactly
+  once, and discards cache on checked-overflow rejection.
+- Evidence: lifecycle coverage includes `initialize -> increment -> get`, a
+  host-seeded value above `2^32`, `u64::MAX` rejection, unchanged committed
+  state after rejection, exact 32-byte return bytes, and slot-zero layout.
+  The independent Rust host adapter exercises the same transactional lifecycle
+  and pins normalized JSON for overflow. A generated SDK integration test also
+  instantiates the emitted `Counter` against Stylus `TestVM` and runs the same
+  normal, high-value, and overflow paths through generated methods.
+- Refinement: added stable word/slot encoding anchors and linked the existing
+  universal Counter trace theorem. This is not yet a theorem that generated
+  Stylus Wasm refines the IR.
+- Verification:
+  - `just stylus-counter-lifecycle` passed
+  - Rust host unit and doc tests passed
+  - `just counter-universal-refinement-smoke` passed
+  - `git diff --check` passed
+- Limitation: generated SDK code is executed natively through `TestVM`; the
+  compiled Wasm artifact is not yet executed against a Nitro-compatible HostIO
+  runner. Executable Wasm differential evidence remains required before
+  canonical renderer cutover.

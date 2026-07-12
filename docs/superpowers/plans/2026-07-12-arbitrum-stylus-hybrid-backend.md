@@ -338,21 +338,21 @@
 - Consumes: validated Counter `StylusPlan`.
 - Produces: abstract HostIO state/trace, plan execution, Rust host adapter, and Counter refinement anchors.
 
-- [ ] **Step 1: Pin the observable lifecycle**
+- [x] **Step 1: Pin the observable lifecycle**
 
   Test `initialize -> increment -> get`, a host-seeded value above `2^32`,
   overflow rejection at `u64::MAX`, unchanged state after rejection, exact ABI
   bytes, slot zero, and one successful cache flush per mutating call.
 
-- [ ] **Step 2: Implement the abstract state**
+- [x] **Step 2: Implement the abstract state**
 
   Define storage words, cache, calldata, result/revert bytes, logs, calls, context, gas, ink, and normalized trace events. `storageCache` updates cache; `storageFlush` commits cache; revert discards cache.
 
-- [ ] **Step 3: Add Rust host execution**
+- [x] **Step 3: Add Rust host execution**
 
   The host executes the generated Wasm or SDK test adapter with deterministic context and emits the same normalized JSON trace schema as Lean semantics.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Run `just stylus-counter-lifecycle`, Cargo tests, `just counter-universal-refinement-smoke`, and `git diff --check`; commit:
 
