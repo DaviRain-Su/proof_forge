@@ -253,6 +253,10 @@ Rules:
   `source-dsl-isolation` imported three Solana example modules that the default
   Lake target did not build. The recipe now builds those modules explicitly
   before executing its Lean tests; a replacement CI run remains required.
+- Replacement run `29191835550` confirmed that repair, then exposed the same
+  issue in `intent-registry`: its test imports the `ProofForge.Contract`
+  umbrella while the recipe built only the registry leaf. The recipe now
+  builds the imported umbrella target explicitly.
 
 ### Local parallel qualification
 

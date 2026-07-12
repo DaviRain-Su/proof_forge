@@ -655,7 +655,7 @@ token-feature-matrix:
 
 # Target-neutral intent materializer registry contract and invariants.
 intent-registry:
-    lake build ProofForge.Contract.Intent.Registry
+    lake build ProofForge.Contract
     lake env lean --run Tests/IntentRegistry.lean
 
 # Target-neutral NFT authoring validation and intent conversion.
