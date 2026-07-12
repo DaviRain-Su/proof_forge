@@ -237,6 +237,10 @@ private def runStrictCheckedTargetGate
       match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
       | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
       | .ok _ => pure ()
+  | "wasm-stellar-soroban" =>
+      match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
+      | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
+      | .ok _ => pure ()
   | _ => .error s!"canonical: buildFromCore is unavailable for target {targetId}"
 
 /-- Strict target planning for an already-normalized canonical contract.
