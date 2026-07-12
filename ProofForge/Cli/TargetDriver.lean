@@ -393,7 +393,7 @@ def stylusResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if req.token || req.nft then
     Except.error "proof-forge build --target wasm-arbitrum-stylus: token and NFT surfaces are not implemented"
   else if isLeanSourceFile req.input? then
-    Except.error "proof-forge build --target wasm-arbitrum-stylus: public artifact dispatch is not implemented yet"
+    Except.ok { dispatchKind := .native, nativeOp? := some .stylusRustSdk }
   else
     Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean contract_source input"
 

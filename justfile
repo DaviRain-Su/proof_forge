@@ -124,6 +124,7 @@ stylus-counter-lifecycle:
 stylus-public-route:
     lake build ProofForge.Compiler.CanonicalPipeline ProofForge.Cli.TargetDriver
     lake env lean --run Tests/Stylus/PublicRoute.lean
+    scripts/stylus/public-route-smoke.sh
 
 
 

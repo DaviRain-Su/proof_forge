@@ -12,6 +12,7 @@ import ProofForge.Cli.Scaffold
 import ProofForge.Cli.Deploy
 import ProofForge.Cli.Check
 import ProofForge.Cli.ContractSourceArtifacts
+import ProofForge.Cli.StylusArtifacts
 import ProofForge.Cli.Metadata
 import ProofForge.Cli.Quint
 import ProofForge.Compiler.TS.AST
@@ -331,11 +332,13 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     | .nftEvmBytecode => Except.ok .evmBytecode
     | .nftSolanaSbpf => Except.ok .contractSourceSbpf
     | .nftNearEmitWat => Except.ok .contractSourceEmitWat
+    | .stylusRustSdk => Except.ok .contractSourceEmitWat
   let target := state.target?.getD ""
   let flag ← match op with
     | .nftEvmBytecode => Except.ok "--evm-bytecode"
     | .nftSolanaSbpf => Except.ok "--contract-source-sbpf"
     | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
+    | .stylusRustSdk => Except.ok "--stylus-rust-sdk"
   let output? := state.out?.map (targetFirstNativeOutput target flag ·)
   let yulOutput? :=
     match state.yulOut? with
@@ -360,7 +363,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     targetId? := state.target?
     fixture? := state.fixture?
     format? := state.format?
-    nft := true
+    nft := op != .stylusRustSdk
     peerMap := state.peers.foldl (fun m spec =>
       match ProofForge.Target.PeerMap.parseBinding spec with
       | .ok b => ProofForge.Target.PeerMap.merge m { bindings := #[b] }
@@ -501,6 +504,7 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
                   | .nftEvmBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
                   | .nftSolanaSbpf => ProofForge.Cli.compileContractSourceSbpf opts
                   | .nftNearEmitWat => ProofForge.Cli.compileContractSourceEmitWat opts
+                  | .stylusRustSdk => ProofForge.Cli.compileContractSourceStylus opts
               | none => ProofForge.Cli.compileFile opts
       | Except.error msg =>
           IO.eprintln msg

@@ -597,3 +597,23 @@ Rules:
   compiled Wasm artifact is not yet executed against a Nitro-compatible HostIO
   runner. Executable Wasm differential evidence remains required before
   canonical renderer cutover.
+
+## 2026-07-12 - Stylus Task 7 checkpoint: research source bundle route
+
+- Status: `in_progress`
+- Commits: registry boundary `bf137824`; source bundle pending this checkpoint
+- Result: registered `wasm-arbitrum-stylus` at research maturity without
+  primary-triad promotion and opened a native `contract_source` build route.
+  The route hydrates optional selectors from complete Solidity ABI signatures,
+  builds the checked canonical `StylusPlan`, atomically packages the pinned Rust
+  SDK crate, and writes an honest ArtifactBundle with content SHA-256 and byte
+  sizes.
+- Honesty: the source route records Rust and cargo-stylus stages as unavailable,
+  has no `finalOutput`, and does not create or advertise Wasm/deploy artifacts.
+- Verification:
+  - `just stylus-public-route` passed, including the literal CLI build
+  - artifact JSON parsed; selectors and source digests matched disk
+  - `just test-equivalence` passed (110 recipes)
+  - `git diff --check` passed
+- Remaining: Solidity ABI and TypeScript client sidecars, compiled Wasm/tool
+  evidence, deploy JSON, and full Task 7 documentation/route promotion.
