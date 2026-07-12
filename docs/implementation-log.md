@@ -57,15 +57,18 @@ Rules:
 
 ## 2026-07-12 - A1/D1: Isolate Solana grammar ownership
 
-- Status: `done (verified at c1433b2e)`
-- Commit: implementation `52402821`; review repair `c1433b2e`
+- Status: `done (verified at 6af4eb72)`
+- Commit: implementation `52402821`; acceptance repair `c1433b2e`; product
+  guard `b8c03f5`; import-parser review repair `6af4eb72`
 - Result: moved Solana account, allocator, PDA, CPI, realloc, and transfer-hook
   grammar out of portable `Contract.Source` and into `Contract.Source.Solana`.
-  The review repair added positive Solana elaboration/IR intent pins and made
-  the isolation gate part of the required product aggregate.
+  The review repairs added positive Solana elaboration/IR intent pins, made the
+  isolation gate part of the required product aggregate, and parse every module
+  in single-line or continued Lean import commands without prefix false positives.
 - Interfaces: `ProofForge.Contract.Source`,
   `ProofForge.Contract.Source.Solana`, `source-dsl-isolation`, and Gate A1-1.
-- Verification: `just source-dsl-isolation`, `just portable-default`,
+- Verification: `just source-dsl-isolation`, portable import-parser self-test,
+  `just portable-default`,
   `just solana-light`, `just product`, and `git diff --check` passed. The
   Solana suite covered source fixtures, PDA, CPI, realloc, plans, artifacts,
   and Pinocchio reference-equivalence.

@@ -188,10 +188,28 @@ do not reject Solana backend fixtures under `Examples/Backend/`.
 
 - [x] **Step 4: Advance D1 and close A1 together**
 
-Update the ledger row to `removed` with evidence `52402821`.
-Update A1 checkboxes, `AGENTS.md`, and the implementation log.
+Update the ledger row to `removed` with the grammar move, acceptance-test,
+product-guard, and review-repair revisions. Update A1 checkboxes, `AGENTS.md`,
+and the implementation log only after the commands pass.
 
 - [x] **Step 5: Verify and commit**
+
+Run:
+
+```bash
+lake env lean --run Tests/SourceDslIsolation.lean
+lake env lean --run Tests/SourceDslSolanaAcceptance.lean
+python3 scripts/portable/check-portable-default.py --self-test
+just portable-default
+just solana-light
+just product
+just docs-check
+git diff --check
+```
+
+Commit the A1/D1 implementation and review repair separately from A2 files.
+Evidence: grammar move `52402821`, acceptance repair `c1433b2e`, initial guard
+`b8c03f5`, and multi-module import-parser repair `6af4eb72`.
 
 ---
 

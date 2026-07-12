@@ -4,7 +4,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 
 | Boundary ID | Legacy entry | Replacement | State | Trigger | Removal condition | Evidence |
 |---|---|---|---|---|---|---|
-| D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + Solana positive IR pins + Solana parity | `52402821`, review repair `c1433b2e` |
+| D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + exact import guard + Solana positive IR pins + Solana parity | `52402821`, `c1433b2e`, `b8c03f5`, review repair `6af4eb72` |
 | D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | inventoried | A2-A6 | each product family switched | pending |
 | D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | inventoried | A5/B2 | advertised fragments strict by default | pending |
 | D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | inventoried | A6 | build/emit/check native | pending |
@@ -32,8 +32,9 @@ reproducible positive and negative gates.
   portable import; `Tests/SourceDslSolanaAcceptance.lean` pins account, PDA,
   CPI, and realloc `ContractSpec` intents; `just solana-light` preserves Solana
   fixtures; `just product` carries the aggregate regression gate.
-- **Current evidence:** grammar move `52402821`; review repair and aggregate
-  gate `c1433b2e`.
+- **Current evidence:** grammar move `52402821`; acceptance/aggregate repair
+  `c1433b2e`; product guard `b8c03f5`; exact multi-module import parser and
+  self-test repair `6af4eb72`.
 - **State:** `removed`. Portable Source no longer owns this grammar and the
   required product gate prevents reintroduction.
 
