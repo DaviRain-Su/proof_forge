@@ -39,7 +39,7 @@
 - [x] Move Solana seed categories and Solana-only `contractItem`/`entryStmt` productions to `Source/Solana.lean`; retain shared categories in `Source.lean`.
 - [x] Verify the portable import rejects the forms and the Solana import accepts them.
 - [x] Run `lake env lean --run Tests/SourceDslIsolation.lean`, `just portable-default`, `just solana-light`, `just product`, and `git diff --check`.
-- [ ] Commit with `git commit -m "refactor(dsl): isolate Solana grammar in Source.Solana"`.
+- [x] Commit with `git commit -m "refactor(dsl): isolate Solana grammar in Source.Solana"`.
 
 ### Task 2: Add the Intent Materializer Contract
 
