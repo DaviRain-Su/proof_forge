@@ -511,24 +511,42 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
   | .cast result value =>
       .ok (canonicalNearI64 value ++ #[.localSet s!"v{result.id}"])
   | .context result field =>
+    if plan.hostBridge.bridge == .soroban then
+      -- Soroban context lowering: block/timestamp/epoch use retained NEAR
+      -- imports (not real Soroban Env). Sender uses ctxUserId (NEAR-style,
+      -- retained). Value/deposit is not supported. Fail closed on unsupported
+      -- context fields to avoid silent NEAR import mismatches.
       if field.endsWith "blockNumber" then
         .ok #[.call "block_index", .localSet s!"v{result.id}"]
       else if field.endsWith "blockTimestamp" then
         .ok #[.call "block_timestamp", .localSet s!"v{result.id}"]
       else if field.endsWith "epochHeight" then
         .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
-      else if field.endsWith "randomSeed" then
-        .ok #[.call Context.ctxRandomSeedName, .localSet s!"v{result.id}"]
-      else if field.endsWith "origin" then
-        .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
-      else if field.endsWith "value" then
-        .ok #[.i64Const Memory.RET_BUF, .call "attached_deposit",
-          .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
       else if field.endsWith "sender" then
         .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
+      else if field.endsWith "origin" then
+        .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
       else if field.endsWith "contractAddress" then
         .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
-      else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
+      else Diagnostics.err s!"canonical Soroban context `{field}` has no handler"
+    else if field.endsWith "blockNumber" then
+      .ok #[.call "block_index", .localSet s!"v{result.id}"]
+    else if field.endsWith "blockTimestamp" then
+      .ok #[.call "block_timestamp", .localSet s!"v{result.id}"]
+    else if field.endsWith "epochHeight" then
+      .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
+    else if field.endsWith "randomSeed" then
+      .ok #[.call Context.ctxRandomSeedName, .localSet s!"v{result.id}"]
+    else if field.endsWith "origin" then
+      .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
+    else if field.endsWith "value" then
+      .ok #[.i64Const Memory.RET_BUF, .call "attached_deposit",
+        .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
+    else if field.endsWith "sender" then
+      .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
+    else if field.endsWith "contractAddress" then
+      .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
+    else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
   | .assert condition _ => .ok #[.localGet s!"v{condition.id}", .plain "i32.eqz",
       .if_ { insns := #[.unreachable] } { insns := #[] }]
   | .log event fields => do
