@@ -1,6 +1,6 @@
 {
   "README.md": {
-    "sha256": "f3e2354da226eac4b088b683ed0676f4b68c6f2670603a3e40536e1b89f27c1f",
+    "sha256": "87e7cf198936101464e112cb01041f8ff7fb92d2b88d276a5b0c6186495db34f",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
     "note": "manually synced for Arbitrum Stylus research backend status"
@@ -90,7 +90,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "b32a0bc7ee5764681bec219353e035f94b84ea1843b58bae37b02088aa668817",
+    "sha256": "e989b74dbcbd8d83b11f8c7aa8dcbd5b760dc2d6e2081f1410a536dd31ae55e8",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "synced for fast, parallel, and serial local test gates"
