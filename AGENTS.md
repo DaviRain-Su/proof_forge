@@ -75,7 +75,7 @@ This table is only the agent routing index.
 
 | ID | State | Task | Authoritative task section |
 |---|---|---|---|
-| A1 | done (verified at c1433b2e) | Isolate Solana grammar ownership | Plan Task 1 |
+| A1 | done (verified at c1433b2e + D1 closed) | Isolate Solana grammar ownership | Plan Task 1 |
 | A2 | pending | Add the intent materializer contract | Plan Task 2 |
 | A3 | pending after A2 | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | pending after A3 | Audit NFT implementation candidates | Plan Task 4 |

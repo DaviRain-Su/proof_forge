@@ -73,3 +73,24 @@ Rules:
 - Documentation: `AGENTS.md`, current implementation plan,
   `docs/implementation-backlog.md`, `docs/gate-status.md`, and
   `docs/legacy-replacement-ledger.md`.
+
+
+## 2026-07-12 - D0: Create migration ledger and freeze baseline
+
+- Status: `done (verified at 21cdd587)`
+- Commit: `21cdd587`
+- Result: created `docs/legacy-replacement-ledger.md` with 5 boundary rows
+  (D1-D5, all `inventoried`); captured production import baseline (11 files)
+  in `scripts/canonical/legacy-production-imports.txt`; extended
+  `check-legacy-freeze.sh` with import baseline diff; added
+  `legacy-replacement-freeze` recipe to justfile and wired into `just check`;
+  documented gate in `validation-gates.md` (en + zh).
+- Interfaces: `legacy-replacement-ledger.md`, `legacy-production-imports.txt`,
+  `check-legacy-freeze.sh`, `legacy-replacement-freeze`.
+- Verification: `just legacy-replacement-freeze` passed; `git diff --check`
+  passed.
+- Remaining: none for D0; D1 was closed by A1/D1 entry above.
+- Documentation: `docs/legacy-replacement-ledger.md`,
+  `docs/document-status.md`, `docs/validation-gates.md`,
+  `docs/zh/validation-gates.zh.md`, `scripts/canonical/check-legacy-freeze.sh`,
+  `scripts/canonical/legacy-production-imports.txt`, `justfile`.

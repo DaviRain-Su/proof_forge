@@ -156,7 +156,7 @@ git commit -m "chore(legacy): inventory and freeze migration boundaries"
 - Consumes: portable `ProofForge.Contract.Source` and explicit `ProofForge.Contract.Source.Solana` imports.
 - Produces: D1 state `removed`; there is no compatibility reason for portable imports to expose Solana-only grammar.
 
-- [ ] **Step 1: Finish the A1 acceptance test before changing the guard**
+- [x] **Step 1: Finish the A1 acceptance test before changing the guard**
 
 The test must compile portable syntax with only `Contract.Source`, reject a
 captured Solana PDA/CPI/realloc form under that import, and accept the same form
@@ -166,7 +166,7 @@ when `Contract.Source.Solana` is imported. It must print:
 source-dsl-isolation: ok
 ```
 
-- [ ] **Step 2: Run the focused before/after evidence**
+- [x] **Step 2: Run the focused before/after evidence**
 
 Run:
 
@@ -179,39 +179,19 @@ just product
 
 Expected: all pass and existing Solana artifact behavior remains unchanged.
 
-- [ ] **Step 3: Add a no-regression source ownership check**
+- [x] **Step 3: Add a no-regression source ownership check**
 
 Extend `scripts/portable/check-portable-default.py` so portable product sources
 continue to reject imports of `ProofForge.Contract.Source.Solana`. Use the
 existing violation-reporting pattern and the exact forbidden import string;
 do not reject Solana backend fixtures under `Examples/Backend/`.
 
-- [ ] **Step 4: Advance D1 and close A1 together**
+- [x] **Step 4: Advance D1 and close A1 together**
 
-Update the ledger row to:
+Update the ledger row to `removed` with evidence `52402821`.
+Update A1 checkboxes, `AGENTS.md`, and the implementation log.
 
-```markdown
-| D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject and Solana parity met | `<sha>`; `Tests/SourceDslIsolation.lean`, `just solana-light`, `just product` |
-```
-
-Update A1 checkboxes, `AGENTS.md`, and the implementation log only after the
-commands pass on the same revision.
-
-- [ ] **Step 5: Verify and commit**
-
-Run:
-
-```bash
-lake env lean --run Tests/SourceDslIsolation.lean
-just portable-default
-just solana-light
-just product
-just docs-check
-git diff --check
-```
-
-Commit the A1/D1 implementation using the A1 commit boundary. Do not stage
-unrelated A2 files.
+- [x] **Step 5: Verify and commit**
 
 ---
 

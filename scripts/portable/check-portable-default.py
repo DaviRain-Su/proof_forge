@@ -183,6 +183,39 @@ def check_token_api_docs() -> None:
         fail("TokenSpec must not expose an author-facing `standard` field")
 
 
+def check_source_ownership() -> None:
+    """D1: Source.lean must not declare Solana-specific syntax categories.
+
+    After A1, solanaSeed / solanaSignerSeed and all Solana-only productions
+    live in Source/Solana.lean. This is a no-regression guard: if someone
+    re-adds them to Source.lean, the check fails.
+    """
+    source_lean = REPO_ROOT / "ProofForge" / "Contract" / "Source.lean"
+    text = source_lean.read_text(encoding="utf-8")
+    solana_decls = [
+        'declare_syntax_cat solanaSeed',
+        'declare_syntax_cat solanaSignerSeed',
+        'scoped syntax "allocator "',
+        'scoped syntax "account "',
+        'scoped syntax "pda "',
+        'scoped syntax "cpi "',
+        'scoped syntax "derive " "pda "',
+        'scoped syntax "invoke "',
+        'scoped syntax "realloc "',
+        'scoped syntax "init_transfer_hook_extra_meta"',
+        'scoped syntax "literal_seed "',
+        'scoped syntax "account_seed "',
+        'scoped syntax "pda_seed "',
+        'scoped syntax "bump_seed "',
+    ]
+    for decl in solana_decls:
+        if decl in text:
+            fail(
+                f"ProofForge/Contract/Source.lean: D1 no-regression — "
+                f"Solana syntax `{decl.strip()}` must live in Source/Solana.lean, not Source.lean"
+            )
+
+
 def main() -> int:
     if not SHARED.is_dir():
         fail("Examples/Product missing")
@@ -194,6 +227,7 @@ def main() -> int:
     for path in sources:
         check_shared_file(path)
 
+    check_source_ownership()
     check_token_api_docs()
     print(f"portable-default: ok ({len(sources)} shared sources)")
     return 0
