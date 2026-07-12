@@ -12,11 +12,10 @@ the portable `Contract.Source` import. Before the syntax move, Solana
 forms are visible and the test fails. After the move, they are invisible
 and the test passes.
 
-Uses `runParserCategory` with both qualified and unqualified category
-names. `scoped syntax` rules are only visible when the namespace is open;
-this file does not `open ProofForge.Contract.Source`, so scoped rules
-from `Source.lean` are invisible to `runParserCategory` — which is exactly
-the isolation boundary we are testing.
+Uses `runParserCategory` with both qualified and unqualified category names.
+The namespace is opened so portable scoped syntax is active; Solana productions
+remain absent because this module imports only `ProofForge.Contract.Source`.
+`Tests/SourceDslSolanaAcceptance.lean` pins the positive Solana side.
 -/
 
 def parsesOk (env : Environment) (catName : Name) (input : String) : Bool :=
