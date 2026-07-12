@@ -9,11 +9,11 @@ def require (condition : Bool) (message : String) : IO Unit :=
   else
     throw <| IO.userError message
 
-def requireLegacy (args expected : List String) : IO Unit := do
+def requireLegacyArgs (args expected : List String) : IO Unit := do
   let cmd : String := args.head!
   let rest : List String := args.tail
   if cmd.isEmpty then
-    throw <| IO.userError "requireLegacy: empty args"
+    throw <| IO.userError "requireLegacyArgs: empty args"
   let state ← match ProofForge.Cli.parseNewOptions rest {} with
     | .ok state => pure state
     | .error err => throw <| IO.userError s!"unexpected CLI parse error: {err}"
@@ -37,6 +37,42 @@ def requireErrorContains (args : List String) (needles : Array String) : IO Unit
   | .error err =>
       for needle in needles do
         require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
+
+def requireNftNative (target : String) (input : String) : IO Unit := do
+  let state ← match ProofForge.Cli.parseNewOptions ["--target", target, "--nft", input] {} with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"parse failed: {e}"
+  let (gotTarget, req) ← match ProofForge.Cli.resolveBuildRequest state with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError e
+  unless gotTarget == target do
+    throw <| IO.userError s!"target mismatch: {gotTarget} != {target}"
+  match ProofForge.Cli.resolveBuild gotTarget req with
+  | .ok { dispatchKind := .native, nativeOp? := some op, .. } =>
+      let expectedOp ← match target with
+        | "evm" => pure ProofForge.Cli.NativeBuildOp.nftEvmBytecode
+        | "solana-sbpf-asm" => pure ProofForge.Cli.NativeBuildOp.nftSolanaSbpf
+        | "wasm-near" => pure ProofForge.Cli.NativeBuildOp.nftNearEmitWat
+        | _ => throw <| IO.userError s!"unexpected native target {target}"
+      unless op == expectedOp do
+        throw <| IO.userError s!"native op mismatch for {target}: {repr op}"
+  | .ok other =>
+      throw <| IO.userError s!"expected native dispatch for {target}, got {repr other}"
+  | .error e =>
+      throw <| IO.userError s!"resolve failed for {target}: {e}"
+
+def requireLegacy (target : String) (fixture? : Option String := none) : IO Unit := do
+  let args := ["--target", target] ++ fixture?.toList.flatMap (fun f => ["--fixture", f])
+  let state ← match ProofForge.Cli.parseNewOptions args {} with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError e
+  let (gotTarget, req) ← match ProofForge.Cli.resolveBuildRequest state with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError e
+  match ProofForge.Cli.resolveBuild gotTarget req with
+  | .ok { dispatchKind := .legacy, legacyFlag? := some _, .. } => pure ()
+  | .ok other => throw <| IO.userError s!"expected legacy dispatch for {target}, got {repr other}"
+  | .error e => throw <| IO.userError e
 
 def requireEmitWatTarget
     (targetId? : Option String)
@@ -108,115 +144,115 @@ def main : IO UInt32 := do
       ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .psy &&
       !ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .wat)
     "fixture support helpers should preserve Solana/Psy format boundaries"
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "evm", "--root", ".", "--module", "contract", "-o", "build/evm/Counter.bin", "Examples/Backend/Evm/Contracts/Counter.lean"]
     ["--evm-bytecode", "-o", "build/evm/Counter.bin", "--root", ".", "--module", "contract", "--solc", "solc", "--cast", "cast", "Examples/Backend/Evm/Contracts/Counter.lean"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "evm", "--format", "yul", "-o", "build/evm/ValueVault.yul", "Examples/Backend/Learn/ValueVault.learn"]
     ["--learn-yul", "-o", "build/evm/ValueVault.yul", "Examples/Backend/Learn/ValueVault.learn"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "evm", "--fixture", "counter", "--format", "yul", "-o", "build/ir/Counter.yul"]
     ["--emit-counter-ir-yul", "-o", "build/ir/Counter.yul"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "evm", "--fixture", "counter", "--format", "bytecode", "-o", "build/sdk/evm"]
     ["--emit-counter-ir-bytecode", "-o", "build/sdk/evm/Counter.bin", "--yul-output", "build/sdk/evm/Counter.yul", "--solc", "solc", "--cast", "cast"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "evm", "--fixture", "value-vault", "--format", "bytecode",
       "--yul-output", "build/ir/ValueVault.yul", "--artifact-output", "build/ir/ValueVault.json",
       "-o", "build/ir/ValueVault.bin"]
     ["--emit-value-vault-ir-bytecode", "-o", "build/ir/ValueVault.bin",
       "--yul-output", "build/ir/ValueVault.yul", "--artifact-output", "build/ir/ValueVault.json",
       "--solc", "solc", "--cast", "cast"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "evm", "--fixture", "evm-event", "--format", "bytecode", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "-o", "build/ir/EventProbe.bin"]
     ["--emit-evm-event-ir-bytecode", "-o", "build/ir/EventProbe.bin", "--yul-output", "build/ir/EventProbe.yul", "--artifact-output", "build/ir/EventProbe.json", "--solc", "solc", "--cast", "cast"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "solana-sbpf-asm", "--fixture", "counter", "-o", "build/sdk/solana-sbpf-asm"]
     ["--emit-counter-ir-sbpf", "-o", "build/sdk/solana-sbpf-asm/Counter.s"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "s"]
     ["--emit-solana-system-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi"]
     ["--emit-solana-system-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf"]
     ["--solana-system-cpi-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-memo-cpi", "--format", "elf"]
     ["--solana-memo-cpi-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "system-cpi", "--format", "elf", "--solana-sbpf-arch", "v0"]
     ["--solana-system-cpi-elf", "--solana-sbpf-arch", "v0"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-ops-cpi", "--format", "s"]
     ["--emit-solana-spl-token-ops-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-ops-cpi"]
     ["--emit-solana-spl-token-ops-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-close-account-cpi", "--format", "s"]
     ["--emit-solana-spl-token-close-account-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-close-account-cpi", "--format", "elf"]
     ["--solana-spl-token-close-account-cpi-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-2022-transfer-hook", "--format", "s"]
     ["--emit-solana-spl-token-2022-transfer-hook-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "spl-token-2022-transfer-hook", "--format", "elf"]
     ["--solana-spl-token-2022-transfer-hook-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "counter", "--format", "elf"]
     ["--solana-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "solana-sdk", "--format", "s"]
     ["--emit-solana-sdk-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "s"]
     ["--emit-solana-associated-token-cpi-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "associated-token-cpi", "--format", "elf"]
     ["--solana-associated-token-cpi-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "value-vault", "--format", "s"]
     ["--emit-value-vault-ir-sbpf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "solana-sbpf-asm", "--fixture", "value-vault", "--format", "elf"]
     ["--value-vault-solana-elf"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "wasm-near", "--fixture", "counter", "--format", "wat", "-o", "build/wasm-near/counter"]
     ["--emit-counter-emitwat", "-o", "build/wasm-near/counter"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "wasm-near", "--fixture", "context", "--format", "wat", "-o", "build/wasm-near/context"]
     ["--emit-context-emitwat", "-o", "build/wasm-near/context"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "solana-sbpf-asm", "--format", "s", "--root", ".", "-o", "build/portable-counter/Counter.s", "Examples/Product/Counter.lean"]
     ["--contract-source-sbpf", "-o", "build/portable-counter/Counter.s", "--root", ".", "Examples/Product/Counter.lean"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "solana-sbpf-asm", "--format", "elf", "--root", ".", "-o", "build/portable-counter/Counter.so", "Examples/Product/Counter.lean"]
     ["--contract-source-solana-elf", "-o", "build/portable-counter/Counter.so", "--root", ".", "Examples/Product/Counter.lean"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "solana-sbpf-asm", "--root", ".", "-o", "build/portable-counter/Counter.so", "Examples/Product/Counter.lean"]
     ["--contract-source-solana-elf", "-o", "build/portable-counter/Counter.so", "--root", ".", "Examples/Product/Counter.lean"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "wasm-near", "--root", ".", "-o", "build/portable-counter/near", "Examples/Product/Counter.lean"]
     -- Host bridge (NEAR vs Soroban) is selected from --target on EmitWat path.
     ["--contract-source-emitwat", "-o", "build/portable-counter/near", "--root", ".", "--target", "wasm-near",
       "Examples/Product/Counter.lean"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "psy-dpn", "--fixture", "assert", "--format", "psy", "-o", "build/psy/AssertProbe.psy"]
     ["--emit-assert-ir-psy", "-o", "build/psy/AssertProbe.psy"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "aleo-leo", "--fixture", "pure-math", "--format", "leo", "-o", "build/aleo/PureMath.leo"]
     ["--emit-pure-math-ir-leo", "-o", "build/aleo/PureMath.leo"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "move-aptos", "--fixture", "counter", "--format", "aptos", "-o", "build/aptos-counter"]
     ["--emit-counter-ir-aptos", "-o", "build/aptos-counter"]
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "move-sui", "--fixture", "counter", "-o", "build/sdk/move-sui"]
     ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "sui", "-o", "build/sdk/move-sui"]
     ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
   requireErrorContains
@@ -232,7 +268,7 @@ def main : IO UInt32 := do
     ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Product/Counter.lean"]
     #["move-sui", "source input is not supported"]
   -- PF-P3-02: CosmWasm accepts contract_source Lean modules (HostBridge.cosmWasm).
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "wasm-cosmwasm", "--root", ".", "-o", "build/source-sdk/cosmwasm",
       "Examples/Product/Counter.lean"]
     ["--contract-source-emitwat", "-o", "build/source-sdk/cosmwasm", "--root", ".", "--target",
@@ -255,12 +291,18 @@ def main : IO UInt32 := do
       "Examples/Product/ValueVault.lean"]
     #["wasm-cloudflare-workers", "source input is not supported"]
   -- Fixture emit remains available for the CosmWasm region/cosmwasm-check spike.
-  requireLegacy
+  requireLegacyArgs
     ["build", "--target", "wasm-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
     ["--emit-counter-ir-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
-  requireLegacy
+  requireLegacyArgs
     ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
     ["--emit-counter-ir-ts"]
+  requireNftNative "evm" "Examples/Product/Nft.lean"
+  requireNftNative "solana-sbpf-asm" "Examples/Product/Nft.lean"
+  requireNftNative "wasm-near" "Examples/Product/Nft.lean"
+  requireLegacy "evm" (some "counter")
+  requireLegacy "solana-sbpf-asm" (some "counter")
+  requireLegacy "wasm-near" (some "counter")
 
   IO.println "cli-target-first: ok"
   return 0
