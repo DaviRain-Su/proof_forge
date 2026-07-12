@@ -14,6 +14,19 @@ pub struct Host {
     pub trace: Vec<Event>,
 }
 
+pub fn masked_word_update(
+    mut word: [u8; 32],
+    byte_offset: usize,
+    field: &[u8],
+) -> Result<[u8; 32], &'static str> {
+    let end = byte_offset.checked_add(field.len()).ok_or("packed field overflow")?;
+    if field.is_empty() || end > word.len() {
+        return Err("packed field exceeds storage word");
+    }
+    word[byte_offset..end].copy_from_slice(field);
+    Ok(word)
+}
+
 impl Host {
     pub fn initialize(&mut self) {
         self.trace.clear();
@@ -104,5 +117,19 @@ mod tests {
             host.normalized_json(),
             r#"{"storage":18446744073709551615,"events":[{"event":"storage_load","value":18446744073709551615},{"event":"revert","message":"checked arithmetic overflow"}]}"#
         );
+    }
+
+
+    #[test]
+    fn packed_storage_update_preserves_unrelated_bytes() {
+        let mut original = [0_u8; 32];
+        for (index, byte) in original.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let updated = masked_word_update(original, 8, &[0xff; 8]).unwrap();
+        assert_eq!(&updated[..8], &original[..8]);
+        assert_eq!(&updated[8..16], &[0xff; 8]);
+        assert_eq!(&updated[16..], &original[16..]);
+        assert!(masked_word_update(original, 31, &[1, 2]).is_err());
     }
 }

@@ -410,19 +410,19 @@
 - Consumes: `StylusStoragePlan` and `StylusHostOpPlan`.
 - Produces: exact `vm_hooks` imports, bounded scratch memory, 32-byte load/masked-cache/flush helpers, mapping slot Keccak helpers, and valid Wasm AST.
 
-- [ ] **Step 1: Pin import signatures and storage vectors**
+- [x] **Step 1: Pin import signatures and storage vectors**
 
   Test `storage_load_bytes32(key_ptr, dest_ptr)`, `storage_cache_bytes32(key_ptr, value_ptr)`, `storage_flush_cache(clear)`, Keccak slot vectors, packed-field preservation, `U256::MAX`, and absence of NEAR/Soroban imports.
 
-- [ ] **Step 2: Implement plan-selected imports only**
+- [x] **Step 2: Implement plan-selected imports only**
 
   Import module is exactly `vm_hooks`. Reject duplicate imports with inconsistent signatures. Memory helpers use checked `i32` pointer arithmetic and reject scratch regions beyond declared pages.
 
-- [ ] **Step 3: Implement storage word helpers**
+- [x] **Step 3: Implement storage word helpers**
 
   Load and store 32 bytes in the endian convention pinned by SDK vectors. Masked updates preserve unrelated packed fields. Every successful top-level mutating function schedules one flush; revert schedules none.
 
-- [ ] **Step 4: Compile and commit**
+- [x] **Step 4: Compile and commit**
 
   Render test modules, run `wat2wasm`, execute storage vectors in `runtime/stylus-host`, run `just stylus-direct-storage`, and commit.
 

@@ -641,3 +641,23 @@ Rules:
   is the directory renamed to the requested final output.
 - A failed pre-publication step cannot expose a partial final directory; an
   existing final output is rejected rather than overwritten.
+
+## 2026-07-12 - Stylus Task 8: Direct Wasm storage substrate
+
+- Status: `done`
+- Result: added plan-selected `vm_hooks` imports for 32-byte storage load,
+  cache, and flush; bounded one-page scratch layout; fixed 32-byte big-endian
+  word conversion; packed-field masked updates; and ABI-padded mapping-slot
+  preimage construction with an injected Keccak boundary.
+- Fail-closed behavior: inconsistent duplicate imports, zero-page memory,
+  overlapping/out-of-page scratch regions, malformed words, and packed fields
+  outside a word are rejected before module emission.
+- Verification:
+  - `just stylus-direct-storage` passed
+  - emitted WAT compiled with `wat2wasm`
+  - Rust host replayed the packed-field preservation vector
+  - exact `vm_hooks` signatures and absence of NEAR/Soroban imports were pinned
+  - U256 max and mapping preimage vectors passed
+- Limitation: the mapping helper owns preimage layout and accepts a Keccak
+  implementation boundary; concrete direct-Wasm Keccak HostIO lowering belongs
+  to the mapping/event slice.

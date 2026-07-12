@@ -126,6 +126,13 @@ stylus-public-route:
     lake env lean --run Tests/Stylus/PublicRoute.lean
     scripts/stylus/public-route-smoke.sh
 
+# Direct Stylus HostIO import, memory, and 32-byte storage contracts.
+stylus-direct-storage:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Storage
+    lake env lean --run Tests/Stylus/DirectStorage.lean
+    wat2wasm build/stylus/direct-storage/storage.wat -o build/stylus/direct-storage/storage.wasm
+    cargo test --manifest-path runtime/stylus-host/Cargo.toml packed_storage_update
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan
