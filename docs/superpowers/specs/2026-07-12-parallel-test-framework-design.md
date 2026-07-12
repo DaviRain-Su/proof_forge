@@ -1,7 +1,7 @@
 # Parallel Test Framework Design
 
 Date: 2026-07-12
-Status: proposed
+Status: accepted
 Program: ProofForge test infrastructure
 
 ## 1. Problem
