@@ -242,6 +242,16 @@ Rules:
 - Remaining: full parallel/serial entrypoints, equivalence gate, repeated
   stability and performance qualification, then CI integration.
 
+### Local parallel qualification
+
+- `check-serial` warm-cache baseline: 1297.26 seconds.
+- Three balanced `JOBS=4 just check-parallel` runs passed in 703.38, 862.21,
+  and 717.09 seconds; mean 760.89 seconds.
+- Mean local wall-time improvement: 41.35%, above the 35% acceptance threshold.
+- `rebuild-hash` remains the largest and most variable recipe (370-503 seconds)
+  but now overlaps independent core, Solana, Wasm, testkit, and Quint work.
+- Timing evidence: `docs/generated/test-timing-baseline.md`.
+
 ### A6 runtime closure
 
 - Status: `done (verified at 6a6022ea)`.

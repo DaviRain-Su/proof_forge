@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "bfe4ffefa2b14238b8fe3103b2cdc4ab32631fa8bdcb26aa5001f38019530257",
+    "sha256": "b32a0bc7ee5764681bec219353e035f94b84ea1843b58bae37b02088aa668817",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical gates, CI order, and rollback window"
+    "note": "synced for fast, parallel, and serial local test gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
