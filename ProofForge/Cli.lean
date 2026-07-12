@@ -326,6 +326,50 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .irQuint => compileIrQuint opts
   | .irQuintScenario => compileIrQuintScenario opts
 
+def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : ProofForge.Cli.NativeBuildOp) : Except String CliOptions := do
+  let mode ← match op with
+    | .nftEvmBytecode => Except.ok .evmBytecode
+    | .nftSolanaSbpf => Except.ok .contractSourceSbpf
+    | .nftNearEmitWat => Except.ok .contractSourceEmitWat
+  let target := state.target?.getD ""
+  let flag ← match op with
+    | .nftEvmBytecode => Except.ok "--evm-bytecode"
+    | .nftSolanaSbpf => Except.ok "--contract-source-sbpf"
+    | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
+  let output? := state.out?.map (targetFirstNativeOutput target flag ·)
+  let yulOutput? :=
+    match state.yulOut? with
+    | some y => some (FilePath.mk y)
+    | none => targetFirstYulOutput? target flag output? none
+  Except.ok {
+    cmd := .build
+    mode := mode
+    input? := state.input?.map FilePath.mk
+    output? := output?
+    root? := state.root?.map FilePath.mk
+    moduleName? := state.module?.map parseModuleName
+    yulOutput? := yulOutput?
+    artifactOutput? := state.artifactOut?.map FilePath.mk
+    solc := state.solc
+    cast := state.cast
+    evmChainProfile? := state.evmChainProfile?
+    evmConstructorParams := state.evmConstructorParams
+    evmConstructorValues := state.evmConstructorValues
+    evmConstructorArgsHex := state.evmConstructorArgsHex
+    solanaSbpfArch := state.solanaSbpfArch?.getD "v3"
+    targetId? := state.target?
+    fixture? := state.fixture?
+    format? := state.format?
+    nft := true
+    peerMap := state.peers.foldl (fun m spec =>
+      match ProofForge.Target.PeerMap.parseBinding spec with
+      | .ok b => ProofForge.Target.PeerMap.merge m { bindings := #[b] }
+      | .error _ => m) (if state.peersDemo then ProofForge.Target.PeerMap.nearDemo else ProofForge.Target.PeerMap.identity)
+    nativeBuildOp? := some op
+    fromNewSurface := true
+    : CliOptions
+  }
+
 end ProofForge.Cli
 
 
@@ -364,14 +408,26 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
         | "build" :: rest =>
             match ProofForge.Cli.parseNewOptions rest {} with
             | Except.ok state =>
-                match ProofForge.Cli.newCommandArgsToLegacy state "build" with
-                | Except.ok legacyArgs =>
-                    match ProofForge.Cli.parseArgs legacyArgs {} with
-                    | Except.ok opts => Except.ok { opts with
-                        cmd := ProofForge.Cli.Command.build,
-                        format? := state.format?,
-                        scenario? := state.scenario?.map FilePath.mk,
-                        fromNewSurface := true }
+                match ProofForge.Cli.resolveBuildRequest state with
+                | Except.ok (target, req) =>
+                    match ProofForge.Cli.resolveBuild target req with
+                    | Except.ok { dispatchKind := .native, nativeOp? := some op, .. } =>
+                        match ProofForge.Cli.buildNativeOptions state op with
+                        | Except.ok opts => Except.ok opts
+                        | Except.error msg => Except.error msg
+                    | Except.ok { dispatchKind := .legacy, legacyFlag? := some _, .. } =>
+                        match ProofForge.Cli.newCommandArgsToLegacy state "build" with
+                        | Except.ok legacyArgs =>
+                            match ProofForge.Cli.parseArgs legacyArgs {} with
+                            | Except.ok opts => Except.ok { opts with
+                                cmd := ProofForge.Cli.Command.build,
+                                format? := state.format?,
+                                scenario? := state.scenario?.map FilePath.mk,
+                                fromNewSurface := true }
+                            | Except.error msg => Except.error msg
+                        | Except.error msg => Except.error msg
+                    | Except.ok _ =>
+                        Except.error "internal: BuildResult missing dispatch data"
                     | Except.error msg => Except.error msg
                 | Except.error msg => Except.error msg
             | Except.error msg => Except.error msg
@@ -439,7 +495,13 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
                   IO.eprintln note
               if opts.evmChainProfile?.isSome then
                 discard <| ProofForge.Cli.resolveEvmChainProfile? opts.evmChainProfile?
-              ProofForge.Cli.compileFile opts
+              match opts.nativeBuildOp? with
+              | some op =>
+                  match op with
+                  | .nftEvmBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
+                  | .nftSolanaSbpf => ProofForge.Cli.compileContractSourceSbpf opts
+                  | .nftNearEmitWat => ProofForge.Cli.compileContractSourceEmitWat opts
+              | none => ProofForge.Cli.compileFile opts
       | Except.error msg =>
           IO.eprintln msg
           return 1

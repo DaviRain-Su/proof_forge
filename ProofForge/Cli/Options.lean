@@ -3,6 +3,7 @@ import Lean.Util.Path
 import ProofForge.Cli.ConstructorAbi
 import ProofForge.Cli.EmitMode
 import ProofForge.Cli.HexUtil
+import ProofForge.Cli.NativeBuildOp
 import ProofForge.Contract.Spec
 import ProofForge.Target
 import ProofForge.Target.PeerMap
@@ -53,6 +54,7 @@ structure CliOptions where
   /-- Deploy-time logical peer → host identity. Default **identity** (no silent
   rewrite). Use `--peer logical=host` and/or `--peers-demo`. -/
   peerMap : ProofForge.Target.PeerMap.Map := ProofForge.Target.PeerMap.identity
+  nativeBuildOp? : Option NativeBuildOp := none
   deriving Inhabited
 
 def CliOptions.nftStandardId? (opts : CliOptions) (targetId : String) : Option String :=
