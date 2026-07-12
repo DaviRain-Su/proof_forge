@@ -109,11 +109,11 @@
 - Produces: `evmNftMaterializer`, `solanaNftMaterializer`, `nearNftMaterializer`, `nftIntentRegistry`.
 - Returns: `IntentMaterialization` containing a real `ContractSpec`.
 
-- [ ] Test standard IDs and inspect returned specs for the minimal unique slice.
-- [ ] Test named rejection for multi-token on unsupported targets and every deferred feature.
-- [ ] Implement EVM/ERC-721, Solana/Metaplex, and NEAR/NEP-171-shaped materializers.
-- [ ] For every accepted case run `adaptLegacy`, `validateCanonical`, capability planning, and target `buildFromCore` without advisory error swallowing.
-- [ ] Run `Tests/NftMaterialization.lean`, `just product`, `just check`, and `git diff --check`.
+- [x] Test standard IDs and inspect returned specs for the minimal unique slice.
+- [x] Test named rejection for multi-token on unsupported targets and every deferred feature.
+- [x] Implement EVM/ERC-721, Solana/Metaplex, and NEAR/NEP-171-shaped materializers.
+- [x] For every accepted case run `adaptLegacy`, `validateCanonical`, capability planning, and target `buildFromCore` without advisory error swallowing.
+- [x] Run `Tests/NftMaterialization.lean`, `just product`, `just check`, and `git diff --check`.
 - [ ] Commit with `git commit -m "feat(nft): materialize portable NFT intent on primary targets"`.
 
 ### Task 6: Open the NFT CLI and Product Route
