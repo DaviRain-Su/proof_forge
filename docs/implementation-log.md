@@ -1076,3 +1076,38 @@ Rules:
 - Documentation: `docs/implementation-log.md` (this entry);
   `docs/validation-gates.md` + `docs/zh/validation-gates.zh.md` (u128 row
   updated to cover assignOp + comparison and record the let-bind boundary).
+
+## 2026-07-13 - PLAN + Phase 1.1: U128 interop execution plan + two-word u128 locals
+
+- Status: `done (Phase 1.1 verified by `just near-vm-u128-scalar`)`
+- Planning. Wrote a unified, dependency-ordered execution plan for the
+  remaining NEP-141/145 interop work at
+  `docs/superpowers/plans/2026-07-13-near-nep141-interop-execution.md`. It
+  operationalizes the pending Wave-N tasks (N-01→N-04) into 9 phases with
+  acceptance criteria and gates, records the architectural stance (u128 /
+  AccountId / JSON are NEAR-backend materialization details that do NOT
+  require the portable F-01/F-02 foundations as a prerequisite), and flags
+  the critical-path insight: u128 had THREE inconsistent representations
+  (input params = pointer, locals = single i64, literals/arith = two stack
+  words).
+- Phase 1.1 (linchpin) — two-word u128 locals. Unified u128 as two i64 stack
+  words (lo, hi) across the remaining surfaces so a u128 value is coherent
+  end-to-end:
+  - `let`-bound / mutable u128 locals occupy two wasm locals (`name` = lo,
+    `name__hi` = hi); `localLetBindInsns` / `localAssignInsns` set both,
+    `.local` get both, and the locals declaration allocates both.
+  - u128 input params decode lo+hi directly from INPUT_BUF into the two
+    locals (was: an i32 pointer to a 16-byte buffer).
+  - `assertEq` on u128 dispatches to `__pf_u128_eq` (was: single-word
+    `i64.eq`).
+- Evidence. `U128StorageScalarProbe.storage_letbind` (write 12, `let result :=
+  read`, `assert (result >= 10)` + `assertEq result 12`, return) returns u128
+  12 on the unmodified upstream NEAR VM — the exact shape
+  `NearFungibleToken` needs for `let srcBal := mapRead balances sender`.
+  `just near-vm-u128-scalar` now runs four entrypoints (roundtrip, lifecycle
+  assignOp, ge comparison, letbind).
+- Verification (all passed): `just near-vm-u128-scalar` (4 cases);
+  `just wasm-near-scalar-safety`; `just wasm-near-plan`; `just near-vm-conformance`;
+  `just near-vm-conformance-ft`.
+- Next (Phase 1.2): U128 map values (hash-keyed + u64-indexed), then Phase 2
+  converts `NearFungibleToken` amounts to u128. See the execution plan.

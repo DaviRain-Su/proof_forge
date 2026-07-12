@@ -679,6 +679,7 @@ mutual
       err "EmitWat: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only"
     | .local name =>
       match lookupLocal? env name with
+      | some .u128 => .ok (#[.localGet name, .localGet (u128HiName name)], .u128)
       | some t => .ok (#[.localGet name], t)
       | none => err s!"EmitWat: unknown local `{name}`"
     | .add a b _ => lowerAddSubMul ctx env "add" a b
@@ -1213,6 +1214,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     if ta != tb then err "EmitWat: assertEq operands must share a type"
     else
       let eqInsn := match ta with
+        | .u128 => #[.call u128EqName]
         | .hash => #[.call hashEqName]
         | .fixedArray elemType len => #[.call (arrEqName elemType len)]
         | _ => #[.plain (widthOf ta ++ ".eq")]
@@ -1255,7 +1257,12 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
   let (paramPrologue, paramLocals) ← loadParams ctx.structs ep.params abiPlan ctx.bridge
   let allLocalTypes : LocalTypes :=
     (ep.params.map (fun (n, t) => { name := n, vt := t : LBind })) ++ bodyLocals
-  let locals := paramLocals ++ bodyLocals.map (fun b => { name := b.name, type := wasmTypeOf b.vt : Local })
+  let locals := paramLocals ++ bodyLocals.flatMap (fun b =>
+    if b.vt == .u128 then
+      #[{ name := b.name, type := .i64 : Local },
+        { name := u128HiName b.name, type := .i64 : Local }]
+    else
+      #[{ name := b.name, type := wasmTypeOf b.vt : Local }])
   let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s
   let resetPrefix : Array Insn :=
     (if ctx.usesHashAlloc then #[.i32Const HASH_HEAP, .globalSet hashPtrGlobal] else #[]) ++

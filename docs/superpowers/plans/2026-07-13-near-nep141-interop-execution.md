@@ -1,0 +1,187 @@
+# NEP-141 / NEP-145 Interop — Unified Execution Plan
+
+Status: proposed (2026-07-13). Scope: make the ProofForge `wasm-near` NEP-141
+FungibleToken and NEP-145 storage management interoperate with real NEAR
+contracts, proven by the compare harness at semantic equivalence and by real-VM
+conformance.
+
+This plan operationalizes the `pending` Wave-N tasks (`N-01`→`N-04`) from
+`docs/superpowers/plans/2026-07-11-primary-triad-multichain-runtime.md`. It is
+informed by the 2026-07-13 investigation + three landed increments
+(`f53a2610`, `ef217440`, `fc50683b`).
+
+## End state (definition of "done")
+
+1. A ProofForge-compiled NEP-141 FT that speaks the canonical NEAR wire format:
+   JSON `AccountId` / `U128`-as-decimal-string for view methods, and JSON (or
+   Borsh) for call methods — interoperable with a real `near-sdk-rs` FT.
+2. Full NEP-145: `storage_deposit` / `storage_withdraw` / `storage_unregister`
+   / `storage_balance_of` / `storage_balance_bounds`, with `StorageBalance`
+   JSON objects, predecessor refund, exact one-yocto, byte accounting.
+3. NEP-148 metadata object and NEP-297 `EVENT_JSON` envelopes.
+4. Evidence: `testkit/compare` flips `fungible-token` and `storage-deposit` to
+   `verified: yes` (real cross-side differential), plus `near-vm-runner` gates
+   for each new capability.
+
+## Architectural stance (decided)
+
+- u128 two-word encoding, AccountId string keys, and JSON codecs are **NEAR
+  backend (EmitWat) materialization details** — inherently target-specific
+  (EVM is u256, Solana is u64). They are correctly placed in the backend and
+  do **not** require the portable `F-01`/`F-02` foundations as a prerequisite.
+- `F-01` (portable `NumericDomain`/`AmountPolicy`, IR-level range validation)
+  and `F-02` (opaque `Principal`/`IdentityCodec`, IR-level identity
+  abstraction) are a **later refactor** (Phase 9, optional for interop) that
+  lifts these patterns onto portable types for cross-target reuse. They are
+  deferred to keep the critical path on shipping interop.
+
+## Critical-path insight (from 2026-07-13)
+
+U128 currently has **three inconsistent representations** in EmitWat:
+- input params: an i32 **pointer** to a 16-byte buffer (`Params.lean:78-83`);
+- literals / arithmetic / scalar storage read-write / return: **two stack
+  words** (lo, hi) — standardized by `ef217440` / `fc50683b`;
+- `let`-bound locals: a **single i64** (`wasmTypeOf .u128 = i64`,
+  `EmitWat.lean:1258`).
+
+Any u128 value that crosses these boundaries (e.g. an `amount` input param
+compared to a `balance` read) is incoherent today. **Phase 1 unifies the u128
+representation end-to-end** — this is the linchpin that unblocks the FT.
+
+---
+
+## Phase 0 — DONE (landed 2026-07-13)
+
+- `f53a2610` Real-VM FT conformance gate (storage_remove + full promise ABI
+  link/execute + `ft_transfer_call`/`ft_resolve_transfer` callback).
+- `ef217440` U128 scalar storage round-trip (read/write/return, two-word).
+- `fc50683b` U128 scalar `assignOp` (add/sub) + unsigned comparison (lt/le/gt/ge).
+
+---
+
+## Phase 1 — U128 value model completion  (CRITICAL PATH; effort L)
+
+Unify u128 as **two stack words (lo, hi) everywhere**, including locals, maps,
+and inputs. (Alternative: pointer-everywhere. Decision deferred to 1.1 design,
+but two-words is the established convention.)
+
+- **1.1 Two-word u128 locals** [LINCHPIN]. Local allocation gives a u128 value
+  two i64 slots; `localGet`/`localSet` move both; the local-type env records
+  `.u128`; `assertEq`/`assert`/comparisons on a let-bound u128 use the u128
+  helpers, not single-word `i64.eq`. Touches `EmitWat.lean` (letBind lowering
+  ~1161, locals decl ~1258, localGet ~682) and the local-type env.
+- **1.2 U128 map values.** Two-word read/write for hash-keyed and u64-indexed
+  maps (`__pf_map_read_hash_u128` void → buffer + caller reload; write takes
+  lo/hi); special-case the map read/write lowering; exclude u128 from the
+  single-word map func emission, emit the u128 variants instead. Survey must
+  record u128 map value types.
+- **1.3 U128 input/param representation aligned.** Today params decode to a
+  pointer (`Params.lean:78-83`). Either keep pointer and add explicit
+  pointer→(lo,hi) load at use sites, or decode directly to two words. Make the
+  param local and the rest of the lowering agree.
+- **1.4 U128 in events + casts.** Verify event field encoding for u128 and the
+  u128↔u64/u32/bool cast matrix.
+
+**Gate:** extend `just near-vm-u128-scalar` with: a let-bound u128 that is
+asserted then returned; a hash-keyed map<u128> write/read round-trip; a u128
+input param echoed back — all on the real VM.
+**Acceptance:** a u128 value can be let-bound, asserted, stored in a map, read
+from a call argument, and returned — coherently — on the unmodified NEAR VM.
+
+## Phase 2 — NearFungibleToken U128 conversion  (effort M; depends 1)
+
+Mechanical once Phase 1 lands: `totalSupply`, `balances`, `allowances`,
+`pendingAmounts`, and all `amount` params/returns u64 → u128. `ft_mint` /
+`ft_burn` / `ft_transfer` / `ft_transfer_call` / `ft_resolve_transfer` /
+`ft_balance_of` / `ft_total_supply` all u128 arithmetic + 16-byte LE returns.
+**Gate:** update `just near-vm-conformance-ft` (amounts now u128).
+**Acceptance:** FT amounts are full u128 on the real VM; `ft_total_supply`
+returns a 16-byte LE u128 after mint.
+
+## Phase 3 — AccountId string keys  (effort M; depends 1)
+
+String-keyed map storage so balances are keyed by `AccountId` string, not
+sha256 hash (removes the collision boundary). Add `predecessor_account_id` /
+`current_account_id` / `signer_account_id` as full string values (already
+imported) and a `callerAccountId` surface construct.
+**Gate:** real-VM proof that a string-keyed balance round-trips.
+**Acceptance:** FT balances keyed by AccountId string; identity no longer
+hash-truncated.
+
+## Phase 4 — JSON codecs (N-01)  (effort XL; biggest risk; depends 2,3)
+
+Wallet-facing interop. JSON decode of entrypoint args (`ft_transfer
+{receiver_id, amount}`); JSON encode of returns (U128 decimal string,
+`StorageBalance`/metadata objects). Per-entrypoint codec plan shared by
+contract and the generated client. JSON parsing/serializing in a hand-rolled
+Wasm backend is the dominant risk — evaluate host-assisted decode vs in-Wasm
+parser early in the phase.
+**Gate:** a real JSON `ft_balance_of` call returns a decimal-string U128 on the
+real VM (or compare harness).
+**Acceptance:** wallet-compatible JSON views.
+
+## Phase 5 — NEP-141 core interop (N-03)  (effort L; depends 4)
+
+`memo`/`msg` params; local `ft_on_transfer` receiver hook; full
+`ft_transfer_call(receiver_id, amount, memo, msg)`; registration
+(storage_deposit before transfer); exact one-yocto guard.
+**Gate:** compare harness differential on transfer / transfer_call.
+
+## Phase 6 — NEP-145 / 148 / 297 closure (N-04)  (effort L; depends 3,4)
+
+`storage_unregister` (force one-yocto); predecessor refund via
+`promise_transfer`; `StorageBalance` / `StorageBalanceBounds` JSON; storage
+byte accounting / cost (`storage_usage` host APIs); attack tests. NEP-148
+metadata object `{spec, name, symbol, decimals, …}`. NEP-297 `EVENT_JSON`
+envelopes. Lift the route-test ban on advertising `storage_unregister`.
+**Gate:** compare harness `storage-deposit` → `verified: yes`.
+
+## Phase 7 — TokenSpec parameterized runtime (N-02)  (effort M; depends 2)
+
+`name`/`symbol`/`decimals`/`initialSupply`/`features` affect the emitted Wasm
+(not just the plan JSON); unsupported features reject.
+
+## Phase 8 — Compare harness → semantic equivalence  (effort M; depends 5,6)
+
+Upgrade the reference `testkit/compare/near/fungible-token` crate to a real
+NEP-141 (JSON/U128/AccountId); make the harness run a real cross-ABI
+differential (PF answers standard calls); flip `MATRIX.md` `verified: yes`.
+
+## Phase 9 — (optional, later) Portable abstraction (F-01/F-02)
+
+Lift the u128 amount and AccountId patterns onto portable `NumericDomain` /
+`AmountPolicy` and `Principal` / `IdentityCodec` for cross-target reuse. Not
+required for NEP-141/145 interop; defers cleanly.
+
+---
+
+## Dependency graph
+
+```
+Phase 1 (u128 value model) ──┬─► Phase 2 (FT u128) ──┬─► Phase 4 (JSON) ──► Phase 5 (NEP-141 core) ──┐
+                             │                        │                                       ├─► Phase 8 (compare verified)
+                             └─► Phase 3 (AccountId) ─┴─► Phase 4 ──► Phase 6 (NEP-145/148/297) ─────┘
+                                      Phase 7 (TokenSpec runtime) ◄── Phase 2
+                                      Phase 9 (portable F-01/F-02) — independent, later
+```
+
+Phase 1 is the single critical-path prerequisite for everything u128. Phase 4
+(JSON) is the long pole and highest risk.
+
+## Per-phase deliverable shape (uniform)
+
+Each phase lands: (a) the EmitWat/stdlib change, (b) an `U128…`/focused IR
+probe where useful, (c) a `near-vm-*` real-VM gate or compare-harness update,
+(d) `docs/validation-gates.md` (en+zh) row + `implementation-log.md` entry +
+i18n manifest sha, (e) regression run (`wasm-near-scalar-safety`,
+`wasm-near-plan`, `near-vm-conformance`, `near-vm-conformance-ft`,
+`manifest`/`equivalence`, `docs-check`, `git diff --check`).
+
+## Honest notes
+
+- `just product` has a pre-existing failure (`OwnableHash Soroban ... _get
+  ABI`, unrelated, recorded 2026-07-12); it is not a gate for this work.
+- u128 `mul` helper is simplified (lo×lo only, `Scalar.lean`); adequate for
+  transfer/approve arithmetic, not for interest-bearing math.
+- This is orthogonal to the active D-052 program (next task C1). It advances
+  the separate Wave-N track.

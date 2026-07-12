@@ -54,5 +54,6 @@ run_case() {
 run_case storage_roundtrip "07000000000000000000000000000000" "u128 read/write round-trip"
 run_case storage_lifecycle  "0c000000000000000000000000000000" "u128 scalar assignOp add (7 + 5 = 12)"
 run_case storage_ge         "01"                                "u128 ge comparison (12 >= 10)"
+run_case storage_letbind    "0c000000000000000000000000000000" "u128 two-word local (let-bind + assertEq + ge)"
 
-echo "vm-u128-scalar: ok (U128 storage read/write + assignOp + Borsh return + comparison on real NEAR VM)"
+echo "vm-u128-scalar: ok (U128 storage read/write + assignOp + Borsh return + comparison + two-word locals on real NEAR VM)"

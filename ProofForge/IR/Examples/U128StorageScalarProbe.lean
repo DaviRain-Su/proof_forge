@@ -57,10 +57,26 @@ def storageGe : Entrypoint := {
   ]
 }
 
+/-! U128 let-bind check: write 12, `let result := read`, assert ge(result,10)
+    and eq(result,12), return result. Validates two-word u128 locals (localSet/
+    localGet of lo+hi) and u128 assertEq/`ge` on a let-bound u128 — the path
+    `NearFungibleToken` needs for `let srcBal := mapRead balances sender`. -/
+def storageLetBind : Entrypoint := {
+  name := "storage_letbind"
+  returns := .u128
+  body := #[
+    .effect (.storageScalarWrite "value" (u128 12)),
+    .letBind "result" .u128 readValue,
+    .assert (.ge (.local "result") (u128 10)) "u128 ge on let-bound local broken",
+    .assertEq (.local "result") (u128 12) "u128 assertEq on let-bound local broken",
+    .return (.local "result")
+  ]
+}
+
 def module : Module := {
   name := "U128StorageScalarProbe"
   state := #[stateValue]
-  entrypoints := #[storageLifecycle, storageRoundTrip, storageGe]
+  entrypoints := #[storageLifecycle, storageRoundTrip, storageGe, storageLetBind]
 }
 
 end ProofForge.IR.Examples.U128StorageScalarProbe

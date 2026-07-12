@@ -75,13 +75,14 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
         let loadInsns := #[.i32Const (INPUT_BUF + offset), .load (loadOpFor vt) 0, .localSet name]
         .ok (insns ++ loadInsns, locals.push { name := name, type := wasmTypeOf vt }, offset + scalarWidth vt, hslot)
       | .u128 =>
-        -- U128: 16-byte Borsh LE. Allocate 16 bytes, copy low 8 + high 8 from INPUT_BUF.
-        -- Local holds an i32 pointer to the 16-byte buffer.
+        -- U128: 16-byte Borsh LE. Two-word local convention (name = lo,
+        -- `name__hi` = hi), matching let-bound u128 locals and arithmetic.
         let loadInsns :=
-          #[.i64Const 16, .call arrAllocName, .localSet name,
-            .localGet name, .i32Const (INPUT_BUF + offset), .load "i64.load" 0, .store "i64.store" 0,
-            .localGet name, .i32Const (INPUT_BUF + offset + 8), .load "i64.load" 0, .store "i64.store" 8]
-        .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + 16, hslot)
+          #[.i32Const (INPUT_BUF + offset), .load "i64.load" 0, .localSet name,
+            .i32Const (INPUT_BUF + offset + 8), .load "i64.load" 0, .localSet (u128HiName name)]
+        .ok (insns ++ loadInsns,
+          locals.push { name := name, type := .i64 } |>.push { name := u128HiName name, type := .i64 },
+          offset + 16, hslot)
       | .hash =>
         let slot := PARAM_HASH_BUF + hslot * 32
         let loadInsns := #[.i32Const slot, .i32Const (INPUT_BUF + offset), .i32Const 32, .call memcpyName,
