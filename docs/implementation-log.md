@@ -262,6 +262,28 @@ Rules:
   need the old job's package bootstrap; every lane now runs `lake build` before
   its manifest recipes.
 
+## 2026-07-12 - B3 Soroban follow-up review
+
+- Status: `done (review repair)`
+- Reviewed the B3 bridge-aware canonical lowering series through `9daed038` and
+  integrated it with the parallel test framework without dropping either gate.
+- Fixed the Soroban spike `_get` ABI from `i32` to `i64`; the old signature
+  truncated Counter's `u64` state above `2^32 - 1` while the lifecycle test only
+  exercised values through `3`.
+- Canonical and legacy EmitWat lowering now fail closed for 32-byte Hash storage,
+  which the scalar `_get` ABI cannot represent. The previous Hash helper emitted
+  a malformed memcpy stack sequence.
+- Fixed non-NEAR fixed-byte return lowering to keep its pointer as `i32`, matching
+  `set_return_data(i32, i32)`.
+- The Soroban offline gate now rebuilds `proof-forge` before invoking the CLI and
+  pins `_get`'s full-width WAT signature.
+- Parallel coverage now includes `soroban-public-route` and
+  `soroban-counter-offline`; serial/manifest equivalence is 110 recipes.
+- Verification: `just soroban-public-route`, `just soroban-counter-offline`,
+  `just wasm-host-plan-preservation`, `just wasm-soroban-host-smoke`, offline-host
+  Cargo tests, `just test-manifest`, `just test-equivalence`, and
+  `git diff --check` passed.
+
 ### Local parallel qualification
 
 - `check-serial` warm-cache baseline: 1297.26 seconds.

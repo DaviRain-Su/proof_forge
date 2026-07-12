@@ -120,6 +120,9 @@ def main : IO Unit := do
   let sorobanWat := ProofForge.Compiler.Wasm.Printer.render sorobanWasm
   require (sorobanWat.contains "_get")
     "Soroban canonical WAT should contain _get host import"
+  require (sorobanWat.contains
+      "\"_get\" (func $_get (param i32 i32) (result i64))")
+    "Soroban _get must preserve the full u64 scalar width"
   require (sorobanWat.contains "_put")
     "Soroban canonical WAT should contain _put host import"
   require (!sorobanWat.contains "storage_read")
@@ -130,6 +133,16 @@ def main : IO Unit := do
     "Soroban canonical WAT should contain set_return_data (native return ABI)"
   require (!sorobanWat.contains "value_return")
     "Soroban canonical WAT should not contain NEAR value_return"
+
+  -- The scalar `_get` spike ABI cannot return a 32-byte hash. Reject such a
+  -- plan explicitly instead of emitting a malformed memcpy sequence.
+  let hashStoragePlan := { plan with surface := {
+    plan.surface with scalarReadTypes := plan.surface.scalarReadTypes.push .hash } }
+  match ModulePlan.lowerFromPlan hashStoragePlan with
+  | .ok _ => throw <| IO.userError "Soroban Hash storage should fail closed"
+  | .error e => do
+      require (e.message.contains "32-byte Hash storage")
+        s!"unexpected Soroban Hash storage diagnostic: {e.message}"
 
   -- -- Test 7: EmitWat legacy path produces equivalent Soroban WAT --
   let watResult := ProofForge.Backend.WasmHost.EmitWat.renderModule

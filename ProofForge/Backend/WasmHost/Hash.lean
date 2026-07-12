@@ -99,17 +99,13 @@ def readHashFuncNear : Func :=
       .if_ { insns := #[ .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register" ] } { insns := #[] },
       .localGet "p" ] } }
 
-/-- Soroban: `_get(kp, kl) → i32` 0/1 found flag, then read 32 bytes at allocated hash ptr. -/
+/-- Hash storage is not representable through Soroban's scalar `_get` spike ABI.
+The module lowerers reject plans that would select this helper; keep the helper
+itself valid and trapping so direct construction cannot emit malformed WAT. -/
 def readHashFuncSoroban : Func :=
   { name := readHashName,
     params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }], results := #[.i32],
-    locals := #[{ name := "found", type := .i32 }, { name := "p", type := .i32 }],
-    body := { insns := #[
-      .call hashAllocName, .localSet "p",
-      .localGet "kp", .localGet "kl", .call "_get", .localSet "found",
-      .localGet "found", .i32Const 0, .plain "i32.ne",
-      .if_ { insns := #[ .localGet "p", .i32Const 32, .call "__pf_memcpy" ] } { insns := #[] },
-      .localGet "p" ] } }
+    body := { insns := #[.unreachable] } }
 
 def readHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with

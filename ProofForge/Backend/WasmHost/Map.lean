@@ -60,7 +60,7 @@ def mapKeyByteLenInsns (keyBytes : Nat) : Array Insn :=
 def mapStorageReadHostInsnsNear (keyBytes : Nat) : Array Insn :=
   mapKeyByteLenInsns keyBytes ++ #[.i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read"]
 
-/-- Soroban: `_get(key_ptr, key_len) → i32` le-scalar (no register ABI). -/
+/-- Soroban: `_get(key_ptr, key_len) → i64` le-scalar (no register ABI). -/
 def mapStorageReadHostInsnsSoroban (keyBytes : Nat) : Array Insn :=
   #[
     .i32Const MAPKEY_BUF,
@@ -112,10 +112,10 @@ def mapStorageWriteHostInsns (keyBytes valBytes : Nat)
   | .cosmWasm => mapStorageWriteHostInsnsCosmWasm keyBytes valBytes
   | .near => mapStorageWriteHostInsnsNear keyBytes valBytes
 
-/-- Widen/narrow host scalar after register-less map read (Soroban i32 / CosmWasm i64). -/
+/-- Narrow host scalar after register-less map read. -/
 def mapRegisterlessReadCoerce (bridge : ProofForge.Target.HostBridge) (vt : ValueType) : Array Insn :=
   match bridge, vt with
-  | .soroban, .u64 => #[.plain "i64.extend_i32_u"]
+  | .soroban, .u32 | .soroban, .bool => #[.plain "i32.wrap_i64"]
   | .cosmWasm, .u32 | .cosmWasm, .bool => #[.plain "i32.wrap_i64"]
   | _, _ => #[]
 
@@ -272,7 +272,7 @@ def mapContainsFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
         body := { insns := #[
           .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
           .i32Const MAPKEY_BUF, .localGet "pl", .i32Const 8, .plain "i32.add", .call "_get",
-          .plain "i64.extend_i32_u", .i64Const 0, .plain "i64.ne", .plain "i64.extend_i32_u"
+          .i64Const 0, .plain "i64.ne", .plain "i64.extend_i32_u"
         ] } }
   | .cosmWasm =>
       { name := mapContainsName,
@@ -665,7 +665,7 @@ def mapContainsHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func 
         body := { insns := #[
           .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
           .i32Const MAPKEY_BUF, .localGet "pl", .i32Const 32, .plain "i32.add", .call "_get",
-          .plain "i64.extend_i32_u", .i64Const 0, .plain "i64.ne", .plain "i64.extend_i32_u"
+          .i64Const 0, .plain "i64.ne", .plain "i64.extend_i32_u"
         ] } }
   | .cosmWasm =>
       { name := mapContainsHashName,

@@ -153,7 +153,7 @@ def stripNearStorageImports (imports : Array Import) : Array Import :=
     | _ => true
 
 def sorobanGetImport : Import :=
-  hostImport "_get" #[.i32, .i32] #[.i32]
+  hostImport "_get" #[.i32, .i32] #[.i64]
 
 def sorobanPutImport : Import :=
   hostImport "_put" #[.i32, .i32, .i32, .i32] #[]

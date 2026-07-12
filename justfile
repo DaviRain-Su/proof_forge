@@ -81,6 +81,7 @@ soroban-public-route:
 
 # B3: Soroban Counter offline-host lifecycle (init→increment×3→get returns 3).
 soroban-counter-offline:
+    lake build proof-forge
     bash scripts/soroban/counter-offline-smoke.sh
 
 

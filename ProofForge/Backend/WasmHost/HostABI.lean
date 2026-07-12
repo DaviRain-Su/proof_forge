@@ -84,8 +84,9 @@ def HostABI.near : HostABI := {
 
 /-- Soroban host ABI.
 
-ProofForge's Soroban bridge uses a simplified custom ABI. Storage uses
-`_get`/`_put` (Soroban-style). Crosscall uses `invoke_contract`. Auth uses
+ProofForge's Soroban bridge uses a simplified custom ABI. Scalar storage uses
+`_get`/`_put`, with `_get` returning one little-endian `i64`; wider values fail
+closed. Crosscall uses `invoke_contract`. Auth uses
 `require_auth_for_args`. Events use `log_from_slice`.
 
 For context (caller/block/crypto), the bridge currently retains NEAR-style

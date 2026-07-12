@@ -774,19 +774,18 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
     )?;
 
     // Soroban HostBridge (PF-P3-02): `_get` / `_put` share the offline storage map.
-    // `_get` returns the first 4 LE bytes as i32 (matches EmitWat `__pf_read_u64`
-    // which zero-extends i32→i64 for Counter-scale scalars). Missing key → 0.
+    // `_get` returns the first 8 LE bytes as i64. Missing key returns zero.
     linker.func_wrap(
         "env",
         "_get",
-        |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> Result<i32> {
+        |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> Result<i64> {
             let key = read_memory(&mut caller, key_ptr as i64, key_len as i64)?;
             match caller.data().storage.get(&key) {
                 Some(value) if !value.is_empty() => {
-                    let mut buf = [0u8; 4];
-                    let n = value.len().min(4);
+                    let mut buf = [0u8; 8];
+                    let n = value.len().min(8);
                     buf[..n].copy_from_slice(&value[..n]);
-                    Ok(i32::from_le_bytes(buf))
+                    Ok(i64::from_le_bytes(buf))
                 }
                 _ => Ok(0),
             }

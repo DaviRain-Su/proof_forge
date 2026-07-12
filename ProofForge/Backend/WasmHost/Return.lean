@@ -28,7 +28,7 @@ def returnBytesFromPtrInsns (byteLen : Nat) (insns : Array Insn)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Insn :=
   match bridge with
   | .cosmWasm | .soroban =>
-    insns ++ #[.plain "i64.extend_i32_u", .i32Const byteLen, .call "set_return_data"]
+    insns ++ #[.i32Const byteLen, .call "set_return_data"]
   | _ =>
     #[.i64Const byteLen] ++ insns ++
       #[.plain "i64.extend_i32_u", .call "value_return"]

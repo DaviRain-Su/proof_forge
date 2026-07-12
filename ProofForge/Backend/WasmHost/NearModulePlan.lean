@@ -725,6 +725,14 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let bridge := plan.hostBridge.bridge
   unless bridge == .near || plan.targetId == "wasm-near" do
     Diagnostics.err s!"canonical plan target `{plan.targetId}` does not match NEAR bridge"
+  if bridge == .soroban &&
+      (plan.surface.scalarReadTypes.contains .hash ||
+       plan.surface.scalarWriteTypes.contains .hash ||
+       plan.surface.u64IndexedReadTypes.contains .hash ||
+       plan.surface.u64IndexedWriteTypes.contains .hash ||
+       plan.surface.hashIndexedReadTypes.contains .hash ||
+       plan.surface.hashIndexedWriteTypes.contains .hash) then
+    Diagnostics.err "canonical Soroban lowering does not support 32-byte Hash storage with the scalar `_get` ABI"
   let eventStrings := canonicalEventStrings plan
   let promiseStrings := canonicalPromiseStrings plan
   if promiseStrings.any (fun entry => entry.ptr + entry.len > Memory.ZERO_HASH_BUF) then

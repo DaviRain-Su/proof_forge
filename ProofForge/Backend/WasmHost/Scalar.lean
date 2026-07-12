@@ -347,17 +347,17 @@ def readFuncNear (vt : ValueType) : Func :=
                         .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
       .localGet "r" ] } }
 
-/-- Soroban host ABI (C.8): `_get(key_ptr, key_len) → i32` le-scalar; extend to value width. -/
+/-- Soroban spike ABI: `_get(key_ptr, key_len) → i64` little-endian scalar. -/
 def readFuncSoroban (vt : ValueType) : Func :=
-  let extend : Array Insn :=
+  let coerce : Array Insn :=
     match vt with
-    | .u64 => #[.plain "i64.extend_i32_u"]
-    | .u32 | .bool => #[]
+    | .u64 => #[]
+    | .u32 | .bool => #[.plain "i32.wrap_i64"]
     | _ => #[]
   { name := readName vt,
     params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
     results := #[wasmTypeOf vt],
-    body := { insns := #[.localGet "kp", .localGet "kl", .call "_get"] ++ extend } }
+    body := { insns := #[.localGet "kp", .localGet "kl", .call "_get"] ++ coerce } }
 
 /-- CosmWasm host ABI: `db_read(key_ptr, key_len) → i64` (le scalar word). -/
 def readFuncCosmWasm (vt : ValueType) : Func :=

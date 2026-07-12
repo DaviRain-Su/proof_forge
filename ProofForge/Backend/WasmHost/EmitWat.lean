@@ -1305,6 +1305,14 @@ def lowerModule (mod : ProofForge.IR.Module)
     match buildModulePlan mod with
     | .ok plan => pure plan
     | .error planErr => err s!"EmitWat: {planErr.message}"
+  if bridge == .soroban &&
+      (modulePlan.scalarReadTypes.contains .hash ||
+       modulePlan.scalarWriteTypes.contains .hash ||
+       modulePlan.u64IndexedReadTypes.contains .hash ||
+       modulePlan.u64IndexedWriteTypes.contains .hash ||
+       modulePlan.hashIndexedReadTypes.contains .hash ||
+       modulePlan.hashIndexedWriteTypes.contains .hash) then
+    err "EmitWat: Soroban lowering does not support 32-byte Hash storage with the scalar `_get` ABI"
   let entrypointAbis ← match buildModulePlans mod with
     | .ok plans => pure plans
     | .error message => err s!"EmitWat: {message}"

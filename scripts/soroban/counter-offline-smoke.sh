@@ -24,6 +24,10 @@ if ! grep -q '"_get"' "$WAT"; then
   echo "soroban-counter-offline: FAIL: WAT missing _get import" >&2
   exit 1
 fi
+if ! grep -q '"_get" (func \$_get (param i32 i32) (result i64))' "$WAT"; then
+  echo "soroban-counter-offline: FAIL: _get does not preserve u64 state" >&2
+  exit 1
+fi
 if ! grep -q '"_put"' "$WAT"; then
   echo "soroban-counter-offline: FAIL: WAT missing _put import" >&2
   exit 1

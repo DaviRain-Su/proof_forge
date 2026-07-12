@@ -118,7 +118,7 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
     ]
   | .soroban => #[
       { name := "_put",  params := #["i32", "i32", "i32", "i32"], results := #[] },
-      { name := "_get",  params := #["i32", "i32"], results := #["i32"] },
+      { name := "_get",  params := #["i32", "i32"], results := #["i64"] },
       { name := "log_from_slice", params := #["i32", "i32"], results := #[] },
       { name := "require_auth_for_args", params := #["i32", "i32"], results := #["i32"] },
       -- Portable crosscall.invoke materializes here (not NEAR promise_create).
