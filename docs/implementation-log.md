@@ -121,6 +121,24 @@ Rules:
 - Remaining: none for A2; A3 (NFT intent) is next.
 - Documentation: `AGENTS.md`, current implementation plan.
 
+## 2026-07-12 - A3: Define target-neutral NFT intent
+
+- Status: `done (verified at daa695c7)`
+- Commit: `daa695c7`
+- Result: created `ProofForge/Contract/Nft.lean` with `NFTAssetModel`
+  (unique | multiToken), `NFTFeature` (9 features with stable IDs),
+  `NFTSpec` (name, symbol, assetModel, features), `NFTSpec.validate`
+  (rejects duplicate features, soulbound+transferable, multiToken+soulbound),
+  and `NFTSpec.toIntentContract` (maps to IntentContract with
+  family=nonFungibleToken). Created `Tests/NftIntent.lean` with 7 test
+  cases.
+- Interfaces: `NFTAssetModel`, `NFTFeature`, `NFTSpec`,
+  `NFTSpec.validate`, `NFTSpec.toIntentContract`, `NFTFeature.id`.
+- Verification: `nft-intent: ok`, `intent-registry: ok`, `just product: ok`,
+  `git diff --check: ok`.
+- Remaining: none for A3; A4 (audit NFT implementation candidates) is next.
+- Documentation: `AGENTS.md`, current implementation plan.
+
 ### A2 review repair
 
 - Added the promised `resolveIntentMaterializer` public API and the checked
