@@ -1031,3 +1031,33 @@ Rules:
   `just near-vm-u128-scalar` added to `wave-t-baseline`, `check-serial`, and
   `scripts/test-framework/lanes.json` (`serialCoverage` + `recipes`, lane
   `wasm-other-exclusive`).
+
+## 2026-07-13 - GATE-NEAR-VM-U128-ASSIGNOP: U128 scalar assignOp + comparison on the real NEAR VM
+
+- Status: `done (verified by `just near-vm-u128-scalar`)`
+- Result. Extended the legacy EmitWat U128 path (two i64 stack words, lo/hi)
+  with scalar `assignOp` and unsigned comparison, both proven on the
+  unmodified upstream NEAR VM:
+  - U128 scalar `assignOp` (add/sub): read (lo,hi) + value (lo,hi) +
+    `__pf_u128_add`/`sub` (void, → U128_RESULT_BUF) + reload + write. The
+    stack discipline reserves the write's (kp, kl) under the arith operands.
+  - U128 unsigned comparison: added `__pf_u128_lt(alo,ahi,blo,bhi) -> i32`
+    (`a<b` iff `ahi<bhi || (ahi==bhi && alo<blo)`); wired `lowerCmp` so
+    lt_u→u128_lt, ge_u→u128_lt+eqz, gt_u→swapped u128_lt, le_u→swapped+eqz.
+    `u128LtFunc` joins the always-emitted `u128ArithFuncs` bundle.
+- Evidence. `U128StorageScalarProbe` grew two entrypoints; `just
+  near-vm-u128-scalar` now runs three on the real VM: `storage_roundtrip`
+  (u128 7), `storage_lifecycle` (write 7 + `assignOp add 5` → returns u128 12),
+  `storage_ge` (`assignOp add 5` then `read >= 10` → bool 1).
+- Discovered boundary (next increment). U128 values bound to a Wasm local via
+  `let` are still single-word (`wasmTypeOf .u128 = i64`): `local.set` drops the
+  high word, and `assertEq`/comparisons on a let-bound u128 degrade to one-word
+  `i64.eq`. The proven paths keep u128 on the stack (read→return, read→arith→
+  write, read→compare→bool). A two-word-local representation is required before
+  `NearFungibleToken` can `let srcBal := mapRead balances sender` with U128.
+- Verification (all passed): `just near-vm-u128-scalar` (3 cases);
+  `just wasm-near-scalar-safety`; `just wasm-near-plan`; `just near-vm-conformance`
+  (Counter); `just near-vm-conformance-ft` (FT, no regression).
+- Documentation: `docs/implementation-log.md` (this entry);
+  `docs/validation-gates.md` + `docs/zh/validation-gates.zh.md` (u128 row
+  updated to cover assignOp + comparison and record the let-bind boundary).

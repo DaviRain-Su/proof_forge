@@ -30,7 +30,6 @@ require_cmd lake
 OUT_DIR="build/wasm-near"
 WAT="$OUT_DIR/emitwat-u128.wat"
 WASM="$OUT_DIR/emitwat-u128.wasm"
-EXPECTED="07000000000000000000000000000000"
 
 echo "=== building + rendering U128StorageScalarProbe ==="
 lake build ProofForge.Backend.WasmHost.EmitWat ProofForge.IR.Examples.U128StorageScalarProbe >/dev/null
@@ -39,15 +38,21 @@ test -s "$WAT"
 wat2wasm "$WAT" -o "$WASM"
 test -s "$WASM"
 
-echo "=== U128 scalar round-trip on real NEAR VM ==="
-out="$(cargo run --quiet --manifest-path tools/near-vm-runner/Cargo.toml -- "$WASM" storage_lifecycle)"
-echo "$out"
-
+echo "=== U128 scalar round-trip + assignOp + comparison on real NEAR VM ==="
 fail() { echo "vm-u128-scalar: $*" >&2; exit 1; }
-grep -qiE 'ABORTED|failed|LinkError' <<<"$out" && fail "real NEAR VM rejected the U128 module"
-grep -qF "call storage_lifecycle: return_hex=$EXPECTED" <<<"$out" \
-  || fail "u128 round-trip did not return 16-byte LE of 7 (got: $(grep -F 'return_hex=' <<<"$out"))"
-grep -qF '1 methods executed successfully on real NEAR VM' <<<"$out" \
-  || fail "did not report 1 successful method"
 
-echo "vm-u128-scalar: ok (U128 storage read/write + Borsh return on real NEAR VM)"
+run_case() {
+  local method="$1" expected="$2" label="$3"
+  local line
+  line="$(cargo run --quiet --manifest-path tools/near-vm-runner/Cargo.toml -- "$WASM" "$method")"
+  echo "$line"
+  grep -qiE 'ABORTED|failed|LinkError' <<<"$line" && fail "$label rejected by real NEAR VM"
+  grep -qF "call $method: return_hex=$expected" <<<"$line" \
+    || fail "$label did not return $expected (got: $(grep -F "return_hex=" <<<"$line"))"
+}
+
+run_case storage_roundtrip "07000000000000000000000000000000" "u128 read/write round-trip"
+run_case storage_lifecycle  "0c000000000000000000000000000000" "u128 scalar assignOp add (7 + 5 = 12)"
+run_case storage_ge         "01"                                "u128 ge comparison (12 >= 10)"
+
+echo "vm-u128-scalar: ok (U128 storage read/write + assignOp + Borsh return + comparison on real NEAR VM)"

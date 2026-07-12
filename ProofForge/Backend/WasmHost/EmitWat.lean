@@ -241,7 +241,7 @@ export ProofForge.Backend.WasmHost.Scalar (
   readFunc writeFunc returnU64Func returnU32Func returnBoolFunc powName
   powFunc scalarStorageHelperFuncsForModulePlan returnHelperFuncsForModulePlan
   powHelperFuncsForModulePlan
-  u128AddName u128SubName u128MulName u128EqName u128ArithFuncs
+  u128AddName u128SubName u128MulName u128EqName u128LtName u128ArithFuncs
 )
 
 export ProofForge.Backend.WasmHost.Statement (
@@ -873,8 +873,12 @@ mutual
     else if ta == .hash && op == "ne" then .ok (la ++ lb ++ #[.call hashEqName, .plain "i32.eqz"], .bool)
     else if ta == .u128 && op == "eq" then .ok (la ++ lb ++ #[.call u128EqName], .bool)
     else if ta == .u128 && op == "ne" then .ok (la ++ lb ++ #[.call u128EqName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 && op == "lt_u" then .ok (la ++ lb ++ #[.call u128LtName], .bool)
+    else if ta == .u128 && op == "ge_u" then .ok (la ++ lb ++ #[.call u128LtName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 && op == "gt_u" then .ok (lb ++ la ++ #[.call u128LtName], .bool)
+    else if ta == .u128 && op == "le_u" then .ok (lb ++ la ++ #[.call u128LtName, .plain "i32.eqz"], .bool)
     else if ta == .u128 then
-      err s!"EmitWat: U128 comparison `{op}` not yet supported (only eq/ne)"
+      err s!"EmitWat: U128 comparison `{op}` not yet supported"
     else match ta with
       | .fixedArray elemType len =>
         if op == "eq" then .ok (la ++ lb ++ #[.call (arrEqName elemType len)], .bool)

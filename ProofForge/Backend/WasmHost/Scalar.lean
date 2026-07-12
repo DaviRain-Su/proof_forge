@@ -31,6 +31,14 @@ open ProofForge.Backend.WasmHost.Types
 
 /-! Scalar storage, return, and arithmetic helper functions for EmitWat. -/
 
+/-- U128 arithmetic/comparison helper names. U128 is represented as two i64
+    values (lo, hi); declared up here so all lowerings can reference them. -/
+def u128AddName : String := "__pf_u128_add"
+def u128SubName : String := "__pf_u128_sub"
+def u128MulName : String := "__pf_u128_mul"
+def u128EqName  : String := "__pf_u128_eq"
+def u128LtName  : String := "__pf_u128_lt"
+
 def storageScalarStateInfo (scalars : Array StateInfo) (id : String) :
     Except EmitError StateInfo :=
   match findScalarState? scalars id with
@@ -316,8 +324,6 @@ def storageScalarAssignOpTargetType (stateInfo : StateInfo) (id : String) :
     Except EmitError ValueType :=
   if stateInfo.type == .hash then
     err s!"EmitWat: storageScalarAssignOp not supported on Hash scalars (`{id}`)"
-  else if stateInfo.type == .u128 then
-    err s!"EmitWat: storageScalarAssignOp not yet supported on U128 scalars (`{id}`); use explicit read + U128 arith + write"
   else .ok stateInfo.type
 
 def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : AssignOp)
@@ -332,6 +338,26 @@ def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : Assig
              .i32Const stateInfo.packOffset,
              .i32Const KEY_BUF, .load (loadOpFor stateInfo.type) 0,
              .call (packWriteName stateInfo.type)])
+  else if stateInfo.type == .u128 then
+    -- U128 assignOp via the two-word (lo, hi) convention. Stack discipline:
+    --   push kp,kl (reserved for the final write)
+    --   read_u128(kp,kl) -> KEY_BUF; reload (lo,hi)
+    --   valueInsns push (lo2,hi2)
+    --   u128_{add,sub} consumes the top four words -> U128_RESULT_BUF (void)
+    --   reload result (lo,hi); write_u128(kp,kl,lo,hi)
+    let readPart : Array Insn :=
+      #[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
+        .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call (readName .u128),
+        .i32Const KEY_BUF, .load "i64.load" 0,
+        .i32Const (KEY_BUF + 8), .load "i64.load" 0]
+    let writePart : Array Insn :=
+      #[.i32Const U128_RESULT_BUF, .load "i64.load" 0,
+        .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0,
+        .call (writeName .u128)]
+    match op with
+    | .add => .ok (readPart ++ valueInsns ++ #[.call u128AddName] ++ writePart)
+    | .sub => .ok (readPart ++ valueInsns ++ #[.call u128SubName] ++ writePart)
+    | _ => err s!"EmitWat: U128 scalar assignOp `{assignOpName op}` not yet supported (`{id}`); only add/sub"
   else
     .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
              .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
@@ -526,12 +552,6 @@ def returnBytesFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
           .localGet "ptr", .plain "i64.extend_i32_u",
           .call "value_return" ] } }
 
-/-- U128 arithmetic helper names. U128 is represented as two i64 values (lo, hi). -/
-
-def u128AddName : String := "__pf_u128_add"
-def u128SubName : String := "__pf_u128_sub"
-def u128MulName : String := "__pf_u128_mul"
-
 /-- `__pf_u128_add(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a + b to
     `U128_RESULT_BUF`. NEAR VM disables `multi_value`, so u128 helpers return
     void and stash their (lo, hi) result in a 16-byte scratch slot; callers
@@ -588,9 +608,7 @@ def u128MulFunc : Func :=
       .plain "i64.add", .localSet "hi",
       .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
       .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
-    ] } }
-
-def u128EqName : String := "__pf_u128_eq"
+     ] } }
 
 /-- `__pf_u128_eq(alo, ahi, blo, bhi)`: returns i32 (1 if equal, 0 otherwise).
     Uses: hi_eq = (ahi == bhi); lo_eq = (alo == blo); result = hi_eq & lo_eq. -/
@@ -606,7 +624,26 @@ def u128EqFunc : Func :=
       .localGet "hi_eq", .localGet "lo_eq", .plain "i32.and"
     ] } }
 
-def u128ArithFuncs : Array Func := #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc]
+/-! `__pf_u128_lt(alo, ahi, blo, bhi)`: returns i32 (1 if a < b unsigned).
+    `a < b` iff `ahi < bhi || (ahi == bhi && alo < blo)`. Unsigned (lt_u);
+    NEP-141 token amounts are non-negative. -/
+def u128LtFunc : Func :=
+  { name := u128LtName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i32],
+    locals := #[{ name := "hi_lt", type := .i32 }, { name := "hi_gt", type := .i32 },
+      { name := "lo_lt", type := .i32 }],
+    body := { insns := #[
+      .localGet "ahi", .localGet "bhi", .plain "i64.lt_u", .localSet "hi_lt",
+      .localGet "ahi", .localGet "bhi", .plain "i64.gt_u", .localSet "hi_gt",
+      .localGet "alo", .localGet "blo", .plain "i64.lt_u", .localSet "lo_lt",
+      .localGet "hi_lt",
+      .localGet "hi_gt", .plain "i32.eqz",
+      .localGet "lo_lt", .plain "i32.and",
+      .plain "i32.or" ] } }
+
+def u128ArithFuncs : Array Func := #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc]
 
 def powName (vt : ValueType) : String := "__pf_pow_" ++ typeSuffix vt
 
