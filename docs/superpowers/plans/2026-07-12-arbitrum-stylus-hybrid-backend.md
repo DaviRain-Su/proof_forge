@@ -304,19 +304,19 @@
 - Consumes: `RustCrate` and Task 1 version pins.
 - Produces: generated crate under `build/stylus/rust/<Contract>/`, compiled Wasm, tool report, and static CI evidence.
 
-- [ ] **Step 1: Add a failing packaging smoke**
+- [x] **Step 1: Add a failing packaging smoke**
 
   The script must remove only its ignored output directory, build `proof-forge`, generate Counter, compare pinned Cargo metadata, run `cargo test`, compile `wasm32-unknown-unknown --release`, and run `cargo stylus check` when installed. Missing `cargo stylus` is a named SKIP locally and a failure in its optional CI job.
 
-- [ ] **Step 2: Implement atomic package writing**
+- [x] **Step 2: Implement atomic package writing**
 
   Write into `build/stylus/.tmp-<pid>` and rename only after every planned file succeeds. Reject `..`, absolute paths, duplicate paths, and output outside the requested root.
 
-- [ ] **Step 3: Add Just and optional CI gates**
+- [x] **Step 3: Add Just and optional CI gates**
 
   Add `stylus-rust-counter` outside the default `check` until the toolchain is available in hosted CI. Add an optional `stylus-smoke` job that pins Rust, the Wasm target, SDK, and cargo-stylus versions.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Run `just stylus-rust-counter`, YAML parse, `just test-equivalence`, and `git diff --check`; commit:
 

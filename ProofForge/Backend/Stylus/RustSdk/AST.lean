@@ -21,9 +21,9 @@ inductive RustReturnType where
 
 inductive RustStmt where
   | letLiteral (name typeName value : String)
-  | letStorageGet (name field : String)
+  | letStorageGet (name field : String) (type : StylusAbiType)
   | letAdd (name typeName lhs rhs : String) (mode : StylusOverflowMode)
-  | storageSet (field value : String)
+  | storageSet (field value : String) (type : StylusAbiType)
   | returnValue (value : String)
   | okUnit
   deriving Repr, BEq

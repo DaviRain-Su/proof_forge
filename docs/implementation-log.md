@@ -543,3 +543,29 @@ Rules:
   - `git diff --check` passed
 - Remaining: generated-crate filesystem packaging, Rust/Wasm compilation, and
   `cargo stylus check` belong to Task 5.
+
+## 2026-07-12 - Stylus Task 5: Rust crate packaging and compile smoke
+
+- Status: `done`
+- Result: added validated atomic crate packaging with rejection of absolute,
+  traversal, malformed, duplicate, and pre-existing output paths. Added a
+  generated Counter runner and a pinned Rust SDK smoke that compares Cargo
+  metadata, runs native tests with the SDK `stylus-test` host, and builds
+  release `wasm32-unknown-unknown` output.
+- Review repair: the real SDK compile established that `sol_storage! uint64`
+  uses Alloy `U64` while public ABI methods use Rust `u64`. The renderer now
+  emits explicit `U64::from` stores and `.to::<u64>()` loads. Rust commands are
+  bound to rustup toolchain `1.91.0` so Homebrew PATH entries cannot silently
+  select another compiler.
+- CI: added optional `stylus-smoke`, pinned to Rust `1.91.0`,
+  `wasm32-unknown-unknown`, and `cargo-stylus =0.10.8`; strict CI mode rejects
+  missing or mismatched tools.
+- Verification:
+  - `just stylus-package` passed
+  - `just stylus-rust-render` passed
+  - `just stylus-rust-counter` passed native tests and Wasm release build;
+    local `cargo stylus check` was a named SKIP because cargo-stylus is absent
+  - GitHub Actions YAML parsed successfully
+  - `just test-equivalence` passed (110 recipes)
+  - `git diff --check` passed
+- Remaining: abstract HostIO semantics and Counter lifecycle belong to Task 6.

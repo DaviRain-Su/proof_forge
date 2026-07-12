@@ -13,3 +13,5 @@ stylus-sdk = "=0.10.8"
 [features]
 default = []
 export-abi = ["stylus-sdk/export-abi"]
+stylus-test = ["stylus-sdk/stylus-test"]
+contract-client-gen = []

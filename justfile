@@ -104,6 +104,15 @@ stylus-rust-render:
     lake build ProofForge.Backend.Stylus.RustSdk.Render ProofForge.Backend.Stylus.Plan.Core
     lake env lean --run Tests/Stylus/RustRender.lean
 
+# Package safety contract for generated Stylus crates.
+stylus-package:
+    lake build ProofForge.Backend.Stylus.Package
+    lake env lean --run Tests/Stylus/Package.lean
+
+# Optional Rust SDK compile/check smoke; cargo-stylus skips locally when absent.
+stylus-rust-counter:
+    scripts/stylus/rust-counter-smoke.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

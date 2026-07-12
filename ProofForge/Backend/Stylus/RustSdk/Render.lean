@@ -67,10 +67,14 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       pure (.letLiteral (localName result) (← rustTypeName type) (← literalText value))
   | .storageLoad result wordId => do
       let field <- storageField plan wordId
-      pure (.letStorageGet (localName result) field.name)
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      pure (.letStorageGet (localName result) field.name word.type)
   | .storageCache wordId value => do
       let field <- storageField plan wordId
-      pure (.storageSet field.name (localName value))
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      pure (.storageSet field.name (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
 
@@ -107,11 +111,26 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
 
 private def indent (level : Nat) : String := String.ofList (List.replicate (level * 4) ' ')
 
+private def storageRustAlias : StylusAbiType -> Option String
+  | .uint 8 => some "U8" | .uint 32 => some "U32" | .uint 64 => some "U64"
+  | .uint 128 => some "U128" | .uint 160 => some "U160" | .uint 256 => some "U256"
+  | _ => none
+
+private def storageRead (field : String) (type : StylusAbiType) : String :=
+  match type with
+  | .uint bits => s!"self.{field}.get().to::<u{bits}>()"
+  | _ => s!"self.{field}.get()"
+
+private def storageWrite (field value : String) (type : StylusAbiType) : String :=
+  match storageRustAlias type with
+  | some alias => s!"self.{field}.set({alias}::from({value}));"
+  | none => s!"self.{field}.set({value});"
+
 private def renderStmt (stmt : RustStmt) : Array String :=
   match stmt with
   | .letLiteral name typeName value => #[s!"let {name}: {typeName} = {value};"]
-  | .letStorageGet name field => #[s!"let {name} = self.{field}.get();"]
-  | .storageSet field value => #[s!"self.{field}.set({value});"]
+  | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
+  | .storageSet field value type => #[storageWrite field value type]
   | .returnValue value => #[value]
   | .okUnit => #["Ok(())"]
   | .letAdd name typeName lhs rhs .wrapping =>
@@ -140,13 +159,13 @@ private def renderLib (contract : RustContract) : String :=
   String.intercalate "\n" <| (#[] ++ #[
     "#![cfg_attr(not(any(test, feature = \"export-abi\")), no_main)]",
     "#![cfg_attr(not(test), no_std)]", "", "extern crate alloc;", "",
-    "use alloc::vec::Vec;", "use stylus_sdk::prelude::*;", "",
+    "use alloc::{vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*};", "",
     "sol_storage! {", s!"{indent 1}#[entrypoint]", indent 1 ++ "pub struct " ++ contract.name ++ " {"
   ] ++ storage ++ #[indent 1 ++ "}", "}", "", "#[public]", "impl " ++ contract.name ++ " {"] ++
     (functions.toList.intersperse "").toArray ++ #["}", ""]).toList
 
 private def cargoToml (crateName : String) : String :=
-  s!"[package]\nname = \"{crateName}\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"lib\"]\n\n[dependencies]\nstylus-sdk = \"=0.10.8\"\n\n[features]\ndefault = []\nexport-abi = [\"stylus-sdk/export-abi\"]\n"
+  s!"[package]\nname = \"{crateName}\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"lib\"]\n\n[dependencies]\nstylus-sdk = \"=0.10.8\"\n\n[features]\ndefault = []\nexport-abi = [\"stylus-sdk/export-abi\"]\nstylus-test = [\"stylus-sdk/stylus-test\"]\ncontract-client-gen = []\n"
 
 private def crateSlug (moduleName : String) : String :=
   "proof-forge-" ++ String.toLower moduleName ++ "-stylus"
