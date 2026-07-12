@@ -35,8 +35,8 @@
 | A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | done（审查修复完成） | 可执行最小生命周期与明确合规限制 |
 | A5 | 主三链 NFT intent 物化 | done（审查修复完成） | 所有接受路径进入严格 target plan；Solana 对完整 account pubkey 做哈希 |
 | A6 | NFT CLI/product/runtime 路线 | done（在 `6a6022ea` 验证） | 三套诚实制品以及 EVM/Surfpool/NEAR 生命周期运行时证据均通过 |
-| B1 | 中立 Wasm-host plan 与 ABI | A6 后 pending | 保持 NEAR 输出与运行时行为 |
-| B2 | 严格 canonical target gate | B1 后 pending | adapter/validator/HostOp/builder 错误 fail closed |
+| B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
+| B2 | 严格 canonical target gate | done | adapter/validator/HostOp/builder 错误 fail closed |
 | B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
 | C1 | PSy canonical plan | A6 后 pending | 严格 fixture gate；不改变成熟度 |
 | C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |

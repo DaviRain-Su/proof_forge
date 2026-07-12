@@ -171,10 +171,10 @@
 **Interfaces:**
 - Produces: `runStrictCanonicalTargetGate`.
 
-- [ ] Test adapter, validator, HostOp, builder, and unknown-target failures.
-- [ ] Implement strict behavior without changing the legacy advisory route.
-- [ ] Add positive primary-triad fixture tests.
-- [ ] Run canonical, product, check, and diff gates; commit.
+- [x] Test adapter, validator, HostOp, builder, and unknown-target failures.
+- [x] Implement strict behavior without changing the legacy advisory route.
+- [x] Add positive primary-triad fixture tests.
+- [x] Run canonical, product, check, and diff gates; commit.
 
 ### Task 9: Promote Soroban Counter
 

@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "f25b4c1486af1ceaf1dec4c37bc1d8c94ae22ce3dd5838d07ac7e96201b3802f",
+    "sha256": "96b9f9920ea4f24a5f43fd38fd3e11012e32dce4120ac72a208964ebc5748012",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh A6 artifact review status"
+    "note": "synced EN/zh B1+B2 completion status"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

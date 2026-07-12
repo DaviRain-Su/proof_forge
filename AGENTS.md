@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Active task | None (B1 done) |
-| Next task | B2 - Add a strict canonical target gate |
+| Active task | None (B2 done) |
+| Next task | B3 - Promote Soroban Counter |
 | Known blocker | None recorded |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
@@ -83,7 +83,7 @@ This table is only the agent routing index.
 | D3 | done (verified at 545d7a51) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
 | D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
 | B1 | done (verified at c8d2bbb6) | Extract a neutral Wasm-host plan | Plan Task 7 |
-| B2 | pending after B1 | Add a strict canonical target gate | Plan Task 8 |
+| B2 | done | Add a strict canonical target gate | Plan Task 8 |
 | B3 | pending after B2 | Promote Soroban Counter | Plan Task 9 |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
 | C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |

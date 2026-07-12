@@ -323,3 +323,27 @@ Rules:
     has Java 11 and the existing gate requires Java 17+
   - `git diff --check` passed
 - Remaining: none for B1. Soroban behavior belongs to B3.
+
+## 2026-07-12 - B2: Add a strict canonical target gate
+
+- Status: `done`
+- Commit: pending (this change)
+- Result: added `Tests/Canonical/StrictTargetGate.lean` with positive
+  primary-triad fixture tests (Counter and ValueVault passing strict gate on
+  evm, solana-sbpf-asm, wasm-near), unknown-target rejection, non-primary
+  registered-target rejection, and advisory-vs-strict agreement. Added
+  `strict-target-gate` justfile recipe and wired it into `check`. The strict
+  gate implementation (`runStrictCanonicalTargetGate`,
+  `runStrictCanonicalContractGate`, `runStrictCheckedTargetGate`) was already
+  in `CanonicalPipeline.lean` from B1 work. The advisory
+  `runCanonicalValidationGate` route is unchanged.
+- Interfaces: `ProofForge.Compiler.runStrictCanonicalTargetGate`,
+  `ProofForge.Compiler.runStrictCanonicalContractGate`,
+  `Tests/Canonical/StrictTargetGate.lean`, `just strict-target-gate`.
+- Verification:
+  - `just strict-target-gate` passed
+  - `just strict-intent-materialization` passed
+  - `just product` passed
+  - `git diff --check` passed
+- Remaining: none
+- Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
