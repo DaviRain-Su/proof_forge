@@ -31,23 +31,23 @@
 - Produces: `load_manifest(path: Path) -> Manifest`, `validate_manifest(manifest: Manifest, known_recipes: set[str]) -> list[str]`, and `just test-manifest`.
 - Consumes: recipe names from `just --summary` and the current serial `check` coverage list.
 
-- [ ] **Step 1: Write failing manifest unit tests**
+- [x] **Step 1: Write failing manifest unit tests**
 
   Add `unittest` cases for duplicate recipes, unknown execution classes, missing lanes, invalid commands, and one valid minimal manifest. Run `python3 -m unittest scripts/test-framework/test_manifest.py`; expect import failure because `manifest.py` does not exist.
 
-- [ ] **Step 2: Implement typed manifest parsing**
+- [x] **Step 2: Implement typed manifest parsing**
 
   Define frozen dataclasses `RecipeSpec(name, lane, execution, tags)` and `Manifest(version, recipes)`. Accept only execution values `isolated`, `lane_serial`, and `exclusive`; reject duplicate names and empty lanes with actionable messages.
 
-- [ ] **Step 3: Check in the initial full coverage map**
+- [x] **Step 3: Check in the initial full coverage map**
 
   Transcribe every dependency of the existing `check` recipe into `lanes.json`. Assign each exactly once to `core-product`, `evm`, `solana`, or `wasm-other-exclusive`; mark `rebuild-hash`, worker-control recipes, shared testkit, and fixed-service recipes exclusive.
 
-- [ ] **Step 4: Add repository validation**
+- [x] **Step 4: Add repository validation**
 
   Compare manifest names with `just --summary` and with a checked-in `serialCoverage` array in the manifest. Fail on missing, duplicate, or nonexistent recipes. Run `python3 -m unittest scripts/test-framework/test_manifest.py` and `python3 scripts/test-framework/manifest.py --check`; expect PASS.
 
-- [ ] **Step 5: Add and run the Just gate**
+- [x] **Step 5: Add and run the Just gate**
 
   Add:
 
@@ -59,7 +59,7 @@
 
   Run `just test-manifest` and `git diff --check`; expect PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add scripts/test-framework/lanes.json scripts/test-framework/manifest.py scripts/test-framework/test_manifest.py justfile
@@ -77,27 +77,27 @@
 - Consumes: `Manifest` and selected `RecipeSpec` values from Task 1.
 - Produces: `detect_jobs(env: Mapping[str, str], cpu_count: int | None) -> int`, `run_schedule(...) -> RunReport`, CLI modes `--full`, `--lane`, and `--dry-run`.
 
-- [ ] **Step 1: Write failing scheduler tests**
+- [x] **Step 1: Write failing scheduler tests**
 
   Cover CPU counts `None`, `1`, `8`; valid `JOBS=2`; invalid `0`, negative, and nonnumeric values; maximum active workers; exclusive ordering; failure cancellation; nonzero propagation; and JSON duration output. Use temporary Python commands rather than project recipes. Expect import failure.
 
-- [ ] **Step 2: Implement concurrency detection**
+- [x] **Step 2: Implement concurrency detection**
 
   Return `min(cpu_count or 1, 4)` when `JOBS` is absent. Parse `JOBS` as a positive integer without applying the automatic cap to an explicit override.
 
-- [ ] **Step 3: Implement process-group scheduling**
+- [x] **Step 3: Implement process-group scheduling**
 
   Launch `just <recipe>` with `start_new_session=True`, write combined output to `build/test-lanes/<run-id>/<lane>.log`, and terminate all surviving process groups on failure or interrupt. Never run an exclusive recipe while another child is active.
 
-- [ ] **Step 4: Implement reports and dry-run**
+- [x] **Step 4: Implement reports and dry-run**
 
   Emit `timings.json` with commit, CPU count, effective jobs, total seconds, lane seconds, recipe seconds, and status. Print the five slowest recipes plus exact reproduction commands. `--dry-run` prints ordering without spawning `just`.
 
-- [ ] **Step 5: Add scheduler self-test gate**
+- [x] **Step 5: Add scheduler self-test gate**
 
   Add `test-scheduler` to `justfile`, run `just test-scheduler`, `JOBS=1 python3 scripts/test-framework/scheduler.py --dry-run --full`, and `JOBS=4 ...`; expect deterministic coverage and PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add scripts/test-framework/scheduler.py scripts/test-framework/test_scheduler.py justfile
@@ -116,15 +116,15 @@
 - Consumes: changed paths from `git diff --name-only <base>...HEAD` and manifest tags.
 - Produces: `select_tags(paths: Sequence[str]) -> set[str]`, CLI `--fast`, and `just check-fast`.
 
-- [ ] **Step 1: Write table-driven failing tests**
+- [x] **Step 1: Write table-driven failing tests**
 
   Pin EVM, Solana, Wasm/NEAR, shared IR/frontend/contract, docs/i18n, scheduler/CI, and unknown-path mappings. Pin the empty-diff fallback to the fixed fast baseline.
 
-- [ ] **Step 2: Implement conservative path selection**
+- [x] **Step 2: Implement conservative path selection**
 
   Use `CHECK_BASE` when set; otherwise use the merge base with the configured upstream, falling back to `HEAD^`. Unknown infrastructure paths select the fixed baseline plus scheduler self-tests.
 
-- [ ] **Step 3: Wire fast execution**
+- [x] **Step 3: Wire fast execution**
 
   Add manifest tags and:
 
@@ -135,11 +135,11 @@
 
   Run selector unit tests and dry runs for synthetic EVM, Solana, Wasm, docs, and shared changes; expect the pinned recipe sets.
 
-- [ ] **Step 4: Run representative fast gates**
+- [x] **Step 4: Run representative fast gates**
 
   Run `CHECK_BASE=HEAD just check-fast` and one temporary commit-range fixture per backend. Record duration in the implementation log; require correct selection, not yet the final 2-5 minute target.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add scripts/test-framework/select.py scripts/test-framework/test_select.py scripts/test-framework/lanes.json justfile docs/implementation-log.md
@@ -157,27 +157,27 @@
 **Interfaces:**
 - Produces: `just check-serial`, `just check-parallel`, `just check-lane LANE`, and exact serial/parallel coverage comparison.
 
-- [ ] **Step 1: Preserve the serial reference**
+- [x] **Step 1: Preserve the serial reference**
 
   Rename the current dependency list to `check-serial`. Keep `check` as an alias to `check-serial` during rollout.
 
-- [ ] **Step 2: Add full and per-lane commands**
+- [x] **Step 2: Add full and per-lane commands**
 
   Wire `check-parallel` to `scheduler.py --full` and `check-lane lane` to `--lane`. Verify `JOBS=1 just check-parallel --dry-run` contains the same coverage as four jobs.
 
-- [ ] **Step 3: Add equivalence tests**
+- [x] **Step 3: Add equivalence tests**
 
   Compare the manifest `serialCoverage` set with the `check-serial` dependencies and reject drift. Use `just --dump --dump-format json` when supported; otherwise maintain a machine-readable generated dependency file checked by both recipes, not regex parsing.
 
-- [ ] **Step 4: Verify exclusive resource classification**
+- [x] **Step 4: Verify exclusive resource classification**
 
   Run scheduler fixtures that model shared output roots, fixed ports, and destructive rebuild directories. Keep `rebuild-hash`, `worker-limits`, `worker-cgroup`, and `testkit` exclusive in the initial release, with manifest reasons naming the protected resource.
 
-- [ ] **Step 5: Verify local framework**
+- [x] **Step 5: Verify local framework**
 
   Run `just test-manifest`, `just test-scheduler`, `python3 -m unittest scripts/test-framework/test_equivalence.py`, `JOBS=1 just check-parallel`, and `git diff --check`; expect PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add justfile scripts/test-framework docs/implementation-log.md
@@ -196,19 +196,19 @@
 - Consumes: scheduler timing JSON and serial wall time.
 - Produces: committed comparison report and cutover decision.
 
-- [ ] **Step 1: Implement benchmark aggregation**
+- [x] **Step 1: Implement benchmark aggregation**
 
   Read timing reports and render machine, commit, job count, serial wall time, parallel wall time, improvement percentage, lane balance, and slowest recipes.
 
-- [ ] **Step 2: Run the required qualification matrix**
+- [x] **Step 2: Run the required qualification matrix**
 
   Run one `JOBS=1 just check-parallel`, three consecutive default-job `just check-parallel` runs, and one `just check-serial` on the same clean commit and warm cache.
 
-- [ ] **Step 3: Evaluate acceptance**
+- [x] **Step 3: Evaluate acceptance**
 
   Require three green parallel runs, exact coverage equivalence, at least 35% local improvement, and no unexplained lane above 1.5 times median duration. Keep `check` serial if any condition fails and record the blocker.
 
-- [ ] **Step 4: Document gates and commit**
+- [x] **Step 4: Document gates and commit**
 
   Run `just docs-check` and `git diff --check`, then commit timing report, validation catalog, and implementation log.
 
@@ -222,19 +222,19 @@
 **Interfaces:**
 - Produces: required jobs `product`, `check-lane` matrix, and `check-summary`.
 
-- [ ] **Step 1: Add a four-lane matrix after product**
+- [x] **Step 1: Add a four-lane matrix after product**
 
   Configure matrix values from the four manifest lane names. Each job installs the existing required tools, restores toolchain-keyed caches, and runs `just check-lane ${{ matrix.lane }}`.
 
-- [ ] **Step 2: Add summary and artifact upload**
+- [x] **Step 2: Add summary and artifact upload**
 
   Require all matrix cells. Upload `build/test-lanes/**/timings.json` always and lane logs on failure. Keep optional live jobs unchanged.
 
-- [ ] **Step 3: Remove duplicate backend execution only after comparison**
+- [x] **Step 3: Remove duplicate backend execution only after comparison**
 
   Compare old `build-test` steps against manifest coverage. Delete a step only when the validator proves its recipe exists in a required lane.
 
-- [ ] **Step 4: Validate and commit**
+- [x] **Step 4: Validate and commit**
 
   Run `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml")'`, scheduler dry-run for every lane, `just test-manifest`, and `git diff --check`; commit the workflow change.
 
@@ -250,18 +250,18 @@
 **Interfaces:**
 - Produces: Woodpecker parallel coordinator use and, only when qualified, `check -> check-parallel` with `check-serial` fallback.
 
-- [ ] **Step 1: Wire Woodpecker to the shared coordinator**
+- [x] **Step 1: Wire Woodpecker to the shared coordinator**
 
   Preserve product-first ordering, then run `just check-parallel` with the default four-job cap. Do not duplicate canonical/product commands already proven by required steps unless the coverage policy intentionally requires them.
 
-- [ ] **Step 2: Decide default cutover from Task 5 evidence**
+- [x] **Step 2: Decide default cutover from Task 5 evidence**
 
   If all thresholds pass, make `check: check-parallel`; otherwise leave `check: check-serial` and record measured blockers. Never claim the cutover without the timing report.
 
-- [ ] **Step 3: Update agent and validation documentation**
+- [x] **Step 3: Update agent and validation documentation**
 
   Document `check-fast` for inner-loop work, `check-parallel` for pre-push, `check-serial` for race diagnosis, `JOBS`, `CHECK_BASE`, log locations, and optional-tool exclusions. Sync translations and manifest hashes.
 
-- [ ] **Step 4: Final verification and commit**
+- [x] **Step 4: Final verification and commit**
 
   Run `ruby -e 'require "yaml"; YAML.load_file(".woodpecker.yml")'`, scheduler unit tests, manifest/equivalence validation, `just docs-check`, the selected default full gate, and `git diff --check`. Commit and push the completed framework.

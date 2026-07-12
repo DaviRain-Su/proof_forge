@@ -217,9 +217,9 @@ Rules:
   A6 acceptance criterion, not deferred completion evidence.
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
 
-## 2026-07-12 - Parallel test framework Tasks 1-3
+## 2026-07-12 - Parallel test framework Tasks 1-7
 
-- Status: `in_progress`
+- Status: `done locally (remote CI verification pending)`
 - Manifest: 108 serial `check` recipes classified into four conflict-aware
   lanes with exact coverage validation.
 - Scheduler: automatic `min(CPU, 4)` concurrency, positive `JOBS` override,
@@ -239,8 +239,16 @@ Rules:
     `solana-light` (142.09 seconds), `testkit` (136.18 seconds), and
     `quint-mbt-gate` (101.73 seconds) as the dominant critical-path work
   - `git diff --check` passed
-- Remaining: full parallel/serial entrypoints, equivalence gate, repeated
-  stability and performance qualification, then CI integration.
+- Entrypoints: `check` now selects the qualified parallel coordinator;
+  `check-parallel`, `check-serial`, `check-fast`, and `check-lane` retain
+  explicit full, diagnostic, inner-loop, and CI surfaces.
+- CI integration: GitHub uses a required four-lane matrix after `product`, and
+  Woodpecker runs the same coordinator with `JOBS=4` after its product step.
+- Commits: `d2512bab` through `eacfeadf` on
+  `feature/parallel-test-framework`.
+- Remaining: verify the first pushed GitHub matrix and record its critical-path
+  timing against the previous serial workflow. This is deployment evidence,
+  not missing local framework implementation.
 
 ### Local parallel qualification
 
