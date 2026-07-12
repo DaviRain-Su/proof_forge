@@ -38,7 +38,7 @@ July 12 implementation plan.
 | A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
 | A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
-| B2 | Add strict canonical target gate | done | adapter/validator/HostOp/builder errors fail closed |
+| B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
 | B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
 | C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |

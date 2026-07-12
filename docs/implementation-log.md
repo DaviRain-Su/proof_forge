@@ -326,8 +326,8 @@ Rules:
 
 ## 2026-07-12 - B2: Add a strict canonical target gate
 
-- Status: `done`
-- Commit: pending (this change)
+- Status: `done (verified at d4df51bc)`
+- Commits: implementation `23e66248`; review repair `d4df51bc`
 - Result: added `Tests/Canonical/StrictTargetGate.lean` with positive
   primary-triad fixture tests (Counter and ValueVault passing strict gate on
   evm, solana-sbpf-asm, wasm-near), unknown-target rejection, non-primary
@@ -343,7 +343,14 @@ Rules:
 - Verification:
   - `just strict-target-gate` passed
   - `just strict-intent-materialization` passed
+  - `just wasm-host-plan-preservation` passed
   - `just product` passed
+  - `just check` passed; Quint verification explicitly skipped because this host
+    has Java 11 and the existing gate requires Java 17+
   - `git diff --check` passed
+- Review repair: pinned the registered non-primary rejection to the named
+  `wasm-cosmwasm` capability boundary and required the advisory gate to succeed
+  independently on known-good primary-triad fixtures. The original test accepted
+  any non-primary error and treated a shared advisory/strict failure as agreement.
 - Remaining: none
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.

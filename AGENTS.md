@@ -83,7 +83,7 @@ This table is only the agent routing index.
 | D3 | done (verified at 545d7a51) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
 | D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
 | B1 | done (verified at c8d2bbb6) | Extract a neutral Wasm-host plan | Plan Task 7 |
-| B2 | done | Add a strict canonical target gate | Plan Task 8 |
+| B2 | done (verified at d4df51bc) | Add a strict canonical target gate | Plan Task 8 |
 | B3 | pending after B2 | Promote Soroban Counter | Plan Task 9 |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
 | C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |
