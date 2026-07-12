@@ -33,12 +33,12 @@
 - Consumes: pointer-backed 16-byte `uint128` values and `widePtr` scratch allocation.
 - Produces: `uint128` `lt/le/gt/ge`, checked scratch allocation, and named exhaustion diagnostics.
 
-- [ ] Add failing vectors for high-word ordering, equal values, low-word ordering, and all four predicates through `user_entrypoint`.
-- [ ] Add a failing plan whose highest wide SSA id exceeds `maxMemoryPages * 65536`; expect `capability=memory.scratch` before WAT emission.
-- [ ] Implement bytewise unsigned lexicographic comparison over 16-byte big-endian values without comparing pointers.
-- [ ] Replace implicit `1024 + id * 32` trust with a checked layout pass consumed by lowering; reject overlap with ABI/context/result scratch regions.
-- [ ] Run `just stylus-wide-values`, `just stylus-wide-arithmetic`, `just stylus-scalar-params`, `just stylus-counter-differential`, and `git diff --check`.
-- [ ] Commit as `feat(stylus): close u128 semantics and scratch bounds`.
+- [x] Add failing vectors for high-word ordering, equal values, low-word ordering, and all four predicates through `user_entrypoint`.
+- [x] Add a failing plan whose highest wide SSA id exceeds `maxMemoryPages * 65536`; expect `capability=memory.scratch` before WAT emission.
+- [x] Implement bytewise unsigned lexicographic comparison over 16-byte big-endian values without comparing pointers.
+- [x] Replace implicit `1024 + id * 32` trust with a checked layout pass consumed by lowering; reject overlap with ABI/context/result scratch regions.
+- [x] Run `just stylus-wide-values`, `just stylus-wide-arithmetic`, `just stylus-scalar-params`, `just stylus-counter-differential`, and `git diff --check`.
+- [x] Commit as `feat(stylus): close u128 semantics and scratch bounds`.
 
 ### Task 2: Complete Canonical ValueVault and Nitro E2E
 

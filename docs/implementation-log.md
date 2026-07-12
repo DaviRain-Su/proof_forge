@@ -859,6 +859,21 @@ Rules:
 - Remaining: unsigned `uint128` ordering and scratch-bound validation, followed
   by the complete payable ValueVault plan and Nitro deployment gate.
 
+## 2026-07-13 - Stylus completion Task 1: u128 ordering and scratch bounds
+
+- Status: `done`
+- Added checked wide scratch allocation using the plan's declared memory pages.
+  A wide literal/add/storage result whose stable scratch end exceeds the Wasm
+  limit now fails before module emission with `capability=memory.scratch` and
+  target/function/block/value diagnostics.
+- Added unsigned big-endian `uint128` ordering without pointer comparison.
+  `lt/le/gt/ge` scan from the most significant byte, stop on the first unequal
+  byte, and handle equality explicitly for inclusive predicates.
+- Verification: wide-value runtime vectors cover high-word ordering, low-word
+  ordering, equality, values above `u64`, and 129-bit rejection. The arithmetic
+  gate covers literal/storage, checked rollback, and wrapping overflow. Task 1
+  now hands off to the canonical ValueVault/Nitro closure.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

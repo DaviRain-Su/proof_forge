@@ -15,7 +15,7 @@ private def fail (message : String) : Except LowerError α :=
   .error { message }
 
 private def valueLocal (id : StylusValueId) : String := s!"v{id}"
-private def widePtr (id : StylusValueId) : Nat := 1024 + id * 32
+private def widePtr (id : StylusValueId) : Nat := wideScratchPtr id
 
 private def opName : StylusOpPlan -> String
   | .literal result .. => s!"literal-{result}"
@@ -124,6 +124,26 @@ private def addWide128 (result lhs rhs : StylusValueId) (mode : StylusOverflowMo
         .call "write_result", .i32Const 1, .return_])]
   return insns ++ #[.i64Const target, .localSet (valueLocal result)]
 
+private def compareWide128Ordering (result lhs rhs : StylusValueId)
+    (operation : StylusCompareOp) : Array Insn := Id.run do
+  let instruction := match operation with
+    | .lt | .le => "i32.lt_u"
+    | .gt | .ge => "i32.gt_u"
+    | _ => "i32.eq"
+  let mut insns : Array Insn := #[.i64Const 0, .localSet (valueLocal result),
+    .i64Const 0, .localSet "wideDone"]
+  for index in [0:16] do
+    let load (value : StylusValueId) : Array Insn := #[.localGet (valueLocal value),
+      .plain "i32.wrap_i64", .i32Const index, .plain "i32.add", .load "i32.load8_u" 0]
+    let decide := load lhs ++ load rhs ++ #[.plain instruction, .plain "i64.extend_i32_u",
+      .localSet (valueLocal result), .i64Const 1, .localSet "wideDone"]
+    let compare := load lhs ++ load rhs ++ #[.plain "i32.ne", .if_ (.mk decide) .empty]
+    insns := insns ++ #[.localGet "wideDone", .plain "i64.eqz", .if_ (.mk compare) .empty]
+  if operation == .le || operation == .ge then
+    insns := insns ++ #[.localGet "wideDone", .plain "i64.eqz",
+      .if_ (.mk #[.i64Const 1, .localSet (valueLocal result)]) .empty]
+  return insns
+
 private def nonPayablePrologue : Array Insn := Id.run do
   let mut check : Array Insn := #[.i32Const valuePtr, .call "msg_value", .i32Const 0]
   for index in [0:u256Bytes] do
@@ -154,8 +174,13 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
   let values := ids.map fun id => { name := valueLocal id, type := .i64 }
   let hasWideAdd := function.blocks.any fun block => block.operations.any fun op =>
     match op with | .add _ (.uint 128) .. => true | _ => false
-  return if hasWideAdd then values ++ #[{ name := "wideCarry", type := .i64 },
+  let hasWideOrdering := function.blocks.any fun block => block.operations.any fun op =>
+    match op with
+    | .compare _ (.uint 128) operation .. => operation != .eq && operation != .ne
+    | _ => false
+  let values := if hasWideAdd then values ++ #[{ name := "wideCarry", type := .i64 },
     { name := "wideTmp", type := .i64 }] else values
+  return if hasWideOrdering then values.push { name := "wideDone", type := .i64 } else values
 
 private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : StylusOpPlan) : Except LowerError (Array Insn) := do
@@ -240,8 +265,7 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           | .ne => pure <| pointerBytesEqual (valueLocal lhs) (valueLocal rhs) 16 (valueLocal result) ++
               #[.localGet (valueLocal result), .plain "i64.eqz", .plain "i64.extend_i32_u",
                 .localSet (valueLocal result)]
-          | _ => throw (diagnostic plan function block (opName op) "compare.uint128"
-              "uint128 ordering is not implemented")
+          | operation => pure (compareWide128Ordering result lhs rhs operation)
       | .bool | .uint _ =>
           let instruction := match operation with
             | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_u"

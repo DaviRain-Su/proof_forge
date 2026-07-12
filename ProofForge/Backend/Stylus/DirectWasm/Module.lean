@@ -97,9 +97,29 @@ private def ensureHostOpsComplete (plan : StylusPlan) : Except LowerError Unit :
         s!"op={hostOp.id} capability={repr hostOp.operation} renderer=direct-wasm: " ++
         "HostOp import handler is not implemented" }
 
+private def wideResult? (plan : StylusPlan) : StylusOpPlan -> Option StylusValueId
+  | .literal result (.uint 128) _ | .add result (.uint 128) .. => some result
+  | .storageLoad result wordId =>
+      if plan.storage.words.any (fun word => word.id == wordId && word.type == .uint 128)
+      then some result else none
+  | _ => none
+
+private def ensureWideScratchFits (plan : StylusPlan) : Except LowerError Unit := do
+  let limit := plan.resources.maxMemoryPages * wasmPageBytes
+  for function in plan.functions do
+    for block in function.blocks do
+      for op in block.operations do
+        if let some result := wideResult? plan op then
+          let endOffset := wideScratchPtr result + 16
+          if endOffset > limit then
+            throw { message := s!"target={plan.targetId} function={function.id} block={block.id} " ++
+              s!"op=wide-{result} capability=memory.scratch renderer=direct-wasm: " ++
+              s!"wide scratch end {endOffset} exceeds memory limit {limit}" }
+
 def lowerFromPlan (plan : StylusPlan) : Except LowerError Module := do
   validatePlan plan |>.mapError fun error => { message := error.message }
   ensureHostOpsComplete plan
+  ensureWideScratchFits plan
   let imports <- selectImports (plan.hostOps.push {
       id := "module.calldata", functionId := "user_entrypoint", operation := .calldataCopy,
       support := { rustSdk := .implemented, directWasm := .implemented } })

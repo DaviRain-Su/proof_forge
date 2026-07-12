@@ -79,4 +79,33 @@ def main : IO Unit := do
     | .ok value => pure value | .error error => throw <| IO.userError error.message
   IO.FS.createDirAll "build/stylus/wide-arithmetic"
   IO.FS.writeFile "build/stylus/wide-arithmetic/add.wat" (ProofForge.Compiler.Wasm.Printer.render module)
+  let hugeMethod : StylusAbiMethodPlan := {
+    name := "huge", canonicalSignature := "huge()", selector := #[0x01, 0x02, 0x03, 0x04]
+    returns := #[.uint 128], mutability := .view
+  }
+  let hugePlan : StylusPlan := {
+    targetId := "wasm-arbitrum-stylus", moduleName := "HugeScratch"
+    abi := { methods := #[hugeMethod], errors := #[] }, storage := { words := #[] }
+    functions := #[{
+      id := "huge", abiMethod := "huge", entryBlock := 0
+      blocks := #[{
+        id := 0
+        operations := #[.literal 3000 (.uint 128) (.uint 1)]
+        terminator := .return #[3000]
+      }]
+      support
+    }]
+    events := #[], calls := #[]
+    hostOps := #[
+      { id := "huge.value", functionId := "huge", operation := .msgValue, support },
+      { id := "huge.result", functionId := "huge", operation := .writeResult, support }
+    ]
+    resources := { maxMemoryPages := 1, requiresStorageFlush := false }
+    artifacts := { solidityAbi := true, typescriptClient := true }
+  }
+  match ProofForge.Backend.Stylus.DirectWasm.lowerFromPlan hugePlan with
+  | .error error =>
+      if !error.message.contains "capability=memory.scratch" then
+        throw <| IO.userError s!"unexpected scratch diagnostic: {error.message}"
+  | .ok _ => throw <| IO.userError "wide scratch overflow was accepted"
   IO.println "stylus-wide-arithmetic: ok"
