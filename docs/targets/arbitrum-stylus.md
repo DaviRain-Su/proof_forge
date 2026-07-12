@@ -64,7 +64,9 @@ Stylus backend must not route through `NearModulePlan`.
 
 1. Counter (research implementation): `u64` scalar storage, ABI dispatch,
    checked arithmetic, cache flush, direct WAT compilation, and abstract/direct
-   normalized trace parity.
+   normalized trace parity. Static `bool`/`u8`/`u32`/`u64` function parameters
+   are plan-owned and lowered by both renderers; direct dispatch rejects
+   non-canonical ABI padding before the call.
 2. ValueVault: address, sender, value, block context, authorization, payable.
 3. Token: mappings, indexed events, allowance, EVM ABI interoperability.
 4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.

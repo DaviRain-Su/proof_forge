@@ -75,8 +75,13 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
           fail s!"Stylus storage word `{word.id}` literal slot must be 32 bytes"
     | _ => pure ()
   for function in plan.functions do
-    unless plan.abi.methods.any (fun method => method.name == function.abiMethod) do
-      fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"
+    let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
+      | fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"
+    unless function.params.map (fun param => (param.name, param.type)) ==
+        method.params.map (fun param => (param.name, param.type)) do
+      fail s!"Stylus function `{function.id}` parameters do not match its ABI method"
+    unless function.params.map (fun param => param.valueId) |>.toList.Pairwise (· != ·) do
+      fail s!"Stylus function `{function.id}` has duplicate parameter value ids"
   if plan.resources.requiresStorageFlush &&
       !plan.hostOps.any (fun op => op.operation == .storageFlush) then
     fail "Stylus mutating plan requires storage flush but has no storageFlush HostOp"

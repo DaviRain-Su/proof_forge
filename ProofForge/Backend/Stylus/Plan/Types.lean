@@ -147,9 +147,16 @@ structure StylusStoragePlan where
   words : Array StylusStorageWordPlan
   deriving Repr, BEq
 
+structure StylusFunctionParamPlan where
+  valueId : StylusValueId
+  name : String
+  type : StylusAbiType
+  deriving Repr, BEq
+
 structure StylusFunctionPlan where
   id : String
   abiMethod : String
+  params : Array StylusFunctionParamPlan := #[]
   entryBlock : StylusBlockId
   blocks : Array StylusBlockPlan
   support : RendererSupportPlan := {}

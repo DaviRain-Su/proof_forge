@@ -95,8 +95,6 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
   let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
     | fail s!"Rust SDK function `{function.id}` has no ABI method"
-  unless method.params.isEmpty do
-    fail s!"Rust SDK function `{function.id}` parameters are scheduled after Counter"
   let #[block] := function.blocks
     | fail s!"Rust SDK function `{function.id}` requires one block in the Counter slice"
   unless block.id == function.entryBlock do
@@ -120,6 +118,8 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
   pure {
     name := method.name
     receiver := if method.mutability == .view then .shared else .mutable
+    params := ← function.params.mapM fun param => do
+      pure { name := param.name, typeName := (← rustTypeName param.type), localName := localName param.valueId }
     returnType
     payable := method.payable
     body
@@ -166,16 +166,19 @@ private def renderStmt (stmt : RustStmt) : Array String :=
 
 private def renderFunctionText (function : RustFunction) : String :=
   let receiver := match function.receiver with | .shared => "&self" | .mutable => "&mut self"
+  let params := function.params.map fun param => s!"{param.name}: {param.typeName}"
+  let arguments := String.intercalate ", " <| (#[receiver] ++ params).toList
   let returnType := match function.returnType with
     | .unit => ""
     | .value name => s!" -> {name}"
     | .resultUnit => " -> Result<(), Vec<u8>>"
+  let bindings := function.params.map fun param => indent 2 ++ s!"let {param.localName} = {param.name};"
   let lines := function.body.foldl (fun lines stmt =>
     lines ++ (renderStmt stmt).map (fun line => indent 2 ++ line)) #[]
   let payable := if function.payable then indent 1 ++ "#[payable]\n" else ""
-  let header := payable ++ indent 1 ++ "pub fn " ++ function.name ++ "(" ++ receiver ++ ")" ++
+  let header := payable ++ indent 1 ++ "pub fn " ++ function.name ++ "(" ++ arguments ++ ")" ++
     returnType ++ " {"
-  String.intercalate "\n" <| (#[header] ++ lines ++ #[indent 1 ++ "}"]).toList
+  String.intercalate "\n" <| (#[header] ++ bindings ++ lines ++ #[indent 1 ++ "}"]).toList
 
 private def renderLib (contract : RustContract) : String :=
   let storage := contract.storage.map fun field =>

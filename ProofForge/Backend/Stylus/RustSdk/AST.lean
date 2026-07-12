@@ -36,9 +36,16 @@ structure RustStorageField where
   typeName : String
   deriving Repr, BEq
 
+structure RustParam where
+  name : String
+  typeName : String
+  localName : String
+  deriving Repr, BEq
+
 structure RustFunction where
   name : String
   receiver : RustReceiver
+  params : Array RustParam := #[]
   returnType : RustReturnType
   payable : Bool := false
   body : Array RustStmt

@@ -55,7 +55,9 @@ artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
 ## 已实现与计划支持片段
 
 1. Counter（research 实现）：`u64` scalar storage、ABI dispatch、checked arithmetic、
-   cache flush、Direct WAT 编译和 abstract/direct 归一化 trace parity。
+   cache flush、Direct WAT 编译和 abstract/direct 归一化 trace parity。静态
+   `bool`/`u8`/`u32`/`u64` 函数参数由 plan 持有并被两条 renderer lowering；
+   direct dispatch 会在调用前拒绝非 canonical ABI padding。
 2. ValueVault：address、sender、value、block、授权和 payable。
 3. Token：mapping、indexed event、allowance 和 EVM ABI 互操作。
 4. RemoteCall：call mode、value/gas、return data、revert、reentrancy。

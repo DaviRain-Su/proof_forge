@@ -802,6 +802,26 @@ Rules:
   and chain ID. Docker/RPC probes are bounded to five seconds and a partial
   environment returns `ready=false` with a nonzero status instead of hanging.
 
+## 2026-07-13 - Stylus Task 11 checkpoint: static scalar parameters
+
+- Status: `in_progress`
+- Added plan-owned ABI parameter identity (`valueId`, source name, and ABI
+  type), with validation that each function exactly matches its ABI method and
+  owns unique SSA parameter ids. The canonical Core builder now preserves this
+  contract instead of leaving renderers to reconstruct it.
+- Rust SDK rendering emits named public parameters and explicitly binds them to
+  the plan SSA locals consumed by operations. Direct Wasm emits typed internal
+  parameters, validates exact calldata length and canonical zero padding,
+  decodes static `bool`/`u8`/`u32`/`u64` words, and passes values through the
+  public `user_entrypoint` dispatcher. Wider values fail closed.
+- Verification: `just stylus-scalar-params` compiled WAT and executed
+  `echo(uint64)` through the Wasmtime `vm_hooks` runner, returning ABI-encoded
+  `42`; an adversarial word with nonzero high padding reverted. Core plan, Rust
+  render, direct ABI, diagnostics, Counter differential, and ValueVault
+  differential gates passed.
+- Remaining: represent `u128`/`U256` values without i64 truncation, then consume
+  `msg.value` in payable ValueVault business logic and prove it on Nitro.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

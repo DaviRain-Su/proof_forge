@@ -103,7 +103,7 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
   for block in function.blocks do
     for op in block.operations do
       for id in resultIds op do
-        unless ids.contains id do ids := ids.push id
+        unless ids.contains id || function.params.any (fun param => param.valueId == id) do ids := ids.push id
   return ids.map fun id => { name := valueLocal id, type := .i64 }
 
 private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
@@ -236,6 +236,7 @@ def lowerFunction (plan : StylusPlan) (function : StylusFunctionPlan) : Except L
   pure {
     name := functionName
     exportName := some functionName
+    params := function.params.map fun param => { name := valueLocal param.valueId, type := .i64 }
     results := #[.i32]
     locals := functionLocals function
     body := { insns := body }
