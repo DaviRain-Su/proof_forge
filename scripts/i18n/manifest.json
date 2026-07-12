@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "9eb23d45e97bbd531fe57650059d9138412a6f8524b31142a584dde61778983c",
+    "sha256": "50a800e88cf2012729dd41fbf65a387646bfb4c7eba606bc89b19bf862e10f4a",
     "zh": "docs/zh/decisions.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced for D-053 Stylus classification"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -141,10 +141,16 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "f83bfe438747e7c993f32c351dc21e4146b9f5be92d951f5515374d1b7b9ac60",
+    "sha256": "a660784210d260725b22dcf3b2fa10489effe9831bbd910f0eb1833b874204e1",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-10 audit integration"
+    "note": "manually synced for Stylus family classification"
+  },
+  "docs/targets/arbitrum-stylus.md": {
+    "sha256": "ab9a146946e00c51330e4a3bdb1d7f686bf2ac4953392955c5d2f877d321dc12",
+    "zh": "docs/zh/targets/arbitrum-stylus.zh.md",
+    "model": "manual-zh",
+    "note": "initial docs-only Stylus target classification"
   },
   "docs/targets/solana-sbf.md": {
     "sha256": "98fa9fcada4a214df7291553e65891c7a2c3b66a1d163d96a2eb280db3fffbfa",

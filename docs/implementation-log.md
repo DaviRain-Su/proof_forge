@@ -284,6 +284,23 @@ Rules:
   Cargo tests, `just test-manifest`, `just test-equivalence`, and
   `git diff --check` passed.
 
+## 2026-07-12 - Arbitrum Stylus Task 1 classification
+
+- Status: `done (docs-only)`
+- Classified planned target `wasm-arbitrum-stylus` under `wasmHost` while
+  preserving EVM ABI, 256-bit storage-slot, event, call, gas, and ink semantics.
+- Locked Direct HostIO Wasm as the final canonical renderer and Rust SDK
+  sourcegen as bootstrap, compatibility path, and differential oracle.
+- Pinned `stylus-sdk = "=0.10.8"`, `cargo-stylus = "=0.10.8"`, Rust `1.91.0`,
+  and `wasm32-unknown-unknown`.
+- Added D-053, roadmap classification, Wasm-family guidance, English/Chinese
+  target docs, and an executable docs contract.
+- Registry, CLI target lists, backend routing, and advertised product targets
+  remain unchanged.
+- Verification: `python3 scripts/targets/test-doc-targets.py`, i18n sync,
+  `just docs-check`, and `git diff --check` passed.
+- Next: Task 2, stable `StylusPlan` data contract.
+
 ### Local parallel qualification
 
 - `check-serial` warm-cache baseline: 1297.26 seconds.

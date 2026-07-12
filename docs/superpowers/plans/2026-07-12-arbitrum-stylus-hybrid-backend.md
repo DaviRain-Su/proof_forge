@@ -40,7 +40,7 @@
 - Consumes: official `stylus-sdk-rs`, `cargo-stylus`, and HostIO documentation.
 - Produces: exact SDK/toolchain pin, target classification, supported-fragment vocabulary, and promotion gates used by every later task.
 
-- [ ] **Step 1: Record the target classification test first**
+- [x] **Step 1: Record the target classification test first**
 
   Create `scripts/targets/test-doc-targets.py` with these assertions:
 
@@ -59,7 +59,7 @@
 
   Run `python3 scripts/targets/test-doc-targets.py`; expect failure because the target document does not exist.
 
-- [ ] **Step 2: Write the authoritative target document**
+- [x] **Step 2: Write the authoritative target document**
 
   State that Stylus is Wasm-shaped but EVM-semantic; pin `stylus-sdk = "=0.10.8"`, `cargo-stylus = "=0.10.8"`, Rust `1.91.0`, and `wasm32-unknown-unknown`; record 256-bit storage slots, Solidity ABI, `vm_hooks`, cache flush, gas/ink, and the docs-only status. Include direct links to:
 
@@ -69,11 +69,11 @@
   https://raw.githubusercontent.com/OffchainLabs/stylus-sdk-rs/main/stylus-sdk/src/hostio.rs
   ```
 
-- [ ] **Step 3: Update Wasm family, roadmap, decision log, and Chinese mirror**
+- [x] **Step 3: Update Wasm family, roadmap, decision log, and Chinese mirror**
 
   Add a decision that `wasm-arbitrum-stylus` shares the Wasm family but owns a separate `StylusPlan`; explicitly prohibit routing through `NearModulePlan`. Keep the target out of `Registry.all`.
 
-- [ ] **Step 4: Validate and commit**
+- [x] **Step 4: Validate and commit**
 
   Run:
 

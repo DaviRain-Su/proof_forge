@@ -95,6 +95,16 @@ plan/ABI；PSy/Aleo 在任何公开成熟度变化前先建立严格 canonical p
 Core constructor。Legacy adapter 保留为兼容输入，并只通过行为保持、fail-closed
 的切片逐步移除。D-052 取代 D-034 作为默认下一排期顺序。
 
+## 2026-07-12 Stylus 分类（D-053）
+
+将 `wasm-arbitrum-stylus` 分类为具有 EVM 语义和独立 `StylusPlan` 的
+docs-only Wasm-host 目标。Direct HostIO Wasm 是最终 canonical renderer；固定
+版本的 `stylus-sdk` Rust sourcegen 保留为 bootstrap、兼容路径和差分 oracle。
+
+Stylus 部署 Wasm，但采用 Solidity ABI、EVM 256 位 storage slot、topic、call、
+gas 和 ink。让它经过 `NearModulePlan` 或 Soroban key-value storage 会把产物格式
+错误地等同于合约语义。Registry 工作等待 strict plan contract 和 validator。
+
 ## 路线图摘要
 
 已被 [target-roadmap](../target-roadmap.md) (D-034) 中的 Tier/Gate 模型、Tier-0
