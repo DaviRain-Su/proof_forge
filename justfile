@@ -145,6 +145,11 @@ stylus-counter-differential:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.Differential
     scripts/stylus/counter-differential.sh
 
+# Stylus ValueVault context/payable/auth foundation and rollback traces.
+stylus-value-vault-differential:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Context ProofForge.Backend.Stylus.ValueVaultSemantics
+    scripts/stylus/value-vault-differential.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

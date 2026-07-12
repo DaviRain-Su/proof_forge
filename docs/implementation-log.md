@@ -702,3 +702,29 @@ Rules:
 - Limitation: the direct Wasm is compile-validated but has not executed against
   a target-native Stylus `vm_hooks` host. It is not deployment evidence, and
   the public artifact route remains on the pinned Rust SDK bootstrap renderer.
+
+## 2026-07-12 - Stylus Task 11 checkpoint: context and rollback foundation
+
+- Status: `in_progress`
+- Plan correction: the repository's product `ValueVault` is a six-field,
+  five-event ledger using checkpoint context and additional arithmetic. It is
+  not the owner/payable fixture described by the Stylus design. The product
+  contract therefore remains fail-closed until its events and arithmetic are
+  covered; this checkpoint implements the target-level ValueVault security
+  slice without claiming product-route support.
+- Result: added exact Stylus `vm_hooks` imports and WAT wrappers for 20-byte
+  sender/contract addresses, 32-byte message value, and `i64` block
+  number/timestamp. NEAR context names are explicitly excluded.
+- Semantics: pinned authorized deposit/withdraw, zero and excess value policy,
+  nonpayable rejection, insufficient balance, block context preservation,
+  exact revert bytes, state rollback, discarded pending writes, and one flush
+  on successful state transitions.
+- Verification:
+  - `just stylus-value-vault-differential` passed three consecutive runs
+  - generated context WAT compiled with `wat2wasm` on every run
+  - `runtime/stylus-host` tests passed
+  - `just stylus-counter-differential` remained green
+- Remaining before Task 11 completion: represent context-read, comparison, and
+  authorization assertions in `StylusPlan`; lower them in both renderers; bind
+  payable policy to canonical functions; and execute the generated direct WAT
+  against a Stylus-compatible `vm_hooks` host.
