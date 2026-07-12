@@ -1,3 +1,4 @@
+import ProofForge.Backend.Stylus.DirectWasm.Context
 import ProofForge.Backend.Stylus.DirectWasm.Dispatch
 import ProofForge.Backend.Stylus.Validate
 
@@ -20,6 +21,9 @@ private def opName : StylusOpPlan -> String
   | .add result .. => s!"add-{result}"
   | .storageLoad result wordId => s!"storage-load-{wordId}-{result}"
   | .storageCache wordId value => s!"storage-cache-{wordId}-{value}"
+  | .contextRead result _ operation => s!"context-{repr operation}-{result}"
+  | .compare result _ operation .. => s!"compare-{repr operation}-{result}"
+  | .assert_ condition _ => s!"assert-{condition}"
 
 private def diagnostic (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : String) (capability reason : String) : LowerError := {
@@ -63,6 +67,24 @@ private def encodeUnsigned (ptr width : Nat) (value : String) : Array Insn := Id
     ]
   return insns
 
+private def pointerBytesEqual (lhs rhs : String) (width : Nat) (result : String) : Array Insn := Id.run do
+  let mut insns := #[.i64Const 1]
+  for index in [0:width] do
+    insns := insns ++ #[
+      .localGet lhs, .plain "i32.wrap_i64", .i32Const index, .plain "i32.add", .load "i32.load8_u" 0,
+      .localGet rhs, .plain "i32.wrap_i64", .i32Const index, .plain "i32.add", .load "i32.load8_u" 0,
+      .plain "i32.eq", .plain "i64.extend_i32_u", .plain "i64.and"
+    ]
+  return insns.push (.localSet result)
+
+private def nonPayablePrologue : Array Insn := Id.run do
+  let mut check : Array Insn := #[.i32Const valuePtr, .call "msg_value", .i32Const 0]
+  for index in [0:u256Bytes] do
+    check := check ++ #[.i32Const (valuePtr + index), .load "i32.load8_u" 0, .plain "i32.or"]
+  let message := "stylus: nonpayable".toUTF8.data
+  return check ++ #[.if_ (.mk <| writeBytes 32 message ++ #[
+    .i32Const 32, .i32Const message.size, .call "write_result", .i32Const 1, .return_]) .empty]
+
 private def scalarWidth : StylusAbiType -> Except LowerError Nat
   | .bool => pure 1
   | .uint bits =>
@@ -72,8 +94,9 @@ private def scalarWidth : StylusAbiType -> Except LowerError Nat
 
 private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   match op with
-  | .literal result .. | .add result .. | .storageLoad result .. => #[result]
-  | .storageCache .. => #[]
+  | .literal result .. | .add result .. | .storageLoad result ..
+  | .contextRead result .. | .compare result .. => #[result]
+  | .storageCache .. | .assert_ .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
   let mut ids := #[]
@@ -109,10 +132,13 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
   | .storageLoad result wordId => do
       let word <- wordFor plan wordId
       let slot <- literalSlot word
-      let width <- scalarWidth word.type |>.mapError fun error =>
-        diagnostic plan function block (opName op) "storage.load" error.message
-      pure <| writeBytes 0 slot ++ #[.i32Const 0, .i32Const 32, .call "storage_load_bytes32"] ++
-        decodeUnsigned (64 - width) width (valueLocal result)
+      let loadInsns := writeBytes 0 slot ++ #[.i32Const 0, .i32Const 32, .call "storage_load_bytes32"]
+      match word.type with
+      | .address => pure <| loadInsns ++ #[.i64Const 44, .localSet (valueLocal result)]
+      | type =>
+          let width <- scalarWidth type |>.mapError fun error =>
+            diagnostic plan function block (opName op) "storage.load" error.message
+          pure <| loadInsns ++ decodeUnsigned (64 - width) width (valueLocal result)
   | .storageCache wordId value => do
       let word <- wordFor plan wordId
       let slot <- literalSlot word
@@ -120,6 +146,39 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
         diagnostic plan function block (opName op) "storage.cache" error.message
       pure <| writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
         #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
+  | .contextRead result type operation =>
+      match type, operation with
+      | .address, .msgSender => pure #[.i32Const senderPtr, .call "msg_sender", .i64Const senderPtr,
+          .localSet (valueLocal result)]
+      | .address, .contractAddress => pure #[.i32Const contractPtr, .call "contract_address",
+          .i64Const contractPtr, .localSet (valueLocal result)]
+      | .uint 256, .msgValue => pure #[.i32Const valuePtr, .call "msg_value", .i64Const valuePtr,
+          .localSet (valueLocal result)]
+      | .uint 64, .blockNumber => pure #[.call "block_number", .localSet (valueLocal result)]
+      | .uint 64, .blockTimestamp => pure #[.call "block_timestamp", .localSet (valueLocal result)]
+      | _, _ => throw (diagnostic plan function block (opName op) "context.read"
+          (s!"unsupported context type/operation {repr type}/{repr operation}"))
+  | .compare result type operation lhs rhs =>
+      match type with
+      | .address =>
+          match operation with
+          | .eq => pure <| pointerBytesEqual (valueLocal lhs) (valueLocal rhs) addressBytes (valueLocal result)
+          | .ne => pure <| pointerBytesEqual (valueLocal lhs) (valueLocal rhs) addressBytes (valueLocal result) ++
+              #[.localGet (valueLocal result), .plain "i64.eqz", .plain "i64.extend_i32_u",
+                .localSet (valueLocal result)]
+          | _ => throw (diagnostic plan function block (opName op) "compare.address"
+              "address ordering is not implemented")
+      | .bool | .uint _ =>
+          let instruction := match operation with
+            | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_u"
+            | .le => "i64.le_u" | .gt => "i64.gt_u" | .ge => "i64.ge_u"
+          pure #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain instruction,
+            .plain "i64.extend_i32_u", .localSet (valueLocal result)]
+      | _ => throw <| diagnostic plan function block (opName op) "compare" s!"unsupported type {repr type}"
+  | .assert_ condition message =>
+      pure #[.localGet (valueLocal condition), .plain "i64.eqz",
+        .if_ (.mk <| writeBytes 32 message.toUTF8.data ++ #[.i32Const 32, .i32Const message.toUTF8.data.size,
+          .call "write_result", .i32Const 1, .return_]) .empty]
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do
@@ -169,7 +228,10 @@ def lowerFunction (plan : StylusPlan) (function : StylusFunctionPlan) : Except L
   unless function.support.directWasm == .implemented do
     let op := entry.operations[0]?.map opName |>.getD "entry"
     throw <| diagnostic plan function entry op "function" "renderer support is not implemented"
-  let body := (← lowerBlock plan function function.entryBlock (function.blocks.size + 1))
+  let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
+    | throw <| diagnostic plan function entry "abi" "abi.method" "missing ABI method"
+  let prologue := if method.payable then #[] else nonPayablePrologue
+  let body := prologue ++ (← lowerBlock plan function function.entryBlock (function.blocks.size + 1))
   let functionName := "__pf_" ++ function.id
   pure {
     name := functionName

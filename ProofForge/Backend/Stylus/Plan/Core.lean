@@ -70,7 +70,11 @@ private def parseSelector (method : String) (selector : Option String) : Except 
     | fail s!"Stylus ABI method `{method}` has malformed selector `{selector}`"
   pure bytes
 
-private def buildMethod (entrypoint : InterfaceEntrypoint) : Except PlanError StylusAbiMethodPlan := do
+def functionReadsValue (function : Function) : Bool :=
+  function.blocks.any fun block => block.instructions.any fun instruction =>
+    match instruction.op with | .contextRead .value => true | _ => false
+
+private def buildMethod (entrypoint : InterfaceEntrypoint) (function : Function) : Except PlanError StylusAbiMethodPlan := do
   let params <- entrypoint.params.mapM fun param => do
     pure { name := param.name, type := (← coreTypeToAbi param.type) }
   let returns <- match entrypoint.retType with
@@ -83,6 +87,7 @@ private def buildMethod (entrypoint : InterfaceEntrypoint) : Except PlanError St
     selector := ← parseSelector entrypoint.name entrypoint.selector?
     params
     returns
+    payable := functionReadsValue function
     mutability := match entrypoint.mutability with
       | .call => .call
       | .view => .view
@@ -114,6 +119,13 @@ private def literalPlan : CoreLiteral -> Except PlanError (StylusAbiType × Styl
   | .bytesLit _ | .stringLit _ =>
       fail "Stylus dynamic literals are scheduled for the aggregate slice"
 
+private def contextHostOp : ContextField -> Option StylusHostOp
+  | .sender => some .msgSender | .value => some .msgValue
+  | .blockNumber => some .blockNumber | .blockTimestamp => some .blockTimestamp
+  | .origin => some .txOrigin | .gas => some .gasLeft
+  | .contractAddress => some .contractAddress
+  | .epochHeight | .randomSeed => none
+
 private def instructionPlan (contract : CanonicalContract) (instruction : Instruction) :
     Except PlanError StylusOpPlan :=
   match instruction.op with
@@ -132,6 +144,23 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
       pure (.storageLoad (← resultId instruction) (← stateSymbol contract path.root))
   | .storageStore path value => do
       pure (.storageCache (← stateSymbol contract path.root) value.id.value)
+  | .contextRead field => do
+      let operation <- match contextHostOp field with
+        | some operation => pure operation
+        | none => fail s!"Stylus plan has no context handler for `{repr field}`"
+      let type <- match instruction.results with
+        | #[result] => coreTypeToAbi result.type
+        | _ => fail "Stylus context read expected exactly one SSA result"
+      pure (.contextRead (← resultId instruction) type operation)
+  | .pure (.compare op lhs rhs) => do
+      let operation := match op with
+        | .eq => StylusCompareOp.eq | .ne => .ne | .lt => .lt
+        | .le => .le | .gt => .gt | .ge => .ge
+      pure (.compare (← resultId instruction) (← coreTypeToAbi lhs.type) operation lhs.id.value rhs.id.value)
+  | .assert condition error =>
+      let message := (contract.interface.errors.find? (fun item => item.errorId == error.id)).map
+        (fun item => item.message) |>.getD s!"error-{error.id.value}"
+      pure (.assert_ condition.id.value message)
   | op => fail s!"Stylus function lowering has no plan operation for `{repr op}`"
 
 private def terminatorPlan : Terminator -> Except PlanError StylusTerminatorPlan
@@ -171,13 +200,6 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
     }
     index := index + 1
   pure { words }
-
-private def contextHostOp : ContextField -> Option StylusHostOp
-  | .sender => some .msgSender | .value => some .msgValue
-  | .blockNumber => some .blockNumber | .blockTimestamp => some .blockTimestamp
-  | .origin => some .txOrigin | .gas => some .gasLeft
-  | .contractAddress => some .contractAddress
-  | .epochHeight | .randomSeed => none
 
 private def instructionHostOps (instruction : Instruction) : Except PlanError (Array StylusHostOp) :=
   match instruction.op with
@@ -232,7 +254,10 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
   let contract := checked.contract
   unless capPlan.calls == contract.requirements do
     fail "Stylus capability plan does not match canonical requirements"
-  let methods <- contract.interface.entrypoints.mapM buildMethod
+  let methods <- contract.interface.entrypoints.mapM fun entrypoint => do
+    let some function := contract.module.functions.find? (fun fn => fn.id == entrypoint.functionId)
+      | fail s!"Stylus interface method `{entrypoint.name}` has no Core function"
+    buildMethod entrypoint function
   let storage <- buildStorage contract
   let functions <- buildFunctions contract
   let mut hostOps := #[]
@@ -240,6 +265,14 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
     let some function := contract.module.functions.find? (fun fn => fn.id == entrypoint.functionId)
       | fail s!"Stylus interface method `{entrypoint.name}` has no Core function"
     hostOps := hostOps ++ (← collectFunctionHostOps entrypoint.name function)
+  for method in methods do
+    if !method.payable && !hostOps.any (fun op => op.functionId == method.name && op.operation == .msgValue) then
+      hostOps := hostOps.push {
+        id := s!"{method.name}.host.nonpayable"
+        functionId := method.name
+        operation := .msgValue
+        support := { rustSdk := .implemented, directWasm := .implemented }
+      }
   let requiresStorageFlush := hostOps.any (fun op => op.operation == .storageFlush)
   let plan : StylusPlan := {
     targetId := capPlan.targetId

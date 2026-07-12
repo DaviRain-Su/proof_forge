@@ -729,6 +729,29 @@ Rules:
   payable policy to canonical functions; and execute the generated direct WAT
   against a Stylus-compatible `vm_hooks` host.
 
+## 2026-07-13 - Stylus Task 11 checkpoint: plan-owned authorization
+
+- Status: `in_progress`
+- Result: extended `StylusPlan` with context reads, typed comparisons, and
+  assertions. Canonical Core now preserves those operations, derives ABI
+  payable policy from per-function `msg.value` reads, and records nonpayable
+  `msgValue` checks as explicit HostOps.
+- Direct renderer: lowers 20-byte address storage/sender equality, scalar
+  comparisons, deterministic assertion reverts, and a full 32-byte nonpayable
+  value prologue. The generated authorization module compiles with `wat2wasm`.
+- Rust SDK oracle: consumes the same context/compare/assert plan, emits
+  `self.vm()` context access, `#[payable]` when inferred, and typed `Result`
+  rejection. The generated authorization crate compiles under Rust `1.91.0`
+  with `stylus-sdk = "=0.10.8"` and `stylus-test`.
+- Verification:
+  - `just stylus-value-vault-differential` passed three consecutive runs
+  - `just stylus-counter-differential`, `just stylus-direct-storage`,
+    `just stylus-rust-render`, and `just stylus-core-plan` passed
+  - `cargo-stylus 0.10.8` was a named SKIP because it is not installed
+- Remaining: canonical `msg.value` is `u128`; direct lowering needs an honest
+  wide-value representation before payable business logic can consume it.
+  Function parameters and target-native `vm_hooks` execution also remain open.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

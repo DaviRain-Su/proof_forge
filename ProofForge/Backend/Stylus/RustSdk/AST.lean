@@ -23,6 +23,9 @@ inductive RustStmt where
   | letLiteral (name typeName value : String)
   | letStorageGet (name field : String) (type : StylusAbiType)
   | letAdd (name typeName lhs rhs : String) (mode : StylusOverflowMode)
+  | letContext (name expression : String)
+  | letCompare (name lhs rhs : String) (op : StylusCompareOp)
+  | assert_ (condition message : String)
   | storageSet (field value : String) (type : StylusAbiType)
   | returnValue (value : String)
   | okUnit
@@ -37,6 +40,7 @@ structure RustFunction where
   name : String
   receiver : RustReceiver
   returnType : RustReturnType
+  payable : Bool := false
   body : Array RustStmt
   deriving Repr, BEq
 

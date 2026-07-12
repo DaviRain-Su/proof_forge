@@ -21,9 +21,10 @@ def main : IO Unit := do
   let imports <- match selectImports plan.hostOps with
     | .ok imports => pure imports | .error error => throw <| IO.userError error.message
   let importNames := imports.map (·.name)
-  for expected in #["storage_load_bytes32", "storage_cache_bytes32", "storage_flush_cache", "write_result"] do
+  for expected in #["storage_load_bytes32", "storage_cache_bytes32", "storage_flush_cache", "write_result",
+      "msg_value"] do
     require (importNames.contains expected) s!"missing plan-selected import `{expected}`: {importNames}"
-  require (importNames.size == 4) s!"unexpected plan-selected imports: {importNames}"
+  require (importNames.size == 5) s!"unexpected plan-selected imports: {importNames}"
   require (imports.all (fun import_ => import_.module_ == "vm_hooks")) "imports must use vm_hooks"
   let inconsistent : ProofForge.Compiler.Wasm.Import := {
     module_ := "vm_hooks", name := "storage_load_bytes32", funcName := "storage_load_bytes32",
@@ -49,6 +50,8 @@ def main : IO Unit := do
     "storage_flush_cache signature changed"
   require (wat.contains "(import \"vm_hooks\" \"write_result\" (func $write_result (param i32 i32)))")
     "write_result signature changed"
+  require (wat.contains "(import \"vm_hooks\" \"msg_value\" (func $msg_value (param i32)))")
+    "nonpayable msg_value signature changed"
   require (!wat.contains "storage_read" && !wat.contains "_get" && !wat.contains "env")
     "direct storage module leaked NEAR/Soroban imports"
   IO.FS.createDirAll "build/stylus/direct-storage"

@@ -57,6 +57,14 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
 
 private def localName (id : StylusValueId) : String := s!"v{id}"
 
+private def contextExpression : StylusHostOp -> Except RenderError String
+  | .msgSender => pure "self.vm().msg_sender()"
+  | .msgValue => pure "self.vm().msg_value()"
+  | .contractAddress => pure "self.vm().contract_address()"
+  | .blockNumber => pure "self.vm().block_number()"
+  | .blockTimestamp => pure "self.vm().block_timestamp()"
+  | operation => fail s!"Rust SDK renderer has no context expression for `{repr operation}`"
+
 private def storageField (plan : StylusPlan) (id : String) : Except RenderError RustStorageField := do
   let some word := plan.storage.words.find? (fun word => word.id == id)
     | fail s!"Rust SDK operation references unknown storage word `{id}`"
@@ -77,6 +85,11 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       pure (.storageSet field.name (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
+  | .contextRead result _ operation => do
+      pure (.letContext (localName result) (← contextExpression operation))
+  | .compare result _ op lhs rhs =>
+      pure (.letCompare (localName result) (localName lhs) (localName rhs) op)
+  | .assert_ condition message => pure (.assert_ (localName condition) message)
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
@@ -93,12 +106,14 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     match operation with
     | .add _ _ .checked _ _ => true
     | _ => false
+  let hasAssertion := block.operations.any fun operation =>
+    match operation with | .assert_ .. => true | _ => false
   let returnType <- match method.returns with
-    | #[] => pure <| if hasCheckedArithmetic then .resultUnit else .unit
+    | #[] => pure <| if hasCheckedArithmetic || hasAssertion then .resultUnit else .unit
     | #[type] => pure (.value (← rustTypeName type))
     | _ => fail s!"Rust SDK function `{function.id}` has multiple returns"
   match block.terminator with
-  | .return #[] => if hasCheckedArithmetic then body := body.push .okUnit else pure ()
+  | .return #[] => if hasCheckedArithmetic || hasAssertion then body := body.push .okUnit else pure ()
   | .return #[value] => body := body.push (.returnValue (localName value))
   | .return _ => fail s!"Rust SDK function `{function.id}` has unsupported return arity"
   | _ => fail s!"Rust SDK function `{function.id}` control flow is scheduled after Counter"
@@ -106,6 +121,7 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     name := method.name
     receiver := if method.mutability == .view then .shared else .mutable
     returnType
+    payable := method.payable
     body
   }
 
@@ -139,6 +155,14 @@ private def renderStmt (stmt : RustStmt) : Array String :=
       s!"let {name}: {typeName} = {lhs}.checked_add({rhs})",
       "    .ok_or_else(|| b\"checked arithmetic overflow\".to_vec())?;"
     ]
+  | .letContext name expression => #[s!"let {name} = {expression};"]
+  | .letCompare name lhs rhs op =>
+      let symbol := match op with
+        | .eq => "==" | .ne => "!=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
+      #[s!"let {name}: bool = {lhs} {symbol} {rhs};"]
+  | .assert_ condition message => #[
+      "if !" ++ condition ++ " {", "    return Err(b\"" ++ message ++ "\".to_vec());", "}"
+    ]
 
 private def renderFunctionText (function : RustFunction) : String :=
   let receiver := match function.receiver with | .shared => "&self" | .mutable => "&mut self"
@@ -148,7 +172,8 @@ private def renderFunctionText (function : RustFunction) : String :=
     | .resultUnit => " -> Result<(), Vec<u8>>"
   let lines := function.body.foldl (fun lines stmt =>
     lines ++ (renderStmt stmt).map (fun line => indent 2 ++ line)) #[]
-  let header := indent 1 ++ "pub fn " ++ function.name ++ "(" ++ receiver ++ ")" ++
+  let payable := if function.payable then indent 1 ++ "#[payable]\n" else ""
+  let header := payable ++ indent 1 ++ "pub fn " ++ function.name ++ "(" ++ receiver ++ ")" ++
     returnType ++ " {"
   String.intercalate "\n" <| (#[header] ++ lines ++ #[indent 1 ++ "}"]).toList
 

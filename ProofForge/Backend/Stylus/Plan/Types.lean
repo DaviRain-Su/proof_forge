@@ -56,6 +56,10 @@ inductive StylusOverflowMode where
   | checked
   deriving Repr, BEq, DecidableEq
 
+inductive StylusCompareOp where
+  | eq | ne | lt | le | gt | ge
+  deriving Repr, BEq, DecidableEq
+
 inductive StylusLiteralPlan where
   | bool (value : Bool)
   | uint (value : Nat)
@@ -69,6 +73,10 @@ inductive StylusOpPlan where
       (lhs rhs : StylusValueId)
   | storageLoad (result : StylusValueId) (wordId : String)
   | storageCache (wordId : String) (value : StylusValueId)
+  | contextRead (result : StylusValueId) (type : StylusAbiType) (operation : StylusHostOp)
+  | compare (result : StylusValueId) (type : StylusAbiType) (op : StylusCompareOp)
+      (lhs rhs : StylusValueId)
+  | assert_ (condition : StylusValueId) (message : String)
   deriving Repr, BEq
 
 inductive StylusTerminatorPlan where
