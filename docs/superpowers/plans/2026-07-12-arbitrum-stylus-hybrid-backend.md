@@ -376,19 +376,19 @@
 - Consumes: strict plan builder, Rust renderer, package writer, and Counter lifecycle evidence.
 - Produces: research-stage `contract_source` build/check route, Wasm, Solidity ABI, TypeScript client schema, artifact JSON, and deploy JSON.
 
-- [ ] **Step 1: Write public-route failures first**
+- [x] **Step 1: Write public-route failures first**
 
   Pin unknown-target behavior before registration, then expected research profile fields, exact renderer metadata, Counter artifact hashes, and named failures for unsupported promise/NEAR operations.
 
-- [ ] **Step 2: Register the target without primary-triad promotion**
+- [x] **Step 2: Register the target without primary-triad promotion**
 
   Add `wasm-arbitrum-stylus` as research maturity with Rust SDK output marked bootstrap and direct Wasm marked unavailable. Do not add it to primary strict triad lists.
 
-- [ ] **Step 3: Emit complete artifacts atomically**
+- [x] **Step 3: Emit complete artifacts atomically**
 
   Artifact metadata includes target id, plan schema version, renderer, SDK/tool versions, Wasm hash/size, ABI hash, selector table, storage-layout hash, client hash, and validation evidence.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Run public route, target registry, backend status generation, docs/i18n sync, CLI list/build/check, `just product`, and `git diff --check`; commit:
 

@@ -631,3 +631,13 @@ Rules:
 - Remaining Task 7 issue: publish all sidecars and metadata through one atomic
   directory rename; the crate itself is atomic, but later sidecar failure can
   currently leave a partial output directory.
+
+### Task 7 completion
+
+- Status: `done`
+- The public route now writes every crate file and sidecar into a private
+  same-parent staging directory. Only after Rust/Wasm compilation, metadata
+  hashing, bundle honesty validation, and deploy-manifest generation succeed
+  is the directory renamed to the requested final output.
+- A failed pre-publication step cannot expose a partial final directory; an
+  existing final output is rejected rather than overwritten.

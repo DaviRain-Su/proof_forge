@@ -8,6 +8,7 @@ cd "$ROOT"
 
 lake build proof-forge
 rm -rf "$OUT"
+rm -rf "$OUT".bundle-tmp-*
 lake env proof-forge build --target wasm-arbitrum-stylus --root . \
   -o "$OUT" Examples/Product/Counter.lean
 
@@ -33,5 +34,6 @@ assert json.loads((root / "proof-forge-abi.json").read_text())[0]["name"] == "in
 assert "export const ABI" in (root / "proof-forge-client.ts").read_text()
 deploy = json.loads((root / "proof-forge-deploy.json").read_text())
 assert deploy["broadcast"] is False and deploy["activationValidation"] == "notRun"
+assert not list(root.parent.glob(root.name + ".bundle-tmp-*"))
 print("stylus-public-route-artifact: ok")
 PY

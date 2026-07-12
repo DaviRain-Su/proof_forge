@@ -41,7 +41,12 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let crate <- match ProofForge.Backend.Stylus.RustSdk.renderCrate plan with
     | .ok crate => pure crate
     | .error error => throw <| IO.userError error.message
-  let output := opts.output?.getD (input.parent.getD "." / s!"{spec.name}.stylus")
+  let finalOutput := opts.output?.getD (input.parent.getD "." / s!"{spec.name}.stylus")
+  if ← finalOutput.pathExists then
+    throw <| IO.userError s!"Stylus artifact output already exists: {finalOutput}"
+  let pid ← IO.Process.getPID
+  let output := System.FilePath.mk s!"{finalOutput}.bundle-tmp-{pid}"
+  if ← output.pathExists then IO.FS.removeDirAll output
   match <- ProofForge.Backend.Stylus.writeCrateAtomic crate output with
   | .error error => throw <| IO.userError error.message
   | .ok () => pure ()
@@ -99,7 +104,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
     ProofForge.Backend.Stylus.Artifact.planMetadataJson plan ++ ",\"artifactBundle\":" ++
     artifactBundle.toJson ++ "}\n"
   IO.FS.writeFile (output / "proof-forge-artifact.json") metadata
-  IO.println s!"wrote {output}"
+  IO.FS.rename output finalOutput
+  IO.println s!"wrote {finalOutput}"
   return 0
 
 end ProofForge.Cli
