@@ -1369,6 +1369,7 @@ examples-topology:
 
 # A1: portable rejection plus Source.Solana positive elaboration/IR intent pins.
 source-dsl-isolation:
+    lake build ProofForge.Solana.Examples.AccountRealloc ProofForge.Solana.Examples.SystemCpi ProofForge.Solana.Examples.Vault
     lake env lean --run Tests/SourceDslIsolation.lean
     lake env lean --run Tests/SourceDslSolanaAcceptance.lean
 

@@ -249,6 +249,10 @@ Rules:
 - Remaining: verify the first pushed GitHub matrix and record its critical-path
   timing against the previous serial workflow. This is deployment evidence,
   not missing local framework implementation.
+- First remote run `29191590503` exposed a pre-existing cold-cache dependency:
+  `source-dsl-isolation` imported three Solana example modules that the default
+  Lake target did not build. The recipe now builds those modules explicitly
+  before executing its Lean tests; a replacement CI run remains required.
 
 ### Local parallel qualification
 
