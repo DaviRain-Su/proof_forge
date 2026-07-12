@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "7614371cd6a907b8ad3eeb0b39e2c773f0f40549b2cc004fbf416f4fa889233c",
+    "sha256": "c692e53c5808222e0171b951064de07449d908468473f9cc1e18cdf0783a24fb",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh A4 NFT implementation review status"
+    "note": "synced EN/zh A5 strict materialization review status"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

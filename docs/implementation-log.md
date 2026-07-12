@@ -160,6 +160,19 @@ Rules:
   transfer behavior can be exercised rather than inferred from source text.
 - Added `just nft-implementation-contract` to product and check.
 
+## 2026-07-12 - A5 review
+
+- Replaced the advisory canonical gate with strict `compileForTest .canonical`
+  evidence. EVM and NEAR reach `buildFromCore`; Solana currently fails on
+  `PureOp.hash(address)` required by its 32-byte NFT identity model.
+- Projected each larger stdlib candidate to the audited first-slice entrypoints;
+  EVM selectors are explicit and standard-compatible.
+- Materializers now reject malformed model discriminators, duplicate IDs,
+  missing mandatory features, multi-token input, and every deferred feature.
+- Status remains in progress until Solana hash planning is implemented. The
+  named `just nft-materialization` gate pins both strict successes and the exact
+  remaining blocker so advisory success cannot be mistaken for completion.
+
 ### A2 review repair
 
 - Added the promised `resolveIntentMaterializer` public API and the checked

@@ -26,7 +26,7 @@ def main : IO Unit := do
   let evmResult ← match IntentRegistry.resolve registry "evm" .nonFungibleToken with
     | .ok m => pure m
     | .error e => throw <| IO.userError s!"evm materializer lookup failed: {e}"
-  let evmMat ← match evmResult.materialize contract with
+  let evmMat ← match materializeIntent registry "evm" contract with
     | .ok mat => pure mat
     | .error e => throw <| IO.userError s!"evm materialization failed: {e}"
   require (evmMat.targetId == "evm") "evm targetId"
@@ -37,7 +37,7 @@ def main : IO Unit := do
   let solResult ← match IntentRegistry.resolve registry "solana-sbpf-asm" .nonFungibleToken with
     | .ok m => pure m
     | .error e => throw <| IO.userError s!"solana materializer lookup failed: {e}"
-  let solMat ← match solResult.materialize contract with
+  let solMat ← match materializeIntent registry "solana-sbpf-asm" contract with
     | .ok mat => pure mat
     | .error e => throw <| IO.userError s!"solana materialization failed: {e}"
   require (solMat.targetId == "solana-sbpf-asm") "solana targetId"
@@ -48,7 +48,7 @@ def main : IO Unit := do
   let nearResult ← match IntentRegistry.resolve registry "wasm-near" .nonFungibleToken with
     | .ok m => pure m
     | .error e => throw <| IO.userError s!"near materializer lookup failed: {e}"
-  let nearMat ← match nearResult.materialize contract with
+  let nearMat ← match materializeIntent registry "wasm-near" contract with
     | .ok mat => pure mat
     | .error e => throw <| IO.userError s!"near materialization failed: {e}"
   require (nearMat.targetId == "wasm-near") "near targetId"
@@ -66,6 +66,9 @@ def main : IO Unit := do
   match nearResult.materialize multiContract with
   | .ok _ => throw <| IO.userError "NEAR should reject multiToken NFT"
   | .error e => require (e.contains "multi") s!"NEAR multiToken rejection should mention 'multi', got: {e}"
+  match evmResult.materialize multiContract with
+  | .ok _ => throw <| IO.userError "EVM first slice should reject multiToken NFT"
+  | .error e => require (e.contains "ERC-1155") s!"EVM rejection should name ERC-1155, got: {e}"
 
   -- Test 5: deferred features are rejected
   let royaltySpec : NFTSpec := { name := "Roy", symbol := "ROY", features := #[.mintable, .transferable, .royalties] }
@@ -76,23 +79,43 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "EVM should reject royalties feature"
   | .error e => require (e.contains "royalties") s!"EVM royalty rejection should mention 'royalties', got: {e}"
 
+  let deferred : Array NFTFeature := #[.burnable, .soulbound, .approvals,
+    .enumerable, .metadataMutable, .royalties, .collection]
+  for feature in deferred do
+    let features := if feature == .soulbound then #[.mintable, feature]
+      else #[.mintable, .transferable, feature]
+    let featureSpec : NFTSpec := { name := "Deferred", symbol := "DFR", features }
+    let featureContract ← match featureSpec.toIntentContract with
+      | .ok value => pure value
+      | .error e => throw <| IO.userError s!"deferred feature setup failed: {e}"
+    for targetId in #["evm", "solana-sbpf-asm", "wasm-near"] do
+      match materializeIntent registry targetId featureContract with
+      | .ok _ => throw <| IO.userError s!"{targetId} accepted {feature.id}"
+      | .error e => require (e.contains feature.id) s!"{targetId} rejection did not name {feature.id}: {e}"
+
   -- Test 6: missing target rejected
   match IntentRegistry.resolve registry "psy-dpn" .nonFungibleToken with
   | .ok _ => throw <| IO.userError "psy-dpn should have no NFT materializer"
   | .error e => require (e.contains "no materializer") s!"missing NFT materializer error should mention 'no materializer', got: {e}"
 
-  -- Test 7: canonical pipeline validation on materialized specs
-  -- For each target, run adaptLegacy → validateCanonical → buildFromCore
-  -- via runCanonicalValidationGate (advisory: buildFromCore failures are ok)
-  let canonicalTargets := #["evm", "solana-sbpf-asm", "wasm-near"]
+  -- Test 7: EVM and NEAR pass the strict canonical pipeline. Solana remains
+  -- explicitly blocked on 32-byte hash planning; advisory success is forbidden.
+  let canonicalTargets := #["evm", "wasm-near"]
   for targetId in canonicalTargets do
     let mat ← match IntentRegistry.resolve registry targetId .nonFungibleToken with
       | .ok m => match m.materialize contract with
         | .ok mat => pure mat
         | .error e => throw <| IO.userError s!"{targetId} materialization failed: {e}"
       | .error e => throw <| IO.userError s!"{targetId} lookup failed: {e}"
-    match ProofForge.Compiler.runCanonicalValidationGate targetId mat.contractSpec with
-    | .ok () => pure ()
-    | .error e => throw <| IO.userError s!"{targetId} canonical gate failed on materialized NFT spec: {e}"
+    let compiled ← ProofForge.Compiler.compileForTest .canonical targetId mat.contractSpec
+    match compiled with
+    | .ok _ => pure ()
+    | .error e => throw <| IO.userError s!"{targetId} strict canonical gate failed: {repr e}"
+
+  let solanaStrict ← ProofForge.Compiler.compileForTest .canonical
+    "solana-sbpf-asm" solMat.contractSpec
+  match solanaStrict with
+  | .ok _ => throw <| IO.userError "remove the pinned A5 Solana blocker after strict support lands"
+  | .error e => require (e.message.contains "PureOp.hash") s!"unexpected Solana strict blocker: {e.message}"
 
   IO.println "nft-materialization: ok"
