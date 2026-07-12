@@ -68,6 +68,7 @@ reproducible positive and negative gates.
   - `Tests/NftMaterialization.lean` Test 7 verifies every primary target passes
     `runStrictCanonicalTargetGate` and that materialization evidence names the gate.
   - `just strict-intent-materialization` is wired into `just check`.
+  - Committed at `545d7a51`.
 - **State:** `replacement_ready`. NFT materializations now use the strict gate.
   Non-NFT product callers still use the advisory gate, so this is not yet
   `default_switched`.

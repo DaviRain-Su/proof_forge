@@ -24,9 +24,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Active task | D3 - Make accepted NFT materialization strict (`done`; commit pending) |
-| Next task | Finish A6 target-runtime lifecycle evidence before B1 |
-| Known blocker | A6 target-runtime NFT lifecycle evidence is not implemented yet |
+| Active task | None (D3 done) |
+| Next task | D4 / B1 / C1 (optional) |
+| Known blocker | None recorded |
 | Planning baseline | `7cf0d886` (agent control plane and documentation governance, 2026-07-12) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
@@ -80,8 +80,8 @@ This table is only the agent routing index.
 | A3 | done | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | done | Audit NFT implementation candidates | Plan Task 4 |
 | A5 | done (review repaired) | Add primary-triad NFT materializers | Plan Task 5 |
-| A6 | in_progress | Open the NFT CLI and product route | Plan Task 6 |
-| D3 | done (verified in working tree; commit pending) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
+| A6 | done (verified at 545d7a51) | Open the NFT CLI and product route | Plan Task 6 |
+| D3 | done (verified at 545d7a51) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
 | B1 | pending after A6 | Extract a neutral Wasm-host plan | Plan Task 7 |
 | B2 | pending after B1 | Add a strict canonical target gate | Plan Task 8 |
 | B3 | pending after B2 | Promote Soroban Counter | Plan Task 9 |

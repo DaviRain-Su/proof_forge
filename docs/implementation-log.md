@@ -219,7 +219,7 @@ Rules:
 
 ## 2026-07-12 - D3: Make accepted NFT materialization strict
 
-- Status: `done (verified in working tree; commit pending)`
+- Status: `done (verified at 545d7a51)`
 - Result: added `ProofForge.Compiler.runStrictCanonicalTargetGate`, a strict
   canonical target gate where adapter, validation, capability, host-op,
   unknown-target, and `buildFromCore` failures are all hard errors. Wired the
