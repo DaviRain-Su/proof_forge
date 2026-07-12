@@ -90,11 +90,11 @@
 - Produces: one verified `unique + mintable + transferable` lifecycle contract per primary target.
 - Produces: explicit unsupported-feature inventory.
 
-- [ ] Assert exact init, mint, transfer, owner/balance, event, parameter, and return contracts from each `ContractSpec`.
-- [ ] Test mint authority, duplicate mint rejection, transfer authority, state transition, and event payloads.
-- [ ] Repair only the minimal slice; defer royalty, enumeration, collection, and multi-token behavior.
-- [ ] Document implemented semantics separately from unverified standards compliance.
-- [ ] Run the focused test, `just evm-all`, `just solana-light`, `just wasm-near-plan`, `just product`, and `git diff --check`.
+- [x] Assert exact init, mint, transfer, owner/balance, event, parameter, and return contracts from each `ContractSpec`.
+- [x] Test mint authority, duplicate mint rejection, transfer authority, state transition, and event payloads.
+- [x] Repair only the minimal slice; defer royalty, enumeration, collection, and multi-token behavior.
+- [x] Document implemented semantics separately from unverified standards compliance.
+- [x] Run the focused test, `just evm-all`, `just solana-light`, `just wasm-near-plan`, `just product`, and `git diff --check`.
 - [ ] Commit with `git commit -m "fix(nft): align primary target implementation contracts"`.
 
 ### Task 5: Add Primary-Triad NFT Materializers
