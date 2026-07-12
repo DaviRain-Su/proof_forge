@@ -110,6 +110,11 @@
 
 ### Task 5: Remote Calls, Return Data, and Reentrancy
 
+> Execution dependency: Task 6 aggregate value carriers and calldata layout
+> must land first because canonical crosscall methods are strings and arguments
+> require ABI encoding. Remote-call lowering must not invent private pointer
+> conventions outside `StylusPlan`.
+
 **Files:**
 - Create: `ProofForge/Backend/Stylus/DirectWasm/Call.lean`
 - Extend: `ProofForge/Backend/Stylus/Plan/Types.lean`
@@ -145,6 +150,7 @@
 - Produces: plan-owned static heads, dynamic tails, storage paths, allocation bounds, and maximum memory pages.
 
 - [ ] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
+- [x] Add renderer-neutral dynamic ABI head/tail validation for empty/non-aligned payloads, malformed offsets, truncated tails, padding bounds, and maximum length.
 - [ ] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
 - [ ] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
 - [ ] Render and execute Rust/direct parity for every fixture and record Wasm bytes/pages plus Nitro ink/gas evidence.

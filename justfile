@@ -159,6 +159,10 @@ stylus-mapping-events:
     lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/mapping-events.sh
 
+stylus-aggregate-differential:
+    lake build ProofForge.Backend.Stylus.AbiLayout
+    lake env lean --run Tests/Stylus/AggregateDifferential.lean
+
 stylus-scalar-params:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     lake env lean --run Tests/Stylus/ScalarParams.lean

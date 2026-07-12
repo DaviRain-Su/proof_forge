@@ -909,6 +909,19 @@ Rules:
   Validation enforces the four-topic limit and rejects dynamic indexed/key
   values unless a future plan pass supplies a pre-hash.
 
+## 2026-07-13 - Stylus aggregate ABI layout foundation
+
+- Status: `foundation complete; aggregate carrier/lowering pending`
+- Added renderer-neutral dynamic ABI layout validation with explicit head
+  arity, argument index, aligned tail offset, payload length, padded end, and
+  maximum length.
+- Adversarial vectors reject offsets inside the static head, unaligned offsets,
+  missing length words, truncated padded tails, and configured-length
+  exhaustion. Empty and non-word-aligned string payloads are accepted with
+  deterministic slices.
+- Confirmed the next architectural change must represent dynamic values as a
+  plan-owned pointer/length carrier before remote calls consume them.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
