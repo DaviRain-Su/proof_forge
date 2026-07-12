@@ -238,3 +238,16 @@ Rules:
   to `runStrictCanonicalTargetGate` before advancing D3 to `default_switched`.
 - Documentation: `docs/legacy-replacement-ledger.md` (D3 → `replacement_ready`),
   `AGENTS.md` checkpoint, current legacy-replacement plan, this log.
+
+### D3 review repair
+
+- Replaced permissive negative tests that accepted any failure with independent
+  exact-prefix cases for adapter, validation, capability, HostOp handler,
+  unknown-target, and target `buildFromCore` stages.
+- Added `runStrictCanonicalContractGate` so raw canonical validation and target
+  planning can be verified without manufacturing invalid legacy input.
+- Moved HostOp handler validation before capability resolution. With the current
+  catalog, the old order made the unhandled-host-op branch unreachable on EVM
+  and Solana because every HostOp first failed its target capability check.
+- Tightened the positive case: a supported EVM NFT slice must pass every stage;
+  a named failure is no longer accepted as a successful test outcome.

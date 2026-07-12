@@ -209,19 +209,13 @@ legacy-to-canonical migration.
 
 Returns `.ok ()` only when the spec can be adapted, validated, capability-checked,
 host-op checked, and built by the target's `buildFromCore`. -/
-def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Except String Unit := do
-  let profile ←
-    match ProofForge.Target.find? targetId with
-    | some p => pure p
-    | none => .error s!"canonical: unknown target {targetId}"
-  let bundle ←
-    match adaptLegacy spec with
-    | .ok b => pure b
-    | .error e => .error s!"canonical: adapt failed: {repr e}"
-  let checked ←
-    match validateCanonical bundle.contract.contract with
-    | .ok c => pure c
-    | .error e => .error s!"canonical: validation failed: {repr e}"
+private def runStrictCheckedTargetGate
+    (profile : TargetProfile) (targetId : String) (checked : CheckedCanonicalContract) :
+    Except String Unit := do
+  let hostCallErrors := checkHostOpHandlers targetId checked
+  if hostCallErrors.size > 0 then
+    let msg := String.intercalate "; " hostCallErrors.toList
+    .error s!"canonical: unhandled host op: {msg}"
   let capPlan : CapabilityPlan ←
     match requireCapabilityPlan profile {
       targetId := targetId,
@@ -230,10 +224,6 @@ def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Exc
     } with
     | .ok plan => pure plan
     | .error diagnostic => .error s!"canonical: capability plan failed: {diagnostic.render}"
-  let hostCallErrors := checkHostOpHandlers targetId checked
-  if hostCallErrors.size > 0 then
-    let msg := String.intercalate "; " hostCallErrors.toList
-    .error s!"canonical: unhandled host op: {msg}"
   match targetId with
   | "evm" =>
       match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
@@ -248,5 +238,32 @@ def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Exc
       | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
       | .ok _ => pure ()
   | _ => .error s!"canonical: buildFromCore is unavailable for target {targetId}"
+
+/-- Strict target planning for an already-normalized canonical contract.
+
+This entry point keeps validation testable independently of the legacy adapter;
+callers with a `ContractSpec` should use `runStrictCanonicalTargetGate`. -/
+def runStrictCanonicalContractGate
+    (targetId : String) (contract : CanonicalContract) : Except String Unit := do
+  let profile ←
+    match ProofForge.Target.find? targetId with
+    | some p => pure p
+    | none => .error s!"canonical: unknown target {targetId}"
+  let checked ←
+    match validateCanonical contract with
+    | .ok c => pure c
+    | .error e => .error s!"canonical: validation failed: {repr e}"
+  runStrictCheckedTargetGate profile targetId checked
+
+def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Except String Unit := do
+  let profile ←
+    match ProofForge.Target.find? targetId with
+    | some p => pure p
+    | none => .error s!"canonical: unknown target {targetId}"
+  let bundle ←
+    match adaptLegacy spec with
+    | .ok b => pure b
+    | .error e => .error s!"canonical: adapt failed: {repr e}"
+  runStrictCheckedTargetGate profile targetId bundle.contract
 
 end ProofForge.Compiler

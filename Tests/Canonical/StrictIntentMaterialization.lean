@@ -1,8 +1,9 @@
 import ProofForge.Contract.Nft
 import ProofForge.Contract.Nft.Materialize
 import ProofForge.Contract.Intent.Registry
-import ProofForge.Contract.Examples.Counter
 import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Frontend.Surface
+import ProofForge.Frontend.Surface.Host.Near
 
 /-!
 # Strict Intent Materialization Test
@@ -35,7 +36,9 @@ def requireOk (result : Except String α) (label : String) : IO Unit :=
 
 /-- A minimal valid ContractSpec for positive tests. -/
 def goodSpec : ContractSpec :=
-  ProofForge.Contract.Examples.Counter.spec
+  ProofForge.Contract.NftMaterialize.withErc721Selectors
+    (ProofForge.Contract.NftMaterialize.projectEntrypoints
+      ProofForge.Contract.Stdlib.ERC721.spec #["init", "mint", "transferFrom", "ownerOf"])
 
 /-- A ContractSpec whose module contains an unsupported effect so that
 `adaptLegacy` fails with a named stage diagnostic. -/
@@ -57,29 +60,106 @@ def badAdaptSpec : ContractSpec := {
   }
 }
 
+open ProofForge.Frontend.Surface
+
+def capabilityContract : SurfaceContract := {
+  name := "CapabilityOnly"
+  structs := #[]
+  state := #[]
+  events := #[]
+  errors := #[]
+  entrypoints := #[{
+    name := "run", kind := .function, mutability := .call,
+    params := #[], retType := .unit, body := #[.returnUnit]
+  }]
+  constructorParams := #[]
+  constructorBindings := #[]
+  intents := #[{
+    kind := .capability, label := "solana-pda",
+    capability? := some .storagePda
+  }]
+}
+
+def hostOpContract : SurfaceContract := {
+  name := "HostOpOnly"
+  structs := #[]
+  state := #[]
+  events := #[]
+  errors := #[]
+  entrypoints := #[{
+    name := "createPromise", kind := .function, mutability := .call,
+    params := #[], retType := .u64,
+    body := #[
+      .hostCallBind "promiseIdx" .u64
+        ProofForge.Frontend.Surface.Host.Near.promiseCreateId
+        #[.literal (.stringLit "alice.near"),
+          .literal (.stringLit "method"),
+          .literal (.bytesLit ByteArray.empty),
+          .literal (.u128Lit 0),
+          .literal (.u64Lit 1000)],
+      .returnExpr (.local "promiseIdx")
+    ]
+  }]
+  constructorParams := #[]
+  constructorBindings := #[]
+}
+
+def builderContract : SurfaceContract := {
+  name := "BuilderReject"
+  structs := #[]
+  state := #[]
+  events := #[]
+  errors := #[]
+  entrypoints := #[{
+    name := "hashLiteral", kind := .function, mutability := .view,
+    params := #[], retType := .hash,
+    body := #[.returnExpr (.literal (.hashLit "not-numeric"))]
+  }]
+  constructorParams := #[]
+  constructorBindings := #[]
+}
+
+def normalizeRaw (contract : SurfaceContract) : IO ProofForge.IR.Canonical.CanonicalContract := do
+  match ProofForge.Frontend.Surface.normalizeSurface contract with
+  | .ok bundle => pure bundle.contract.contract
+  | .error e => throw <| IO.userError s!"surface normalization failed: {repr e}"
+
 def main : IO Unit := do
   -- Test 1: unknown target is a hard error
   requireErrorPrefix "canonical: unknown target"
     (ProofForge.Compiler.runStrictCanonicalTargetGate "missing-target" goodSpec)
 
-  -- Test 2: adaptLegacy failure is a hard error (not advisory)
-  -- badAdaptSpec has no entrypoints; adaptLegacy should reject it
-  match ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec with
-  | .ok _ => throw <| IO.userError "badAdaptSpec should fail strict gate (adapt or validation)"
-  | .error _ => pure ()  /- any error is acceptable; the point is it's not .ok -/
+  -- Test 2: adaptLegacy failure names the adapter stage.
+  requireErrorPrefix "canonical: adapt failed"
+    (ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec)
 
-  -- Test 3: valid spec on a known target should pass (or fail with a
-  -- named buildFromCore error, not silently succeed)
-  -- ERC721.spec should at least pass adaptLegacy + validateCanonical
-  match ProofForge.Compiler.runStrictCanonicalTargetGate "evm" goodSpec with
-  | .ok _ => pure ()  /- full success: adapt + validate + buildFromCore all pass -/
-  | .error e =>
-    -- If it fails, it must be a buildFromCore coverage gap, not a
-    -- validation or adapter failure. The error must name the stage.
-    require (e.contains "buildFromCore" || e.contains "plan failed")
-      s!"strict gate on goodSpec should either pass or fail at buildFromCore, got: {e}"
+  -- Test 3: a known good spec must pass every strict stage.
+  requireOk (ProofForge.Compiler.runStrictCanonicalTargetGate "evm" goodSpec)
+    "strict EVM NFT slice"
 
-  -- Test 4: strict gate differs from advisory gate
+  -- Test 4: raw canonical validation remains a named hard error.
+  let goodCanonical ← normalizeRaw builderContract
+  requireErrorPrefix "canonical: validation failed"
+    (ProofForge.Compiler.runStrictCanonicalContractGate "evm"
+      { goodCanonical with schemaVersion := 999 })
+
+  -- Test 5: capability rejection is distinct from validation and builders.
+  let capabilityCanonical ← normalizeRaw capabilityContract
+  requireErrorPrefix "canonical: capability plan failed"
+    (ProofForge.Compiler.runStrictCanonicalContractGate "evm" capabilityCanonical)
+
+  -- Test 6: a valid typed HostOp without a target handler is rejected at the
+  -- handler boundary rather than being hidden by a later builder failure.
+  let hostCanonical ← normalizeRaw hostOpContract
+  requireErrorPrefix "canonical: unhandled host op"
+    (ProofForge.Compiler.runStrictCanonicalContractGate "evm" hostCanonical)
+
+  -- Test 7: valid canonical input unsupported by the target builder names the
+  -- final buildFromCore stage.
+  requireErrorPrefix "canonical: buildFromCore failed"
+    (ProofForge.Compiler.runStrictCanonicalContractGate "solana-sbpf-asm" goodCanonical)
+
+  -- Test 8: strict gate differs from advisory gate
   -- The advisory gate would return .ok for badAdaptSpec; the strict gate must not.
   let advisoryResult := ProofForge.Compiler.runCanonicalValidationGate "evm" badAdaptSpec
   let strictResult := ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec
@@ -90,7 +170,7 @@ def main : IO Unit := do
   | .error _, .ok _ =>
     throw <| IO.userError "strict gate should not be weaker than advisory gate"
 
-  -- Test 5: NFT materialization uses strict gate internally
+  -- Test 9: NFT materialization uses strict gate internally
   -- The NFT materializers should call runStrictCanonicalTargetGate
   -- and fail if the materialized spec cannot pass strict validation.
   let registry ← match NftMaterialize.nftIntentRegistry with

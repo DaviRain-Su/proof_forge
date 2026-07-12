@@ -62,9 +62,10 @@ reproducible positive and negative gates.
 - **Current evidence:**
   - `ProofForge.Compiler.runStrictCanonicalTargetGate` implements adapter →
     validation → capability → host-op → target `buildFromCore` as hard errors.
-  - `Tests/Canonical/StrictIntentMaterialization.lean` asserts error prefixes for
-    unknown target, adapt failure, and strict/advisory divergence; asserts success
-    for a known good spec; asserts NFT materializers record strict-gate evidence.
+  - `Tests/Canonical/StrictIntentMaterialization.lean` independently asserts
+    exact prefixes for unknown target, adapter, validation, capability, HostOp,
+    and target-builder failures; it also requires full success for a known-good
+    spec and proves the strict/advisory divergence.
   - `Tests/NftMaterialization.lean` Test 7 verifies every primary target passes
     `runStrictCanonicalTargetGate` and that materialization evidence names the gate.
   - `just strict-intent-materialization` is wired into `just check`.

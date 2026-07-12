@@ -308,6 +308,8 @@ git commit -m "test(intent): freeze product ContractSpec coupling"
 
 **Interfaces:**
 - Produces: `runStrictCanonicalTargetGate : String -> ContractSpec -> Except String Unit`.
+- Produces: `runStrictCanonicalContractGate : String -> CanonicalContract -> Except String Unit`
+  for validation and target-stage verification after non-legacy normalization.
 - Guarantees: adapter, canonical validation, capability, HostOp, unknown-target, and target `buildFromCore` failures remain errors.
 
 - [x] **Step 1: Write negative tests against the advisory gap**
