@@ -16,6 +16,7 @@ def importForHostOp? : StylusHostOp -> Option Import
   | .storageLoad => some (vmImport "storage_load_bytes32" #[.i32, .i32])
   | .storageCache => some (vmImport "storage_cache_bytes32" #[.i32, .i32])
   | .storageFlush => some (vmImport "storage_flush_cache" #[.i32])
+  | .writeResult => some (vmImport "write_result" #[.i32, .i32])
   | _ => none
 
 def validateImports (candidates : Array Import) : Except DirectError (Array Import) := do

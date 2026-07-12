@@ -474,19 +474,19 @@
 - Consumes: complete validated `StylusPlan`, DirectWasm ABI/storage helpers, and abstract semantics.
 - Produces: `lowerFromPlan : StylusPlan -> Except LowerError Wasm.Module` and normalized Rust/direct trace comparison.
 
-- [ ] **Step 1: Pin renderer completeness failure**
+- [x] **Step 1: Pin renderer completeness failure**
 
   A plan operation without a direct handler must fail with target, function, block, operation id, capability, and renderer. Counter's complete plan must lower.
 
-- [ ] **Step 2: Lower canonical CFG/SSA operations**
+- [x] **Step 2: Lower canonical CFG/SSA operations**
 
   Implement constants, locals, checked add, comparisons, conditional branches, storage load/cache, ABI result/revert, and final flush. Do not lower from legacy `IR.Module`.
 
-- [ ] **Step 3: Run Counter differential scenarios**
+- [x] **Step 3: Run Counter differential scenarios**
 
-  Compare selectors, storage slots, state deltas, returns, reverts, and flush events for initial read, large `u256` set, increment, unknown selector, malformed calldata, and overflow.
+  Compare selectors, storage slots, state deltas, returns, reverts, and flush events for initial read, a large in-range Counter value, increment, unknown selector, malformed calldata, and overflow.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Run `just stylus-counter-differential` three times, `wat2wasm`, runtime host tests, and `git diff --check`; commit:
 

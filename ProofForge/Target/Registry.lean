@@ -241,9 +241,9 @@ def wasmStellarSoroban : TargetProfile := {
   }
 }
 
-/-- Arbitrum Stylus research backend. Rust SDK crate generation is the
-bootstrap renderer; direct HostIO Wasm remains unavailable until differential
-trace evidence is complete. This target is not part of the primary triad. -/
+/-- Arbitrum Stylus research backend. Rust SDK crate generation remains the
+bootstrap renderer; the direct renderer currently covers the Counter fragment
+without target-native vm_hooks execution evidence. This is not a primary target. -/
 def wasmArbitrumStylus : TargetProfile := {
   id := "wasm-arbitrum-stylus"
   family := .wasmHost
@@ -260,7 +260,7 @@ def wasmArbitrumStylus : TargetProfile := {
     validationLevel := .plan
     supportedFragment :=
       "Counter research slice via canonical StylusPlan and pinned Rust SDK renderer; " ++
-      "direct HostIO Wasm and deploy support unavailable"
+      "direct Counter WAT and abstract differential gate; native HostIO runtime and deploy support unavailable"
     toolStages := #[
       { tool := "rustc-1.91.0", stage := "wasm-bootstrap" },
       { tool := "cargo-stylus-0.10.8", stage := "artifact-check" }

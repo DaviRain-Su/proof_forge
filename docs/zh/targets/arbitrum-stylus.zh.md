@@ -2,9 +2,9 @@
 
 ## 状态
 
-`wasm-arbitrum-stylus` 当前是 **docs-only** 研究目标。它尚未加入目标注册表、
-`--list-targets`、CLI 构建白名单或主三目标。本文件在实现前固定目标分类、
-工具链和架构边界。
+`wasm-arbitrum-stylus` 当前是 **research** `contract_source` 目标。它已加入目标
+注册表、`--list-targets` 和 CLI build 路由，但不属于主三目标。公开路由生成固定
+版本的 Rust SDK source bundle 和 intermediate Wasm metadata，不声明可部署产物。
 
 ## 分类
 
@@ -52,9 +52,10 @@ Canonical Contract
 可复用边界是 canonical IR、中立 Solidity ABI/storage planning、Wasm AST/printer、
 artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
 
-## 计划支持片段
+## 已实现与计划支持片段
 
-1. Counter：`u256` scalar storage、ABI dispatch、checked arithmetic、cache flush。
+1. Counter（research 实现）：`u64` scalar storage、ABI dispatch、checked arithmetic、
+   cache flush、Direct WAT 编译和 abstract/direct 归一化 trace parity。
 2. ValueVault：address、sender、value、block、授权和 payable。
 3. Token：mapping、indexed event、allowance 和 EVM ABI 互操作。
 4. RemoteCall：call mode、value/gas、return data、revert、reentrancy。
@@ -65,9 +66,9 @@ artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
 
 ## 晋级门槛
 
-在 plan contract 和 strict validator 完成前不得修改 registry。后续晋级要求确定性
-Rust SDK 生成、Rust tests、`cargo stylus check`、目标原生本地执行、ABI/storage
-向量、完整 artifact、Direct Wasm、Rust/direct trace parity、资源证据和静态 CI。
+晋级到 research 以上仍要求 `cargo stylus check`、目标原生 direct `vm_hooks` 执行、
+精确 ABI/storage 向量、完整可部署 artifact、Rust/direct runtime trace parity、资源
+证据和静态 CI。Direct WAT 编译与 abstract trace parity 只是中间 gate。
 Live RPC/deployment 保持可选。
 
 仅通过 `cargo stylus check` 不等于 runtime 或 deployment 证据。

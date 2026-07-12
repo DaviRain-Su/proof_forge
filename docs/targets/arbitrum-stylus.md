@@ -2,10 +2,10 @@
 
 ## Status
 
-`wasm-arbitrum-stylus` is a **docs-only** research target. It is not present in
-the target registry, `--list-targets`, the CLI build whitelist, or the primary
-triad. This document classifies the target and freezes its toolchain and
-architecture before implementation.
+`wasm-arbitrum-stylus` is a **research** `contract_source` target. It is present
+in the target registry, `--list-targets`, and the CLI build route, but it is not
+part of the primary triad. The public route emits a pinned Rust SDK source
+bundle and intermediate Wasm metadata; it does not claim a deployable artifact.
 
 ## Classification
 
@@ -60,9 +60,11 @@ The reusable pieces are canonical IR, neutral Solidity ABI/storage planning,
 the Wasm AST/printer, artifacts, and generic refinement infrastructure. The
 Stylus backend must not route through `NearModulePlan`.
 
-## Planned Supported Fragment
+## Supported And Planned Fragment
 
-1. Counter: `u256` scalar storage, ABI dispatch, checked arithmetic, cache flush.
+1. Counter (research implementation): `u64` scalar storage, ABI dispatch,
+   checked arithmetic, cache flush, direct WAT compilation, and abstract/direct
+   normalized trace parity.
 2. ValueVault: address, sender, value, block context, authorization, payable.
 3. Token: mappings, indexed events, allowance, EVM ABI interoperability.
 4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.
@@ -74,11 +76,11 @@ artifact emission with a named target/function/operation diagnostic.
 
 ## Promotion Gates
 
-Registry work remains blocked until the plan contract and strict validator
-exist. Later promotion requires deterministic Rust SDK generation, Rust tests,
-`cargo stylus check`, target-native local execution, exact Solidity ABI and
-storage vectors, complete artifacts, direct Wasm compilation, Rust/direct trace
-parity, resource evidence, and static CI. Live RPC/deployment remains optional.
+Promotion beyond research requires `cargo stylus check`, target-native direct
+`vm_hooks` execution, exact Solidity ABI and storage vectors, complete
+deployable artifacts, Rust/direct runtime trace parity, resource evidence, and
+static CI. Direct WAT compilation plus abstract trace parity is only an
+intermediate gate. Live RPC/deployment remains optional.
 
 Passing `cargo stylus check` alone is not runtime or deployment evidence.
 

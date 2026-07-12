@@ -680,3 +680,25 @@ Rules:
   - U256 max is accepted and exact static words remain 32 bytes
   - emitted dispatcher WAT compiles with `wat2wasm`
   - `just stylus-direct-abi` passed
+
+## 2026-07-12 - Stylus Task 10: Direct Wasm Counter renderer
+
+- Status: `done`
+- Result: added plan-only CFG/SSA lowering from validated `StylusPlan` to the
+  shared Wasm AST. The Counter fragment covers scalar literals and locals,
+  checked/wrapping add, acyclic jump/branch control flow, byte-exact big-endian
+  storage load/cache, explicit cache flush, ABI result/revert writes, and
+  deterministic status returns. Cyclic CFGs and unsupported scalar widths fail
+  with target/function/block/op/capability/renderer diagnostics.
+- Differential evidence: an independent selector-driven direct model matches
+  abstract Counter HostIO traces for initial read, a large stored value,
+  increment, overflow rollback, unknown selector, and malformed calldata.
+- Verification:
+  - `just stylus-counter-differential` passed three consecutive runs
+  - generated Counter WAT compiled with `wat2wasm` on every run
+  - `runtime/stylus-host` tests passed
+  - `just stylus-direct-storage`, `just stylus-direct-abi`, and
+    `just stylus-counter-lifecycle` passed
+- Limitation: the direct Wasm is compile-validated but has not executed against
+  a target-native Stylus `vm_hooks` host. It is not deployment evidence, and
+  the public artifact route remains on the pinned Rust SDK bootstrap renderer.

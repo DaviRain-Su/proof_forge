@@ -140,6 +140,11 @@ stylus-direct-abi:
     wat2wasm build/stylus/direct-abi/dispatch.wat -o build/stylus/direct-abi/dispatch.wasm
     PATH="$HOME/.foundry/bin:$PATH" python3 scripts/stylus/check-abi-vectors.py
 
+# Direct StylusPlan CFG/SSA lowering and abstract/direct Counter trace parity.
+stylus-counter-differential:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.Differential
+    scripts/stylus/counter-differential.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

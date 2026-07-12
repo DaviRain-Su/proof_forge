@@ -204,12 +204,13 @@ private def collectFunctionHostOps (functionName : String) (function : Function)
     for instruction in block.instructions do
       operations := operations ++ (← instructionHostOps instruction)
   let finalOperations :=
-    if operations.contains .storageCache then operations.push .storageFlush else operations
+    let operations := if operations.contains .storageCache then operations.push .storageFlush else operations
+    operations.push .writeResult
   pure <| finalOperations.mapIdx fun index operation => {
     id := s!"{functionName}.host.{index}"
     functionId := functionName
     operation
-    support := { rustSdk := .implemented, directWasm := .planned }
+    support := { rustSdk := .implemented, directWasm := .implemented }
   }
 
 private def buildFunctions (contract : CanonicalContract) : Except PlanError (Array StylusFunctionPlan) :=
@@ -221,7 +222,7 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
       abiMethod := entrypoint.name
       entryBlock := function.entry.value
       blocks := ← function.blocks.mapM (blockPlan contract)
-      support := { rustSdk := .implemented, directWasm := .planned }
+      support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
 def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan) :
