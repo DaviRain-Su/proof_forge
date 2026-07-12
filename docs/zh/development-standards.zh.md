@@ -8,6 +8,8 @@
 |---|---|
 | 文档地图 | `docs/INDEX.md` |
 | 文档生命周期与归档分类 | `docs/document-status.md` |
+| Agent 启动入口与当前检查点 | `AGENTS.md` |
+| 当前任务完成证据 | `docs/implementation-log.md` |
 | 已确定的架构和路线图决策 | `docs/decisions.md` |
 | 已接受的产品 / 目标方向 | `docs/rfcs/0001-multichain-platform.md`, `docs/rfcs/0002-target-implementation-design.md` |
 | 可移植 IR 与运行时/能力降级 | `docs/portable-ir.md`, `docs/rfcs/0003-portable-ir-and-runtime.md` |

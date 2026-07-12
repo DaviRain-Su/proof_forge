@@ -9,6 +9,8 @@ source-of-truth docs and states when they must be updated.
 |---|---|
 | Documentation map | `docs/INDEX.md` |
 | Documentation lifecycle and archive classification | `docs/document-status.md` |
+| Agent bootstrap and current checkpoint | `AGENTS.md` |
+| Current task completion evidence | `docs/implementation-log.md` |
 | Settled architecture and roadmap decisions | `docs/decisions.md` |
 | Accepted product / target direction | `docs/rfcs/0001-multichain-platform.md`, `docs/rfcs/0002-target-implementation-design.md` |
 | Portable IR and runtime/capability lowering | `docs/portable-ir.md`, `docs/rfcs/0003-portable-ir-and-runtime.md` |

@@ -15,6 +15,8 @@ generated artifacts remain the implementation truth.
 | Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
 | Current execution order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
 | Current executable work inventory | [implementation-backlog.md](implementation-backlog.md) |
+| Agent bootstrap and current checkpoint | [AGENTS.md](../AGENTS.md) |
+| Current concise execution evidence | [implementation-log.md](implementation-log.md) |
 | Target portfolio sequencing | [target-roadmap.md](target-roadmap.md) |
 | Phase/gate decisions | [gate-status.md](gate-status.md) |
 | Validation commands | [validation-gates.md](validation-gates.md) |
@@ -43,6 +45,10 @@ The primary-triad runtime roadmap remains an architecture/product evidence
 record until its remaining waves are formally closed. It does not override the
 July 12 execution order.
 
+`development-log.md` is the detailed historical engineering stream. Agents
+should use the concise `implementation-log.md` for current task handoff and
+search the historical log only when older evidence is required.
+
 ## Lifecycle Rules
 
 1. A design spec defines an accepted boundary; it is not an execution ledger.
@@ -61,6 +67,9 @@ July 12 execution order.
 8. Legacy code is migrated incrementally behind tests. Documentation must name
    the legacy boundary and intended replacement rather than pretending the old
    path has already been deleted.
+9. Root `AGENTS.md` is the mandatory agent entry point. It contains only the
+   current checkpoint and links; detailed task state remains in the current
+   plan, and completed-task evidence is appended to `implementation-log.md`.
 
 ## Current Migration Principle
 

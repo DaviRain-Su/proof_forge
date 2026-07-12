@@ -11,7 +11,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "d006be27d7f0b7ad6811831ef935010e9825375d8a6e9957f5f099ef15961b43",
+    "sha256": "102ac309a71e291fe117060ec939e1b450ad2b737c97553fc4de954929a5fce3",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
     "note": "manually synced for canonical architecture documentation links"
@@ -72,7 +72,7 @@
     "model": "manual"
   },
   "docs/development-standards.md": {
-    "sha256": "1c5474db2c9ddd3e28959c152810a90ae72ad98f3132e22186116f92dddc00a4",
+    "sha256": "f9dcc0052aa02f0aa0c494127a9c79dd36ad91cb38f1e1ad45613562940f3dc7",
     "zh": "docs/zh/development-standards.zh.md",
     "model": "manual-zh",
     "note": "manually synced through the 2026-07-10 audit integration"

@@ -18,6 +18,7 @@ Wasm-host plan and add strict secondary-target promotion gates. See the
 
 | If you are… | Start here | Then read |
 |---|---|---|
+| Agent starting or resuming work | [Root AGENTS.md](../AGENTS.md) | [document status](document-status.md), [current plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md), [implementation log](implementation-log.md) |
 | New contributor | This page + [README](../README.md) + [Onboarding](onboarding.md) | [Portable three-target tutorial](tutorials/portable-contract-three-targets.md), [Validation gates](validation-gates.md), [backlog](implementation-backlog.md) |
 | Implementing a backend | [RFC 0002](rfcs/0002-target-implementation-design.md) | [decisions](decisions.md), [portable IR](portable-ir.md), target notes |
 | Reviewing design | [review-checklist](review-checklist.md) | RFCs, [capability registry](capability-registry.md), [shared scenario](shared-scenario.md) |
@@ -66,8 +67,8 @@ Editable hand-drawn-style diagrams for presentations and onboarding — open on
 - [Product / SDK gap plan (2026-07)](product-sdk-gap-plan-2026-07.md): gaps and waves α–ε.
 
 - [Host runtime abstraction](host-runtime.md): portable HostEffect → EVM opcode / Solana syscall / NEAR host import.
-- [Multi-chain remediation agent goal](agent-goal-prompt.md): **active** PF ledger; PF-P3-02 remains open while completed rows retain their verified evidence.
-- [Post-review execution plan (2026-07-10)](superpowers/plans/2026-07-10-post-review-execution.md): complementary active queue — deepen primary triad, platform debt, FV fragment.
+- [Multi-chain remediation agent goal](agent-goal-prompt.md): historical PF remediation ledger; use retained rows only as verified evidence.
+- [Post-review execution plan (2026-07-10)](superpowers/plans/2026-07-10-post-review-execution.md): historical primary-triad, platform-debt, and FV execution record.
 - [Shared scenario: Counter](shared-scenario.md): cross-target acceptance test.
 - [Doc↔code sync audit (2026-07)](doc-code-sync-audit-2026-07.md): drift register and maintenance checklist.
 - [Tutorial: one module, three targets](tutorials/portable-contract-three-targets.md): portable `contract_source` walkthrough (CS-5.3).
@@ -95,12 +96,14 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
   exact HostOp failure rules, and Queue/Set expansion.
 - [Development standards](development-standards.md): contributor rules and source-of-truth map.
 - [Documentation status](document-status.md): current sources of truth and historical archive classification.
+- [Agent entry point](../AGENTS.md): mandatory reading order, current checkpoint, task routing, and update protocol.
+- [Implementation log](implementation-log.md): concise current task completion and verification ledger.
 - [Portable Intent architecture (2026-07-12)](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md): target-neutral intent/materializer boundary and incremental legacy replacement.
 - [Portable Intent implementation plan (2026-07-12)](superpowers/plans/2026-07-12-portable-intent-abstraction.md): current execution order and acceptance gates.
 - [Onboarding](onboarding.md): local setup path, editor notes, and the minimum
   validation loop for new contributors.
 - [Quint model generation](quint.md): emit executable state-machine models from portable IR, simulate, model-check, and replay MBT traces.
-- [Development log](development-log.md): milestone log with validation notes and next steps.
+- [Development log](development-log.md): detailed historical milestone stream; search when older evidence is needed.
 - [Authoring model](authoring-model.md): Learn source, `contract_source`, and internal `ContractSpec` boundaries.
 - [Validation gates](validation-gates.md): runnable gates and tool prerequisites.
 - [Formal verification roadmap](formal-verification.md): existing formal anchors and staged proof targets.
