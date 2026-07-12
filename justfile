@@ -133,6 +133,13 @@ stylus-direct-storage:
     wat2wasm build/stylus/direct-storage/storage.wat -o build/stylus/direct-storage/storage.wasm
     cargo test --manifest-path runtime/stylus-host/Cargo.toml packed_storage_update
 
+# Direct Solidity ABI validation and selector dispatcher.
+stylus-direct-abi:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Dispatch
+    lake env lean --run Tests/Stylus/DirectAbi.lean
+    wat2wasm build/stylus/direct-abi/dispatch.wat -o build/stylus/direct-abi/dispatch.wasm
+    PATH="$HOME/.foundry/bin:$PATH" python3 scripts/stylus/check-abi-vectors.py
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

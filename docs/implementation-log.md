@@ -661,3 +661,22 @@ Rules:
 - Limitation: the mapping helper owns preimage layout and accepts a Keccak
   implementation boundary; concrete direct-Wasm Keccak HostIO lowering belongs
   to the mapping/event slice.
+
+## 2026-07-12 - Stylus Task 9: Direct Solidity ABI dispatcher
+
+- Status: `done`
+- Result: added deterministic selector extraction/dispatch, calldata word
+  bounds, canonical uint/bool/address/fixed-bytes validation, static return-word
+  validation, and stable revert bytes for truncated, unknown, non-canonical,
+  and unsupported inputs.
+- Completeness: dynamic bytes/string/arrays and recursively dynamic aggregate
+  types fail before module emission. Their malformed offset/tail vectors are
+  retained for the later aggregate slice; no empty-result fallback exists.
+- Evidence:
+  - Foundry `cast` / Alloy ABI selectors match the Rust SDK and direct plan
+  - the generated direct selector function executes successfully in the Lean
+    Wasm interpreter for every Counter method
+  - unknown/truncated selectors and non-canonical bool/address values fail
+  - U256 max is accepted and exact static words remain 32 bytes
+  - emitted dispatcher WAT compiles with `wat2wasm`
+  - `just stylus-direct-abi` passed

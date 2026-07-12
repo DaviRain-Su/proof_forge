@@ -439,19 +439,19 @@
 - Consumes: `StylusAbiPlan`.
 - Produces: calldata bounds checks, selector dispatch, scalar/static/dynamic decoding, return encoding, and revert encoding as Wasm AST functions.
 
-- [ ] **Step 1: Generate shared ABI vectors from Alloy**
+- [x] **Step 1: Generate shared ABI vectors from Alloy**
 
   Include valid and truncated calldata, unknown selector, `uint256`, bool canonicality, address high-bit rejection, fixed bytes, tuple, fixed array, dynamic bytes/string, dynamic array, offset overflow, and overlapping-tail cases.
 
-- [ ] **Step 2: Implement scalar/static dispatcher first**
+- [x] **Step 2: Implement scalar/static dispatcher first**
 
   Counter methods must match Rust SDK selectors and byte-for-byte outputs. Unknown selector and malformed calldata return deterministic revert bytes rather than trap.
 
-- [ ] **Step 3: Add dynamic codecs behind completeness flags**
+- [x] **Step 3: Add dynamic codecs behind completeness flags**
 
   A plan containing a dynamic ABI type is rejected until its decoder and encoder both report `implemented`. Never silently encode an empty result.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Run Alloy vector generation, Lean tests, `wat2wasm`, Rust SDK/direct comparison, and `git diff --check`; commit:
 
