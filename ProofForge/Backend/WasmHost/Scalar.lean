@@ -414,7 +414,7 @@ def writeFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near) 
 
 def returnU64Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnU64Name, params := #[{ name := "v", type := .i64 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i64.store" 0,
@@ -427,7 +427,7 @@ def returnU64Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
 
 def returnU32Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnU32Name, params := #[{ name := "v", type := .i32 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i32.store" 0,
@@ -440,7 +440,7 @@ def returnU32Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
 
 def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnBoolName, params := #[{ name := "v", type := .i32 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i32.store8" 0,
@@ -455,7 +455,7 @@ def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
     and writes them to RET_BUF, then calls `value_return(16, RET_BUF)`. -/
 def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
@@ -471,7 +471,7 @@ def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
 `total = 4 + len` and calls `value_return(total, ptr - 4)`. -/
 def returnBytesFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
         body := { insns := #[
           .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",

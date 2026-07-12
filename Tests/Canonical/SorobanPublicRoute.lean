@@ -126,6 +126,10 @@ def main : IO Unit := do
     "Soroban canonical WAT should not contain NEAR storage_read"
   require (!sorobanWat.contains "storage_write")
     "Soroban canonical WAT should not contain NEAR storage_write"
+  require (sorobanWat.contains "set_return_data")
+    "Soroban canonical WAT should contain set_return_data (native return ABI)"
+  require (!sorobanWat.contains "value_return")
+    "Soroban canonical WAT should not contain NEAR value_return"
 
   -- -- Test 7: EmitWat legacy path produces equivalent Soroban WAT --
   let watResult := ProofForge.Backend.WasmHost.EmitWat.renderModule

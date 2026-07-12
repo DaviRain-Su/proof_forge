@@ -161,6 +161,9 @@ def sorobanPutImport : Import :=
 def sorobanRequireAuthImport : Import :=
   hostImport "require_auth_for_args" #[.i32, .i32] #[.i32]
 
+def sorobanSetReturnDataImport : Import :=
+  hostImport "set_return_data" #[.i32, .i32] #[]
+
 /-- CosmWasm host storage (matches WasmInterpreter / CosmWasmHost arity).
 `db_read(key_ptr, key_len) → i64` le-word; `db_write(key_ptr, key_len, val_ptr, val_len)`. -/
 def cosmWasmDbReadImport : Import :=
@@ -198,17 +201,19 @@ def importsForModulePlan
       (if plan.usesInputParams then #[registerLenImport] else #[]) ++
       (if plan.usesU64IndexedContains || plan.usesHashIndexedContains then
         #[storageHasKeyImport]
-      else
-        #[]) ++
+      else #[]) ++
       hostAllocatorImportsForModulePlan plan cfg
   match bridge with
   | .soroban =>
-      -- C.8: scalar storage → _get/_put. Promise_* never. Crosscall → invoke_contract.
-      -- C.9: require_auth_for_args when caller/userId is used.
+      -- Storage: _get/_put. Auth: require_auth_for_args.
+      -- Crosscall: invoke_contract. Return: set_return_data (not value_return).
       let withoutPromise := stripNearPromiseImports nearFamily
       let withoutNearStorage := stripNearStorageImports withoutPromise
+      -- Strip value_return for Soroban; use set_return_data instead.
+      let withoutValueReturn := withoutNearStorage.filter fun import_ =>
+        import_.name != "value_return"
       let withStorage :=
-        let acc := withoutNearStorage
+        let acc := withoutValueReturn
         let acc := if plan.usesStorageRead then acc.push sorobanGetImport else acc
         if plan.usesStorageWrite then acc.push sorobanPutImport else acc
       let withAuth :=
@@ -220,7 +225,10 @@ def importsForModulePlan
       let withInvoke :=
         if plan.usesPromiseCreate then withAuth.push sorobanInvokeContractImport
         else withAuth
-      dedupeImports withInvoke
+      let withReturn :=
+        if !plan.returnTypes.isEmpty then withInvoke.push sorobanSetReturnDataImport
+        else withInvoke
+      dedupeImports withReturn
   | .cosmWasm =>
       -- CosmWasm: db_read/db_write + portable crosscall → execute_msg (no NEAR promise).
       let withoutPromise := stripNearPromiseImports nearFamily

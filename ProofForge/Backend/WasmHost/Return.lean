@@ -21,11 +21,17 @@ open ProofForge.Backend.WasmHost.Types
 
 /-! Return-value encoding helpers for EmitWat. -/
 
-/-- Encode a memory pointer on the stack as `value_return(len, ptr)` (Borsh blob).
-    `insns` must leave an `i32` pointer as the top-of-stack result. -/
-def returnBytesFromPtrInsns (byteLen : Nat) (insns : Array Insn) : Array Insn :=
-  #[.i64Const byteLen] ++ insns ++
-    #[.plain "i64.extend_i32_u", .call "value_return"]
+/-- Encode a memory pointer on the stack as return data.
+    NEAR: `value_return(len, ptr)` (i64 len, i64 ptr).
+    Soroban/CosmWasm: `set_return_data(ptr, len)` (i32 ptr, i32 len). -/
+def returnBytesFromPtrInsns (byteLen : Nat) (insns : Array Insn)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Insn :=
+  match bridge with
+  | .cosmWasm | .soroban =>
+    insns ++ #[.plain "i64.extend_i32_u", .i32Const byteLen, .call "set_return_data"]
+  | _ =>
+    #[.i64Const byteLen] ++ insns ++
+      #[.plain "i64.extend_i32_u", .call "value_return"]
 
 /-- Encode a dynamic bytes/string return: the lowered expr leaves an i32 pointer
     to a Borsh buffer (4-byte LE length prefix + payload). We call the
@@ -53,14 +59,14 @@ def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
     | .u128 => .ok (insns ++ #[.call returnU128Name])
     | .bool => .ok (insns ++ #[.call returnBoolName])
     | .hash =>
-      .ok (returnBytesFromPtrInsns 32 insns)
+      .ok (returnBytesFromPtrInsns 32 insns bridge)
     | .structType _ | .fixedArray _ _ =>
       match aggregateReturnBytes with
       | some n =>
         if n == 0 then
           err s!"EmitWat: return type `{actual.name}` has zero Borsh size"
         else
-          .ok (returnBytesFromPtrInsns n insns)
+          .ok (returnBytesFromPtrInsns n insns bridge)
       | none =>
         err s!"EmitWat: return type `{actual.name}` requires aggregate layout size \
 |(struct/fixedArray); pass layout size from EmitWat"
