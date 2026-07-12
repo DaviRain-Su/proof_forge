@@ -11,7 +11,7 @@ def lowerFromPlan (plan : WasmHostModulePlan) :
     ProofForge.Backend.WasmHost.Diagnostics.err "Wasm-host plan target and bridge target disagree"
   match plan.hostBridge.bridge with
   | .near => ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan
-  | .soroban => ProofForge.Backend.WasmHost.Diagnostics.err "Soroban plan lowering is not implemented (B3)"
+  | .soroban => ProofForge.Backend.WasmHost.Diagnostics.err "Soroban canonical plan lowering is deferred — CLI artifact emission uses EmitWat.lowerModule with .soroban bridge"
   | .cosmWasm => ProofForge.Backend.WasmHost.Diagnostics.err "CosmWasm plan lowering is not implemented"
 
 end ProofForge.Backend.WasmHost.ModulePlan

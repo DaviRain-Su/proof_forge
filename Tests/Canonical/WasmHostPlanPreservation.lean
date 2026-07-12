@@ -97,13 +97,23 @@ def main : IO Unit := do
   let neutralWat := ProofForge.Compiler.Wasm.Printer.render neutralWasm
   require (neutralWat == nearWat) "neutral Wasm-host plan changed canonical NEAR WAT"
 
-  let unsupportedPlan : ProofForge.Target.CapabilityPlan := {
+  -- B3: Soroban now builds a plan (reusing NEAR layout with soroban bridge)
+  -- but lowering is still deferred. Verify the plan builds and the bridge
+  -- is correctly set to soroban.
+  let sorobanPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-stellar-soroban", calls := checked.contract.requirements, metadata := #[] }
-  match ModulePlan.Core.buildFromCore checked unsupportedPlan with
-  | .ok _ => throw <| IO.userError "neutral builder accepted Soroban before B3"
+  match ModulePlan.Core.buildFromCore checked sorobanPlan with
+  | .ok plan =>
+      require (plan.hostBridge.bridge == .soroban)
+        s!"soroban plan bridge should be soroban, got {repr plan.hostBridge.bridge}"
+      require (plan.targetId == "wasm-stellar-soroban")
+        s!"soroban plan targetId should be wasm-stellar-soroban, got {plan.targetId}"
+      -- Lowering still fails closed for Soroban until EmitWat supports it
+      match ModulePlan.lowerFromPlan plan with
+      | .ok _ => throw <| IO.userError "soroban lowering should fail (not implemented)"
+      | .error _ => pure ()
   | .error error =>
-      require (error.message.contains "not implemented")
-        s!"unexpected Soroban diagnostic: {error.message}"
+      throw <| IO.userError s!"soroban plan should build (B3), got: {error.message}"
 
   let mismatchedPlan := { neutralPlan with
     hostBridge := { targetId := "wasm-cosmwasm", bridge := .cosmWasm } }
