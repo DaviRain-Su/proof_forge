@@ -317,6 +317,25 @@ Rules:
   `lake build ProofForge.Backend.Stylus.Plan`, and `git diff --check` passed.
 - Next: Task 3, canonical-to-plan builder and strict validation.
 
+## 2026-07-12 - Arbitrum Stylus Task 3 canonical plan
+
+- Status: `done`
+- Added `Plan.Core.buildFromCore`, consuming only a checked canonical contract
+  and exact matching `CapabilityPlan` for `wasm-arbitrum-stylus`.
+- The repository's real Counter interface remains
+  `initialize/increment/get` with `uint64 count`; selectors are decoded from
+  canonical interface metadata and persistent state is assigned a 32-byte EVM
+  slot expression.
+- HostOp collection records storage load/cache/flush, context, Keccak, event,
+  and EVM call modes. NEAR promise modes, unknown typed HostOps, unsupported
+  context, wrong targets, and mismatched capability plans fail closed.
+- Added plan-internal validation for ABI widths/selectors, storage bounds,
+  function/ABI references, flush obligations, and renderer completeness.
+- Registry and CLI routing remain unchanged.
+- Verification: `just stylus-core-plan`, `just stylus-diagnostics`,
+  `just canonical-core`, `just evm-plan`, and `git diff --check` passed.
+- Next: Task 4, deterministic Rust SDK AST and renderer.
+
 ### Local parallel qualification
 
 - `check-serial` warm-cache baseline: 1297.26 seconds.

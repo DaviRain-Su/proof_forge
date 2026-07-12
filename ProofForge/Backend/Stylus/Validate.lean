@@ -1,0 +1,95 @@
+/-
+Copyright (c) 2026 DaviRain. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
+import ProofForge.Backend.Stylus.Plan
+
+namespace ProofForge.Backend.Stylus
+
+structure PlanError where
+  message : String
+  deriving Repr, BEq
+
+inductive RendererKind where
+  | rustSdk
+  | directWasm
+  deriving Repr, BEq, DecidableEq
+
+def RendererKind.id : RendererKind -> String
+  | .rustSdk => "rust-sdk"
+  | .directWasm => "direct-wasm"
+
+private def fail (message : String) : Except PlanError α :=
+  .error { message }
+
+partial def validateAbiType : StylusAbiType -> Except PlanError Unit
+  | .bool | .address | .bytes | .string => pure ()
+  | .uint bits =>
+      unless StylusAbiType.validUintBits.contains bits do
+        fail s!"Stylus plan has unsupported ABI type uint{bits}"
+  | .fixedBytes bytes =>
+      unless bytes >= 1 && bytes <= 32 do
+        fail s!"Stylus plan has unsupported ABI type bytes{bytes}"
+  | .fixedArray elem size => do
+      if size == 0 then fail "Stylus fixed array size must be positive"
+      validateAbiType elem
+  | .dynamicArray elem => validateAbiType elem
+  | .tuple fields =>
+      fields.forM validateAbiType
+
+private def validateSupportEntry (renderer : RendererKind) (owner : String)
+    (support : RendererSupportPlan) : Except PlanError Unit := do
+  let state := match renderer with
+    | .rustSdk => support.rustSdk
+    | .directWasm => support.directWasm
+  match state with
+  | .implemented => pure ()
+  | .planned => fail s!"Stylus {owner} has no implemented handler for renderer {renderer.id}"
+  | .unsupported reason =>
+      fail s!"Stylus {owner} is unsupported by renderer {renderer.id}: {reason}"
+
+def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
+  unless plan.targetId == "wasm-arbitrum-stylus" do
+    fail s!"Stylus plan has wrong target `{plan.targetId}`"
+  if plan.moduleName.isEmpty then fail "Stylus plan module name is empty"
+  if plan.resources.maxMemoryPages == 0 then
+    fail "Stylus plan maxMemoryPages must be positive"
+  for method in plan.abi.methods do
+    unless method.selector.size == 4 do
+      fail s!"Stylus ABI method `{method.name}` selector must be four bytes"
+    for param in method.params do validateAbiType param.type
+    for type in method.returns do validateAbiType type
+  for error in plan.abi.errors do
+    unless error.selector.size == 4 do
+      fail s!"Stylus ABI error `{error.name}` selector must be four bytes"
+    for param in error.params do validateAbiType param.type
+  for word in plan.storage.words do
+    validateAbiType word.type
+    if word.byteWidth == 0 || word.byteWidth > 32 then
+      fail s!"Stylus storage word `{word.id}` has invalid byte width {word.byteWidth}"
+    if word.byteOffset + word.byteWidth > 32 then
+      fail s!"Stylus storage word `{word.id}` exceeds its 32-byte slot"
+    match word.slot with
+    | .literal bytes =>
+        unless bytes.size == 32 do
+          fail s!"Stylus storage word `{word.id}` literal slot must be 32 bytes"
+    | _ => pure ()
+  for function in plan.functions do
+    unless plan.abi.methods.any (fun method => method.name == function.abiMethod) do
+      fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"
+  if plan.resources.requiresStorageFlush &&
+      !plan.hostOps.any (fun op => op.operation == .storageFlush) then
+    fail "Stylus mutating plan requires storage flush but has no storageFlush HostOp"
+
+def validateForRenderer (renderer : RendererKind) (plan : StylusPlan) : Except PlanError Unit := do
+  validatePlan plan
+  for function in plan.functions do
+    validateSupportEntry renderer s!"function `{function.id}`" function.support
+  for event in plan.events do
+    validateSupportEntry renderer s!"event `{event.id}`" event.support
+  for call in plan.calls do
+    validateSupportEntry renderer s!"call `{call.id}`" call.support
+  for hostOp in plan.hostOps do
+    validateSupportEntry renderer s!"HostOp `{hostOp.id}`" hostOp.support
+
+end ProofForge.Backend.Stylus

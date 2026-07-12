@@ -192,13 +192,18 @@
 - Consumes: `CheckedCanonicalContract` plus `CapabilityPlan` for target `wasm-arbitrum-stylus`.
 - Produces: `buildFromCore : CheckedCanonicalContract -> CapabilityPlan -> Except PlanError StylusPlan` and `validatePlan : StylusPlan -> Except PlanError Unit`.
 
-- [ ] **Step 1: Pin failing Counter and rejection cases**
+- [x] **Step 1: Pin failing Counter and rejection cases**
 
-  In `CorePlan.lean`, adapt the canonical Counter and require selectors for `number()`, `setNumber(uint256)`, and `increment()`, slot zero, storage load/cache/flush HostOps, and `requiresStorageFlush = true`. In `Diagnostics.lean`, pin errors for wrong target, invalid `uint24`, unsupported promise operations, missing renderer handler, and overlapping packed fields.
+  In `CorePlan.lean`, adapt the repository's canonical Counter and require its
+  actual `initialize()`, `increment()`, and `get()` selectors, slot zero with
+  `uint64` state, storage load/cache/flush HostOps, and
+  `requiresStorageFlush = true`. In `Diagnostics.lean`, pin errors for wrong
+  target, invalid `uint24`, unsupported target-only operations, missing renderer
+  handlers, and invalid packed fields.
 
   Run both files with `lake env lean --run`; expect missing builder errors.
 
-- [ ] **Step 2: Build ABI and storage subplans from canonical facts**
+- [x] **Step 2: Build ABI and storage subplans from canonical facts**
 
   Implement separate pure functions:
 
@@ -211,11 +216,11 @@
 
   Reuse extracted Solidity signature and slot-layout helpers from EVM only when they do not depend on Yul or bytecode types.
 
-- [ ] **Step 3: Enforce renderer completeness in validation**
+- [x] **Step 3: Enforce renderer completeness in validation**
 
   `validatePlan` must reject every plan entry without both `rustSdk` and `directWasm` support-state declarations. Before direct implementation, `directWasm` may be `planned`; emission requires `implemented`.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   Add `stylus-core-plan` and `stylus-diagnostics` recipes. Run both, `just canonical-core`, `just evm-plan`, and `git diff --check`, then commit:
 
@@ -240,7 +245,9 @@
 
 - [ ] **Step 1: Write renderer golden tests before implementation**
 
-  Require the Counter output to contain pinned SDK version, `sol_storage!`, `#[entrypoint]`, `#[public]`, `StorageU256`, `number`, `set_number`, `increment`, checked addition, and no source-contract inspection.
+  Require the Counter output to contain pinned SDK version, `sol_storage!`,
+  `#[entrypoint]`, `#[public]`, `uint64 count`, `initialize`, `increment`, `get`,
+  checked addition, and no source-contract inspection.
 
   Run `lake env lean --run Tests/Stylus/RustRender.lean`; expect missing renderer failure.
 
@@ -256,18 +263,18 @@
   sol_storage! {
       #[entrypoint]
       pub struct Counter {
-          uint256 number;
+        uint64 count;
       }
   }
 
   #[public]
   impl Counter {
-      pub fn number(&self) -> U256 { self.number.get() }
-      pub fn set_number(&mut self, value: U256) { self.number.set(value); }
+      pub fn initialize(&mut self) { self.count.set(0); }
+      pub fn get(&self) -> u64 { self.count.get() }
       pub fn increment(&mut self) -> Result<(), Vec<u8>> {
-          let next = self.number.get().checked_add(U256::from(1))
+          let next = self.count.get().checked_add(1)
               .ok_or_else(|| b"checked arithmetic overflow".to_vec())?;
-          self.number.set(next);
+          self.count.set(next);
           Ok(())
       }
   }
@@ -333,7 +340,9 @@
 
 - [ ] **Step 1: Pin the observable lifecycle**
 
-  Test `number -> setNumber(2^32 + 7) -> increment -> number`, overflow rejection at `U256::MAX`, unchanged state after rejection, exact ABI bytes, slot zero, and one successful cache flush per mutating call.
+  Test `initialize -> increment -> get`, a host-seeded value above `2^32`,
+  overflow rejection at `u64::MAX`, unchanged state after rejection, exact ABI
+  bytes, slot zero, and one successful cache flush per mutating call.
 
 - [ ] **Step 2: Implement the abstract state**
 

@@ -89,6 +89,16 @@ stylus-plan-contract:
     lake build ProofForge.Backend.Stylus.Plan
     lake env lean --run Tests/Stylus/PlanContract.lean
 
+# Canonical Core to validated StylusPlan contract.
+stylus-core-plan:
+    lake build ProofForge.Backend.Stylus.Plan.Core
+    lake env lean --run Tests/Stylus/CorePlan.lean
+
+# Named fail-closed diagnostics and renderer-completeness checks.
+stylus-diagnostics:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.Validate
+    lake env lean --run Tests/Stylus/Diagnostics.lean
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan
