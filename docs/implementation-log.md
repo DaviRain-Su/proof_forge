@@ -890,6 +890,11 @@ Rules:
 - `just stylus-value-vault-canonical` executes initialize, fee charging,
   release, and net-value vectors in direct Wasmtime and compiles the generated
   Rust SDK crate with `stylus-test`. Nitro activation remains the next gate.
+- Added `stylus-value-vault-nitro-e2e`, which regenerates the canonical Wasm,
+  runs the official check/deploy path, executes initialize/charge/release with
+  `cast`, validates balance/net value, and writes ignored JSON evidence. Script
+  self-tests pass; live execution is currently blocked only by the unavailable
+  local Docker daemon/RPC.
 
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 

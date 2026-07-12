@@ -9,6 +9,7 @@ scripts=(
   "$root/scripts/stylus/nitro-check.sh"
   "$root/scripts/stylus/nitro-deploy.sh"
   "$root/scripts/stylus/nitro-e2e.sh"
+  "$root/scripts/stylus/value-vault-nitro-e2e.sh"
   "$root/scripts/stylus/sepolia-e2e.sh"
 )
 for script in "${scripts[@]}"; do
@@ -30,5 +31,7 @@ grep -Fq 'public RPC requires PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH' "$root/script
 grep -Fq 'deploy_args+=(--no-verify)' "$root/scripts/stylus/nitro-deploy.sh"
 grep -Fq 'local Nitro E2E only accepts' "$root/scripts/stylus/nitro-e2e.sh"
 grep -Fq '.foundry/bin' "$root/scripts/stylus/nitro-e2e.sh"
+grep -Fq 'build/evidence/stylus/value-vault' "$root/scripts/stylus/value-vault-nitro-e2e.sh"
+grep -Fq 'charge_fee(uint64,uint64)' "$root/scripts/stylus/value-vault-nitro-e2e.sh"
 grep -Fq 'sepolia-rollup.arbitrum.io/rpc' "$root/scripts/stylus/sepolia-e2e.sh"
 echo "stylus-nitro-scripts: ok"

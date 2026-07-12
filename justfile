@@ -204,6 +204,9 @@ stylus-nitro-deploy:
 stylus-nitro-e2e:
     scripts/stylus/nitro-e2e.sh
 
+stylus-value-vault-nitro-e2e:
+    scripts/stylus/value-vault-nitro-e2e.sh
+
 stylus-nitro-down:
     tools/stylus-nitro/manage.sh down
 
