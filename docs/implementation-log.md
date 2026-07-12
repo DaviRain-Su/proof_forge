@@ -937,6 +937,22 @@ Rules:
   truncated tails, and over-limit payloads; rejected calls return deterministic
   malformed-calldata bytes before contract execution.
 
+## 2026-07-13 - Stylus dynamic literals and canonical call envelopes
+
+- Status: `plan complete; HostIO lowering pending`
+- Added bounded bytes/string literal carriers with checked 256-byte scratch
+  regions, explicit pointer/length locals, Rust literal rendering, and pre-emit
+  page-bound diagnostics.
+- Canonical crosscalls now produce plan-owned envelopes containing mode, target,
+  method slice, typed argument ids/types, optional value/gas, and return type.
+  The real product RemoteCall produces nullary and two-u64 envelopes without a
+  target-specific frontend fixture.
+- Direct/Rust call execution remains fail-closed with named diagnostics until
+  official HostIO buffer, return-data, and cache-transition lowering lands.
+- Targeted Stylus builds and aggregate runtime gates pass. The repository-wide
+  build is temporarily blocked by the concurrent NEAR `nearPromiseResultU128`
+  addition missing exhaustive cases in shared non-Stylus modules.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

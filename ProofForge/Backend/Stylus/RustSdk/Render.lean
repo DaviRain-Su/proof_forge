@@ -54,6 +54,10 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
   | .uint value => pure (toString value)
   | .address value => pure s!"Address::parse_checksummed(\"{value}\", None).unwrap()"
   | .fixedBytes _ => fail "Rust SDK fixed-bytes literals are not implemented"
+  | .bytes value => pure s!"vec![{String.intercalate ", " (value.toList.map (fun byte => toString byte.toNat))}]"
+  | .string value =>
+      let escaped := (value.replace "\\" "\\\\").replace "\"" "\\\""
+      pure s!"String::from(\"{escaped}\")"
 
 private def localName (id : StylusValueId) : String := s!"v{id}"
 
@@ -121,6 +125,7 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let data := (event.fields.zip values).filterMap fun (field, value) =>
         if field.indexed then none else some (localName value)
       pure (.emitEvent event.canonicalSignature indexed data)
+  | .call _ _ callId => fail s!"Rust SDK call envelope `{callId}` lowering is not implemented"
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do

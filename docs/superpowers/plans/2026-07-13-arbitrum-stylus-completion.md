@@ -128,6 +128,7 @@
 - Produces: call/static/delegate envelopes, bounded return-data slices, status/revert propagation, and explicit cache transitions.
 
 - [ ] Pin success, empty/dynamic result, callee revert, truncation, value call, static write rejection, delegate context, gas bound, and reentrant callback traces.
+- [x] Preserve canonical call/static/delegate envelopes in `StylusPlan`, including target, bounded method string, typed arguments, optional value/gas, and return type.
 - [ ] Lower only official `call_contract`, `static_call_contract`, `delegate_call_contract`, `return_data_len`, and `read_return_data` signatures from the pinned SDK.
 - [ ] Encode pre-call flush, reentrant cache clear, success commit, and failure discard as plan operations; renderers may not invent transitions.
 - [ ] Extend the local runner with deterministic mock callees and nested invocation frames, preserving caller/storage/value identities.
@@ -152,6 +153,7 @@
 - [ ] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
 - [x] Add renderer-neutral dynamic ABI head/tail validation for empty/non-aligned payloads, malformed offsets, truncated tails, padding bounds, and maximum length.
 - [x] Add plan-owned pointer/length carriers for bounded bytes/string parameters and Solidity-compatible dynamic returns in direct Wasm; compile the same plan as Rust `Vec<u8>`/`String`.
+- [x] Lower bounded bytes/string literals into checked scratch carriers for canonical method names and other aggregate consumers.
 - [ ] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
 - [ ] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
 - [ ] Render and execute Rust/direct parity for every fixture and record Wasm bytes/pages plus Nitro ink/gas evidence.

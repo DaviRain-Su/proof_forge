@@ -31,6 +31,7 @@ private def opName : StylusOpPlan -> String
   | .compare result _ operation .. => s!"compare-{repr operation}-{result}"
   | .assert_ condition _ => s!"assert-{condition}"
   | .emitEvent event _ => s!"emit-{event}"
+  | .call result _ callId => s!"call-{callId}-{result}"
 
 private def diagnostic (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : String) (capability reason : String) : LowerError := {
@@ -187,6 +188,7 @@ private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   | .literal result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
   | .storageLoad result .. | .storagePathLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
+  | .call result .. => #[result]
   | .storageCache .. | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
@@ -204,7 +206,15 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
     | _ => false
   let values := if hasWideAdd then values ++ #[{ name := "wideCarry", type := .i64 },
     { name := "wideTmp", type := .i64 }] else values
-  return if hasWideOrdering then values.push { name := "wideDone", type := .i64 } else values
+  let values := if hasWideOrdering then values.push { name := "wideDone", type := .i64 } else values
+  let mut dynamicIds := #[]
+  for block in function.blocks do
+    for op in block.operations do
+      match op with
+      | .literal result .bytes _ | .literal result .string _ =>
+          if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
+      | _ => pure ()
+  return values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
 
 private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : StylusOpPlan) : Except LowerError (Array Insn) := do
@@ -217,6 +227,19 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           else if bits == 128 then pure <| writeBytes (widePtr result) (natBytes 16 value) ++
             #[.i64Const (widePtr result), .localSet (valueLocal result)]
           else throw <| diagnostic plan function block (opName op) "literal" s!"uint{bits} is not implemented"
+      | .bytes, .bytes value =>
+          if value.size > dynamicLiteralMaxBytes then
+            throw <| diagnostic plan function block (opName op) "literal.bytes" "literal exceeds 256 bytes"
+          pure <| writeBytes (dynamicLiteralPtr result) value ++ #[
+            .i64Const (dynamicLiteralPtr result), .localSet (valueLocal result),
+            .i64Const value.size, .localSet (dynamicLengthLocal result)]
+      | .string, .string value =>
+          let bytes := value.toUTF8.data
+          if bytes.size > dynamicLiteralMaxBytes then
+            throw <| diagnostic plan function block (opName op) "literal.string" "literal exceeds 256 bytes"
+          pure <| writeBytes (dynamicLiteralPtr result) bytes ++ #[
+            .i64Const (dynamicLiteralPtr result), .localSet (valueLocal result),
+            .i64Const bytes.size, .localSet (dynamicLengthLocal result)]
       | _, _ => throw <| diagnostic plan function block (opName op) "literal" "literal/type mismatch"
   | .add result type mode lhs rhs => do
       if type == .uint 128 then
@@ -380,6 +403,9 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
         if field.indexed then topicIndex := topicIndex + 1 else dataIndex := dataIndex + 1
       pure <| insns ++ #[.i32Const eventPtr, .i32Const ((topicCount + dataIndex) * 32),
         .i32Const topicCount, .call "emit_log"]
+  | .call _ _ callId =>
+      throw <| diagnostic plan function block (opName op) "crosscall"
+        s!"call envelope `{callId}` lowering is not implemented"
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do
@@ -396,12 +422,8 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
       | .bytes | .string => do
-          let some param := function.params.find? (fun param => param.valueId == value)
-            | throw <| diagnostic plan function block "terminator" "abi.result"
-                "dynamic return is not backed by a function parameter"
-          let some maximum := param.dynamicMaxLength?
-            | throw <| diagnostic plan function block "terminator" "abi.result"
-                "dynamic return has no maximum length"
+          let maximum := (function.params.find? (fun param => param.valueId == value)).bind
+            (fun param => param.dynamicMaxLength?) |>.getD dynamicLiteralMaxBytes
           pure <| #[.i32Const 32, .i32Const 0, .i32Const (64 + maximum), .plain "memory.fill"] ++
             writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
               .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",

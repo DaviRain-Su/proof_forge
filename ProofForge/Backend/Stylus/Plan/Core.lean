@@ -116,8 +116,8 @@ private def literalPlan : CoreLiteral -> Except PlanError (StylusAbiType × Styl
   | .addressLit value => pure (.address, .address value)
   | .hashLit value => pure (.fixedBytes 32, .fixedBytes value.toUTF8.data)
   | .unitLit => fail "Stylus unit literal cannot bind an SSA value"
-  | .bytesLit _ | .stringLit _ =>
-      fail "Stylus dynamic literals are scheduled for the aggregate slice"
+  | .bytesLit value => pure (.bytes, .bytes value.data)
+  | .stringLit value => pure (.string, .string value)
 
 private def contextHostOp : ContextField -> Option StylusHostOp
   | .sender => some .msgSender | .value => some .msgValue
@@ -181,6 +181,12 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
       let some declaration := contract.interface.events.find? (fun item => item.eventId == event)
         | fail s!"Stylus emit references missing event {event.value}"
       pure (.emitEvent declaration.name (values.map fun value => value.id.value))
+  | .crosscall _ _ => do
+      let result <- resultId instruction
+      let type <- match instruction.results with
+        | #[value] => coreTypeToAbi value.type
+        | _ => fail "Stylus crosscall expected exactly one result"
+      pure (.call result type s!"call-{result}")
   | op => fail s!"Stylus function lowering has no plan operation for `{repr op}`"
 
 private def terminatorPlan : Terminator -> Except PlanError StylusTerminatorPlan
@@ -292,6 +298,32 @@ private def buildEvents (contract : CanonicalContract) : Except PlanError (Array
       support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
+private def buildCalls (contract : CanonicalContract) : Except PlanError (Array StylusCallPlan) := do
+  let mut calls := #[]
+  for function in contract.module.functions do
+    for block in function.blocks do
+      for instruction in block.instructions do
+        match instruction.op with
+        | .crosscall spec arguments =>
+            let result <- resultId instruction
+            let mode <- match spec.mode with
+              | .invoke => pure StylusCallMode.call
+              | .staticInvoke => pure .staticCall
+              | .delegateInvoke => pure .delegateCall
+              | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
+            calls := calls.push {
+              id := s!"call-{result}", mode, target := spec.target.id.value,
+              method := spec.method.id.value,
+              arguments := arguments.map fun value => value.id.value,
+              paramTypes := ← spec.paramTypes.mapM coreTypeToAbi,
+              returnType := ← coreTypeToAbi spec.returnType,
+              value? := spec.value.map fun value => value.id.value,
+              gas? := spec.gas.map fun value => value.id.value,
+              support := { rustSdk := .implemented, directWasm := .implemented }
+            }
+        | _ => pure ()
+  pure calls
+
 def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan) :
     Except PlanError StylusPlan := do
   unless capPlan.targetId == "wasm-arbitrum-stylus" do
@@ -306,6 +338,7 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
   let storage <- buildStorage contract
   let functions <- buildFunctions contract
   let events <- buildEvents contract
+  let calls <- buildCalls contract
   let mut hostOps := #[]
   for entrypoint in contract.interface.entrypoints do
     let some function := contract.module.functions.find? (fun fn => fn.id == entrypoint.functionId)
@@ -327,7 +360,7 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
     storage
     functions
     events
-    calls := #[]
+    calls
     hostOps
     resources := { maxMemoryPages := 1, requiresStorageFlush }
     artifacts := { solidityAbi := true, typescriptClient := true }

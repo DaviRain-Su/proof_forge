@@ -71,6 +71,8 @@ inductive StylusLiteralPlan where
   | uint (value : Nat)
   | address (value : String)
   | fixedBytes (value : StylusBytes)
+  | bytes (value : StylusBytes)
+  | string (value : String)
   deriving Repr, BEq
 
 inductive StylusOpPlan where
@@ -92,6 +94,7 @@ inductive StylusOpPlan where
       (lhs rhs : StylusValueId)
   | assert_ (condition : StylusValueId) (message : String)
   | emitEvent (eventId : String) (values : Array StylusValueId)
+  | call (result : StylusValueId) (type : StylusAbiType) (callId : String)
   deriving Repr, BEq
 
 inductive StylusTerminatorPlan where
@@ -197,7 +200,10 @@ structure StylusCallPlan where
   id : String
   mode : StylusCallMode
   target : StylusValueId
-  calldata : StylusValueId
+  method : StylusValueId
+  arguments : Array StylusValueId := #[]
+  paramTypes : Array StylusAbiType := #[]
+  returnType : StylusAbiType
   value? : Option StylusValueId := none
   gas? : Option StylusValueId := none
   support : RendererSupportPlan := {}
