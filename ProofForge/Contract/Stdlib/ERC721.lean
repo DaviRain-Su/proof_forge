@@ -25,7 +25,15 @@ end Spec
 def tokenOwners : MapRef :=
   { id := "tokenOwners", keyType := .u64, valueType := .u64 }
 
+def initialized : ScalarRef :=
+  ProofForge.Contract.Surface.slot "erc721Initialized" .u64
+
+def mintAuthority : ScalarRef :=
+  ProofForge.Contract.Surface.slot "erc721MintAuthority" .address
+
 contract_mixin ERC721Mixin do
+  use ProofForge.Contract.Surface.scalar initialized
+  use ProofForge.Contract.Surface.scalar mintAuthority
   use ProofForge.Contract.Surface.mapState tokenOwners
 
   event Transfer abi #[
@@ -76,6 +84,8 @@ contract_mixin ERC721Mixin do
       (ProofForge.Contract.Surface.ref tokenId);
 
   entry mint (recipient : .address, tokenId : .u64) do
+    do ProofForge.Contract.Surface.requireEq caller
+      (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
     do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
     let existing : .u64 := mapRead tokenOwners tokenId;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref existing) (u64 0) "token exists";
@@ -100,5 +110,9 @@ contract_mixin ERC721Mixin do
 
 contract_source ERC721 do
   use mixin
+  entry init do
+    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    initialized := u64 1;
+    mintAuthority := caller;
 
 end ProofForge.Contract.Stdlib.ERC721

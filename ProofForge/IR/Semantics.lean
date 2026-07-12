@@ -101,6 +101,8 @@ def listGet? {α : Type} : List α → Nat → Option α
 structure State where
   storage : Bindings := []
   logs : Array EventLog := #[]
+  userId : Value := .u64 0
+  userIdHash : Value := .hash 0 0 0 0
   deriving Repr, BEq
 
 structure Frame where
@@ -786,9 +788,11 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       .ok (stateAfterValue.write key value, value)
   | .contextRead field =>
       match field with
-      | .userId | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
+      | .userId => .ok (state, state.userId)
+      | .userIdHash => .ok (state, state.userIdHash)
+      | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
           .ok (state, .u64 0)
-      | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
+      | .randomSeed | .origin | .coinbase | .blockHash _ =>
           .ok (state, .hash 0 0 0 0)
   | .eventEmit name fields => do
       let (nextState, data) ← evalEventFields state frame fields

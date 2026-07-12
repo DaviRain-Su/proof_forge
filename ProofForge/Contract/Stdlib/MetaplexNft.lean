@@ -62,7 +62,15 @@ def nftUpdateAuthorities : MapRef :=
 def totalNftSupply : ScalarRef :=
   ProofForge.Contract.Surface.slot "metaplexTotalSupply" .u64
 
+def initialized : ScalarRef :=
+  ProofForge.Contract.Surface.slot "metaplexInitialized" .u64
+
+def mintAuthority : ScalarRef :=
+  ProofForge.Contract.Surface.slot "metaplexMintAuthority" .hash
+
 contract_mixin MetaplexNftMixin do
+  use ProofForge.Contract.Surface.scalar initialized
+  use ProofForge.Contract.Surface.scalar mintAuthority
   use ProofForge.Contract.Surface.scalar totalNftSupply
   use ProofForge.Contract.Surface.mapState tokenOwners
   use ProofForge.Contract.Surface.mapState nftBalances
@@ -83,6 +91,8 @@ contract_mixin MetaplexNftMixin do
     return mapRead tokenOwners token_id;
 
   entry mint_nft (receiver_id : .hash, token_id : .u64, update_authority : .hash) do
+    do ProofForge.Contract.Surface.requireEq callerHash
+      (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
     let existing : .hash := mapRead tokenOwners token_id;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref existing)
       (ProofForge.Contract.Surface.hash4 0 0 0 0) "token already exists";
@@ -130,6 +140,9 @@ contract_mixin MetaplexNftMixin do
 contract_source MetaplexNft do
   use mixin
   entry init do
+    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    initialized := u64 1;
+    mintAuthority := callerHash;
     totalNftSupply := u64 0;
 
 end ProofForge.Contract.Stdlib.MetaplexNft

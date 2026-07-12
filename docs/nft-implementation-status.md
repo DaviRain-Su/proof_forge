@@ -5,10 +5,10 @@ Status: **Audit complete (2026-07-12, Task A4)**
 ## Audit Scope
 
 Each primary-target NFT implementation candidate was audited for the
-minimal `unique + mintable + transferable` lifecycle. The audit checks
-that the `ContractSpec` exports the expected entrypoints by name. It does
-not verify runtime behavior — that is the responsibility of target-specific
-gates (`just evm-all`, `just solana-light`, `just wasm-near-plan`).
+minimal `unique + mintable + transferable` lifecycle. The audit checks exact
+entrypoint signatures and executes the portable IR lifecycle with explicit
+caller identities. Target-specific gates remain backend compatibility evidence;
+they are not substitutes for the NFT semantic test.
 
 ## Implemented Semantics
 
@@ -16,7 +16,8 @@ gates (`just evm-all`, `just solana-light`, `just wasm-near-plan`).
 
 | Entrypoint | Kind | Parameters | Returns | Semantics |
 |---|---|---|---|---|
-| `mint` | entry | recipient: address, tokenId: u64 | unit | Rejects zero recipient, rejects existing token, sets owner, emits Transfer |
+| `init` | entry | (none) | unit | One-shot initialization; records caller as mint authority |
+| `mint` | entry | recipient: address, tokenId: u64 | unit | Requires mint authority, rejects zero recipient and existing token, sets owner, emits Transfer |
 | `transferFrom` | entry | holder: address, recipient: address, tokenId: u64 | unit | Rejects invalid token, wrong holder, unauthorized, zero recipient; transfers ownership, emits Transfer |
 | `safeTransferFrom` | entry | holder: address, recipient: address, tokenId: u64 | unit | Same as transferFrom + `onERC721Received` check for contract recipients |
 | `burn` | entry | tokenId: u64 | unit | Rejects non-owner; clears owner, emits Transfer |
@@ -28,8 +29,8 @@ Storage: `tokenOwners` map (u64 → u64, tokenId → owner address handle).
 
 | Entrypoint | Kind | Parameters | Returns | Semantics |
 |---|---|---|---|---|
-| `init` | entry | (none) | unit | Sets totalSupply to 0 |
-| `mint_nft` | entry | receiver_id: hash, token_id: u64, update_authority: hash | unit | Rejects existing token, sets owner, increments balance and supply, emits NftMint |
+| `init` | entry | (none) | unit | One-shot initialization; records caller as mint authority and sets totalSupply to 0 |
+| `mint_nft` | entry | receiver_id: hash, token_id: u64, update_authority: hash | unit | Requires mint authority, rejects existing token, sets owner, increments balance and supply, emits NftMint |
 | `transfer_nft` | entry | receiver_id: hash, token_id: u64 | unit | Rejects non-owner; transfers ownership, adjusts balances, emits NftTransfer |
 | `burn_nft` | entry | token_id: u64 | unit | Rejects non-owner; clears owner and authority, decrements balance and supply, emits NftBurn |
 | `nft_owner_of` | query | token_id: u64 | hash | Returns owner account hash |
@@ -43,8 +44,8 @@ Storage: `metaplexTokenOwners` (u64 → hash), `metaplexNftBalances` (hash → u
 
 | Entrypoint | Kind | Parameters | Returns | Semantics |
 |---|---|---|---|---|
-| `init` | entry | (none) | unit | Sets totalSupply, contractName, contractSymbol to 0 |
-| `nft_mint` | entry | receiver_id: hash, token_id: u64 | unit | Rejects existing token, sets owner, increments balance and supply, emits NftMint |
+| `init` | entry | (none) | unit | One-shot initialization; records caller as mint authority and initializes metadata projections |
+| `nft_mint` | entry | receiver_id: hash, token_id: u64 | unit | Requires mint authority, rejects existing token, sets owner, increments balance and supply, emits NftMint |
 | `nft_transfer` | entry | receiver_id: hash, token_id: u64 | unit | Rejects non-owner; transfers ownership, adjusts balances, emits NftTransfer |
 | `nft_burn` | entry | token_id: u64 | unit | Rejects non-owner; clears owner, decrements balance and supply, emits NftBurn |
 | `nft_owner_of` | query | token_id: u64 | hash | Returns owner account hash |
@@ -89,11 +90,13 @@ the portable `NFTSpec` to the target-specific `ContractSpec`.
 
 ## Verification
 
-- `Tests/NftImplementationContract.lean` — presence check for all
-  expected entrypoints across all three implementations. Passes.
+- `just nft-implementation-contract` — exact parameter/return contracts plus
+  executable init, authority rejection, mint, duplicate-mint rejection,
+  transfer, storage transition, supply conservation, and event payload checks.
 - Target-specific runtime behavior is verified by:
   - EVM: `just evm-all`
   - Solana: `just solana-light`
   - NEAR: `just wasm-near-plan`
-- No code repairs were needed; all three implementations already
-  support the minimal `unique + mintable + transferable` lifecycle.
+- A4 repair added one-shot initialization and explicit mint authority to all
+  three candidates. This verifies the repository's portable lifecycle contract;
+  it does not claim complete ERC-721, Metaplex, or NEP-171 compliance.

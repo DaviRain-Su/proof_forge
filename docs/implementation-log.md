@@ -150,6 +150,16 @@ Rules:
   `just nft-intent` to the product and check gates. Tests now consume only the
   public aggregate import.
 
+## 2026-07-12 - A4 review repair
+
+- Replaced the entrypoint-name presence check with exact ABI and executable IR
+  lifecycle validation for ERC721, MetaplexNft, and NearNft.
+- Added one-shot initialization and stored mint authority to all three
+  candidates; unauthorized mint and duplicate mint now reject before mutation.
+- Extended IR test state with configurable caller values so authorization and
+  transfer behavior can be exercised rather than inferred from source text.
+- Added `just nft-implementation-contract` to product and check.
+
 ### A2 review repair
 
 - Added the promised `resolveIntentMaterializer` public API and the checked

@@ -60,6 +60,12 @@ def nftApprovals : MapRef :=
 def totalNftSupply : ScalarRef :=
   ProofForge.Contract.Surface.slot "nftTotalSupply" .u64
 
+def initialized : ScalarRef :=
+  ProofForge.Contract.Surface.slot "nftInitialized" .u64
+
+def mintAuthority : ScalarRef :=
+  ProofForge.Contract.Surface.slot "nftMintAuthority" .hash
+
 /-- NFT contract metadata: name (stored as u64 hash of name string for v0). -/
 def nftContractName : ScalarRef :=
   ProofForge.Contract.Surface.slot "nftContractName" .u64
@@ -69,6 +75,8 @@ def nftContractSymbol : ScalarRef :=
   ProofForge.Contract.Surface.slot "nftContractSymbol" .u64
 
 contract_mixin NearNftMixin do
+  use ProofForge.Contract.Surface.scalar initialized
+  use ProofForge.Contract.Surface.scalar mintAuthority
   use ProofForge.Contract.Surface.scalar totalNftSupply
   use ProofForge.Contract.Surface.scalar nftContractName
   use ProofForge.Contract.Surface.scalar nftContractSymbol
@@ -97,6 +105,8 @@ contract_mixin NearNftMixin do
     return nftContractSymbol;
 
   entry nft_mint (receiver_id : .hash, token_id : .u64) do
+    do ProofForge.Contract.Surface.requireEq callerHash
+      (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
     let existing : .hash := mapRead tokenOwners token_id;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref existing)
       (ProofForge.Contract.Surface.hash4 0 0 0 0) "token already exists";
@@ -142,6 +152,9 @@ contract_mixin NearNftMixin do
 contract_source NearNft do
   use mixin
   entry init do
+    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    initialized := u64 1;
+    mintAuthority := callerHash;
     totalNftSupply := u64 0;
     nftContractName := u64 0;
     nftContractSymbol := u64 0;

@@ -32,7 +32,7 @@
 | A1 | 将 Solana 语法隔离到 `Source.Solana` | done（在 `c1433b2e` 验证） | portable import 拒绝 PDA/CPI/realloc；Source.Solana elaboration 固定 account/PDA/CPI/realloc intent；Solana fixture 不变 |
 | A2 | `IntentContract` 与 materializer registry | done（审查修复完成） | 防重复 registry；校验返回 target；frontend 不按 target 分支 |
 | A3 | 目标中立 `NFTSpec` | done（审查修复完成） | target 选择前校验身份与 feature 冲突，并保留 asset model |
-| A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | pending | 最小生命周期与明确合规限制 |
+| A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | done（审查修复完成） | 可执行最小生命周期与明确合规限制 |
 | A5 | 主三链 NFT intent 物化 | pending | 接受的输入进入严格 target plan |
 | A6 | NFT CLI/product/runtime 路线 | pending | 一个输入产生三套诚实制品与生命周期证据 |
 | B1 | 中立 Wasm-host plan 与 ABI | A6 后 pending | 保持 NEAR 输出与运行时行为 |
