@@ -22,9 +22,13 @@ def main : IO Unit := do
     name := "invokeValue", canonicalSignature := "invokeValue(address,uint128)",
     selector := #[0xca, 0x11, 0x00, 0x05], params := #[
       { name := "target", type := .address }, { name := "amount", type := .uint 128 }] }
+  let gasMethod : StylusAbiMethodPlan := { method with
+    name := "invokeGas", canonicalSignature := "invokeGas(address,uint64)",
+    selector := #[0xca, 0x11, 0x00, 0x06], params := #[
+      { name := "target", type := .address }, { name := "gas", type := .uint 64 }] }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "RemoteCallDirect"
-    abi := { methods := #[method, staticMethod, delegateMethod, argsMethod, valueMethod], errors := #[] }, storage := { words := #[] }
+    abi := { methods := #[method, staticMethod, delegateMethod, argsMethod, valueMethod, gasMethod], errors := #[] }, storage := { words := #[] }
     functions := #[{
       id := "invoke", abiMethod := "invoke", params := #[{ valueId := 1, name := "target", type := .address }]
       entryBlock := 0
@@ -56,6 +60,11 @@ def main : IO Unit := do
         { valueId := 15, name := "target", type := .address }, { valueId := 16, name := "amount", type := .uint 128 }]
       entryBlock := 0, blocks := #[{ id := 0, operations := #[
         .literal 17 .string (.string "pay"), .call 18 (.uint 64) "call-18"], terminator := .return #[18] }], support
+    }, {
+      id := "invokeGas", abiMethod := "invokeGas", params := #[
+        { valueId := 19, name := "target", type := .address }, { valueId := 20, name := "gas", type := .uint 64 }]
+      entryBlock := 0, blocks := #[{ id := 0, operations := #[
+        .literal 21 .string (.string "ping"), .call 22 (.uint 64) "call-22"], terminator := .return #[22] }], support
     }]
     events := #[], calls := #[{
       id := "call-3", mode := .call, canonicalSignature := "ping()", target := 1, method := 2,
@@ -74,6 +83,9 @@ def main : IO Unit := do
       id := "call-18", mode := .call, canonicalSignature := "pay()", target := 15, method := 17,
       returnType := .uint 64, value? := some 16, valueType? := some (.uint 128),
       cachePolicy := .clear, support
+    }, {
+      id := "call-22", mode := .call, canonicalSignature := "ping()", target := 19, method := 21,
+      returnType := .uint 64, gas? := some 20, cachePolicy := .clear, support
     }]
     hostOps := #[
       { id := "invoke.value", functionId := "invoke", operation := .msgValue, support },
@@ -106,6 +118,12 @@ def main : IO Unit := do
       , { id := "pay.call", functionId := "invokeValue", operation := .callContract, support }
       , { id := "pay.return", functionId := "invokeValue", operation := .readReturnData, support }
       , { id := "pay.result", functionId := "invokeValue", operation := .writeResult, support }
+      , { id := "gas.value", functionId := "invokeGas", operation := .msgValue, support }
+      , { id := "gas.flush", functionId := "invokeGas", operation := .storageFlush, support }
+      , { id := "gas.keccak", functionId := "invokeGas", operation := .keccak256, support }
+      , { id := "gas.call", functionId := "invokeGas", operation := .callContract, support }
+      , { id := "gas.return", functionId := "invokeGas", operation := .readReturnData, support }
+      , { id := "gas.result", functionId := "invokeGas", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := false }
     artifacts := { solidityAbi := true, typescriptClient := true }

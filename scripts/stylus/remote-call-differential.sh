@@ -35,6 +35,15 @@ wide_value="0000000000000001000000000000002a"
 value_call="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/remote-call/call.wasm --mock-call "$target=0:$success_word" \
   --calldata ca110005${target_word}$(printf '00%.0s' {1..16})${wide_value} --invoke user_entrypoint)"
+gas_call="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$success_word" \
+  --calldata ca110006${target_word}$(printf '%064x' 12345) --invoke user_entrypoint)"
+empty_return="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:" \
+  --calldata ca110001${target_word} --invoke user_entrypoint)"
+oversized_return="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$(printf 'aa%.0s' {1..4097})" \
+  --calldata ca110001${target_word} --invoke user_entrypoint)"
 reentrant_success="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/reentrant/reentrant.wasm --mock-reentrant "$target=ca120002" \
   --calldata ca120001${target_word} --invoke user_entrypoint)"
@@ -45,12 +54,12 @@ outer_revert="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.t
   build/stylus/reentrant/reentrant.wasm --mock-reentrant "$target=ca120002" \
   --calldata ca120004${target_word} --invoke user_entrypoint)"
 
-python3 - "$selector" "$args_selector" "$target" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$reentrant_success" "$reentrant_revert" "$outer_revert" <<'PY'
+python3 - "$selector" "$args_selector" "$target" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$gas_call" "$empty_return" "$oversized_return" "$reentrant_success" "$reentrant_revert" "$outer_revert" <<'PY'
 import json
 import sys
 
 selector, args_selector, target = sys.argv[1:4]
-success, revert, static, delegate, args, value_call, reentrant_success, reentrant_revert, outer_revert = map(json.loads, sys.argv[4:13])
+success, revert, static, delegate, args, value_call, gas_call, empty_return, oversized_return, reentrant_success, reentrant_revert, outer_revert = map(json.loads, sys.argv[4:16])
 def require_pre_call_cache(trace, event, clear):
     index = next(i for i, item in enumerate(trace) if item["event"] == event)
     assert index > 0
@@ -76,6 +85,12 @@ assert arg_calls[0]["calldata"] == args_selector + "00" * 31 + "2a" + "00" * 31 
 pay_calls = [item for item in value_call["trace"] if item["event"] == "call_contract"]
 assert len(pay_calls) == 1
 assert pay_calls[0]["value"] == "00" * 16 + "0000000000000001000000000000002a"
+gas_calls = [item for item in gas_call["trace"] if item["event"] == "call_contract"]
+assert len(gas_calls) == 1 and gas_calls[0]["gas"] == 12345
+assert empty_return["calls"][0]["status"] == 1
+assert empty_return["result"] == "stylus: malformed return data".encode().hex()
+assert oversized_return["calls"][0]["status"] == 1
+assert oversized_return["result"] == "stylus: return data exceeds limit".encode().hex()
 slot_zero = "00" * 32
 word_42 = "00" * 31 + "2a"
 assert reentrant_success["calls"][0]["status"] == 0

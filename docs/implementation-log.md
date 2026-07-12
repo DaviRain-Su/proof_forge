@@ -1018,6 +1018,19 @@ Rules:
   local execution evidence, not a substitute for the pending Nitro two-contract
   reentrancy scenario.
 
+## 2026-07-13 - Stylus remote-call gas and return-data bounds
+
+- Status: `static u64 return boundaries done; dynamic ABI returns pending`
+- Extended the direct runtime fixture with an explicit gas parameter and locked
+  that gas `12345` reaches `call_contract` unchanged.
+- Added empty-success and oversized-success vectors. A successful call returning
+  zero bytes fails as malformed for the declared u64 result; a 4097-byte result
+  fails with `stylus: return data exceeds limit` before any return-data copy.
+- These vectors close evidence gaps around the existing bounded static-return
+  implementation. Dynamic bytes/string results remain separate because they
+  must decode the callee's Solidity ABI offset/length/padded tail rather than
+  treating raw return bytes as a dynamic value.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
