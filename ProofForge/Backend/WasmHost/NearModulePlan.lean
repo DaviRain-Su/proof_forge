@@ -564,7 +564,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const method.len, .i64Const method.ptr,
         .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
         .i64Const Memory.RET_BUF, .i64Const gas,
-        .call "promise_create", .localSet s!"v{result.id}"]
+        .call (if plan.hostBridge.bridge == .soroban then "invoke_contract" else "promise_create"), .localSet s!"v{result.id}"]
   | .portableCrosscall result accountId methodName args deposit gas => do
       let account ← match promiseStrings.find? (fun entry => entry.str == accountId) with
         | some entry => pure entry
@@ -586,9 +586,12 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const method.len, .i64Const method.ptr,
         .i64Const args.size, .i64Const Memory.CROSSCALL_BUF,
         .i64Const Memory.RET_BUF, .i64Const gas,
-        .call "promise_create", .localSet s!"v{result.id}",
-        .localGet s!"v{result.id}", .call "promise_return"]
+        .call (if plan.hostBridge.bridge == .soroban then "invoke_contract" else "promise_create"), .localSet s!"v{result.id}"] ++
+        (if plan.hostBridge.bridge == .soroban then #[] else #[.localGet s!"v{result.id}", .call "promise_return"])
   | .promiseCreatePool result accountIndex methodIndex args deposit =>
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseCreatePool is not supported on Soroban (NEAR-only pool invoke)"
+      else
       return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
         canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolLenName] ++
         canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolPtrName] ++
@@ -598,23 +601,35 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
           .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
           .call "promise_create", .localSet s!"v{result.id}"]
   | .promiseThen result parent methodIndex args deposit =>
-      return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
-        canonicalNearI64 parent ++ #[.call Promise.promiseCurrentAccountName,
-          .i32Const Memory.CTX_BUF, .plain "i64.extend_i32_u"] ++
-        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
-        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName] ++
-        canonicalCrosscallArgsLenPtr args ++ #[
-          .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
-          .call "promise_then", .localSet s!"v{result.id}",
-          .localGet s!"v{result.id}", .call "promise_return"]
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseThen is not supported on Soroban (NEAR-only promise callback)"
+      else
+        return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
+          canonicalNearI64 parent ++ #[.call Promise.promiseCurrentAccountName,
+            .i32Const Memory.CTX_BUF, .plain "i64.extend_i32_u"] ++
+          canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
+          canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName] ++
+          canonicalCrosscallArgsLenPtr args ++ #[
+            .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
+            .call "promise_then", .localSet s!"v{result.id}",
+            .localGet s!"v{result.id}", .call "promise_return"]
   | .promiseResultU64 result index =>
-      return canonicalNearI64 index ++ #[.call Promise.promiseResultU64Name,
-        .localSet s!"v{result.id}"]
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseResultU64 is not supported on Soroban (NEAR-only)"
+      else
+        return canonicalNearI64 index ++ #[.call Promise.promiseResultU64Name,
+          .localSet s!"v{result.id}"]
   | .promiseResultsCount result =>
-      return #[.call "promise_results_count", .localSet s!"v{result.id}"]
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseResultsCount is not supported on Soroban (NEAR-only)"
+      else
+        return #[.call "promise_results_count", .localSet s!"v{result.id}"]
   | .promiseResultStatus result index =>
-      return canonicalNearI64 index ++ #[.i64Const 0, .call "promise_result",
-        .localSet s!"v{result.id}"]
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseResultStatus is not supported on Soroban (NEAR-only)"
+      else
+        return canonicalNearI64 index ++ #[.i64Const 0, .call "promise_result",
+          .localSet s!"v{result.id}"]
 
 private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
     NearTerminatorPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
@@ -653,6 +668,12 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
         .promiseThen result .. | .promiseResultU64 result .. |
         .promiseResultsCount result | .promiseResultStatus result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
+  let authPrologue :=
+    if plan.hostBridge.bridge == .soroban &&
+        plan.surface.contextOps.any (fun op => op == .userId || op == .userIdHash || op == .origin) then
+      #[.i32Const 0, .i32Const 0, .call "require_auth_for_args", .drop]
+    else
+      #[]
   let mut dispatch := #[]
   let promiseStrings := canonicalPromiseStrings plan
   for block in fn.blocks do
@@ -673,7 +694,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   return {
     name := fn.name, exportName := some fn.name
     locals := #[{ name := "pc", type := .i32 }] ++ values.map canonicalNearLocal
-    body := { insns := paramPrologue ++ #[.i32Const fn.blocks[0]!.id, .localSet "pc",
+    body := { insns := authPrologue ++ paramPrologue ++ #[.i32Const fn.blocks[0]!.id, .localSet "pc",
       .loop_ { insns := dispatch ++ #[.br 0] }] }
   }
 
@@ -699,7 +720,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface bridge ++
     Map.mapHashHelperFuncsForModulePlan plan.surface bridge
   let hashHelpers := Hash.hashExprHelperFuncsForModulePlan plan.surface
-  let hashStorageHelpers := Hash.hashStorageHelperFuncsForModulePlan plan.surface
+  let hashStorageHelpers := Hash.hashStorageHelperFuncsForModulePlan plan.surface bridge
   let crosscallHelpers := Crosscall.crosscallArgsHelperFuncsForModulePlan plan.surface ++
     (if plan.surface.usesCrosscallArgs then
       Crosscall.crosscallPoolHelperFuncs (plan.layout.crosscallStrings.map fun entry =>
@@ -710,7 +731,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc bridge] else #[])
-  let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface
+  let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface bridge
   let imports := Imports.importsForModulePlan plan.surface defaultAllocator false bridge
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
     plan.layout.maps.map (fun state => { offset := state.prefixPtr, bytes := state.id ++ ":" : ProofForge.Compiler.Wasm.DataSegment }) ++

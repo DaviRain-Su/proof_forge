@@ -118,22 +118,23 @@ def evtPutHashFunc : Func :=
       .i32Const 0x22, .call evtPutcName
     ] } }
 
-def evtLogFunc : Func :=
+def evtLogFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  let logCall := match bridge with
+    | .soroban => "log_from_slice"
+    | _ => "log_utf8"
   { name := evtLogName,
     body := { insns := #[
       .globalGet evtPtrGlobal, .i32Const EVENT_BUF, .plain "i32.sub", .plain "i64.extend_i32_u",
-      .i64Const EVENT_BUF, .call "log_utf8" ] } }
+      .i64Const EVENT_BUF, .call logCall ] } }
 
-def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  -- Keep `fmtU64Func` when numeric events are used so Crosscall can share it
-  -- (`usesEventNumeric ⇒ skip emitting fmt in Crosscall`). Event putu64 itself
-  -- inlines decimal formatting to avoid an extra call per field.
+def evtHelperFuncsForModulePlan (plan : ModulePlan)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
   (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
     (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
     (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
     (if plan.usesEventBool then #[evtPutboolFunc] else #[]) ++
     (if plan.usesEventHash then #[evtPutHashFunc] else #[]) ++
-    (if plan.usesEventApi then #[evtLogFunc] else #[])
+    (if plan.usesEventApi then #[evtLogFunc bridge] else #[])
 
 def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
 
