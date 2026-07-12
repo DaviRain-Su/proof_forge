@@ -295,3 +295,31 @@ Rules:
   to native dispatch before D4 reaches `default_switched`.
 - Documentation: `docs/legacy-replacement-ledger.md`, `AGENTS.md`, current plan,
   `docs/implementation-log.md`.
+
+## 2026-07-12 - B1: Neutral Wasm-host plan extraction review repair
+
+- Status: `done (verified at c8d2bbb6)`
+- Commit: `c8d2bbb6`
+- Review finding: the initial B1 commit only wrapped NEAR-owned plan types, kept
+  `buildFromCore` delegated behind the old public boundary, and compared only a
+  few plan fields. It did not establish the neutral ownership or rendered-WAT
+  preservation required by Task 7.
+- Result: `WasmHost.ModulePlan` now owns the neutral plan data contract;
+  `AbiPlan` owns neutral ABI types; `ModulePlan.Core` and `ModulePlan.Lower` are
+  the public build/lower boundaries. NEAR types remain compatibility aliases,
+  while unsupported Soroban and CosmWasm routes fail closed until promotion.
+- Consumption: canonical compilation and contract-source NEAR artifact emission
+  call the neutral builder/lowerer instead of the NEAR-specific public route.
+- Regression repair: updated the NEAR Promise registry assertion from one stale
+  handler to the four currently supported handlers and exercised Promise WAT
+  generation through the neutral boundary.
+- Verification:
+  - affected Lean modules and `proof-forge` built successfully
+  - `just wasm-host-plan-preservation` passed with exact rendered-WAT equality
+  - `just near-promise-hostop` passed, including offline-host WAT execution
+  - `just canonical-near-plan` and `just near-abi-plan` passed
+  - `just product` passed
+  - `just check` passed; Quint verification explicitly skipped because this host
+    has Java 11 and the existing gate requires Java 17+
+  - `git diff --check` passed
+- Remaining: none for B1. Soroban behavior belongs to B3.
