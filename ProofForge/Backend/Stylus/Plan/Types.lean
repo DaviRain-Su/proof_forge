@@ -31,6 +31,12 @@ def StylusAbiType.uint? (bits : Nat) : Option StylusAbiType :=
 def StylusAbiType.fixedBytes? (bytes : Nat) : Option StylusAbiType :=
   if bytes >= 1 && bytes <= 32 then some (.fixedBytes bytes) else none
 
+partial def StylusAbiType.isDynamic : StylusAbiType -> Bool
+  | .bytes | .string | .dynamicArray _ => true
+  | .fixedArray element _ => element.isDynamic
+  | .tuple fields => fields.any isDynamic
+  | _ => false
+
 inductive StylusSlotExpr where
   | literal (slot : StylusBytes)
   | add (base : StylusSlotExpr) (offset : Nat)
@@ -161,6 +167,7 @@ structure StylusFunctionParamPlan where
   valueId : StylusValueId
   name : String
   type : StylusAbiType
+  dynamicMaxLength? : Option Nat := none
   deriving Repr, BEq
 
 structure StylusFunctionPlan where

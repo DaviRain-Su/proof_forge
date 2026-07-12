@@ -160,8 +160,8 @@ stylus-mapping-events:
     scripts/stylus/mapping-events.sh
 
 stylus-aggregate-differential:
-    lake build ProofForge.Backend.Stylus.AbiLayout
-    lake env lean --run Tests/Stylus/AggregateDifferential.lean
+    lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/aggregate-differential.sh
 
 stylus-scalar-params:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render

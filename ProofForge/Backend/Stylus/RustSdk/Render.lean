@@ -242,7 +242,7 @@ private def renderLib (contract : RustContract) : String :=
   String.intercalate "\n" <| (#[] ++ #[
     "#![cfg_attr(not(any(test, feature = \"export-abi\")), no_main)]",
     "#![cfg_attr(not(test), no_std)]", "", "extern crate alloc;", "",
-    "use alloc::{vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};", "",
+    "use alloc::{string::String, vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};", "",
     "sol_storage! {", s!"{indent 1}#[entrypoint]", indent 1 ++ "pub struct " ++ contract.name ++ " {"
   ] ++ storage ++ #[indent 1 ++ "}", "}", "", "#[public]", "impl " ++ contract.name ++ " {"] ++
     (functions.toList.intersperse "").toArray ++ #["}", ""]).toList

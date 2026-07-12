@@ -1,4 +1,8 @@
 import ProofForge.Backend.Stylus.AbiLayout
+import ProofForge.Backend.Stylus.DirectWasm.Module
+import ProofForge.Backend.Stylus.Package
+import ProofForge.Backend.Stylus.RustSdk.Render
+import ProofForge.Compiler.Wasm.Printer
 
 open ProofForge.Backend.Stylus
 
@@ -30,4 +34,46 @@ def main : IO Unit := do
     match decodeDynamicArgument calldata 1 0 maximum with
     | .error _ => pure ()
     | .ok _ => throw <| IO.userError s!"{name} dynamic ABI vector was accepted"
+
+  let support : RendererSupportPlan := { rustSdk := .implemented, directWasm := .implemented }
+  let bytesMethod : StylusAbiMethodPlan := {
+    name := "echoBytes", canonicalSignature := "echoBytes(bytes)", selector := #[0xde, 0xad, 0xbe, 0x01]
+    params := #[{ name := "value", type := .bytes }], returns := #[.bytes], mutability := .view
+  }
+  let stringMethod : StylusAbiMethodPlan := {
+    name := "echoString", canonicalSignature := "echoString(string)", selector := #[0xde, 0xad, 0xbe, 0x02]
+    params := #[{ name := "value", type := .string }], returns := #[.string], mutability := .view
+  }
+  let plan : StylusPlan := {
+    targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
+    abi := { methods := #[bytesMethod, stringMethod], errors := #[] }, storage := { words := #[] }
+    functions := #[
+      { id := "echoBytes", abiMethod := "echoBytes", params := #[{
+          valueId := 1, name := "value", type := .bytes, dynamicMaxLength? := some 64 }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[1] }], support },
+      { id := "echoString", abiMethod := "echoString", params := #[{
+          valueId := 2, name := "value", type := .string, dynamicMaxLength? := some 64 }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[2] }], support }
+    ]
+    events := #[], calls := #[]
+    hostOps := #[
+      { id := "bytes.value", functionId := "echoBytes", operation := .msgValue, support },
+      { id := "bytes.result", functionId := "echoBytes", operation := .writeResult, support },
+      { id := "string.value", functionId := "echoString", operation := .msgValue, support },
+      { id := "string.result", functionId := "echoString", operation := .writeResult, support }
+    ]
+    resources := { maxMemoryPages := 1, requiresStorageFlush := false }
+    artifacts := { solidityAbi := true, typescriptClient := true }
+  }
+  let direct <- match ProofForge.Backend.Stylus.DirectWasm.lowerFromPlan plan with
+    | .ok value => pure value | .error error => throw <| IO.userError error.message
+  let crate <- match ProofForge.Backend.Stylus.RustSdk.renderCrate plan with
+    | .ok value => pure value | .error error => throw <| IO.userError error.message
+  IO.FS.createDirAll "build/stylus/aggregate-differential"
+  IO.FS.writeFile "build/stylus/aggregate-differential/echo.wat"
+    (ProofForge.Compiler.Wasm.Printer.render direct)
+  let cratePath := System.FilePath.mk "build/stylus/aggregate-differential/rust"
+  if ← cratePath.pathExists then IO.FS.removeDirAll cratePath
+  match ← ProofForge.Backend.Stylus.writeCrateAtomic crate cratePath with
+  | .ok () => pure () | .error error => throw <| IO.userError error.message
   IO.println "stylus-aggregate-differential: ok"

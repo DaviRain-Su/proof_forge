@@ -395,6 +395,20 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       match type with
       | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
+      | .bytes | .string => do
+          let some param := function.params.find? (fun param => param.valueId == value)
+            | throw <| diagnostic plan function block "terminator" "abi.result"
+                "dynamic return is not backed by a function parameter"
+          let some maximum := param.dynamicMaxLength?
+            | throw <| diagnostic plan function block "terminator" "abi.result"
+                "dynamic return has no maximum length"
+          pure <| #[.i32Const 32, .i32Const 0, .i32Const (64 + maximum), .plain "memory.fill"] ++
+            writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
+              .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",
+              .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .plain "memory.copy",
+              .i32Const 32, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
+              .i32Const 31, .plain "i32.add", .i32Const 4294967264, .plain "i32.and",
+              .i32Const 64, .plain "i32.add", .call "write_result", .i32Const 0]
       | _ =>
           let width <- scalarWidth type |>.mapError fun error =>
             diagnostic plan function block "terminator" "abi.result" error.message
@@ -438,10 +452,15 @@ def lowerFunction (plan : StylusPlan) (function : StylusFunctionPlan) : Except L
   let prologue := if method.payable then #[] else nonPayablePrologue
   let body := prologue ++ (← lowerBlock plan function function.entryBlock (function.blocks.size + 1))
   let functionName := "__pf_" ++ function.id
+  let params := function.params.foldl (fun params param =>
+    let params := params.push { name := valueLocal param.valueId, type := .i64 }
+    if param.dynamicMaxLength?.isSome then
+      params.push { name := dynamicLengthLocal param.valueId, type := .i64 }
+    else params) #[]
   pure {
     name := functionName
     exportName := some functionName
-    params := function.params.map fun param => { name := valueLocal param.valueId, type := .i64 }
+    params
     results := #[.i32]
     locals := functionLocals function
     body := { insns := body }

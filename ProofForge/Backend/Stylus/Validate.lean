@@ -92,6 +92,13 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
     unless function.params.map (fun param => (param.name, param.type)) ==
         method.params.map (fun param => (param.name, param.type)) do
       fail s!"Stylus function `{function.id}` parameters do not match its ABI method"
+    for param in function.params do
+      if param.type.isDynamic then
+        match param.dynamicMaxLength? with
+        | some maximum => if maximum == 0 then fail s!"Stylus dynamic parameter `{param.name}` has zero maximum length"
+        | none => fail s!"Stylus dynamic parameter `{param.name}` has no maximum length"
+      else if param.dynamicMaxLength?.isSome then
+        fail s!"Stylus scalar parameter `{param.name}` has a dynamic length policy"
     unless function.params.map (fun param => param.valueId) |>.toList.Pairwise (· != ·) do
       fail s!"Stylus function `{function.id}` has duplicate parameter value ids"
   if plan.resources.requiresStorageFlush &&

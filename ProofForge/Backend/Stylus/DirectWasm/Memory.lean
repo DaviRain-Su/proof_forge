@@ -15,6 +15,7 @@ def wasmPageBytes : Nat := 65536
 def wideScratchBase : Nat := 1024
 def wideScratchStride : Nat := 32
 def wideScratchPtr (id : StylusValueId) : Nat := wideScratchBase + id * wideScratchStride
+def dynamicLengthLocal (id : StylusValueId) : String := s!"v{id}_len"
 
 def validateScratch (pages : Nat) (layout : ScratchLayout := {}) : Except DirectError Unit := do
   if pages == 0 then throw { message := "Stylus direct Wasm requires at least one memory page" }

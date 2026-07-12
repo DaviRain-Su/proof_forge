@@ -151,6 +151,7 @@
 
 - [ ] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
 - [x] Add renderer-neutral dynamic ABI head/tail validation for empty/non-aligned payloads, malformed offsets, truncated tails, padding bounds, and maximum length.
+- [x] Add plan-owned pointer/length carriers for bounded bytes/string parameters and Solidity-compatible dynamic returns in direct Wasm; compile the same plan as Rust `Vec<u8>`/`String`.
 - [ ] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
 - [ ] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
 - [ ] Render and execute Rust/direct parity for every fixture and record Wasm bytes/pages plus Nitro ink/gas evidence.

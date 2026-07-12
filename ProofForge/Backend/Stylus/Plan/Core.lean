@@ -269,7 +269,11 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
       id := entrypoint.name
       abiMethod := entrypoint.name
       params := ← entrypoint.params.mapM fun param => do
-        pure { valueId := param.valueId.value, name := param.name, type := (← coreTypeToAbi param.type) }
+        let type <- coreTypeToAbi param.type
+        pure {
+          valueId := param.valueId.value, name := param.name, type
+          dynamicMaxLength? := if type.isDynamic then some 4096 else none
+        }
       entryBlock := function.entry.value
       blocks := ← function.blocks.mapM (blockPlan contract)
       support := { rustSdk := .implemented, directWasm := .implemented }

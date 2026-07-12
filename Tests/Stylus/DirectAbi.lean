@@ -38,8 +38,12 @@ def main : IO Unit := do
     | throw <| IO.userError "Counter ABI has no methods"
   let dynamicMethod := { firstMethod with
     params := #[{ name := "value", type := .bytes }] }
-  require (isError (validateAbiCompleteness { plan.abi with methods := #[dynamicMethod] }))
-    "dynamic ABI method was accepted before codec implementation"
+  require ((validateAbiCompleteness { plan.abi with methods := #[dynamicMethod] }).isOk)
+    "bytes ABI method was rejected after codec implementation"
+  let arrayMethod := { firstMethod with
+    params := #[{ name := "value", type := .dynamicArray (.uint 64) }] }
+  require (isError (validateAbiCompleteness { plan.abi with methods := #[arrayMethod] }))
+    "dynamic array ABI method was accepted before array codec implementation"
   let module <- match abiDispatcherModule plan.abi with
     | .ok module => pure module | .error error => throw <| IO.userError error.message
   let some dispatcher := module.funcs[0]?

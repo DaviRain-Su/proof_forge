@@ -18,17 +18,16 @@ def AbiError.bytes : AbiError -> Bytes
   | .unsupportedType type => s!"stylus: unsupported ABI type {repr type}" |>.toUTF8.data
 
 partial def isDynamicAbiType : StylusAbiType -> Bool
-  | .bytes | .string | .dynamicArray _ => true
-  | .fixedArray element _ => isDynamicAbiType element
-  | .tuple fields => fields.any isDynamicAbiType
-  | _ => false
+  | type => type.isDynamic
 
 def validateAbiCompleteness (abi : StylusAbiPlan) : Except AbiError Unit := do
   for method in abi.methods do
     for param in method.params do
-      if isDynamicAbiType param.type then throw (.unsupportedType param.type)
+      if param.type.isDynamic && param.type != .bytes && param.type != .string then
+        throw (.unsupportedType param.type)
     for result in method.returns do
-      if isDynamicAbiType result then throw (.unsupportedType result)
+      if result.isDynamic && result != .bytes && result != .string then
+        throw (.unsupportedType result)
 
 def selectorNat (selector : Bytes) : Nat :=
   selector.foldl (fun value byte => value * 256 + byte.toNat) 0

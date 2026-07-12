@@ -922,6 +922,21 @@ Rules:
 - Confirmed the next architectural change must represent dynamic values as a
   plan-owned pointer/length carrier before remote calls consume them.
 
+## 2026-07-13 - Stylus bounded bytes/string carriers
+
+- Status: `done for ABI parameters/returns; literals, arrays, tuples, and storage pending`
+- Extended function parameter plans with an explicit dynamic maximum. Direct
+  Wasm expands dynamic SSA parameters into pointer/length arguments; Rust keeps
+  native `Vec<u8>` and `String` signatures from the same plan.
+- The dispatcher validates word-aligned offsets, head separation, length-word
+  bounds, configured maximums, padded tail bounds, and complete calldata before
+  invoking contract code. The parameter-specific maximum is read from the plan
+  rather than a renderer constant.
+- Dynamic return encoding emits the canonical offset/length/padded-data shape.
+  Runtime vectors cover empty bytes, `hello`, UTF-8 text, unaligned offsets,
+  truncated tails, and over-limit payloads; rejected calls return deterministic
+  malformed-calldata bytes before contract execution.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
