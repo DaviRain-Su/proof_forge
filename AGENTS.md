@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Active task | None (A2 done) |
-| Next task | A3 - Define target-neutral NFT intent |
+| Active task | None (A3 done) |
+| Next task | A4 - Audit NFT implementation candidates |
 | Known blocker | None recorded; verify the worktree and current plan before starting |
 | Planning baseline | `7cf0d886` (agent control plane and documentation governance, 2026-07-12) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -76,8 +76,8 @@ This table is only the agent routing index.
 | ID | State | Task | Authoritative task section |
 |---|---|---|---|
 | A1 | done (verified at 6af4eb72) | Isolate Solana grammar ownership | Plan Task 1 |
-| A2 | done | Add the intent materializer contract | Plan Task 2 |
-| A3 | pending after A2 | Define target-neutral NFT intent | Plan Task 3 |
+| A2 | done (review repaired) | Add the intent materializer contract | Plan Task 2 |
+| A3 | done | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | pending after A3 | Audit NFT implementation candidates | Plan Task 4 |
 | A5 | pending after A4 | Add primary-triad NFT materializers | Plan Task 5 |
 | A6 | pending after A5 | Open the NFT CLI and product route | Plan Task 6 |

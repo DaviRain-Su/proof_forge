@@ -71,10 +71,10 @@
 - Produces: `NFTAssetModel`, `NFTFeature`, `NFTSpec`, `NFTSpec.validate`, `NFTSpec.toIntentContract`.
 - Does not produce target artifacts.
 
-- [ ] Test empty identity, duplicate features, `soulbound + transferable`, defaults, and stable feature IDs.
-- [ ] Implement the asset model and feature enum from the design document.
-- [ ] Return all deterministic authoring errors before target selection.
-- [ ] Run `Tests/NftIntent.lean`, `Tests/IntentRegistry.lean`, `just product`, and `git diff --check`.
+- [x] Test empty identity, duplicate features, `soulbound + transferable`, defaults, and stable feature IDs.
+- [x] Implement the asset model and feature enum from the design document.
+- [x] Return all deterministic authoring errors before target selection.
+- [x] Run `Tests/NftIntent.lean`, `Tests/IntentRegistry.lean`, `just product`, and `git diff --check`.
 - [ ] Commit with `git commit -m "feat(nft): define portable NFT intent"`.
 
 ### Task 4: Audit NFT Implementation Candidates
