@@ -159,6 +159,12 @@ Target standards are materializer results:
 The first vertical slice supports only `unique + mintable + transferable`.
 Additional features are promoted one at a time with runtime evidence.
 
+`NFTSpec.toIntentContract` validates the author identity and feature
+combination before conversion. The resulting `featureIds` includes exactly one
+stable asset-model discriminator (`nft.asset_model.unique` or
+`nft.asset_model.multi_token`) so target materializers cannot lose the choice
+between unique and multi-token standards at the generic intent boundary.
+
 ## NFT Materialization
 
 Each primary target materializer consumes the same `IntentContract`, selects a

@@ -5,6 +5,7 @@ import ProofForge.Contract.Examples
 import ProofForge.Contract.Intent
 import ProofForge.Contract.Intent.Registry
 import ProofForge.Contract.Learn
+import ProofForge.Contract.Nft
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
 import ProofForge.Contract.Source

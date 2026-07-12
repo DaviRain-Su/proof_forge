@@ -139,6 +139,17 @@ Rules:
 - Remaining: none for A3; A4 (audit NFT implementation candidates) is next.
 - Documentation: `AGENTS.md`, current implementation plan.
 
+### A3 review repair
+
+- Added real blank-name and blank-symbol validation; the original “empty” test
+  used non-empty identity values and did not exercise the planned boundary.
+- Made `NFTSpec.toIntentContract` validate before conversion and preserve a
+  stable asset-model discriminator, preventing unique and multi-token intents
+  from collapsing to the same generic contract.
+- Exported `ProofForge.Contract.Nft` through `ProofForge.Contract` and added
+  `just nft-intent` to the product and check gates. Tests now consume only the
+  public aggregate import.
+
 ### A2 review repair
 
 - Added the promised `resolveIntentMaterializer` public API and the checked

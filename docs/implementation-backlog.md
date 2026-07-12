@@ -33,7 +33,7 @@ July 12 implementation plan.
 |---:|---|---|---|
 | A1 | Isolate Solana grammar in `Source.Solana` | done (verified at `c1433b2e`) | portable import rejects PDA/CPI/realloc; Source.Solana elaboration pins account/PDA/CPI/realloc intents; Solana fixtures unchanged |
 | A2 | Add `IntentContract` and materializer registry | done (review repaired) | duplicate-safe registry; checked target result; no frontend target dispatch |
-| A3 | Define target-neutral `NFTSpec` | pending | asset model and feature conflicts validated before target selection |
+| A3 | Define target-neutral `NFTSpec` | done (review repaired) | identity and feature conflicts validated; asset model preserved before target selection |
 | A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | pending | minimal lifecycle and explicit compliance limits |
 | A5 | Materialize NFT intent on the primary triad | pending | accepted cases reach strict target plans |
 | A6 | Open NFT CLI/product/runtime route | pending | one input produces three honest bundles and lifecycle evidence |

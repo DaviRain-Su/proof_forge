@@ -22,6 +22,11 @@ inductive NFTAssetModel where
   | multiToken
   deriving BEq, Repr
 
+/-- Stable discriminator preserved across the generic intent boundary. -/
+def NFTAssetModel.id : NFTAssetModel → String
+  | .unique => "nft.asset_model.unique"
+  | .multiToken => "nft.asset_model.multi_token"
+
 /-- NFT features. Each has a stable string ID for diagnostics and registry
 dispatch. -/
 inductive NFTFeature where
@@ -63,6 +68,10 @@ def NFTSpec.hasFeature (spec : NFTSpec) (feature : NFTFeature) : Bool :=
 /-- Validate an NFTSpec, returning all deterministic authoring errors
 before target selection. -/
 def NFTSpec.validate (spec : NFTSpec) : Except String Unit := do
+  if spec.name.trimAscii.isEmpty then
+    throw "NFT name must not be empty"
+  if spec.symbol.trimAscii.isEmpty then
+    throw "NFT symbol must not be empty"
   -- Check for duplicate features
   let ids := spec.features.map NFTFeature.id
   let hasDup := ids.any (fun id => (ids.filter (· == id)).size > 1)
@@ -75,12 +84,18 @@ def NFTSpec.validate (spec : NFTSpec) : Except String Unit := do
   if spec.assetModel == .multiToken && spec.hasFeature .soulbound then
     throw "multiToken asset model is incompatible with soulbound"
 
-/-- Convert an NFTSpec to an IntentContract for materializer dispatch. -/
-def NFTSpec.toIntentContract (spec : NFTSpec) : IntentContract := {
-  family := .nonFungibleToken
-  name := spec.name
-  symbol? := some spec.symbol
-  featureIds := spec.features.map NFTFeature.id
-}
+/-- Validate and convert an NFTSpec for materializer dispatch.
+
+The asset-model discriminator is carried with feature IDs because generic
+intent materializers otherwise cannot distinguish ERC-721-style unique assets
+from ERC-1155-style multi-token assets. -/
+def NFTSpec.toIntentContract (spec : NFTSpec) : Except String IntentContract := do
+  spec.validate
+  pure {
+    family := .nonFungibleToken
+    name := spec.name
+    symbol? := some spec.symbol
+    featureIds := #[spec.assetModel.id] ++ spec.features.map NFTFeature.id
+  }
 
 end ProofForge.Contract
