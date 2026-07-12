@@ -37,6 +37,7 @@ diff pins the layout artifact).
 import ProofForge.IR.Contract
 import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.ModulePlan
 import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Types
@@ -66,138 +67,43 @@ open ProofForge.Backend.WasmHost.EmitWat
 Carries the `ValueType` so `Ctx.fromPlanSeed` can rebuild `StateInfo.type`
 
 (which drives `readName`/`readHashName` dispatch). -/
-structure NearStatePlan where
-  id : String
-  coreId? : Option Nat := none
-  type : ValueType
-  keyPtr : Nat
-  keyLen : Nat
-  packOffset : Nat := 0
-  packed : Bool := false
-  deriving Repr, BEq
+abbrev NearStatePlan := ProofForge.Backend.WasmHost.ModulePlan.StatePlan
 
 /-- One map/array state slot's plan: the `id ++ ":"` prefix pointer. Carries
 the key/value `ValueType`s so `Ctx.fromPlanSeed` can rebuild `MapInfo`. -/
-structure NearMapPlan where
-  id : String
-  coreId? : Option Nat := none
-  keyType : ValueType
-  valueType : ValueType
-  prefixPtr : Nat
-  prefixLen : Nat
-  isArray : Bool
-  deriving Repr, BEq
+abbrev NearMapPlan := ProofForge.Backend.WasmHost.ModulePlan.MapPlan
 
 /-- One string-pool entry (event/field name, panic message, or crosscall string). -/
-structure NearStringPoolEntry where
-  str : String
-  ptr : Nat
-  len : Nat
-  deriving Repr, BEq
+abbrev NearStringPoolEntry := ProofForge.Backend.WasmHost.ModulePlan.StringPoolEntry
 
 /-- The data-layout surface: everything `EmitWat.Ctx` holds that is a deterministic
 function of the module. These six fields are currently rebuilt inline at the top of
 `EmitWat.lowerModule`; the plan promotes them to an inspectable artifact. -/
-structure NearLayoutPlan where
-  scalars : Array NearStatePlan
-  maps : Array NearMapPlan
-  strings : Array NearStringPoolEntry
-  panics : Array NearStringPoolEntry
-  crosscallStrings : Array NearStringPoolEntry
-  stringPoolEnd : Nat
-  deriving Repr, BEq
+abbrev NearLayoutPlan := ProofForge.Backend.WasmHost.ModulePlan.LayoutPlan
 
-structure NearValuePlan where
-  id : Nat
-  typeName : String
-  deriving Repr, BEq, Inhabited
+abbrev NearValuePlan := ProofForge.Backend.WasmHost.ModulePlan.ValuePlan
 
-inductive NearArithmeticPlan where
-  | add | sub | mul | div | mod | bitAnd | bitOr | bitXor | shiftLeft | shiftRight
-  deriving Repr, BEq, Inhabited
+abbrev NearArithmeticPlan := ProofForge.Backend.WasmHost.ModulePlan.ArithmeticPlan
 
-inductive NearComparePlan where
-  | eq | ne | lt | le | gt | ge
-  deriving Repr, BEq, Inhabited
+abbrev NearComparePlan := ProofForge.Backend.WasmHost.ModulePlan.ComparePlan
 
-inductive NearOpPlan where
-  | literal (result : NearValuePlan) (value : Nat)
-  | hashLiteral (result : NearValuePlan) (a b c d : Nat)
-  | boolLiteral (result : NearValuePlan) (value : Bool)
-  | loadState (result : NearValuePlan) (stateId : Nat)
-  | storeState (stateId : Nat) (value : NearValuePlan)
-  | loadMap (result : NearValuePlan) (stateId : Nat) (key : NearValuePlan)
-  | storeMap (stateId : Nat) (key value : NearValuePlan)
-  | arithmetic (result : NearValuePlan) (op : NearArithmeticPlan)
-      (checked : Bool) (lhs rhs : NearValuePlan)
-  | compare (result : NearValuePlan) (op : NearComparePlan) (lhs rhs : NearValuePlan)
-  | hashTwoToOne (result : NearValuePlan) (lhs rhs : NearValuePlan)
-  | hash (result value : NearValuePlan)
-  | cast (result value : NearValuePlan)
-  | context (result : NearValuePlan) (field : String)
-  | log (eventName : String) (fields : Array (String × NearValuePlan))
-  | assert (condition : NearValuePlan) (errorCode : Nat)
-  | promiseCreate (result : NearValuePlan) (accountId methodName : String)
-      (args : ByteArray) (deposit gas : Nat)
-  | portableCrosscall (result : NearValuePlan) (accountId methodName : String)
-      (args : ByteArray) (deposit gas : Nat)
-  | promiseCreatePool (result : NearValuePlan) (accountIndex methodIndex : NearValuePlan)
-      (args : Array NearValuePlan) (deposit : NearValuePlan)
-  | promiseThen (result : NearValuePlan) (parent methodIndex : NearValuePlan)
-      (args : Array NearValuePlan) (deposit : NearValuePlan)
-  | promiseResultU64 (result index : NearValuePlan)
-  | promiseResultsCount (result : NearValuePlan)
-  | promiseResultStatus (result index : NearValuePlan)
-  deriving Repr, BEq, Inhabited
+abbrev NearOpPlan := ProofForge.Backend.WasmHost.ModulePlan.OpPlan
 
-inductive NearTerminatorPlan where
-  | jump (target : Nat) (args : Array NearValuePlan)
-  | branch (condition : NearValuePlan) (ifTrue ifFalse : Nat)
-  | return (values : Array NearValuePlan)
-  | revert (errorCode : Nat)
-  deriving Repr, BEq, Inhabited
+abbrev NearTerminatorPlan := ProofForge.Backend.WasmHost.ModulePlan.TerminatorPlan
 
-structure NearBlockPlan where
-  id : Nat
-  params : Array NearValuePlan
-  ops : Array NearOpPlan
-  terminator : NearTerminatorPlan
-  deriving Repr, BEq, Inhabited
+abbrev NearBlockPlan := ProofForge.Backend.WasmHost.ModulePlan.BlockPlan
 
-structure NearFunctionPlan where
-  id : Nat
-  name : String
-  params : Array NearValuePlan
-  returnType : String
-  blocks : Array NearBlockPlan
-  deriving Repr, BEq, Inhabited
+abbrev NearFunctionPlan := ProofForge.Backend.WasmHost.ModulePlan.FunctionPlan
 
 /-- The frozen scratch-region base addresses (constants in `EmitWat`). The seed
 makes them plan-owned so the lowering is a pure function of the plan + IR module,
 mirroring `SolanaLowerCtxSeed`. -/
-structure NearLowerCtxSeed where
-  keyBuf : Nat
-  mapkeyBuf : Nat
-  stringBase : Nat
-  crosscallStringBase : Nat
-  structs : Array StructDecl
-  allocator : AllocatorConfig
-  deriving Repr
+abbrev NearLowerCtxSeed := ProofForge.Backend.WasmHost.ModulePlan.LowerCtxSeed
 
 /-- The top-level plan. `surface` is the existing `WasmNear.Plan.ModulePlan`
 (host imports / helpers); `layout` is the new data-layout surface; `lowerCtxSeed`
 carries the frozen base addresses and read-only type metadata. -/
-structure NearModulePlan where
-  moduleName : String
-  targetId : String
-  artifactKind : String
-  irVersion : String
-  surface : ModulePlan
-  entrypointAbis : Array EntrypointPlan
-  layout : NearLayoutPlan
-  functions : Array NearFunctionPlan := #[]
-  lowerCtxSeed : NearLowerCtxSeed
-  deriving Repr
+abbrev NearModulePlan := ProofForge.Backend.WasmHost.ModulePlan.WasmHostModulePlan
 
 /-- Render a `ValueType` using the IR's own naming (so the plan text matches the
 IR module, not the Wasm type). -/

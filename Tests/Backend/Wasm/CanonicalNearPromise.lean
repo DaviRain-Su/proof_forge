@@ -6,7 +6,8 @@ import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.IR.Core.HostOp
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
-import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Backend.WasmHost.ModulePlan.Core
+import ProofForge.Backend.WasmHost.ModulePlan.Lower
 
 /-! # Canonical NEAR Promise Backend Test
 
@@ -62,9 +63,17 @@ def main : IO Unit := do
   let reg ← match nearPromiseRegistry with
   | Except.ok r => pure r
   | Except.error e => throw <| IO.userError s!"nearPromiseRegistry failed: {e}"
-  require (reg.handlers.size == 1) "registry should have exactly one handler"
-  require (reg.handlers[0]!.targetId == "wasm-near") "handler target should be wasm-near"
-  require (reg.handlers[0]!.id == pcId) "handler id should be near.promise.create@1.0.0"
+  require (reg.handlers.size == 4) "registry should have exactly four handlers"
+  require (reg.handlers.all (·.targetId == "wasm-near"))
+    "all handler targets should be wasm-near"
+  require (reg.handlers.any (·.id == pcId))
+    "registry should contain near.promise.create@1.0.0"
+  require (reg.handlers.any (·.id == promiseResultU64Id))
+    "registry should contain near.promise.result_u64@1.0.0"
+  require (reg.handlers.any (·.id == promiseResultsCountId))
+    "registry should contain near.promise.results_count@1.0.0"
+  require (reg.handlers.any (·.id == promiseResultStatusId))
+    "registry should contain near.promise.result_status@1.0.0"
 
   /- Check 2: Counter canonical on NEAR succeeds. -/
   let counterSpec := ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
@@ -115,7 +124,7 @@ def main : IO Unit := do
   /- Check 11: the actual Core -> NEAR plan consumes the typed HostOp. -/
   let capabilities : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-near", calls := bundle.contract.contract.requirements, metadata := #[] }
-  let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore
+  let plan ← match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore
       bundle.contract capabilities with
     | .ok plan => pure plan
     | .error e => throw <| IO.userError s!"promise Core -> NEAR plan failed: {e.message}"
@@ -127,7 +136,7 @@ def main : IO Unit := do
   require hasPromise "NEAR plan did not preserve promise.create payload"
 
   /- Check 12: required capability is enforced by the target plan boundary. -/
-  match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore bundle.contract {
+  match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore bundle.contract {
       targetId := "wasm-near", calls := #[], metadata := #[] } with
   | .error e =>
       require (e.message.contains "capability")
@@ -135,7 +144,7 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "NEAR promise plan accepted no nearPromise capability"
 
   /- Check 13: lower the promise plan to real WAT. -/
-  let module ← match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan with
+  let module ← match ProofForge.Backend.WasmHost.ModulePlan.lowerFromPlan plan with
     | .ok module => pure module
     | .error e => throw <| IO.userError s!"promise NEAR lowering failed: {e.message}"
   let wat := ProofForge.Compiler.Wasm.Printer.render module

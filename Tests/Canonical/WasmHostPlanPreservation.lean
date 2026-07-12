@@ -2,6 +2,8 @@ import ProofForge.IR.Canonical
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Examples.Counter
 import ProofForge.Backend.WasmHost.ModulePlan
+import ProofForge.Backend.WasmHost.ModulePlan.Core
+import ProofForge.Backend.WasmHost.ModulePlan.Lower
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
 
@@ -72,7 +74,7 @@ def main : IO Unit := do
     | .ok p => pure p
     | .error e => throw <| IO.userError s!"neutral plan failed: {e}"
 
-  -- Verify preservation: targetId, moduleName, layout scalars, functions
+  -- Verify the public neutral plan owns the complete target data contract.
   require (neutralPlan.targetId == "wasm-near")
     s!"neutral plan targetId should be wasm-near, got {neutralPlan.targetId}"
   require (neutralPlan.targetId == nearPlan.targetId)
@@ -80,26 +82,35 @@ def main : IO Unit := do
   require (neutralPlan.moduleName == nearPlan.moduleName)
     "neutral and NEAR plans have different moduleName"
 
-  -- Layout scalars must match
-  require (neutralPlan.layout.scalars.size == nearPlan.layout.scalars.size)
-    s!"neutral plan has {neutralPlan.layout.scalars.size} scalars, NEAR has {nearPlan.layout.scalars.size}"
-  for (ns, ns2) in neutralPlan.layout.scalars.zip nearPlan.layout.scalars do
-    require (ns.id == ns2.id) s!"scalar id mismatch: {ns.id} vs {ns2.id}"
-    require (ns.keyPtr == ns2.keyPtr) s!"scalar keyPtr mismatch: {ns.id}"
-    require (ns.keyLen == ns2.keyLen) s!"scalar keyLen mismatch: {ns.id}"
+  require (neutralPlan.hostBridge.bridge == .near)
+    s!"neutral plan bridge should be near, got {repr neutralPlan.hostBridge.bridge}"
 
-  -- Functions must match
-  require (neutralPlan.functions.size == nearPlan.functions.size)
-    s!"neutral plan has {neutralPlan.functions.size} functions, NEAR has {nearPlan.functions.size}"
-  for (nf, nrf) in neutralPlan.functions.zip nearPlan.functions do
-    require (nf.name == nrf.name) s!"function name mismatch: {nf.name} vs {nrf.name}"
-    require (nf.blocks.size == nrf.blocks.size)
-      s!"function {nf.name} block count mismatch: {nf.blocks.size} vs {nrf.blocks.size}"
+  -- Preservation is asserted at the final WAT boundary, not by sampling a few
+  -- plan fields that could miss layout, ABI, helper, or function-body drift.
+  let nearWasm <- match NearModulePlan.lowerFromPlan nearPlan with
+    | .ok wasm => pure wasm
+    | .error error => throw <| IO.userError s!"near lowering failed: {error.message}"
+  let neutralWasm <- match ModulePlan.lowerFromPlan neutralPlan with
+    | .ok wasm => pure wasm
+    | .error error => throw <| IO.userError s!"neutral lowering failed: {error.message}"
+  let nearWat := ProofForge.Compiler.Wasm.Printer.render nearWasm
+  let neutralWat := ProofForge.Compiler.Wasm.Printer.render neutralWasm
+  require (neutralWat == nearWat) "neutral Wasm-host plan changed canonical NEAR WAT"
 
-  -- NEAR-only HostOp (promise_create) must reject on a neutral plan with
-  -- a Soroban bridge — this verifies the neutral plan carries bridge info.
-  -- (Deferred to B3; here we just verify the plan has a bridge field.)
-  require (neutralPlan.bridge.kind == ModulePlan.WasmHostKind.near)
-    s!"neutral plan bridge kind should be near, got {repr neutralPlan.bridge.kind}"
+  let unsupportedPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := "wasm-stellar-soroban", calls := checked.contract.requirements, metadata := #[] }
+  match ModulePlan.Core.buildFromCore checked unsupportedPlan with
+  | .ok _ => throw <| IO.userError "neutral builder accepted Soroban before B3"
+  | .error error =>
+      require (error.message.contains "not implemented")
+        s!"unexpected Soroban diagnostic: {error.message}"
+
+  let mismatchedPlan := { neutralPlan with
+    hostBridge := { targetId := "wasm-cosmwasm", bridge := .cosmWasm } }
+  match ModulePlan.lowerFromPlan mismatchedPlan with
+  | .ok _ => throw <| IO.userError "neutral lowering accepted a mismatched bridge target"
+  | .error error =>
+      require (error.message.contains "disagree")
+        s!"unexpected bridge mismatch diagnostic: {error.message}"
 
   IO.println "wasm-host-plan-preservation: ok"

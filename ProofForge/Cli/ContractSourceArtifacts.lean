@@ -3,6 +3,8 @@ import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Materialize
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.WasmHost.ModulePlan.Core
+import ProofForge.Backend.WasmHost.ModulePlan.Lower
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.ContractLoader
@@ -57,10 +59,10 @@ def renderCanonicalSpecNearWat (spec : ProofForge.Contract.ContractSpec)
   let capabilityPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-near", calls := checked.contract.requirements,
     metadata := targetPlan.metadata }
-  let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capabilityPlan with
+  let plan ← match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capabilityPlan with
     | .ok plan => .ok plan
     | .error error => .error s!"canonical: NEAR plan failed: {error.message}"
-  let wasm ← match ProofForge.Backend.WasmHost.NearModulePlan.lowerFromPlan plan with
+  let wasm ← match ProofForge.Backend.WasmHost.ModulePlan.lowerFromPlan plan with
     | .ok wasm => .ok wasm
     | .error error => .error s!"canonical: NEAR lowering failed: {error.message}"
   return ProofForge.Compiler.Wasm.Printer.render wasm

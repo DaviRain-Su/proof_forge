@@ -43,7 +43,7 @@ def promiseResultU64Id : HostOpId := {
 def promiseResultsCountId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id
 def promiseResultStatusId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id
 
-/-- A registry with only the `near.promise.create@1.0.0` handler. -/
+/-- Registry for the supported `near.promise` host operations. -/
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
   do
   let registry ← HostOpRegistry.register (HostOpRegistry.empty NearOpPlan) {

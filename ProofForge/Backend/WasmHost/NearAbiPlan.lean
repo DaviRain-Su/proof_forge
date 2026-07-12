@@ -2,35 +2,15 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
-import ProofForge.IR.Contract
+import ProofForge.Backend.WasmHost.AbiPlan
 
 namespace ProofForge.Backend.WasmHost.NearAbiPlan
 
 open ProofForge.IR
 
-inductive Codec where
-  | borsh
-  deriving Repr, BEq
-
-def Codec.id : Codec → String
-  | .borsh => "borsh"
-
-structure ValuePlan where
-  name? : Option String := none
-  type : ValueType
-  offset : Nat
-  byteWidth : Nat
-  deriving Repr, BEq
-
-structure EntrypointPlan where
-  name : String
-  inputCodec : Codec
-  outputCodec : Codec
-  params : Array ValuePlan
-  inputByteWidth : Nat
-  returnType : ValueType
-  outputByteWidth : Nat
-  deriving Repr, BEq
+abbrev Codec := ProofForge.Backend.WasmHost.AbiPlan.Codec
+abbrev ValuePlan := ProofForge.Backend.WasmHost.AbiPlan.ValuePlan
+abbrev EntrypointPlan := ProofForge.Backend.WasmHost.AbiPlan.EntrypointPlan
 
 partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except String Nat
   | .unit => .ok 0

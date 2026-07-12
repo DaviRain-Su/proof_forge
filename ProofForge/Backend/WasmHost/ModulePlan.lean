@@ -1,125 +1,148 @@
-import ProofForge.Backend.WasmHost.NearModulePlan
-import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Backend.WasmHost.AbiPlan
+import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Types
+import ProofForge.IR.Allocator
+import ProofForge.IR.Contract
 import ProofForge.Target.HostBridge
 
-/-!
-# Neutral Wasm-Host Module Plan
-
-Extraction layer that decouples the Wasm-host plan from NEAR-specific
-naming. The existing `NearModulePlan` types (layout, value, op, block,
-function, lowerCtxSeed) are already implementation-neutral — they don't
-encode NEAR-specific semantics in their structure, only in the builder
-that fills them.
-
-B1 extracts a neutral `WasmHostModulePlan` type by wrapping
-`NearModulePlan` with a `HostBridgePlan` discriminator. NEAR remains
-the only populated bridge; Soroban and CosmWasm are added in B3+.
-
-The `ModulePlan.Core.buildFromCore` function delegates to the existing
-`NearModulePlan.Core.buildFromCore` for `wasm-near` and rejects other
-targets until their builders are implemented (B3+).
--/
+/-! Target-neutral data contract consumed by Wasm-host renderers. -/
 
 namespace ProofForge.Backend.WasmHost.ModulePlan
 
-/-- Wasm-host bridge kind. -/
-inductive WasmHostKind where
-  | near
-  | soroban
-  | cosmWasm
-  deriving BEq, Repr
+open ProofForge.IR
 
-/-- Host bridge plan: identifies the target chain's host interface model. -/
-structure HostBridgePlan where
-  kind : WasmHostKind
-  storageModel : String
-  authModel : String
-  crosscallModel : String
+structure StatePlan where
+  id : String
+  coreId? : Option Nat := none
+  type : ValueType
+  keyPtr : Nat
+  keyLen : Nat
+  packOffset : Nat := 0
+  packed : Bool := false
   deriving Repr, BEq
 
-/-- The neutral Wasm-host module plan. Reuses NearModulePlan fields
-because they are already implementation-neutral. The `bridge` field
-discriminates the target-specific host interface. -/
+structure MapPlan where
+  id : String
+  coreId? : Option Nat := none
+  keyType : ValueType
+  valueType : ValueType
+  prefixPtr : Nat
+  prefixLen : Nat
+  isArray : Bool
+  deriving Repr, BEq
+
+structure StringPoolEntry where
+  str : String
+  ptr : Nat
+  len : Nat
+  deriving Repr, BEq
+
+structure LayoutPlan where
+  scalars : Array StatePlan
+  maps : Array MapPlan
+  strings : Array StringPoolEntry
+  panics : Array StringPoolEntry
+  crosscallStrings : Array StringPoolEntry
+  stringPoolEnd : Nat
+  deriving Repr, BEq
+
+structure ValuePlan where
+  id : Nat
+  typeName : String
+  deriving Repr, BEq, Inhabited
+
+inductive ArithmeticPlan where
+  | add | sub | mul | div | mod | bitAnd | bitOr | bitXor | shiftLeft | shiftRight
+  deriving Repr, BEq, Inhabited
+
+inductive ComparePlan where
+  | eq | ne | lt | le | gt | ge
+  deriving Repr, BEq, Inhabited
+
+inductive OpPlan where
+  | literal (result : ValuePlan) (value : Nat)
+  | hashLiteral (result : ValuePlan) (a b c d : Nat)
+  | boolLiteral (result : ValuePlan) (value : Bool)
+  | loadState (result : ValuePlan) (stateId : Nat)
+  | storeState (stateId : Nat) (value : ValuePlan)
+  | loadMap (result : ValuePlan) (stateId : Nat) (key : ValuePlan)
+  | storeMap (stateId : Nat) (key value : ValuePlan)
+  | arithmetic (result : ValuePlan) (op : ArithmeticPlan)
+      (checked : Bool) (lhs rhs : ValuePlan)
+  | compare (result : ValuePlan) (op : ComparePlan) (lhs rhs : ValuePlan)
+  | hashTwoToOne (result : ValuePlan) (lhs rhs : ValuePlan)
+  | hash (result value : ValuePlan)
+  | cast (result value : ValuePlan)
+  | context (result : ValuePlan) (field : String)
+  | log (eventName : String) (fields : Array (String × ValuePlan))
+  | assert (condition : ValuePlan) (errorCode : Nat)
+  | promiseCreate (result : ValuePlan) (accountId methodName : String)
+      (args : ByteArray) (deposit gas : Nat)
+  | portableCrosscall (result : ValuePlan) (accountId methodName : String)
+      (args : ByteArray) (deposit gas : Nat)
+  | promiseCreatePool (result : ValuePlan) (accountIndex methodIndex : ValuePlan)
+      (args : Array ValuePlan) (deposit : ValuePlan)
+  | promiseThen (result : ValuePlan) (parent methodIndex : ValuePlan)
+      (args : Array ValuePlan) (deposit : ValuePlan)
+  | promiseResultU64 (result index : ValuePlan)
+  | promiseResultsCount (result : ValuePlan)
+  | promiseResultStatus (result index : ValuePlan)
+  deriving Repr, BEq, Inhabited
+
+inductive TerminatorPlan where
+  | jump (target : Nat) (args : Array ValuePlan)
+  | branch (condition : ValuePlan) (ifTrue ifFalse : Nat)
+  | return (values : Array ValuePlan)
+  | revert (errorCode : Nat)
+  deriving Repr, BEq, Inhabited
+
+structure BlockPlan where
+  id : Nat
+  params : Array ValuePlan
+  ops : Array OpPlan
+  terminator : TerminatorPlan
+  deriving Repr, BEq, Inhabited
+
+structure FunctionPlan where
+  id : Nat
+  name : String
+  params : Array ValuePlan
+  returnType : String
+  blocks : Array BlockPlan
+  deriving Repr, BEq, Inhabited
+
+structure LowerCtxSeed where
+  keyBuf : Nat
+  mapkeyBuf : Nat
+  stringBase : Nat
+  crosscallStringBase : Nat
+  structs : Array StructDecl
+  allocator : ProofForge.IR.AllocatorConfig
+  deriving Repr
+
+structure HostBridgePlan where
+  targetId : String
+  bridge : ProofForge.Target.HostBridge
+  deriving Repr, BEq
+
 structure WasmHostModulePlan where
   moduleName : String
   targetId : String
   artifactKind : String
   irVersion : String
   surface : ProofForge.Backend.WasmHost.Plan.ModulePlan
-  entrypointAbis : Array NearAbiPlan.EntrypointPlan
-  layout : NearModulePlan.NearLayoutPlan
-  functions : Array NearModulePlan.NearFunctionPlan := #[]
-  lowerCtxSeed : NearModulePlan.NearLowerCtxSeed
-  bridge : HostBridgePlan
+  entrypointAbis : Array ProofForge.Backend.WasmHost.AbiPlan.EntrypointPlan
+  layout : LayoutPlan
+  functions : Array FunctionPlan := #[]
+  lowerCtxSeed : LowerCtxSeed
+  hostBridge : HostBridgePlan := { targetId := "wasm-near", bridge := .near }
   deriving Repr
 
-/-- NEAR bridge plan constant. -/
-def nearBridge : HostBridgePlan := {
-  kind := .near,
-  storageModel := "storage_read/storage_write",
-  authModel := "predecessor_account_id",
-  crosscallModel := "promise_create"
-}
-
-/-- Soroban bridge plan constant (for future B3). -/
-def sorobanBridge : HostBridgePlan := {
-  kind := .soroban,
-  storageModel := "_get/_put",
-  authModel := "require_auth_for_args",
-  crosscallModel := "invoke_contract"
-}
-
-/-- CosmWasm bridge plan constant (for future CosmWasm promotion). -/
-def cosmWasmBridge : HostBridgePlan := {
-  kind := .cosmWasm,
-  storageModel := "db_read/db_write",
-  authModel := "none",
-  crosscallModel := "execute_msg"
-}
-
-/-- Resolve a bridge plan from a target ID. -/
 def bridgeForTarget (targetId : String) : Except String HostBridgePlan :=
   match targetId with
-  | "wasm-near" => .ok nearBridge
-  | "wasm-stellar-soroban" => .ok sorobanBridge
-  | "wasm-cosmwasm" => .ok cosmWasmBridge
+  | "wasm-near" => .ok { targetId, bridge := .near }
+  | "wasm-stellar-soroban" => .ok { targetId, bridge := .soroban }
+  | "wasm-cosmwasm" => .ok { targetId, bridge := .cosmWasm }
   | _ => .error s!"no Wasm-host bridge for target `{targetId}`"
-
-namespace Core
-
-/-- Build a neutral Wasm-host module plan from a checked canonical contract.
-
-For `wasm-near`: delegates to the existing `NearModulePlan.Core.buildFromCore`
-and wraps the result with `nearBridge`.
-
-For other targets: fails closed until their builders are implemented
-(B3 for Soroban, future tasks for CosmWasm). -/
-def buildFromCore (checked : ProofForge.IR.Canonical.CheckedCanonicalContract)
-    (capPlan : ProofForge.Target.CapabilityPlan) :
-    Except ProofForge.Backend.WasmHost.Plan.PlanError WasmHostModulePlan := do
-  let bridge ← match bridgeForTarget capPlan.targetId with
-  | .ok b => pure b
-  | .error e => .error { message := e }
-  match bridge.kind with
-  | .near =>
-    let nearPlan ← NearModulePlan.Core.buildFromCore checked capPlan
-    pure {
-      moduleName := nearPlan.moduleName
-      targetId := nearPlan.targetId
-      artifactKind := nearPlan.artifactKind
-      irVersion := nearPlan.irVersion
-      surface := nearPlan.surface
-      entrypointAbis := nearPlan.entrypointAbis
-      layout := nearPlan.layout
-      functions := nearPlan.functions
-      lowerCtxSeed := nearPlan.lowerCtxSeed
-      bridge := bridge
-    }
-  | .soroban =>
-    .error { message := "Soroban buildFromCore is not yet implemented (B3)" }
-  | .cosmWasm =>
-    .error { message := "CosmWasm buildFromCore is not yet implemented" }
-
-end Core
 
 end ProofForge.Backend.WasmHost.ModulePlan

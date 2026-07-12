@@ -9,7 +9,7 @@ import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
-import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Backend.WasmHost.ModulePlan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 /-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
@@ -151,7 +151,7 @@ def compileForTest
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"Solana buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else if targetId == "wasm-near" then
-                match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+                match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
                 | .error e => pure <| .error { mode := .canonical, targetId, message := s!"NEAR buildFromCore failed: {e.message}" }
                 | .ok _ => pure <| .ok (makeBundle targetId spec "canonical")
               else
@@ -196,7 +196,7 @@ def runCanonicalValidationGate (targetId : String) (spec : ContractSpec) : Excep
               | .error _ => .ok ()  /- buildFromCore coverage gap; advisory -/
               | .ok _ => .ok ()
             else if targetId == "wasm-near" then
-              match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+              match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
               | .error _ => .ok ()  /- buildFromCore coverage gap; advisory -/
               | .ok _ => .ok ()
             else
@@ -234,7 +234,7 @@ private def runStrictCheckedTargetGate
       | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
       | .ok _ => pure ()
   | "wasm-near" =>
-      match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+      match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
       | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
       | .ok _ => pure ()
   | _ => .error s!"canonical: buildFromCore is unavailable for target {targetId}"
