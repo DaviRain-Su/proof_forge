@@ -80,28 +80,44 @@ def packBeginFreshFunc (packSize : Nat) : Func :=
         .i32Const 1, .globalSet packLoadedGlobal,
         .i32Const 0, .globalSet packDirtyGlobal ] } }
 
-def packEnsureFunc (packSize : Nat) : Func :=
+def packEnsureFunc (packSize : Nat) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  let loadInsns := match bridge with
+    | .soroban =>
+      -- Soroban: _get returns i32 found flag; if found, data is at the
+      -- key pointer location (Soroban writes directly to memory).
+      -- For pack buffer, use _get then copy 0..packSize to PACK_BUF.
+      #[.i32Const PACK_KEY_PTR, .i32Const PACK_KEY_LEN, .call "_get",
+        .i32Const PACK_KEY_PTR, .i32Const PACK_BUF, .i32Const packSize, .call "__pf_memcpy"]
+    | _ =>
+      -- NEAR: storage_read → read_register into PACK_BUF
+      #[.i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR, .i64Const 0, .call "storage_read",
+        .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[.i64Const 0, .i64Const PACK_BUF, .call "read_register"] }
+           { insns := packZeroInsns packSize }]
   { name := packEnsureName,
     locals := if packSize % 8 == 0 then #[] else #[{ name := "i", type := .i32 }],
     body := { insns := #[
       .globalGet packLoadedGlobal, .plain "i32.eqz",
-      .if_ { insns := #[
-          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR, .i64Const 0, .call "storage_read",
-          .i64Const 0, .plain "i64.ne",
-          .if_ { insns := #[.i64Const 0, .i64Const PACK_BUF, .call "read_register"] }
-             { insns := packZeroInsns packSize },
+      .if_ { insns := loadInsns ++ #[
           .i32Const 1, .globalSet packLoadedGlobal
         ] } { insns := #[] }
     ] } }
 
-def packFlushFunc (packSize : Nat) : Func :=
+def packFlushFunc (packSize : Nat) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  let storeInsns := match bridge with
+    | .soroban =>
+      -- Soroban: _put(PACK_KEY_PTR, PACK_KEY_LEN, PACK_BUF, packSize)
+      #[.i32Const PACK_KEY_PTR, .i32Const PACK_KEY_LEN,
+        .i32Const PACK_BUF, .i32Const packSize, .call "_put"]
+    | _ =>
+      -- NEAR: storage_write(key_len, key_ptr, pack_size, pack_buf, 0)
+      #[.i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR,
+        .i64Const packSize, .i64Const PACK_BUF, .i64Const 0,
+        .call "storage_write", .drop]
   { name := packFlushName,
     body := { insns := #[
       .globalGet packDirtyGlobal,
-      .if_ { insns := #[
-          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR,
-          .i64Const packSize, .i64Const PACK_BUF, .i64Const 0,
-          .call "storage_write", .drop,
+      .if_ { insns := storeInsns ++ #[
           .i32Const 0, .globalSet packDirtyGlobal
         ] } { insns := #[] }
     ] } }
