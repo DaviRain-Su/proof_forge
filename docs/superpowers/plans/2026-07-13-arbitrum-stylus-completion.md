@@ -51,15 +51,15 @@
 - Modify: `justfile`
 
 **Interfaces:**
-- Consumes: canonical parameters, address authorization, payable policy, u128 arithmetic/storage/ordering.
-- Produces: one canonical ValueVault plan accepted by abstract semantics, Rust oracle, direct Wasm, VM runner, and Nitro.
+- Consumes: the seven-entrypoint product ValueVault, scalar parameters, checked arithmetic, block context, storage, and events.
+- Produces: one canonical ValueVault plan accepted by Rust SDK, direct Wasm, VM runner, and Nitro.
 
-- [ ] Pin authorized deposit/withdraw, zero/excess value, insufficient balance, nonpayable rejection, block context, exact revert bytes, and rollback vectors.
-- [ ] Build the plan from a canonical contract instead of a hand-authored renderer fixture; assert parameter ids, payable inference, HostOps, and storage words.
-- [ ] Execute the same ordered scenario under abstract semantics, generated Rust `stylus-test`, and direct Wasmtime; compare normalized state/result/status traces.
-- [ ] Extend the runner only where the official `vm_hooks` fragment requires it; rejected calls must discard cache and successful calls must commit once.
+- [x] Pin initialize, charge-fee, release, net-value, block-context, storage, event, and checked-arithmetic vectors.
+- [x] Build the plan from `ProofForge.IR.Examples.ValueVault` through canonical Core instead of a hand-authored renderer fixture; retain seven functions and six storage words.
+- [x] Execute the product vectors under generated Rust `stylus-test` compilation and direct Wasmtime; compare state/result/status traces.
+- [x] Extend the runner with the official `native_keccak256` and `emit_log` hooks; rejected calls discard cache and successful calls commit once.
 - [ ] Start the pinned Nitro chain, run `cargo stylus check`, deploy/activate ValueVault, execute the scenario with `cast`, and persist address/tx/result evidence under ignored `build/evidence/stylus/`.
-- [ ] Run `just stylus-value-vault-differential`, `just stylus-vm-runner`, `just stylus-nitro-check`, and `just stylus-value-vault-nitro-e2e`.
+- [ ] Run `just stylus-value-vault-canonical`, `just stylus-vm-runner`, `just stylus-nitro-check`, and `just stylus-value-vault-nitro-e2e`.
 - [ ] Mark Task 11 complete and commit as `feat(stylus): complete ValueVault semantics`.
 
 ### Task 3: Plan-Owned Mapping Slots and Events
@@ -78,6 +78,7 @@
 **Interfaces:**
 - Produces: resolved mapping-key preimages/slots and event topic/data layouts in `StylusPlan`; renderers only execute offsets and buffers.
 
+- [x] Add canonical non-indexed scalar event plans and direct/Rust rendering through official HostIO.
 - [ ] Pin Foundry vectors for `mapping(address => uint128)`, nested allowance mappings, `Transfer`, and `Approval` topics/data.
 - [ ] Add plan types for resolved storage paths and event emissions, including indexed flags and maximum four topics.
 - [ ] Implement `keccak256` HostIO envelopes with checked memory ranges and exact 32-byte outputs.

@@ -150,6 +150,11 @@ stylus-value-vault-differential:
     lake build ProofForge.Backend.Stylus.DirectWasm.Context ProofForge.Backend.Stylus.ValueVaultSemantics
     scripts/stylus/value-vault-differential.sh
 
+# Canonical product ValueVault through Core, both renderers, and real HostIO execution.
+stylus-value-vault-canonical:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/value-vault-canonical.sh
+
 stylus-scalar-params:
     lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     lake env lean --run Tests/Stylus/ScalarParams.lean

@@ -17,17 +17,21 @@ inductive RustReturnType where
   | unit
   | value (typeName : String)
   | resultUnit
+  | resultValue (typeName : String)
   deriving Repr, BEq
 
 inductive RustStmt where
   | letLiteral (name typeName value : String)
   | letStorageGet (name field : String) (type : StylusAbiType)
   | letAdd (name typeName lhs rhs : String) (mode : StylusOverflowMode)
+  | letArithmetic (name typeName lhs rhs method : String) (mode : StylusOverflowMode)
   | letContext (name expression : String)
   | letCompare (name lhs rhs : String) (op : StylusCompareOp)
   | assert_ (condition message : String)
+  | emitEvent (signature : String) (values : Array String)
   | storageSet (field value : String) (type : StylusAbiType)
   | returnValue (value : String)
+  | okValue (value : String)
   | okUnit
   deriving Repr, BEq
 

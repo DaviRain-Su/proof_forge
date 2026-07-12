@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
+use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -230,6 +231,36 @@ fn register_hooks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
         "vm_hooks",
         "block_timestamp",
         |caller: Caller<'_, HostState>| caller.data().block_timestamp as i64,
+    )?;
+    linker.func_wrap(
+        "vm_hooks",
+        "native_keccak256",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32, output: i32| -> wasmtime::Result<()> {
+            let input = read_vec(&mut caller, ptr, len)?;
+            let digest = Keccak256::digest(&input);
+            write(&mut caller, output, &digest)?;
+            caller.data_mut().trace.push(json!({
+                "event":"native_keccak256", "input":hex(&input), "output":hex(&digest)
+            }));
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(
+        "vm_hooks",
+        "emit_log",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32, topics: i32| -> wasmtime::Result<()> {
+            if !(0..=4).contains(&topics) {
+                return Err(wasmtime::Error::msg(format!("invalid Stylus topic count {topics}")));
+            }
+            let data = read_vec(&mut caller, ptr, len)?;
+            if data.len() < topics as usize * 32 {
+                return Err(wasmtime::Error::msg("Stylus log buffer is shorter than its topics"));
+            }
+            caller.data_mut().trace.push(json!({
+                "event":"emit_log", "topics":topics, "value":hex(&data)
+            }));
+            Ok(())
+        },
     )?;
     Ok(())
 }

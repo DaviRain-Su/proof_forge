@@ -88,11 +88,23 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       pure (.storageSet field.name (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
+  | .sub result type mode lhs rhs => do
+      pure (.letArithmetic (localName result) (← rustTypeName type) (localName lhs) (localName rhs) "sub" mode)
+  | .mul result type mode lhs rhs => do
+      pure (.letArithmetic (localName result) (← rustTypeName type) (localName lhs) (localName rhs) "mul" mode)
+  | .div result type mode lhs rhs => do
+      pure (.letArithmetic (localName result) (← rustTypeName type) (localName lhs) (localName rhs) "div" mode)
   | .contextRead result type operation => do
       pure (.letContext (localName result) (← contextExpression type operation))
   | .compare result _ op lhs rhs =>
       pure (.letCompare (localName result) (localName lhs) (localName rhs) op)
   | .assert_ condition message => pure (.assert_ (localName condition) message)
+  | .emitEvent eventId values => do
+      let some event := plan.events.find? (fun item => item.id == eventId)
+        | fail s!"Rust SDK operation references unknown event `{eventId}`"
+      if event.fields.any (fun field => field.indexed) then
+        fail s!"Rust SDK event `{eventId}` has unsupported indexed fields"
+      pure (.emitEvent event.canonicalSignature (values.map localName))
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
@@ -105,17 +117,22 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
   let mut body <- block.operations.mapM (renderOperation plan)
   let hasCheckedArithmetic := block.operations.any fun operation =>
     match operation with
-    | .add _ _ .checked _ _ => true
+    | .add _ _ .checked _ _ | .sub _ _ .checked _ _ | .mul _ _ .checked _ _
+    | .div _ _ .checked _ _ => true
     | _ => false
   let hasAssertion := block.operations.any fun operation =>
     match operation with | .assert_ .. => true | _ => false
   let returnType <- match method.returns with
     | #[] => pure <| if hasCheckedArithmetic || hasAssertion then .resultUnit else .unit
-    | #[type] => pure (.value (← rustTypeName type))
+    | #[type] =>
+        let name <- rustTypeName type
+        pure <| if hasCheckedArithmetic || hasAssertion then .resultValue name else .value name
     | _ => fail s!"Rust SDK function `{function.id}` has multiple returns"
   match block.terminator with
   | .return #[] => if hasCheckedArithmetic || hasAssertion then body := body.push .okUnit else pure ()
-  | .return #[value] => body := body.push (.returnValue (localName value))
+  | .return #[value] =>
+      if hasCheckedArithmetic || hasAssertion then body := body.push (.okValue (localName value))
+      else body := body.push (.returnValue (localName value))
   | .return _ => fail s!"Rust SDK function `{function.id}` has unsupported return arity"
   | _ => fail s!"Rust SDK function `{function.id}` control flow is scheduled after Counter"
   pure {
@@ -151,11 +168,18 @@ private def renderStmt (stmt : RustStmt) : Array String :=
   | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
   | .storageSet field value type => #[storageWrite field value type]
   | .returnValue value => #[value]
+  | .okValue value => #[s!"Ok({value})"]
   | .okUnit => #["Ok(())"]
   | .letAdd name typeName lhs rhs .wrapping =>
       #[s!"let {name}: {typeName} = {lhs}.wrapping_add({rhs});"]
   | .letAdd name typeName lhs rhs .checked => #[
       s!"let {name}: {typeName} = {lhs}.checked_add({rhs})",
+      "    .ok_or_else(|| b\"checked arithmetic overflow\".to_vec())?;"
+    ]
+  | .letArithmetic name typeName lhs rhs method .wrapping =>
+      #[s!"let {name}: {typeName} = {lhs}.wrapping_{method}({rhs});"]
+  | .letArithmetic name typeName lhs rhs method .checked => #[
+      s!"let {name}: {typeName} = {lhs}.checked_{method}({rhs})",
       "    .ok_or_else(|| b\"checked arithmetic overflow\".to_vec())?;"
     ]
   | .letContext name expression => #[s!"let {name} = {expression};"]
@@ -166,6 +190,10 @@ private def renderStmt (stmt : RustStmt) : Array String :=
   | .assert_ condition message => #[
       "if !" ++ condition ++ " {", "    return Err(b\"" ++ message ++ "\".to_vec());", "}"
     ]
+  | .emitEvent signature values =>
+      #["let mut __pf_event = self.vm().native_keccak256(b\"" ++ signature ++ "\").to_vec();"] ++
+      values.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
+      #["self.vm().emit_log(&__pf_event, 1);"]
 
 private def renderFunctionText (function : RustFunction) : String :=
   let receiver := match function.receiver with | .shared => "&self" | .mutable => "&mut self"
@@ -175,6 +203,7 @@ private def renderFunctionText (function : RustFunction) : String :=
     | .unit => ""
     | .value name => s!" -> {name}"
     | .resultUnit => " -> Result<(), Vec<u8>>"
+    | .resultValue name => s!" -> Result<{name}, Vec<u8>>"
   let bindings := function.params.map fun param => indent 2 ++ s!"let {param.localName} = {param.name};"
   let lines := function.body.foldl (fun lines stmt =>
     lines ++ (renderStmt stmt).map (fun line => indent 2 ++ line)) #[]

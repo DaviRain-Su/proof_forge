@@ -71,12 +71,19 @@ inductive StylusOpPlan where
   | literal (result : StylusValueId) (type : StylusAbiType) (value : StylusLiteralPlan)
   | add (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
       (lhs rhs : StylusValueId)
+  | sub (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
+      (lhs rhs : StylusValueId)
+  | mul (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
+      (lhs rhs : StylusValueId)
+  | div (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
+      (lhs rhs : StylusValueId)
   | storageLoad (result : StylusValueId) (wordId : String)
   | storageCache (wordId : String) (value : StylusValueId)
   | contextRead (result : StylusValueId) (type : StylusAbiType) (operation : StylusHostOp)
   | compare (result : StylusValueId) (type : StylusAbiType) (op : StylusCompareOp)
       (lhs rhs : StylusValueId)
   | assert_ (condition : StylusValueId) (message : String)
+  | emitEvent (eventId : String) (values : Array StylusValueId)
   deriving Repr, BEq
 
 inductive StylusTerminatorPlan where

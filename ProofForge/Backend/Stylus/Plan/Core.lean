@@ -132,14 +132,20 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
   | .pure (.literal literal) => do
       let (type, value) <- literalPlan literal
       pure (.literal (← resultId instruction) type value)
-  | .pure (.arithmetic .add mode lhs rhs) => do
+  | .pure (.arithmetic operation mode lhs rhs) => do
       let type <- match instruction.results with
         | #[result] => coreTypeToAbi result.type
         | _ => fail "Stylus add expected exactly one SSA result"
       let mode := match mode with
         | .wrapping => StylusOverflowMode.wrapping
         | .checked => StylusOverflowMode.checked
-      pure (.add (← resultId instruction) type mode lhs.id.value rhs.id.value)
+      let result <- resultId instruction
+      match operation with
+      | .add => pure (.add result type mode lhs.id.value rhs.id.value)
+      | .sub => pure (.sub result type mode lhs.id.value rhs.id.value)
+      | .mul => pure (.mul result type mode lhs.id.value rhs.id.value)
+      | .div => pure (.div result type mode lhs.id.value rhs.id.value)
+      | operation => fail s!"Stylus arithmetic `{repr operation}` is not implemented"
   | .storageLoad path => do
       pure (.storageLoad (← resultId instruction) (← stateSymbol contract path.root))
   | .storageStore path value => do
@@ -161,6 +167,10 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
       let message := (contract.interface.errors.find? (fun item => item.errorId == error.id)).map
         (fun item => item.message) |>.getD s!"error-{error.id.value}"
       pure (.assert_ condition.id.value message)
+  | .emit event values => do
+      let some declaration := contract.interface.events.find? (fun item => item.eventId == event)
+        | fail s!"Stylus emit references missing event {event.value}"
+      pure (.emitEvent declaration.name (values.map fun value => value.id.value))
   | op => fail s!"Stylus function lowering has no plan operation for `{repr op}`"
 
 private def terminatorPlan : Terminator -> Except PlanError StylusTerminatorPlan
@@ -208,7 +218,7 @@ private def instructionHostOps (instruction : Instruction) : Except PlanError (A
   | .contextRead field => match contextHostOp field with
       | some op => pure #[op]
       | none => fail s!"Stylus plan has no context HostIO handler for `{repr field}`"
-  | .emit .. => pure #[.emitLog]
+  | .emit .. => pure #[.keccak256, .emitLog]
   | .crosscall spec .. => match spec.mode with
       | .invoke => pure #[.callContract]
       | .staticInvoke => pure #[.staticCallContract]
@@ -249,6 +259,19 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
       support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
+private def buildEvents (contract : CanonicalContract) : Except PlanError (Array StylusEventPlan) :=
+  contract.interface.events.mapM fun event => do
+    let fields <- event.fields.mapM fun field => do
+      pure { name := field.name, type := (← coreTypeToAbi field.type), indexed := field.indexed }
+    let typeNames := fields.toList.map (fun field => abiTypeName field.type)
+    pure {
+      id := event.name
+      canonicalSignature := s!"{event.name}({String.intercalate "," typeNames})"
+      topic0 := #[]
+      fields
+      support := { rustSdk := .implemented, directWasm := .implemented }
+    }
+
 def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan) :
     Except PlanError StylusPlan := do
   unless capPlan.targetId == "wasm-arbitrum-stylus" do
@@ -262,6 +285,7 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
     buildMethod entrypoint function
   let storage <- buildStorage contract
   let functions <- buildFunctions contract
+  let events <- buildEvents contract
   let mut hostOps := #[]
   for entrypoint in contract.interface.entrypoints do
     let some function := contract.module.functions.find? (fun fn => fn.id == entrypoint.functionId)
@@ -282,7 +306,7 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
     abi := { methods, errors := #[] }
     storage
     functions
-    events := #[]
+    events
     calls := #[]
     hostOps
     resources := { maxMemoryPages := 1, requiresStorageFlush }

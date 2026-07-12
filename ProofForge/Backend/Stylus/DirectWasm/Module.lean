@@ -98,7 +98,8 @@ private def ensureHostOpsComplete (plan : StylusPlan) : Except LowerError Unit :
         "HostOp import handler is not implemented" }
 
 private def wideResult? (plan : StylusPlan) : StylusOpPlan -> Option StylusValueId
-  | .literal result (.uint 128) _ | .add result (.uint 128) .. => some result
+  | .literal result (.uint 128) _ | .add result (.uint 128) ..
+  | .sub result (.uint 128) .. | .mul result (.uint 128) .. | .div result (.uint 128) .. => some result
   | .storageLoad result wordId =>
       if plan.storage.words.any (fun word => word.id == wordId && word.type == .uint 128)
       then some result else none

@@ -20,11 +20,15 @@ private def widePtr (id : StylusValueId) : Nat := wideScratchPtr id
 private def opName : StylusOpPlan -> String
   | .literal result .. => s!"literal-{result}"
   | .add result .. => s!"add-{result}"
+  | .sub result .. => s!"sub-{result}"
+  | .mul result .. => s!"mul-{result}"
+  | .div result .. => s!"div-{result}"
   | .storageLoad result wordId => s!"storage-load-{wordId}-{result}"
   | .storageCache wordId value => s!"storage-cache-{wordId}-{value}"
   | .contextRead result _ operation => s!"context-{repr operation}-{result}"
   | .compare result _ operation .. => s!"compare-{repr operation}-{result}"
   | .assert_ condition _ => s!"assert-{condition}"
+  | .emitEvent event _ => s!"emit-{event}"
 
 private def diagnostic (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (op : String) (capability reason : String) : LowerError := {
@@ -161,9 +165,10 @@ private def scalarWidth : StylusAbiType -> Except LowerError Nat
 
 private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   match op with
-  | .literal result .. | .add result .. | .storageLoad result ..
+  | .literal result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
+  | .storageLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
-  | .storageCache .. | .assert_ .. => #[]
+  | .storageCache .. | .assert_ .. | .emitEvent .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
   let mut ids := #[]
@@ -210,6 +215,34 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             .if_ (.mk <| writeBytes 32 "checked arithmetic overflow".toUTF8.data ++ #[
               .i32Const 32, .i32Const "checked arithmetic overflow".toUTF8.data.size,
               .call "write_result", .i32Const 1, .return_]) .empty]
+  | .sub result type mode lhs rhs => do
+      if type != .uint 64 then
+        throw <| diagnostic plan function block (opName op) "arithmetic.sub" "direct subtraction requires uint64"
+      let reject := #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.lt_u",
+        .if_ (.mk <| writeBytes 32 "checked arithmetic overflow".toUTF8.data ++ #[.i32Const 32,
+          .i32Const "checked arithmetic overflow".toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]
+      let base := #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.sub",
+        .localSet (valueLocal result)]
+      pure <| (if mode == .checked then reject else #[]) ++ base
+  | .mul result type mode lhs rhs => do
+      if type != .uint 64 then
+        throw <| diagnostic plan function block (opName op) "arithmetic.mul" "direct multiplication requires uint64"
+      let base := #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.mul",
+        .localSet (valueLocal result)]
+      let reject := #[.localGet (valueLocal rhs), .plain "i64.eqz", .plain "i32.eqz",
+        .if_ (.mk #[.localGet (valueLocal result), .localGet (valueLocal rhs), .plain "i64.div_u",
+          .localGet (valueLocal lhs), .plain "i64.ne",
+          .if_ (.mk <| writeBytes 32 "checked arithmetic overflow".toUTF8.data ++ #[.i32Const 32,
+            .i32Const "checked arithmetic overflow".toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]) .empty]
+      pure <| base ++ (if mode == .checked then reject else #[])
+  | .div result type _ lhs rhs => do
+      if type != .uint 64 then
+        throw <| diagnostic plan function block (opName op) "arithmetic.div" "direct division requires uint64"
+      let reject := #[.localGet (valueLocal rhs), .plain "i64.eqz",
+        .if_ (.mk <| writeBytes 32 "division by zero".toUTF8.data ++ #[.i32Const 32,
+          .i32Const "division by zero".toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]
+      pure <| reject ++ #[.localGet (valueLocal lhs), .localGet (valueLocal rhs), .plain "i64.div_u",
+        .localSet (valueLocal result)]
   | .storageLoad result wordId => do
       let word <- wordFor plan wordId
       let slot <- literalSlot word
@@ -277,6 +310,28 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       pure #[.localGet (valueLocal condition), .plain "i64.eqz",
         .if_ (.mk <| writeBytes 32 message.toUTF8.data ++ #[.i32Const 32, .i32Const message.toUTF8.data.size,
           .call "write_result", .i32Const 1, .return_]) .empty]
+  | .emitEvent eventId values => do
+      let some event := plan.events.find? (fun item => item.id == eventId)
+        | throw <| diagnostic plan function block (opName op) "event.emit" "event plan is missing"
+      if event.fields.size != values.size then
+        throw <| diagnostic plan function block (opName op) "event.emit" "field/value arity mismatch"
+      if event.fields.any (fun field => field.indexed) then
+        throw <| diagnostic plan function block (opName op) "event.emit" "indexed fields are not implemented"
+      let signature := event.canonicalSignature.toUTF8.data
+      let eventPtr := 256
+      let mut insns := writeBytes eventPtr signature ++ #[.i32Const eventPtr,
+        .i32Const signature.size, .i32Const eventPtr, .call "native_keccak256"]
+      for index in [0:values.size] do
+        let some value := values[index]?
+          | throw <| diagnostic plan function block (opName op) "event.emit" "value index is invalid"
+        let some field := event.fields[index]?
+          | throw <| diagnostic plan function block (opName op) "event.emit" "field index is invalid"
+        let width <- scalarWidth field.type |>.mapError fun error =>
+          diagnostic plan function block (opName op) "event.emit" error.message
+        insns := insns ++ clearWord (eventPtr + 32 + index * 32) ++
+          encodeUnsigned (eventPtr + 64 + index * 32 - width) width (valueLocal value)
+      pure <| insns ++ #[.i32Const eventPtr, .i32Const (32 + values.size * 32),
+        .i32Const 1, .call "emit_log"]
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do

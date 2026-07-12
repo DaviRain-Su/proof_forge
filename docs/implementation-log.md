@@ -874,6 +874,23 @@ Rules:
   gate covers literal/storage, checked rollback, and wrapping overflow. Task 1
   now hands off to the canonical ValueVault/Nitro closure.
 
+## 2026-07-13 - Stylus canonical product ValueVault execution
+
+- Status: `done (local VM); Nitro deployment pending`
+- Replaced the hand-authored same-name fixture as the completion criterion with
+  `ProofForge.IR.Examples.ValueVault` through `adaptLegacy -> canonical Core ->
+  StylusPlan`. The plan retains all seven entrypoints, six state words, and five
+  events.
+- Added checked scalar subtraction, multiplication, and division to both
+  renderers; Rust result-returning functions now use `Result<T, Vec<u8>>` when
+  their body can fail.
+- Added plan-owned scalar event operations. Direct Wasm uses the official
+  `native_keccak256` and `emit_log` hooks; the local runner implements and traces
+  both hooks with bounds/topic validation.
+- `just stylus-value-vault-canonical` executes initialize, fee charging,
+  release, and net-value vectors in direct Wasmtime and compiles the generated
+  Rust SDK crate with `stylus-test`. Nitro activation remains the next gate.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
