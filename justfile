@@ -157,6 +157,9 @@ stylus-scalar-params:
     cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- build/stylus/scalar-params/echo.wasm --calldata 627f1c5a000000000000000000000000000000000000000000000000000000000000002a --invoke user_entrypoint | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["calls"][0]["status"] == 0; assert d["result"] == "00" * 31 + "2a"; print("stylus-scalar-params-runtime: ok")'
     cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- build/stylus/scalar-params/echo.wasm --calldata 627f1c5a010000000000000000000000000000000000000000000000000000000000002a --invoke user_entrypoint | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["calls"][0]["status"] == 1; print("stylus-scalar-params-padding: ok")'
 
+stylus-wide-values:
+    scripts/stylus/wide-values.sh
+
 # Compile and execute direct Stylus Wasm against the local vm_hooks runner.
 stylus-vm-runner:
     scripts/stylus/vm-runner-smoke.sh

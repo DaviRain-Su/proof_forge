@@ -822,6 +822,27 @@ Rules:
 - Remaining: represent `u128`/`U256` values without i64 truncation, then consume
   `msg.value` in payable ValueVault business logic and prove it on Nitro.
 
+## 2026-07-13 - Stylus Task 11 checkpoint: direct u128 value representation
+
+- Status: `in_progress`
+- Direct Wasm now represents `uint128` as a pointer to a checked 16-byte
+  big-endian memory value. Static ABI parameters point into the copied calldata
+  word; `msg.value` points into the low half of its official 32-byte HostIO
+  buffer after rejecting any nonzero high half. ABI returns copy all 16 bytes
+  into the low half of the result word without i64 truncation.
+- Rust SDK rendering now converts the SDK's `U256` message value explicitly via
+  `.to::<u128>()`. The generated Rust oracle compiles with pinned Rust 1.91.0,
+  stylus-sdk 0.10.8, and the `stylus-test` host.
+- Verification: `scripts/stylus/wide-values.sh` round-tripped
+  `18446744073709551658` through both `echo128(uint128)` calldata and
+  `msg.value`, rejected a 129-bit value with exact revert bytes, compiled the
+  direct WAT, executed it under the Wasmtime runner, and compiled the Rust
+  oracle. `uint128` equality is bytewise; unsupported ordering remains a named
+  failure instead of comparing pointers.
+- Remaining: checked/wrapping u128 arithmetic, ordering, literal materialization,
+  and storage words are required before payable ValueVault business logic can
+  move to the public artifact route and Nitro E2E.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

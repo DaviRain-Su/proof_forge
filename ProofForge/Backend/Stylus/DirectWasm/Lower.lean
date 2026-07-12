@@ -77,6 +77,20 @@ private def pointerBytesEqual (lhs rhs : String) (width : Nat) (result : String)
     ]
   return insns.push (.localSet result)
 
+private def rejectNonZeroPrefix (ptr width : Nat) (message : String) : Array Insn := Id.run do
+  let mut check : Array Insn := #[.i32Const 0]
+  for index in [0:width] do
+    check := check ++ #[.i32Const (ptr + index), .load "i32.load8_u" 0, .plain "i32.or"]
+  return check ++ #[.if_ (.mk <| writeBytes 32 message.toUTF8.data ++ #[.i32Const 32,
+    .i32Const message.toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]
+
+private def copyPointerBytes (target : Nat) (source : String) (width : Nat) : Array Insn := Id.run do
+  let mut insns := #[]
+  for index in [0:width] do
+    insns := insns ++ #[.i32Const (target + index), .localGet source, .plain "i32.wrap_i64",
+      .i32Const index, .plain "i32.add", .load "i32.load8_u" 0, .store "i32.store8" 0]
+  return insns
+
 private def nonPayablePrologue : Array Insn := Id.run do
   let mut check : Array Insn := #[.i32Const valuePtr, .call "msg_value", .i32Const 0]
   for index in [0:u256Bytes] do
@@ -154,6 +168,9 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           .i64Const contractPtr, .localSet (valueLocal result)]
       | .uint 256, .msgValue => pure #[.i32Const valuePtr, .call "msg_value", .i64Const valuePtr,
           .localSet (valueLocal result)]
+      | .uint 128, .msgValue => pure <| #[.i32Const valuePtr, .call "msg_value"] ++
+          (rejectNonZeroPrefix valuePtr 16 "stylus: msg.value exceeds uint128") ++
+          #[.i64Const (valuePtr + 16), .localSet (valueLocal result)]
       | .uint 64, .blockNumber => pure #[.call "block_number", .localSet (valueLocal result)]
       | .uint 64, .blockTimestamp => pure #[.call "block_timestamp", .localSet (valueLocal result)]
       | _, _ => throw (diagnostic plan function block (opName op) "context.read"
@@ -168,6 +185,14 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
                 .localSet (valueLocal result)]
           | _ => throw (diagnostic plan function block (opName op) "compare.address"
               "address ordering is not implemented")
+      | .uint 128 =>
+          match operation with
+          | .eq => pure <| pointerBytesEqual (valueLocal lhs) (valueLocal rhs) 16 (valueLocal result)
+          | .ne => pure <| pointerBytesEqual (valueLocal lhs) (valueLocal rhs) 16 (valueLocal result) ++
+              #[.localGet (valueLocal result), .plain "i64.eqz", .plain "i64.extend_i32_u",
+                .localSet (valueLocal result)]
+          | _ => throw (diagnostic plan function block (opName op) "compare.uint128"
+              "uint128 ordering is not implemented")
       | .bool | .uint _ =>
           let instruction := match operation with
             | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_u"
@@ -191,10 +216,14 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
         | throw <| diagnostic plan function block "terminator" "abi.result" "return type is missing"
       unless method.returns.size == 1 do
         throw <| diagnostic plan function block "terminator" "abi.result" "multiple returns are not implemented"
-      let width <- scalarWidth type |>.mapError fun error =>
-        diagnostic plan function block "terminator" "abi.result" error.message
-      pure <| clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
-        #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
+      match type with
+      | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
+          #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
+      | _ =>
+          let width <- scalarWidth type |>.mapError fun error =>
+            diagnostic plan function block "terminator" "abi.result" error.message
+          pure <| clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
+            #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
   | _ => throw <| diagnostic plan function block "terminator" "abi.result" "multiple returns are not implemented"
 
 private partial def lowerBlock (plan : StylusPlan) (function : StylusFunctionPlan)

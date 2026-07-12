@@ -67,6 +67,9 @@ Stylus backend must not route through `NearModulePlan`.
    normalized trace parity. Static `bool`/`u8`/`u32`/`u64` function parameters
    are plan-owned and lowered by both renderers; direct dispatch rejects
    non-canonical ABI padding before the call.
+   Direct `uint128` parameters and `msg.value` use checked 16-byte big-endian
+   memory values, with ABI return and equality support; ordering, arithmetic,
+   and storage remain fail-closed pending the rest of the ValueVault slice.
 2. ValueVault: address, sender, value, block context, authorization, payable.
 3. Token: mappings, indexed events, allowance, EVM ABI interoperability.
 4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.

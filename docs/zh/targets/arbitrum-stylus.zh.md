@@ -58,6 +58,9 @@ artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
    cache flush、Direct WAT 编译和 abstract/direct 归一化 trace parity。静态
    `bool`/`u8`/`u32`/`u64` 函数参数由 plan 持有并被两条 renderer lowering；
    direct dispatch 会在调用前拒绝非 canonical ABI padding。
+   Direct `uint128` 参数和 `msg.value` 使用经过检查的 16 字节大端内存值，
+   支持 ABI 返回和相等比较；排序、算术与存储在 ValueVault 后续切片完成前
+   继续 fail-closed。
 2. ValueVault：address、sender、value、block、授权和 payable。
 3. Token：mapping、indexed event、allowance 和 EVM ABI 互操作。
 4. RemoteCall：call mode、value/gas、return data、revert、reentrancy。

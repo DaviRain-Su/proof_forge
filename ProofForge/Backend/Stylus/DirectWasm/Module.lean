@@ -22,12 +22,14 @@ private def loadSelector : Array Insn := #[
 private def scalarParamWidth : StylusAbiType -> Except LowerError Nat
   | .bool => pure 1
   | .uint bits =>
-      if bits > 0 && bits <= 64 && bits % 8 == 0 then pure (bits / 8)
-      else throw { message := s!"direct Wasm ABI parameters require widths through uint64, received uint{bits}" }
+      if bits > 0 && bits <= 128 && bits % 8 == 0 then pure (bits / 8)
+      else throw { message := s!"direct Wasm ABI parameters require widths through uint128, received uint{bits}" }
   | type => throw { message := s!"direct Wasm ABI parameter is not a supported scalar: {repr type}" }
 
 private def decodeParam (index width : Nat) : Array Insn := Id.run do
   let ptr := calldataPtr + 4 + index * 32 + (32 - width)
+  if width > 8 then
+    return #[.i64Const ptr]
   let mut insns := #[.i64Const 0]
   for byte in [0:width] do
     insns := insns ++ #[.i64Const 8, .plain "i64.shl", .i32Const (ptr + byte),

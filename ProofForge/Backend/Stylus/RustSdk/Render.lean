@@ -57,9 +57,12 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
 
 private def localName (id : StylusValueId) : String := s!"v{id}"
 
-private def contextExpression : StylusHostOp -> Except RenderError String
+private def contextExpression (type : StylusAbiType) : StylusHostOp -> Except RenderError String
   | .msgSender => pure "self.vm().msg_sender()"
-  | .msgValue => pure "self.vm().msg_value()"
+  | .msgValue => match type with
+      | .uint 128 => pure "self.vm().msg_value().to::<u128>()"
+      | .uint 256 => pure "self.vm().msg_value()"
+      | _ => fail s!"Rust SDK msg.value cannot produce `{repr type}`"
   | .contractAddress => pure "self.vm().contract_address()"
   | .blockNumber => pure "self.vm().block_number()"
   | .blockTimestamp => pure "self.vm().block_timestamp()"
@@ -85,8 +88,8 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       pure (.storageSet field.name (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
-  | .contextRead result _ operation => do
-      pure (.letContext (localName result) (← contextExpression operation))
+  | .contextRead result type operation => do
+      pure (.letContext (localName result) (← contextExpression type operation))
   | .compare result _ op lhs rhs =>
       pure (.letCompare (localName result) (localName lhs) (localName rhs) op)
   | .assert_ condition message => pure (.assert_ (localName condition) message)
