@@ -95,7 +95,7 @@
 - [x] Repair only the minimal slice; defer royalty, enumeration, collection, and multi-token behavior.
 - [x] Document implemented semantics separately from unverified standards compliance.
 - [x] Run the focused test, `just evm-all`, `just solana-light`, `just wasm-near-plan`, `just product`, and `git diff --check`.
-- [ ] Commit with `git commit -m "fix(nft): align primary target implementation contracts"`.
+- [x] Commit with `git commit -m "fix(nft): align primary target implementation contracts"`.
 
 ### Task 5: Add Primary-Triad NFT Materializers
 
