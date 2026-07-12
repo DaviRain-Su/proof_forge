@@ -21,7 +21,7 @@ def main : IO Unit := do
 
   /- The known IDs are exactly the public set. -/
   let expected := #["evm", "solana-sbpf-asm", "wasm-near", "wasm-cosmwasm",
-    "wasm-cloudflare-workers", "wasm-stellar-soroban", "move-aptos", "move-sui",
+    "wasm-cloudflare-workers", "wasm-stellar-soroban", "wasm-arbitrum-stylus", "move-aptos", "move-sui",
     "psy-dpn", "aleo-leo"]
   require (knownIds == expected) s!"unexpected knownIds: {knownIds}"
 

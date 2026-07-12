@@ -11,6 +11,7 @@ import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Backend.WasmHost.ModulePlan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
+import ProofForge.Backend.Stylus.Plan.Core
 /-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
 exposed through the public CLI and does not modify `Target.knownIds`, backend
@@ -239,6 +240,10 @@ private def runStrictCheckedTargetGate
       | .ok _ => pure ()
   | "wasm-stellar-soroban" =>
       match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
+      | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
+      | .ok _ => pure ()
+  | "wasm-arbitrum-stylus" =>
+      match ProofForge.Backend.Stylus.Plan.Core.buildFromCore checked capPlan with
       | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
       | .ok _ => pure ()
   | _ => .error s!"canonical: buildFromCore is unavailable for target {targetId}"

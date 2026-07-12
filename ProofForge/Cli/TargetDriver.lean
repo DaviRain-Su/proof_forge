@@ -389,6 +389,17 @@ def cloudflareResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target wasm-cloudflare-workers --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
+def stylusResolveBuild (req : BuildRequest) : Except String BuildResult :=
+  if req.token || req.nft then
+    Except.error "proof-forge build --target wasm-arbitrum-stylus: token and NFT surfaces are not implemented"
+  else if isLeanSourceFile req.input? then
+    Except.error "proof-forge build --target wasm-arbitrum-stylus: public artifact dispatch is not implemented yet"
+  else
+    Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean contract_source input"
+
+def stylusResolveEmit (_req : EmitRequest) : Except String String :=
+  Except.error "proof-forge emit --target wasm-arbitrum-stylus is unavailable; use build with contract_source"
+
 /-- CLI-only verification target (not in `Target.knownIds`). -/
 def quintResolveBuild (_req : BuildRequest) : Except String BuildResult :=
   Except.error "unknown target 'quint'"
@@ -426,6 +437,7 @@ def cliDrivers : Array TargetCliDriver := #[
   { id := "move-aptos", resolveBuild := aptosResolveBuild, resolveEmit := aptosResolveEmit },
   { id := "move-sui", resolveBuild := suiResolveBuild, resolveEmit := suiResolveEmit },
   { id := "wasm-cloudflare-workers", resolveBuild := cloudflareResolveBuild, resolveEmit := cloudflareResolveEmit },
+  { id := "wasm-arbitrum-stylus", resolveBuild := stylusResolveBuild, resolveEmit := stylusResolveEmit },
   { id := "quint", resolveBuild := quintResolveBuild, resolveEmit := quintResolveEmit }
 ]
 

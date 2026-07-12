@@ -120,6 +120,11 @@ stylus-counter-lifecycle:
     cargo test --manifest-path runtime/stylus-host/Cargo.toml
     scripts/stylus/sdk-counter-lifecycle.sh
 
+# Research registry and strict canonical boundary for Arbitrum Stylus.
+stylus-public-route:
+    lake build ProofForge.Compiler.CanonicalPipeline ProofForge.Cli.TargetDriver
+    lake env lean --run Tests/Stylus/PublicRoute.lean
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

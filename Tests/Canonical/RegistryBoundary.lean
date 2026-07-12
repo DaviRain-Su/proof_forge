@@ -12,6 +12,7 @@ def expectedIds : Array String := #[
   "wasm-cosmwasm",
   "wasm-cloudflare-workers",
   "wasm-stellar-soroban",
+  "wasm-arbitrum-stylus",
   "move-aptos",
   "move-sui",
   "psy-dpn",

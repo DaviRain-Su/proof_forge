@@ -241,6 +241,33 @@ def wasmStellarSoroban : TargetProfile := {
   }
 }
 
+/-- Arbitrum Stylus research backend. Rust SDK crate generation is the
+bootstrap renderer; direct HostIO Wasm remains unavailable until differential
+trace evidence is complete. This target is not part of the primary triad. -/
+def wasmArbitrumStylus : TargetProfile := {
+  id := "wasm-arbitrum-stylus"
+  family := .wasmHost
+  artifactKind := .wasm
+  deploymentAllocator? := some (ProofForge.IR.AllocatorConfig.hostBump)
+  offlineAllocators := #[ProofForge.IR.AllocatorConfig.hostBump]
+  capabilities := #[.storageScalar, .checkedArithmetic]
+  requiredTools := #["rustup", "cargo", "cargo-stylus"]
+  support := {
+    maturity := .research
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.sourcegen, .intermediate]
+    validationLevel := .plan
+    supportedFragment :=
+      "Counter research slice via canonical StylusPlan and pinned Rust SDK renderer; " ++
+      "direct HostIO Wasm and deploy support unavailable"
+    toolStages := #[
+      { tool := "rustc-1.91.0", stage := "wasm-bootstrap" },
+      { tool := "cargo-stylus-0.10.8", stage := "artifact-check" }
+    ]
+  }
+}
+
 def solanaSbpfLinker : TargetProfile := {
   -- Superseded by solanaSbpfAsm (D-026). Kept as historical reference.
   -- Excluded from `all`/`find?`/`knownIds` via deprecated := true.
@@ -458,6 +485,7 @@ def allIncludingDeprecated : Array TargetProfile := #[
   wasmCosmWasm,
   wasmCloudflareWorkers,
   wasmStellarSoroban,
+  wasmArbitrumStylus,
   solanaSbpfLinker,
   solanaZigFork,
   moveAptos,
