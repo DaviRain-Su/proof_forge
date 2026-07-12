@@ -796,3 +796,25 @@ Rules:
   `wave-t-baseline` and `check-serial`; updated the four
   `Examples/Backend/WasmNear/*.golden.wat` fixtures to the corrected
   `storage_remove` signature.
+
+## 2026-07-13 - GATE-NEAR-VM-PRODUCT: real product source on the real NEAR VM
+
+- Status: `done (verified by `just near-vm-conformance-product`)`
+- Result: closed the real product loop. The sibling `near-vm-conformance` gate
+  emits the minimal IR fixture (`ProofForge.IR.Examples.Counter`) via the
+  internal `Tests/Canonical/Emit.lean` harness. This new gate compiles the
+  **product author source** (`Examples/Product/Counter.lean`, the
+  `contract_source` DSL surface) through the **public CLI**
+  (`proof-forge build --target wasm-near`) and runs the CLI-emitted `counter.wasm`
+  deploy artifact on the unmodified upstream NEAR VM. After
+  `initialize + increment*2`, `get` returns `0200000000000000` (LE u64 = 2,
+  ~71.1 Tgas), proving the *authoring surface* — not just the IR fixture —
+  lowers to NEAR-VM-executable Wasm. The CLI's `writeWatPackage` runs
+  `wat2wasm` internally and fails hard on a missing assembler (PF-P0-08), so
+  the script runs the CLI's own `.wasm` directly rather than re-assembling.
+- Verification: `just near-vm-conformance-product` (passed; get=2). WAT parity
+  between the product output and the IR-fixture golden is already asserted by
+  `scripts/portable/counter-multi-target.sh`.
+- Documentation: `docs/implementation-log.md` (this entry);
+  `scripts/near/vm-conformance-product.sh`; `just near-vm-conformance-product`
+  added to `wave-t-baseline` and `check-serial`.
