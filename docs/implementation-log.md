@@ -752,6 +752,30 @@ Rules:
   wide-value representation before payable business logic can consume it.
   Function parameters and target-native `vm_hooks` execution also remain open.
 
+## 2026-07-13 - Stylus direct Wasm runner
+
+- Added `tools/stylus-vm-runner`, a Wasmtime 45 executable host for the current
+  direct Stylus `vm_hooks` fragment: storage load/cache/flush, result writes,
+  sender/value/contract context, and block number/timestamp.
+- The CLI supports multiple ordered exports plus `--sender`, `--value`,
+  `--contract`, `--block-number`, `--block-timestamp`, and repeated
+  `--storage SLOT=WORD` initialization. It emits deterministic JSON containing
+  statuses, result bytes, committed storage, and normalized host traces.
+- `just stylus-vm-runner` compiles WAT to Wasm and executes Counter
+  `initialize -> increment -> get`, authorized address comparison, and
+  nonpayable rejection against the bytecode.
+- Boundary: this is real Wasm instantiation and execution against a local
+  compatible host. It is not Nitro activation, cargo-stylus validation, live
+  RPC execution, or deployability evidence.
+- Follow-up: direct modules now export the official
+  `user_entrypoint(args_len) -> status`, import `read_args`, dispatch Solidity
+  selectors, and emit deterministic malformed/unknown-selector reverts. The
+  runner accepts `--calldata` and executes this public entrypoint.
+- Added optional `just stylus-official-check`, which feeds the emitted bytecode
+  to `cargo stylus check --wasm-file`. Official cargo-stylus `check` owns
+  instrumentation/activation validation; `simulate`/`replay` remain RPC and
+  trace-driven workflows rather than replacements for the offline Wasm host.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

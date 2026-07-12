@@ -150,6 +150,14 @@ stylus-value-vault-differential:
     lake build ProofForge.Backend.Stylus.DirectWasm.Context ProofForge.Backend.Stylus.ValueVaultSemantics
     scripts/stylus/value-vault-differential.sh
 
+# Compile and execute direct Stylus Wasm against the local vm_hooks runner.
+stylus-vm-runner:
+    scripts/stylus/vm-runner-smoke.sh
+
+# Optional official Arbitrum activation/instrumentation check over direct Wasm.
+stylus-official-check: stylus-vm-runner
+    scripts/stylus/official-wasm-check.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

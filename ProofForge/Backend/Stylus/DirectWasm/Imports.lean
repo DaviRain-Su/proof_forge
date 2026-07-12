@@ -17,6 +17,7 @@ def importForHostOp? : StylusHostOp -> Option Import
   | .storageCache => some (vmImport "storage_cache_bytes32" #[.i32, .i32])
   | .storageFlush => some (vmImport "storage_flush_cache" #[.i32])
   | .writeResult => some (vmImport "write_result" #[.i32, .i32])
+  | .calldataCopy => some (vmImport "read_args" #[.i32])
   | .msgSender => some (vmImport "msg_sender" #[.i32])
   | .msgValue => some (vmImport "msg_value" #[.i32])
   | .contractAddress => some (vmImport "contract_address" #[.i32])

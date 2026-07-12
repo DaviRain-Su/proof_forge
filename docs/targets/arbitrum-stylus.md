@@ -84,6 +84,32 @@ intermediate gate. Live RPC/deployment remains optional.
 
 Passing `cargo stylus check` alone is not runtime or deployment evidence.
 
+## Local Wasm Runner
+
+`tools/stylus-vm-runner` executes generated direct Wasm with Wasmtime and the
+currently implemented `vm_hooks` fragment. It preserves storage/cache across
+multiple exports and accepts sender, value, contract, block, and initial slot
+injection. For example:
+
+```bash
+cargo run --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/counter-differential/counter.wasm \
+  __pf_initialize __pf_increment __pf_get
+```
+
+Run `just stylus-vm-runner` for the checked Counter and authorization smokes.
+This proves that emitted Wasm bytecode instantiates and executes; it is a local
+compatibility host, not Nitro activation, `cargo stylus check`, or deployment
+evidence.
+
+The official companion gate is `just stylus-official-check`. It passes the
+same direct Wasm to `cargo stylus check --wasm-file`, which performs Arbitrum
+instrumentation and activation validation through an RPC endpoint. It is a
+named local skip when the pinned cargo-stylus tool is absent. The local runner
+is retained because official `replay` consumes a chain transaction trace and
+loads native shared libraries for debugging; it is not an offline Wasm
+interpreter API.
+
 ## Authoritative Sources
 
 - <https://github.com/OffchainLabs/stylus-sdk-rs>

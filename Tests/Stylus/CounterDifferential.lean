@@ -30,6 +30,8 @@ def main : IO Unit := do
   let wat := ProofForge.Compiler.Wasm.Printer.render module
   require (wat.contains "storage_load_bytes32" && wat.contains "storage_cache_bytes32")
     "direct Counter module omitted storage HostIO"
+  require (wat.contains "(export \"user_entrypoint\")" && wat.contains "read_args")
+    "direct Counter module omitted the official Stylus entrypoint"
   require (wat.contains "i32.load8_u" && wat.contains "i32.store8")
     "direct Counter module did not preserve big-endian storage words"
   let some increment := plan.functions.find? (fun function => function.id == "increment")

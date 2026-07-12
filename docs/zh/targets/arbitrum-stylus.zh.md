@@ -73,6 +73,28 @@ Live RPC/deployment 保持可选。
 
 仅通过 `cargo stylus check` 不等于 runtime 或 deployment 证据。
 
+## 本地 Wasm Runner
+
+`tools/stylus-vm-runner` 使用 Wasmtime 和当前已实现的 `vm_hooks` fragment
+执行 direct Wasm。它在连续 export 调用之间保留 storage/cache，并支持注入 sender、
+value、contract、block 和初始 slot。
+
+```bash
+cargo run --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/counter-differential/counter.wasm \
+  __pf_initialize __pf_increment __pf_get
+```
+
+`just stylus-vm-runner` 会执行 Counter 和 authorization smoke。该 gate 证明生成的
+Wasm 字节码能够实例化并执行；runner 是本地兼容宿主，不代表 Nitro activation、
+`cargo stylus check` 或部署证据。
+
+官方配套 gate 是 `just stylus-official-check`。它将同一个 direct Wasm 传给
+`cargo stylus check --wasm-file`，通过 RPC 执行 Arbitrum instrumentation 与
+activation 校验；固定版本 cargo-stylus 未安装时会明确 SKIP。保留本地 runner 的
+原因是官方 `replay` 消费链上 transaction trace，并加载 native shared library
+进行调试，它不是离线 Wasm interpreter API。
+
 ## 权威来源
 
 - <https://github.com/OffchainLabs/stylus-sdk-rs>
