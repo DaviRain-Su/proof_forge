@@ -96,6 +96,9 @@
     "near-promise-amount-pointer",
     "near-offline-host-transaction",
     "near-offline-host-fuel",
+    "near-vm-conformance",
+    "near-vm-conformance-product",
+    "near-vm-conformance-ft",
     "near-budget-honesty",
     "near-deploy-honesty",
     "near-compare-matrix-test",
@@ -927,6 +930,33 @@
     },
     {
       "name": "near-offline-host-fuel",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance-product",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance-ft",
       "lane": "wasm-other-exclusive",
       "execution": "lane_serial",
       "tags": [

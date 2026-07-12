@@ -858,3 +858,56 @@ Rules:
 - Documentation: `docs/implementation-log.md` (this entry);
   `scripts/near/vm-conformance-product.sh`; `just near-vm-conformance-product`
   added to `wave-t-baseline` and `check-serial`.
+
+## 2026-07-13 - GATE-NEAR-VM-FT: NEP-141 FT (storage_remove + full promise ABI) on the real NEAR VM
+
+- Status: `done (verified by `just near-vm-conformance-ft`)`
+- Motivation and corrected premise. The 2026-07-12 entry's "Remaining" claimed
+  `promise_create`/`promise_then` use an 8/9-param simplified ABI that "will
+  not link on the real NEAR VM" pending a 9/10-param migration. Empirical
+  re-verification disproved this: real NEAR (`near-vm-logic`) `promise_create`
+  is **8** params and `promise_then` is **9** — exactly what ProofForge emits
+  (`HostBridge.hostFunctions`, `contract.wat`, and the FT module's import
+  section all confirm 8/9). A module importing `promise_create` links and
+  executes on the unmodified upstream NEAR VM. The 9/10-param migration was a
+  non-task; it would have broken conformance.
+- Real blocker found and characterized. The FT module *did* link-fail on the
+  real VM, but with `LinkError: storage_remove (param i64 i64) vs (i64 i64 i64)`
+  — a **stale 2-param artifact** predating the 2026-07-12 `storage_remove`
+  fix (the codegen in `HostBridge.lean` + `Map.lean` was already 3-param).
+  This was masked because `near-vm-conformance` only ran Counter, which never
+  imports `storage_remove`. Regenerating the FT module produced a 3-param
+  `storage_remove` and it linked and executed.
+- Result. Extended `tools/near-vm-runner` with per-method Borsh `input`
+  injection (`--input-hex` / `--inputs-hex`) and `promise_result` injection
+  (`--promise-result-u64`), mirroring `runtime/offline-host` conventions but
+  driving the REAL `promise_results_count` / `promise_result` host functions.
+  Added `scripts/near/vm-conformance-ft.sh` (`just near-vm-conformance-ft`),
+  which compiles the NEP-141 FT module and runs two phases on the unmodified
+  upstream NEAR VM:
+  - Phase 1 (host-ABI link + execute): `init` + `ft_total_supply` (no input)
+    proves the full host surface — `storage_remove` plus the complete promise
+    ABI — resolves against real near-vm-logic; `ft_total_supply` reads 0.
+  - Phase 2 (semantic + callback dispatch): the full `ft_transfer_call` +
+    `ft_resolve_transfer` flow with Borsh inputs and one injected
+    `PromiseResult::Successful`. `ft_transfer_call` returns a receipt
+    (promise created); `ft_resolve_transfer` reads it via the REAL
+    `promise_result` host function and computes refund U64 = 45, matching
+    `runtime/offline-host` exactly (sender 55, receiver 45).
+- Scope. This is a conformance approximation: receipts are not scheduled and
+  the peer contract is not executed — only the callback-side read is
+  validated against the real VM. It does not cover real trie-backed
+  `External`, live fee/protocol-version drift, or public deploy.
+- Verification (all passed): `just near-vm-conformance-ft` (both phases);
+  `python3 scripts/test-framework/manifest.py --check` (113 recipes, 4 lanes);
+  `python3 scripts/test-framework/check_equivalence.py` (113 recipes) — the
+  latter also fixed a pre-existing drift where `near-vm-conformance` and
+  `near-vm-conformance-product` were in `check-serial` but absent from
+  `scripts/test-framework/lanes.json`.
+- Documentation: `docs/implementation-log.md` (this entry, and it supersedes
+  the 2026-07-12 "Remaining" promise-ABI claim);
+  `docs/validation-gates.md` + `docs/zh/validation-gates.zh.md` (new row);
+  `README.md` + `docs/zh/README-root.zh.md` (wasm-near backend status);
+  `just near-vm-conformance-ft` added to `wave-t-baseline`, `check-serial`,
+  and `scripts/test-framework/lanes.json` (`serialCoverage` + `recipes`,
+  lane `wasm-other-exclusive`).

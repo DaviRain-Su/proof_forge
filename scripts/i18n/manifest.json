@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "87e7cf198936101464e112cb01041f8ff7fb92d2b88d276a5b0c6186495db34f",
+    "sha256": "cddf68f1064d8bbcee9c0a0bdbcb591026dec69683661f1b505213c5dd2bd19d",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Arbitrum Stylus research backend status"
+    "note": "manually synced for Arbitrum Stylus research backend status and NEP-141 FT real-VM conformance"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "16ba281964f59c0ba7d008c819f5f73298082bfcbe2d183ccff9d647f08bb221",
+    "sha256": "6b9ee2c0fd6599364eb976542d6d7bbd79d34f3081e4bd1cdc60781c1f382e3f",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced for fast, parallel, serial, and Arbitrum Stylus gates"
+    "note": "synced for fast, parallel, serial, Arbitrum Stylus, and NEP-141 FT real-VM conformance gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
