@@ -284,6 +284,11 @@ def runNearHostCall (name : String) (args : Array Nat) (state : WasmState) :
       let registerId := args.getD 0 0
       let ptr := args.getD 1 0
       .ok (hostReadRegister state registerId ptr)
+  | "register_len" =>
+      let registerId := args.getD 0 0
+      match lookupRegister? state.host.registers registerId with
+      | some bytes => .ok (stackPush state bytes.size)
+      | none => .ok (stackPush state (2 ^ 64 - 1))
   | "storage_read" =>
       let keyLen := args.getD 0 0
       let keyPtr := args.getD 1 0
@@ -460,6 +465,7 @@ def hostArity (bridge : ProofForge.Target.HostBridge) (name : String) :
   match bridge, name with
   | .near, "input" => .ok 1
   | .near, "read_register" => .ok 2
+  | .near, "register_len" => .ok 1
   | .near, "storage_read" => .ok 3
   | .near, "storage_write" => .ok 5
   | .near, "value_return" => .ok 2

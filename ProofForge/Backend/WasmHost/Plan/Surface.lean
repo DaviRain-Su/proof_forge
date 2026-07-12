@@ -150,7 +150,7 @@ def withScalarWriteType (type : ValueType) : ModuleSurface := {
 
 def withReturnType (type : ValueType) : ModuleSurface :=
   match type with
-  | .u32 | .u64 | .bool | .hash | .fixedArray _ _ | .structType _ =>
+  | .u32 | .u64 | .bool | .hash | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 =>
       { returnTypes := #[type] }
   | _ => empty
 
@@ -496,7 +496,7 @@ mutual
     | .storageScalarRead _ => .ok #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         contextOpsFromExpr value
-    | .storageMapContains _ key | .storageMapGet _ key =>
+    | .storageMapContains _ key | .storageMapGet _ key | .storageMapDelete _ key =>
         contextOpsFromExpr key
     | .storageMapInsert _ key value | .storageMapSet _ key value =>
         return mergeContextExprPlans (← contextOpsFromExpr key) (← contextOpsFromExpr value)
@@ -546,18 +546,14 @@ mutual
         return mergeContextExprPlans
           (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)) s5
 
-    | .checkErc1155BatchReceived a b c d e f g => do
+    | .checkErc1155BatchReceived a b c d e => do
         let s1 ← contextOpsFromExpr a
         let s2 ← contextOpsFromExpr b
         let s3 ← contextOpsFromExpr c
         let s4 ← contextOpsFromExpr d
         let s5 ← contextOpsFromExpr e
-        let s6 ← contextOpsFromExpr f
-        let s7 ← contextOpsFromExpr g
         return mergeContextExprPlans
-          (mergeContextExprPlans
-            (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4))
-            (mergeContextExprPlans s5 s6)) s7
+          (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)) s5
 
   partial def contextOpsFromPath (path : Array StoragePathSegment) :
       Except PlanError (Array ContextExprPlan) :=
@@ -801,6 +797,10 @@ mutual
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env key) (← indexedStorageReadSurfaceSummary module stateId))
           ModuleSurface.withStorageRead
+    | .storageMapDelete stateId key => do
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module env key) (← indexedStorageWriteSurfaceSummary module stateId))
+          (mergeModuleSurfaces ModuleSurface.withStorageRead ModuleSurface.withStorageWrite)
     | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
         return mergeModuleSurfaces
           (mergeModuleSurfaces
@@ -869,18 +869,14 @@ mutual
         return mergeModuleSurfaces
           (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)) s5
 
-    | .checkErc1155BatchReceived a b c d e f g => do
+    | .checkErc1155BatchReceived a b c d e => do
         let s1 ← surfaceFromExpr module env a
         let s2 ← surfaceFromExpr module env b
         let s3 ← surfaceFromExpr module env c
         let s4 ← surfaceFromExpr module env d
         let s5 ← surfaceFromExpr module env e
-        let s6 ← surfaceFromExpr module env f
-        let s7 ← surfaceFromExpr module env g
         return mergeModuleSurfaces
-          (mergeModuleSurfaces
-            (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4))
-            (mergeModuleSurfaces s5 s6)) s7
+          (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)) s5
 
   partial def surfaceFromPath (module : Module) (env : LocalTypeEnv) (path : Array StoragePathSegment) :
       Except PlanError ModuleSurface :=

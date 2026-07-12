@@ -23,7 +23,9 @@ open ProofForge.Backend.WasmHost.Types
 def modulePlanUsesHashAlloc (plan : ModulePlan) : Bool :=
   plan.usesHashMake || plan.usesHashPreimage || plan.usesHashTwoToOne ||
     plan.scalarReadTypes.contains .hash || plan.contextOps.contains .randomSeed ||
-    plan.contextOps.contains .userIdHash
+    plan.contextOps.contains .userIdHash ||
+    plan.u64IndexedReadTypes.contains .hash || plan.u64IndexedWriteTypes.contains .hash ||
+    plan.hashIndexedReadTypes.contains .hash || plan.hashIndexedWriteTypes.contains .hash
 
 def hashAllocName    : String := "__pf_hash_alloc"
 def hashMakeName      : String := "__pf_hash_make"

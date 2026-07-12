@@ -6,6 +6,7 @@ import ProofForge.Compiler.Wasm.AST
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Diagnostics
+import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
@@ -19,6 +20,7 @@ open ProofForge.IR
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Diagnostics
+open ProofForge.Backend.WasmHost.Hash
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
@@ -31,6 +33,8 @@ open ProofForge.Backend.WasmHost.Types
 
 def mapReadName  (vt : ValueType) : String := "__pf_map_read_"  ++ typeSuffix vt
 def mapWriteName (vt : ValueType) : String := "__pf_map_write_" ++ typeSuffix vt
+def mapDeleteName (vt : ValueType) : String := "__pf_map_delete_" ++ typeSuffix vt
+def mapDeleteHashName (vt : ValueType) : String := "__pf_map_delete_hash_" ++ typeSuffix vt
 def mapContainsName : String := "__pf_map_contains"
 def mapBuildkeyName  : String := "__pf_map_buildkey"
 
@@ -145,8 +149,9 @@ def mapReadFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near
           ] ++ mapStorageReadHostInsns 8 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                              .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .localGet "r" ] } }
       else
         { name := mapReadName vt,
@@ -201,8 +206,9 @@ def mapWriteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .nea
           ] ++ mapStorageReadHostInsns 8 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
-                              .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName
           ] ++ mapStorageWriteHostInsns 8 32 .near ++ #[
             .localGet "r" ] } }
@@ -223,6 +229,39 @@ def mapWriteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .nea
             .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0
           ] ++ mapStorageWriteHostInsns 8 (scalarWidth vt) .near ++ #[
             .localGet "r" ] } }
+
+/-- NEAR: storage_remove(key_len_i64, key_ptr_i64) → found i64. -/
+def mapStorageRemoveHostInsnsNear (keyBytes : Nat) : Array Insn :=
+  mapKeyByteLenInsns keyBytes ++ #[.i64Const MAPKEY_BUF, .call "storage_remove"]
+
+def mapDeleteFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .soroban | .cosmWasm =>
+      -- Soroban/CosmWasm don't have a direct remove; use _put with zero-length value as a best-effort delete.
+      { name := mapDeleteName vt,
+        params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
+        results := #[.i64],
+        body := { insns := #[
+          .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName,
+          .i32Const MAPKEY_BUF,
+          .localGet "pl", .i32Const 8, .plain "i32.add",
+          .i32Const KEY_BUF, .i32Const 0,
+          .call "_put",
+          .i64Const 0
+        ] } }
+  | .near =>
+      { name := mapDeleteName vt,
+        params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
+        results := #[.i64],
+        body := { insns := #[
+          .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName
+        ] ++ mapStorageRemoveHostInsnsNear 8 } }
+
+def mapDeleteCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
+  match mapInfo.keyType with
+  | .u64 => .ok #[.call (mapDeleteName mapInfo.valueType)]
+  | .hash => .ok #[.call (mapDeleteHashName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported for delete"
 
 def mapContainsFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
@@ -339,6 +378,8 @@ def mapHelperFuncsForModulePlan (plan : ModulePlan)
       acc ++ #[mapReadFunc type bridge]) ++
     (plan.u64IndexedWriteTypes.foldl (init := #[]) fun acc type =>
       acc ++ #[mapWriteFunc type bridge]) ++
+    (plan.u64IndexedWriteTypes.foldl (init := #[]) fun acc type =>
+      acc ++ #[mapDeleteFunc type bridge]) ++
     (if plan.usesU64IndexedContains then #[mapContainsFunc bridge] else #[]) ++
     nestedReads ++ nestedWrites
 
@@ -408,6 +449,10 @@ def mapContainsCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
 def mapContainsValueInsns (mapInfo : MapInfo) (keyInsns containsCall : Array Insn) :
     Array Insn × ValueType :=
   (mapPrefixInsns mapInfo ++ keyInsns ++ containsCall ++ #[.plain "i32.wrap_i64"], .bool)
+
+def mapDeleteValueInsns (mapInfo : MapInfo) (keyInsns deleteCall : Array Insn) :
+    Array Insn × ValueType :=
+  (mapPrefixInsns mapInfo ++ keyInsns ++ deleteCall, mapInfo.valueType)
 
 def nestedMapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -508,8 +553,9 @@ def mapReadHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .
           ] ++ mapStorageReadHostInsns 32 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
-                              .i32Const KEY_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .localGet "r" ] } }
       else
         { name := mapReadHashName vt,
@@ -564,8 +610,9 @@ def mapWriteHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := 
           ] ++ mapStorageReadHostInsns 32 .near ++ #[
             .localSet "found",
             .localGet "found", .i64Const 0, .plain "i64.ne",
-            .if_ { insns := #[ .i64Const 0, .i64Const OLD_HASH_BUF, .call "read_register",
-                              .i32Const OLD_HASH_BUF, .localSet "r" ] } { insns := #[] },
+            .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                              .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                              .call "read_register" ] } { insns := #[] },
             .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName
           ] ++ mapStorageWriteHostInsns 32 32 .near ++ #[
             .localGet "r" ] } }
@@ -586,6 +633,28 @@ def mapWriteHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := 
             .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0
           ] ++ mapStorageWriteHostInsns 32 (scalarWidth vt) .near ++ #[
             .localGet "r" ] } }
+
+def mapDeleteHashFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .soroban | .cosmWasm =>
+      { name := mapDeleteHashName vt,
+        params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "kp", type := .i32 }],
+        results := #[.i64],
+        body := { insns := #[
+          .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName,
+          .i32Const MAPKEY_BUF,
+          .localGet "pl", .i32Const 32, .plain "i32.add",
+          .i32Const KEY_BUF, .i32Const 0,
+          .call "_put",
+          .i64Const 0
+        ] } }
+  | .near =>
+      { name := mapDeleteHashName vt,
+        params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "kp", type := .i32 }],
+        results := #[.i64],
+        body := { insns := #[
+          .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName
+        ] ++ mapStorageRemoveHostInsnsNear 32 } }
 
 def mapContainsHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
@@ -623,6 +692,8 @@ def mapHashHelperFuncsForModulePlan (plan : ModulePlan)
       acc ++ #[mapReadHashFunc type bridge]) ++
     (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type =>
       acc ++ #[mapWriteHashFunc type bridge]) ++
+    (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type =>
+      acc ++ #[mapDeleteHashFunc type bridge]) ++
     (if plan.usesHashIndexedContains then #[mapContainsHashFunc bridge] else #[])
 
 end ProofForge.Backend.WasmHost.Map

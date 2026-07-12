@@ -110,6 +110,17 @@ def main : IO UInt32 := do
     "SPL Token deployment missing approve"
   require (hasInstruction splDeployment "burn")
     "SPL Token deployment missing burn"
+  let nonBurnableDeployment ←
+    match solanaTokenDeploymentPlan {
+      name := "NoBurn"
+      symbol := "NBRN"
+      decimals := 9
+      features := #[]
+    } with
+    | .ok deployment => pure deployment
+    | .error err => throw <| IO.userError s!"non-burnable SPL deployment: {err}"
+  require (!hasInstruction nonBurnableDeployment "burn")
+    "SPL Token deployment must not expose burn without TokenFeature.burnable"
   require (hasInstruction splDeployment "revoke_delegate")
     "SPL Token deployment missing revoke"
   require (hasInstruction splDeployment "set_mint_authority")

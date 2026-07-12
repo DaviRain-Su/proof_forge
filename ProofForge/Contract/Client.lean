@@ -1,5 +1,6 @@
 import ProofForge.Contract.Spec.Json
 import ProofForge.Backend.Evm.AbiType
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.IR.Contract
 import ProofForge.IR.Mutability
 
@@ -50,6 +51,17 @@ def paramTypeToTs (entrypoint : Entrypoint) (index : Nat) (type : ValueType) : S
         typeToTs type
   | none => typeToTs type
 
+def returnTypeToTs (entrypoint : Entrypoint) : String :=
+  match entrypoint.returnAbiWord? with
+  | some abiWord =>
+      if abiWord == "address" || abiWord.startsWith "bytes" then
+        "string"
+      else if abiWord == "bool" then
+        "boolean"
+      else
+        typeToTs entrypoint.returns
+  | none => typeToTs entrypoint.returns
+
 def abiEntryJson (module : Module) (entrypoint : Entrypoint) : Except String String :=
   match entrypoint.kind with
   | .fallback =>
@@ -71,6 +83,7 @@ def abiEntryJson (module : Module) (entrypoint : Entrypoint) : Except String Str
         else do
           let abiType ← ProofForge.Backend.Evm.AbiType.descriptor module
             s!"generated EVM client entrypoint `{entrypoint.name}` return" entrypoint.returns
+            entrypoint.returnAbiWord?
           pure ("[" ++ abiType.toJson ++ "]")
       let stateMutability := if entrypoint.mutability == .view then "view" else "nonpayable"
       pure ("{\"name\":\"" ++ entrypoint.name ++ "\",\"type\":\"function\",\"inputs\":[" ++ inputs ++ "],\"outputs\":" ++ outputs ++ ",\"stateMutability\":\"" ++ stateMutability ++ "\"}")
@@ -176,7 +189,7 @@ def evmEntrypointWrapper (entrypoint : Entrypoint) : String :=
       "  return await tx.wait();\n" ++
       "}\n"
   else
-    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ params ++ "): Promise<" ++ returnTypeToTs entrypoint ++ "> {\n" ++
     "  return await contract.getFunction(\"" ++ entrypoint.name ++ "\").staticCall(" ++ argList ++ ");\n" ++
     "}\n"
 
@@ -266,9 +279,44 @@ def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec
 def nearArgsObject (entrypoint : Entrypoint) : String :=
   "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"
 
-def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
+partial def nearBorshSchemaExpr (structs : Array StructDecl) : ValueType → String
+  | .u8 => "\"u8\""
+  | .u32 => "\"u32\""
+  | .u64 | .address => "\"u64\""
+  | .u128 => "\"u128\""
+  | .bool => "\"bool\""
+  | .hash => "\"hash\""
+  | .fixedArray element length =>
+      "{ kind: \"fixedArray\", element: " ++ nearBorshSchemaExpr structs element ++
+        ", length: " ++ toString length ++ " }"
+  | .structType name =>
+      match structs.find? (fun decl => decl.name == name) with
+      | none => "\"unsupported\""
+      | some decl =>
+          let fields := String.intercalate ", " <| (decl.fields.map fun field =>
+            "{ name: \"" ++ field.id ++ "\", schema: " ++ nearBorshSchemaExpr structs field.type ++ " }").toList
+          "{ kind: \"struct\", fields: [" ++ fields ++ "] }"
+  | _ => "\"unsupported\""
+
+def nearBorshArgsExpr (structs : Array StructDecl) (entrypoint : Entrypoint)
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan) : String :=
+  let types := String.intercalate ", " (abiPlan.params.map fun p => nearBorshSchemaExpr structs p.type).toList
+  let values := String.intercalate ", " (entrypoint.params.map (fun p => p.fst)).toList
+  "encodeNearBorshArgs([" ++ types ++ "], [" ++ values ++ "])"
+
+def nearDecodeResultExpr (structs : Array StructDecl) (type : ValueType) (bytesExpr : String) : String :=
+  match type with
+  | .u64 | .address => "decodeNearBorshU64(" ++ bytesExpr ++ ")"
+  | .u32 => "decodeNearBorshU32(" ++ bytesExpr ++ ")"
+  | .bool => "decodeNearBorshBool(" ++ bytesExpr ++ ")"
+  | .unit => "undefined"
+  | _ => "decodeNearBorshResult(" ++ nearBorshSchemaExpr structs type ++ ", " ++ bytesExpr ++ ")"
+
+def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan)
+    (structs : Array StructDecl := #[]) : String :=
   let params := String.intercalate ", " (entrypoint.params.map fun p => p.fst ++ ": " ++ typeToTs p.snd).toList
-  let argsObj := nearArgsObject entrypoint
+  let argsBytes := nearBorshArgsExpr structs entrypoint abiPlan
   if entrypoint.mutability == .call then
     let paramsWithOptions :=
       if params.isEmpty then
@@ -277,17 +325,18 @@ def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
         params ++ ", options: NearCallOptions = {}"
     let returnType :=
       if entrypoint.returns == .unit then "void"
-      else "Awaited<ReturnType<Account[\"functionCall\"]>>"
+      else "unknown"
     let returnKeyword := if entrypoint.returns == .unit then "" else "return "
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ returnType ++ "> {\n" ++
-    "  " ++ returnKeyword ++ "await account.functionCall({\n" ++
+    "  " ++ returnKeyword ++ "await nearFunctionCallBorsh({\n" ++
     "    contractId,\n" ++
     "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
-    "    args: " ++ argsObj ++ ",\n" ++
+    "    args: " ++ argsBytes ++ ",\n" ++
     "    gas: options.gas,\n" ++
     "    attachedDeposit: options.attachedDeposit ?? options.deposit,\n" ++
     "  });\n" ++
     "}\n"
+
   else
     let paramsWithOptions :=
       if params.isEmpty then
@@ -295,22 +344,64 @@ def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
       else
         params ++ ", options: NearViewOptions = {}"
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
-    "  return await account.viewFunction({\n" ++
+    "  const result = await nearViewFunctionBorsh({\n" ++
     "    ...options,\n" ++
     "    contractId,\n" ++
     "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
-    "    args: " ++ argsObj ++ ",\n" ++
-    "  }) as " ++ typeToTs entrypoint.returns ++ ";\n" ++
+    "    args: " ++ argsBytes ++ ",\n" ++
+    "  });\n" ++
+    "  return " ++ nearDecodeResultExpr structs abiPlan.returnType "result" ++ " as " ++ typeToTs abiPlan.returnType ++ ";\n" ++
     "}\n"
 
-def renderNearWrapper (spec : ContractSpec) : String :=
-  let entrypointLines := String.intercalate "" (spec.module.entrypoints.map nearEntrypointWrapper).toList
+def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
+  match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] entrypoint with
+  | .ok plan => nearEntrypointWrapperWithPlan entrypoint plan
+  | .error _ => ""
+
+def nearBorshHelpersTs : String :=
   String.intercalate "\n" [
+    "type NearBorshScalar = \"u8\" | \"u32\" | \"u64\" | \"u128\" | \"bool\" | \"hash\";",
+    "type NearBorshSchema = NearBorshScalar | { kind: \"fixedArray\"; element: NearBorshSchema; length: number } | { kind: \"struct\"; fields: readonly { name: string; schema: NearBorshSchema }[] };",
+    "function pushLe(out: number[], value: bigint, width: number) { for (let i = 0; i < width; i++) out.push(Number((value >> BigInt(i * 8)) & 255n)); }",
+    "function encodeNearBorshValue(schema: NearBorshSchema, value: unknown, out: number[]): void {",
+    "  if (typeof schema === \"string\") { if (schema === \"bool\") out.push(value ? 1 : 0); else if (schema === \"u8\") pushLe(out, BigInt(value as number | bigint), 1); else if (schema === \"u32\") pushLe(out, BigInt(value as number | bigint), 4); else if (schema === \"u64\") pushLe(out, BigInt(value as number | bigint), 8); else if (schema === \"u128\") pushLe(out, BigInt(value as number | bigint), 16); else { const hex = String(value).replace(/^0x/, \"\"); if (hex.length !== 64) throw new Error(\"NEAR Borsh hash must be 32 bytes\"); for (let i = 0; i < 64; i += 2) out.push(Number.parseInt(hex.slice(i, i + 2), 16)); } return; }",
+    "  if (schema.kind === \"fixedArray\") { const values = value as readonly unknown[]; if (values.length !== schema.length) throw new Error(`NEAR Borsh array length ${values.length}, expected ${schema.length}`); values.forEach((item) => encodeNearBorshValue(schema.element, item, out)); return; }",
+    "  const record = value as Record<string, unknown>; schema.fields.forEach((field) => encodeNearBorshValue(field.schema, record[field.name], out));",
+    "}",
+    "export function encodeNearBorshArgs(types: readonly NearBorshSchema[], values: readonly unknown[]): Uint8Array {",
+    "  if (types.length !== values.length) throw new Error(\"NEAR Borsh argument arity mismatch\"); const out: number[] = []; types.forEach((type, index) => encodeNearBorshValue(type, values[index], out));",
+    "  return Uint8Array.from(out);",
+    "}",
+    "function readLe(bytes: Uint8Array, width: number): bigint { if (bytes.length !== width) throw new Error(`NEAR Borsh result length ${bytes.length}, expected ${width}`); let value = 0n; for (let i = 0; i < width; i++) value |= BigInt(bytes[i]) << BigInt(i * 8); return value; }",
+    "function decodeNearBorshValue(schema: NearBorshSchema, bytes: Uint8Array, cursor: { offset: number }): unknown { const take = (width: number) => { const part = bytes.slice(cursor.offset, cursor.offset + width); if (part.length !== width) throw new Error(\"truncated NEAR Borsh result\"); cursor.offset += width; return part; }; if (typeof schema === \"string\") { if (schema === \"bool\") { const value = take(1)[0]; if (value > 1) throw new Error(\"invalid NEAR Borsh bool\"); return value === 1; } if (schema === \"hash\") return Array.from(take(32), (byte) => byte.toString(16).padStart(2, \"0\")).join(\"\"); const width = schema === \"u8\" ? 1 : schema === \"u32\" ? 4 : schema === \"u64\" ? 8 : 16; const value = readLe(take(width), width); return schema === \"u8\" || schema === \"u32\" ? Number(value) : value; } if (schema.kind === \"fixedArray\") return Array.from({ length: schema.length }, () => decodeNearBorshValue(schema.element, bytes, cursor)); const result: Record<string, unknown> = {}; schema.fields.forEach((field) => { result[field.name] = decodeNearBorshValue(field.schema, bytes, cursor); }); return result; }",
+    "export function decodeNearBorshResult(schema: NearBorshSchema, bytes: Uint8Array): unknown { const cursor = { offset: 0 }; const value = decodeNearBorshValue(schema, bytes, cursor); if (cursor.offset !== bytes.length) throw new Error(`NEAR Borsh result has ${bytes.length - cursor.offset} trailing bytes`); return value; }",
+    "export const decodeNearBorshU64 = (bytes: Uint8Array): bigint => readLe(bytes, 8);",
+    "export const decodeNearBorshU32 = (bytes: Uint8Array): number => Number(readLe(bytes, 4));",
+    "export const decodeNearBorshBool = (bytes: Uint8Array): boolean => { if (bytes.length !== 1 || bytes[0] > 1) throw new Error(\"invalid NEAR Borsh bool\"); return bytes[0] === 1; };",
+    "function bytesToBase64(bytes: Uint8Array): string { let raw = \"\"; for (const byte of bytes) raw += String.fromCharCode(byte); return btoa(raw); }",
+    "async function nearViewFunctionBorsh(request: { contractId: string; methodName: string; args: Uint8Array; finality?: string; blockId?: string | number; [key: string]: unknown }): Promise<Uint8Array> {",
+    "  const { contractId, methodName, args, finality, blockId } = request;",
+    "  const response = await (account as any).connection.provider.query({ request_type: \"call_function\", account_id: contractId, method_name: methodName, args_base64: bytesToBase64(args), ...(blockId !== undefined ? { block_id: blockId } : { finality: finality ?? \"final\" }) });",
+    "  return Uint8Array.from(response.result as number[]);",
+    "}",
+    "async function nearFunctionCallBorsh(request: { contractId: string; methodName: string; args: Uint8Array; gas?: bigint | string | number; attachedDeposit?: bigint | string | number }): Promise<unknown> {",
+    "  return (account as any).signAndSendTransaction({ receiverId: request.contractId, actions: [transactions.functionCall(request.methodName, request.args, BigInt(request.gas ?? 30000000000000n), BigInt(request.attachedDeposit ?? 0n))] });",
+    "}"
+  ]
+
+def renderNearWrapperChecked (spec : ContractSpec) : Except String String := do
+  let plans <- ProofForge.Backend.WasmHost.NearAbiPlan.buildModulePlans spec.module
+  let entrypointLines := String.intercalate "" <| (spec.module.entrypoints.filterMap fun entrypoint =>
+    plans.find? (fun plan => plan.name == entrypoint.name) |>.map
+      (fun plan => nearEntrypointWrapperWithPlan entrypoint plan spec.module.structs)).toList
+  return String.intercalate "\n" [
     "/* ProofForge generated NEAR wrapper. */",
     "/* eslint-disable @typescript-eslint/no-explicit-any */",
-    "import { Account } from \"near-api-js\";",
+    "import { Account, transactions } from \"near-api-js\";",
     "",
     nearErrorHelpersTs spec,
+    "",
+    nearBorshHelpersTs,
     "",
     "export type NearCallOptions = {",
     "  gas?: bigint | string | number;",
@@ -333,6 +424,11 @@ def renderNearWrapper (spec : ContractSpec) : String :=
     "}",
     entrypointLines
   ]
+
+def renderNearWrapper (spec : ContractSpec) : String :=
+  match renderNearWrapperChecked spec with
+  | .ok wrapper => wrapper
+  | .error error => s!"/* ProofForge refused NEAR client generation: {error} */"
 
 /-- Minimal Soroban client stub for the Spike host-family adapter (PF-P0-04).
 Does not import NEAR packages; full Stellar client wiring remains follow-on work. -/

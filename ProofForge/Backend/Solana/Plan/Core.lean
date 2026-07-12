@@ -161,7 +161,7 @@ def coreEmptyExtensions : SolanaExtensionPlan := SolanaExtensionPlan.empty
 store Legacy `StructDecl`, `StateDecl`, or `Module`. The lowering for
 canonical plans must reconstruct its context from the plan fields only. -/
 def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
-    (accounts : Array SolanaAccountPlan) : SolanaLowerCtxSeed := {
+    (accounts : Array SolanaAccountPlan) (entrypoints : Array SolanaEntrypointPlan) : SolanaLowerCtxSeed := {
   stateFieldOffsets := stateFields.map (fun f => (f.id, f.absOff))
   structs := #[]
   stateDecls := #[]
@@ -169,12 +169,20 @@ def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
   manifestAccounts := accounts.map fun account => {
     name := account.name, index := account.index, signer := account.signer,
     writable := account.writable, owner := account.owner }
+  entrypointSchemas := entrypoints.map fun entrypoint => {
+    name := entrypoint.name
+    accounts := entrypoint.accounts.map fun account => {
+      name := account.name, index := account.index, signer := account.signer,
+      writable := account.writable, owner := account.owner }
+    inputLayout := computeInputLayoutWithReallocFlags
+      (entrypoint.accounts.map fun account => (account.dataSize, true)) }
   extensions := {}
 }
 
 /-- Build a Solana entrypoint plan from a Core InterfaceEntrypoint.
 Maps Core entrypoint params to Solana instruction-data params. -/
-def coreEntrypointToPlan (ep : InterfaceEntrypoint) (tag : Nat) :
+def coreEntrypointToPlanWithAccounts (ep : InterfaceEntrypoint) (tag : Nat)
+    (accounts : Array SolanaAccountPlan) :
     Except PlanError SolanaEntrypointPlan := do
   /- Build instruction-data param plans. Offset starts at 1 (byte 0 = tag). -/
   let mut params := #[]
@@ -200,12 +208,17 @@ def coreEntrypointToPlan (ep : InterfaceEntrypoint) (tag : Nat) :
   let hasReturn := match ep.retType with | .unit => false | _ => true
   return {
     name := ep.name
+    accounts
     discriminator
     params
     returns := coreTypeToSolanaName ep.retType
     hasReturn
     instructionDataMinLen := offset
   }
+
+def coreEntrypointToPlan (ep : InterfaceEntrypoint) (tag : Nat) :
+    Except PlanError SolanaEntrypointPlan :=
+  coreEntrypointToPlanWithAccounts ep tag #[]
 
 private def valuePlan (v : ValueRef) : SolanaValuePlan :=
   { id := v.id.value, typeName := coreTypeToSolanaName v.type }
@@ -334,13 +347,13 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let mut entrypoints := #[]
   let mut tag := 0
   for ep in iface.entrypoints do
-    let epPlan ← coreEntrypointToPlan ep tag
+    let epPlan ← coreEntrypointToPlanWithAccounts ep tag accounts
     entrypoints := entrypoints.push epPlan
     tag := tag + 1
   /- Build accounts and extensions. -/
   let extensions := coreEmptyExtensions
   /- Build lower context seed from resolved plan fields. -/
-  let seed := coreLowerCtxSeed stateFields accounts
+  let seed := coreLowerCtxSeed stateFields accounts entrypoints
   let calleeAccountIndex :=
     if hasCrosscall then
       match accounts.find? (fun account => account.name == "peer_program") with

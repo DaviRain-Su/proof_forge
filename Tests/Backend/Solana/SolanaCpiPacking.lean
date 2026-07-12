@@ -400,11 +400,11 @@ def main : IO UInt32 := do
         "token ops manifest missing destination account schema"
       require (contains manifest "{ name = \"authority\", index = 3, signer = true, writable = false, owner = \"any\" },")
         "token ops manifest missing authority account schema"
-      require (contains manifest "{ name = \"spl_token\", index = 4, signer = false, writable = false, owner = \"executable\" },")
+      require (contains manifest "{ name = \"spl_token\", index = 4, signer = false, writable = false, owner = \"executable\" }")
         "token ops manifest missing SPL Token account schema"
-      require (contains manifest "{ name = \"source\", index = 5, signer = false, writable = true, owner = \"any\" },")
+      require (contains manifest "{ name = \"source\", index = 1, signer = false, writable = true, owner = \"any\" },")
         "token ops manifest missing source account schema"
-      require (contains manifest "{ name = \"delegate\", index = 6, signer = false, writable = false, owner = \"any\" }")
+      require (contains manifest "{ name = \"delegate\", index = 2, signer = false, writable = false, owner = \"any\" },")
         "token ops manifest missing delegate account schema"
       require (contains asm "sol_cpi_token_mint:")
         "assembly missing SPL Token mint_to helper label"
@@ -444,6 +444,14 @@ def main : IO UInt32 := do
         "assembly missing approve entrypoint CPI helper call"
       require (contains asm "call sol_cpi_token_revoke")
         "assembly missing revoke entrypoint CPI helper call"
+      require (contains asm "solana.cpi.account_info source account[1]")
+        "burn/approve/revoke helpers must use the entrypoint-local source index"
+      require (contains asm "solana.cpi.account_info mint account[2]")
+        "burn helper must use the entrypoint-local mint index"
+      require (contains asm "solana.cpi.account_info delegate account[2]")
+        "approve helper must use the entrypoint-local delegate index"
+      require (contains asm "solana.cpi.account_info authority account[2]")
+        "revoke helper must use the entrypoint-local authority index"
   | .error err =>
       throw <| IO.userError s!"Solana token-ops CPI packing render failed: {err.render}"
 
@@ -502,9 +510,9 @@ def main : IO UInt32 := do
         "token authority manifest missing mint account schema"
       require (contains manifest "{ name = \"authority\", index = 2, signer = true, writable = false, owner = \"any\" },")
         "token authority manifest missing authority account schema"
-      require (contains manifest "{ name = \"spl_token\", index = 3, signer = false, writable = false, owner = \"executable\" },")
+      require (contains manifest "{ name = \"spl_token\", index = 4, signer = false, writable = false, owner = \"executable\" }")
         "token authority manifest missing SPL Token program account schema"
-      require (contains manifest "{ name = \"new_authority\", index = 4, signer = false, writable = false, owner = \"any\" }")
+      require (contains manifest "{ name = \"new_authority\", index = 3, signer = false, writable = false, owner = \"any\" },")
         "token authority manifest missing new authority account schema"
       require (contains manifest "instruction = \"set_authority\"")
         "token authority manifest missing set_authority CPI"
@@ -877,7 +885,7 @@ def main : IO UInt32 := do
         "assembly missing transfer-hook external discriminator dispatch"
       require (contains asm "entrypoint.param[execute.amount]: U64 @ instruction_data+8")
         "assembly missing transfer-hook execute amount decode offset"
-      require (contains asm "sol_execute:\n\n  ; account.validation: generated account schema\n  ; account.validation[6:system_program]: owner=executable")
+      require (contains asm "sol_execute:\n\n  ; account.graph: exact runtime count = 7\n  ldxdw r2, [r1+0]\n  jne r2, 7, error_account_count\n  ; account.validation: generated account schema\n  ; account.validation[6:system_program]: owner=executable")
         "assembly execute validation should only require routed executable account"
       require (contains asm "solana.cpi.signer_seed create_extra_account_meta_list[0] \"extra-account-metas\"")
         "assembly missing transfer-hook literal signer seed"

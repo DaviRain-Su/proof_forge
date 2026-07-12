@@ -9,11 +9,36 @@
 
 entrypoint:
   ; save instruction_data pointer from generated Solana input layout
-  ; scan Solana input account pointers into current stack frame
+  ; scan runtime Solana input account pointers into current stack frame
+  ldxdw r2, [r1+0]
+  jgt r2, 1, error_account_count
   mov64 r3, r1
   add64 r3, 8
+  mov64 r7, 0
+entrypoint_account_scan_loop:
+  jge r7, r2, entrypoint_account_scan_done
+  ldxb r4, [r3+0]
+  jeq r4, 255, entrypoint_account_scan_unique
+  jge r4, r7, error_duplicate_account
+  lsh64 r4, 3
   mov64 r6, r10
   sub64 r6, 3488
+  add64 r6, r4
+  ldxdw r4, [r6+0]
+  mov64 r5, r7
+  lsh64 r5, 3
+  mov64 r6, r10
+  sub64 r6, 3488
+  add64 r6, r5
+  stxdw [r6+0], r4
+  add64 r3, 8
+  ja entrypoint_account_scan_next
+entrypoint_account_scan_unique:
+  mov64 r5, r7
+  lsh64 r5, 3
+  mov64 r6, r10
+  sub64 r6, 3488
+  add64 r6, r5
   stxdw [r6+0], r3
   ldxdw r4, [r3+80]
   add64 r3, 88
@@ -22,11 +47,15 @@ entrypoint:
   add64 r3, 8
   mov64 r5, r3
   and64 r5, 7
-  jeq r5, 0, entrypoint_account_scan_0_aligned
+  jeq r5, 0, entrypoint_account_scan_aligned
   mov64 r6, 8
   sub64 r6, r5
   add64 r3, r6
-entrypoint_account_scan_0_aligned:
+entrypoint_account_scan_aligned:
+entrypoint_account_scan_next:
+  add64 r7, 1
+  ja entrypoint_account_scan_loop
+entrypoint_account_scan_done:
   mov64 r9, r3
   add64 r9, 8
   stxdw [r10-4008], r9
@@ -45,6 +74,9 @@ entrypoint_account_scan_0_aligned:
 
 sol_initialize:
 
+  ; account.graph: exact runtime count = 1
+  ldxdw r2, [r1+0]
+  jne r2, 1, error_account_count
   ; account.validation: generated account schema
   ; account.validation[0:count]: writable=true
   mov64 r7, r10
@@ -84,6 +116,9 @@ sol_initialize:
 
 sol_increment:
 
+  ; account.graph: exact runtime count = 1
+  ldxdw r2, [r1+0]
+  jne r2, 1, error_account_count
   ; account.validation: generated account schema
   ; account.validation[0:count]: writable=true
   mov64 r7, r10
@@ -129,6 +164,9 @@ sol_increment:
 
 sol_get:
 
+  ; account.graph: exact runtime count = 1
+  ldxdw r2, [r1+0]
+  jne r2, 1, error_account_count
   ; account.validation: generated account schema
   ; account.validation[0:count]: writable=true
   mov64 r7, r10
@@ -193,6 +231,14 @@ error_owner:
 
 error_instruction_data:
   mov64 r0, 9
+  exit
+
+error_duplicate_account:
+  mov64 r0, 13
+  exit
+
+error_account_count:
+  mov64 r0, 14
   exit
 
 error_pda_bump:

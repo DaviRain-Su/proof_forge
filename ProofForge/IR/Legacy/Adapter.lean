@@ -245,7 +245,7 @@ def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Even
     for schema in schemas do
       unless schema == types do
         throw <| CanonicalizeError.conflictingEventSchema name
-          "field types differ across normalized emit sites"
+          s!"field types differ across normalized emit sites: expected {repr types}, got {repr schema}"
     let sourceFields ← liftExcept (sourceEventFields m name)
     unless sourceFields.size == types.size do
       throw <| CanonicalizeError.conflictingEventSchema name
@@ -304,6 +304,7 @@ def adaptInterface (spec : ContractSpec) (module : Core.Module) (env : AdapterEn
       selector? := ep.selector?
       params := params
       retType := retType
+      returnAbiWord? := ep.returnAbiWord?
     })
   let events ← (collectEventNames m).mapM (fun name => do
     let eventId ← match Std.HashMap.get? env.eventIds name with

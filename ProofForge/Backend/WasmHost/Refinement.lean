@@ -516,16 +516,20 @@ def nearEventLogUtf8Frame : Array WasmTraceOp := #[
   .call "log_utf8"
 ]
 
-def nearInputRegisterFrame : Array WasmTraceOp := #[
+def nearInputRegisterFrame (expectedBytes : Nat) : Array WasmTraceOp := #[
   .i64Const 0,
   .call "input",
+  .i64Const 0,
+  .call "register_len",
+  .i64Const expectedBytes,
+  .plain "i64.ne",
   .i64Const 0,
   .i64Const emitWatInputBuf,
   .call "read_register"
 ]
 
-def nearU64InputParamFrame (name : String) (offset : Nat) : Array WasmTraceOp :=
-  nearInputRegisterFrame ++ #[
+def nearU64InputParamFrame (name : String) (offset expectedBytes : Nat) : Array WasmTraceOp :=
+  nearInputRegisterFrame expectedBytes ++ #[
     .i32Const (emitWatInputBuf + offset),
     .load "i64.load" 0,
     .localSet name
@@ -592,14 +596,14 @@ def nearInputHostFrameExpectations : Array WasmHostFrameExpectation := #[]
 
 /-- Only entrypoints with Borsh params keep the input prologue. -/
 def nearValueVaultInputHostFrameExpectations : Array WasmHostFrameExpectation := #[
-  { functionName := "initialize", expectedOps := nearU64InputParamFrame "initial" 0 },
-  { functionName := "deposit", expectedOps := nearU64InputParamFrame "amount" 0 },
-  { functionName := "charge_fee", expectedOps := nearU64InputParamFrame "gross" 0 },
+  { functionName := "initialize", expectedOps := nearU64InputParamFrame "initial" 0 8 },
+  { functionName := "deposit", expectedOps := nearU64InputParamFrame "amount" 0 8 },
+  { functionName := "charge_fee", expectedOps := nearU64InputParamFrame "gross" 0 16 },
   {
     functionName := "charge_fee"
     expectedOps := nearU64ParamLoadFrame "fee_bps" 8
   },
-  { functionName := "release", expectedOps := nearU64InputParamFrame "amount" 0 }
+  { functionName := "release", expectedOps := nearU64InputParamFrame "amount" 0 8 }
 ]
 
 def nearValueVaultContextHostFrameExpectations : Array WasmHostFrameExpectation := #[

@@ -201,6 +201,7 @@ mutual
     | .storageMapGet _ k => allAcceptable #[classifyEffect (Effect.storageMapGet "" (.local ""))] && scalarFragmentExpr k
     | .storageMapInsert _ k v => allAcceptable #[classifyEffect (Effect.storageMapInsert "" (.local "") (.local ""))] && scalarFragmentExpr k && scalarFragmentExpr v
     | .storageMapSet _ k v => allAcceptable #[classifyEffect (Effect.storageMapSet "" (.local "") (.local ""))] && scalarFragmentExpr k && scalarFragmentExpr v
+    | .storageMapDelete _ k => allAcceptable #[classifyEffect (Effect.storageMapDelete "" (.local ""))] && scalarFragmentExpr k
     | .storageArrayRead _ i => allAcceptable #[classifyEffect (Effect.storageArrayRead "" (.local ""))] && scalarFragmentExpr i
     | .storageArrayWrite _ i v => allAcceptable #[classifyEffect (Effect.storageArrayWrite "" (.local "") (.local ""))] && scalarFragmentExpr i && scalarFragmentExpr v
     | .storageArrayStructFieldRead _ i _ => allAcceptable #[classifyEffect (Effect.storageArrayStructFieldRead "" (.local "") "")] && scalarFragmentExpr i
@@ -222,7 +223,7 @@ mutual
         | ⟨is⟩, ⟨ds⟩ => allAcceptable #[classifyEffect (Effect.eventEmitIndexed "" #[] #[])] && scalarFragmentExprPairList is && scalarFragmentExprPairList ds
     | .checkErc721Received o f t i => allAcceptable #[classifyEffect (Effect.checkErc721Received (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr i
     | .checkErc1155Received o f t i a => allAcceptable #[classifyEffect (Effect.checkErc1155Received (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr i && scalarFragmentExpr a
-    | .checkErc1155BatchReceived o f t i0 a0 i1 a1 => allAcceptable #[classifyEffect (Effect.checkErc1155BatchReceived (.local "") (.local "") (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr i0 && scalarFragmentExpr a0 && scalarFragmentExpr i1 && scalarFragmentExpr a1
+    | .checkErc1155BatchReceived o f t ids amounts => allAcceptable #[classifyEffect (Effect.checkErc1155BatchReceived (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr ids && scalarFragmentExpr amounts
 
   /-- Recursively check that a statement belongs to the scalar fragment. -/
   def scalarFragmentStatement : Statement → Bool

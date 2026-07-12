@@ -37,6 +37,7 @@ diff pins the layout artifact).
 import ProofForge.IR.Contract
 import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Compiler.Wasm.Printer
@@ -58,6 +59,7 @@ open ProofForge.IR
 open ProofForge.Backend.WasmHost.Types
 open ProofForge.Target.HostBridge
 open ProofForge.Backend.WasmHost.Plan
+open ProofForge.Backend.WasmHost.NearAbiPlan
 open ProofForge.Backend.WasmHost.EmitWat
 
 /-- One scalar state slot's plan: the storage key pointer in linear memory.
@@ -143,6 +145,8 @@ inductive NearOpPlan where
   | promiseThen (result : NearValuePlan) (parent methodIndex : NearValuePlan)
       (args : Array NearValuePlan) (deposit : NearValuePlan)
   | promiseResultU64 (result index : NearValuePlan)
+  | promiseResultsCount (result : NearValuePlan)
+  | promiseResultStatus (result index : NearValuePlan)
   deriving Repr, BEq, Inhabited
 
 inductive NearTerminatorPlan where
@@ -188,6 +192,7 @@ structure NearModulePlan where
   artifactKind : String
   irVersion : String
   surface : ModulePlan
+  entrypointAbis : Array EntrypointPlan
   layout : NearLayoutPlan
   functions : Array NearFunctionPlan := #[]
   lowerCtxSeed : NearLowerCtxSeed
@@ -241,6 +246,9 @@ reuses the exact `EmitWat` layout functions so the plan is byte-compatible with
 the current inline `Ctx`. -/
 def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
   let surface ← buildModulePlan mod
+  let entrypointAbis ← match buildModulePlans mod with
+    | .ok plans => pure plans
+    | .error message => .error { message }
   let scalars := buildScalars mod
   let maps := buildMaps mod
   let strsInfos := stringPool mod
@@ -254,6 +262,7 @@ def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
     artifactKind := "wasm-wat",
     irVersion := "portable-ir-v0",
     surface := surface,
+    entrypointAbis := entrypointAbis,
     layout := {
       scalars := scalars,
       maps := maps,
@@ -294,6 +303,9 @@ def renderSurfaceBool (label : String) (b : Bool) : String :=
 def renderSurfaceTypes (label : String) (ts : Array ValueType) : String :=
   s!"  {label}: [{String.intercalate ", " (ts.toList.map renderValueType)}]"
 
+def renderEntrypointAbi (abi : EntrypointPlan) : String :=
+  s!"  {abi.name}: input={abi.inputCodec.id}/{abi.inputByteWidth} output={abi.outputCodec.id}/{abi.outputByteWidth} return={abi.returnType.name}"
+
 /-- Render the plan as a stable, diff-friendly text artifact. The format mirrors
 `SolanaModulePlan.render`: simple key-value lines so small plan changes produce
 readable golden diffs. -/
@@ -328,6 +340,10 @@ def NearModulePlan.render (plan : NearModulePlan) : String :=
     renderSurfaceTypes "hashIndexedReadTypes" surf.hashIndexedReadTypes,
     renderSurfaceTypes "hashIndexedWriteTypes" surf.hashIndexedWriteTypes,
     renderSurfaceTypes "returnTypes" surf.returnTypes,
+    renderSurfaceBool "usesInputParams" surf.usesInputParams,
+    "entrypointAbis:",
+    plan.entrypointAbis.map renderEntrypointAbi
+      |>.foldl (fun acc s => acc ++ if acc.isEmpty then s else "\n" ++ s) "",
     "layout:",
     s!"  stringPoolEnd: {renderNat plan.layout.stringPoolEnd}",
     "  scalars:",
@@ -366,7 +382,8 @@ Solana's `locals`/`nextLabel`), so the whole `Ctx` is reconstructable from the
 plan. The frozen scratch-region base addresses in the seed are carried for the
 plan artifact's inspectability but are not needed for `Ctx` reconstruction (the
 absolute pointers are baked into the layout arrays). -/
-def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitWat.Ctx :=
+def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
+    (entrypointAbis : Array EntrypointPlan := #[]) : EmitWat.Ctx :=
   let pack := layout.scalars.any (fun s => s.packed)
   let packSize :=
     layout.scalars.foldl (init := 0) fun acc s =>
@@ -386,6 +403,7 @@ def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan) : EmitW
       { str := e.str, ptr := e.ptr, len := e.len : EmitWat.StringInfo })
     structs := seed.structs
     allocator := seed.allocator
+    entrypointAbis := entrypointAbis
     packScalars := pack
     packSize := packSize
   }
@@ -401,7 +419,7 @@ pools first so the plan path rejects oversize scratch exactly as the lowering
 entry does. -/
 def lowerModuleFromPlan (mod : Module) (plan : NearModulePlan) :
     Except ProofForge.Backend.WasmHost.Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
-  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout
+  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout plan.entrypointAbis
   EmitWat.validateScratchCapacities mod ctx.strings ctx.panics ctx.crosscallStrings
   EmitWat.lowerModuleCoreWithCtx mod plan.surface ctx
 
@@ -682,21 +700,34 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
   | .promiseResultU64 result index =>
       return canonicalNearI64 index ++ #[.call Promise.promiseResultU64Name,
         .localSet s!"v{result.id}"]
+  | .promiseResultsCount result =>
+      return #[.call "promise_results_count", .localSet s!"v{result.id}"]
+  | .promiseResultStatus result index =>
+      return canonicalNearI64 index ++ #[.i64Const 0, .call "promise_result",
+        .localSet s!"v{result.id}"]
 
-private def lowerCanonicalNearTerminator : NearTerminatorPlan -> Array ProofForge.Compiler.Wasm.Insn
+private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
+    NearTerminatorPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
   | .return values => match values[0]? with
       | some value =>
-          if value.typeName == "promiseReturn" then #[.return_]
+          pure <| if value.typeName == "promiseReturn" then #[.return_]
           else match canonicalNearType value.typeName with
             | .hash => #[.i64Const 32, .localGet s!"v{value.id}", .plain "i64.extend_i32_u",
                 .call "value_return", .return_]
             | .u32 => #[.localGet s!"v{value.id}", .call Types.returnU32Name, .return_]
             | .bool => #[.localGet s!"v{value.id}", .call Types.returnBoolName, .return_]
             | _ => #[.localGet s!"v{value.id}", .call Types.returnU64Name, .return_]
-      | none => #[.return_]
-  | .revert _ => #[.unreachable]
-  | .jump target _ => #[.i32Const target, .localSet "pc"]
-  | .branch condition ifTrue ifFalse => #[.localGet s!"v{condition.id}",
+      | none => pure #[.return_]
+  | .revert _ => pure #[.unreachable]
+  | .jump target args => do
+      let some targetBlock := blocks.find? (·.id == target)
+        | Diagnostics.err s!"canonical NEAR jump targets missing block {target}"
+      unless targetBlock.params.size == args.size do
+        Diagnostics.err s!"canonical NEAR jump to block {target} has {args.size} arguments, expected {targetBlock.params.size}"
+      let pushArgs := args.map fun arg => .localGet s!"v{arg.id}"
+      let bindParams := targetBlock.params.reverse.map fun param => .localSet s!"v{param.id}"
+      pure <| pushArgs ++ bindParams ++ #[.i32Const target, .localSet "pc"]
+  | .branch condition ifTrue ifFalse => pure #[.localGet s!"v{condition.id}",
       .if_ { insns := #[.i32Const ifTrue, .localSet "pc"] }
         { insns := #[.i32Const ifFalse, .localSet "pc"] }]
 
@@ -709,7 +740,8 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
         .context result _ |
         .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |
-        .promiseThen result .. | .promiseResultU64 result .. => #[result]
+        .promiseThen result .. | .promiseResultU64 result .. |
+        .promiseResultsCount result | .promiseResultStatus result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let mut dispatch := #[]
   let promiseStrings := canonicalPromiseStrings plan
@@ -717,11 +749,17 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
     let mut body := #[]
     for op in block.ops do
       body := body ++ (<- lowerCanonicalNearOp plan eventStrings promiseStrings op)
-    body := body ++ lowerCanonicalNearTerminator block.terminator
+    body := body ++ (<- lowerCanonicalNearTerminator fn.blocks block.terminator)
     dispatch := dispatch ++ #[.localGet "pc", .i32Const block.id, .plain "i32.eq",
       .if_ { insns := body } { insns := #[] }]
+  let abiPlan ← match plan.entrypointAbis.find? (fun abi => abi.name == fn.name) with
+    | some abiPlan => pure abiPlan
+    | none => Diagnostics.err s!"canonical NEAR function `{fn.name}` has no ABI plan"
   let inputParams := fn.params.map (fun value => (s!"v{value.id}", canonicalNearType value.typeName))
-  let (paramPrologue, _) <- Params.loadParams #[] inputParams
+  let loweringParams := (abiPlan.params.zip fn.params).map fun (param, value) =>
+    { param with name? := some s!"v{value.id}" }
+  let loweringAbiPlan := { abiPlan with params := loweringParams }
+  let (paramPrologue, _) ← Params.loadParams #[] inputParams loweringAbiPlan
   return {
     name := fn.name, exportName := some fn.name
     locals := #[{ name := "pc", type := .i32 }] ++ values.map canonicalNearLocal

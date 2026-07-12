@@ -193,6 +193,45 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .comment s!"hash4 literal → limb0 handle {a} (Phase-1 Hash as u64-le word0)",
       .instruction (res .mov64 (imm := some (.num a)))
     ], ctx)
+  | .literal (.bytes ba) => do
+    let byteCount := ba.size
+    if byteCount == 0 then
+      .ok (#[
+        .comment "bytes literal: empty → null pointer",
+        .instruction (res .mov64 (imm := some (.num 0)))
+      ], ctx)
+    else
+      let (bufOff, ctx) := ctx.allocScratchBytes byteCount
+      let baseNodes : Array AstNode := #[
+        .comment s!"bytes literal: {byteCount} bytes → stack buffer",
+        .instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+        .instruction { opcode := .sub64, dst := some .r3, imm := some (.num bufOff) }
+      ]
+      let storeNodes := (List.range byteCount).toArray.map fun i =>
+        .instruction {
+          opcode := .stb, dst := some .r3, off := some (.num i), imm := some (.num (ba.get! i).toNat)
+        }
+      .ok (baseNodes ++ storeNodes ++ #[ .instruction (res .mov64 (src := some .r3)) ], ctx)
+  | .literal (.string s) => do
+    let byteCount := s.utf8ByteSize
+    if byteCount == 0 then
+      .ok (#[
+        .comment "string literal: empty → null pointer",
+        .instruction (res .mov64 (imm := some (.num 0)))
+      ], ctx)
+    else
+      let (bufOff, ctx) := ctx.allocScratchBytes byteCount
+      let utf8 := s.toUTF8
+      let baseNodes : Array AstNode := #[
+        .comment s!"string literal: {byteCount} bytes → stack buffer",
+        .instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+        .instruction { opcode := .sub64, dst := some .r3, imm := some (.num bufOff) }
+      ]
+      let storeNodes := (List.range byteCount).toArray.map fun i =>
+        .instruction {
+          opcode := .stb, dst := some .r3, off := some (.num i), imm := some (.num (utf8.get! i).toNat)
+        }
+      .ok (baseNodes ++ storeNodes ++ #[ .instruction (res .mov64 (src := some .r3)) ], ctx)
   | .literal _ => .error { message := "unsupported literal type in Phase 1" }
   | .local name =>
     match ctx.localInfo? name with
@@ -275,6 +314,45 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     let (scratch, ctx) := ctx.allocScratch
     let (rn, ctx) ← lowerExpr ctx rhs
     .ok (lowerOrderedBinaryCombine ln rn .mod64 scratch, ctx)
+  | .pow lhs rhs => do
+    -- sBPF has no pow instruction; expand as a bounded loop:
+    -- result = 1; while exp > 0 { result *= base; exp -= 1 }
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (baseScratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    let (expScratch, ctx) := ctx.allocScratch
+    let (resultLoc, ctx) := ctx.allocLoc
+    let (loopLabel, ctx) := ctx.freshLabel
+    let (endLabel, ctx) := ctx.freshLabel
+    let initResult : Array AstNode := match resultLoc with
+      | .reg r => #[ .instruction { opcode := .mov64, dst := some r, imm := some (.num 1) } ]
+      | .spill off => #[ .instruction { opcode := .stdw, dst := some .r10, off := some (.num off), imm := some (.num 1) } ]
+    let loadResult : Array AstNode := match resultLoc with
+      | .reg r => #[ .instruction { opcode := .mov64, dst := some .r2, src := some r } ]
+      | .spill off => #[ .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num off) } ]
+    let storeResult : Array AstNode := match resultLoc with
+      | .reg r => #[ .instruction { opcode := .mov64, dst := some r, src := some .r2 } ]
+      | .spill off => #[ .instruction { opcode := .stxdw, dst := some .r10, off := some (.num off), src := some .r2 } ]
+    .ok (ln ++ #[
+      .comment "solana.pow: save base, evaluate exponent",
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num baseScratch), src := some .r2 }
+    ] ++ rn ++ #[
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num expScratch), src := some .r2 }
+    ] ++ initResult ++ #[
+      .comment "solana.pow: loop result *= base while exp > 0",
+      .label loopLabel
+    ] ++ loadResult ++ #[
+      .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num expScratch) },
+      .instruction { opcode := .jeq, dst := some .r3, imm := some (.num 0), off := some (.sym endLabel) },
+      .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num baseScratch) },
+      .instruction { opcode := .mul64, dst := some .r2, src := some .r3 }
+    ] ++ storeResult ++ #[
+      .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num expScratch) },
+      .instruction { opcode := .sub64, dst := some .r2, imm := some (.num 1) },
+      .instruction { opcode := .stxdw, dst := some .r10, off := some (.num expScratch), src := some .r2 },
+      .instruction { opcode := .ja, off := some (.sym loopLabel) },
+      .label endLabel
+    ] ++ loadResult, ctx)
   | .boolAnd lhs rhs => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratch, ctx) := ctx.allocScratch
@@ -289,12 +367,56 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     -- value is a strict 0/1 boolean: bitwise NOT via xor with 1.
     let (vn, ctx) ← lowerExpr ctx value
     .ok (vn ++ #[ .instruction { opcode := .xor64, dst := some .r2, imm := some (.num 1) } ], ctx)
+  | .bitAnd lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    .ok (lowerBinaryCombine ln rn .and64 scratch, ctx)
+  | .bitOr lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    .ok (lowerBinaryCombine ln rn .or64 scratch, ctx)
+  | .bitXor lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    .ok (lowerBinaryCombine ln rn .xor64 scratch, ctx)
+  | .shiftLeft lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    .ok (lowerOrderedBinaryCombine ln rn .lsh64 scratch, ctx)
+  | .shiftRight lhs rhs => do
+    let (ln, ctx) ← lowerExpr ctx lhs
+    let (scratch, ctx) := ctx.allocScratch
+    let (rn, ctx) ← lowerExpr ctx rhs
+    .ok (lowerOrderedBinaryCombine ln rn .rsh64 scratch, ctx)
   | .eq lhs rhs => lowerCmp ctx lhs rhs .jeq
   | .ne lhs rhs => lowerCmp ctx lhs rhs .jne
   | .lt lhs rhs => lowerCmp ctx lhs rhs .jlt
   | .le lhs rhs => lowerCmp ctx lhs rhs .jle
   | .gt lhs rhs => lowerCmp ctx lhs rhs .jgt
   | .ge lhs rhs => lowerCmp ctx lhs rhs .jge
+  | .cast value targetType => do
+    let (vn, ctx) ← lowerExpr ctx value
+    match targetType with
+    | .u8 =>
+        .ok (vn ++ #[
+          .comment "solana.cast: u64 → u8 (mask 0xFF)",
+          .instruction { opcode := .and64, dst := some .r2, imm := some (.num 255) }
+        ], ctx)
+    | .u32 =>
+        .ok (vn ++ #[
+          .comment "solana.cast: u64 → u32 (mask 0xFFFFFFFF)",
+          .instruction { opcode := .and64, dst := some .r2, imm := some (.num 4294967295) }
+        ], ctx)
+    | .u64 | .address | .hash | .bool =>
+        .ok (vn, ctx)
+    | .u128 =>
+        .error { message := "solana.cast: U128 target not supported in Phase 1 (see P1-NEAR-2)" }
+    | _ =>
+        .error { message := s!"solana.cast: unsupported target type `{targetType.name}`" }
   | .effect (.storageScalarRead stateId) =>
     match ctx.stateAbsOff? stateId with
     | some absOff => .ok (#[ .instruction (res .ldxdw (src := some .r1) (off := some (.num absOff))) ], ctx)

@@ -202,7 +202,7 @@ Pick from sdk-ecosystem-gaps **only** where Product path needs them (e.g. one of
 | ε.2 | EIP-2612 external `permit` client (call peer; not TokenSpec body) | **done** |
 | ε.3 | ERC-4626 Layer C stdlib body (1:1 synthetic) | **done** |
 | ε.4 | IR `ecrecover` + EIP-712 digest helpers (EVM) | **done** |
-| ε.5 | ERC20Permit Layer C body (`setPermitSig` + `permit`) | **done** |
+| ε.5 | ERC20Permit Layer C body (canonical atomic seven-argument `permit`) | **done** |
 | ε.6 | ERC-4626 underlying pull/push via IERC20 remote | **done** |
 | ε.7 | TokenSpec EVM `permit` plan → ERC20Permit stdlib notes | **done** |
 | ε.8 | TokenSpec `moduleFor` merges ERC20Permit body when `permit` | **done** |

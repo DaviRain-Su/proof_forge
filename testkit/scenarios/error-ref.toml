@@ -25,7 +25,7 @@ contains = [
 target = "wasm-near"
 name = "near-wrapper"
 contains = [
-  'import { Account } from "near-api-js"',
+  'import { Account, transactions } from "near-api-js"',
   'export async function initialize',
   'export async function guarded_increment',
 ]

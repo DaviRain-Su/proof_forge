@@ -1,0 +1,251 @@
+{
+  "schemaVersion": "proof-forge.wave-t-gates.v1",
+  "profile": "primary-triad-wave-t",
+  "requireCleanWorktree": true,
+  "requiredTaskIds": [
+    "T-00",
+    "E-P0-01",
+    "E-P0-02",
+    "E-P0-03",
+    "E-P0-04",
+    "N-P0-01",
+    "N-P0-02",
+    "N-P0-03",
+    "S-P0-01",
+    "S-P0-02",
+    "X-P0-01",
+    "T-99"
+  ],
+  "tools": [
+    { "id": "git", "command": ["git", "--version"] },
+    { "id": "python", "command": ["python3", "--version"] },
+    { "id": "lean", "command": ["lean", "--version"] },
+    { "id": "lake", "command": ["lake", "--version"] },
+    { "id": "just", "command": ["just", "--version"] },
+    { "id": "forge", "command": ["forge", "--version"] },
+    { "id": "solc", "command": ["solc", "--version"] },
+    { "id": "cargo", "command": ["cargo", "--version"] },
+    { "id": "wat2wasm", "command": ["wat2wasm", "--version"] },
+    { "id": "node", "command": ["node", "--version"] },
+    { "id": "java", "command": ["java", "--version"] },
+    { "id": "quint", "command": ["quint", "--version"] },
+    { "id": "near-sandbox", "command": ["near-sandbox", "--version"] },
+    { "id": "solana", "command": ["solana", "--version"] },
+    { "id": "solana-keygen", "command": ["solana-keygen", "--version"] },
+    { "id": "cargo-build-sbf", "command": ["cargo-build-sbf", "--version"] },
+    { "id": "sbpf", "command": ["sbpf", "--version"] },
+    { "id": "surfpool", "command": ["surfpool", "--version"] }
+  ],
+  "gates": [
+    {
+      "taskId": "T-00",
+      "implementationCommit": "528a01482264db9d6b613ff8e5676e81a3df0b1e",
+      "oracle": { "id": "standard-compliance", "version": "1" },
+      "command": ["just", "standard-compliance"]
+    },
+    {
+      "taskId": "E-P0-01",
+      "implementationCommit": "fac64949531cdb7610f65a21c9f1213e44b3be0a",
+      "oracle": { "id": "evm-abi-schema", "version": "1" },
+      "command": ["just", "evm-abi-schema"]
+    },
+    {
+      "taskId": "E-P0-02",
+      "implementationCommit": "86cc0f89509a8bb284bd4cded90ca8329c8e5445",
+      "oracle": { "id": "erc2612-foundry-attacks", "version": "1" },
+      "requiredArtifactIds": ["erc2612-creation-bytecode", "erc2612-contract-artifact"],
+      "command": ["just", "product-erc20-permit"]
+    },
+    {
+      "taskId": "E-P0-03",
+      "implementationCommit": "6dac65f655550a72738308f868de5f1580fe5653",
+      "oracle": { "id": "evm-standard-identity", "version": "1" },
+      "command": ["just", "evm-standard-identity"]
+    },
+    {
+      "taskId": "E-P0-04",
+      "implementationCommit": "876e2ad9d00fbfd05026751d01b79c91afe11aa9",
+      "oracle": { "id": "evm-diagnostics", "version": "1" },
+      "command": ["just", "evm-diagnostics"]
+    },
+    {
+      "taskId": "E-P0-04",
+      "implementationCommit": "876e2ad9d00fbfd05026751d01b79c91afe11aa9",
+      "oracle": { "id": "evm-errors-runtime", "version": "1" },
+      "command": ["just", "evm-smoke", "errors"]
+    },
+    {
+      "taskId": "T-99",
+      "implementationCommit": "HEAD",
+      "oracle": { "id": "evm-wave-runtime", "version": "1" },
+      "command": ["just", "evm-all"]
+    },
+    {
+      "taskId": "N-P0-01",
+      "implementationCommit": "ab4614174f37d0b25d07fb865e6f8ba5686911d8",
+      "oracle": { "id": "near-abi-plan", "version": "1" },
+      "command": ["just", "near-abi-plan"]
+    },
+    {
+      "taskId": "N-P0-01",
+      "implementationCommit": "ab4614174f37d0b25d07fb865e6f8ba5686911d8",
+      "oracle": { "id": "near-generated-client", "version": "1" },
+      "command": ["just", "near-abi-client"]
+    },
+    {
+      "taskId": "N-P0-01",
+      "implementationCommit": "ab4614174f37d0b25d07fb865e6f8ba5686911d8",
+      "oracle": { "id": "near-abi-client-sandbox", "version": "1" },
+      "command": ["just", "near-abi-client-sandbox"]
+    },
+    {
+      "taskId": "N-P0-02",
+      "implementationCommit": "92ace75bafbdfe98692b611140cc5fa5085a27b8",
+      "oracle": { "id": "near-ft-security", "version": "1" },
+      "command": ["just", "near-ft-security"]
+    },
+    {
+      "taskId": "N-P0-02",
+      "implementationCommit": "92ace75bafbdfe98692b611140cc5fa5085a27b8",
+      "oracle": { "id": "near-ft-transfer-call-offline-host", "version": "1" },
+      "command": ["just", "wasm-near-ft-transfer-call-e2e"]
+    },
+    {
+      "taskId": "N-P0-02",
+      "implementationCommit": "92ace75bafbdfe98692b611140cc5fa5085a27b8",
+      "oracle": { "id": "near-ft-security-sandbox", "version": "1" },
+      "command": ["just", "near-ft-security-sandbox"]
+    },
+    {
+      "taskId": "N-P0-03",
+      "implementationCommit": "4f4ccb5f5ca2e2cc6d5f0e07ffc55a7d54cb46c8",
+      "oracle": { "id": "near-map-hash-alias", "version": "1" },
+      "command": ["just", "near-map-hash-alias"]
+    },
+    {
+      "taskId": "N-P0-03",
+      "implementationCommit": "4f4ccb5f5ca2e2cc6d5f0e07ffc55a7d54cb46c8",
+      "oracle": { "id": "near-map-hash-alias-sandbox", "version": "1" },
+      "command": ["just", "near-map-hash-alias-sandbox"]
+    },
+    {
+      "taskId": "S-P0-01",
+      "implementationCommit": "ab23a012e0378977d89c259f4c34784b8580eed6",
+      "oracle": { "id": "solana-duplicate-account-interpreter", "version": "1" },
+      "command": ["just", "solana-duplicate-accounts"]
+    },
+    {
+      "taskId": "S-P0-01",
+      "implementationCommit": "ab23a012e0378977d89c259f4c34784b8580eed6",
+      "oracle": { "id": "solana-sbpf-encoder", "version": "1" },
+      "command": ["just", "solana-bpf-encode-smoke"]
+    },
+    {
+      "taskId": "S-P0-01",
+      "implementationCommit": "ab23a012e0378977d89c259f4c34784b8580eed6",
+      "oracle": { "id": "solana-duplicate-account-live", "version": "1" },
+      "command": ["just", "solana-duplicate-accounts-live"]
+    },
+    {
+      "taskId": "S-P0-02",
+      "implementationCommit": "315f3acd6c8d44397f9be69f7a84a0e58771990c",
+      "oracle": { "id": "solana-entrypoint-account-graph", "version": "1" },
+      "command": ["just", "solana-account-graph"]
+    },
+    {
+      "taskId": "S-P0-02",
+      "implementationCommit": "315f3acd6c8d44397f9be69f7a84a0e58771990c",
+      "oracle": { "id": "solana-pinocchio-reference-equivalence", "version": "1" },
+      "command": ["just", "solana-pinocchio-reference-equivalence"]
+    },
+    {
+      "taskId": "S-P0-02",
+      "implementationCommit": "315f3acd6c8d44397f9be69f7a84a0e58771990c",
+      "oracle": { "id": "solana-wave-light", "version": "1" },
+      "command": ["just", "wave-t-solana-light"]
+    },
+    {
+      "taskId": "X-P0-01",
+      "implementationCommit": "0f9ce05f77ece75d0fa131d0c4e5bfd8165859c8",
+      "oracle": { "id": "token-feature-matrix", "version": "1" },
+      "command": ["just", "token-feature-matrix"]
+    },
+    {
+      "taskId": "T-99",
+      "implementationCommit": "HEAD",
+      "oracle": { "id": "product-primary-triad", "version": "1" },
+      "requiredArtifactIds": ["nep141-token-plan", "nep141-wat"],
+      "command": ["just", "product"]
+    },
+    {
+      "taskId": "T-99",
+      "implementationCommit": "HEAD",
+      "oracle": { "id": "product-solana-token", "version": "1" },
+      "requiredArtifactIds": ["spl-token-plan"],
+      "command": ["just", "product-token-solana"]
+    },
+    {
+      "taskId": "T-99",
+      "implementationCommit": "HEAD",
+      "oracle": { "id": "wave-static-baseline", "version": "1" },
+      "command": ["just", "wave-t-check"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "erc2612-creation-bytecode",
+      "path": "build/portable/erc20-permit/ERC20Permit.bin",
+      "producedByOracleId": "erc2612-foundry-attacks",
+      "minimumBytes": 100,
+      "adapter": { "id": "proof-forge.evm.erc2612", "version": "1" }
+    },
+    {
+      "id": "erc2612-contract-artifact",
+      "path": "build/portable/erc20-permit/ERC20Permit.proof-forge-artifact.json",
+      "producedByOracleId": "erc2612-foundry-attacks",
+      "jsonEquals": {
+        "format": "proof-forge-token-artifact-v0",
+        "target": "evm",
+        "artifactKind": "evm-erc20-contract"
+      },
+      "jsonArrayContains": {
+        "token.features": "permit",
+        "operations": "erc20.permit"
+      },
+      "adapter": { "id": "proof-forge.evm.erc2612", "version": "1" }
+    },
+    {
+      "id": "nep141-token-plan",
+      "path": "build/portable/token-near/FungibleToken.near-nep141-plan.json",
+      "producedByOracleId": "product-primary-triad",
+      "jsonEquals": {
+        "format": "proof-forge-token-plan-v0",
+        "target": "wasm-near",
+        "standard": "nep-141",
+        "artifactKind": "near-nep141-plan"
+      },
+      "adapter": { "id": "proof-forge.near.nep141", "version": "1" }
+    },
+    {
+      "id": "nep141-wat",
+      "path": "build/portable/token-near/NearFungibleToken.wat",
+      "producedByOracleId": "product-primary-triad",
+      "minimumBytes": 1000,
+      "contains": ["ft_transfer", "ft_balance_of", "ft_mint", "promise_create"],
+      "adapter": { "id": "proof-forge.near.nep141", "version": "1" }
+    },
+    {
+      "id": "spl-token-plan",
+      "path": "build/portable/token-solana/FungibleToken.solana-spl-token-plan.json",
+      "producedByOracleId": "product-solana-token",
+      "jsonEquals": {
+        "format": "proof-forge-token-plan-v0",
+        "target": "solana-sbpf-asm",
+        "standard": "spl-token",
+        "artifactKind": "solana-spl-token-plan",
+        "solana.programs.token": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      },
+      "adapter": { "id": "proof-forge.solana.spl-token", "version": "1" }
+    }
+  ]
+}

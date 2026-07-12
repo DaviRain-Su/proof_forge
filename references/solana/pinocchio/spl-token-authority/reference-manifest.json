@@ -34,18 +34,18 @@
       "owner": "any"
     },
     {
-      "name": "spl_token",
+      "name": "new_authority",
       "index": 3,
       "signer": false,
       "writable": false,
-      "owner": "executable"
+      "owner": "any"
     },
     {
-      "name": "new_authority",
+      "name": "spl_token",
       "index": 4,
       "signer": false,
       "writable": false,
-      "owner": "any"
+      "owner": "executable"
     }
   ],
   "cpis": [

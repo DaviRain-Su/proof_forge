@@ -146,7 +146,21 @@ inductive Literal where
   | bool (value : Bool)
   | hash4 (a b c d : Nat)
   | address (value : Nat)
-  deriving BEq, Repr
+  | bytes (value : ByteArray)
+  | string (value : String)
+  deriving BEq
+
+instance : Repr Literal where
+  reprPrec n _ := match n with
+  | .u8 v => s!"Literal.u8 {v}"
+  | .u128 v => s!"Literal.u128 {v}"
+  | .u32 v => s!"Literal.u32 {v}"
+  | .u64 v => s!"Literal.u64 {v}"
+  | .bool v => s!"Literal.bool {v}"
+  | .hash4 a b c d => s!"Literal.hash4 {a} {b} {c} {d}"
+  | .address v => s!"Literal.address {v}"
+  | .bytes ba => s!"Literal.bytes ({ba.size} bytes)"
+  | .string s => s!"Literal.string {repr s}"
 
 inductive AssignOp where
   | add
@@ -172,13 +186,15 @@ mutual
     | chainId
     | gasPrice
     | gasLeft
+    | prepaidGas
+    | usedGas
     | baseFee
     | prevRandao
     | randomSeed
     | origin
     | coinbase
     | blockHash (blockNumber : Expr)
-    deriving Repr
+    deriving Repr, BEq
 
   inductive Expr where
     | literal (value : Literal)
@@ -265,7 +281,7 @@ mutual
     /-- NEAR host-extension only: Borsh-decoded U64 payload from promise result at `index`. -/
     | nearPromiseResultU64 (index : Expr)
     | effect (effect : Effect)
-    deriving Repr
+    deriving Repr, BEq
 
   inductive Effect where
     | storageScalarRead (stateId : String)
@@ -275,6 +291,7 @@ mutual
     | storageMapGet (stateId : String) (key : Expr)
     | storageMapInsert (stateId : String) (key value : Expr)
     | storageMapSet (stateId : String) (key value : Expr)
+    | storageMapDelete (stateId : String) (key : Expr)
     | storageArrayRead (stateId : String) (index : Expr)
     | storageArrayWrite (stateId : String) (index value : Expr)
     | storageArrayStructFieldRead (stateId : String) (index : Expr) (fieldName : String)
@@ -298,19 +315,19 @@ mutual
     code, CALL `onERC1155Received(operator,from,id,value,"")` and require
     magic return. Non-EVM targets must reject honestly. -/
     | checkErc1155Received (operator fromAddr toAddr id amount : Expr)
-    /-- EVM ERC-1155 size-2 batch receiver check (E1.2): if `to` has code, CALL
-    `onERC1155BatchReceived(operator,from,[id0,id1],[amount0,amount1],"")` and
-    require magic return. Fixed size-2 (dynamic-length batch ABI later).
+    /-- EVM ERC-1155 dynamic batch receiver check (E1.2): if `to` has code, CALL
+    `onERC1155BatchReceived(operator,from,ids,amounts,"")` and require magic return.
+    `ids` and `amounts` are `Expr.arrayLit .u256 ...` expressions.
     Non-EVM targets must reject honestly. -/
     | checkErc1155BatchReceived
-        (operator fromAddr toAddr id0 amount0 id1 amount1 : Expr)
-    deriving Repr
+        (operator fromAddr toAddr ids amounts : Expr)
+    deriving Repr, BEq
 
   inductive StoragePathSegment where
     | field (fieldName : String)
     | index (index : Expr)
     | mapKey (key : Expr)
-    deriving Repr
+    deriving Repr, BEq
 end
 
 def ContextField.name : ContextField → String
@@ -323,6 +340,8 @@ def ContextField.name : ContextField → String
   | .chainId => "chainId"
   | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
+  | .prepaidGas => "prepaidGas"
+  | .usedGas => "usedGas"
   | .baseFee => "baseFee"
   | .prevRandao => "prevRandao"
   | .randomSeed => "randomSeed"
@@ -333,7 +352,7 @@ def ContextField.name : ContextField → String
 def ContextField.capability : ContextField → ProofForge.Target.Capability
   | .userId | .userIdHash | .origin => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
 /-! ### Context field portability + HostEnv mapping (D-050 / gap-analysis step 1)
 
@@ -354,6 +373,8 @@ def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.Host
   | .chainId => .chainId
   | .gasPrice => .gasPrice
   | .gasLeft => .gasOrComputeBudgetLeft
+  | .prepaidGas => .nearPrepaidGas
+  | .usedGas => .nearUsedGas
   | .baseFee => .baseFee
   | .prevRandao | .randomSeed => .randomness
   | .origin => .txOrigin
@@ -383,13 +404,29 @@ structure ErrorRef where
   (PF-P2-02 / E1.1) instead of the ProofForge `(assertionId, string)` envelope. -/
   soliditySelector? : Option String := none
   /-- Transitional EVM-only compile-time ABI static words after the 4-byte
-  selector (E1.1). EVM validation checks arity, supported type, and range.
-  Runtime expressions belong in a future target-plan representation. -/
+  selector (E1.1). EVM validation checks arity, supported type, and range. -/
   solidityArgWords : Array Nat := #[]
-  /-- Solidity ABI type names parallel to `solidityArgWords`. Contract metadata
-  exposes this schema, but deliberately omits the concrete compile-time words. -/
+  /-- Solidity ABI type names parallel to `solidityArgWords` / `solidityArgExprs`.
+  Contract metadata exposes this schema, but deliberately omits the concrete
+  compile-time words or runtime expressions. -/
   solidityArgTypes : Array String := #[]
-  deriving Repr, BEq
+  /-- Runtime expression arguments after the 4-byte selector. When non-empty,
+  EVM lowers each expression to a Yul value and `mstore`s it at the
+  corresponding ABI word offset, replacing the compile-time `solidityArgWords`.
+  The `solidityArgTypes` array must have the same length. EVM validation
+  rejects dynamic types (bytes/string/array) in this slot. -/
+  solidityArgExprs : Array Expr := #[]
+  deriving Repr
+
+/-- Manual `BEq` for `ErrorRef`, including the runtime argument expressions. -/
+instance : BEq ErrorRef where
+  beq a b :=
+    a.assertionId == b.assertionId &&
+    a.userCode? == b.userCode? &&
+    a.soliditySelector? == b.soliditySelector? &&
+    a.solidityArgWords == b.solidityArgWords &&
+    a.solidityArgTypes == b.solidityArgTypes &&
+    a.solidityArgExprs == b.solidityArgExprs
 
 inductive Statement where
   | letBind (name : String) (type : ValueType) (value : Expr)
@@ -450,6 +487,8 @@ structure Entrypoint where
   chain-neutral so other ABI-bearing targets can reuse the same field (D-050). -/
   paramAbiWords : Array (Option String) := #[]
   returns : ValueType := .unit
+  /-- Optional host ABI override for the return carrier. -/
+  returnAbiWord? : Option String := none
   body : Array Statement
   deriving Repr
 
@@ -509,6 +548,7 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .storageMapGet _ _ => .storageMap
   | .storageMapInsert _ _ _ => .storageMap
   | .storageMapSet _ _ _ => .storageMap
+  | .storageMapDelete _ _ => .storageMap
   | .storageArrayRead _ _ => .storageArray
   | .storageArrayWrite _ _ _ => .storageArray
   | .storageArrayStructFieldRead _ _ _ => .storageArray
@@ -538,7 +578,7 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .eventEmitIndexed _ _ _ => .eventsEmit
   | .checkErc721Received _ _ _ _ => .crosscallInvoke
   | .checkErc1155Received _ _ _ _ _ => .crosscallInvoke
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ => .crosscallInvoke
+  | .checkErc1155BatchReceived _ _ _ _ _ => .crosscallInvoke
 
 mutual
   partial def Expr.capabilities : Expr → Array ProofForge.Target.Capability
@@ -637,6 +677,7 @@ mutual
     | .storageMapGet _ key => key.capabilities
     | .storageMapInsert _ key value => key.capabilities ++ value.capabilities
     | .storageMapSet _ key value => key.capabilities ++ value.capabilities
+    | .storageMapDelete _ key => key.capabilities
     | .storageArrayRead _ index => index.capabilities
     | .storageArrayWrite _ index value => index.capabilities ++ value.capabilities
     | .storageArrayStructFieldRead _ index _ => #[.dataStruct] ++ index.capabilities
@@ -660,9 +701,9 @@ mutual
     | .checkErc1155Received operator fromAddr toAddr id amount =>
         operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
           id.capabilities ++ amount.capabilities
-    | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 =>
+    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
         operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
-          id0.capabilities ++ amount0.capabilities ++ id1.capabilities ++ amount1.capabilities
+          ids.capabilities ++ amounts.capabilities
 
   partial def StoragePathSegment.capabilities : StoragePathSegment → Array ProofForge.Target.Capability
     | .field _ => #[.dataStruct]

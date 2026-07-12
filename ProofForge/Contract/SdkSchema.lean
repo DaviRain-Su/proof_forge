@@ -231,6 +231,7 @@ mutual
         collectExprEvents events value
     | .storageMapContains _ key
     | .storageMapGet _ key
+    | .storageMapDelete _ key
     | .storageArrayRead _ key
     | .storageArrayStructFieldRead _ key _ =>
         collectExprEvents events key
@@ -249,13 +250,12 @@ mutual
           (collectExprEvents
             (collectExprEvents
               (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) id) amount
-    | .checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1 =>
+    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
         collectExprEvents
           (collectExprEvents
             (collectExprEvents
               (collectExprEvents
-                (collectExprEvents
-                  (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) id0) amount0) id1) amount1
+                (collectExprEvents events operator) fromAddr) toAddr) ids) amounts
     | .storageScalarRead _
     | .storageDynamicArrayPop _
     | .storageStructFieldRead _ _

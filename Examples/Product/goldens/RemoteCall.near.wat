@@ -1,5 +1,6 @@
 (module
   (import "env" "storage_write" (func $storage_write (param i64 i64 i64 i64 i64) (result i64)))
+  (import "env" "storage_remove" (func $storage_remove (param i64 i64) (result i64)))
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (import "env" "promise_create" (func $promise_create (param i64 i64 i64 i64 i64 i64 i64 i64) (result i64)))
@@ -189,6 +190,77 @@
     else
     end
     local.get $result
+  )
+  (func $__pf_u128_add (param $alo i64) (param $ahi i64) (param $blo i64) (param $bhi i64) (result i64 i64) (local $lo i64) (local $hi i64) (local $carry i64)
+    local.get $alo
+    local.get $blo
+    i64.add
+    local.set $lo
+    local.get $lo
+    local.get $alo
+    i64.lt_u
+    i64.extend_i32_u
+    i64.const 1
+    i64.and
+    local.set $carry
+    local.get $ahi
+    local.get $bhi
+    i64.add
+    local.get $carry
+    i64.add
+    local.set $hi
+    local.get $lo
+    local.get $hi
+  )
+  (func $__pf_u128_sub (param $alo i64) (param $ahi i64) (param $blo i64) (param $bhi i64) (result i64 i64) (local $lo i64) (local $hi i64) (local $borrow i64)
+    local.get $alo
+    local.get $blo
+    i64.sub
+    local.set $lo
+    local.get $alo
+    local.get $blo
+    i64.lt_u
+    i64.extend_i32_u
+    i64.const 1
+    i64.and
+    local.set $borrow
+    local.get $ahi
+    local.get $bhi
+    i64.sub
+    local.get $borrow
+    i64.sub
+    local.set $hi
+    local.get $lo
+    local.get $hi
+  )
+  (func $__pf_u128_mul (param $alo i64) (param $ahi i64) (param $blo i64) (param $bhi i64) (result i64 i64) (local $lo i64) (local $hi i64)
+    local.get $alo
+    local.get $blo
+    i64.mul
+    local.set $lo
+    local.get $alo
+    local.get $bhi
+    i64.mul
+    local.get $ahi
+    local.get $blo
+    i64.mul
+    i64.add
+    local.set $hi
+    local.get $lo
+    local.get $hi
+  )
+  (func $__pf_u128_eq (param $alo i64) (param $ahi i64) (param $blo i64) (param $bhi i64) (result i32) (local $hi_eq i32) (local $lo_eq i32)
+    local.get $ahi
+    local.get $bhi
+    i64.eq
+    local.set $hi_eq
+    local.get $alo
+    local.get $blo
+    i64.eq
+    local.set $lo_eq
+    local.get $hi_eq
+    local.get $lo_eq
+    i32.and
   )
   (func $initialize (export "initialize")
     i32.const 0

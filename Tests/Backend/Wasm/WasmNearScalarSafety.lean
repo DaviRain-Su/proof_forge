@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.NearAbiPlan
 
 namespace ProofForge.Tests.WasmNearScalarSafety
 
@@ -7,6 +8,7 @@ open ProofForge.Backend.WasmHost.EmitWat
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.ModuleAssembly
+open ProofForge.Backend.WasmHost.NearAbiPlan
 open ProofForge.Backend.WasmHost.Scalar
 
 def partialWrite : Entrypoint := {
@@ -40,7 +42,11 @@ def testPackedKeyLengthMatchesDataSegment : IO Unit := do
 def testPartialWriteUsesConservativeLoad : IO Unit := do
   let (packed, packSize) := stateLayoutPacked twoScalarModule
   let base := loweringCtxForModule twoScalarModule .near
-  let ctx := { base with packScalars := true, scalars := packed, packSize := packSize }
+  let plans ← match buildModulePlans twoScalarModule with
+    | .ok plans => pure plans
+    | .error msg => throw <| IO.userError msg
+  let ctx := { base with packScalars := true, scalars := packed, packSize := packSize,
+                         entrypointAbis := plans }
   let fn ←
     match lowerEntrypoint ctx partialWrite with
     | .ok fn => pure fn

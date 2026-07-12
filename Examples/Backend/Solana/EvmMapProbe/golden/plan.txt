@@ -12,12 +12,16 @@ accounts:
   before: index=0 signer=false writable=true owner="program" dataSize=2064
 entrypoints:
 set_balance: returns=Unit hasReturn=false instructionDataMinLen=17
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=2064
   discriminator: kind=internal bytes=[0]
   params:
     key: type=U64 offset=1 byteSize=8
     value: type=U64 offset=9 byteSize=8
 
 read_balance: returns=U64 hasReturn=true instructionDataMinLen=9
+  accounts:
+    before: index=0 signer=false writable=true owner="program" dataSize=2064
   discriminator: kind=internal bytes=[1]
   params:
     key: type=U64 offset=1 byteSize=8

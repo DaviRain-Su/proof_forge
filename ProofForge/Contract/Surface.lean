@@ -32,6 +32,7 @@ structure MethodRef where
   selector? : Option String := none
   params : Array BindingRef := #[]
   returns : ValueType := .unit
+  returnAbiWord? : Option String := none
   deriving BEq, Repr
 
 structure EventRef where
@@ -109,6 +110,10 @@ def method (name : String) (params : Array BindingRef := #[])
     (returns : ValueType := .unit) : MethodRef :=
   { name, selector? := none, params, returns }
 
+def methodWithReturnAbi (name : String) (params : Array BindingRef := #[])
+    (returns : ValueType) (abiWord : String) : MethodRef :=
+  { name, selector? := none, params, returns, returnAbiWord? := some abiWord }
+
 private def identNameLit (name : Lean.TSyntax `ident) : Lean.TSyntax `term :=
   ⟨Lean.Syntax.mkStrLit name.getId.toString⟩
 
@@ -169,6 +174,7 @@ def entryWithMutability (mutability : ProofForge.IR.EntrypointMutability)
     (methodRef.params.map fun param => param.abiWord?)
     body
     mutability
+    methodRef.returnAbiWord?
 
 def entry (methodRef : MethodRef) (body : EntryM Unit) : ModuleM Unit :=
   entryWithMutability .call methodRef body
@@ -386,15 +392,16 @@ def checkErc1155Received
   ProofForge.Contract.Builder.effect
     (.checkErc1155Received operator fromAddr toAddr id amount)
 
-/-- EVM ERC-1155 size-2 batch receiver check (E1.2).
+/-- EVM ERC-1155 dynamic batch receiver check (E1.2).
 If `to` has code, CALL
-`onERC1155BatchReceived(operator, from, [id0,id1], [amount0,amount1], "")`
-and require the magic `bytes4` return. EOAs skip. -/
+`onERC1155BatchReceived(operator, from, ids, amounts, "")`
+and require the magic `bytes4` return. EOAs skip.
+`ids` and `amounts` are array expressions (e.g. `arrayLit .u256 #[...]`). -/
 def checkErc1155BatchReceived
-    (operator fromAddr toAddr id0 amount0 id1 amount1 : ProofForge.IR.Expr) :
+    (operator fromAddr toAddr ids amounts : ProofForge.IR.Expr) :
     EntryM Unit :=
   ProofForge.Contract.Builder.effect
-    (.checkErc1155BatchReceived operator fromAddr toAddr id0 amount0 id1 amount1)
+    (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts)
 
 /-- Portable cross-contract intent (family-shared). Backends materialize as
 EVM CALL / Solana CPI / NEAR `promise_create` / Soroban `invoke_contract` —

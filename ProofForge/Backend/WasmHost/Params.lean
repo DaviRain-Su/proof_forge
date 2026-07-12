@@ -8,6 +8,7 @@ import ProofForge.Backend.WasmHost.ArrayHeap
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Memory
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.HostBridge
@@ -20,13 +21,20 @@ open ProofForge.Backend.WasmHost.ArrayHeap
 open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Diagnostics
 open ProofForge.Backend.WasmHost.Memory
+open ProofForge.Backend.WasmHost.NearAbiPlan
 open ProofForge.Backend.WasmHost.Struct
 open ProofForge.Backend.WasmHost.Types
 
 /-! Entrypoint parameter decoding helpers for EmitWat. -/
 
 /-- NEAR Borsh input prologue: `env.input` → register → INPUT_BUF. -/
-def nearInputPrologue : Array Insn :=
+def nearInputPrologue (expectedBytes : Nat) : Array Insn :=
+  #[.i64Const 0, .call "input",
+    .i64Const 0, .call "register_len", .i64Const expectedBytes, .plain "i64.ne",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
+
+def rawInputPrologue : Array Insn :=
   #[.i64Const 0, .call "input", .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
 
 /-- Build the Borsh input prologue and load each param into a local.
@@ -38,8 +46,12 @@ def nearInputPrologue : Array Insn :=
   (Counter spike path does not use IR params). -/
 def loadParams (structs : Array ProofForge.IR.StructDecl)
     (params : Array (String × ValueType))
+    (abiPlan : EntrypointPlan)
     (bridge : ProofForge.Target.HostBridge := .near)
     : Except EmitError (Array Insn × Array Local) := do
+  let plannedParams := abiPlan.params.map fun param => (param.name?.getD "", param.type)
+  if abiPlan.name.isEmpty || plannedParams != params then
+    err s!"EmitWat: entrypoint `{abiPlan.name}` NEAR ABI plan does not match its parameter signature"
   -- CosmWasm: no NEAR input — empty prologue only; reject params for now.
   if bridge == .cosmWasm then
     if params.isEmpty then
@@ -51,7 +63,10 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     -- ValueVault views). Saves a host call with no ABI payload to decode.
     .ok (#[], #[])
   else
-  let prologue : Array Insn := nearInputPrologue
+  if abiPlan.inputCodec != .borsh || abiPlan.inputByteWidth == 0 then
+    err s!"EmitWat: entrypoint `{abiPlan.name}` has an invalid NEAR input codec plan"
+  let prologue : Array Insn :=
+    if bridge == .near then nearInputPrologue abiPlan.inputByteWidth else rawInputPrologue
   let result ← params.foldlM (init := (prologue, (#[] : Array Local), 0, 0))
     fun (insns, locals, offset, hslot) p =>
       let (name, vt) := p
@@ -59,6 +74,14 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
       | .u32 | .u64 | .bool =>
         let loadInsns := #[.i32Const (INPUT_BUF + offset), .load (loadOpFor vt) 0, .localSet name]
         .ok (insns ++ loadInsns, locals.push { name := name, type := wasmTypeOf vt }, offset + scalarWidth vt, hslot)
+      | .u128 =>
+        -- U128: 16-byte Borsh LE. Allocate 16 bytes, copy low 8 + high 8 from INPUT_BUF.
+        -- Local holds an i32 pointer to the 16-byte buffer.
+        let loadInsns :=
+          #[.i64Const 16, .call arrAllocName, .localSet name,
+            .localGet name, .i32Const (INPUT_BUF + offset), .load "i64.load" 0, .store "i64.store" 0,
+            .localGet name, .i32Const (INPUT_BUF + offset + 8), .load "i64.load" 0, .store "i64.store" 8]
+        .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + 16, hslot)
       | .hash =>
         let slot := PARAM_HASH_BUF + hslot * 32
         let loadInsns := #[.i32Const slot, .i32Const (INPUT_BUF + offset), .i32Const 32, .call memcpyName,
@@ -109,6 +132,20 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
                       .store (storeOpFor f.type) 0]
                 acc ++ loadField) #[]
           .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
+      | .bytes | .string =>
+        -- Borsh dynamic bytes/string: 4-byte LE length prefix + payload.
+        -- Allocate a buffer, copy the 4-byte length prefix + payload from INPUT_BUF.
+        -- The local holds an i32 pointer to the payload (length prefix at ptr - 4).
+        let lenOff := INPUT_BUF + offset
+        let loadInsns :=
+          #[.i32Const lenOff, .load "i32.load" 0, .localSet (name ++ "_len"),
+            .localGet (name ++ "_len"), .plain "i64.extend_i32_u", .i64Const 4, .plain "i64.add",
+            .call arrAllocName, .localSet name,
+            .localGet name, .i32Const lenOff, .i32Const 4, .call memcpyName,
+            .localGet name, .i32Const 4, .plain "i32.add", .localSet name]
+        .ok (insns ++ loadInsns,
+            locals.push { name := name ++ "_len", type := .i32 } |>.push { name := name, type := .i32 },
+            offset + 260, hslot)
       | _ => err s!"EmitWat: param `{name}` has unsupported Borsh type `{vt.name}`"
   pure (result.fst, result.snd.fst)
 

@@ -359,7 +359,7 @@ def isCounterModuleShape (state : List StateDecl) (entrypoints : List Entrypoint
 overrides so lowerable modules do not differ from the canonical fixture on
 fields that `lowerModule` may consult for ABI packing. -/
 def counterEntrypointsMetadataPinned (entrypoints : List Entrypoint) : Bool :=
-  entrypoints.all (fun ep => ep.paramAbiWords.size == 0)
+  entrypoints.all (fun ep => ep.paramAbiWords.size == 0 && ep.returnAbiWord?.isNone)
 
 /-- Broad Counter-shape *lowerable* predicate (PF-P3-01).
 
@@ -751,44 +751,47 @@ def counterGetEntrypoint : Entrypoint := {
 /-- Full structural equality for pinned initialize entrypoints. -/
 theorem isCounterInitializeEntrypoint_eq
     (ep : Entrypoint) (h : isCounterInitializeEntrypoint ep = true)
-    (hpinned : ep.paramAbiWords = #[]) :
+    (hpinned : ep.paramAbiWords = #[]) (hreturn : ep.returnAbiWord? = none) :
     ep = counterInitializeEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterInitializeEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterInitializeEntrypoint_kind_params ep h
   have hm := isCounterInitializeEntrypoint_mutability ep h
   have hb := isCounterInitializeEntrypoint_body_array ep h
   cases ep
-  case mk name kind mutability selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hm hp hb hpinned
+  case mk name kind mutability selector? params paramAbiWords returns returnAbiWord? body =>
+    simp only at hn hs hr hk hm hp hb hpinned hreturn
     subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
+    subst hreturn
     rfl
 
 theorem isCounterIncrementEntrypoint_eq
     (ep : Entrypoint) (h : isCounterIncrementEntrypoint ep = true)
-    (hpinned : ep.paramAbiWords = #[]) :
+    (hpinned : ep.paramAbiWords = #[]) (hreturn : ep.returnAbiWord? = none) :
     ep = counterIncrementEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterIncrementEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterIncrementEntrypoint_kind_params ep h
   have hm := isCounterIncrementEntrypoint_mutability ep h
   have hb := isCounterIncrementEntrypoint_body_array ep h
   cases ep
-  case mk name kind mutability selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hm hp hb hpinned
+  case mk name kind mutability selector? params paramAbiWords returns returnAbiWord? body =>
+    simp only at hn hs hr hk hm hp hb hpinned hreturn
     subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
+    subst hreturn
     rfl
 
 theorem isCounterGetEntrypoint_eq
     (ep : Entrypoint) (h : isCounterGetEntrypoint ep = true)
-    (hpinned : ep.paramAbiWords = #[]) :
+    (hpinned : ep.paramAbiWords = #[]) (hreturn : ep.returnAbiWord? = none) :
     ep = counterGetEntrypoint := by
   obtain ⟨hn, hs, hr, _⟩ := isCounterGetEntrypoint_fields ep h
   obtain ⟨hk, hp⟩ := isCounterGetEntrypoint_kind_params ep h
   have hm := isCounterGetEntrypoint_mutability ep h
   have hb := isCounterGetEntrypoint_body_array ep h
   cases ep
-  case mk name kind mutability selector? params paramAbiWords returns body =>
-    simp only at hn hs hr hk hm hp hb hpinned
+  case mk name kind mutability selector? params paramAbiWords returns returnAbiWord? body =>
+    simp only at hn hs hr hk hm hp hb hpinned hreturn
     subst hn; subst hs; subst hr; subst hk; subst hm; subst hp; subst hb; subst hpinned
+    subst hreturn
     rfl
 
 /-- Empty `paramAbiWords` on every entrypoint of a shape-lowerable module. -/
@@ -800,11 +803,27 @@ theorem isCounterShapeLowerable_paramAbiWords_empty
     (isCounterShapeLowerable_flags m h).2.2.2.2.2.2
   -- all (size == 0) = true and membership ⇒ size = 0
   have hall :
-      (m.entrypoints.toList.all (fun e => e.paramAbiWords.size == 0)) = true := by
+      (m.entrypoints.toList.all (fun e => e.paramAbiWords.size == 0 && e.returnAbiWord?.isNone)) = true := by
     simpa [counterEntrypointsMetadataPinned] using hmeta
-  have hsize : (ep.paramAbiWords.size == 0) = true :=
-    List.all_eq_true.mp hall ep hep
+  have he := List.all_eq_true.mp hall ep hep
+  simp only [Bool.and_eq_true] at he
+  have hsize : (ep.paramAbiWords.size == 0) = true := he.1
   exact Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp hsize)
+
+theorem isCounterShapeLowerable_returnAbiWord_none
+    (m : Module) (h : isCounterShapeLowerable m = true)
+    (ep : Entrypoint) (hep : ep ∈ m.entrypoints.toList) :
+    ep.returnAbiWord? = none := by
+  have hmeta : counterEntrypointsMetadataPinned m.entrypoints.toList = true :=
+    (isCounterShapeLowerable_flags m h).2.2.2.2.2.2
+  have hall :
+      (m.entrypoints.toList.all (fun e => e.paramAbiWords.size == 0 && e.returnAbiWord?.isNone)) = true := by
+    simpa [counterEntrypointsMetadataPinned] using hmeta
+  have he := List.all_eq_true.mp hall ep hep
+  simp only [Bool.and_eq_true] at he
+  cases hreturn : ep.returnAbiWord? with
+  | none => rfl
+  | some _ => simp [hreturn] at he
 
 /-- PF-P3-01: entrypoints array is exactly the canonical Counter triple. -/
 theorem isCounterShapeLowerable_entrypoints_array
@@ -815,9 +834,12 @@ theorem isCounterShapeLowerable_entrypoints_array
   have p0 := isCounterShapeLowerable_paramAbiWords_empty m h e0 (by simp [heps])
   have p1 := isCounterShapeLowerable_paramAbiWords_empty m h e1 (by simp [heps])
   have p2 := isCounterShapeLowerable_paramAbiWords_empty m h e2 (by simp [heps])
-  have e0eq := isCounterInitializeEntrypoint_eq e0 h0 p0
-  have e1eq := isCounterIncrementEntrypoint_eq e1 h1 p1
-  have e2eq := isCounterGetEntrypoint_eq e2 h2 p2
+  have r0 := isCounterShapeLowerable_returnAbiWord_none m h e0 (by simp [heps])
+  have r1 := isCounterShapeLowerable_returnAbiWord_none m h e1 (by simp [heps])
+  have r2 := isCounterShapeLowerable_returnAbiWord_none m h e2 (by simp [heps])
+  have e0eq := isCounterInitializeEntrypoint_eq e0 h0 p0 r0
+  have e1eq := isCounterIncrementEntrypoint_eq e1 h1 p1 r1
+  have e2eq := isCounterGetEntrypoint_eq e2 h2 p2 r2
   have hlist :
       m.entrypoints.toList =
         [counterInitializeEntrypoint, counterIncrementEntrypoint, counterGetEntrypoint] := by

@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Layout
+import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.HostBridge
 
@@ -25,6 +26,8 @@ structure Ctx where
   crosscallStrings : Array StringInfo
   structs : Array ProofForge.IR.StructDecl
   allocator : ProofForge.IR.AllocatorConfig
+  entrypointAbis : Array ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan := #[]
+  usesHashAlloc : Bool := false
   /-- Host bridge selects native crosscall materialization
   (NEAR `promise_create` vs Soroban `invoke_contract`). Defaults to NEAR. -/
   bridge : ProofForge.Target.HostBridge := .near

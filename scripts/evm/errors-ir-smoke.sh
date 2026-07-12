@@ -50,6 +50,7 @@ python3 "$ROOT/scripts/evm/validate-artifact-metadata.py" \
   --expect-entrypoint revertWithErrorRef:b34aafd2 \
   --expect-entrypoint revertCustomError:c5159795 \
   --expect-entrypoint revertCustomErrorArgs:1cff28dd \
+  --expect-entrypoint revertCustomErrorRuntimeArgs:071d5f52 \
   --expect-entrypoint guardedRevert:0ff6ea62 \
   --expect-entrypoint conditionalRevert:194fd609 \
   --expect-entrypoint normalPath:a3f05111 \
@@ -170,6 +171,23 @@ contract ProofForgeIRErrorsSmokeTest {
         require(sel == bytes4(0x9432a7ee), "unexpected InsufficientBalance selector");
         require(available == 9007199254740993, "available arg word mismatch");
         require(required == 3, "required arg word mismatch");
+    }
+
+    function test_revertCustomErrorRuntimeArgs_exact_payload() public {
+        uint64 availableInput = 0x0102030405060708;
+        uint64 requiredInput = 0x1112131415161718;
+        (bool ok, bytes memory ret) = PROBE.call(
+            abi.encodeWithSignature(
+                "revertCustomErrorRuntimeArgs(uint64,uint64)",
+                availableInput,
+                requiredInput
+            )
+        );
+        assertFalse(ok);
+        bytes memory expected = abi.encodeWithSelector(
+            bytes4(0x9432a7ee), availableInput, requiredInput
+        );
+        require(keccak256(ret) == keccak256(expected), "runtime custom error payload mismatch");
     }
 
     function test_guardedRevert_false_reverts() public {

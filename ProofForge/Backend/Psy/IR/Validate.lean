@@ -21,6 +21,8 @@ mutual
     | .literal (.u128 _) => .error { message := "Psy IR v0 does not support U128 literals" }
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.bytes _) => .ok .bytes
+    | .literal (.string _) => .ok .string
     | .literal (.u8 _) => .ok .u8
     | .literal (.address _) => .ok .address
     | .local name =>
@@ -271,6 +273,11 @@ mutual
         let actualKey ← inferExprType module env key
         ensureType s!"map `{stateId}` key" keyType actualKey
         .ok valueType
+    | .storageMapDelete stateId key => do
+        let (keyType, valueType) ← mapStateTypes module stateId
+        let actualKey ← inferExprType module env key
+        ensureType s!"map `{stateId}` key" keyType actualKey
+        .ok valueType
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         let actualKey ← inferExprType module env key
@@ -334,7 +341,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Psy" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on Psy" }
 end
 
@@ -388,6 +395,10 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ =>
       .error { message := "storage.map.get must be used as an expression" }
+  | .storageMapDelete stateId key => do
+      let (keyType, _) ← mapStateTypes module stateId
+      let actualKey ← inferExprType module env key
+      ensureType s!"map `{stateId}` key" keyType actualKey
   | .storageMapInsert stateId key value => do
       let (keyType, valueType) ← mapStateTypes module stateId
       let actualKey ← inferExprType module env key
@@ -464,7 +475,7 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
   | .checkErc1155Received _ _ _ _ _ =>
       .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+  | .checkErc1155BatchReceived _ _ _ _ _ =>
       .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported" }
 
 mutual

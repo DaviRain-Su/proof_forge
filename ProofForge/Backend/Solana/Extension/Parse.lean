@@ -163,11 +163,11 @@ def DeclaredAccount.merge (existing incoming : DeclaredAccount) : DeclaredAccoun
 
 def ProgramExtensions.pushAccountDefinition (acc : ProgramExtensions)
     (account : DeclaredAccount) : ProgramExtensions :=
-  let account := account.definition
-  if acc.accounts.any (fun existing => existing.name == account.name) then
+  if acc.accounts.any (fun existing =>
+      existing.name == account.name && existing.entrypoint? == account.entrypoint?) then
     { acc with
       accounts := acc.accounts.map fun existing =>
-        if existing.name == account.name then
+        if existing.name == account.name && existing.entrypoint? == account.entrypoint? then
           existing.merge account
         else
           existing }

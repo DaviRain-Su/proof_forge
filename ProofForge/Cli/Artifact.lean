@@ -147,7 +147,9 @@ def writeNearContractSidecars
     IO.FS.createDirAll parent
   IO.FS.writeFile specOutput (ProofForge.Contract.Spec.Json.render spec ++ "\n")
   IO.println s!"wrote {specOutput}"
-  let nearClient := ProofForge.Contract.Client.renderNearWrapper spec ++ "\n"
+  let nearClient <- match ProofForge.Contract.Client.renderNearWrapperChecked spec with
+    | .ok client => pure (client ++ "\n")
+    | .error error => throw <| IO.userError s!"NEAR client ABI: {error}"
   if let some parent := nearClientOutput.parent then
     IO.FS.createDirAll parent
   IO.FS.writeFile nearClientOutput nearClient

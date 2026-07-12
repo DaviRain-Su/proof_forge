@@ -14,8 +14,8 @@ for the off-chain reinterpretation of capabilities.
 - **CosmWasm:** Counter MVP six-gate (`just cosmwasm-promotion`); portable remote
   still uses a WasmMsg-shaped `execute_msg` **stub**;
   Gate G1a (M3/M4) is **not started**.
-- **Soroban:** host adapter spike; interpreter auth is always-authorised until
-  real Env auth lands.
+- **Soroban:** Counter MVP host adapter (`PF-P3-02` six-gate); interpreter auth
+  is always-authorised until real Env auth lands.
 - **Cloudflare Workers:** research / off-chain only.
 
 ## Common Shape

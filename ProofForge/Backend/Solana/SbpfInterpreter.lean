@@ -1029,6 +1029,8 @@ def initialMemory (module : Module) (baseMemory : Memory) (call : TraceCall) :
     |>.write accountLayout.writableOff 1
     |>.write schema.inputLayout.instructionDataLenOff (instructionDataMinLen call.entrypoint)
   let mut memory := memory
+  for layout in schema.inputLayout.accounts do
+    memory := memory.write layout.accountStart 0xff
   for byte in discriminator, idx in [0:discriminator.size] do
     memory := memory.write (schema.inputLayout.instructionDataOff + idx) byte
   let memoryWithArgs ← writeCallArgs memory schema.inputLayout.instructionDataOff call

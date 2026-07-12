@@ -20,6 +20,8 @@ open ProofForge.Target
 they are consumed by the plan builder to set surface flags and import names. -/
 inductive NearOpPlan
   | promiseCreate
+  | promiseResultsCount
+  | promiseResultStatus
   | promiseResultU64
   deriving Repr, BEq
 
@@ -38,6 +40,9 @@ def promiseResultU64Id : HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
+def promiseResultsCountId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id
+def promiseResultStatusId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id
+
 /-- A registry with only the `near.promise.create@1.0.0` handler. -/
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
   do
@@ -46,11 +51,17 @@ def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
     id := promiseCreateId,
     lower := #[NearOpPlan.promiseCreate]
   }
-  HostOpRegistry.register registry {
+  let registry ← HostOpRegistry.register registry {
     targetId := "wasm-near",
     id := promiseResultU64Id,
     lower := #[NearOpPlan.promiseResultU64]
   }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := promiseResultsCountId,
+    lower := #[NearOpPlan.promiseResultsCount] }
+  HostOpRegistry.register registry {
+    targetId := "wasm-near", id := promiseResultStatusId,
+    lower := #[NearOpPlan.promiseResultStatus] }
 
 /-- Check whether a host-op ID has a handler for `wasm-near`. -/
 def hasNearHandler (id : HostOpId) : Bool :=

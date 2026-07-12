@@ -84,6 +84,28 @@ def entryRevertCustomErrorArgs : Entrypoint := {
   ]
 }
 
+/-- E1.2: Solidity custom error with runtime expression args —
+    `error InsufficientBalance(uint64,uint64)` → selector `0x9432a7ee`.
+    Uses `solidityArgExprs` instead of `solidityArgWords` so the revert carries
+    runtime-evaluated values (storage reads) rather than compile-time literals.
+    Entrypoint selector is `revertCustomErrorRuntimeArgs(uint64,uint64)`. -/
+def entryRevertCustomErrorRuntimeArgs : Entrypoint := {
+  name := "revertCustomErrorRuntimeArgs"
+  selector? := some "071d5f52"  -- cast sig revertCustomErrorRuntimeArgs(uint64,uint64)
+  params := #[("available", .u64), ("required", .u64)]
+  paramAbiWords := #[some "uint64", some "uint64"]
+  returns := .unit
+  body := #[
+    .revertWithError {
+      assertionId := 8
+      userCode? := some "InsufficientBalance"
+      soliditySelector? := some "9432a7ee"
+      solidityArgTypes := #["uint64", "uint64"]
+      solidityArgExprs := #[.local "available", .local "required"]
+    }
+  ]
+}
+
 def entryGuardedRevert : Entrypoint := {
   name := "guardedRevert"
   selector? := some "0ff6ea62"
@@ -126,6 +148,7 @@ def module : Module := {
     entryRevertWithErrorRef,
     entryRevertCustomError,
     entryRevertCustomErrorArgs,
+    entryRevertCustomErrorRuntimeArgs,
     entryGuardedRevert,
     entryConditionalRevert,
     entryNormalPath

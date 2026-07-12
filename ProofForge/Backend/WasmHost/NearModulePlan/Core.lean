@@ -182,6 +182,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     scalarReadTypes
     scalarWriteTypes
     returnTypes
+    usesInputParams := m.functions.any (fun function => !function.params.isEmpty)
     usesNativeValue
     usesStorageRead
     usesStorageWrite
@@ -211,7 +212,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
     usesPromiseResults := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .hostCall call => call.id == HostOps.promiseResultU64Id | _ => false
+        | .hostCall call => call.id == HostOps.promiseResultU64Id ||
+            call.id == HostOps.promiseResultsCountId || call.id == HostOps.promiseResultStatusId | _ => false
     usesPromiseResultU64 := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .hostCall call => call.id == HostOps.promiseResultU64Id | _ => false
@@ -413,6 +415,14 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         unless call.args.size == 1 do
           throw { message := "near.promise.result_u64@1.0.0 requires one argument" }
         return .promiseResultU64 (<- nearResult instr) (nearValue call.args[0]!)
+      else if call.id == HostOps.promiseResultsCountId then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseResultsCount] && call.args.isEmpty do
+          throw { message := "near.promise.results_count@1.0.0 requires no arguments" }
+        return .promiseResultsCount (<- nearResult instr)
+      else if call.id == HostOps.promiseResultStatusId then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseResultStatus] && call.args.size == 1 do
+          throw { message := "near.promise.result_status@1.0.0 requires one argument" }
+        return .promiseResultStatus (<- nearResult instr) (nearValue call.args[0]!)
       else
         throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
   | .crosscall spec args =>
@@ -500,6 +510,29 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let layout <- coreLayout m checked.contract.materialization
   /- Build surface from Core module and interface. -/
   let surface := coreSurface m
+  let entrypointAbis ← iface.entrypoints.mapM fun entrypoint => do
+    let mut offset := 0
+    let mut params := #[]
+    for param in entrypoint.params do
+      let type := coreTypeToValueType param.type
+      let width ← match NearAbiPlan.borshByteWidth #[] type with
+        | .ok width => pure width
+        | .error message => throw { message }
+      params := params.push {
+        name? := some param.name, type, offset, byteWidth := width }
+      offset := offset + width
+    let returnType := coreTypeToValueType entrypoint.retType
+    let outputByteWidth ← match NearAbiPlan.borshByteWidth #[] returnType with
+      | .ok width => pure width
+      | .error message => throw { message }
+    pure {
+      name := entrypoint.name
+      inputCodec := .borsh
+      outputCodec := .borsh
+      params
+      inputByteWidth := offset
+      returnType
+      outputByteWidth }
   let functions <- m.functions.mapM (lowerNearFunction iface checked.contract.materialization)
   .ok {
     moduleName := iface.contractName
@@ -507,6 +540,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     artifactKind := "wasm-wat"
     irVersion := "canonical-core-v1"
     surface
+    entrypointAbis
     layout
     functions
     lowerCtxSeed := coreLowerCtxSeed

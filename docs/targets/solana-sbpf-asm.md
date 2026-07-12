@@ -132,7 +132,7 @@ behavior.
 | PDA (`sol_create_program_address`, `sol_try_find_program_address`) | SDK metadata and helper emission exist; typed seed descriptors cover literal/UTF-8 bytes, account pubkeys, bump seeds, and scalar instruction-data seeds; Solana `Slice { ptr, len }` tables are packed before `sol_create_program_address`; derived pubkeys can be validated against declared PDA accounts; assembly builds; the Rust PDA derivation smoke validates `typedSeeds` against `Address::find_program_address` and `Address::create_program_address` | Add `sol_try_find_program_address` support |
 | CPI (`sol_invoke_signed_c`, `sol_invoke_signed_rust`) | SDK metadata + extension helpers pack C `SolInstruction` + metas/infos; **portable** `crosscall.invoke` uses a dedicated frame: **stack metas** + **heap infos** at `HEAP_START_ADDRESS` (`0x300000000`), forwarding up to `MAX_PORTABLE_CPI_ACCOUNTS` = **64** (= tx account locks). Account pointer table holds 64 slots. Schema sizes above the cap are rejected at lower time. Source.Solana hand-tuned CPI keeps the legacy Extension offsets. | Pinocchio live CI; remaining SPL live-equivalence; optional bump allocator start above portable CPI heap reserve |
 | Sysvars (`sol_get_clock_sysvar`, `sol_get_rent_sysvar`, `sol_get_epoch_schedule_sysvar`, `sol_get_epoch_rewards_sysvar`, `sol_get_sysvar`) | Clock.slot, Rent.lamports_per_byte_year, EpochSchedule's five RPC-exposed fields, EpochRewards' scalar/word-view fields, and feature-gated LastRestartSlot.last_restart_slot are exposed as Solana-only SDK target-extension helpers, route through capability metadata, render manifest/artifact action metadata, build to ELF, and have Surfpool/Rust smoke coverage | Add generic account-passed sysvar reads, plus Rust/Pinocchio reference comparisons |
-| Account schema | Module-wide multi-account schemas are generated from state/PDA/CPI declarations plus explicit typed account declarations; manifest, artifact JSON (`solanaExtensions.accounts`), fixed `INSTRUCTION_DATA` offsets, and signer/writable/program-owner validation use the same schema | Replace the module-wide fixed schema with dynamic per-entrypoint account parsing before dispatch |
+| Account schema | Each entrypoint carries its own least-privilege account graph through the semantic plan, manifest, IDL, generated client, validation, and helper lowering. The runtime decoder accepts Solana duplicate-account aliases, scans the actual account count dynamically, and each handler rejects counts that do not exactly match its graph. A module union remains only for shared dispatch/table capacity and top-level compatibility metadata. | Add pinned live CPI coverage for every SDK account-graph family and support explicitly scoped labels when one helper definition is intentionally shared by different entrypoint ABIs |
 | Runtime allocator | SDK metadata, target routing, manifest output, artifact JSON, and assembly metadata comments exist for Solana's default bump allocator and `noAllocator` | Lower actual dynamic allocation / heap-backed data structures through the selected allocator model |
 | Logs/events (`sol_log_`, `sol_log_64_`, `sol_log_pubkey`, `sol_log_data`) | Phase 1 scalar `events.emit` lowers to `sol_log_64_`; Solana-only `logAccountPubkey` entrypoint actions lower account pubkey pointers to `sol_log_pubkey`; Solana-only `logStateData` actions pack a `SolBytes` slice table and lower state-backed payloads through `sol_log_data`; Surfpool/Rust verifies transaction logs contain a stable event tag, scalar field value, base58 account pubkey, and base64 `Program data:` payload | Extend to `sol_log_` string payloads, Anchor-style discriminator/Borsh events, and indexed fields |
 | Memory (`sol_memcpy_`, `sol_memmove_`, `sol_memset_`, `sol_memcmp_`) | `runtime.memory` target extension lowers entrypoint actions to `sol_memcpy_`, `sol_memmove_`, `sol_memcmp_`, and `sol_memset_`; Surfpool/Rust verifies account byte effects | Use memory helpers for broader account/data packing and compare against Rust/Pinocchio fixtures |
@@ -477,10 +477,12 @@ Current CPI/PDA lowering pattern:
    `sol_cpi_<name>`).
 3. In entrypoint handlers with scoped SDK actions, call the helper and branch
    to `error_pda` / `error_cpi` when `r0 != 0`.
-4. Build a module-wide multi-account instruction schema from state, PDA, CPI
-   accounts, and executable CPI program accounts. This schema is used by
-   `manifest.toml`, `proof-forge-artifact.json`, fixed instruction-data offset
-   computation, and generated signer/writable/program-owner validation.
+4. Build a least-privilege account graph for every entrypoint from state, PDA,
+   CPI, metadata-source, and executable-program roles. The per-entrypoint graph
+   is the shared input to `manifest.toml`, `proof-forge-artifact.json`, IDL,
+   clients, runtime count checks, signer/writable/owner validation, state
+   offsets, and PDA/CPI helper bindings. A module union is retained only where
+   shared dispatcher capacity or top-level compatibility metadata requires it.
 5. Build `manifest.toml` and artifact metadata with both extension definitions
    and entrypoint action lists.
 
@@ -536,14 +538,14 @@ before SDK helper calls and exposes the same absolute input offsets to CPI value
 binding, so helpers can pack fields such as SPL Token `amount` directly from
 user instruction data. `manifest.toml` and `proof-forge-artifact.json` record
 each instruction's `min_data_len`/`minDataLen` plus parameter name, type, offset,
-byte size, and encoding. The module-wide helper table only binds a parameter
-name when all occurrences share the same offset; duplicate names at conflicting
-offsets are intentionally left unbound until per-entrypoint helper
-specialization lands.
+byte size, and encoding. Extension helpers are lowered against the calling
+entrypoint's account and state layout; a helper name reused by multiple
+entrypoints with potentially different ABIs is rejected until the caller gives
+those helpers distinct names.
 
-Remaining work: add dynamic per-entrypoint account parsing, richer
-aggregate/string/bytes instruction ABI decoding, return-data decoding, and
-runtime tests that exercise live CPI paths.
+Remaining work: add richer aggregate/string/bytes instruction ABI decoding,
+return-data decoding, broader pinned live CPI coverage, and scoped helper labels
+for intentionally shared helper definitions.
 
 PDA helper lowering:
 1. Allocate stack space for seed data + result buffer (32 byte).

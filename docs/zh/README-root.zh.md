@@ -33,7 +33,7 @@ level）由 `proof-forge --list-targets --json` 生成到
 所有后端都在 `main` 上（"链"是目录和 target id，不是分支）。生命周期阶段见
 [docs/targets/README.md](../targets/README.md)。
 主三链 P0 后端门禁规约 (D-045) 已关闭，但 SDK 深度尚未完成：当前差距清单仍有
-**3 个开放 P0 SDK blocker**（EVM 1 个、NEAR 2 个；Solana 0 个）。通过 portable
+**2 个开放 P0 SDK blocker**（均在 NEAR；EVM 和 Solana 均为 0 个）。通过 portable
 Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具有
 统一 SDK schema/layout 输出。三链 portable 场景
 （Counter、ValueVault）可通过 `just portable-counter-multi-target` 和
@@ -49,7 +49,7 @@ Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具�
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just cosmwasm-promotion`（产品 Counter · offline-host 0→1 · 无 NEAR 偷换）；`execute_msg` 仍为 stub；fixture `cosmwasm-check` 见 `just cosmwasm-counter-smoke` |
 | `move-aptos` | portable IR → Aptos Move 源码包 | Counter sourcegen Spike | fixture Counter 包 + capability 检查；`just aptos-promotion` 是严格晋级门，要求 `aptos move compile/test`，不作为默认最终制品证据 |
 | `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
-| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Experimental（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
+| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
 | `aleo-leo` | portable IR → Leo 源码包 | Research sourcegen | 已验证 pure、Unit-final 和状态无关 `(T, Final)` 子集；保序 Poseidon pair hash、record 语义和 plan 派生 metadata；Leo 4.0.2 下依赖状态的非 Unit 返回会 fail closed |
 | `wasm-cloudflare-workers` | portable IR → TypeScript Worker | 链下 Research sourcegen | 仅 fixture Counter TS；产品源 fail closed；晋级要求 Wrangler dry-run 成功并执行 Worker 生命周期；非 Wasm 二进制 |
 
@@ -216,8 +216,8 @@ Phase 2+: 并行后端 spike                   （Solana、NEAR、Psy 已在 mai
 Phase 3:  三链 P0 后端门禁                  （完成——Counter + ValueVault
                                             在 evm + solana-sbpf-asm +
                                             wasm-near 上可移植）
-当前:     3 个开放 P0 SDK blocker——EVM typed runtime custom-error args；
-          NEAR 参数化 TokenSpec runtime + NEP-145 refund guard；
+当前:     2 个开放 P0 SDK blocker——NEAR 参数化 TokenSpec runtime +
+          NEP-145 predecessor refund Promise；
           随后推进 P1 深度和形式化验证（Workstream 25）
 之后:     Move 家族（Aptos 优先）、云平台（两个以上目标达到
           Experimental 且 shared-scenario 对齐后；D-010）

@@ -158,10 +158,41 @@ def inputAccountFieldPtr (dst : Reg) (layout : AccountInputLayout) (absOff : Nat
     .instruction { opcode := .add64, dst := some dst, imm := some (.num (absOff - layout.accountStart)) }
   ]
 
-def lowerAccountScanStep (labelPrefix : String) (idx : Nat) : Array AstNode :=
-  let alignedLabel := s!"{labelPrefix}_account_scan_{idx}_aligned"
-  stackPtr .r6 accountPtrTableOffset ++ #[
-    .instruction { opcode := .stxdw, dst := some .r6, off := some (.num (idx * 8)), src := some .r3 },
+def lowerAccountPtrTableSetup (labelPrefix : String) (maxAccountCount : Nat) : Array AstNode :=
+  let loopLabel := s!"{labelPrefix}_account_scan_loop"
+  let uniqueLabel := s!"{labelPrefix}_account_scan_unique"
+  let alignedLabel := s!"{labelPrefix}_account_scan_aligned"
+  let nextLabel := s!"{labelPrefix}_account_scan_next"
+  let doneLabel := s!"{labelPrefix}_account_scan_done"
+  #[
+    .comment "scan runtime Solana input account pointers into current stack frame",
+    .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 0) },
+    .instruction { opcode := .jgt, dst := some .r2, imm := some (.num maxAccountCount), off := some (.sym "error_account_count") },
+    .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
+    .instruction { opcode := .add64, dst := some .r3, imm := some (.num U64_SIZE) },
+    .instruction { opcode := .mov64, dst := some .r7, imm := some (.num 0) },
+    .label loopLabel,
+    .instruction { opcode := .jge, dst := some .r7, src := some .r2, off := some (.sym doneLabel) },
+    .instruction { opcode := .ldxb, dst := some .r4, src := some .r3, off := some (.num 0) },
+    .instruction { opcode := .jeq, dst := some .r4, imm := some (.num 0xff), off := some (.sym uniqueLabel) },
+    .instruction { opcode := .jge, dst := some .r4, src := some .r7, off := some (.sym "error_duplicate_account") },
+    .instruction { opcode := .lsh64, dst := some .r4, imm := some (.num 3) }
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
+    .instruction { opcode := .add64, dst := some .r6, src := some .r4 },
+    .instruction { opcode := .ldxdw, dst := some .r4, src := some .r6, off := some (.num 0) },
+    .instruction { opcode := .mov64, dst := some .r5, src := some .r7 },
+    .instruction { opcode := .lsh64, dst := some .r5, imm := some (.num 3) }
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
+    .instruction { opcode := .add64, dst := some .r6, src := some .r5 },
+    .instruction { opcode := .stxdw, dst := some .r6, off := some (.num 0), src := some .r4 },
+    .instruction { opcode := .add64, dst := some .r3, imm := some (.num U64_SIZE) },
+    .instruction { opcode := .ja, off := some (.sym nextLabel) },
+    .label uniqueLabel,
+    .instruction { opcode := .mov64, dst := some .r5, src := some .r7 },
+    .instruction { opcode := .lsh64, dst := some .r5, imm := some (.num 3) }
+  ] ++ stackPtr .r6 accountPtrTableOffset ++ #[
+    .instruction { opcode := .add64, dst := some .r6, src := some .r5 },
+    .instruction { opcode := .stxdw, dst := some .r6, off := some (.num 0), src := some .r3 },
     .instruction { opcode := .ldxdw, dst := some .r4, src := some .r3, off := some (.num 80) },
     .instruction { opcode := .add64, dst := some .r3, imm := some (.num 88) },
     .instruction { opcode := .add64, dst := some .r3, src := some .r4 },
@@ -173,17 +204,12 @@ def lowerAccountScanStep (labelPrefix : String) (idx : Nat) : Array AstNode :=
     .instruction { opcode := .mov64, dst := some .r6, imm := some (.num 8) },
     .instruction { opcode := .sub64, dst := some .r6, src := some .r5 },
     .instruction { opcode := .add64, dst := some .r3, src := some .r6 },
-    .label alignedLabel
+    .label alignedLabel,
+    .label nextLabel,
+    .instruction { opcode := .add64, dst := some .r7, imm := some (.num 1) },
+    .instruction { opcode := .ja, off := some (.sym loopLabel) },
+    .label doneLabel
   ]
-
-def lowerAccountPtrTableSetup (labelPrefix : String) (accountCount : Nat) : Array AstNode :=
-  let scanSteps :=
-    (List.range accountCount).foldl (fun acc idx => acc ++ lowerAccountScanStep labelPrefix idx) #[]
-  #[
-    .comment "scan Solana input account pointers into current stack frame",
-    .instruction { opcode := .mov64, dst := some .r3, src := some .r1 },
-    .instruction { opcode := .add64, dst := some .r3, imm := some (.num U64_SIZE) }
-  ] ++ scanSteps
 
 def stringBytes (value : String) : Array Nat :=
   value.toList.foldl (fun acc ch => acc.push ch.toNat) #[]

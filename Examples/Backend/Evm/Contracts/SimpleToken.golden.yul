@@ -6,11 +6,11 @@ object "SimpleToken" {
       mstore(0, _r)
       return(0, 32)
     }
-    case 0xd23e8489 {
+    case 0xf2fde38b {
       if lt(calldatasize(), 36) {
         revert(0, 0)
       }
-      if gt(calldataload(4), 18446744073709551615) {
+      if gt(calldataload(4), 1461501637330902918203684832716283019655932542975) {
         revert(0, 0)
       }
       f_SimpleToken_transferOwnership(calldataload(4))
@@ -148,19 +148,35 @@ object "SimpleToken" {
       if iszero(iszero(eq(newOwner, 0))) {
         revert(0, 0)
       }
+      {
+        mstore(0, 35943731765892510050589367655672536643328569156915554301577312365719383532644)
+        mstore(32, 51742913097576536687416843347501904736222912990880608286633430183482035798016)
+        let __pf_event_topic0 := keccak256(0, 37)
+        let __pf_event_indexed_topic0 := and(shr(0, sload(0)), 18446744073709551615)
+        let __pf_event_indexed_topic1 := newOwner
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
+      }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(newOwner, 18446744073709551615))))
     }
     function f_SimpleToken_renounceOwnership() {
       if iszero(eq(caller(), and(shr(0, sload(0)), 18446744073709551615))) {
         revert(0, 0)
       }
+      {
+        mstore(0, 35943731765892510050589367655672536643328569156915554301577312365719383532644)
+        mstore(32, 51742913097576536687416843347501904736222912990880608286633430183482035798016)
+        let __pf_event_topic0 := keccak256(0, 37)
+        let __pf_event_indexed_topic0 := and(shr(0, sload(0)), 18446744073709551615)
+        let __pf_event_indexed_topic1 := 0
+        log3(0, 0, __pf_event_topic0, __pf_event_indexed_topic0, __pf_event_indexed_topic1)
+      }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
     }
     function f_SimpleToken_totalSupply() -> __pf_result {
-      __pf_result := and(shr(64, sload(0)), 18446744073709551615)
+      __pf_result := and(shr(128, sload(0)), 18446744073709551615)
     }
     function f_SimpleToken_decimals() -> __pf_result {
-      __pf_result := and(shr(128, sload(0)), 18446744073709551615)
+      __pf_result := and(shr(192, sload(0)), 18446744073709551615)
     }
     function f_SimpleToken_balanceOf(who) -> __pf_result {
       __pf_result := sload(__proof_forge_map_slot(1, who))
@@ -247,13 +263,13 @@ object "SimpleToken" {
       if iszero(iszero(eq(recipient, 0))) {
         revert(0, 0)
       }
-      let ts := and(shr(64, sload(0)), 18446744073709551615)
+      let ts := and(shr(128, sload(0)), 18446744073709551615)
       {
         let __pf_packed_value := __pf_checked_width(__pf_checked_add(__pf_checked_width(ts, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
         if gt(__pf_packed_value, 18446744073709551615) {
           revert(0, 0)
         }
-        sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(__pf_packed_value, 18446744073709551615))))
+        sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, and(__pf_packed_value, 18446744073709551615))))
       }
       let bal := sload(__proof_forge_map_slot(1, recipient))
       __proof_forge_map_write(1, recipient, __pf_checked_add(bal, amount))
@@ -275,13 +291,13 @@ object "SimpleToken" {
         revert(0, 0)
       }
       __proof_forge_map_write(1, who, __pf_checked_sub(bal, amount))
-      let ts := and(shr(64, sload(0)), 18446744073709551615)
+      let ts := and(shr(128, sload(0)), 18446744073709551615)
       {
         let __pf_packed_value := __pf_checked_width(__pf_checked_sub(__pf_checked_width(ts, 18446744073709551615), __pf_checked_width(amount, 18446744073709551615)), 18446744073709551615)
         if gt(__pf_packed_value, 18446744073709551615) {
           revert(0, 0)
         }
-        sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(__pf_packed_value, 18446744073709551615))))
+        sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, and(__pf_packed_value, 18446744073709551615))))
       }
       {
         mstore(0, 38196372293521921433607444633801509737016894376733792893611070291108288410934)
@@ -299,8 +315,8 @@ object "SimpleToken" {
         revert(0, 0)
       }
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(caller(), 18446744073709551615))))
-      sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, and(18, 18446744073709551615))))
-      sstore(0, or(and(sload(0), not(shl(64, 18446744073709551615))), shl(64, and(supply, 18446744073709551615))))
+      sstore(0, or(and(sload(0), not(shl(192, 18446744073709551615))), shl(192, and(18, 18446744073709551615))))
+      sstore(0, or(and(sload(0), not(shl(128, 18446744073709551615))), shl(128, and(supply, 18446744073709551615))))
       let who := caller()
       __proof_forge_map_write(1, who, supply)
     }

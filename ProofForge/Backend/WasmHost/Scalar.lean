@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.IR.Contract
+import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -18,6 +19,7 @@ namespace ProofForge.Backend.WasmHost.Scalar
 
 open ProofForge.IR
 open ProofForge.Compiler.Wasm
+open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Diagnostics
 open ProofForge.Backend.WasmHost.Hash
 open ProofForge.Backend.WasmHost.Layout
@@ -192,7 +194,7 @@ mutual
             | .index e | .mapKey e => exprReadsPackedScalar scalars e
             | .field _ => false)
     | .storageScalarWrite _ v => exprReadsPackedScalar scalars v
-    | .storageMapContains _ k | .storageMapGet _ k => exprReadsPackedScalar scalars k
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => exprReadsPackedScalar scalars k
     | .storageMapInsert _ k v | .storageMapSet _ k v =>
         exprReadsPackedScalar scalars k || exprReadsPackedScalar scalars v
     | .storageArrayRead _ i | .storageArrayStructFieldRead _ i _ =>
@@ -223,10 +225,10 @@ mutual
           exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
           exprReadsPackedScalar scalars e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
+    | .checkErc1155BatchReceived a b c d e =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
           exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
-          exprReadsPackedScalar scalars e || exprReadsPackedScalar scalars f || exprReadsPackedScalar scalars g
+          exprReadsPackedScalar scalars e
 
   partial def stmtReadsPackedScalar (scalars : Array StateInfo) : Statement → Bool
     | .letBind _ _ e | .letMutBind _ _ e | .assign _ e | .assignOp _ _ e | .return e =>
@@ -433,6 +435,116 @@ def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
           .i32Const RET_BUF, .localGet "v", .store "i32.store8" 0,
           .i64Const 1, .i64Const RET_BUF, .call "value_return" ] } }
 
+/-- `__pf_return_u128(ptr)`: Borsh U128 return. Reads 16 bytes from the i32 pointer
+    and writes them to RET_BUF, then calls `value_return(16, RET_BUF)`. -/
+def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .cosmWasm =>
+      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+        body := { insns := #[
+          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i32Const RET_BUF, .i32Const 16, .call "set_return_data" ] } }
+  | _ =>
+      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+        body := { insns := #[
+          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i64Const 16, .i64Const RET_BUF, .call "value_return" ] } }
+
+/-- `__pf_return_bytes(ptr)`: Borsh dynamic return. The buffer at `ptr` has a
+4-byte LE length prefix at `ptr - 4`, followed by the payload. Computes
+`total = 4 + len` and calls `value_return(total, ptr - 4)`. -/
+def returnBytesFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .cosmWasm =>
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+        body := { insns := #[
+          .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
+          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .i64Const 4, .plain "i64.add",
+          .localGet "ptr", .plain "i64.extend_i32_u",
+          .call "set_return_data" ] } }
+  | _ =>
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+        body := { insns := #[
+          .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
+          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .i64Const 4, .plain "i64.add",
+          .localGet "ptr", .plain "i64.extend_i32_u",
+          .call "value_return" ] } }
+
+/-- U128 arithmetic helper names. U128 is represented as two i64 values (lo, hi). -/
+
+def u128AddName : String := "__pf_u128_add"
+def u128SubName : String := "__pf_u128_sub"
+def u128MulName : String := "__pf_u128_mul"
+
+/-- `__pf_u128_add(alo, ahi, blo, bhi)`: returns (lo, hi) = a + b with carry. -/
+def u128AddFunc : Func :=
+  { name := u128AddName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i64, .i64],
+    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
+               { name := "carry", type := .i64 }],
+    body := { insns := #[
+      .localGet "alo", .localGet "blo", .plain "i64.add", .localSet "lo",
+      .localGet "lo", .localGet "alo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
+      .i64Const 1, .plain "i64.and", .localSet "carry",
+      .localGet "ahi", .localGet "bhi", .plain "i64.add", .localGet "carry", .plain "i64.add", .localSet "hi",
+      .localGet "lo", .localGet "hi"
+    ] } }
+
+/-- `__pf_u128_sub(alo, ahi, blo, bhi)`: returns (lo, hi) = a - b with borrow. -/
+def u128SubFunc : Func :=
+  { name := u128SubName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i64, .i64],
+    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
+               { name := "borrow", type := .i64 }],
+    body := { insns := #[
+      .localGet "alo", .localGet "blo", .plain "i64.sub", .localSet "lo",
+      .localGet "alo", .localGet "blo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
+      .i64Const 1, .plain "i64.and", .localSet "borrow",
+      .localGet "ahi", .localGet "bhi", .plain "i64.sub", .localGet "borrow", .plain "i64.sub", .localSet "hi",
+      .localGet "lo", .localGet "hi"
+    ] } }
+
+/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: returns (lo, hi) = a * b.
+    Simplified: only computes lo = alo * blo, hi = alo * bhi + ahi * blo (cross terms).
+    Full 128-bit mul would need 192-bit intermediates; this handles common cases. -/
+def u128MulFunc : Func :=
+  { name := u128MulName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i64, .i64],
+    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    body := { insns := #[
+      .localGet "alo", .localGet "blo", .plain "i64.mul", .localSet "lo",
+      .localGet "alo", .localGet "bhi", .plain "i64.mul",
+      .localGet "ahi", .localGet "blo", .plain "i64.mul",
+      .plain "i64.add", .localSet "hi",
+      .localGet "lo", .localGet "hi"
+    ] } }
+
+def u128EqName : String := "__pf_u128_eq"
+
+/-- `__pf_u128_eq(alo, ahi, blo, bhi)`: returns i32 (1 if equal, 0 otherwise).
+    Uses: hi_eq = (ahi == bhi); lo_eq = (alo == blo); result = hi_eq & lo_eq. -/
+def u128EqFunc : Func :=
+  { name := u128EqName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i32],
+    locals := #[{ name := "hi_eq", type := .i32 }, { name := "lo_eq", type := .i32 }],
+    body := { insns := #[
+      .localGet "ahi", .localGet "bhi", .plain "i64.eq", .localSet "hi_eq",
+      .localGet "alo", .localGet "blo", .plain "i64.eq", .localSet "lo_eq",
+      .localGet "hi_eq", .localGet "lo_eq", .plain "i32.and"
+    ] } }
+
+def u128ArithFuncs : Array Func := #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc]
+
 def powName (vt : ValueType) : String := "__pf_pow_" ++ typeSuffix vt
 
 /-- `__pf_pow_<t>(base, exp)`: integer exponentiation by squaring (log2(exp) iterations). -/
@@ -472,7 +584,10 @@ def returnHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
   (if plan.returnTypes.contains .u64 then #[returnU64Func bridge] else #[]) ++
     (if plan.returnTypes.contains .u32 then #[returnU32Func bridge] else #[]) ++
-    (if plan.returnTypes.contains .bool then #[returnBoolFunc bridge] else #[])
+    (if plan.returnTypes.contains .bool then #[returnBoolFunc bridge] else #[]) ++
+    (if plan.returnTypes.contains .u128 then #[returnU128Func bridge] else #[]) ++
+    (if plan.returnTypes.contains .bytes || plan.returnTypes.contains .string then
+      #[returnBytesFunc bridge] else #[])
 
 def powHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.usesPowU32 then #[powFunc .u32] else #[]) ++

@@ -46,6 +46,8 @@ def buildLiteral : IR.Literal → Lean.Compiler.Psy.Literal
   | .u8 value => .u8 value
   | .u128 value => .u128 value
   | .address value => .address (toString value)
+  | .bytes _ => .hash4 0 0 0 0
+  | .string _ => .hash4 0 0 0 0
 
 /-- Build a `Lean.Compiler.Psy.TypeName` from a portable `ValueType` via `valueTypeName`. -/
 def typeName (type : ValueType) : Except LowerError Lean.Compiler.Psy.TypeName :=
@@ -155,6 +157,9 @@ mutual
     | .storageMapGet stateId key => do
         requireMapStateCtx ctx stateId
         .ok <| .storageMapGet stateId (← buildExpr ctx key)
+    | .storageMapDelete stateId key => do
+        requireMapStateCtx ctx stateId
+        .ok <| .storageMapDelete stateId (← buildExpr ctx key)
     | .storageMapInsert stateId key value => do
         requireMapStateCtx ctx stateId
         .ok <| .storageMapInsert stateId (← buildExpr ctx key) (← buildExpr ctx value)
@@ -210,7 +215,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Psy" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on Psy" }
 
   /-- Build `Lean.Compiler.Psy.StoragePathSegment` array from portable IR path segments. -/
@@ -270,6 +275,9 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
       .ok <| .effect (.storageScalarAssignOp stateId (mapAssignOp op) (← buildExpr ctx value))
   | .storageMapContains _ _ => .error { message := "storage.map.contains must be used as an expression" }
   | .storageMapGet _ _ => .error { message := "storage.map.get must be used as an expression" }
+  | .storageMapDelete stateId key => do
+      requireMapStateCtx ctx stateId
+      .ok <| .effect (.storageMapDelete stateId (← buildExpr ctx key))
   | .storageMapInsert stateId key value => do
       requireMapStateCtx ctx stateId
       .ok <| .effect (.storageMapInsert stateId (← buildExpr ctx key) (← buildExpr ctx value))
@@ -336,7 +344,7 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
       .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
   | .checkErc1155Received _ _ _ _ _ =>
       .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+  | .checkErc1155BatchReceived _ _ _ _ _ =>
       .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported" }
 
 mutual

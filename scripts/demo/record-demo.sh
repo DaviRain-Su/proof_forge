@@ -110,7 +110,7 @@ echo "Let's inspect the generated Yul (intermediate representation):"
 echo ""
 sleep 0.5
 
-type_cmd "lake env proof-forge build --target evm --root . --module Counter --yul-output build/evm/Counter.demo.yul Examples/Backend/Evm/Contracts/Counter.lean"
+type_cmd "lake env proof-forge build --target evm --root . --module Counter -o build/evm/Counter.bin --yul-output build/evm/Counter.demo.yul Examples/Backend/Evm/Contracts/Counter.lean"
 
 echo ""
 sleep 0.5

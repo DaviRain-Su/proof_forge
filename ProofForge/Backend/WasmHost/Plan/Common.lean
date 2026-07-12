@@ -29,6 +29,8 @@ inductive ContextExprPlan where
   | epochHeight
   | randomSeed
   | origin
+  | prepaidGas
+  | usedGas
   deriving BEq, DecidableEq, Repr
 
 def ContextExprPlan.field : ContextExprPlan → ContextField
@@ -40,6 +42,8 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
   | .epochHeight => .epochHeight
   | .randomSeed => .randomSeed
   | .origin => .origin
+  | .prepaidGas => .prepaidGas
+  | .usedGas => .usedGas
 
 def ContextExprPlan.resultType : ContextExprPlan → ValueType
   | .randomSeed | .userIdHash => .hash
@@ -54,18 +58,20 @@ def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .epochHeight => .ok .epochHeight
   | .randomSeed => .ok .randomSeed
   | .origin => .ok .origin
+  | .prepaidGas => .ok .prepaidGas
+  | .usedGas => .ok .usedGas
   | .chainId =>
-      err "wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .gasPrice =>
-      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .gasLeft =>
-      err "wasm-near context read `gasLeft` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `gasLeft` is not supported; use `prepaidGas` or `usedGas` for NEAR gas API"
   | .baseFee =>
-      err "wasm-near context read `baseFee` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `baseFee` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .prevRandao =>
-      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .coinbase =>
-      err "wasm-near context read `coinbase` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
+      err "wasm-near context read `coinbase` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .blockHash _ =>
       err "wasm-near context read `blockHash` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
 
@@ -149,6 +155,9 @@ mutual
     | .storageMapGet stateId key => do
         discard <| inferExprType module env key
         stateTypeOf module stateId
+    | .storageMapDelete stateId key => do
+        discard <| inferExprType module env key
+        stateTypeOf module stateId
     | .storageMapInsert stateId key value
     | .storageMapSet stateId key value => do
         discard <| inferExprType module env key
@@ -187,7 +196,7 @@ mutual
     | .checkErc1155Received _ _ _ _ _ =>
         err "wasm-near plan cannot treat statement-only effects as expression values"
 
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         err "wasm-near plan cannot treat statement-only effects as expression values"
 
   partial def inferExprType
@@ -202,6 +211,8 @@ mutual
     | .literal (.address _) => .ok .address
     | .literal (.bool _) => .ok .bool
     | .literal (.hash4 ..) => .ok .hash
+    | .literal (.bytes _) => .ok .bytes
+    | .literal (.string _) => .ok .string
     | .local name =>
         match lookupLocalType? env name with
         | some type => .ok type

@@ -496,7 +496,7 @@ where
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v =>
         collectFromExpr entrypoint acc v
-    | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k =>
+    | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k | .storageArrayRead _ k =>
         collectFromExpr entrypoint acc k
     | .storageMapInsert _ k v | .storageMapSet _ k v | .storageArrayWrite _ k v
     | .storageArrayStructFieldWrite _ k _ v =>
@@ -520,13 +520,12 @@ where
           (collectFromExpr entrypoint
             (collectFromExpr entrypoint
               (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d) e
-    | .checkErc1155BatchReceived a b c d e f g =>
+    | .checkErc1155BatchReceived a b c d e =>
         collectFromExpr entrypoint
           (collectFromExpr entrypoint
             (collectFromExpr entrypoint
               (collectFromExpr entrypoint
-                (collectFromExpr entrypoint
-                  (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d) e) f) g
+                (collectFromExpr entrypoint acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => acc
   collectFromPath (entrypoint : String) (acc : Array PortableCrosscallSite) :

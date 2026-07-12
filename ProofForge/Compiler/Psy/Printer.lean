@@ -153,6 +153,7 @@ mutual
     | .storageScalarRead stateId => s!"c.{stateId}.get()"
     | .storageMapContains stateId key => s!"c.{stateId}.contains({expr key})"
     | .storageMapGet stateId key => s!"c.{stateId}.get({expr key})"
+    | .storageMapDelete stateId key => s!"c.{stateId}.remove({expr key})"
     | .storageMapInsert stateId key value =>
       s!"c.{stateId}.insert({expr key}, {expr value})"
     | .storageMapSet stateId key value =>
@@ -182,6 +183,7 @@ mutual
     | .storageScalarRead _ => expr e
     | .storageMapContains _ _ => expr e
     | .storageMapGet _ _ => expr e
+    | .storageMapDelete _ _ => expr e
     | .storageMapInsert _ _ _ => expr e
     | .storageMapSet _ _ _ => expr e
     | .storageArrayRead _ _ _ => expr e
@@ -289,6 +291,8 @@ mutual
       #[indent level s!"c.{stateId}.insert({expr key}, {expr value});"]
     | .storageMapSet stateId key value =>
       #[indent level s!"c.{stateId}.set({expr key}, {expr value});"]
+    | .storageMapDelete stateId key =>
+      #[indent level s!"c.{stateId}.remove({expr key});"]
     | .eventEmit name fields =>
       let fieldStrs := fields.map fun (_, v) => expr v
       #[indent level s!"__emit([{String.intercalate ", " fieldStrs.toList}]); // event `{name}`"]

@@ -267,6 +267,11 @@ partial def lowerEntrypoint (ctx : LowerCtx)
     ctx with
     portableSignerSeeds := portableSignerSeedsFromExtensions extensions ep.name
   }
+  nodes := nodes ++ #[
+    .comment s!"account.graph: exact runtime count = {accounts.size}",
+    .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 0) },
+    .instruction { opcode := .jne, dst := some .r2, imm := some (.num accounts.size), off := some (.sym "error_account_count") }
+  ]
   let accountValidationNodes ← lowerAccountValidations accounts accountLayouts
   nodes := nodes ++ accountValidationNodes
   nodes := nodes ++ lowerInstructionDataLengthCheck (instructionDataMinLen ep)
@@ -294,15 +299,27 @@ structure ModuleInputSchema where
   inputLayout : InputLayout
   deriving Inhabited
 
+structure EntrypointInputSchema where
+  name : String
+  accounts : Array AccountEntry
+  inputLayout : InputLayout
+  deriving Inhabited
+
 def buildModuleInputSchema (module : IR.Module) (extensions : ProgramExtensions) :
     ModuleInputSchema :=
-  let instructions := buildInstructionsWithExtensions module extensions
-  let accounts :=
-    match instructions[0]? with
-    | some instruction => instruction.accounts
-    | none => buildDefaultAccounts module
+  let accounts := buildModuleAccounts module extensions
   let inputLayout := computeInputLayoutWithReallocFlags (accountInputSpecs module extensions accounts)
   { accounts, inputLayout }
+
+def buildEntrypointInputSchemas (module : IR.Module) (extensions : ProgramExtensions) :
+    Array EntrypointInputSchema :=
+  buildInstructionsWithExtensions module extensions |>.map fun instruction =>
+    let specs := accountInputSpecs module extensions instruction.accounts
+    {
+      name := instruction.name
+      accounts := instruction.accounts
+      inputLayout := computeInputLayoutWithReallocFlags specs
+    }
 
 def buildCpiAccountBindings (accounts : Array AccountEntry)
     (layouts : Array AccountInputLayout) : Array CpiAccountBinding := Id.run do
@@ -375,12 +392,47 @@ def lowerInstructionDataPointerSetup (accountCount : Nat) : Array AstNode :=
     .instruction { opcode := .stxdw, dst := some .r10, off := some (.num entryInstructionDataSaveOffset), src := some entryInstructionDataReg }
   ]
 
+/-- Resolve portable state account dataStart when `authority` may occupy index 0. -/
+def stateDataStartFromSchema (module : IR.Module) (schema : ModuleInputSchema) :
+    Except LowerError Nat :=
+  if module.state.isEmpty then
+    .ok 0
+  else
+    match stateAccountIndex? module schema.accounts with
+    | none =>
+        .error {
+          message :=
+            s!"Solana account schema missing state account `{defaultStateAccountName module}`"
+        }
+    | some idx =>
+        match schema.inputLayout.accounts[idx]? with
+        | some accountLayout => .ok accountLayout.dataStart
+        | none =>
+            .error { message := "Solana input layout missing state account slot" }
+
+def buildEntrypointExtensionBindings (module : IR.Module)
+    (schemas : Array EntrypointInputSchema) :
+    Except LowerError (Array EntrypointBindings) := do
+  let mut bindings := #[]
+  for schema in schemas do
+    let stateDataOff ← stateDataStartFromSchema module {
+      accounts := schema.accounts
+      inputLayout := schema.inputLayout
+    }
+    bindings := bindings.push {
+      entrypoint := schema.name
+      accountBindings := buildCpiAccountBindings schema.accounts schema.inputLayout.accounts
+      valueBindings := buildCpiValueBindings module stateDataOff
+    }
+  pure bindings
+
 /-- Core lowering body once the account schema, input layout, and lowering
 context have been derived. Exposed so the plan-driven path
 (`ProofForge.Backend.Solana.Plan.lowerModuleFromPlan`) can reuse the exact same
 body without re-deriving the schema from the IR module. -/
 partial def lowerModuleCoreWithSeed (module : IR.Module)
     (accounts : Array AccountEntry) (inputLayout : InputLayout)
+    (entrypointSchemas : Array EntrypointInputSchema)
     (extensions : ProgramExtensions) (ctx : LowerCtx) :
     Except LowerError (Array AstNode) := do
   let mut nodes := #[
@@ -430,10 +482,27 @@ partial def lowerModuleCoreWithSeed (module : IR.Module)
   let mut ctx := ctx
   for ep in module.entrypoints do
     nodes := nodes.push .blankLine
-    let epCtx := ctx.resetLocals
-    let epAccounts := buildEntrypointAccounts module extensions accounts ep.name
+    let epSchema ←
+      match entrypointSchemas.find? (fun schema => schema.name == ep.name) with
+      | some schema => pure schema
+      | none => throw { message := s!"Solana input schema missing entrypoint `{ep.name}`" }
+    let stateDataOff ← stateDataStartFromSchema module {
+      accounts := epSchema.accounts
+      inputLayout := epSchema.inputLayout
+    }
+    let stateFieldOffsets := buildStateOffsetsAtBase module stateDataOff
+      |>.map (fun field => (field.id, field.absOff))
+    let accountBindings := buildCpiAccountBindings epSchema.accounts epSchema.inputLayout.accounts
+    let valueBindings := buildCpiValueBindings module stateDataOff
+    let cpiIndices :=
+      ProofForge.Backend.Solana.PortableCrosscall.selectPortableCpiAccountIndices epSchema.accounts
+    let epCtx := {
+      LowerCtx.fromPlanSeed stateFieldOffsets module.structs module.state epSchema.accounts.size
+        accountBindings valueBindings #[] cpiIndices with
+      nextLabel := ctx.nextLabel
+    }
     let (ctx', block) ←
-      lowerEntrypoint epCtx epAccounts inputLayout.accounts extensions ep
+      lowerEntrypoint epCtx epSchema.accounts epSchema.inputLayout.accounts extensions ep
     ctx := { ctx with nextLabel := ctx'.nextLabel }
     nodes := nodes ++ block
 
@@ -463,6 +532,14 @@ partial def lowerModuleCoreWithSeed (module : IR.Module)
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 9) },
     .instruction { opcode := .exit },
     .blankLine,
+    .label "error_duplicate_account",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) },
+    .instruction { opcode := .exit },
+    .blankLine,
+    .label "error_account_count",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) },
+    .instruction { opcode := .exit },
+    .blankLine,
     .label "error_pda_bump",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 11) },
     .instruction { opcode := .exit },
@@ -485,28 +562,11 @@ partial def lowerModuleCoreWithSeed (module : IR.Module)
     ]
   .ok nodes
 
-/-- Resolve portable state account dataStart when `authority` may occupy index 0. -/
-def stateDataStartFromSchema (module : IR.Module) (schema : ModuleInputSchema) :
-    Except LowerError Nat :=
-  if module.state.isEmpty then
-    .ok 0
-  else
-    match stateAccountIndex? module schema.accounts with
-    | none =>
-        .error {
-          message :=
-            s!"Solana account schema missing state account `{defaultStateAccountName module}`"
-        }
-    | some idx =>
-        match schema.inputLayout.accounts[idx]? with
-        | some accountLayout => .ok accountLayout.dataStart
-        | none =>
-            .error { message := "Solana input layout missing state account slot" }
-
 partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions) :
     Except LowerError (Array AstNode) := do
   validateCapabilities module
   let schema := buildModuleInputSchema module extensions
+  let entrypointSchemas := buildEntrypointInputSchemas module extensions
   let stateDataOff ← stateDataStartFromSchema module schema
   let accountBindings := buildCpiAccountBindings schema.accounts schema.inputLayout.accounts
   let valueBindings := buildCpiValueBindings module stateDataOff
@@ -524,7 +584,7 @@ partial def lowerModuleCore (module : IR.Module) (extensions : ProgramExtensions
         s!"(= MAX_TX_ACCOUNT_LOCKS; infos on heap, metas on stack)"
     }
   else
-    lowerModuleCoreWithSeed module schema.accounts schema.inputLayout extensions ctx
+    lowerModuleCoreWithSeed module schema.accounts schema.inputLayout entrypointSchemas extensions ctx
 
 partial def lowerModule (module : IR.Module) : Except LowerError (Array AstNode) :=
   lowerModuleCore module {}
@@ -544,11 +604,13 @@ def lowerModuleWithPlan (module : IR.Module) (plan : ProofForge.Target.Capabilit
   let accountBindings := buildCpiAccountBindings schema.accounts schema.inputLayout.accounts
   let stateDataOff ← stateDataStartFromSchema module schema
   let valueBindings := buildCpiValueBindings module stateDataOff
+  let entrypointBindings ← buildEntrypointExtensionBindings module
+    (buildEntrypointInputSchemas module extensions)
   let nodes ← lowerModuleCore module extensions
   -- Preflight: reject unresolved PDA/CPI seed bindings (no silent zero seeds).
   let extNodes ←
-    match ProofForge.Backend.Solana.Extension.lowerProgramExtensionsWithBindingsChecked
-        accountBindings valueBindings extensions with
+    match ProofForge.Backend.Solana.Extension.lowerProgramExtensionsWithEntrypointBindingsChecked
+        accountBindings valueBindings entrypointBindings extensions with
     | .ok n => pure n
     | .error msg => throw { message := msg }
   .ok (nodes ++ extNodes)

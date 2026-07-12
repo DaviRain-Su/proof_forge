@@ -55,6 +55,10 @@ def mappingSet (id : Identifier) (key value : Expression) : Expression :=
 def mappingContains (id : Identifier) (key : Expression) : Expression :=
   .call ⟨#["Mapping", "contains"], #[], #[.identifier id, key]⟩
 
+/-- Build a `Mapping::remove(id, key)` call expression. -/
+def mappingRemove (id : Identifier) (key : Expression) : Expression :=
+  .call ⟨#["Mapping", "remove"], #[], #[.identifier id, key]⟩
+
 /-! ### ZK hash helpers (RFC 0015: Aleo `Hash ≡ field`, native Poseidon2) -/
 
 /-- `Poseidon2::hash_to_field(x)` — the Aleo-native ZK hash to a field digest.
@@ -227,8 +231,8 @@ mutual
         let (_, valueType) ← requireMapState ctx stateId
         let d ← defaultExpr ctx valueType
         .ok (mappingGetOrUse stateId (← buildExpr ctx key) d)
-    | .storageMapInsert _ _ _ | .storageMapSet _ _ _ =>
-        .error { message := "storage.map.insert/set are statement effects, not expressions" }
+    | .storageMapInsert _ _ _ | .storageMapSet _ _ _ | .storageMapDelete _ _ =>
+        .error { message := "storage.map.insert/set/delete are statement effects, not expressions" }
     | .storageArrayRead _ _ | .storageArrayWrite _ _ _ =>
         .error { message := "Leo IR v0 does not support array storage" }
     | .storageArrayStructFieldRead _ _ _ | .storageArrayStructFieldWrite _ _ _ _ =>
@@ -265,7 +269,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Leo" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   /-- Lower an `Effect` in statement position to Leo statements (storage writes). -/
@@ -284,6 +288,8 @@ mutual
         .ok #[.expression (mappingSet stateId scalarSlotKey rhs)]
     | .storageMapContains _ _ | .storageMapGet _ _ =>
         .error { message := "storage.map.contains/get must be used as expressions" }
+    | .storageMapDelete stateId key => do
+        .ok #[.expression (mappingRemove stateId (← buildExpr ctx key))]
     | .storageMapInsert stateId key value | .storageMapSet stateId key value => do
         .ok #[.expression (mappingSet stateId (← buildExpr ctx key) (← buildExpr ctx value))]
     | .storageArrayRead _ _ | .storageArrayWrite _ _ _ =>
@@ -326,7 +332,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   /-- Lower a portable IR statement to zero or more Leo statements. -/

@@ -703,10 +703,18 @@ def runAssertions : IO Unit := do
   require (returnCount nestedBundle.contract.contract.module == 3)
     "nested terminating branches were not retained"
 
-  match adaptLegacy (ContractSpec.fromIR conditionalLocalMutationModule) with
-  | .error (.unsupportedConstructor "Statement.ifElse" _) => pure ()
-  | .error e => throw <| IO.userError s!"conditional local mutation wrong error: {repr e}"
-  | .ok _ => throw <| IO.userError "conditional local mutation was silently accepted"
+  let conditionalBundle ← match adaptLegacy (ContractSpec.fromIR conditionalLocalMutationModule) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"conditional local phi adapt failed: {repr e}"
+  let conditionalFunction ← match conditionalBundle.contract.contract.module.functions[0]? with
+    | some function => pure function
+    | none => throw <| IO.userError "conditional local phi function missing"
+  require (conditionalFunction.blocks.any (fun block => block.params.size == 1))
+    "conditional local mutation did not create a continuation phi parameter"
+  require (conditionalFunction.blocks.countP (fun block => match block.terminator with
+    | .jump _ args _ => args.size == 1
+    | _ => false) == 2)
+    "conditional local mutation did not pass both branch values to the phi"
 
   match adaptLegacy (ContractSpec.fromIR loopLocalMutationModule) with
   | .error (.unsupportedConstructor "Statement.boundedFor" _) => pure ()

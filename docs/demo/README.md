@@ -2,7 +2,7 @@
 
 ## EVM Complete Workflow Demo
 
-> **Watch online: https://asciinema.org/a/fn6o6kSxB5RpMXJl**
+> **Watch online: https://asciinema.org/a/RDtrv79Std0p0ads**
 
 A terminal recording demonstrating the full ProofForge EVM workflow:
 
@@ -15,18 +15,18 @@ A terminal recording demonstrating the full ProofForge EVM workflow:
 
 **Option A: Online (recommended)**
 
-Watch directly at **https://asciinema.org/a/fn6o6kSxB5RpMXJl**
+Watch directly at **https://asciinema.org/a/RDtrv79Std0p0ads**
 
 Or upload the `.cast` file yourself:
 
 ```sh
-asciinema upload proofforge-evm-demo.cast
+asciinema upload docs/demo/proofforge-evm-demo.cast
 ```
 
 **Option B: Local playback**
 
 ```sh
-asciinema play proofforge-evm-demo.cast
+asciinema play docs/demo/proofforge-evm-demo.cast
 ```
 
 **Option C: Convert to GIF**
@@ -34,7 +34,7 @@ asciinema play proofforge-evm-demo.cast
 Install [agg](https://github.com/asciinema/agg) and run:
 
 ```sh
-agg proofforge-evm-demo.cast proofforge-evm-demo.gif
+agg docs/demo/proofforge-evm-demo.cast docs/demo/proofforge-evm-demo.gif
 ```
 
 ### Recording Details

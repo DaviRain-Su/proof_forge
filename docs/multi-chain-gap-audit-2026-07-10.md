@@ -1,8 +1,13 @@
 # Multi-chain Vision Gap Audit
 
-Status: **Active remediation source of truth**
+Status: **Active remediation source of truth** — Delivery Wave 0 (P0
+correctness & claim-honesty gates) is **closed** as of commit `1599f37d`
+(2026-07-11); every PF-P0-0N gate named below now runs in `just check`.
+The finding bodies are retained verbatim as the traceable remediation record;
+their per-task acceptance was re-checked against the gates listed in the
+*Wave 0 closure* section.
 
-Date: 2026-07-10
+Date: 2026-07-10 (audit). Wave 0 closure verified 2026-07-11.
 
 This audit compares the product vision -- maintain one body of business logic
 and select a target at build time -- with the code and runnable gates on
@@ -102,6 +107,27 @@ printed in README.
 
 `quint` is a CLI-only formal-model target. It is intentionally outside
 `Target.knownIds` and must not be presented as a deployable compiler target.
+
+## Wave 0 closure (verified 2026-07-11, commit `1599f37d`)
+
+All eight P0 (correctness & claim-honesty) tasks are closed: their acceptance
+smokes are wired into `just check` and the related product behavior was
+re-verified against the live code. P1 work (one compiler/target contract)
+remains the active queue — see `agent-goal-prompt.md`.
+
+| Task | Acceptance gate (now in `just check`) | Status |
+|---|---|---|
+| PF-P0-01 target-first build silently substitutes Counter | `just source-identity` | Closed |
+| PF-P0-02 registry vs executable command support disagree | `just registry-command` | Closed |
+| PF-P0-03 Solana generic build claims a final artifact it does not emit | `just solana-source-elf` | Closed |
+| PF-P0-04 Soroban build resolves the wrong target profile | `just soroban-profile` | Closed |
+| PF-P0-05 documentation and translation gates not truthful | `just doc-sync-audit-strict` (+ `scripts/i18n/check-sync.sh`) | Closed |
+| PF-P0-06 `near_gas` mislabeled cumulative Wasmtime fuel | `just near-budget-honesty`; offline-host now emits `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` and rejects `near_gas` as a product name | Closed |
+| PF-P0-07 `check` can pass without backend validation | `just check-l2-parity` | Closed |
+| PF-P0-08 Wasm build succeeds when no Wasm was produced | `just wat2wasm-fail-closed` | Closed |
+
+The finding paragraphs below are the original 2026-07-10 text and remain the
+remediation rationale; they are not re-opened.
 
 ## Findings and remediation tasks
 

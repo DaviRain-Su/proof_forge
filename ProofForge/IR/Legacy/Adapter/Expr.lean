@@ -69,6 +69,8 @@ def adaptLiteral (l : Literal) : Except CanonicalizeError CoreLiteral :=
           18446744073709551616 + d)
         .ok (.hashLit (toString word))
   | .address n => .ok (.addressLit (toString n))
+  | .bytes value => .ok (.bytesLit value)
+  | .string value => .ok (.stringLit value)
 
 /- Core literal result type. -/
 
@@ -236,6 +238,7 @@ def effectTag (eff : Effect) : String :=
   | .storageMapGet _ _ => "Effect.storageMapGet"
   | .storageMapInsert _ _ _ => "Effect.storageMapInsert"
   | .storageMapSet _ _ _ => "Effect.storageMapSet"
+  | .storageMapDelete _ _ => "Effect.storageMapDelete"
   | .storageArrayRead _ _ => "Effect.storageArrayRead"
   | .storageArrayWrite _ _ _ => "Effect.storageArrayWrite"
   | .storageArrayStructFieldRead _ _ _ => "Effect.storageArrayStructFieldRead"
@@ -253,7 +256,7 @@ def effectTag (eff : Effect) : String :=
   | .eventEmitIndexed _ _ _ => "Effect.eventEmitIndexed"
   | .checkErc721Received _ _ _ _ => "Effect.checkErc721Received"
   | .checkErc1155Received _ _ _ _ _ => "Effect.checkErc1155Received"
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ => "Effect.checkErc1155BatchReceived"
+  | .checkErc1155BatchReceived _ _ _ _ _ => "Effect.checkErc1155BatchReceived"
 
 /- Normalize a legacy `Expr` into ANF instructions plus a result `ValueRef`.
 Effectful sub-expressions (storage/context reads) are lifted to explicit
@@ -572,9 +575,14 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       } argRefs) .u64
       return { instructions := instructions ++ call.instructions, value := call.value }
   | .nearPromiseResultsCount =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultsCount" "NEAR promise results count not in initial fragment")
-  | .nearPromiseResultStatus _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.nearPromiseResultStatus" "NEAR promise result status not in initial fragment")
+      emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id, args := #[] }) .u64
+  | .nearPromiseResultStatus index => do
+      let normalizedIndex ← normalizeExpr index
+      let result ← emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id,
+        args := #[normalizedIndex.value] }) .u64
+      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
   | .nearPromiseResultU64 index => do
       let normalizedIndex ← normalizeExpr index
       let result ← emitValueInstruction (.hostCall {

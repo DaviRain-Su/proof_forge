@@ -1,6 +1,6 @@
 # Psy DPN ZK Target
 
-Status: **Experimental**
+Status: **Spike**
 
 Canonical target id: `psy-dpn`
 
@@ -8,7 +8,7 @@ Reference repository: `https://github.com/PsyProtocol/psy-compiler`
 
 Research snapshot: `mainnet-beta`, commit `24f5ec9`.
 
-Experimental scope: ProofForge can generate reviewable `.psy` source for a
+Spike scope: ProofForge can generate reviewable `.psy` source for a
 restricted portable IR subset and validate that source with Dargo for Counter,
 ExpressionPredicateProbe, GenericEntrypointProbe, ArithmeticProbe,
 U32ArithmeticProbe, BitwiseProbe, U32HashPackingProbe,
@@ -899,7 +899,7 @@ conditionals can model that shape when needed.
 
 ## Smoke Test Strategy
 
-Experimental smoke does not require a live Psy network.
+Smoke validation does not require a live Psy network; Dargo in-memory execution is the spike gate.
 
 Preferred first smoke:
 
@@ -1600,7 +1600,7 @@ EVM `Lower.lean` → `Plan.lean` split.
 
 ## First Acceptance Criteria
 
-- `psy-dpn` is listed as Experimental in target notes.
+- `psy-dpn` is listed as Spike in target notes (matching registry maturity).
 - The target profile draft includes artifact kind, required tools, and smoke
   steps.
 - Generated Counter, ArithmeticProbe, U32ArithmeticProbe, ContextProbe, and

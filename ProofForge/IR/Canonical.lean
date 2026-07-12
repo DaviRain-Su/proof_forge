@@ -83,6 +83,7 @@ structure InterfaceEntrypoint where
   selector? : Option String := none
   params : Array InterfaceParam
   retType : CoreType
+  returnAbiWord? : Option String := none
   deriving Repr, BEq
 
 structure InterfaceEventField where

@@ -143,21 +143,21 @@ def main : IO UInt32 := do
   ---------------------------------------------------------------------------
   -- Step 4: Token core + auth features + FixedPoint
   ---------------------------------------------------------------------------
-  -- transfer/balanceOf always full on TokenSpec lanes (no feature required).
+  -- Executable core routes remain experimental until compliance evidence binds them.
   for tid in TokenAuth.primaryTokenTargetIds do
-    require (coreOpSupportOnTarget tid .transfer false false == .full)
-      s!"transfer full on {tid}"
-    require (coreOpSupportOnTarget tid .balanceOf false false == .full)
-      s!"balanceOf full on {tid}"
+    require (coreOpSupportOnTarget tid .transfer false false == .experimental)
+      s!"transfer experimental on {tid}"
+    require (coreOpSupportOnTarget tid .balanceOf false false == .experimental)
+      s!"balanceOf experimental on {tid}"
     -- mint/burn capability-gated: reject without mintable/burnable features.
     require (coreOpSupportOnTarget tid .mint false false == .reject)
       s!"mint rejects without mintable on {tid}"
     require (coreOpSupportOnTarget tid .burn false false == .reject)
       s!"burn rejects without burnable on {tid}"
-    require (coreOpSupportOnTarget tid .mint true false == .full)
-      s!"mint full with mintable on {tid}"
-    require (coreOpSupportOnTarget tid .burn false true == .full)
-      s!"burn full with burnable on {tid}"
+    require (coreOpSupportOnTarget tid .mint true false == .experimental)
+      s!"mint experimental with mintable on {tid}"
+    require (coreOpSupportOnTarget tid .burn false true == .experimental)
+      s!"burn experimental with burnable on {tid}"
     match materializeCoreOp tid .mint false false with
     | .ok _ => throw (IO.userError s!"mint must reject without mintable on {tid}")
     | .error msg =>
@@ -189,7 +189,10 @@ def main : IO UInt32 := do
   | .error msg => require (contains msg "TokenAuth") "evm authority reject"
   match materializeAuth "wasm-near" .storageDeposit with
   | .error msg => throw (IO.userError s!"near storage: {msg}")
-  | .ok m => require (m.nativeOps.contains "storage_deposit") "near storage_deposit"
+  | .ok m =>
+      require (m.nativeOps.contains "storage_deposit") "near storage_deposit"
+      require (!m.nativeOps.contains "storage_unregister")
+        "near storage_unregister must not be advertised before materialization"
   match materializeAuth "wasm-near" .transferCall with
   | .error msg => throw (IO.userError s!"near transferCall: {msg}")
   | .ok _ => pure ()

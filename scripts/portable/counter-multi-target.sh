@@ -37,6 +37,18 @@ python3 scripts/evm/validate-artifact-metadata.py \
   --expect-fixture Counter \
   --expect-source-kind contract-sdk \
   "$OUT/Counter.proof-forge-artifact.json"
+python3 - "$OUT/Counter.contract-spec.json" <<'PY'
+import json
+import pathlib
+import sys
+
+spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
+actual = {entry["name"]: entry["selector"] for entry in spec["entrypoints"]}
+expected = {"initialize": "8129fc1c", "increment": "d09de08a", "get": "6d4ce63c"}
+if actual != expected:
+    raise SystemExit(f"contract spec selectors diverge from EVM dispatcher: {actual}")
+print("portable-counter: contract spec selectors match dispatcher")
+PY
 
 echo "portable-counter: Solana sBPF"
 "${proof_forge[@]}" build --target solana-sbpf-asm --format s --root . \

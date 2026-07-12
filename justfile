@@ -550,6 +550,20 @@ solana-bpf-encode-smoke:
     lake build ProofForge.Backend.Solana.LabeledSbpf
     lake env lean --run Tests/Backend/Solana/SolanaBpfEncode.lean
 
+# Decode Solana loader duplicate-account records without shifting later accounts.
+solana-duplicate-accounts:
+    lake build ProofForge.Backend.Solana.Extension.Common ProofForge.Backend.Solana.SbpfAsm ProofForge.Backend.Solana.SbpfInterpreter
+    lake env lean --run Tests/Backend/Solana/SolanaDuplicateAccounts.lean
+
+# Generated ELF + Surfpool proof for [unique, duplicate, following unique].
+solana-duplicate-accounts-live:
+    scripts/solana/duplicate-accounts-live-smoke.sh
+
+# Keep each instruction's account roles and permissions scoped to its entrypoint.
+solana-account-graph:
+    lake build ProofForge.Backend.Solana.Manifest ProofForge.Backend.Solana.Plan ProofForge.Backend.Solana.SbpfAsm
+    lake env lean --run Tests/Backend/Solana/SolanaAccountGraph.lean
+
 # Opt-in solanalib adapter + CompileCorrect pipeline (pulls solanalib/mathlib).
 solana-solanalib-adapter:
     lake build SolanaRefinement
@@ -579,6 +593,8 @@ solana-lean:
     lake env lean --run Tests/Backend/Solana/SolanaComputeBudgetInstruction.lean
     lake env lean --run Tests/Backend/Solana/SolanaPdaSeeds.lean
     lake env lean --run Tests/Backend/Solana/SolanaLoop.lean
+    lake env lean --run Tests/Backend/Solana/SolanaWhileRevert.lean
+    lake env lean --run Tests/Backend/Solana/SolanaPowCast.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageArray.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageArrayStruct.lean
     lake env lean --run Tests/Backend/Solana/SolanaStorageStructField.lean
@@ -629,6 +645,30 @@ token-feature-matrix:
     lake build ProofForge.Contract.Token
     lake env lean --run Tests/TokenFeatureMatrix.lean
 
+# Requirement-level standard manifests and artifact-bound evidence honesty.
+standard-compliance:
+    lake build ProofForge.Contract.Compliance
+    lake env lean --run Tests/StandardCompliance.lean
+
+# Unit-test and run the fail-closed Wave-T evidence aggregator.
+wave-t-gate-test:
+    python3 scripts/evidence/test_wave_t_gate.py
+
+wave-t-gate: wave-t-gate-test
+    python3 scripts/evidence/wave_t_gate.py \
+      --production \
+      --manifest scripts/evidence/wave-t-gates.json \
+      --output build/evidence/wave-t.json \
+      --repo-root .
+
+# Canonical EVM signature/selector schema and fail-closed mismatch validation.
+evm-abi-schema:
+    lake env lean --run Tests/EvmAbiSchema.lean
+
+# ERC-165, ERC-173, and AccessControl canonical identity surfaces.
+evm-standard-identity:
+    lake env lean --run Tests/EvmStandardIdentity.lean
+
 # Compatibility alias for the former Learn-token-centric smoke name.
 learn-token-smoke: token-intent-smoke
 
@@ -660,6 +700,31 @@ wasm-near-plan:
 # Builds the plan, diffs against golden, and asserts plan-driven WAT == inline WAT.
 near-plan-smoke:
     scripts/near/plan-smoke.sh
+
+# Authoritative per-entrypoint NEAR Borsh input/output codec plan.
+near-abi-plan:
+    lake env lean --run Tests/NearAbiPlan.lean
+
+near-abi-client:
+    scripts/near/abi-client-smoke.sh
+
+# Deploy the Borsh echo fixture to near-sandbox and call it with the generated client.
+near-abi-client-sandbox:
+    scripts/near/abi-client-sandbox-smoke.sh
+
+# NEAR FT initialization, mint authority, callback privacy, and keyed resolver state.
+near-ft-security:
+    lake env lean --run Tests/NearFtSecurity.lean
+
+near-ft-security-sandbox:
+    scripts/near/ft-security-sandbox-smoke.sh
+
+# Hash-valued map reads must return stable per-entrypoint allocations.
+near-map-hash-alias:
+    lake env lean --run Tests/NearMapHashAlias.lean
+
+near-map-hash-alias-sandbox:
+    scripts/near/map-hash-alias-sandbox-smoke.sh
 
 # Keep unversioned scalar storage on the stable per-key layout and conservatively
 # load packed blobs before any partial patch.
@@ -1228,7 +1293,23 @@ solana-web3-compat:
     python3 scripts/solana/check-web3-compat-wrappers.py
 
 # Run all Solana gates that are safe for default CI.
-solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-auto-materialize primary-materialize crosscall-materialize solana-web3-compat solana-pinocchio-reference-equivalence solana-sbpf-exec-smoke solana-sbpf-genericity-smoke solana-counter-sbpf-regression solana-refinement-smoke solana-bpf-encode-smoke
+solana-light: solana-lean solana-build-examples solana-emit-control solana-sdk-smoke portable-value-vault solana-emit-asm solana-plan-smoke solana-auto-materialize primary-materialize crosscall-materialize solana-web3-compat solana-pinocchio-reference-equivalence solana-sbpf-exec-smoke solana-sbpf-genericity-smoke solana-counter-sbpf-regression solana-refinement-smoke solana-bpf-encode-smoke solana-duplicate-accounts solana-account-graph
+
+# Strict Wave-T variant: build the optional ValueVault ELF instead of allowing a skip.
+wave-t-solana-light:
+    PROOF_FORGE_VALUE_VAULT_ELF=1 just solana-light
+
+# Strict Wave-T baseline: propagate the no-skip Solana ELF requirement through check.
+# `worker-limits` and `worker-cgroup` are excluded because their memory backend
+# may be unavailable on macOS, producing an honest SKIP marker that the Wave-T
+# evidence parser rejects. They remain required in the ordinary `just check` CI
+# result, which is run separately from `just wave-t-gate`.
+wave-t-check:
+    PROOF_FORGE_VALUE_VAULT_ELF=1 just wave-t-baseline
+
+# Same as `just check` minus `worker-limits` and `worker-cgroup`, so the Wave-T
+# evidence gate stays skip-free on hosts without a cgroup/RLIMIT_AS memory backend.
+wave-t-baseline: build build-test-deps product target-registry target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Check shared-vs-target example topology.
 examples-topology:
@@ -1330,8 +1411,10 @@ product-protocol-vault:
 product-erc4626-vault:
     scripts/portable/erc4626-vault-smoke.sh
 
-# Wave ε Layer C: ERC20Permit body (EVM ecrecover precompile + EIP-712 digest).
+# Atomic ERC-2612 body, schema, and Foundry attack matrix.
 product-erc20-permit:
+    lake env lean --run Tests/ERC20Permit.lean
+    lake env lean --run Tests/TokenEvm.lean
     scripts/portable/erc20-permit-smoke.sh
 
 # Product multi-target Lean matrix (all Product contracts × primary hosts).
@@ -1481,7 +1564,7 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build build-test-deps product target-registry legacy-freeze canonical-foundation canonical-core canonical-parity canonical-product canonical-boundary target-backend target-support artifact-bundle preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check: build build-test-deps product target-registry legacy-freeze canonical-foundation canonical-core canonical-parity canonical-product canonical-boundary target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:
@@ -1736,8 +1819,15 @@ github-build-test:
     just registry-command
     just legacy-freeze
     just canonical-foundation
+    just standard-compliance
+    just canonical-core
+    just canonical-parity
+    just canonical-product
+    just canonical-boundary
     just contract-spec-json
     just contract-client
+    just evm-abi-schema
+    just evm-standard-identity
     just evm-plan
     just solana-light
     just docs-check
@@ -1754,6 +1844,11 @@ github-build-test:
     lake env lean --run Tests/NearWasmFormal.lean
     scripts/near/emitwat-ci-smoke.sh
     just near-target-first
+    just near-abi-plan
+    just near-abi-client
+    just near-map-hash-alias
+    just near-ft-security
+    just wasm-near-ft-transfer-call-e2e
     just contract-source-diagnostics
     just testkit
     just psy-golden-sources
@@ -1769,6 +1864,8 @@ github-build-test:
     just evm-ir-smokes
     just evm-build-examples
     just evm-foundry
+    just product-erc20-permit
+    just wave-t-gate
     just evm-anvil-deploy
     just evm-dynamic-constructor-anvil
     just portable-counter-multi-target

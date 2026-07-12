@@ -349,32 +349,52 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let trueBuilder : FunctionBuilder := { blocks := entryBlocks, current := { id := trueId } }
       let trueBuilder ← thenBody.foldlM (fun b stmt => normalizeStatement b stmt retType) trueBuilder
       let trueFallsThrough := trueBuilder.active && trueBuilder.current.terminator.isNone
-      let trueBuilder ← if trueFallsThrough then
-          liftExcept (trueBuilder.setTerminator (.jump contId #[]))
-        else
-          pure trueBuilder
-      let trueBlocks ← liftExcept trueBuilder.sealedBlocks
       let trueLocals := (← get).env.localValues
 
       modify (fun s => { s with env := {
         s.env with localValues := localsBefore, localArrays := arraysBefore } })
-      let falseBuilder : FunctionBuilder := { blocks := trueBlocks, current := { id := falseId } }
+      let falseBuilder : FunctionBuilder := { blocks := entryBlocks, current := { id := falseId } }
       let falseBuilder ← elseBody.foldlM (fun b stmt => normalizeStatement b stmt retType) falseBuilder
       let falseFallsThrough := falseBuilder.active && falseBuilder.current.terminator.isNone
-      let falseBuilder ← if falseFallsThrough then
-          liftExcept (falseBuilder.setTerminator (.jump contId #[]))
-        else
-          pure falseBuilder
-      let branchBlocks ← liftExcept falseBuilder.sealedBlocks
       let falseLocals := (← get).env.localValues
 
-      let mergedLocals ← liftExcept <|
-        mergeBranchLocals localsBefore trueLocals falseLocals trueFallsThrough falseFallsThrough
+      let mut phiDefs := #[]
+      let mut trueArgs := #[]
+      let mut falseArgs := #[]
+      let mut mergedLocals := localsBefore
+      if trueFallsThrough && falseFallsThrough then
+        for (name, before) in localsBefore.toList do
+          let trueValue := (Std.HashMap.get? trueLocals name).getD before
+          let falseValue := (Std.HashMap.get? falseLocals name).getD before
+          if trueValue != falseValue then
+            unless trueValue.type == falseValue.type do
+              throw (CanonicalizeError.typeMismatch (reprStr trueValue.type) (reprStr falseValue.type))
+            let id ← freshValueId
+            let phi : ValueDef := { id, type := trueValue.type }
+            phiDefs := phiDefs.push phi
+            trueArgs := trueArgs.push trueValue
+            falseArgs := falseArgs.push falseValue
+            mergedLocals := mergedLocals.insert name { id, type := trueValue.type }
+      else if trueFallsThrough then
+        mergedLocals := projectOuterLocals localsBefore trueLocals
+      else if falseFallsThrough then
+        mergedLocals := projectOuterLocals localsBefore falseLocals
+
+      let trueBuilder ← if trueFallsThrough then
+          liftExcept (trueBuilder.setTerminator (.jump contId trueArgs))
+        else pure trueBuilder
+      let trueBlocks ← liftExcept trueBuilder.sealedBlocks
+      let falseOnlyBlocks := falseBuilder.blocks.extract entryBlocks.size falseBuilder.blocks.size
+      let falseBuilder := { falseBuilder with blocks := trueBlocks ++ falseOnlyBlocks }
+      let falseBuilder ← if falseFallsThrough then
+          liftExcept (falseBuilder.setTerminator (.jump contId falseArgs))
+        else pure falseBuilder
+      let branchBlocks ← liftExcept falseBuilder.sealedBlocks
       modify (fun s => { s with env := {
         s.env with localValues := mergedLocals, localArrays := arraysBefore } })
       return {
         blocks := branchBlocks
-        current := { id := contId }
+        current := { id := contId, params := phiDefs }
         active := trueFallsThrough || falseFallsThrough
       }
   | .boundedFor indexName start stopExclusive body => do

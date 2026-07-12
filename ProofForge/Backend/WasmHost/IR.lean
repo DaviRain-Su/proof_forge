@@ -16,9 +16,9 @@ def valueTypeName : ValueType → Except LowerError String
   | .hash => .ok "[u64; 4]"
   | .u8 => .ok "u32"
   | .address => .ok "u64"
-  | .u128 => .error { message := "wasm-near IR v0 does not support U128" }
-  | .bytes => .error { message := "wasm-near IR v0 does not support Bytes" }
-  | .string => .error { message := "wasm-near IR v0 does not support String" }
+  | .u128 => .ok "u128"
+  | .bytes => .ok "Vec<u8>"
+  | .string => .ok "String"
   | .fixedArray element length =>
       .error { message := s!"fixed array type `{element.name}`x{length} is not supported by wasm-near IR v0" }
   | .structType name =>
@@ -29,12 +29,14 @@ def valueTypeName : ValueType → Except LowerError String
 def literal : Literal → String
   | .u32 value => s!"{value}u32"
   | .u64 value => s!"{value}u64"
-  | .u128 _ => "0"
+  | .u128 value => s!"{value}u128"
   | .bool true => "true"
   | .bool false => "false"
   | .hash4 a b c d => s!"[{a}u64, {b}u64, {c}u64, {d}u64]"
   | .u8 value => s!"{value}u32"
   | .address value => s!"{value}u64"
+  | .bytes ba => s!"vec!{String.intercalate ", " (ba.data.map (fun b => s!"{b.toNat}u8")).toList}"
+  | .string s => s!"\"{s}\""
 
 def literalType : Literal → ValueType
   | .u32 _ => .u32
@@ -44,6 +46,8 @@ def literalType : Literal → ValueType
   | .hash4 _ _ _ _ => .hash
   | .u8 _ => .u8
   | .address _ => .address
+  | .bytes _ => .bytes
+  | .string _ => .string
 
 def maxU32 : Nat := 4294967295
 def maxU64 : Nat := 18446744073709551615
@@ -67,6 +71,7 @@ def checkLiteralBounds (lit : Literal) : Except LowerError Unit :=
       checkedLiteralLimb "d" d maxU64
   | .u8 value => checkedLiteralLimb "value" value 255
   | .address value => checkedLiteralLimb "value" value maxU64
+  | .bytes _ | .string _ => .ok ()
 
 -- ---------------------------------------------------------------------------
 -- Lowering
@@ -174,6 +179,9 @@ mutual
     | .storageMapGet stateId key => do
         let (keyType, valueType) ← mapStateTypes module stateId
         .ok s!"{← mapDecodeCall valueType (s!"env::storage_read(&{← lowerMapKeyExpr module stateId keyType key})")}"
+    | .storageMapDelete stateId key => do
+        let (keyType, valueType) ← mapStateTypes module stateId
+        .ok s!"{← mapDecodeCall valueType (s!"env::storage_remove(&{← lowerMapKeyExpr module stateId keyType key})")}"
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         let keyStr ← lowerMapKeyExpr module stateId keyType key
@@ -226,7 +234,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def mapValueSuffix (valueType : ValueType) : String :=
@@ -280,6 +288,9 @@ mutual
         .error { message := "storage.map.contains must be used as an expression" }
     | .storageMapGet _ _ =>
         .error { message := "storage.map.get must be used as an expression" }
+    | .storageMapDelete stateId key => do
+        let (keyType, _) ← mapStateTypes module stateId
+        .ok #[s!"let _ = env::storage_remove(&{← lowerMapKeyExpr module stateId keyType key});"]
     | .storageMapInsert stateId key value => do
         let (keyType, valueType) ← mapStateTypes module stateId
         let keyStr ← lowerMapKeyExpr module stateId keyType key
@@ -323,9 +334,9 @@ mutual
           let value ← lowerExpr module field.snd
           let jsonValue ← match ← inferExprType module #[] field.snd with
             | .hash => .ok s!"[{value}[0], {value}[1], {value}[2], {value}[3]]"
-            | .u8 | .u32 | .u64 | .bool | .address => .ok value
-            | .unit | .fixedArray _ _ | .structType _ | .bytes | .string | .u128 | .array _ =>
-                .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type; event fields must be U32, U64, Bool, Hash, or Address" }
+            | .u8 | .u32 | .u64 | .u128 | .bool | .address | .bytes | .string => .ok value
+            | .unit | .fixedArray _ _ | .structType _ | .array _ =>
+                .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type; event fields must be U8, U32, U64, U128, Bool, Hash, Address, Bytes, or String" }
           .ok s!"\"{field.fst}\":{jsonValue}"
         let jsonParts := #[s!"\"event\":\"{name}\""] ++ fieldJson
         let logLine := "near_sdk::log!(\"{" ++ String.intercalate "," jsonParts.toList ++ "}\");"
@@ -336,7 +347,7 @@ mutual
         .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
     | .checkErc1155Received _ _ _ _ _ =>
         .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+    | .checkErc1155BatchReceived _ _ _ _ _ =>
         .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def lowerStoragePathWrite (module : Module) (stateId : String) (path : Array StoragePathSegment) (value : Expr) : Except LowerError (Array String) := do

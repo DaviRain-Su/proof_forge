@@ -74,6 +74,8 @@ def classifyLiteral : Literal → LegacyDecision
   | .bool _ => payloadDecision "Literal.bool" .normalize "canonical-core" "boolean literal maps to canonical Core"
   | .hash4 _ _ _ _ => payloadDecision "Literal.hash4" .normalize "canonical-core" "hash4 limbs are range checked and packed into a canonical numeric hash literal"
   | .address _ => payloadDecision "Literal.address" .normalize "canonical-core" "numeric address handle maps to CoreType.address"
+  | .bytes _ => payloadDecision "Literal.bytes" .normalize "canonical-core" "byte literal maps to canonical Core bytes"
+  | .string _ => payloadDecision "Literal.string" .normalize "canonical-core" "string literal maps to canonical Core string"
 
 def classifyAssignOp : AssignOp → LegacyDecision
   | .add => payloadDecision "AssignOp.add" .normalize "canonical-core" "addition assignment maps to canonical arithmetic"
@@ -102,6 +104,8 @@ def classifyContextField : ContextField → LegacyDecision
   | .chainId => payloadDecision "ContextField.chainId" .reject "canonical-core-context" "chain id is outside the initial adapter fragment"
   | .gasPrice => payloadDecision "ContextField.gasPrice" .reject "canonical-core-context" "gas price is outside the initial adapter fragment"
   | .gasLeft => payloadDecision "ContextField.gasLeft" .reject "canonical-core-context" "gas-left is outside the initial adapter fragment"
+  | .prepaidGas => payloadDecision "ContextField.prepaidGas" .reject "canonical-core-context" "prepaid gas is target-host metadata outside the initial adapter fragment"
+  | .usedGas => payloadDecision "ContextField.usedGas" .reject "canonical-core-context" "used gas is target-host metadata outside the initial adapter fragment"
   | .baseFee => payloadDecision "ContextField.baseFee" .reject "canonical-core-context" "base fee is outside the initial adapter fragment"
   | .prevRandao => payloadDecision "ContextField.prevRandao" .reject "canonical-core-context" "previous randomness is outside the initial adapter fragment"
   | .randomSeed => payloadDecision "ContextField.randomSeed" .reject "canonical-core-context" "random seed is outside the initial adapter fragment"
@@ -214,16 +218,17 @@ def classifyStateDeclFields : StateDecl → Array LegacyDecision
     ]
 
 def classifyErrorRefFields : ErrorRef → Array LegacyDecision
-  | ⟨_, _, _, _, _⟩ => #[
+  | ⟨_, _, _, _, _, _⟩ => #[
       payloadDecision "ErrorRef.assertionId" .normalize "canonical-core-errors" "portable assertion identity is preserved by canonical control flow",
       payloadDecision "ErrorRef.userCode?" .normalize "canonical-core-errors" "user error code is normalized as observable structured-error identity",
       payloadDecision "ErrorRef.soliditySelector?" .materialization "evm-adapter" "Solidity selector is EVM materialization metadata",
       payloadDecision "ErrorRef.solidityArgWords" .materialization "evm-adapter" "Solidity static error arguments are EVM materialization metadata",
-      payloadDecision "ErrorRef.solidityArgTypes" .materialization "evm-adapter" "Solidity error ABI types are EVM materialization metadata"
+      payloadDecision "ErrorRef.solidityArgTypes" .materialization "evm-adapter" "Solidity error ABI types are EVM materialization metadata",
+      payloadDecision "ErrorRef.solidityArgExprs" .materialization "evm-adapter" "runtime Solidity error arguments are retained for EVM materialization"
     ]
 
 def classifyEntrypointFields : Entrypoint → Array LegacyDecision
-  | ⟨_, _, _, _, _, _, _, _⟩ => #[
+  | ⟨_, _, _, _, _, _, _, _, _⟩ => #[
       payloadDecision "Entrypoint.name" .preserve "canonical-interface" "entrypoint identity is preserved in the canonical interface",
       payloadDecision "Entrypoint.kind" .preserve "canonical-interface" "dispatch kind is preserved in the canonical interface",
       payloadDecision "Entrypoint.mutability" .preserve "canonical-interface" "host-visible mutability is preserved in the canonical interface",
@@ -231,6 +236,7 @@ def classifyEntrypointFields : Entrypoint → Array LegacyDecision
       payloadDecision "Entrypoint.params" .normalize "canonical-interface" "entrypoint parameters map to typed canonical parameters",
       payloadDecision "Entrypoint.paramAbiWords" .materialization "target-plan-abi" "ABI word overrides are resolved by the target plan",
       payloadDecision "Entrypoint.returns" .normalize "canonical-interface" "return type maps to the canonical interface",
+      payloadDecision "Entrypoint.returnAbiWord?" .materialization "target-plan-abi" "return ABI override is preserved in the canonical interface",
       payloadDecision "Entrypoint.body" .normalize "canonical-core" "entrypoint statements normalize to canonical control flow"
     ]
 
@@ -336,6 +342,11 @@ def classifyEffect : Effect → LegacyDecision
         disposition := .reject
         owner := "canonical-core-maps"
         reason := "map storage set rejected until core validator and semantics tasks land" }
+  | .storageMapDelete _ _ =>
+      { nodeTag := "Effect.storageMapDelete"
+        disposition := .reject
+        owner := "canonical-core-maps"
+        reason := "map deletion has no canonical Core operation yet" }
   | .storageArrayRead _ _ =>
       { nodeTag := "Effect.storageArrayRead"
         disposition := .reject
@@ -421,7 +432,7 @@ def classifyEffect : Effect → LegacyDecision
         disposition := .reject
         owner := "evm-adapter"
         reason := "ERC-1155 receiver check is target-only until a typed portable primitive or HostOp handler exists" }
-  | .checkErc1155BatchReceived _ _ _ _ _ _ _ =>
+  | .checkErc1155BatchReceived _ _ _ _ _ =>
       { nodeTag := "Effect.checkErc1155BatchReceived"
         disposition := .reject
         owner := "evm-adapter"
@@ -745,14 +756,14 @@ def classifyExpr : Expr → LegacyDecision
         reason := "NEAR promise_then normalizes to a typed Core crosscall mode" }
   | .nearPromiseResultsCount =>
       { nodeTag := "Expr.nearPromiseResultsCount"
-        disposition := .reject
+        disposition := .normalize
         owner := "near-adapter"
-        reason := "NEAR promise results count rejected until Task 17" }
+        reason := "NEAR promise results count normalizes to a versioned HostOp" }
   | .nearPromiseResultStatus _ =>
       { nodeTag := "Expr.nearPromiseResultStatus"
-        disposition := .reject
+        disposition := .normalize
         owner := "near-adapter"
-        reason := "NEAR promise result status rejected until Task 17" }
+        reason := "NEAR promise result status normalizes to a versioned HostOp" }
   | .nearPromiseResultU64 _ =>
       { nodeTag := "Expr.nearPromiseResultU64"
         disposition := .normalize
@@ -774,7 +785,8 @@ def valueTypeInventory : Array ValueType := #[
 ]
 
 def literalInventory : Array Literal := #[
-  .u8 0, .u128 0, .u32 0, .u64 0, .bool false, .hash4 0 0 0 0, .address 0
+  .u8 0, .u128 0, .u32 0, .u64 0, .bool false, .hash4 0 0 0 0, .address 0,
+  .bytes ByteArray.empty, .string ""
 ]
 
 def assignOpInventory : Array AssignOp := #[
@@ -787,7 +799,7 @@ def storagePathSegmentInventory : Array StoragePathSegment := #[
 
 def contextFieldInventory : Array ContextField := #[
   .userId, .userIdHash, .contractId, .checkpointId, .timestamp, .epochHeight,
-  .chainId, .gasPrice, .gasLeft, .baseFee, .prevRandao, .randomSeed, .origin,
+  .chainId, .gasPrice, .gasLeft, .prepaidGas, .usedGas, .baseFee, .prevRandao, .randomSeed, .origin,
   .coinbase, .blockHash (.literal (.u64 0))
 ]
 
@@ -918,6 +930,7 @@ def effectInventory : Array Effect := #[
   .storageMapGet "m" (.local "k"),
   .storageMapInsert "m" (.local "k") (.local "v"),
   .storageMapSet "m" (.local "k") (.local "v"),
+  .storageMapDelete "m" (.local "k"),
   .storageArrayRead "a" (.local "i"),
   .storageArrayWrite "a" (.local "i") (.local "v"),
   .storageArrayStructFieldRead "a" (.local "i") "f",
@@ -935,7 +948,9 @@ def effectInventory : Array Effect := #[
   .eventEmitIndexed "E" #[] #[],
   .checkErc721Received (.local "o") (.local "f") (.local "t") (.local "i"),
   .checkErc1155Received (.local "o") (.local "f") (.local "t") (.local "i") (.local "a"),
-  .checkErc1155BatchReceived (.local "o") (.local "f") (.local "t") (.local "i0") (.local "a0") (.local "i1") (.local "a1")
+  .checkErc1155BatchReceived (.local "o") (.local "f") (.local "t")
+    (.arrayLit .u64 #[.local "i0", .local "i1"])
+    (.arrayLit .u64 #[.local "a0", .local "a1"])
 ]
 
 /--! Representative statement for every `Statement` constructor. -/

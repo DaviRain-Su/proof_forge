@@ -45,6 +45,8 @@ PY
 
 python3 - \
   "$OUT_DIR/CounterUUPSImpl.proof-forge-artifact.json" \
+  "$OUT_DIR/Ownable.proof-forge-artifact.json" \
+  "$OUT_DIR/AccessControlProbe.proof-forge-artifact.json" \
   "$OUT_DIR/ERC721Probe.proof-forge-artifact.json" \
   "$OUT_DIR/ERC1155.proof-forge-artifact.json" \
   "$OUT_DIR/ERC4626.proof-forge-artifact.json" <<'PY'
@@ -55,6 +57,14 @@ from pathlib import Path
 expected = {
     "CounterUUPSImpl": {
         "Upgraded": ("Upgraded(address)", ["address"]),
+    },
+    "Ownable": {
+        "OwnershipTransferred": ("OwnershipTransferred(address,address)", ["address", "address"]),
+    },
+    "AccessControlProbe": {
+        "RoleAdminChanged": ("RoleAdminChanged(bytes32,bytes32,bytes32)", ["bytes32", "bytes32", "bytes32"]),
+        "RoleGranted": ("RoleGranted(bytes32,address,address)", ["bytes32", "address", "address"]),
+        "RoleRevoked": ("RoleRevoked(bytes32,address,address)", ["bytes32", "address", "address"]),
     },
     "ERC721Probe": {
         "Transfer": ("Transfer(address,address,uint256)", ["address", "address", "uint256"]),
@@ -363,6 +373,9 @@ contract ProofForgeSmokeTest {
         uint256 shares
     );
     event Upgraded(address indexed implementation);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender);
+    event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender);
 
     function assertTrue(bool value) internal pure {
         require(value, "assertTrue failed");
@@ -1138,29 +1151,47 @@ contract ProofForgeSmokeTest {
         address bob = address(0xB0B);
         deployRuntime(hex"$(cat "$OUT_DIR/Ownable.bin")", ownable);
 
+        vm.expectEmit(true, true, false, false, ownable);
+        emit OwnershipTransferred(address(0), alice);
         vm.prank(alice);
         (bool initOk,) = ownable.call(abi.encodeWithSignature("init()"));
         assertTrue(initOk);
 
+        vm.prank(bob);
+        (bool reinitOk,) = ownable.call(abi.encodeWithSignature("init()"));
+        assertFalse(reinitOk);
+
         (bool ownerOk, bytes memory ownerResult) = ownable.call(abi.encodeWithSignature("owner()"));
         assertTrue(ownerOk);
-        assertEq(abi.decode(ownerResult, (uint256)), uint256(uint160(alice)));
+        assertTrue(abi.decode(ownerResult, (address)) == alice);
+
+        vm.expectEmit(true, true, false, false, ownable);
+        emit OwnershipTransferred(alice, bob);
+        vm.prank(alice);
+        (bool transferOk,) = ownable.call(abi.encodeWithSignature("transferOwnership(address)", bob));
+        assertTrue(transferOk);
 
         vm.prank(alice);
-        (bool transferOk,) = ownable.call(abi.encodeWithSignature("transferOwnership(uint256)", uint256(uint160(bob))));
-        assertTrue(transferOk);
+        (bool staleOwnerOk,) = ownable.call(abi.encodeWithSignature("transferOwnership(address)", alice));
+        assertFalse(staleOwnerOk);
 
         (bool ownerBobOk, bytes memory ownerBobResult) = ownable.call(abi.encodeWithSignature("owner()"));
         assertTrue(ownerBobOk);
-        assertEq(abi.decode(ownerBobResult, (uint256)), uint256(uint160(bob)));
+        assertTrue(abi.decode(ownerBobResult, (address)) == bob);
 
+        vm.expectEmit(true, true, false, false, ownable);
+        emit OwnershipTransferred(bob, address(0));
         vm.prank(bob);
         (bool renounceOk,) = ownable.call(abi.encodeWithSignature("renounceOwnership()"));
         assertTrue(renounceOk);
 
         (bool ownerZeroOk, bytes memory ownerZeroResult) = ownable.call(abi.encodeWithSignature("owner()"));
         assertTrue(ownerZeroOk);
-        assertEq(abi.decode(ownerZeroResult, (uint256)), 0);
+        assertTrue(abi.decode(ownerZeroResult, (address)) == address(0));
+
+        vm.prank(alice);
+        (bool postRenounceReinitOk,) = ownable.call(abi.encodeWithSignature("init()"));
+        assertFalse(postRenounceReinitOk);
     }
 
     function testPausableLifecycle() public {
@@ -1241,10 +1272,6 @@ contract ProofForgeSmokeTest {
         address probe = address(0x1650);
         deployRuntime(hex"$(cat "$OUT_DIR/ERC165Probe.bin")", probe);
 
-        vm.prank(address(0xA11CE));
-        (bool initOk,) = probe.call(abi.encodeWithSignature("init()"));
-        assertTrue(initOk);
-
         (bool erc165Ok, bytes memory erc165Result) =
             probe.call(abi.encodeWithSignature("supportsInterface(bytes4)", bytes4(0x01ffc9a7)));
         assertTrue(erc165Ok);
@@ -1259,6 +1286,15 @@ contract ProofForgeSmokeTest {
             probe.call(abi.encodeWithSignature("supportsInterface(bytes4)", bytes4(0xdeadbeef)));
         assertTrue(unknownOk);
         assertFalse(abi.decode(unknownResult, (bool)));
+
+        (bool invalidOk, bytes memory invalidResult) =
+            probe.call(abi.encodeWithSignature("supportsInterface(bytes4)", bytes4(0xffffffff)));
+        assertTrue(invalidOk);
+        assertFalse(abi.decode(invalidResult, (bool)));
+
+        (bool registerOk,) =
+            probe.call(abi.encodeWithSignature("registerInterface(bytes4)", bytes4(0xdeadbeef)));
+        assertFalse(registerOk);
 
         (bool nonCanonicalBytes4Ok,) = probe.call(
             abi.encodePacked(
@@ -1275,21 +1311,39 @@ contract ProofForgeSmokeTest {
         address bob = address(0xB0B);
         deployRuntime(hex"$(cat "$OUT_DIR/AccessControlProbe.bin")", probe);
 
+        bytes32 minterRole = keccak256("MINTER_ROLE");
+        vm.expectEmit(true, true, true, false, probe);
+        emit RoleGranted(bytes32(0), alice, alice);
         vm.prank(alice);
         (bool initOk,) = probe.call(abi.encodeWithSignature("init()"));
         assertTrue(initOk);
 
+        vm.prank(bob);
+        (bool reinitOk,) = probe.call(abi.encodeWithSignature("init()"));
+        assertFalse(reinitOk);
+
         (bool adminOk, bytes memory adminResult) =
-            probe.call(abi.encodeWithSignature("hasRole(uint256,address)", uint256(0), alice));
+            probe.call(abi.encodeWithSignature("hasRole(bytes32,address)", bytes32(0), alice));
         assertTrue(adminOk);
         assertTrue(abi.decode(adminResult, (bool)));
 
+        (, bytes memory roleAdminResult) =
+            probe.call(abi.encodeWithSignature("getRoleAdmin(bytes32)", minterRole));
+        assertTrue(abi.decode(roleAdminResult, (bytes32)) == bytes32(0));
+
+        vm.prank(bob);
+        (bool unauthorizedGrantOk,) =
+            probe.call(abi.encodeWithSignature("grantRole(bytes32,address)", minterRole, bob));
+        assertFalse(unauthorizedGrantOk);
+
+        vm.expectEmit(true, true, true, false, probe);
+        emit RoleGranted(minterRole, bob, alice);
         vm.prank(alice);
-        (bool grantOk,) = probe.call(abi.encodeWithSignature("grantMinter(address)", bob));
+        (bool grantOk,) = probe.call(abi.encodeWithSignature("grantRole(bytes32,address)", minterRole, bob));
         assertTrue(grantOk);
 
         (bool minterOk, bytes memory minterResult) =
-            probe.call(abi.encodeWithSignature("hasRole(uint256,address)", uint256(1), bob));
+            probe.call(abi.encodeWithSignature("hasRole(bytes32,address)", minterRole, bob));
         assertTrue(minterOk);
         assertTrue(abi.decode(minterResult, (bool)));
 
@@ -1303,6 +1357,30 @@ contract ProofForgeSmokeTest {
         vm.prank(alice);
         (bool noRoleOk,) = probe.call(abi.encodeWithSignature("touch()"));
         assertFalse(noRoleOk);
+
+        vm.prank(bob);
+        (bool badConfirmationOk,) =
+            probe.call(abi.encodeWithSignature("renounceRole(bytes32,address)", minterRole, alice));
+        assertFalse(badConfirmationOk);
+
+        vm.expectEmit(true, true, true, false, probe);
+        emit RoleRevoked(minterRole, bob, alice);
+        vm.prank(alice);
+        (bool revokeOk,) = probe.call(abi.encodeWithSignature("revokeRole(bytes32,address)", minterRole, bob));
+        assertTrue(revokeOk);
+
+        vm.prank(bob);
+        (bool revokedTouchOk,) = probe.call(abi.encodeWithSignature("touch()"));
+        assertFalse(revokedTouchOk);
+
+        vm.prank(alice);
+        (bool regrantOk,) = probe.call(abi.encodeWithSignature("grantRole(bytes32,address)", minterRole, bob));
+        assertTrue(regrantOk);
+        vm.expectEmit(true, true, true, false, probe);
+        emit RoleRevoked(minterRole, bob, bob);
+        vm.prank(bob);
+        (bool renounceOk,) = probe.call(abi.encodeWithSignature("renounceRole(bytes32,address)", minterRole, bob));
+        assertTrue(renounceOk);
     }
 
     function testERC721ProbeLifecycle() public {

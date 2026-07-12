@@ -15,8 +15,10 @@ import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
 import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Cli.TokenLoader
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
+import ProofForge.Contract.Token.NearSpec
 import ProofForge.IR
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
@@ -69,12 +71,13 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   writeTextFile yulOutput yul
   let bytecode ← solcBytecode opts.solc yulOutput
   writeTextFile output (bytecode ++ "\n")
+  let hydratedSpec := { spec with module := module }
   writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
-    moduleName := spec.name
+    moduleName := hydratedSpec.name
     path? := some input.toString
     kind := "contract-sdk"
     leanElaborated := true
-  } spec module yulOutput output
+  } hydratedSpec module yulOutput output
   IO.println s!"wrote {output} ({bytecode.length} hex chars)"
   return 0
 
@@ -227,6 +230,28 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   | .error error =>
       throw <| IO.userError error
 
+/-- Try loading a `ContractSpec` first; if that fails and the source defines a
+    `TokenSpec`, materialize a target-appropriate `ContractSpec` from it.
+
+    This lets authors run `proof-forge build --target wasm-near Token.lean`
+    without `--token` when the source is a `TokenSpec` (P0-NEAR-1). -/
+unsafe def tryLoadSpecOrTokenSpec
+    (input : System.FilePath) (root? : Option System.FilePath)
+    (moduleName? : Option Lean.Name) (targetId : String) :
+    IO (Except String ProofForge.Contract.ContractSpec) := do
+  try
+    let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
+    pure (.ok spec)
+  catch _ =>
+    try
+      let (_, tokenSpec) ← ProofForge.Cli.TokenLoader.loadToken input root? moduleName?
+      if targetId == ProofForge.Target.wasmNear.id then
+        pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec))
+      else
+        pure (.error s!"source defines a TokenSpec but target `{targetId}` has no TokenSpec auto-detect lane; use `--token`")
+    catch err =>
+      pure (.error s!"{err}")
+
 unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
@@ -237,7 +262,10 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     | .ok resolved => pure resolved
     | .error msg => throw <| IO.userError msg
   let profile := resolved.1
-  let spec ← ProofForge.Cli.ContractLoader.loadSpec input opts.root? opts.moduleName?
+  let spec ←
+    match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
+    | .ok spec => pure spec
+    | .error err => throw <| IO.userError err
   let fixtureSlug := spec.name.toLower
   let outputDir ← match opts.output? with
     | some out =>

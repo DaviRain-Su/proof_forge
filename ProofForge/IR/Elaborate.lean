@@ -60,6 +60,8 @@ def elaborateLiteral (l : Literal) : Except ElabError CoreLiteral :=
   | .bool b => .ok (.boolLit b)
   | .hash4 _ _ _ _ => .error (.unsupported "hash4 literal")
   | .address _ => .error (.unsupported "address literal")
+  | .bytes value => .ok (.bytesLit value)
+  | .string value => .ok (.stringLit value)
 
 /-- Map Surface `AssignOp` to the corresponding Core `BinaryOp`. -/
 @[deprecated "Legacy elaborator: use `ProofForge.IR.Legacy.Adapter.adaptAssignOp` for canonical operator conversion." (since := "0.1.0-beta.1")]

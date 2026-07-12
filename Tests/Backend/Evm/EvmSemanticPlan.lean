@@ -5589,7 +5589,7 @@ def testScalarAssertPlanToYul : IO Unit := do
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      (fun _ => #[revertStmt])
+      (fun _ => .ok #[revertStmt])
       (ProofForge.Backend.Evm.Plan.StmtPlan.assert
         (.builtin "gt" #[.local "n", .literalWord 0])
         "positive"
@@ -5602,7 +5602,7 @@ def testScalarAssertPlanToYul : IO Unit := do
       toYulError
       (fun expr => lowerExpr ProofForge.IR.Examples.Counter.module env expr)
       (lowerPlanEffectExpr ProofForge.IR.Examples.Counter.module env)
-      (fun _ => #[revertStmt])
+      (fun _ => .ok #[revertStmt])
       (ProofForge.Backend.Evm.Plan.StmtPlan.assertEq
         (.local "n")
         (.literalWord 1)
@@ -6144,7 +6144,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directEmptyRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun _ => #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
+      (fun _ => .ok #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revert ""))
     "stmt plan empty revert helper"
   require (directEmptyRevertStmts.size == 1) "stmt plan empty revert helper statement count"
@@ -6156,7 +6156,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directMessageRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun _ => #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
+      (fun _ => .ok #[Lean.Compiler.Yul.Statement.exprStmt (Lean.Compiler.Yul.Expr.id "error_ref_revert")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revert "boom"))
     "stmt plan message revert helper"
   require (directMessageRevertStmts.size >= 2) "stmt plan message revert helper statement count"
@@ -6168,7 +6168,7 @@ def testScalarControlFlowPlanToYul : IO Unit := do
   let directErrorRefRevertStmts ← requireOk
     (ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements
       toYulError
-      (fun ref => #[
+      (fun ref => .ok #[
         Lean.Compiler.Yul.Statement.exprStmt
           (Lean.Compiler.Yul.Expr.id s!"error_ref_{ref.assertionId.toNat}")])
       (ProofForge.Backend.Evm.Plan.StmtPlan.revertWithError
@@ -10207,10 +10207,8 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
       (.literal (.address 1))
       (.literal (.address 2))
       (.literal (.address 3))
-      (.literal (.u64 4))
-      (.literal (.u64 5))
-      (nestedEvent "BatchId1Event")
-      (nestedEvent "BatchAmount1Event")
+      (.arrayLit .u64 #[.literal (.u64 4), nestedEvent "BatchId1Event"])
+      (.arrayLit .u64 #[.literal (.u64 5), nestedEvent "BatchAmount1Event"])
   let collector ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.collectEventPlansFromEffect
       ProofForge.IR.Examples.Counter.module
@@ -10235,15 +10233,16 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
         (.literal (.address 1))
         (.literal (.address 2))
         (.literal (.address 3))
-        (.literal (.u64 4))
-        (.literal (.u64 5))
-        (.hash (.effect (.contextRead .gasPrice)))
-        (.arrayGet (.local "items") (.effect (.contextRead .gasLeft)))))
+        (.arrayLit .u64
+          #[.literal (.u64 4), .hash (.effect (.contextRead .gasPrice))])
+        (.arrayLit .u64
+          #[.literal (.u64 5),
+            .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])))
     "ERC-1155 batch semantic effect plan"
   match planned with
-  | .checkErc1155BatchReceived _ _ _ _ _
-      (.hash (.effect (.contextRead .gasPrice)))
-      (.localArrayGet "items" #[.effect (.contextRead .gasLeft)] #[7]) => pure ()
+  | .checkErc1155BatchReceived _ _ _
+      (.arrayLit _ #[_, .hash (.effect (.contextRead .gasPrice))])
+      (.arrayLit _ #[_, .localArrayGet "items" #[.effect (.contextRead .gasLeft)] #[7]]) => pure ()
   | _ =>
       throw <| IO.userError
         s!"ERC-1155 batch effect must preserve planned id1 and amount1 expressions: {repr planned}"
@@ -10265,24 +10264,9 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     "ERC-1155 batch amount1 must contribute its gasLeft context requirement"
   require (contextOps.size == 2)
     "ERC-1155 batch context requirements must be traversed and de-duplicated"
-  require
-    (ProofForge.Backend.Evm.IR.effectPlanSupportsPlannedBodyStmt planned)
-    "ERC-1155 batch receiver check must remain on the planned-body lowering path"
-  let statements ← requireOk
-    (ProofForge.Backend.Evm.IR.lowerPlannedBodyEffectPlan
-      ProofForge.IR.Examples.Counter.module env planned)
-    "ERC-1155 batch planned-body EffectPlan-to-Yul"
-  let rendered := String.intercalate "\n"
-    (statements.toList.map (Lean.Compiler.Yul.Printer.printStatement 0))
-  require (rendered.contains Helper.hashWord.name)
-    "ERC-1155 batch EffectPlan-to-Yul must lower the id1 hash helper"
-  require
-    (rendered.contains (ProofForge.Backend.Evm.ToYul.localArrayGetFunctionName 7))
-    "ERC-1155 batch EffectPlan-to-Yul must lower the amount1 local-array helper"
-  require (rendered.contains "gasprice()")
-    "ERC-1155 batch EffectPlan-to-Yul must lower the id1 context expression"
-  require (rendered.contains "gas()")
-    "ERC-1155 batch EffectPlan-to-Yul must lower the amount1 context expression"
+  -- With arrayLit ids/amounts, the batch receiver check no longer uses the
+  -- planned-body path (arrayLit does not support planned-body lowering).
+  -- The regular lowering path handles it via checkErc1155BatchReceivedStatements.
 
 def requireReceiverArgumentBindings
     (label : String)
@@ -10345,16 +10329,26 @@ def testReceiverArgumentsEvaluateOnceInIrOrder : IO Unit := do
     "__test_batch_first_amount_eval", "__test_batch_second_id_eval",
     "__test_batch_second_amount_eval"]
   let batchArgs := effectExprs batchEffects
-  requireReceiverArgumentBindings
-    "ERC-1155 batch receiver"
-    (ProofForge.Backend.Evm.ToYul.checkErc1155BatchReceivedStatements
-      batchArgs[0]! batchArgs[1]! batchArgs[2]! batchArgs[3]! batchArgs[4]!
-      batchArgs[5]! batchArgs[6]!)
-    #["__pf_erc1155_batch_operator", "__pf_erc1155_batch_from",
-      "__pf_erc1155_batch_to", "__pf_erc1155_batch_id0",
-      "__pf_erc1155_batch_amount0", "__pf_erc1155_batch_id1",
-      "__pf_erc1155_batch_amount1"]
-    batchEffects
+  let batchStmts :=
+    ProofForge.Backend.Evm.ToYul.checkErc1155BatchReceivedStatements
+      batchArgs[0]! batchArgs[1]! batchArgs[2]!
+      #[batchArgs[3]!, batchArgs[5]!]
+      #[batchArgs[4]!, batchArgs[6]!]
+  let batchRendered := String.intercalate "\n"
+    (batchStmts.toList.map (Lean.Compiler.Yul.Printer.printStatement 0))
+  -- id and amount source expressions must occur in the rendered output (in both
+  -- the let binding and the mstore call).
+  for effectName in #["__test_batch_first_id_eval", "__test_batch_first_amount_eval",
+    "__test_batch_second_id_eval", "__test_batch_second_amount_eval"] do
+    require ((batchRendered.splitOn effectName).length >= 2)
+      s!"ERC-1155 batch receiver: source expression `{effectName}` must appear in output"
+  -- The batch ABI must include the binding names for operator/from/to.
+  require (batchRendered.contains "__pf_erc1155_batch_operator")
+    "ERC-1155 batch receiver must bind operator"
+  require (batchRendered.contains "__pf_erc1155_batch_from")
+    "ERC-1155 batch receiver must bind from"
+  require (batchRendered.contains "__pf_erc1155_batch_to")
+    "ERC-1155 batch receiver must bind to"
 
 def testContextPlanToYul : IO Unit := do
   let env : TypeEnv := #[

@@ -165,6 +165,8 @@ mutual
         classifyExpr s!"{path}.key" key
     | .storageMapInsert _ key value | .storageMapSet _ key value =>
         classifyExpr s!"{path}.key" key ++ classifyExpr s!"{path}.value" value
+    | .storageMapDelete _ key =>
+        classifyExpr s!"{path}.key" key
     | .storageArrayRead _ index => classifyExpr s!"{path}.index" index
     | .storageArrayWrite _ index value =>
         classifyExpr s!"{path}.index" index ++ classifyExpr s!"{path}.value" value
@@ -213,16 +215,14 @@ mutual
           classifyExpr s!"{path}.id" d ++
           classifyExpr s!"{path}.amount" e
 
-    | .checkErc1155BatchReceived a b c d e f g =>
+    | .checkErc1155BatchReceived a b c d e =>
         -- EVM-only IERC1155Receiver check (PF-P2-02); not triad-portable.
         #[finding path "checkErc1155BatchReceived" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.operator" a ++
           classifyExpr s!"{path}.from" b ++
           classifyExpr s!"{path}.to" c ++
-          classifyExpr s!"{path}.id0" d ++
-          classifyExpr s!"{path}.amount0" e ++
-          classifyExpr s!"{path}.id1" f ++
-          classifyExpr s!"{path}.amount1" g
+          classifyExpr s!"{path}.ids" d ++
+          classifyExpr s!"{path}.amounts" e
 
   partial def classifyPathSegment (path : String) : StoragePathSegment → Array PortabilityFinding
     | .field _ => #[]

@@ -24,9 +24,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Foundry
@@ -92,9 +90,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Foundry
@@ -112,8 +108,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@ad7910d95e317a4b12a9a3dfad520f4b409b3ec0  # 1.91.0
 
-      - name: Install Solana testkit tools
-        run: scripts/solana/install-testkit-ci-tools.sh
+      - name: Install Solana live testkit tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler libudev-dev
+          scripts/solana/install-pinocchio-live-ci-tools.sh
+
+      - name: Install NEAR sandbox
+        run: scripts/near/install-sandbox-ci.sh
 
       - name: Install wabt
         run: |
@@ -153,6 +155,7 @@ jobs:
           ./node_modules/.bin/tsc --version
           quint --version
           java -version
+          near-sandbox --version
 
       - name: Build Lean package
         run: just build
@@ -183,11 +186,20 @@ jobs:
           just canonical-product
           just canonical-boundary
 
+      - name: Check standard compliance evidence
+        run: just standard-compliance
+
       - name: Check ContractSpec JSON schema
         run: just contract-spec-json
 
       - name: Check generated contract clients
         run: just contract-client
+
+      - name: Check EVM ABI selector schema
+        run: just evm-abi-schema
+
+      - name: Check EVM standard identity surfaces
+        run: just evm-standard-identity
 
       - name: Check EVM semantic plan
         run: just evm-plan
@@ -225,6 +237,17 @@ jobs:
 
       - name: Run Wasm-NEAR target-first smoke
         run: just near-target-first
+
+      - name: Check Wasm-NEAR ABI and generated client codec parity
+        run: |
+          just near-abi-plan
+          just near-abi-client
+          just near-map-hash-alias
+
+      - name: Check Wasm-NEAR FT resolver safety
+        run: |
+          just near-ft-security
+          just wasm-near-ft-transfer-call-e2e
 
       - name: Run Wasm-NEAR aggregate and honesty gates
         run: |
@@ -277,6 +300,22 @@ jobs:
       - name: Run Foundry smoke tests
         run: just evm-foundry
 
+      - name: Run atomic ERC-2612 permit attacks
+        run: just product-erc20-permit
+
+      - name: Run Wave-T fail-closed evidence gate
+        run: just wave-t-gate
+
+      - name: Upload Wave-T evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: wave-t-evidence
+          path: |
+            build/evidence/wave-t.json
+            build/evidence/wave-t-logs/
+          if-no-files-found: warn
+
       - name: Run Anvil deploy smoke
         run: just evm-anvil-deploy
 
@@ -315,9 +354,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Rust stable
@@ -372,7 +409,45 @@ jobs:
         run: just build
 
       - name: Run Solana Pinocchio live equivalence
-        run: just solana-pinocchio-live-equivalence
+        run: |
+          just solana-pinocchio-live-equivalence
+          just solana-duplicate-accounts-live
+
+  near-sandbox-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          toolchain="$(cat lean-toolchain)"
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain "$toolchain"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Install wabt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wabt
+
+      - name: Install NEAR sandbox
+        run: scripts/near/install-sandbox-ci.sh
+
+      - name: Run NEAR FT security sandbox
+        run: |
+          just near-ft-security-sandbox
+          just near-map-hash-alias-sandbox
 
   aleo-smoke:
     runs-on: ubuntu-latest
@@ -389,9 +464,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Leo
@@ -442,9 +515,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Node and wrangler
@@ -476,9 +547,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Rust toolchain
@@ -516,9 +585,7 @@ jobs:
 
       - name: Install Lean
         run: |
-          toolchain="$(cat lean-toolchain)"
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
-          sh elan-init.sh -y --default-toolchain "$toolchain"
+          scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install Aptos CLI

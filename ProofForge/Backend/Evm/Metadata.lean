@@ -39,7 +39,7 @@ def abiEntrypointDescriptor (entrypoint : EntrypointPlan) : AbiEntrypointDescrip
     name := entrypoint.name
     selector := entrypoint.selector
     params := entrypoint.params.map abiParamDescriptor
-    returnType := entrypoint.returns.returnType.name
+    returnType := entrypoint.returns.abiType?.getD entrypoint.returns.returnType.name
   }
 
 def abiEntrypointDescriptors (plan : ModulePlan) : Array AbiEntrypointDescriptor :=

@@ -28,6 +28,7 @@ namespace ProofForge.Contract.Token
 open ProofForge.Target
 open ProofForge.Contract.FixedPoint
 open ProofForge.Contract.TokenAuth
+open ProofForge.Contract.Compliance
 
 /-- Native token **artifact** kind chosen by a target adapter.
 
@@ -149,14 +150,13 @@ def TokenSpec.needsToken2022 (spec : TokenSpec) : Bool :=
 Product policy (T2.2 / D-W2-EvmFee): Solana Token-2022-shaped extensions are
 **not** lowered into the generated ERC-20 contract (use Solana target).
 
-EIP-2612 `permit` is **planned** on EVM (`erc20.permit` ops + notes) and
-materialized via `Contract.Stdlib.ERC20Permit` / `just product-erc20-permit`
-(IR `ecrecover`). The legacy hand-written `Token/Evm.lean` Yul path does not
-emit permit; compose the stdlib for a real body.
+EIP-2612 `permit` is materialized atomically by the TokenSpec adapter. Capped
+and pausable remain rejected until their complete behavior is emitted.
 
-Core ERC-20 lane on EVM: mintable / burnable / capped / pausable (+ permit plan). -/
+Core ERC-20 TokenSpec lane on EVM: mintable / burnable / permit. -/
 def TokenSpec.evmUnsupportedFeatures (spec : TokenSpec) : Array TokenFeature :=
-  #[.transferFee, .nonTransferable, .confidentialTransfer, .transferHook,
+  #[.capped, .pausable, .transferFee, .nonTransferable,
+    .confidentialTransfer, .transferHook,
     .metadataPointer, .defaultAccountState, .immutableOwner].filter spec.hasFeature
 
 inductive TokenArtifactKind where
@@ -289,16 +289,16 @@ def evmErc20Plan (target : TargetProfile) (spec : TokenSpec) : TokenPlan := {
     else #[])
 }
 
-def baseSplTokenOperations : Array String := #[
+def baseSplTokenOperations (spec : TokenSpec) : Array String := #[
   "spl-token.create_mint",
   "spl-token.create_token_account",
-  "spl-token.mint_to",
   "spl-token.transfer_checked",
   "spl-token.approve",
-  "spl-token.burn",
   "spl-token.revoke",
   "spl-token.set_authority"
-]
+] ++
+  (if spec.hasFeature .mintable then #["spl-token.mint_to"] else #[]) ++
+  (if spec.hasFeature .burnable then #["spl-token.burn"] else #[])
 
 def token2022FeatureOperations (spec : TokenSpec) : Array String :=
   #[] ++
@@ -337,6 +337,11 @@ def TokenStandard.solanaProgramId : TokenStandard → String
   | .erc20 | .nep141 => ""
 
 def validateSolanaTokenFeatures (spec : TokenSpec) : Except String Unit := do
+  let unsupported := #[.capped, .pausable, .permit, .confidentialTransfer].filter spec.hasFeature
+  if !unsupported.isEmpty then
+    .error <| "target `solana-sbpf-asm` TokenSpec adapter does not materialize feature(s) " ++
+      String.intercalate ", " (unsupported.toList.map (fun f => s!"`{f.id}`")) ++
+      "; remove them until an executable adapter and requirement-bound evidence exist"
   if spec.hasFeature .transferFee && spec.hasFeature .nonTransferable then
     .error "Solana Token-2022 features `transfer_fee` and `non_transferable` cannot be enabled on the same token mint"
   else
@@ -360,14 +365,15 @@ def validateEvmTokenFeatures (spec : TokenSpec) : Except String Unit := do
       .error <|
         "target `evm` TokenSpec product policy rejects feature(s) " ++
         String.intercalate ", " (ids.map (fun id => s!"`{id}`")) ++
-        "; ERC-20 lane materializes mintable/burnable/capped/pausable only. " ++
+        "; ERC-20 lane currently materializes mintable/burnable/permit only. " ++
         "Use `--target solana-sbpf-asm` for Token-2022-shaped extensions " ++
         "(`transfer_fee`, `non_transferable`, …), or drop the feature"
 
-/-- NEAR NEP-141 plan lane: core fungible features only (mintable/burnable/capped/
-pausable/permit). Token-2022-shaped extension features reject honestly. -/
+/-- NEAR NEP-141 plan lane: mintable/burnable only. Other features reject
+until the emitted Wasm materializes them. -/
 def TokenSpec.nearUnsupportedFeatures (spec : TokenSpec) : Array TokenFeature :=
-  #[.transferFee, .nonTransferable, .confidentialTransfer, .transferHook,
+  #[.capped, .pausable, .permit, .transferFee, .nonTransferable,
+    .confidentialTransfer, .transferHook,
     .metadataPointer, .defaultAccountState, .immutableOwner].filter spec.hasFeature
 
 def validateNearTokenFeatures (spec : TokenSpec) : Except String Unit :=
@@ -378,7 +384,7 @@ def validateNearTokenFeatures (spec : TokenSpec) : Except String Unit :=
       .error <|
         "target `wasm-near` TokenSpec plan does not yet materialize feature(s) " ++
         String.intercalate ", " (ids.map (fun id => s!"`{id}`")) ++
-        "; use core features (mintable/burnable/capped/pausable/permit) or " ++
+        "; the NEAR adapter currently materializes mintable/burnable only; use " ++
         "`solana-sbpf-asm` for Token-2022-shaped extensions"
 
 /-- Human-readable no-lane error (CLI + planForTarget). Primary TokenSpec hosts:
@@ -693,7 +699,8 @@ private def solanaBaseInstructions (spec : TokenSpec) (standard : TokenStandard)
     }
   ].filter fun instruction =>
     (instruction.name != "mint_to_initial_supply" || spec.initialSupply?.isSome) &&
-    (instruction.name != "mint_to" || spec.hasFeature .mintable)
+    (instruction.name != "mint_to" || spec.hasFeature .mintable) &&
+    (instruction.name != "burn" || spec.hasFeature .burnable)
 
 private def solanaTransferFeeCollectionInstructions (spec : TokenSpec) (standard : TokenStandard)
     (startOrder : Nat) : Array SolanaTokenInstructionPlan :=
@@ -820,7 +827,7 @@ def solanaTokenPlan (target : TargetProfile) (spec : TokenSpec) : TokenPlan :=
       .controlConditional,
       .assertions
     ]
-    operations := baseSplTokenOperations ++ token2022FeatureOperations spec
+    operations := baseSplTokenOperations spec ++ token2022FeatureOperations spec
     notes := #[
       "Solana lowers a TokenSpec into an SPL Token or Token-2022 mint/account/CPI plan.",
       "Standard Solana tokens use the deployed token program; ProofForge should not generate a per-token SPL contract by default.",
@@ -897,14 +904,16 @@ def planForTarget (target : TargetProfile) (spec : TokenSpec) : Except String To
 /-! ## Feature × target support matrix (product honesty)
 
 Authors write features only. This table is the machine-checked product map of
-what each **primary** target does today: full plan, reject (no silent drop),
-or no TokenSpec lane yet.
+what each **primary** target does today: evidence-qualified, experimental,
+reject (no silent drop), or no TokenSpec lane yet.
 -/
 
 /-- How a target treats a portable TokenFeature. -/
 inductive FeatureSupport where
   /-- Materializes in TokenSpec plan / codegen for this target. -/
   | full
+  /-- Adapter materializes the feature, but requirement-bound evidence is pending. -/
+  | experimental
   /-- Capability-style reject (no silent drop). -/
   | reject
   /-- Target has no TokenSpec plan yet (use another target or wait). -/
@@ -913,11 +922,12 @@ inductive FeatureSupport where
 
 def FeatureSupport.id : FeatureSupport → String
   | .full => "full"
+  | .experimental => "experimental"
   | .reject => "reject"
   | .noLane => "no-lane"
 
-/-- Core portable features materializable on EVM ERC-20 **and** Solana SPL base
-plans (and NEAR NEP-141 plan). `permit` is EVM-full via ERC20Permit stdlib plan. -/
+/-- Author-facing portable core feature vocabulary. Target adapters may reject
+members until the selected route actually materializes them. -/
 def corePortableFeatures : Array TokenFeature :=
   #[.mintable, .burnable, .capped, .pausable]
 
@@ -937,21 +947,19 @@ def featureSupportOnTarget (targetId : String) (feature : TokenFeature) : Featur
       if TokenSpec.evmUnsupportedFeatures { name := "", symbol := "", decimals := 0, features := #[feature] }
           |>.contains feature then
         .reject
-      else if corePortableFeatures.contains feature || feature == .permit then
-        .full
+      else if #[TokenFeature.mintable, .burnable, .permit].contains feature then
+        .experimental
       else
         .reject
   | "solana-sbpf-asm" =>
-      if corePortableFeatures.contains feature || solanaExtensionFeatures.contains feature ||
-          feature == .permit then
-        .full
+      if #[TokenFeature.mintable, .burnable, .transferFee, .nonTransferable,
+          .transferHook, .metadataPointer, .defaultAccountState, .immutableOwner].contains feature then
+        .experimental
       else
         .reject
   | "wasm-near" =>
-      if solanaExtensionFeatures.contains feature then
-        .reject
-      else if corePortableFeatures.contains feature || feature == .permit then
-        .full
+      if #[TokenFeature.mintable, .burnable].contains feature then
+        .experimental
       else
         .reject
   | "wasm-cosmwasm" | "wasm-cloudflare-workers"
@@ -959,6 +967,40 @@ def featureSupportOnTarget (targetId : String) (feature : TokenFeature) : Featur
   | "psy-dpn" | "aleo-leo" =>
       .noLane
   | _ => .noLane
+
+def featureEvidenceRequirement? (targetId : String) (feature : TokenFeature) :
+    Option (StandardManifest × AdapterRef) :=
+  match targetId with
+  | "evm" =>
+      match feature with
+      | .mintable | .burnable =>
+          some (erc20ProductProfileManifest, { id := "proof-forge.evm.erc20", version := "1" })
+      | .permit =>
+          some (erc2612Manifest, { id := "proof-forge.evm.erc2612", version := "1" })
+      | _ => none
+  | "solana-sbpf-asm" =>
+      if #[TokenFeature.mintable, .burnable].contains feature then
+        some (splTokenManifest, { id := "proof-forge.solana.spl-token", version := "1" })
+      else if #[TokenFeature.transferFee, .nonTransferable, .transferHook,
+          .metadataPointer, .defaultAccountState, .immutableOwner].contains feature then
+        some (splToken2022Manifest, { id := "proof-forge.solana.token-2022", version := "1" })
+      else
+        none
+  | "wasm-near" =>
+      if #[TokenFeature.mintable, .burnable].contains feature then
+        some (nep141Manifest, { id := "proof-forge.near.nep141", version := "1" })
+      else
+        none
+  | _ => none
+
+def featureSupportOnTargetWithEvidence (targetId : String) (feature : TokenFeature)
+    (claims : Array EvidenceClaim) : FeatureSupport :=
+  let support := featureSupportOnTarget targetId feature
+  match support, featureEvidenceRequirement? targetId feature with
+  | .experimental, some (manifest, adapter) =>
+      if claims.any (fun claim => claim.isExactFor manifest adapter) then .full
+      else .experimental
+  | _, _ => support
 
 /-- One row of the product matrix for tests/docs. -/
 structure FeatureMatrixRow where

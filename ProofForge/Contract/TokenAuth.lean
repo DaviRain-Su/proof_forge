@@ -22,8 +22,11 @@ flags from TokenSpec features.
 -/
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
+import ProofForge.Contract.Compliance
 
 namespace ProofForge.Contract.TokenAuth
+
+open ProofForge.Contract.Compliance
 
 /-- Divergent token authorization / permission models. -/
 inductive TokenAuthFeature where
@@ -60,31 +63,55 @@ def allCoreOps : Array TokenCoreOp := #[.transfer, .balanceOf, .mint, .burn]
 
 inductive AuthSupport where
   | full
+  | experimental
   | reject
   | noLane
   deriving BEq, DecidableEq, Repr
 
 def AuthSupport.id : AuthSupport → String
   | .full => "full"
+  | .experimental => "experimental"
   | .reject => "reject"
   | .noLane => "no-lane"
 
 /-- Support matrix for auth features on primary TokenSpec targets. -/
 def authSupportOnTarget (targetId : String) (feature : TokenAuthFeature) : AuthSupport :=
   match targetId, feature with
-  | "evm", .allowance => .full
+  | "evm", .allowance => .experimental
   | "evm", .authority => .reject
   | "evm", .storageDeposit => .reject
   | "evm", .transferCall => .reject
   | "solana-sbpf-asm", .allowance => .reject
-  | "solana-sbpf-asm", .authority => .full
+  | "solana-sbpf-asm", .authority => .experimental
   | "solana-sbpf-asm", .storageDeposit => .reject
   | "solana-sbpf-asm", .transferCall => .reject
   | "wasm-near", .allowance => .reject
   | "wasm-near", .authority => .reject
-  | "wasm-near", .storageDeposit => .full
-  | "wasm-near", .transferCall => .full
+  | "wasm-near", .storageDeposit => .experimental
+  | "wasm-near", .transferCall => .experimental
   | _, _ => .noLane
+
+def authEvidenceRequirement? (targetId : String) (feature : TokenAuthFeature) :
+    Option (StandardManifest × AdapterRef) :=
+  match targetId, feature with
+  | "evm", .allowance =>
+      some (erc20Manifest, { id := "proof-forge.evm.erc20", version := "1" })
+  | "solana-sbpf-asm", .authority =>
+      some (splTokenManifest, { id := "proof-forge.solana.spl-token", version := "1" })
+  | "wasm-near", .storageDeposit =>
+      some (nep145Manifest, { id := "proof-forge.near.nep145", version := "1" })
+  | "wasm-near", .transferCall =>
+      some (nep141Manifest, { id := "proof-forge.near.nep141", version := "1" })
+  | _, _ => none
+
+def authSupportOnTargetWithEvidence (targetId : String) (feature : TokenAuthFeature)
+    (claims : Array EvidenceClaim) : AuthSupport :=
+  let support := authSupportOnTarget targetId feature
+  match support, authEvidenceRequirement? targetId feature with
+  | .experimental, some (manifest, adapter) =>
+      if claims.any (fun claim => claim.isExactFor manifest adapter) then .full
+      else .experimental
+  | _, _ => support
 
 /-- Core ops on a primary target, **capability-gated** by mintable/burnable flags.
 
@@ -97,9 +124,9 @@ def coreOpSupportOnTarget (targetId : String) (op : TokenCoreOp)
   match targetId with
   | "evm" | "solana-sbpf-asm" | "wasm-near" =>
       match op with
-      | .transfer | .balanceOf => .full
-      | .mint => if hasMintable then .full else .reject
-      | .burn => if hasBurnable then .full else .reject
+      | .transfer | .balanceOf => .experimental
+      | .mint => if hasMintable then .experimental else .reject
+      | .burn => if hasBurnable then .experimental else .reject
   | _ => .noLane
 
 structure AuthMaterialization where
@@ -127,25 +154,25 @@ def materializeCoreOp (targetId : String) (op : TokenCoreOp)
     (hasMintable : Bool := false) (hasBurnable : Bool := false) :
     Except String CoreOpMaterialization :=
   match coreOpSupportOnTarget targetId op hasMintable hasBurnable, targetId, op with
-  | .full, tid, .transfer =>
+  | .experimental, tid, .transfer =>
       .ok {
         targetId := tid, op := op
         nativeOps := #["transfer"]
         note := "portable transfer (ERC-20 / SPL / NEP-141)"
       }
-  | .full, tid, .balanceOf =>
+  | .experimental, tid, .balanceOf =>
       .ok {
         targetId := tid, op := op
         nativeOps := #["balanceOf", "balance_of", "ft_balance_of"]
         note := "portable balance query"
       }
-  | .full, tid, .mint =>
+  | .experimental, tid, .mint =>
       .ok {
         targetId := tid, op := op
         nativeOps := #["mint"]
         note := "requires TokenFeature.mintable"
       }
-  | .full, tid, .burn =>
+  | .experimental, tid, .burn =>
       .ok {
         targetId := tid, op := op
         nativeOps := #["burn"]
@@ -161,30 +188,32 @@ def materializeCoreOp (targetId : String) (op : TokenCoreOp)
       .error (coreOpReject tid op' "core op rejected on this target")
   | .noLane, tid, op' =>
       .error (coreOpReject tid op' "no TokenSpec lane for target")
+  | .full, tid, op' =>
+      .error (coreOpReject tid op' "internal: full support requires bound compliance evidence")
 
 /-- Materialize an auth feature or honest-reject. -/
 def materializeAuth (targetId : String) (feature : TokenAuthFeature) :
     Except String AuthMaterialization :=
   match authSupportOnTarget targetId feature, targetId, feature with
-  | .full, "evm", .allowance =>
+  | .experimental, "evm", .allowance =>
       .ok {
         targetId := targetId, feature := feature
         nativeOps := #["approve", "allowance", "transferFrom"]
         note := "ERC-20 allowance model"
       }
-  | .full, "solana-sbpf-asm", .authority =>
+  | .experimental, "solana-sbpf-asm", .authority =>
       .ok {
         targetId := targetId, feature := feature
         nativeOps := #["mint_authority", "freeze_authority", "approve_delegate", "revoke"]
         note := "SPL authority + delegate; not ERC-20 allowance"
       }
-  | .full, "wasm-near", .storageDeposit =>
+  | .experimental, "wasm-near", .storageDeposit =>
       .ok {
         targetId := targetId, feature := feature
-        nativeOps := #["storage_deposit", "storage_unregister", "storage_balance_of"]
-        note := "NEP-145 storage staking before receive"
+        nativeOps := #["storage_deposit", "storage_balance_of"]
+        note := "NEP-145 storage deposit/balance subset; unregister is not materialized"
       }
-  | .full, "wasm-near", .transferCall =>
+  | .experimental, "wasm-near", .transferCall =>
       .ok {
         targetId := targetId, feature := feature
         nativeOps := #["ft_transfer_call"]
@@ -198,6 +227,8 @@ use home-host feature or drop it — no silent polyfill")
       .error (authReject targetId feature "no TokenSpec lane for target")
   | .full, _, _ =>
       .error (authReject targetId feature "internal: full support without materialize row")
+  | .experimental, _, _ =>
+      .error (authReject targetId feature "internal: experimental support without materialize row")
 
 def primaryTokenTargetIds : Array String :=
   #["evm", "solana-sbpf-asm", "wasm-near"]

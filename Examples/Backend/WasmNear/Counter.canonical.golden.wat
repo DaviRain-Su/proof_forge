@@ -1,6 +1,7 @@
 (module
   (import "env" "storage_read" (func $storage_read (param i64 i64 i64) (result i64)))
   (import "env" "storage_write" (func $storage_write (param i64 i64 i64 i64 i64) (result i64)))
+  (import "env" "storage_remove" (func $storage_remove (param i64 i64) (result i64)))
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (import "env" "input" (func $input (param i64)))

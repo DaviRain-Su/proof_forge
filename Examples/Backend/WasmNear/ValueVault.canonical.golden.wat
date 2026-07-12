@@ -1,11 +1,13 @@
 (module
   (import "env" "storage_read" (func $storage_read (param i64 i64 i64) (result i64)))
   (import "env" "storage_write" (func $storage_write (param i64 i64 i64 i64 i64) (result i64)))
+  (import "env" "storage_remove" (func $storage_remove (param i64 i64) (result i64)))
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (import "env" "input" (func $input (param i64)))
   (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (import "env" "block_index" (func $block_index (result i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
   (global $evt_ptr (mut i32) (i32.const 42000))
   (func $__pf_read_u64 (param $kp i32) (param $kl i32) (result i64) (local $found i64) (local $r i64)
     i64.const 0
@@ -210,6 +212,14 @@
     i64.const 0
     call $input
     i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
+    i64.const 0
     i64.const 44000
     call $read_register
     i32.const 44000
@@ -281,6 +291,14 @@
   (func $deposit (export "deposit") (local $pc i32) (local $v5 i64) (local $v6 i64) (local $v7 i64) (local $v8 i64) (local $v9 i64) (local $v10 i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register
@@ -370,6 +388,14 @@
   (func $charge_fee (export "charge_fee") (local $pc i32) (local $v11 i64) (local $v12 i64) (local $v13 i64) (local $v14 i64) (local $v15 i64) (local $v16 i64) (local $v17 i64) (local $v18 i64) (local $v19 i64) (local $v20 i64) (local $v21 i64) (local $v22 i64) (local $v23 i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 16
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register
@@ -521,6 +547,14 @@
   (func $release (export "release") (local $pc i32) (local $v24 i64) (local $v25 i64) (local $v26 i64) (local $v27 i64) (local $v28 i64) (local $v29 i64) (local $v30 i64) (local $v31 i64)
     i64.const 0
     call $input
+    i64.const 0
+    call $register_len
+    i64.const 8
+    i64.ne
+    if
+      unreachable
+    else
+    end
     i64.const 0
     i64.const 44000
     call $read_register

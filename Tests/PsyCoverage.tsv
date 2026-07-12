@@ -21,6 +21,8 @@ Literal	hash4	lowered	literal emits Hash four-limb arrays and is covered by Hash
 Literal	address	lowered	literal emits Address as a Felt-backed value; Psy backend accepts Address in ABI parameters and validateAbiValueType. Pattern match exhaustiveness verified in Psy/IR.lean.
 Literal	u8	lowered	literal emits toString value for U8 literals; Psy backend accepts U8 in ABI parameters.
 Literal	u128	unsupported	Psy IR v0 does not support U128 literals; literal function returns placeholder toString value.
+Literal	bytes	unsupported	Psy IR v0 rejects dynamic Bytes values before code generation; the literal renderer has only an unreachable placeholder.
+Literal	string	unsupported	Psy IR v0 rejects dynamic String values before code generation; the literal renderer has only an unreachable placeholder.
 ContextField	userId	lowered	contextFunction lowers to get_user_id and ContextProbe covers it.
 ContextField	userIdHash	unsupported	Psy IR v0 context read catch-all rejects userIdHash with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	contractId	lowered	contextFunction lowers to get_contract_id and ContextProbe covers it.
@@ -30,6 +32,8 @@ ContextField	epochHeight	unsupported	Psy IR v0 context read catch-all rejects ep
 ContextField	chainId	unsupported	Psy IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	Psy IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	Psy IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	prepaidGas	unsupported	Psy IR v0 context read catch-all rejects prepaidGas with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	usedGas	unsupported	Psy IR v0 context read catch-all rejects usedGas with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	baseFee	unsupported	Psy IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	Psy IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	randomSeed	unsupported	Psy IR v0 context read catch-all rejects randomSeed with an explicit diagnostic; only userId, contractId, and checkpointId are available.
@@ -84,6 +88,7 @@ Effect	storageMapContains	lowered	lowerEffectExpr emits Map.contains; MapProbe c
 Effect	storageMapGet	lowered	lowerEffectExpr emits Map.get; MapProbe covers it.
 Effect	storageMapInsert	lowered	lowerEffectExpr and lowerEffectStmt emit Map.insert; MapProbe covers expression insert.
 Effect	storageMapSet	lowered	lowerEffectExpr and lowerEffectStmt emit Map.set; MapProbe covers expression set return values and statement set.
+Effect	storageMapDelete	lowered	lowerEffectExpr and lowerEffectStmt emit Map.delete after validating the map key; pattern-match coverage is pinned in Psy IR and validation.
 Effect	storageArrayRead	lowered	lowerEffectExpr emits array .get(), with U32 casts when needed; ArrayProbe, BoolStorageArrayProbe, HashStorageProbe, and U32StorageArrayProbe cover it.
 Effect	storageArrayWrite	lowered	lowerEffectStmt emits array assignment, with U32 casts when needed; ArrayProbe, BoolStorageArrayProbe, HashStorageProbe, and U32StorageArrayProbe cover it.
 Effect	storageArrayStructFieldRead	lowered	lowerEffectExpr emits storage struct-array field .get(); StructArrayProbe covers it.

@@ -331,6 +331,34 @@ def pdaByName? (extensions : ProgramExtensions) (name : String) : Option PdaDeri
 def cpiByName? (extensions : ProgramExtensions) (name : String) : Option CpiInvoke :=
   extensions.cpis.find? (fun cpi => cpi.name == name)
 
+def cpiMetadataAccountKeys : Array String := #[
+  "solana.cpi.mint_authority",
+  "solana.cpi.freeze_authority",
+  "solana.cpi.new_authority",
+  "solana.cpi.transfer_fee_config_authority",
+  "solana.cpi.withdraw_withheld_authority",
+  "solana.cpi.metadata_pointer_authority",
+  "solana.cpi.metadata_address",
+  "solana.cpi.permanent_delegate",
+  "solana.cpi.interest_rate_authority",
+  "solana.cpi.transfer_hook_authority",
+  "solana.cpi.transfer_hook_program",
+  "solana.cpi.pausable_authority"
+]
+
+def pushCpiMetadataAccounts (accounts : Array AccountEntry) (cpi : CpiInvoke) :
+    Array AccountEntry :=
+  cpiMetadataAccountKeys.foldl (fun accounts key =>
+    match metadataValue? cpi.metadata key with
+    | some name => pushAccount accounts {
+        name
+        index := 0
+        signer := false
+        writable := false
+        owner := "any"
+      }
+    | none => accounts) accounts
+
 def pushEntrypointPdaAccounts (extensions : ProgramExtensions) (entrypoint : String)
     (accounts : Array AccountEntry) : Array AccountEntry :=
   extensions.pdaActions.foldl
@@ -374,6 +402,7 @@ def pushEntrypointCpiAccounts (extensions : ProgramExtensions) (entrypoint : Str
               cpi.accounts.foldl
                 (fun accounts account => pushAccount accounts (cpiInstructionAccount account))
                 accounts
+            let accounts := pushCpiMetadataAccounts accounts cpi
             if cpiProgramAccountRequired cpi then
               pushAccount accounts (cpiProgramAccount cpi)
             else
@@ -414,33 +443,31 @@ def pushCpiAccounts (accounts : Array AccountEntry) (cpi : CpiInvoke) : Array Ac
     cpi.accounts.foldl
       (fun accounts account => pushAccount accounts (cpiInstructionAccount account))
       accounts
+  let accounts := pushCpiMetadataAccounts accounts cpi
   if cpiProgramAccountRequired cpi then
     pushAccount accounts (cpiProgramAccount cpi)
   else
     accounts
 
-def buildInstructionAccounts (module : Module) (extensions : ProgramExtensions)
-    (entrypoint : String) : Array AccountEntry :=
-  let accounts := buildDefaultAccounts module
-  let accounts := pushEntrypointPdaAccounts extensions entrypoint accounts
-  let accounts := pushEntrypointCpiAccounts extensions entrypoint accounts
-  let accounts := pushEntrypointPubkeyLogAccounts extensions entrypoint accounts
-  let accounts := pushEntrypointAccountReallocAccounts extensions entrypoint accounts
-  let accounts := pushEntrypointPdaSeedAccounts extensions entrypoint accounts
-  let accounts := pushDeclaredAccounts accounts extensions.accounts
-  applyAccountOrder extensions.accountOrder accounts
-
-def alignInstructionAccountsWithModuleOrder
-    (moduleAccounts instructionAccounts : Array AccountEntry) : Array AccountEntry :=
-  moduleAccounts.map fun moduleAccount =>
-    match accountByName? instructionAccounts moduleAccount.name with
-    | some instructionAccount => { instructionAccount with index := moduleAccount.index }
-    | none => moduleAccount
-
-def buildEntrypointAccounts (module : Module) (extensions : ProgramExtensions)
-    (moduleAccounts : Array AccountEntry) (entrypoint : String) : Array AccountEntry :=
-  alignInstructionAccountsWithModuleOrder moduleAccounts
-    (buildInstructionAccounts module extensions entrypoint)
+def pushEntrypointDeclaredAccounts (accounts : Array AccountEntry)
+    (extensions : ProgramExtensions) (entrypoint : String) : Array AccountEntry :=
+  extensions.accounts.foldl
+    (fun accounts account =>
+      let scopedHere := account.entrypoint? == some entrypoint
+      let boundByCpi := extensions.cpis.any fun cpi =>
+        (pushCpiAccounts #[] cpi).any (fun bound => bound.name == account.name)
+      let boundByPda := extensions.pdas.any fun pda =>
+        pda.account?.getD pda.name == account.name ||
+          pda.effectiveSeeds.any (fun seed => seed.kind == .account && seed.value == account.name)
+      let explicitGlobal := extensions.accountOrder.any (fun name => name == account.name)
+      let unscopedRequired := account.entrypoint?.isNone &&
+        (explicitGlobal || (!boundByCpi && !boundByPda) ||
+          accounts.any (fun existing => existing.name == account.name))
+      if scopedHere || unscopedRequired then
+        pushAccount accounts (declaredInstructionAccount account)
+      else
+        accounts)
+    accounts
 
 /-- True when portable IR reads `nativeValue` (Solana = account[0] lamports). -/
 def moduleUsesNativeValue (module : Module) : Bool :=
@@ -657,6 +684,28 @@ def buildModuleAccounts (module : Module) (extensions : ProgramExtensions) : Arr
   let accounts := extensions.pdas.foldl pushPdaSeedAccounts accounts
   let accounts := pushDeclaredAccounts accounts extensions.accounts
   applyAccountOrder extensions.accountOrder accounts
+
+def buildInstructionAccounts (module : Module) (extensions : ProgramExtensions)
+    (entrypoint : String) : Array AccountEntry :=
+  let scopedModule :=
+    match module.entrypoints.find? (fun ep => ep.name == entrypoint) with
+    | some ep => { module with entrypoints := #[ep] }
+    | none => module
+  let accounts := buildDefaultAccounts module
+  let accounts := ensurePortableAuthAccounts scopedModule accounts
+  let accounts := ensurePortableCrosscallAccounts scopedModule accounts
+  let accounts := ensurePortableNativeValueAccounts scopedModule accounts
+  let accounts := pushEntrypointPdaAccounts extensions entrypoint accounts
+  let accounts := pushEntrypointCpiAccounts extensions entrypoint accounts
+  let accounts := pushEntrypointPubkeyLogAccounts extensions entrypoint accounts
+  let accounts := pushEntrypointAccountReallocAccounts extensions entrypoint accounts
+  let accounts := pushEntrypointPdaSeedAccounts extensions entrypoint accounts
+  let accounts := pushEntrypointDeclaredAccounts accounts extensions entrypoint
+  applyAccountOrder extensions.accountOrder accounts
+
+def buildEntrypointAccounts (module : Module) (extensions : ProgramExtensions)
+    (_moduleAccounts : Array AccountEntry) (entrypoint : String) : Array AccountEntry :=
+  buildInstructionAccounts module extensions entrypoint
 
 def tomlBool (value : Bool) : String :=
   if value then "true" else "false"

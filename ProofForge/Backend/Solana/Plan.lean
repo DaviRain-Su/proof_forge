@@ -89,6 +89,7 @@ structure SolanaEntrypointDiscriminatorPlan where
 /-- One callable entrypoint in the Solana program. -/
 structure SolanaEntrypointPlan where
   name : String
+  accounts : Array SolanaAccountPlan
   discriminator : SolanaEntrypointDiscriminatorPlan
   params : Array SolanaInstructionParamPlan
   returns : String
@@ -183,6 +184,7 @@ structure SolanaLowerCtxSeed where
   stateDecls : Array StateDecl
   inputLayout : InputLayout
   manifestAccounts : Array AccountEntry
+  entrypointSchemas : Array EntrypointInputSchema
   extensions : ProgramExtensions
   deriving Inhabited
 
@@ -287,10 +289,14 @@ def externalDiscriminatorPlan (ep : Entrypoint) (internalTag : Nat) :
   | none => { tagKind := "internal", bytes := #[internalTag] }
   | some bytes => { tagKind := "external", bytes }
 
-def buildEntrypointPlan (ep : Entrypoint) (internalTag : Nat) : Except PlanError SolanaEntrypointPlan := do
+def buildEntrypointPlan (module : Module) (extensions : ProgramExtensions)
+    (ep : Entrypoint) (internalTag : Nat) : Except PlanError SolanaEntrypointPlan := do
   let params ← buildEntrypointParamPlans ep
+  let accounts := buildInstructionAccounts module extensions ep.name
+  let specs := accountInputSpecs module extensions accounts
   return {
     name := ep.name
+    accounts := buildAccountPlan module extensions accounts specs
     discriminator := externalDiscriminatorPlan ep internalTag
     params := params
     returns := valueTypeName ep.returns
@@ -310,13 +316,10 @@ to reconstruct their contexts from this plan. -/
 def buildSolanaModulePlan (module : Module) (capPlan? : Option ProofForge.Target.CapabilityPlan := none) :
     Except PlanError SolanaModulePlan := do
   let extensions := match capPlan? with | some p => ProgramExtensions.fromPlan p | none => {}
-  let instructions := buildInstructionsWithExtensions module extensions
-  let accounts :=
-    match instructions[0]? with
-    | some instruction => instruction.accounts
-    | none => buildDefaultAccounts module
+  let accounts := buildModuleAccounts module extensions
   let specs := accountInputSpecs module extensions accounts
   let inputLayout := computeInputLayoutWithReallocFlags specs
+  let entrypointSchemas := buildEntrypointInputSchemas module extensions
   let stateDataOff :=
     if module.state.isEmpty then 0
     else
@@ -333,7 +336,7 @@ def buildSolanaModulePlan (module : Module) (capPlan? : Option ProofForge.Target
   let mut tag := 0
   let mut entrypointPlans := #[]
   for ep in module.entrypoints do
-    entrypointPlans := entrypointPlans.push (← buildEntrypointPlan ep tag)
+    entrypointPlans := entrypointPlans.push (← buildEntrypointPlan module extensions ep tag)
     tag := tag + 1
   let stateFieldOffsets := buildStateOffsetsAtBase module stateDataOff
                      |>.map (fun f => (f.id, f.absOff))
@@ -343,6 +346,7 @@ def buildSolanaModulePlan (module : Module) (capPlan? : Option ProofForge.Target
     stateDecls := module.state
     inputLayout
     manifestAccounts := accounts
+    entrypointSchemas
     extensions
   }
   return {
@@ -392,9 +396,12 @@ def renderDiscriminator (d : SolanaEntrypointDiscriminatorPlan) : String :=
 
 def renderEntrypoint (ep : SolanaEntrypointPlan) : String :=
   let header := s!"{ep.name}: returns={ep.returns} hasReturn={renderBool ep.hasReturn} instructionDataMinLen={renderNat ep.instructionDataMinLen}"
+  let accountLines :=
+    if ep.accounts.isEmpty then #["  accounts: []"]
+    else #["  accounts:"] ++ ep.accounts.map (fun account => "  " ++ renderAccount account)
   let disc := renderDiscriminator ep.discriminator
   let params := if ep.params.isEmpty then #["  params: []"] else #["  params:"] ++ ep.params.map renderParam
-  String.intercalate "\n" ([header, disc] ++ params.toList)
+  String.intercalate "\n" ([header] ++ accountLines.toList ++ [disc] ++ params.toList)
 
 def renderExtensionPlan (ext : SolanaExtensionPlan) : String :=
   String.intercalate "\n" [
@@ -472,7 +479,7 @@ def lowerModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
   let seed := plan.lowerCtxSeed
   let ctx ← LowerCtx.fromSeed module seed
   let core ← SbpfAsm.lowerModuleCoreWithSeed module seed.manifestAccounts seed.inputLayout
-    seed.extensions ctx
+    seed.entrypointSchemas seed.extensions ctx
   -- Append PDA/CPI helpers with preflight (same honesty as lowerModuleWithPlan).
   let accountBindings :=
     SbpfAsm.buildCpiAccountBindings seed.manifestAccounts seed.inputLayout.accounts
@@ -482,9 +489,10 @@ def lowerModuleFromPlan (module : IR.Module) (plan : SolanaModulePlan) :
     | .ok off => pure off
     | .error e => throw e
   let valueBindings := SbpfAsm.buildCpiValueBindings module stateDataOff
+  let entrypointBindings ← SbpfAsm.buildEntrypointExtensionBindings module seed.entrypointSchemas
   let extNodes ←
-    match Extension.lowerProgramExtensionsWithBindingsChecked
-        accountBindings valueBindings seed.extensions with
+    match Extension.lowerProgramExtensionsWithEntrypointBindingsChecked
+        accountBindings valueBindings entrypointBindings seed.extensions with
     | .ok n => pure n
     | .error msg => throw { message := msg }
   pure (core ++ extNodes)
@@ -790,6 +798,10 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     .label "error_arithmetic",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
     .label "error_map_capacity",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit },
+    .label "error_duplicate_account",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
+    .label "error_account_count",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit }]
   if hasPortableCrosscall then
     nodes := nodes ++ #[.label "error_cpi",

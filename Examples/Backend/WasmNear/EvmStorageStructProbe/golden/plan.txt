@@ -26,6 +26,9 @@ surface:
   hashIndexedReadTypes: []
   hashIndexedWriteTypes: []
   returnTypes: [U64]
+  usesInputParams: false
+entrypointAbis:
+  struct_lifecycle: input=borsh/0 output=borsh/8 return=U64
 layout:
   stringPoolEnd: 43000
   scalars:

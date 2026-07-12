@@ -124,7 +124,7 @@ Psy/DPN 评审重点：
 - 并行 CosmWasm + Solana spike
 - `solana-sbpf-linker` 作为主要 Solana 路径
 - Aptos 优先的 Move POC
-- `psy-dpn` 作为 Experimental 阶段的 ZK 电路源代码生成目标
+- `psy-dpn` 作为 Spike 阶段的 ZK 电路源代码生成目标（fixture/sourcegen 子集；未达到主三链 Experimental 级别）
 
 ## 暂不执行
 

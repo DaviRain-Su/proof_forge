@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "cacfa8d546ce930ffeb2dc85ef9ef276a23d876a15d42c621b5c25330137ab02",
+    "sha256": "29db6f9119942d685aeaf56879970107b1dfafac4e5898404e478d486cf8b7a2",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical architecture and primary target routes"
+    "note": "manually synced for canonical architecture, primary routes, target maturity, and runtime safety gates"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -56,7 +56,7 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/multi-chain-gap-audit-2026-07-10.md": {
-    "sha256": "2446fc2ae30d319e6ca589ddff1e2abcde8166d3a06c179415fa5e1855cd8557",
+    "sha256": "6b8517fea895f858e54beca1b2d0990f818ce63323aa5a9c4cdaf4bd8219ea6d",
     "zh": "docs/zh/multi-chain-gap-audit-2026-07-10.zh.md",
     "model": "manual-zh"
   },
@@ -67,7 +67,7 @@
     "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
   },
   "docs/review-checklist.md": {
-    "sha256": "c2a11658b0c9f51316f973e88195de3bc26f9863a1b81016b8f364a22856c979",
+    "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
     "zh": "docs/zh/review-checklist.zh.md",
     "model": "manual"
   },
@@ -129,7 +129,7 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/README.md": {
-    "sha256": "cb54d68d50081b033087b032cf9facabe62830741ca2a581ea6970f89212975f",
+    "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
@@ -141,7 +141,7 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "4ae08d940e67df659bb800578e116302a8d566c5cefb030a9272cfec04efe746",
+    "sha256": "f83bfe438747e7c993f32c351dc21e4146b9f5be92d951f5515374d1b7b9ac60",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
     "note": "manually synced through the 2026-07-10 audit integration"

@@ -26,6 +26,11 @@ surface:
   hashIndexedReadTypes: []
   hashIndexedWriteTypes: []
   returnTypes: [U64]
+  usesInputParams: false
+entrypointAbis:
+  initialize: input=borsh/0 output=borsh/0 return=Unit
+  increment: input=borsh/0 output=borsh/0 return=Unit
+  get: input=borsh/0 output=borsh/8 return=U64
 layout:
   stringPoolEnd: 43000
   scalars:

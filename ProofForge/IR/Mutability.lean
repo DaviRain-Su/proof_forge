@@ -53,7 +53,7 @@ mutual
     | .memoryArraySet array index value =>
         exprViolations array ++ exprViolations index ++ exprViolations value
     | .storageScalarWrite .. | .storageScalarAssignOp ..
-    | .storageMapInsert .. | .storageMapSet .. | .storageArrayWrite ..
+    | .storageMapInsert .. | .storageMapSet .. | .storageMapDelete .. | .storageArrayWrite ..
     | .storageArrayStructFieldWrite .. | .storageDynamicArrayPush ..
     | .storageDynamicArrayPop .. | .storageStructFieldWrite ..
     | .storagePathWrite .. | .storagePathAssignOp .. => #["storage write"]
