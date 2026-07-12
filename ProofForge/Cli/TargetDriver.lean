@@ -252,7 +252,7 @@ def nearResolveEmit (req : EmitRequest) : Except String String :=
 
 /-! ### Secondary / fixture drivers -/
 
-def sorobanResolveBuild (req : BuildRequest) : Except String String :=
+def sorobanResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
   if isLearn then
@@ -265,7 +265,7 @@ use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)
     if req.format?.isSome && req.format? != some "wat" then
       Except.error s!"proof-forge build --target wasm-stellar-soroban does not support format '{req.format?.getD ""}'; use --format wat"
     else
-      Except.ok "--contract-source-emitwat"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-emitwat" }
   else
     Except.error "proof-forge build --target wasm-stellar-soroban requires a .lean contract_source module"
 
@@ -278,7 +278,7 @@ def fixtureOnlyBuild (target flag : String) (req : BuildRequest) : Except String
   else
     Except.ok flag
 
-def cosmwasmResolveBuild (req : BuildRequest) : Except String String :=
+def cosmwasmResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
   if isLearn then
@@ -293,9 +293,11 @@ use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)
     if req.format?.isSome && req.format? != some "wat" then
       Except.error s!"proof-forge build --target wasm-cosmwasm does not support format '{req.format?.getD ""}'; use --format wat"
     else
-      Except.ok "--contract-source-emitwat"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-emitwat" }
   else
-    fixtureOnlyBuild "wasm-cosmwasm" "--emit-counter-ir-cosmwasm" req
+    match fixtureOnlyBuild "wasm-cosmwasm" "--emit-counter-ir-cosmwasm" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def cosmwasmResolveEmit (req : EmitRequest) : Except String String :=
   if req.fixture == "counter" then
@@ -303,11 +305,13 @@ def cosmwasmResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target wasm-cosmwasm --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def psyResolveBuild (req : BuildRequest) : Except String String :=
+def psyResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target psy-dpn from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "psy-dpn" "--emit-counter-ir-psy" req
+    match fixtureOnlyBuild "psy-dpn" "--emit-counter-ir-psy" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def psyResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -318,11 +322,13 @@ def psyResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target psy-dpn --fixture {req.fixture} is not yet mapped to a legacy flag"
 
-def aleoResolveBuild (req : BuildRequest) : Except String String :=
+def aleoResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target aleo-leo from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "aleo-leo" "--emit-counter-ir-leo" req
+    match fixtureOnlyBuild "aleo-leo" "--emit-counter-ir-leo" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def aleoResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -334,11 +340,13 @@ def aleoResolveEmit (req : EmitRequest) : Except String String :=
     | "pure-math" => Except.ok "--emit-pure-math-ir-leo"
     | f => Except.error s!"emit --target aleo-leo --fixture {f} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def aptosResolveBuild (req : BuildRequest) : Except String String :=
+def aptosResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target move-aptos from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "move-aptos" "--emit-counter-ir-aptos" req
+    match fixtureOnlyBuild "move-aptos" "--emit-counter-ir-aptos" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def aptosResolveEmit (req : EmitRequest) : Except String String :=
   if req.fixture == "counter" then
@@ -346,7 +354,7 @@ def aptosResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target move-aptos --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def suiResolveBuild (req : BuildRequest) : Except String String :=
+def suiResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target move-sui from .learn source is not yet implemented"
   else if req.input?.isSome then
@@ -354,9 +362,11 @@ def suiResolveBuild (req : BuildRequest) : Except String String :=
   else
     match req.fixture? with
     | some fixture =>
-        if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
-        else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
-    | none => Except.ok "--emit-counter-ir-sui"
+        if fixture == "counter" then
+          Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-sui" }
+        else
+          Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
+    | none => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-sui" }
 
 def suiResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -366,7 +376,7 @@ def suiResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target move-sui --fixture {req.fixture} --format {fmt} is not yet mapped to a legacy flag"
 
-def cloudflareResolveBuild (req : BuildRequest) : Except String String :=
+def cloudflareResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target wasm-cloudflare-workers from .learn source is not yet implemented"
   else if req.input?.isSome then
@@ -383,7 +393,7 @@ def cloudflareResolveEmit (req : EmitRequest) : Except String String :=
     Except.error s!"emit --target wasm-cloudflare-workers --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
 /-- CLI-only verification target (not in `Target.knownIds`). -/
-def quintResolveBuild (_req : BuildRequest) : Except String String :=
+def quintResolveBuild (_req : BuildRequest) : Except String BuildResult :=
   Except.error "unknown target 'quint'"
 
 def quintResolveEmit (req : EmitRequest) : Except String String :=
@@ -412,28 +422,32 @@ def cliDrivers : Array TargetCliDriver := #[
   { id := "evm", resolveBuild := evmResolveBuild, resolveEmit := evmResolveEmit },
   { id := "solana-sbpf-asm", resolveBuild := solanaResolveBuild, resolveEmit := solanaResolveEmit },
   { id := "wasm-near", resolveBuild := nearResolveBuild, resolveEmit := nearResolveEmit },
-  { id := "wasm-stellar-soroban", resolveBuild := fun req => legacyBuildResult (sorobanResolveBuild req), resolveEmit := sorobanResolveEmit },
-  { id := "wasm-cosmwasm", resolveBuild := fun req => legacyBuildResult (cosmwasmResolveBuild req), resolveEmit := cosmwasmResolveEmit },
-  { id := "psy-dpn", resolveBuild := fun req => legacyBuildResult (psyResolveBuild req), resolveEmit := psyResolveEmit },
-  { id := "aleo-leo", resolveBuild := fun req => legacyBuildResult (aleoResolveBuild req), resolveEmit := aleoResolveEmit },
-  { id := "move-aptos", resolveBuild := fun req => legacyBuildResult (aptosResolveBuild req), resolveEmit := aptosResolveEmit },
-  { id := "move-sui", resolveBuild := fun req => legacyBuildResult (suiResolveBuild req), resolveEmit := suiResolveEmit },
-  { id := "wasm-cloudflare-workers", resolveBuild := fun req => legacyBuildResult (cloudflareResolveBuild req), resolveEmit := cloudflareResolveEmit },
-  { id := "quint", resolveBuild := fun req => legacyBuildResult (quintResolveBuild req), resolveEmit := quintResolveEmit }
+  { id := "wasm-stellar-soroban", resolveBuild := sorobanResolveBuild, resolveEmit := sorobanResolveEmit },
+  { id := "wasm-cosmwasm", resolveBuild := cosmwasmResolveBuild, resolveEmit := cosmwasmResolveEmit },
+  { id := "psy-dpn", resolveBuild := psyResolveBuild, resolveEmit := psyResolveEmit },
+  { id := "aleo-leo", resolveBuild := aleoResolveBuild, resolveEmit := aleoResolveEmit },
+  { id := "move-aptos", resolveBuild := aptosResolveBuild, resolveEmit := aptosResolveEmit },
+  { id := "move-sui", resolveBuild := suiResolveBuild, resolveEmit := suiResolveEmit },
+  { id := "wasm-cloudflare-workers", resolveBuild := cloudflareResolveBuild, resolveEmit := cloudflareResolveEmit },
+  { id := "quint", resolveBuild := quintResolveBuild, resolveEmit := quintResolveEmit }
 ]
 
 def findCliDriver? (id : String) : Option TargetCliDriver :=
   cliDrivers.find? (fun driver => driver.id == id)
 
+/-- Registry-backed build dispatch resolution. -/
+def resolveBuild (target : String) (req : BuildRequest) : Except String BuildResult :=
+  match findCliDriver? target with
+  | some driver => driver.resolveBuild req
+  | none => Except.error s!"unknown target '{target}'"
+
 /-- Registry-backed build flag resolution (replaces the central target-id match). -/
 def resolveBuildLegacyFlag (target : String) (req : BuildRequest) : Except String String :=
-  match findCliDriver? target with
-  | some driver => do
-      let result ← driver.resolveBuild req
-      match result.legacyFlag? with
-      | some flag => pure flag
-      | none => Except.error s!"target '{target}' selected native dispatch; no legacy flag is available"
-  | none => Except.error s!"unknown target '{target}'"
+  match resolveBuild target req with
+  | .ok { dispatchKind := .legacy, legacyFlag? := some flag, .. } => Except.ok flag
+  | .ok { dispatchKind := .native, .. } => Except.error "internal: native build requested via legacy flag helper"
+  | .ok _ => Except.error "internal: BuildResult missing legacy flag"
+  | .error e => Except.error e
 
 /-- Registry-backed emit flag resolution (replaces the central target-id match). -/
 def resolveEmitLegacyFlag (target : String) (req : EmitRequest) : Except String String :=
