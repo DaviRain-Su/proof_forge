@@ -112,16 +112,22 @@ def main : IO Unit := do
   require (plan.functions == nearPlan.functions)
     "Soroban and NEAR plans have different function plans"
 
-  -- -- Test 6: Soroban canonical plan lowering is deferred (storage helpers
-  -- hard-code NEAR host calls). Verify it fails closed with a clear diagnostic. --
-  match ModulePlan.lowerFromPlan plan with
-  | .ok _ => throw <| IO.userError "soroban lowering should fail (deferred)"
-  | .error error =>
-      require (error.message.contains "deferred")
-        s!"expected deferred diagnostic, got: {error.message}"
+  -- -- Test 6: Soroban canonical plan lowering produces Wasm with Soroban
+  -- host imports (_get/_put) instead of NEAR imports (storage_read/write) --
+  let sorobanWasm <- match ModulePlan.lowerFromPlan plan with
+    | .ok wasm => pure wasm
+    | .error e => throw <| IO.userError s!"soroban canonical lowering failed: {e.message}"
+  let sorobanWat := ProofForge.Compiler.Wasm.Printer.render sorobanWasm
+  require (sorobanWat.contains "_get")
+    "Soroban canonical WAT should contain _get host import"
+  require (sorobanWat.contains "_put")
+    "Soroban canonical WAT should contain _put host import"
+  require (!sorobanWat.contains "storage_read")
+    "Soroban canonical WAT should not contain NEAR storage_read"
+  require (!sorobanWat.contains "storage_write")
+    "Soroban canonical WAT should not contain NEAR storage_write"
 
-  -- -- Test 7: EmitWat legacy path produces correct Soroban WAT (with _get/_put
-  -- imports) — this is the path CLI build uses. --
+  -- -- Test 7: EmitWat legacy path produces equivalent Soroban WAT --
   let watResult := ProofForge.Backend.WasmHost.EmitWat.renderModule
     ProofForge.IR.Examples.Counter.module .soroban
   match watResult with
@@ -133,6 +139,11 @@ def main : IO Unit := do
         "Soroban EmitWat WAT should not contain NEAR storage_read import"
       require (!wat.contains "storage_write")
         "Soroban EmitWat WAT should not contain NEAR storage_write import"
+      -- Both paths produce WAT with Soroban host imports for Counter;
+      -- exact equality is not required (canonical and EmitWat use
+      -- different lowering strategies but the same host ABI).
+      require (sorobanWat.contains "_get" && wat.contains "_get")
+        "both paths should produce _get imports"
 
   -- -- Test 8: CosmWasm still fails closed --
   let cosmwasmResult := runStrictCanonicalTargetGate "wasm-cosmwasm" counterSpec

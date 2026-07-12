@@ -97,10 +97,10 @@ def main : IO Unit := do
   let neutralWat := ProofForge.Compiler.Wasm.Printer.render neutralWasm
   require (neutralWat == nearWat) "neutral Wasm-host plan changed canonical NEAR WAT"
 
-  -- B3: Soroban now builds a plan (reusing NEAR layout with soroban bridge)
-  -- but canonical lowering is deferred (storage helpers hard-code NEAR host
-  -- calls). CLI artifact emission uses EmitWat.lowerModule with .soroban
-  -- bridge. Verify the plan builds and lowering fails closed.
+  -- B3: Soroban builds a plan (reusing NEAR layout with soroban bridge) and
+  -- canonical lowering is bridge-aware. Verify the plan builds, the bridge
+  -- is set to soroban, and the lowering produces Wasm with Soroban host
+  -- imports (_get/_put, not storage_read/storage_write).
   let sorobanPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-stellar-soroban", calls := checked.contract.requirements, metadata := #[] }
   match ModulePlan.Core.buildFromCore checked sorobanPlan with
@@ -109,12 +109,13 @@ def main : IO Unit := do
         s!"soroban plan bridge should be soroban, got {repr plan.hostBridge.bridge}"
       require (plan.targetId == "wasm-stellar-soroban")
         s!"soroban plan targetId should be wasm-stellar-soroban, got {plan.targetId}"
-      -- Lowering fails closed for Soroban (deferred)
       match ModulePlan.lowerFromPlan plan with
-      | .ok _ => throw <| IO.userError "soroban lowering should fail (deferred)"
-      | .error error =>
-          require (error.message.contains "deferred")
-            s!"expected deferred diagnostic, got: {error.message}"
+      | .ok wasm =>
+          let wat := ProofForge.Compiler.Wasm.Printer.render wasm
+          require (wat.contains "_get") "soroban canonical WAT should contain _get import"
+          require (wat.contains "_put") "soroban canonical WAT should contain _put import"
+          require (!wat.contains "storage_read") "soroban canonical WAT should not contain NEAR storage_read"
+      | .error e => throw <| IO.userError s!"soroban lowering failed: {e.message}"
   | .error error =>
       throw <| IO.userError s!"soroban plan should build (B3), got: {error.message}"
 

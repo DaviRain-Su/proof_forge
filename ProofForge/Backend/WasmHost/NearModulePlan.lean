@@ -677,9 +677,14 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
       .loop_ { insns := dispatch ++ #[.br 0] }] }
   }
 
-/-- Canonical NEAR lowering boundary: consumes only the complete target plan. -/
+/-- Canonical Wasm-host lowering boundary: consumes only the complete target
+plan. The bridge is taken from the plan's hostBridge. Scalar and map helpers
+are bridge-aware; hash/crosscall/promise/context helpers are still NEAR-only
+(they produce empty arrays for contracts that don't use those features). -/
 def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
-  unless plan.targetId == "wasm-near" do Diagnostics.err "canonical NEAR plan has wrong target"
+  let bridge := plan.hostBridge.bridge
+  unless bridge == .near || plan.targetId == "wasm-near" do
+    Diagnostics.err s!"canonical plan target `{plan.targetId}` does not match NEAR bridge"
   let eventStrings := canonicalEventStrings plan
   let promiseStrings := canonicalPromiseStrings plan
   if promiseStrings.any (fun entry => entry.ptr + entry.len > Memory.ZERO_HASH_BUF) then
@@ -689,10 +694,10 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     if acc.contains state.type then acc else acc.push state.type) #[]
   let helperFuncs := scalarTypes.foldl (fun acc ty =>
     if ty == .hash then acc else
-      let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty) else acc
-      if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty) else acc) #[]
-  let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface ++
-    Map.mapHashHelperFuncsForModulePlan plan.surface
+      let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty bridge) else acc
+      if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty bridge) else acc) #[]
+  let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface bridge ++
+    Map.mapHashHelperFuncsForModulePlan plan.surface bridge
   let hashHelpers := Hash.hashExprHelperFuncsForModulePlan plan.surface
   let hashStorageHelpers := Hash.hashStorageHelperFuncsForModulePlan plan.surface
   let crosscallHelpers := Crosscall.crosscallArgsHelperFuncsForModulePlan plan.surface ++
@@ -702,11 +707,11 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     else #[])
   let promiseHelpers := Promise.promiseHelperFuncsForModulePlan plan.surface
   let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface
-  let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func] else #[]) ++
-    (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func] else #[]) ++
-    (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc] else #[])
+  let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
+    (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
+    (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc bridge] else #[])
   let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface
-  let imports := Imports.importsForModulePlan plan.surface defaultAllocator false
+  let imports := Imports.importsForModulePlan plan.surface defaultAllocator false bridge
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
     plan.layout.maps.map (fun state => { offset := state.prefixPtr, bytes := state.id ++ ":" : ProofForge.Compiler.Wasm.DataSegment }) ++
     #[{ offset := Memory.TRUE_PTR, bytes := "true" },
