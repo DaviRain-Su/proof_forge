@@ -746,7 +746,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
         { str := entry.str, ptr := entry.ptr, len := entry.len })
     else #[])
   let promiseHelpers := Promise.promiseHelperFuncsForModulePlan plan.surface
-  let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface
+  let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface bridge
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc bridge] else #[])

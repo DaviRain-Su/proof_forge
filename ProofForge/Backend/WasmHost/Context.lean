@@ -80,12 +80,25 @@ def ctxRandomSeedFunc : Func :=
       .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register",
       .localGet "p" ] } }
 
-def ctxHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
-    (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
-    (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
-    (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
-    (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
+def ctxHelperFuncsForModulePlan (plan : ModulePlan)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
+  match bridge with
+  | .soroban =>
+    -- Soroban: caller identity is authenticated via require_auth_for_args
+    -- (in auth prologue). Context helpers use retained NEAR-style imports
+    -- (predecessor_account_id etc.) for account-id hashing. randomSeed and
+    -- gas are not supported — fail closed by not emitting helpers.
+    (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
+      (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
+      (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
+      (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[])
+      -- randomSeed: NOT supported on Soroban (no import)
+  | _ =>
+    (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
+      (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
+      (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
+      (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
+      (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
 
 def lowerContextExprPlan :
     ContextExprPlan → Except EmitError (Array Insn × ValueType)
