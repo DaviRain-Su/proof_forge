@@ -24,9 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Gate | A1 - Portable Intent and NFT vertical slice (open) |
-| Active task | None claimed |
-| Next task | A1 - isolate Solana grammar ownership |
+| Active task | A1 - Isolate Solana grammar ownership (in_progress) |
+| Next task | A2 - Add the intent materializer contract |
 | Known blocker | None recorded; verify the worktree and current plan before starting |
 | Planning baseline | `7cf0d886` (agent control plane and documentation governance, 2026-07-12) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -76,8 +75,7 @@ This table is only the agent routing index.
 
 | ID | State | Task | Authoritative task section |
 |---|---|---|---|
-| A1 | pending | Isolate Solana grammar ownership | Plan Task 1 |
-| A2 | pending after A1 | Add the intent materializer contract | Plan Task 2 |
+| A1 | in_progress | Isolate Solana grammar ownership | Plan Task 1 |
 | A3 | pending after A2 | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | pending after A3 | Audit NFT implementation candidates | Plan Task 4 |
 | A5 | pending after A4 | Add primary-triad NFT materializers | Plan Task 5 |

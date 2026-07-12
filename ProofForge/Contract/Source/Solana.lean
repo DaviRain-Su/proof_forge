@@ -24,6 +24,65 @@ namespace ProofForge.Contract.Source
 open Lean
 open ProofForge.IR
 
+/-! ## Solana-specific syntax categories (moved from Source.lean)
+
+These grammar productions are only visible when this module is imported.
+Portable product sources (`just portable-default`) must never import this
+file, so these forms are invisible in the portable DSL surface. -/
+
+declare_syntax_cat solanaSeed
+declare_syntax_cat solanaSignerSeed
+
+-- Solana contractItem forms
+scoped syntax "allocator " "bump" : contractItem
+scoped syntax "account " ident " readonly" : contractItem
+scoped syntax "account " ident " readonly " "signer" : contractItem
+scoped syntax "account " ident " readonly " "owner " term : contractItem
+scoped syntax "account " ident " readonly " "signer " "owner " term : contractItem
+scoped syntax "account " ident " writable" : contractItem
+scoped syntax "account " ident " writable " "signer" : contractItem
+scoped syntax "account " ident " writable " "owner " term : contractItem
+scoped syntax "account " ident " writable " "signer " "owner " term : contractItem
+scoped syntax "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer" : contractItem
+scoped syntax "cpi " ident " system_transfer" "(" ident ", " ident ", " ident ")" : contractItem
+scoped syntax "cpi " ident " memo" "(" ident ")" : contractItem
+scoped syntax "cpi " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term : contractItem
+scoped syntax "cpi " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " spl_token_close_account" "(" ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+scoped syntax "cpi " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
+
+-- Solana entryStmt forms
+scoped syntax "derive " "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer;" : entryStmt
+scoped syntax "invoke " ident " system_transfer" "(" ident ", " ident ", " ident ")" ";" : entryStmt
+scoped syntax "invoke " ident " memo" "(" ident ")" ";" : entryStmt
+scoped syntax "invoke " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term ";" : entryStmt
+scoped syntax "invoke " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " spl_token_close_account" "(" ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "invoke " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
+  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
+scoped syntax "realloc " ident " to " term ";" : entryStmt
+scoped syntax "init_transfer_hook_extra_meta" "(" ident ", " ident ")" ";" : entryStmt
+
+-- Solana seed productions
+scoped syntax "literal_seed " str : solanaSeed
+scoped syntax "account_seed " ident : solanaSeed
+
+scoped syntax "pda_seed " ident : solanaSignerSeed
+scoped syntax "bump_seed " ident : solanaSignerSeed
+
 def mkAccountLet (name : TSyntax `ident)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name

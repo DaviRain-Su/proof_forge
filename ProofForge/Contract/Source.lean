@@ -3,8 +3,10 @@
 
 Portable-default product path for Shared examples: import this module only.
 
-Solana account / PDA / CPI / allocator syntax is **not** lowered in this module
-(PF-P1-05). Portable product code imports only this file. Solana extensions require:
+Solana account / PDA / CPI / allocator syntax is **not declared** in this module
+(PF-P1-05, A1). Portable product code imports only this file. Solana-specific
+syntax declarations live in `ProofForge.Contract.Source.Solana`. Import that
+module for backend fixtures, Pinocchio/live gates, or hand-tuned Solana layouts:
 
 ```lean
 import ProofForge.Contract.Source.Solana
@@ -206,37 +208,12 @@ def remoteCallRef (remote : RemoteRef) (args : Array ProofForge.IR.Expr) : Proof
 
 declare_syntax_cat contractItem
 declare_syntax_cat entryStmt
-declare_syntax_cat solanaSeed
-declare_syntax_cat solanaSignerSeed
 
 scoped syntax "state " ident " : " term : contractItem
 scoped syntax "mapping " ident " from " term " to " term : contractItem
 scoped syntax "binding " ident " : " term : contractItem
 scoped syntax "event " ident : contractItem
 scoped syntax "event " ident " abi " term : contractItem
-scoped syntax "allocator " "bump" : contractItem
-scoped syntax "account " ident " readonly" : contractItem
-scoped syntax "account " ident " readonly " "signer" : contractItem
-scoped syntax "account " ident " readonly " "owner " term : contractItem
-scoped syntax "account " ident " readonly " "signer " "owner " term : contractItem
-scoped syntax "account " ident " writable" : contractItem
-scoped syntax "account " ident " writable " "signer" : contractItem
-scoped syntax "account " ident " writable " "owner " term : contractItem
-scoped syntax "account " ident " writable " "signer " "owner " term : contractItem
-scoped syntax "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer" : contractItem
-scoped syntax "cpi " ident " system_transfer" "(" ident ", " ident ", " ident ")" : contractItem
-scoped syntax "cpi " ident " memo" "(" ident ")" : contractItem
-scoped syntax "cpi " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term : contractItem
-scoped syntax "cpi " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
-scoped syntax "cpi " ident " spl_token_close_account" "(" ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
-scoped syntax "cpi " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
-scoped syntax "cpi " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
-scoped syntax "cpi " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" : contractItem
 scoped syntax "use " term : contractItem
 scoped syntax "compose " ident ";" : contractItem
 scoped syntax "upgrade_policy_immutable;" : contractItem
@@ -289,22 +266,7 @@ scoped syntax ident " := " term ";" : entryStmt
 scoped syntax "emit " ident term ";" : entryStmt
 scoped syntax "emit " ident " indexed " term " data " term ";" : entryStmt
 scoped syntax "return " term ";" : entryStmt
-scoped syntax "derive " "pda " ident " seeds " "[" solanaSeed,* "]" " bump " ident " account " ident " signer;" : entryStmt
-scoped syntax "invoke " ident " system_transfer" "(" ident ", " ident ", " ident ")" ";" : entryStmt
-scoped syntax "invoke " ident " memo" "(" ident ")" ";" : entryStmt
-scoped syntax "invoke " ident " system_create_account" "(" ident ", " ident ", " ident ", " ident ")" " owner " term ";" : entryStmt
-scoped syntax "invoke " ident " spl_token_transfer_checked" "(" ident ", " ident ", " ident ", " ident ", " ident ")" " decimals" "(" term ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
-scoped syntax "invoke " ident " spl_token_close_account" "(" ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
-scoped syntax "invoke " ident " spl_token_set_authority" "(" ident ", " ident ", " ident ")" " authority_type" "(" term ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
-scoped syntax "invoke " ident " associated_token_create" "(" ident ", " ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
-scoped syntax "invoke " ident " associated_token_create_idempotent" "(" ident ", " ident ", " ident ", " ident ")"
-  " signer_seeds " "[" solanaSignerSeed,* "]" ";" : entryStmt
-scoped syntax "realloc " ident " to " term ";" : entryStmt
-scoped syntax "init_transfer_hook_extra_meta" "(" ident ", " ident ")" ";" : entryStmt
+
 scoped syntax "do " term ";" : entryStmt
 scoped syntax "accepts_callvalue;" : entryStmt
 scoped syntax "sendto " ident ident ";" : entryStmt
@@ -316,12 +278,6 @@ scoped syntax "guard_unlocked " ident ";" : entryStmt
 scoped syntax "acquire_lock " ident ";" : entryStmt
 scoped syntax "release_lock " ident ";" : entryStmt
 scoped syntax "fixedu64x3 " ident "(" term ", " term ", " term ")" ";" : entryStmt
-
-scoped syntax "literal_seed " str : solanaSeed
-scoped syntax "account_seed " ident : solanaSeed
-
-scoped syntax "pda_seed " ident : solanaSignerSeed
-scoped syntax "bump_seed " ident : solanaSignerSeed
 
 scoped syntax "contract_source " ident " do" ppLine contractItem* : command
 scoped syntax "contract_mixin " ident " do" ppLine contractItem* : command
@@ -503,9 +459,11 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt))
                 ProofForge.Contract.Surface.binding $nameLit (.fixedArray .u64 3)
               ProofForge.Contract.Source.bindValue $name (ProofForge.Contract.Source.u64Array3 $a $b $c) *> $acc)
       | _ =>
-          Macro.throwErrorAt stmt
+          Macro.throwError
             s!"unsupported contract source statement (dsl {sourceDslVersion}); \
-check entry body syntax or import ProofForge.Contract.Source.Solana for Solana extensions"
+this statement is not portable. If it is a Solana-specific operation \
+(PDA, CPI, realloc), import ProofForge.Contract.Source.Solana in a \
+non-portable module. For portable cross-contract calls, use `remote` + `remoteCallRef`."
   return acc
 
 def surfaceEntryFn (isView : Bool) : MacroM (TSyntax `term) :=
@@ -814,7 +772,9 @@ def lowerItem (item : TSyntax `contractItem)
   | _ =>
       Macro.throwErrorAt item
         s!"unsupported contract source item (dsl {sourceDslVersion}); \
-check entry arity (0–7 params), item syntax, or import ProofForge.Contract.Source.Solana"
+check entry arity (0–7 params) and item syntax. Solana-specific items \
+(account, pda, cpi, allocator) require `import ProofForge.Contract.Source.Solana` \
+in a non-portable module."
 
 def lowerContractItems (items : Array (TSyntax `contractItem))
     (entryExt : EntryStmtExt := noEntryStmtExt)

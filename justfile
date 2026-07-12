@@ -1315,6 +1315,10 @@ wave-t-baseline: build build-test-deps product target-registry target-backend ta
 examples-topology:
     python3 scripts/examples/check-topology.py
 
+# A1: Solana grammar isolation test — Solana forms invisible through portable import.
+source-dsl-isolation:
+    lake env lean --run Tests/SourceDslIsolation.lean
+
 # Phase A portable-default: Shared examples are business-intent only (no chain Surface / TokenStandard pick).
 portable-default:
     python3 scripts/portable/check-portable-default.py
