@@ -354,3 +354,39 @@ Rules:
   any non-primary error and treated a shared advisory/strict failure as agreement.
 - Remaining: none
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
+
+## 2026-07-12 - B3: Promote Soroban Counter
+
+- Status: `done` (canonical lowering deferred)
+- Commit: `a399420c` + `ff0cf1df`
+- Result: promoted `wasm-stellar-soroban` through the strict canonical target
+  gate for the Counter fixture. Added `.checkedArithmetic` to the Soroban
+  target profile so the FV-5 capability gate passes. `ModulePlan.Core.buildFromCore`
+  accepts `.soroban` bridge — reuses the NEAR layout builder (same key-value
+  storage semantics) with the soroban bridge discriminator. Added
+  `wasm-stellar-soroban` dispatch to `runStrictCheckedTargetGate` in
+  `CanonicalPipeline.lean`. CLI artifact emission via `EmitWat.lowerModule`
+  with `.soroban` bridge already works correctly — produces WAT with
+  `_get`/`_put` host imports (not NEAR `storage_read`/`storage_write`).
+
+  **Canonical plan lowering deferred**: the canonical lowering path
+  (`NearModulePlan.lowerFromPlan`) builds Wasm helpers that hard-code NEAR
+  host calls (`Scalar.readFuncNear` → `storage_read`, etc.). Making these
+  bridge-aware requires bridge-aware variants of scalar/map/hash helpers,
+  param prologue, and auth prologue — a larger refactor than B3 Counter MVP.
+  `Lower.lean` fails closed with a clear diagnostic. The CLI path
+  (`EmitWat.lowerModule`) is the production path and already handles the
+  `.soroban` bridge correctly.
+
+- Interfaces: `ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore`,
+  `ProofForge.Compiler.runStrictCheckedTargetGate`,
+  `Tests/Canonical/SorobanPublicRoute.lean`, `just soroban-public-route`.
+- Verification:
+  - `just soroban-public-route` passed (8 tests)
+  - `just strict-target-gate` passed
+  - `just wasm-host-plan-preservation` passed
+  - `just product` passed
+  - `git diff --check` passed
+- Remaining: bridge-aware canonical lowering (storage helpers, param prologue,
+  auth prologue); RemoteCall via `invoke_contract` after lowering is complete.
+- Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
