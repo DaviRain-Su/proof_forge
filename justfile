@@ -683,6 +683,10 @@ nft-artifact-schema:
 # One NFTSpec through the real CLI into three target artifact/SDK bundles.
 portable-nft-multi-target: nft-artifact-schema
     scripts/portable/nft-multi-target.sh
+
+# A6: execute the portable NFT lifecycle on EVM, Surfpool/SVM, and NEAR/Wasm.
+portable-nft-runtime: portable-nft-multi-target
+    scripts/portable/nft-runtime-smoke.sh
 # Requirement-level standard manifests and artifact-bound evidence honesty.
 standard-compliance:
     lake build ProofForge.Contract.Compliance

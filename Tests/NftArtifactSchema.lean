@@ -26,11 +26,20 @@ def main : IO Unit := do
         ["--target", targetId, "--nft", "Examples/Product/Nft.lean"] {} with
       | .ok state => pure state
       | .error e => throw <| IO.userError s!"{targetId} --nft parse failed: {e}"
-    let legacy ← match ProofForge.Cli.newCommandArgsToLegacy parsed "build" with
-      | .ok args => pure args
-      | .error e => throw <| IO.userError s!"{targetId} --nft routing failed: {e}"
-    require (legacy.contains "--nft") s!"{targetId} route dropped --nft"
-    require (legacy.contains "Examples/Product/Nft.lean") s!"{targetId} route dropped source"
+    let (resolvedTarget, request) ← match ProofForge.Cli.resolveBuildRequest parsed with
+      | .ok result => pure result
+      | .error e => throw <| IO.userError s!"{targetId} --nft request failed: {e}"
+    let expectedOp := match targetId with
+      | "evm" => ProofForge.Cli.NativeBuildOp.nftEvmBytecode
+      | "solana-sbpf-asm" => .nftSolanaSbpf
+      | _ => .nftNearEmitWat
+    match ProofForge.Cli.resolveBuild resolvedTarget request with
+    | .ok { dispatchKind := .native, nativeOp? := some op, .. } =>
+        require (op == expectedOp) s!"{targetId} selected the wrong native NFT operation"
+    | .ok result => throw <| IO.userError s!"{targetId} NFT build was not native: {repr result}"
+    | .error e => throw <| IO.userError s!"{targetId} --nft routing failed: {e}"
+    require (parsed.nft) s!"{targetId} route dropped --nft"
+    require (parsed.input? == some "Examples/Product/Nft.lean") s!"{targetId} route dropped source"
 
   let registry ← match NftMaterialize.nftIntentRegistry with
     | .ok r => pure r

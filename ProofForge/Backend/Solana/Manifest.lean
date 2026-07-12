@@ -116,6 +116,7 @@ def tomlString (value : String) : String :=
     `fixedArray .u8 n` is packed as contiguous LE bytes (no length prefix). -/
 def instructionParamByteSize? : ValueType → Option Nat
   | .u64 => some 8
+  | .address | .hash => some 8
   | .u32 => some 4
   | .bool => some 1
   | .fixedArray .u8 n =>
@@ -125,6 +126,7 @@ def instructionParamByteSize? : ValueType → Option Nat
 
 def instructionParamEncoding : ValueType → String
   | .u64 => "le-u64"
+  | .address | .hash => "le-u64-identity-handle"
   | .u32 => "le-u32"
   | .bool => "u8-bool"
   | .fixedArray .u8 _ => "raw-bytes"

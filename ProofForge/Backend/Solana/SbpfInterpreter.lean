@@ -988,6 +988,8 @@ def scalarArgNat (type : ValueType) (value : ProofForge.IR.Semantics.Value) :
     Except String Nat :=
   match type, value with
   | .u64, .u64 value => .ok value
+  | .address, .address value => .ok value
+  | .hash, .hash a _ _ _ => .ok a
   | .u32, .u32 value => .ok value
   | .bool, .bool value => .ok (if value then 1 else 0)
   | _, _ => .error s!"sBPF trace arg does not match parameter type `{type.name}`"

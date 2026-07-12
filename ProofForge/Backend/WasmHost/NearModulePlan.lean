@@ -122,6 +122,7 @@ inductive NearComparePlan where
 
 inductive NearOpPlan where
   | literal (result : NearValuePlan) (value : Nat)
+  | hashLiteral (result : NearValuePlan) (a b c d : Nat)
   | boolLiteral (result : NearValuePlan) (value : Bool)
   | loadState (result : NearValuePlan) (stateId : Nat)
   | storeState (stateId : Nat) (value : NearValuePlan)
@@ -527,6 +528,9 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
     (eventStrings promiseStrings : Array Layout.StringInfo) :
     NearOpPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
   | .literal result value => .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
+  | .hashLiteral result a b c d => .ok #[
+      .i64Const a, .i64Const b, .i64Const c, .i64Const d,
+      .call Hash.hashMakeName, .localSet s!"v{result.id}"]
   | .boolLiteral result value => .ok #[.i32Const (if value then 1 else 0), .localSet s!"v{result.id}"]
   | .loadState result stateId => do
       let state <- match canonicalNearState? plan stateId with
@@ -736,7 +740,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   if fn.blocks.isEmpty then Diagnostics.err s!"canonical NEAR function `{fn.name}` has no blocks"
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
-      | .literal result _ | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
+      | .literal result _ | .hashLiteral result .. | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
         .context result _ |
         .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |

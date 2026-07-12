@@ -259,7 +259,10 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | _ => false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
-    usesHashMake := false
+    usesHashMake := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.literal (.hashLit _)) => true
+        | _ => false
     usesHashPreimage := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .pure (.hash _) => true | _ => false
@@ -330,6 +333,19 @@ private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
 private def nearCompare : CompareOp -> NearComparePlan
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
 
+private def unpackHashLiteral (value : String) : Except PlanError (Nat × Nat × Nat × Nat) := do
+  let some word := value.toNat?
+    | throw { message := s!"canonical NEAR hash literal `{value}` is not numeric" }
+  let base := 18446744073709551616
+  let d := word % base
+  let word := word / base
+  let c := word % base
+  let word := word / base
+  let b := word % base
+  let a := word / base
+  if a < base then return (a, b, c, d)
+  throw { message := s!"canonical NEAR hash literal `{value}` exceeds 256 bits" }
+
 private def lowerNearOp (iface : InterfaceContract) (materialization : MaterializationContract)
     (literals : Array (ValueId × CoreLiteral)) (instr : Instruction) :
     Except PlanError NearOpPlan := do
@@ -349,8 +365,10 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         return .literal (<- nearResult instr) handle
       else
         throw { message := s!"canonical NEAR address handle `{value}` exceeds u64" }
-  | .pure (.literal (.stringLit _)) | .pure (.literal (.bytesLit _)) |
-    .pure (.literal (.hashLit _)) =>
+  | .pure (.literal (.hashLit value)) =>
+      let (a, b, c, d) <- unpackHashLiteral value
+      return .hashLiteral (<- nearResult instr) a b c d
+  | .pure (.literal (.stringLit _)) | .pure (.literal (.bytesLit _)) =>
       /- Non-numeric literals are metadata-only on NEAR; materialize as
       literal 0 so the plan is complete without adding a new op variant. -/
       return .literal (<- nearResult instr) 0

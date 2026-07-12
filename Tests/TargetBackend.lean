@@ -88,8 +88,8 @@ def main : IO UInt32 := do
   }
   match evmDriver.resolveBuild req, buildLegacyFlag "evm" req.input? with
   | .ok viaDriver, .ok viaPublic =>
-      require (viaDriver == viaPublic)
-        s!"evm build dispatch must equal driver.resolveBuild (driver={viaDriver}, public={viaPublic})"
+      require (viaDriver.dispatchKind == .legacy && viaDriver.legacyFlag? == some viaPublic)
+        s!"evm build dispatch must equal driver.resolveBuild (driver={repr viaDriver}, public={viaPublic})"
   | viaDriver, viaPublic =>
       throw <| IO.userError s!"evm driver/public build parity failed: driver={repr viaDriver} public={repr viaPublic}"
 

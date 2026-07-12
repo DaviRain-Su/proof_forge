@@ -292,10 +292,14 @@ def externalDiscriminatorPlan (ep : Entrypoint) (internalTag : Nat) :
   | some bytes => { tagKind := "external", bytes }
 
 def buildEntrypointPlan (module : Module) (extensions : ProgramExtensions)
-    (ep : Entrypoint) (internalTag : Nat) : Except PlanError SolanaEntrypointPlan := do
+    (moduleAccounts : Array AccountEntry) (ep : Entrypoint) (internalTag : Nat) :
+    Except PlanError SolanaEntrypointPlan := do
   let params ← buildEntrypointParamPlans ep
-  let accounts := buildInstructionAccounts module extensions ep.name
-  let specs := accountInputSpecs module extensions accounts
+  /- `lowerFromPlan` scans one module-wide serialized account layout before it
+     dispatches. Per-entrypoint manifests must expose that same layout or state
+     offsets point into the wrong account when a query omits the authority. -/
+  let accounts := moduleAccounts
+  let specs := accountInputSpecs module extensions moduleAccounts
   return {
     name := ep.name
     accounts := buildAccountPlan module extensions accounts specs
@@ -338,7 +342,7 @@ def buildSolanaModulePlan (module : Module) (capPlan? : Option ProofForge.Target
   let mut tag := 0
   let mut entrypointPlans := #[]
   for ep in module.entrypoints do
-    entrypointPlans := entrypointPlans.push (← buildEntrypointPlan module extensions ep tag)
+    entrypointPlans := entrypointPlans.push (← buildEntrypointPlan module extensions accounts ep tag)
     tag := tag + 1
   let stateFieldOffsets := buildStateOffsetsAtBase module stateDataOff
                      |>.map (fun f => (f.id, f.absOff))
@@ -530,7 +534,7 @@ private def canonicalBlockLabel (fnId blockId : Nat) : String := s!"sol_core_{fn
 /-- Lower the canonical sender hash without truncating the account pubkey. -/
 def lowerCanonicalHashAccount0 (result : SolanaValuePlan) : Array AstNode := #[
   .comment "canonical hash(sender): sha256(account[0] full 32-byte pubkey)",
-  .instruction { opcode := .stxdw, dst := some .r10, off := some (.num 400), src := some .r1 },
+  .instruction { opcode := .mov64, dst := some .r7, src := some .r1 },
   .instruction { opcode := .mov64, dst := some .r4, src := some .r10 },
   .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 416) },
   .instruction { opcode := .ldxdw, dst := some .r5, src := some .r1, off := some (.num 16) },
@@ -554,7 +558,7 @@ def lowerCanonicalHashAccount0 (result : SolanaValuePlan) : Array AstNode := #[
   .instruction { opcode := .jne, dst := some .r0, imm := some (.num 0), off := some (.sym "error_syscall") },
   .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num 448) },
   canonicalStoreValue result .r2,
-  .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
+  .instruction { opcode := .mov64, dst := some .r1, src := some .r7 }]
 
 private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Except SbpfAsm.LowerError (Array AstNode)
   | .literal result value => .ok #[

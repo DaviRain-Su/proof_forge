@@ -128,6 +128,8 @@ def main : IO Unit := do
     "Solana canonical sender hash must load all four pubkey words"
   require (hashAsm.contains "call sol_sha256")
     "Solana canonical sender hash must invoke sol_sha256"
+  require (hashAsm.contains "mov64 r7, r1" && hashAsm.contains "mov64 r1, r7")
+    "Solana canonical sender hash must preserve r1 in a callee-saved register"
   require (hashAsm.contains "jne r0, 0, error_syscall")
     "Solana canonical sender hash must fail closed on syscall error"
 
