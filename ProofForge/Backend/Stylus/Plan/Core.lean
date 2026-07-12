@@ -83,6 +83,9 @@ private def buildMethod (entrypoint : InterfaceEntrypoint) : Except PlanError St
     selector := ← parseSelector entrypoint.name entrypoint.selector?
     params
     returns
+    mutability := match entrypoint.mutability with
+      | .call => .call
+      | .view => .view
   }
 
 private def slotBytes (slot : Nat) : StylusBytes :=
@@ -93,6 +96,61 @@ private def stateSymbol (contract : CanonicalContract) (id : StateId) : Except P
   match contract.materialization.stateSymbols.find? (fun symbol => symbol.stateId == id) with
   | some symbol => pure symbol.name
   | none => fail s!"Stylus plan is missing state symbol {id.value}"
+
+private def resultId (instruction : Instruction) : Except PlanError StylusValueId :=
+  match instruction.results with
+  | #[result] => pure result.id.value
+  | _ => fail "Stylus operation expected exactly one SSA result"
+
+private def literalPlan : CoreLiteral -> Except PlanError (StylusAbiType × StylusLiteralPlan)
+  | .boolLit value => pure (.bool, .bool value)
+  | .u8Lit value => pure (.uint 8, .uint value)
+  | .u32Lit value => pure (.uint 32, .uint value)
+  | .u64Lit value => pure (.uint 64, .uint value)
+  | .u128Lit value => pure (.uint 128, .uint value)
+  | .addressLit value => pure (.address, .address value)
+  | .hashLit value => pure (.fixedBytes 32, .fixedBytes value.toUTF8.data)
+  | .unitLit => fail "Stylus unit literal cannot bind an SSA value"
+  | .bytesLit _ | .stringLit _ =>
+      fail "Stylus dynamic literals are scheduled for the aggregate slice"
+
+private def instructionPlan (contract : CanonicalContract) (instruction : Instruction) :
+    Except PlanError StylusOpPlan :=
+  match instruction.op with
+  | .pure (.literal literal) => do
+      let (type, value) <- literalPlan literal
+      pure (.literal (← resultId instruction) type value)
+  | .pure (.arithmetic .add mode lhs rhs) => do
+      let type <- match instruction.results with
+        | #[result] => coreTypeToAbi result.type
+        | _ => fail "Stylus add expected exactly one SSA result"
+      let mode := match mode with
+        | .wrapping => StylusOverflowMode.wrapping
+        | .checked => StylusOverflowMode.checked
+      pure (.add (← resultId instruction) type mode lhs.id.value rhs.id.value)
+  | .storageLoad path => do
+      pure (.storageLoad (← resultId instruction) (← stateSymbol contract path.root))
+  | .storageStore path value => do
+      pure (.storageCache (← stateSymbol contract path.root) value.id.value)
+  | op => fail s!"Stylus function lowering has no plan operation for `{repr op}`"
+
+private def terminatorPlan : Terminator -> Except PlanError StylusTerminatorPlan
+  | .jump target args _ => do
+      unless args.isEmpty do
+        fail "Stylus block-argument jumps are not implemented"
+      pure (.jump target.value)
+  | .branch condition onTrue onFalse =>
+      pure (.branch condition.id.value onTrue.value onFalse.value)
+  | .return values => pure (.return (values.map fun value => value.id.value))
+  | .revert error => pure (.revert s!"error-{error.id.value}")
+
+private def blockPlan (contract : CanonicalContract) (block : Block) :
+    Except PlanError StylusBlockPlan := do
+  pure {
+    id := block.id.value
+    operations := ← block.instructions.mapM (instructionPlan contract)
+    terminator := ← terminatorPlan block.terminator
+  }
 
 private def buildStorage (contract : CanonicalContract) : Except PlanError StylusStoragePlan := do
   let mut words := #[]
@@ -151,6 +209,7 @@ private def collectFunctionHostOps (functionName : String) (function : Function)
     id := s!"{functionName}.host.{index}"
     functionId := functionName
     operation
+    support := { rustSdk := .implemented, directWasm := .planned }
   }
 
 private def buildFunctions (contract : CanonicalContract) : Except PlanError (Array StylusFunctionPlan) :=
@@ -161,7 +220,8 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
       id := entrypoint.name
       abiMethod := entrypoint.name
       entryBlock := function.entry.value
-      blockIds := function.blocks.map (fun block => block.id.value)
+      blocks := ← function.blocks.mapM (blockPlan contract)
+      support := { rustSdk := .implemented, directWasm := .planned }
     }
 
 def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan) :

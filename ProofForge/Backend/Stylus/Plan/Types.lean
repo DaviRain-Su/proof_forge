@@ -51,6 +51,39 @@ inductive StylusCallMode where
   | call | staticCall | delegateCall
   deriving Repr, BEq, DecidableEq
 
+inductive StylusOverflowMode where
+  | wrapping
+  | checked
+  deriving Repr, BEq, DecidableEq
+
+inductive StylusLiteralPlan where
+  | bool (value : Bool)
+  | uint (value : Nat)
+  | address (value : String)
+  | fixedBytes (value : StylusBytes)
+  deriving Repr, BEq
+
+inductive StylusOpPlan where
+  | literal (result : StylusValueId) (type : StylusAbiType) (value : StylusLiteralPlan)
+  | add (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
+      (lhs rhs : StylusValueId)
+  | storageLoad (result : StylusValueId) (wordId : String)
+  | storageCache (wordId : String) (value : StylusValueId)
+  deriving Repr, BEq
+
+inductive StylusTerminatorPlan where
+  | jump (target : StylusBlockId)
+  | branch (condition : StylusValueId) (onTrue onFalse : StylusBlockId)
+  | return (values : Array StylusValueId)
+  | revert (errorId : String)
+  deriving Repr, BEq
+
+structure StylusBlockPlan where
+  id : StylusBlockId
+  operations : Array StylusOpPlan
+  terminator : StylusTerminatorPlan
+  deriving Repr, BEq
+
 inductive RendererSupport where
   | planned
   | implemented
@@ -67,6 +100,11 @@ structure StylusAbiParamPlan where
   type : StylusAbiType
   deriving Repr, BEq
 
+inductive StylusMutability where
+  | call
+  | view
+  deriving Repr, BEq, DecidableEq
+
 structure StylusAbiMethodPlan where
   name : String
   canonicalSignature : String
@@ -74,6 +112,7 @@ structure StylusAbiMethodPlan where
   params : Array StylusAbiParamPlan := #[]
   returns : Array StylusAbiType := #[]
   payable : Bool := false
+  mutability : StylusMutability := .call
   deriving Repr, BEq
 
 structure StylusAbiErrorPlan where
@@ -104,7 +143,7 @@ structure StylusFunctionPlan where
   id : String
   abiMethod : String
   entryBlock : StylusBlockId
-  blockIds : Array StylusBlockId := #[]
+  blocks : Array StylusBlockPlan
   support : RendererSupportPlan := {}
   deriving Repr, BEq
 

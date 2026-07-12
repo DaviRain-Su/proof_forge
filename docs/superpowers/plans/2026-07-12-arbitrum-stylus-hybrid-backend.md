@@ -243,7 +243,7 @@
 - Consumes: validated `StylusPlan` only.
 - Produces: `renderCrate : StylusPlan -> Except RenderError RustCrate`, where `RustCrate` owns deterministic path/content pairs.
 
-- [ ] **Step 1: Write renderer golden tests before implementation**
+- [x] **Step 1: Write renderer golden tests before implementation**
 
   Require the Counter output to contain pinned SDK version, `sol_storage!`,
   `#[entrypoint]`, `#[public]`, `uint64 count`, `initialize`, `increment`, `get`,
@@ -251,11 +251,11 @@
 
   Run `lake env lean --run Tests/Stylus/RustRender.lean`; expect missing renderer failure.
 
-- [ ] **Step 2: Implement a structural Rust AST**
+- [x] **Step 2: Implement a structural Rust AST**
 
   Model crates, uses, attributes, structs, impl blocks, functions, statements, expressions, and types. Do not concatenate whole Rust functions as opaque strings. Permit raw tokens only for pinned macro invocations whose grammar is owned by `stylus-sdk`.
 
-- [ ] **Step 3: Render plan-owned storage, ABI, and functions**
+- [x] **Step 3: Render plan-owned storage, ABI, and functions**
 
   Generate:
 
@@ -282,7 +282,7 @@
 
   The exact emitted method names and result wrappers come from `StylusAbiPlan`, not this example literal.
 
-- [ ] **Step 4: Verify deterministic goldens and commit**
+- [x] **Step 4: Verify deterministic goldens and commit**
 
   Run the renderer twice and compare file hashes, then run `just stylus-rust-render` and `git diff --check`. Commit:
 

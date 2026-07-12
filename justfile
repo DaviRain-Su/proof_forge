@@ -99,6 +99,11 @@ stylus-diagnostics:
     lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.Validate
     lake env lean --run Tests/Stylus/Diagnostics.lean
 
+# Deterministic Stylus Rust SDK crate renderer golden contract.
+stylus-rust-render:
+    lake build ProofForge.Backend.Stylus.RustSdk.Render ProofForge.Backend.Stylus.Plan.Core
+    lake env lean --run Tests/Stylus/RustRender.lean
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

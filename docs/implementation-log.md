@@ -519,3 +519,27 @@ Rules:
 - Remaining: bridge-aware canonical lowering (storage helpers, param prologue,
   auth prologue); RemoteCall via `invoke_contract` after lowering is complete.
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
+
+## 2026-07-12 - Stylus Task 4: Deterministic Rust SDK renderer
+
+- Status: `done`
+- Result: extended the immutable `StylusPlan` with plan-owned blocks,
+  operations, terminators, ABI mutability, and overflow modes, then added a
+  structural Rust SDK AST and deterministic crate renderer. The renderer
+  consumes only validated plan data and emits pinned `stylus-sdk = "=0.10.8"`
+  metadata plus the Counter `sol_storage!` and `#[public]` implementation.
+- Semantics: canonical Counter checked addition is preserved as `checked_add`;
+  the renderer promotes the method to `Result<(), Vec<u8>>` and emits
+  deterministic overflow bytes. View methods use `&self`; calls use
+  `&mut self`.
+- Interfaces: `ProofForge.Backend.Stylus.RustSdk.renderCrate`,
+  `Tests/Stylus/RustRender.lean`, `just stylus-rust-render`.
+- Verification:
+  - `just stylus-rust-render` passed, including repeat-render equality and
+    byte-for-byte Cargo/lib golden comparisons
+  - `just stylus-plan-contract` passed
+  - `just stylus-core-plan` passed
+  - `just stylus-diagnostics` passed
+  - `git diff --check` passed
+- Remaining: generated-crate filesystem packaging, Rust/Wasm compilation, and
+  `cargo stylus check` belong to Task 5.

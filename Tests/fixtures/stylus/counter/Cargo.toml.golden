@@ -1,0 +1,15 @@
+[package]
+name = "proof-forge-counter-stylus"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+stylus-sdk = "=0.10.8"
+
+[features]
+default = []
+export-abi = ["stylus-sdk/export-abi"]
