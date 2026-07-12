@@ -5,7 +5,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 | Boundary ID | Legacy entry | Replacement | State | Trigger | Removal condition | Evidence |
 |---|---|---|---|---|---|---|
 | D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + exact import guard + Solana positive IR pins + Solana parity | `52402821`, `c1433b2e`, `b8c03f5`, review repair `6af4eb72` |
-| D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | inventoried | A2-A6 | each product family switched | pending |
+| D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | replacement_ready | A2-A6 | each product family switched | allowlist frozen; `Tests/IntentProductBoundary.lean` passes |
 | D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | inventoried | A5/B2 | advertised fragments strict by default | pending |
 | D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | inventoried | A6 | build/emit/check native | pending |
 | D5-legacy-imports | production imports `IR.Legacy.*` | canonical or isolated test helper | inventoried | D6-D12 | production allowlist empty | pending |

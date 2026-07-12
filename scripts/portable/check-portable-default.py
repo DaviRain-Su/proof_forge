@@ -233,6 +233,56 @@ def self_test() -> None:
     print("portable-default import parser self-test: ok")
 
 
+def check_contract_spec_allowlist() -> None:
+    """D2: Freeze product-level ContractSpec construction.
+
+    Scan ProofForge/Contract and Examples/Product for direct ContractSpec
+    construction or re-export. Compare against the reviewed allowlist.
+    Fail on new construction sites not in the allowlist.
+    """
+    allowlist_path = REPO_ROOT / "scripts" / "portable" / "product-contract-spec-allowlist.txt"
+    if not allowlist_path.is_file():
+        fail("product-contract-spec-allowlist.txt missing")
+    allowlist = set()
+    for line in allowlist_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            allowlist.add(line)
+
+    scan_dirs = [
+        REPO_ROOT / "ProofForge" / "Contract",
+        REPO_ROOT / "Examples" / "Product",
+    ]
+    # Patterns that indicate ContractSpec CONSTRUCTION (not consumption)
+    patterns = [
+        "ContractSpec.fromIR",
+        "def spec : ProofForge.Contract.ContractSpec",
+        "def spec : TokenSpec",
+        "def spec : NFTSpec",
+        "contract_source ",
+        "def mergeSpecs",
+        "def mergeExtension",
+        "def projectEntrypoints",
+        "def withErc721Selectors",
+        "def toSpec",
+        "def contract ",
+    ]
+    for scan_dir in scan_dirs:
+        for path in sorted(scan_dir.rglob("*.lean")):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            text = path.read_text(encoding="utf-8")
+            for pat in patterns:
+                if pat not in text:
+                    continue
+                # Check if this path is covered by the allowlist
+                path_covered = any(
+                    entry.startswith(rel + ":") for entry in allowlist
+                )
+                if not path_covered:
+                    fail(
+                        f"portable-default: new product ContractSpec coupling: {rel}:{pat}"
+                    )
+
 def main() -> int:
     if not SHARED.is_dir():
         fail("Examples/Product missing")
@@ -244,6 +294,7 @@ def main() -> int:
     for path in sources:
         check_shared_file(path)
 
+    check_contract_spec_allowlist()
     check_token_api_docs()
     print(f"portable-default: ok ({len(sources)} shared sources)")
     return 0
