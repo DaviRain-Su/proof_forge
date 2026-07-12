@@ -50,10 +50,12 @@ run_self_tests() {
   git init -q -b main "$source_repo"
   git -C "$source_repo" config user.name "legacy-freeze-test"
   git -C "$source_repo" config user.email "legacy-freeze-test@example.invalid"
-  mkdir -p "$source_repo/ProofForge/IR/Legacy" "$source_repo/ProofForge/Contract"
+  mkdir -p "$source_repo/ProofForge/IR/Legacy" "$source_repo/ProofForge/Contract" \
+    "$source_repo/scripts/canonical"
   printf '%s\n' 'inductive LegacySchema where | original' > "$source_repo/ProofForge/IR/Contract.lean"
   printf '%s\n' 'structure LegacySpec where' '  name : String' > "$source_repo/ProofForge/Contract/Spec.lean"
   printf '%s\n' 'def classification := #["original"]' > "$source_repo/$CLASSIFICATION_FILE"
+  : > "$source_repo/scripts/canonical/legacy-production-imports.txt"
   git -C "$source_repo" add .
   git -C "$source_repo" commit -q -m base
 
@@ -61,6 +63,38 @@ run_self_tests() {
     echo "legacy-freeze self-test: clean snapshot should pass" >&2
     return 1
   fi
+
+  rm "$source_repo/scripts/canonical/legacy-production-imports.txt"
+  if (cd "$source_repo" && "$SCRIPT_PATH" --base-ref HEAD >/dev/null 2>&1); then
+    echo "legacy-freeze self-test: missing import baseline should fail" >&2
+    return 1
+  fi
+  git -C "$source_repo" restore scripts/canonical/legacy-production-imports.txt
+
+  printf '%s\n' 'import ProofForge.IR.Legacy.Core' > "$source_repo/ProofForge/NewConsumer.lean"
+  if (cd "$source_repo" && "$SCRIPT_PATH" --base-ref HEAD >/dev/null 2>&1); then
+    echo "legacy-freeze self-test: unreviewed production import should fail" >&2
+    return 1
+  fi
+  rm "$source_repo/ProofForge/NewConsumer.lean"
+
+  printf '%s\n' 'import ProofForge.IR.Legacy.Core' > "$source_repo/ProofForge/NewConsumer.lean"
+  printf '%s\n' 'ProofForge/NewConsumer.lean' > \
+    "$source_repo/scripts/canonical/legacy-production-imports.txt"
+  if ! (cd "$source_repo" && "$SCRIPT_PATH" --base-ref HEAD >/dev/null); then
+    echo "legacy-freeze self-test: synchronized import baseline should pass" >&2
+    return 1
+  fi
+  rm "$source_repo/ProofForge/NewConsumer.lean"
+  git -C "$source_repo" restore scripts/canonical/legacy-production-imports.txt
+
+  printf '%s\n' 'ProofForge/Nonexistent.lean' > \
+    "$source_repo/scripts/canonical/legacy-production-imports.txt"
+  if (cd "$source_repo" && "$SCRIPT_PATH" --base-ref HEAD >/dev/null 2>&1); then
+    echo "legacy-freeze self-test: baseline-only expansion should fail" >&2
+    return 1
+  fi
+  git -C "$source_repo" restore scripts/canonical/legacy-production-imports.txt
 
   printf '%s\n' '-- schema-only worktree edit' >> "$source_repo/ProofForge/IR/Contract.lean"
   if (cd "$source_repo" && "$SCRIPT_PATH" --base-ref HEAD >/dev/null 2>&1); then
@@ -333,21 +367,22 @@ check_transition index worktree
 check_transition base index
 check_transition base worktree
 
-echo "legacy-freeze: ok (base=$base_commit; transitions=base->HEAD->index->worktree)"
-
-
-# D0: Production import baseline — fails when production imports of
-# ProofForge.IR.Legacy.* grow beyond the reviewed baseline.
+# D0: the reviewed production-import baseline is mandatory and exact. A
+# migration removes an import and its baseline row in the same change; adding a
+# caller or deleting/expanding the baseline alone fails closed.
 IMPORTS_BASELINE="scripts/canonical/legacy-production-imports.txt"
-if [ -f "$IMPORTS_BASELINE" ]; then
-  actual="$(mktemp)"
-  trap 'rm -f "$actual"' EXIT
-  rg -l '^import ProofForge\.IR\.Legacy' ProofForge 2>/dev/null | LC_ALL=C sort > "$actual" || true
-  if ! diff -u "$IMPORTS_BASELINE" "$actual" >/dev/null; then
-    echo "legacy-freeze: production legacy imports changed without baseline update" >&2
-    diff -u "$IMPORTS_BASELINE" "$actual" >&2 || true
-    rm -f "$actual"
-    exit 1
-  fi
-  rm -f "$actual"
+if [ ! -f "$IMPORTS_BASELINE" ]; then
+  echo "legacy-freeze: missing production import baseline: $IMPORTS_BASELINE" >&2
+  exit 1
 fi
+
+actual="$(mktemp)"
+trap 'rm -f "$actual"' EXIT
+rg -l '^import ProofForge\.IR\.Legacy' ProofForge 2>/dev/null | LC_ALL=C sort > "$actual" || true
+if ! diff -u "$IMPORTS_BASELINE" "$actual" >/dev/null; then
+  echo "legacy-freeze: production legacy imports changed without baseline update" >&2
+  diff -u "$IMPORTS_BASELINE" "$actual" >&2 || true
+  exit 1
+fi
+
+echo "legacy-freeze: ok (base=$base_commit; transitions=base->HEAD->index->worktree; imports=exact)"
