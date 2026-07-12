@@ -16,8 +16,9 @@ current phase's Definition of Done is satisfied, with auditable evidence.
 
 ## Gate A1 — Portable Intent and NFT vertical slice
 
-**Status: Open (2026-07-12).** This is the current architecture gate under
-D-052. It does not reopen closed G0/P0 evidence.
+**Status: Closed**
+
+**Closed: 2026-07-12**
 
 | # | Criterion | Status | Evidence required |
 |---|---|---|---|
@@ -25,8 +26,8 @@ D-052. It does not reopen closed G0/P0 evidence.
 | A1-2 | Target-neutral Intent materializer registry | ✅ met | private registry construction; `resolveIntentMaterializer`; checked result target; `just intent-registry` in product/check |
 | A1-3 | Minimal NFT intent and implementation contracts | ✅ met | `just nft-intent` and `just nft-implementation-contract`; validated portable intent plus three executable audited candidates |
 | A1-4 | Strict primary-triad NFT materialization | ✅ met | `just nft-materialization`: strict canonical validation and `buildFromCore` for EVM, Solana, and NEAR; no advisory fallback |
-| A1-5 | Product artifacts and lifecycle runtime evidence | 🟡 in-progress | `just portable-nft-multi-target` proves three bundles; target-runtime mint/transfer/rejection evidence remains |
-| A1-6 | Aggregate acceptance | pending | product, targeted runtime, check, and docs gates |
+| A1-5 | Product artifacts and lifecycle runtime evidence | ✅ met | `just portable-nft-multi-target` proves three bundles; `just portable-nft-runtime` executes mint, owner/balance, authorized transfer, unauthorized rejection, and duplicate-mint rejection on EVM Foundry, Solana Surfpool/SVM, and NEAR Wasm |
+| A1-6 | Aggregate acceptance | ✅ met | `6a6022ea`; `just product`, `just portable-nft-runtime`, `just solana-light`, `just check`, and `git diff --check` pass |
 
 Gate A1 closes only when every row is met on one tested revision. Wasm-host or
 ZK research may proceed independently, but public promotion requires its own

@@ -217,6 +217,26 @@ Rules:
   A6 acceptance criterion, not deferred completion evidence.
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
 
+### A6 runtime closure
+
+- Status: `done (verified at 6a6022ea)`.
+- Added `just portable-nft-runtime`, which consumes the public three-target NFT
+  bundle and executes the same minimal lifecycle on EVM Foundry, Solana
+  Surfpool/SVM, and the NEAR offline Wasm host.
+- Runtime coverage includes initialization, mint, duplicate-mint rejection,
+  owner and balance queries, authorized transfer, and unauthorized-transfer
+  rejection.
+- Fixed defects exposed by runtime execution: Solana Hash/Address ABI widths,
+  full-pubkey hash scratch preservation, module-global account layout for query
+  entrypoints, and canonical NEAR hash literals incorrectly represented as
+  pointer zero instead of allocated four-limb values.
+- Verification: `just portable-nft-runtime`, `just product`, `just solana-light`,
+  `just check`, Rust formatting, shell syntax checks, and `git diff --check`
+  passed on 2026-07-12.
+- The Surfpool lifecycle remains an explicit optional-tool gate rather than a
+  required product/CI dependency; `just product` continues to require honest
+  primary-triad artifact generation.
+
 ## 2026-07-12 - D3: Make accepted NFT materialization strict
 
 - Status: `done (verified at 545d7a51)`

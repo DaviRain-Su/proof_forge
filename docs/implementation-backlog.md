@@ -36,7 +36,7 @@ July 12 implementation plan.
 | A3 | Define target-neutral `NFTSpec` | done (review repaired) | identity and feature conflicts validated; asset model preserved before target selection |
 | A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | done (review repaired) | executable minimal lifecycle and explicit compliance limits |
 | A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
-| A6 | Open NFT CLI/product/runtime route | in_progress | three honest bundles pass; target-runtime lifecycle evidence remains |
+| A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
 | B1 | Extract neutral Wasm-host plan and ABI | pending after A6 | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | pending after B1 | adapter/validator/HostOp/builder errors fail closed |
 | B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |

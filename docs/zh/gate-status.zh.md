@@ -13,8 +13,9 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 ## Gate A1 —— Portable Intent 与 NFT 纵向切片
 
-**状态：Open（2026-07-12）。** 这是 D-052 下当前的架构门禁，不会重新
-打开已经关闭的 G0/P0 证据。
+**状态：Closed**
+
+**Closed: 2026-07-12**
 
 | # | 标准 | 状态 | 所需证据 |
 |---|---|---|---|
@@ -22,8 +23,8 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A1-2 | 目标中立的 Intent materializer registry | ✅ met | 私有 registry 构造；`resolveIntentMaterializer`；校验返回 target；`just intent-registry` 纳入 product/check |
 | A1-3 | 最小 NFT intent 与实现契约 | ✅ 已满足 | `just nft-intent` 和 `just nft-implementation-contract`；已验证便携 intent 与三个可执行审查候选实现 |
 | A1-4 | 主三链严格 NFT 物化 | ✅ met | `just nft-materialization`：EVM、Solana、NEAR 严格 canonical 校验及 `buildFromCore`，无 advisory fallback |
-| A1-5 | 产品制品与生命周期运行时证据 | 🟡 进行中 | `just portable-nft-multi-target` 证明三套制品；目标运行时 mint/transfer/reject 证据仍待补充 |
-| A1-6 | 聚合验收 | pending | product、目标运行时、check 与 docs 门禁 |
+| A1-5 | 产品制品与生命周期运行时证据 | ✅ met | `just portable-nft-multi-target` 证明三套制品；`just portable-nft-runtime` 在 EVM Foundry、Solana Surfpool/SVM 和 NEAR Wasm 上执行 mint、owner/balance、授权 transfer、未授权拒绝和重复 mint 拒绝 |
+| A1-6 | 聚合验收 | ✅ met | `6a6022ea`；`just product`、`just portable-nft-runtime`、`just solana-light`、`just check` 和 `git diff --check` 通过 |
 
 ## 使用方式
 
