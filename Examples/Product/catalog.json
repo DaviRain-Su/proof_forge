@@ -249,6 +249,14 @@
       "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
       "outputStage": "intermediate",
       "gates": ["product-matrix", "testkit:vesting-vault"]
+    },
+    {
+      "file": "Nft.lean",
+      "authoring": "contract_source",
+      "kind": "nft",
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near"],
+      "outputStage": "intermediate",
+      "gates": ["nft-materialization", "nft-artifact-schema"]
     }
   ]
 }

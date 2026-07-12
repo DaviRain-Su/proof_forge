@@ -24,9 +24,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Active task | A5 review repair - Solana strict NFT plan (blocked) |
-| Next task | A6 only after A5 strict primary-triad closure |
-| Known blocker | Solana `buildFromCore` rejects `PureOp.hash(address)` for the 32-byte NFT identity path |
+| Active task | None (A5 review repaired) |
+| Next task | A6 - Open the NFT CLI and product route |
+| Known blocker | None recorded; verify the worktree and current plan before starting |
 | Planning baseline | `7cf0d886` (agent control plane and documentation governance, 2026-07-12) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
@@ -79,7 +79,7 @@ This table is only the agent routing index.
 | A2 | done (review repaired) | Add the intent materializer contract | Plan Task 2 |
 | A3 | done | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | done | Audit NFT implementation candidates | Plan Task 4 |
-| A5 | in_progress (2/3 strict) | Add primary-triad NFT materializers | Plan Task 5 |
+| A5 | done (review repaired) | Add primary-triad NFT materializers | Plan Task 5 |
 | A6 | pending after A5 | Open the NFT CLI and product route | Plan Task 6 |
 | B1 | pending after A6 | Extract a neutral Wasm-host plan | Plan Task 7 |
 | B2 | pending after B1 | Add a strict canonical target gate | Plan Task 8 |

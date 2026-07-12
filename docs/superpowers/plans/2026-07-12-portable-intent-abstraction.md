@@ -112,8 +112,8 @@
 - [x] Test standard IDs and inspect returned specs for the minimal unique slice.
 - [x] Test named rejection for multi-token on unsupported targets and every deferred feature.
 - [x] Implement EVM/ERC-721, Solana/Metaplex, and NEAR/NEP-171-shaped materializers.
-- [ ] For every accepted case run `adaptLegacy`, `validateCanonical`, capability planning, and target `buildFromCore` without advisory error swallowing. EVM/NEAR pass; Solana is pinned on `PureOp.hash(address)`.
-- [ ] Run `Tests/NftMaterialization.lean`, `just product`, `just check`, and `git diff --check` after the Solana strict blocker is removed.
+- [x] For every accepted case run `adaptLegacy`, `validateCanonical`, capability planning, and target `buildFromCore` without advisory error swallowing.
+- [x] Run `Tests/NftMaterialization.lean`, `just product`, and `git diff --check`; the named gate is also in `just check`.
 - [x] Commit with `git commit -m "feat(nft): materialize portable NFT intent on primary targets"`.
 
 ### Task 6: Open the NFT CLI and Product Route

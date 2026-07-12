@@ -5,6 +5,7 @@ import ProofForge.Contract.Stdlib.ERC721
 import ProofForge.Contract.Stdlib.MetaplexNft
 import ProofForge.Contract.Stdlib.NearNft
 import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Backend.Solana.Plan.Core
 
 open ProofForge.Contract
 
@@ -98,9 +99,8 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "psy-dpn should have no NFT materializer"
   | .error e => require (e.contains "no materializer") s!"missing NFT materializer error should mention 'no materializer', got: {e}"
 
-  -- Test 7: EVM and NEAR pass the strict canonical pipeline. Solana remains
-  -- explicitly blocked on 32-byte hash planning; advisory success is forbidden.
-  let canonicalTargets := #["evm", "wasm-near"]
+  -- Test 7: every primary target passes the strict canonical pipeline.
+  let canonicalTargets := #["evm", "solana-sbpf-asm", "wasm-near"]
   for targetId in canonicalTargets do
     let mat ← match IntentRegistry.resolve registry targetId .nonFungibleToken with
       | .ok m => match m.materialize contract with
@@ -112,10 +112,17 @@ def main : IO Unit := do
     | .ok _ => pure ()
     | .error e => throw <| IO.userError s!"{targetId} strict canonical gate failed: {repr e}"
 
-  let solanaStrict ← ProofForge.Compiler.compileForTest .canonical
-    "solana-sbpf-asm" solMat.contractSpec
-  match solanaStrict with
-  | .ok _ => throw <| IO.userError "remove the pinned A5 Solana blocker after strict support lands"
-  | .error e => require (e.message.contains "PureOp.hash") s!"unexpected Solana strict blocker: {e.message}"
+  let hashNodes := ProofForge.Backend.Solana.Plan.lowerCanonicalHashAccount0
+    { id := 999, typeName := "hash" }
+  let hashAsm := ProofForge.Backend.Solana.Asm.renderNodes hashNodes
+  require (hashAsm.contains "sha256(account[0] full 32-byte pubkey)")
+    "Solana canonical sender hash must document the full pubkey input"
+  require (hashAsm.contains "[r1+16]" && hashAsm.contains "[r1+24]" &&
+      hashAsm.contains "[r1+32]" && hashAsm.contains "[r1+40]")
+    "Solana canonical sender hash must load all four pubkey words"
+  require (hashAsm.contains "call sol_sha256")
+    "Solana canonical sender hash must invoke sol_sha256"
+  require (hashAsm.contains "jne r0, 0, error_syscall")
+    "Solana canonical sender hash must fail closed on syscall error"
 
   IO.println "nft-materialization: ok"

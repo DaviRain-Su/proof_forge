@@ -35,6 +35,7 @@ Taxonomy: [docs/examples-and-tests-taxonomy.md](../../docs/examples-and-tests-ta
 | 4 | [RemoteCall.lean](RemoteCall.lean) | `just portable-remote-call-multi-target` |
 | 5 | [ExternalTokenTransfer.lean](ExternalTokenTransfer.lean) | `just product-protocol-ft` |
 | 6 | [AuthRemoteCall.lean](AuthRemoteCall.lean) | `just portable-solana-accounts` |
+| 7 | [Nft.lean](Nft.lean) | `just nft-materialization` · `just nft-artifact-schema` |
 
 Full narrative: [docs/tutorials/portable-shared-path.md](../../docs/tutorials/portable-shared-path.md).
 
