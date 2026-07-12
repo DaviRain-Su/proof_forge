@@ -262,12 +262,15 @@ def withU64IndexedWriteType (type : ValueType) : ModuleSurface := {
 def withHashIndexedReadType (type : ValueType) : ModuleSurface := {
   usesHashIndexedBuildKey := true
   hashIndexedReadTypes := #[type]
+  -- `mapBuildkeyHashFunc` copies the 32-byte key with `__pf_memcpy`.
+  usesMemcpy := true
 }
 
 def withHashIndexedWriteType (type : ValueType) : ModuleSurface := {
   usesHashIndexedBuildKey := true
   hashIndexedWriteTypes := #[type]
-  usesMemcpy := type == .hash
+  -- `mapBuildkeyHashFunc` copies the 32-byte key with `__pf_memcpy`.
+  usesMemcpy := true
 }
 
 def withU64IndexedContains : ModuleSurface := {

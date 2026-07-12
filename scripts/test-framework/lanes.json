@@ -100,6 +100,7 @@
     "near-vm-conformance-product",
     "near-vm-conformance-ft",
     "near-vm-u128-scalar",
+    "near-vm-u128-map",
     "near-budget-honesty",
     "near-deploy-honesty",
     "near-compare-matrix-test",
@@ -967,6 +968,15 @@
     },
     {
       "name": "near-vm-u128-scalar",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-u128-map",
       "lane": "wasm-other-exclusive",
       "execution": "lane_serial",
       "tags": [

@@ -1187,8 +1187,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     let (vis, vt) ← lowerExpr ctx env value
     storageScalarAssignOpInsns s id op vis vt
   | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) => do
-    let (is, _) ← lowerMapWrite ctx env id key value
-    .ok (dropResultInsns is)
+    let (is, t) ← lowerMapWrite ctx env id key value
+    -- U128 map writes are void (Unit); single-word writes return the prior
+    -- value and must be dropped.
+    if t == .unit then .ok is else .ok (dropResultInsns is)
   | .effect (.storageMapDelete id key) => do
     let (is, _) ← lowerMapDelete ctx env id key
     .ok (dropResultInsns is)

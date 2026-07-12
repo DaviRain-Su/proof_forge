@@ -367,6 +367,34 @@ def mapWriteNestedFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge :
           .localGet "r"
         ] } }
 
+/-- U64-indexed Map<U64, U128>: same two-word value ABI, 8-byte key.
+    Declared before `mapHelperFuncsForModulePlan` (which references it). -/
+def mapReadU128Func : Func :=
+  { name := mapReadName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "k", type := .i64 }],
+    results := #[],
+    locals := #[{ name := "found", type := .i64 }],
+    body := { insns :=
+      #[.i32Const KEY_BUF, .i64Const 0, .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .i64Const 0, .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName] ++
+      mapStorageReadHostInsns 8 .near ++
+      #[.localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[.i64Const 0, .i64Const KEY_BUF, .call "read_register"] }
+          { insns := #[] } ] } }
+
+def mapWriteU128Func : Func :=
+  { name := mapWriteName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+      { name := "k", type := .i64 }, { name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    body := { insns :=
+      #[.i32Const KEY_BUF, .localGet "lo", .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .localGet "hi", .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "k", .call mapBuildkeyName] ++
+      mapStorageWriteHostInsns 8 16 .near } }
+
 def mapHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
   let nestedReads :=
@@ -377,9 +405,11 @@ def mapHelperFuncsForModulePlan (plan : ModulePlan)
       if type == .hash then acc else acc.push (mapWriteNestedFunc type bridge)
   (if plan.usesU64IndexedBuildKey then #[mapBuildkeyFunc] else #[]) ++
     (plan.u64IndexedReadTypes.foldl (init := #[]) fun acc type =>
-      acc ++ #[mapReadFunc type bridge]) ++
+      acc ++ (if type == .u128 then (if bridge == .near then #[mapReadU128Func] else #[])
+              else #[mapReadFunc type bridge])) ++
     (plan.u64IndexedWriteTypes.foldl (init := #[]) fun acc type =>
-      acc ++ #[mapWriteFunc type bridge]) ++
+      acc ++ (if type == .u128 then (if bridge == .near then #[mapWriteU128Func] else #[])
+              else #[mapWriteFunc type bridge])) ++
     (plan.u64IndexedWriteTypes.foldl (init := #[]) fun acc type =>
       acc ++ #[mapDeleteFunc type bridge]) ++
     (if plan.usesU64IndexedContains then #[mapContainsFunc bridge] else #[]) ++
@@ -414,7 +444,11 @@ def mapWriteValueInsns (mapInfo : MapInfo) (id : String) (keyInsns valueInsns wr
   if valueType != mapInfo.valueType then
     err s!"EmitWat: map write `{id}` expected `{mapInfo.valueType.name}`, got `{valueType.name}`"
   else
-    .ok (mapPrefixInsns mapInfo ++ keyInsns ++ valueInsns ++ writeCall, mapInfo.valueType)
+    -- The U128 map write func is void (it cannot return the prior value as two
+    -- words under NEAR's no-multi-value rule), so a U128 map write yields Unit;
+    -- single-word writes return the prior value as before.
+    let outType := if mapInfo.valueType == .u128 then .unit else mapInfo.valueType
+    .ok (mapPrefixInsns mapInfo ++ keyInsns ++ valueInsns ++ writeCall, outType)
 
 def mapReadStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -432,7 +466,13 @@ def mapReadCall (mapInfo : MapInfo) (id : String) : Except EmitError (Array Insn
 
 def mapReadValueInsns (mapInfo : MapInfo) (keyInsns readCall : Array Insn) :
     Array Insn × ValueType :=
-  (mapPrefixInsns mapInfo ++ keyInsns ++ readCall, mapInfo.valueType)
+  let base := mapPrefixInsns mapInfo ++ keyInsns ++ readCall
+  if mapInfo.valueType == .u128 then
+    -- u128 map read is void (stages 16 bytes at KEY_BUF); reload lo/hi.
+    (base ++ #[.i32Const KEY_BUF, .load "i64.load" 0,
+               .i32Const (KEY_BUF + 8), .load "i64.load" 0], .u128)
+  else
+    (base, mapInfo.valueType)
 
 def mapContainsStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
@@ -687,13 +727,50 @@ def mapContainsHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func 
         ] ++ mapKeyByteLenInsns 32 ++ #[
           .i64Const MAPKEY_BUF, .call "storage_has_key" ] } }
 
+/-! U128 map values use a distinct two-word (lo, hi) value ABI on NEAR; the
+    single-word `mapReadHashFunc` / `mapWriteHashFunc` above do not fit. The
+    read funcs are VOID and stage 16 bytes at KEY_BUF (caller reloads lo/hi);
+    the write funcs take (lo, hi). Soroban/CosmWasm U128 map values are not
+    materialized in this slice. -/
+
+def mapReadHashU128Func : Func :=
+  { name := mapReadHashName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 }, { name := "kp", type := .i32 }],
+    results := #[],
+    locals := #[{ name := "found", type := .i64 }],
+    body := { insns :=
+      -- default (0,0) at KEY_BUF when the key is absent
+      #[.i32Const KEY_BUF, .i64Const 0, .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .i64Const 0, .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName] ++
+      mapStorageReadHostInsns 32 .near ++
+      #[.localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[.i64Const 0, .i64Const KEY_BUF, .call "read_register"] }
+          { insns := #[] } ] } }
+
+def mapWriteHashU128Func : Func :=
+  { name := mapWriteHashName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+      { name := "kp", type := .i32 }, { name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    body := { insns :=
+      #[.i32Const KEY_BUF, .localGet "lo", .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .localGet "hi", .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "kp", .call mapBuildkeyHashName] ++
+      mapStorageWriteHostInsns 32 16 .near } }
+
 def mapHashHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
+  let readOf (type : ValueType) : Array Func :=
+    if type == .u128 then (if bridge == .near then #[mapReadHashU128Func] else #[])
+    else #[mapReadHashFunc type bridge]
+  let writeOf (type : ValueType) : Array Func :=
+    if type == .u128 then (if bridge == .near then #[mapWriteHashU128Func] else #[])
+    else #[mapWriteHashFunc type bridge]
   (if plan.usesHashIndexedBuildKey then #[mapBuildkeyHashFunc] else #[]) ++
-    (plan.hashIndexedReadTypes.foldl (init := #[]) fun acc type =>
-      acc ++ #[mapReadHashFunc type bridge]) ++
-    (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type =>
-      acc ++ #[mapWriteHashFunc type bridge]) ++
+    (plan.hashIndexedReadTypes.foldl (init := #[]) fun acc type => acc ++ readOf type) ++
+    (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type => acc ++ writeOf type) ++
     (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type =>
       acc ++ #[mapDeleteHashFunc type bridge]) ++
     (if plan.usesHashIndexedContains then #[mapContainsHashFunc bridge] else #[])

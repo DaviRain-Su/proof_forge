@@ -1133,3 +1133,33 @@ Rules:
   `just near-vm-conformance-ft`.
 - Next (Phase 1.2): U128 map values (hash-keyed + u64-indexed), then Phase 2
   converts `NearFungibleToken` amounts to u128. See the execution plan.
+
+## 2026-07-13 - Phase 1.2: U128 hash-keyed map values on the real NEAR VM
+
+- Status: `done (verified by `just near-vm-u128-map`)`
+- Result. Extended the two-word U128 model to hash-keyed map values (the
+  NEP-141 `balances` / `allowances` shape: `Map<hash, u128>`):
+  - `__pf_map_read_hash_u128(pp,pl,kp)` (void; stages 16 bytes at KEY_BUF,
+    zeros KEY_BUF first so absent keys read as 0) + `__pf_map_write_hash_u128
+    (pp,pl,kp,lo,hi)` (void) on the NEAR register ABI; plus the u64-indexed
+    `__pf_map_read_u128` / `__pf_map_write_u128` for `Map<U64, U128>`.
+  - `mapReadValueInsns` reloads lo/hi from KEY_BUF after the void read;
+    `mapWriteValueInsns` returns Unit for U128 (the write cannot return the
+    prior value as two words under NEAR's no-multi-value rule), and the bare
+    `storageMapSet` effect skips the drop for Unit. (The FT discards the prior
+    value, so this matches its usage.)
+  - Emission emits the U128 variants on the NEAR bridge instead of the
+    single-word map funcs; `scalarHelperType` already admitted U128, so the
+    survey collects U128 map value types with no extra change.
+  - Latent fix: `withHashIndexedReadType` / `withHashIndexedWriteType` now set
+    `usesMemcpy := true` (the buildkey-hash helper copies the 32-byte key with
+    `__pf_memcpy`); previously a hash-keyed map without events omitted memcpy
+    and failed to link (masked in the FT by its event emissions).
+- Evidence. New `U128MapProbe` + `just near-vm-u128-map`: write u128 100 at a
+  hash key, read back, return → `64000000000000000000000000000000` (u128 100)
+  on the unmodified upstream NEAR VM.
+- Verification (all passed): `just near-vm-u128-map`; `just near-vm-u128-scalar`;
+  `just wasm-near-plan`; `just near-vm-conformance-ft`; `just near-vm-conformance`;
+  `just emitwat-aggregate-abi`; `just near-map-hash-alias`;
+  `manifest.py --check` + `check_equivalence.py` (115 recipes).
+- Next (Phase 2): convert `NearFungibleToken` amounts u64→u128.
