@@ -709,7 +709,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   let loweringParams := (abiPlan.params.zip fn.params).map fun (param, value) =>
     { param with name? := some s!"v{value.id}" }
   let loweringAbiPlan := { abiPlan with params := loweringParams }
-  let (paramPrologue, _) ← Params.loadParams #[] inputParams loweringAbiPlan
+  let (paramPrologue, _) ← Params.loadParams #[] inputParams loweringAbiPlan plan.hostBridge.bridge
   return {
     name := fn.name, exportName := some fn.name
     locals := #[{ name := "pc", type := .i32 }] ++ values.map canonicalNearLocal
