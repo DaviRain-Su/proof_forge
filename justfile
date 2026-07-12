@@ -1635,6 +1635,10 @@ test-manifest:
     python3 -m unittest scripts/test-framework/test_manifest.py
     python3 scripts/test-framework/manifest.py --check
 
+# Exercise process scheduling, cancellation, exclusivity, and timing reports.
+test-scheduler:
+    python3 -m unittest scripts/test-framework/test_scheduler.py
+
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:
     scripts/psy/dpn-golden-gate.sh
