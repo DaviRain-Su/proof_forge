@@ -201,4 +201,52 @@ def runCanonicalValidationGate (targetId : String) (spec : ContractSpec) : Excep
               | .ok _ => .ok ()
             else
               .ok ()
+/-- Strict canonical target gate.
+
+Runs the same stages as `runCanonicalValidationGate`, but every stage is a
+hard error. This is the replacement for the advisory fallback used during the
+legacy-to-canonical migration.
+
+Returns `.ok ()` only when the spec can be adapted, validated, capability-checked,
+host-op checked, and built by the target's `buildFromCore`. -/
+def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Except String Unit := do
+  let profile ←
+    match ProofForge.Target.find? targetId with
+    | some p => pure p
+    | none => .error s!"canonical: unknown target {targetId}"
+  let bundle ←
+    match adaptLegacy spec with
+    | .ok b => pure b
+    | .error e => .error s!"canonical: adapt failed: {repr e}"
+  let checked ←
+    match validateCanonical bundle.contract.contract with
+    | .ok c => pure c
+    | .error e => .error s!"canonical: validation failed: {repr e}"
+  let capPlan : CapabilityPlan ←
+    match requireCapabilityPlan profile {
+      targetId := targetId,
+      calls := checked.contract.requirements,
+      metadata := #[]
+    } with
+    | .ok plan => pure plan
+    | .error diagnostic => .error s!"canonical: capability plan failed: {diagnostic.render}"
+  let hostCallErrors := checkHostOpHandlers targetId checked
+  if hostCallErrors.size > 0 then
+    let msg := String.intercalate "; " hostCallErrors.toList
+    .error s!"canonical: unhandled host op: {msg}"
+  match targetId with
+  | "evm" =>
+      match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+      | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
+      | .ok _ => pure ()
+  | "solana-sbpf-asm" =>
+      match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
+      | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
+      | .ok _ => pure ()
+  | "wasm-near" =>
+      match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+      | .error e => .error s!"canonical: buildFromCore failed: {e.message}"
+      | .ok _ => pure ()
+  | _ => .error s!"canonical: buildFromCore is unavailable for target {targetId}"
+
 end ProofForge.Compiler

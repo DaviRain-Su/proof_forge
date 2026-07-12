@@ -104,7 +104,7 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "psy-dpn should have no NFT materializer"
   | .error e => require (e.contains "no materializer") s!"missing NFT materializer error should mention 'no materializer', got: {e}"
 
-  -- Test 7: every primary target passes the strict canonical pipeline.
+  -- Test 7: every primary target passes the strict canonical target gate.
   let canonicalTargets := #["evm", "solana-sbpf-asm", "wasm-near"]
   for targetId in canonicalTargets do
     let mat ← match IntentRegistry.resolve registry targetId .nonFungibleToken with
@@ -112,10 +112,11 @@ def main : IO Unit := do
         | .ok mat => pure mat
         | .error e => throw <| IO.userError s!"{targetId} materialization failed: {e}"
       | .error e => throw <| IO.userError s!"{targetId} lookup failed: {e}"
-    let compiled ← ProofForge.Compiler.compileForTest .canonical targetId mat.contractSpec
-    match compiled with
-    | .ok _ => pure ()
-    | .error e => throw <| IO.userError s!"{targetId} strict canonical gate failed: {repr e}"
+    require (mat.evidence.any (·.contains "strict"))
+      s!"{targetId} materialization evidence should record strict gate"
+    match ProofForge.Compiler.runStrictCanonicalTargetGate targetId mat.contractSpec with
+    | .ok () => pure ()
+    | .error e => throw <| IO.userError s!"{targetId} strict canonical gate failed: {e}"
 
   let hashNodes := ProofForge.Backend.Solana.Plan.lowerCanonicalHashAccount0
     { id := 999, typeName := "hash" }

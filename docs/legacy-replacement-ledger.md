@@ -6,7 +6,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 |---|---|---|---|---|---|---|
 | D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + exact import guard + Solana positive IR pins + Solana parity | `52402821`, `c1433b2e`, `b8c03f5`, review repair `6af4eb72` |
 | D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | replacement_ready | A2-A6 | each product family switched | allowlist frozen; `Tests/IntentProductBoundary.lean` passes |
-| D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | inventoried | A5/B2 | advertised fragments strict by default | pending |
+| D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | replacement_ready | A5/B2 | advertised fragments strict by default | `Tests/Canonical/StrictIntentMaterialization.lean`; `Tests/NftMaterialization.lean` Test 7; `just strict-intent-materialization` |
 | D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | inventoried | A6 | build/emit/check native | pending |
 | D5-legacy-imports | production imports `IR.Legacy.*` | canonical or isolated test helper | inventoried | D6-D12 | production allowlist empty | pending |
 
@@ -44,17 +44,35 @@ reproducible positive and negative gates.
 - **Replacement:** `IntentContract` → `IntentMaterializer` registry → `ContractSpec` via materializer
 - **Trigger:** A2-A6 (Intent materializer + NFT vertical slice)
 - **Parity:** each product family has native + canonical parity under `just product`
-- **Current evidence:** none yet
-- **Next state:** `replacement_ready` after A2 implements the registry
+- **Current evidence:** NFT vertical slice uses `IntentContract` → registry →
+  `IntentMaterializer` for all primary targets; `Tests/IntentProductBoundary.lean`
+  pins the frozen product ContractSpec allowlist; `just product` carries the gate.
+- **State:** `replacement_ready`. The NFT product route is switched; Token and
+  other product families remain on legacy direct paths pending migration.
+- **Next state:** `default_switched` when every product family routes through the
+  intent materializer boundary and the legacy direct path is opt-in.
 
 ## D3-canonical-fallback
 
 - **Legacy:** `runCanonicalValidationGate` is advisory — `buildFromCore` failures do not block
 - **Replacement:** `runStrictCanonicalTargetGate` — all failures are hard errors
 - **Trigger:** A5/B2 (strict canonical target gate)
-- **Parity:** all primary-triad fixtures pass strict gate
-- **Current evidence:** advisory gate committed in Wave 6 Task 18-22
-- **Next state:** `replacement_ready` after B2 implements strict gate
+- **Parity:** all primary-triad NFT fixtures pass strict gate; negative cases pin
+  adapt, validation, capability, host-op, unknown-target, and buildFromCore failures
+- **Current evidence:**
+  - `ProofForge.Compiler.runStrictCanonicalTargetGate` implements adapter →
+    validation → capability → host-op → target `buildFromCore` as hard errors.
+  - `Tests/Canonical/StrictIntentMaterialization.lean` asserts error prefixes for
+    unknown target, adapt failure, and strict/advisory divergence; asserts success
+    for a known good spec; asserts NFT materializers record strict-gate evidence.
+  - `Tests/NftMaterialization.lean` Test 7 verifies every primary target passes
+    `runStrictCanonicalTargetGate` and that materialization evidence names the gate.
+  - `just strict-intent-materialization` is wired into `just check`.
+- **State:** `replacement_ready`. NFT materializations now use the strict gate.
+  Non-NFT product callers still use the advisory gate, so this is not yet
+  `default_switched`.
+- **Next state:** `default_switched` after non-NFT product families migrate to the
+  strict gate and `runCanonicalValidationGate` becomes opt-in/legacy only.
 
 ## D4-cli-arg-roundtrip
 

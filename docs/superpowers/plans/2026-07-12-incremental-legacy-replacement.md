@@ -310,7 +310,7 @@ git commit -m "test(intent): freeze product ContractSpec coupling"
 - Produces: `runStrictCanonicalTargetGate : String -> ContractSpec -> Except String Unit`.
 - Guarantees: adapter, canonical validation, capability, HostOp, unknown-target, and target `buildFromCore` failures remain errors.
 
-- [ ] **Step 1: Write negative tests against the advisory gap**
+- [x] **Step 1: Write negative tests against the advisory gap**
 
 Construct cases for an unadaptable spec, invalid canonical contract, unhandled
 HostOp, unknown target, and supported target builder rejection. Each assertion
@@ -329,20 +329,20 @@ lake env lean --run Tests/Canonical/StrictIntentMaterialization.lean
 
 Expected before implementation: failure because the strict function is absent.
 
-- [ ] **Step 2: Extract strict planning without changing the advisory API**
+- [x] **Step 2: Extract strict planning without changing the advisory API**
 
 Implement `runStrictCanonicalTargetGate` by reusing the existing normalization,
 validation, capability, HostOp, and three target builders. Return the builder's
 stage-specific message instead of `.ok ()`. Keep
 `runCanonicalValidationGate` unchanged for unmigrated callers in this task.
 
-- [ ] **Step 3: Require strict success inside accepted NFT materializers**
+- [x] **Step 3: Require strict success inside accepted NFT materializers**
 
 After materialization succeeds, call the strict gate before returning the
 accepted result. Unsupported feature combinations must still fail earlier with
 their stable feature diagnostic.
 
-- [ ] **Step 4: Verify accepted and rejected matrices**
+- [x] **Step 4: Verify accepted and rejected matrices**
 
 Run:
 
@@ -357,12 +357,13 @@ git diff --check
 Advance `D3-canonical-fallback` to `replacement_ready`. It is not
 `default_switched` because non-NFT product callers still use the advisory gate.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ProofForge/Compiler/CanonicalPipeline.lean \
   ProofForge/Contract/Nft/Materialize.lean Tests/NftMaterialization.lean \
-  Tests/Canonical/StrictIntentMaterialization.lean docs/legacy-replacement-ledger.md justfile
+  Tests/Canonical/StrictIntentMaterialization.lean docs/legacy-replacement-ledger.md justfile AGENTS.md \
+  docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md docs/implementation-log.md
 git commit -m "feat(canonical): add strict intent target gate"
 ```
 

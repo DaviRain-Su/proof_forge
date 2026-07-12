@@ -3,6 +3,7 @@ import ProofForge.Contract.Intent.Registry
 import ProofForge.Contract.Stdlib.ERC721
 import ProofForge.Contract.Stdlib.MetaplexNft
 import ProofForge.Contract.Stdlib.NearNft
+import ProofForge.Compiler.CanonicalPipeline
 
 /-!
 # NFT Materializers
@@ -76,6 +77,14 @@ def withErc721Selectors (spec : ContractSpec) : ContractSpec :=
         | _ => ep
     } }
 
+/-- Run the strict canonical target gate and append evidence on success. -/
+def withStrictGate (mat : IntentMaterialization) : Except String IntentMaterialization := do
+  match ProofForge.Compiler.runStrictCanonicalTargetGate mat.targetId mat.contractSpec with
+  | .ok () =>
+      pure { mat with evidence := mat.evidence.push "strict-canonical-target-gate: passed" }
+  | .error e =>
+      throw s!"NFT materialization rejected by strict canonical gate: {e}"
+
 /-- EVM NFT materializer: unique → ERC-721. -/
 def evmNftMaterializer : IntentMaterializer := {
   targetId := "evm"
@@ -85,7 +94,7 @@ def evmNftMaterializer : IntentMaterializer := {
     if contract.featureIds.contains "nft.asset_model.multi_token" then
       throw "multiToken (ERC-1155) is deferred for EVM; use unique asset model"
     checkFeatures contract
-    pure {
+    withStrictGate {
       targetId := "evm"
       standardId := "erc-721"
       contractSpec := withErc721Selectors <|
@@ -101,7 +110,7 @@ def solanaNftMaterializer : IntentMaterializer := {
   materialize := fun contract => do
     checkUniqueAssetModel contract
     checkFeatures contract
-    pure {
+    withStrictGate {
       targetId := "solana-sbpf-asm"
       standardId := "metaplex"
       contractSpec := projectEntrypoints Stdlib.MetaplexNft.spec
@@ -117,7 +126,7 @@ def nearNftMaterializer : IntentMaterializer := {
   materialize := fun contract => do
     checkUniqueAssetModel contract
     checkFeatures contract
-    pure {
+    withStrictGate {
       targetId := "wasm-near"
       standardId := "nep-171"
       contractSpec := projectEntrypoints Stdlib.NearNft.spec

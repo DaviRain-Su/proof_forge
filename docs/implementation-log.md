@@ -195,3 +195,46 @@ Rules:
   `just intent-registry` gate to both `product` and `check`.
 - Expanded the registry test from five to seven cases, including successful
   checked dispatch and fail-closed target-result validation.
+
+## 2026-07-12 - A6 review repair
+
+- Status: `in_progress`; artifact routing is repaired, while target-runtime
+  lifecycle evidence remains the explicit completion blocker.
+- Result: public `--nft` CLI route materializes one `NFTSpec` into EVM, Solana,
+  and NEAR artifact/SDK bundles with target standard IDs, source module
+  references, byte counts, and SHA-256 digests in each manifest.
+- Interfaces: `ProofForge.Cli.Args`, `ProofForge.Cli.TargetDriver`,
+  `ProofForge.Cli.ContractSourceArtifacts`, `Examples/Product/Nft.lean`,
+  `scripts/portable/nft-multi-target.sh`, `Tests/NftArtifactSchema.lean`.
+- The first real bundle runs exposed and fixed the EVM `init()` selector and
+  identity representation, Solana canonical identity width, and Solana map
+  lowering for 8-byte values.
+- Verification: `Tests/NftArtifactSchema.lean`, `scripts/portable/nft-multi-target.sh`,
+  `just solana-light`, `just product`, `just docs-check`, `just check`, and
+  `git diff --check` passed.
+- Remaining: add target-runtime lifecycle smoke for mint, owner/balance,
+  authorized transfer, unauthorized rejection, and duplicate mint. This is an
+  A6 acceptance criterion, not deferred completion evidence.
+- Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
+
+## 2026-07-12 - D3: Make accepted NFT materialization strict
+
+- Status: `done (verified in working tree; commit pending)`
+- Result: added `ProofForge.Compiler.runStrictCanonicalTargetGate`, a strict
+  canonical target gate where adapter, validation, capability, host-op,
+  unknown-target, and `buildFromCore` failures are all hard errors. Wired the
+  gate into the three primary-triad NFT materializers so accepted
+  materializations record strict-gate evidence.
+- Interfaces: `runStrictCanonicalTargetGate`,
+  `ProofForge.Contract.NftMaterialize.withStrictGate`,
+  `Tests/Canonical/StrictIntentMaterialization.lean`.
+- Verification:
+  - `lake env lean --run Tests/Canonical/StrictIntentMaterialization.lean` passed
+  - `lake env lean --run Tests/NftMaterialization.lean` passed
+  - `just canonical-parity` passed
+  - `just product` passed
+  - `git diff --check` passed
+- Remaining: migrate non-NFT product callers from `runCanonicalValidationGate`
+  to `runStrictCanonicalTargetGate` before advancing D3 to `default_switched`.
+- Documentation: `docs/legacy-replacement-ledger.md` (D3 → `replacement_ready`),
+  `AGENTS.md` checkpoint, current legacy-replacement plan, this log.
