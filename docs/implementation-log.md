@@ -42,16 +42,15 @@ Rules:
 
 ## 2026-07-12 - DOC-ENTRYPOINT: Establish the agent control plane
 
-- Status: `done (documentation bootstrap; publication revision pending)`
-- Commit: baseline `706c6429`; this entry records the following documentation change
+- Status: `done (verified at 7cf0d886)`
+- Commit: `7cf0d886`
 - Result: made root `AGENTS.md` the single agent bootstrap for current planning,
   task routing, source-of-truth precedence, completion rules, and validation.
 - Interfaces: `AGENTS.md`, documentation lifecycle, engineering index, and
   documentation update protocol.
-- Verification: `just docs-check` and `git diff --check` must pass before
-  publication.
-- Remaining: replace the publication placeholder with the resulting revision
-  in the next task entry; begin A1 from the current implementation plan.
+- Verification: `just docs-check`, strict doc-code audit, agent-entrypoint link
+  check, and `git diff --check` passed.
+- Remaining: begin A1 from the current implementation plan.
 - Documentation: `AGENTS.md`, `docs/implementation-log.md`,
   `docs/document-status.md`, `docs/INDEX.md`, and
   `docs/development-standards.md`.

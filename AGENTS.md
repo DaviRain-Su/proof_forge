@@ -28,7 +28,7 @@ Keep this section short and update it whenever the active task changes.
 | Active task | None claimed |
 | Next task | A1 - isolate Solana grammar ownership |
 | Known blocker | None recorded; verify the worktree and current plan before starting |
-| Planning baseline | `706c6429` (documentation governance refresh, 2026-07-12) |
+| Planning baseline | `7cf0d886` (agent control plane and documentation governance, 2026-07-12) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
