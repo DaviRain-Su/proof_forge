@@ -77,7 +77,9 @@ just --list        # 所有 recipe
 just build         # lake build
 just product       # 产品主门禁：Examples/Product 多目标矩阵（CI required）
 just canonical-parity  # EVM/Solana/NEAR canonical 计划与制品 parity
-just check         # product + 后端静态门禁（Lean + Solana-light + NEAR + Psy + testkit + …）
+just check-fast    # 受影响路径内循环（core/product + focused target 门禁）
+just check         # 并行完整基线，自动最多使用四个 worker
+just check-serial  # 怀疑竞态时使用的串行完整参考
 just evm-all       # 完整 EVM 门禁：示例编译、Foundry 冒烟、Anvil 部署
 just portable-counter-four-target-sdk  # EVM、Solana、NEAR、Sui 的 Counter SDK layout
 just sui-counter-smoke                 # 本地 Sui Move Counter build/test

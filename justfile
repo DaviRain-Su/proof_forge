@@ -666,7 +666,7 @@ token-feature-matrix:
 
 # Target-neutral intent materializer registry contract and invariants.
 intent-registry:
-    lake build ProofForge.Contract.Intent.Registry
+    lake build ProofForge.Contract
     lake env lean --run Tests/IntentRegistry.lean
 
 # Target-neutral NFT authoring validation and intent conversion.
@@ -1380,6 +1380,7 @@ examples-topology:
 
 # A1: portable rejection plus Source.Solana positive elaboration/IR intent pins.
 source-dsl-isolation:
+    lake build ProofForge.Solana.Examples.AccountRealloc ProofForge.Solana.Examples.SystemCpi ProofForge.Solana.Examples.Vault
     lake env lean --run Tests/SourceDslIsolation.lean
     lake env lean --run Tests/SourceDslSolanaAcceptance.lean
 
@@ -1639,7 +1640,23 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build build-test-deps product intent-registry nft-intent nft-implementation-contract nft-materialization strict-intent-materialization strict-target-gate nft-artifact-schema portable-nft-multi-target target-registry legacy-freeze legacy-replacement-freeze canonical-foundation canonical-core canonical-parity wasm-host-plan-preservation soroban-public-route soroban-counter-offline canonical-product canonical-boundary target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check-serial: build build-test-deps product intent-registry nft-intent nft-implementation-contract nft-materialization strict-intent-materialization strict-target-gate nft-artifact-schema portable-nft-multi-target target-registry legacy-freeze legacy-replacement-freeze canonical-foundation canonical-core canonical-parity wasm-host-plan-preservation soroban-public-route soroban-counter-offline canonical-product canonical-boundary target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+
+# Qualified default full gate. Use check-serial to diagnose suspected races.
+check: check-parallel
+
+# Run the complete check coverage through conflict-aware lanes.
+check-parallel:
+    python3 scripts/test-framework/scheduler.py --full
+
+# Run one lane in isolation, primarily for CI and failure reproduction.
+check-lane lane:
+    python3 scripts/test-framework/scheduler.py --lane {{lane}}
+
+# Prove that serial and parallel full gates own the same recipe set.
+test-equivalence:
+    python3 -m unittest scripts/test-framework/test_equivalence.py
+    python3 scripts/test-framework/check_equivalence.py
 
 # Validate the conflict-aware parallel test lane manifest.
 test-manifest:
@@ -1649,6 +1666,10 @@ test-manifest:
 # Exercise process scheduling, cancellation, exclusivity, and timing reports.
 test-scheduler:
     python3 -m unittest scripts/test-framework/test_scheduler.py
+
+# Run the conservative affected-path inner-loop gate.
+check-fast:
+    python3 scripts/test-framework/scheduler.py --fast
 
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:

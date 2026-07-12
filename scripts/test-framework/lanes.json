@@ -284,6 +284,7 @@
       "execution": "lane_serial",
       "tags": [
         "full",
+        "wasm-fast",
         "wasm-other"
       ]
     },
@@ -457,6 +458,7 @@
       "execution": "lane_serial",
       "tags": [
         "evm",
+        "evm-fast",
         "full"
       ]
     },
@@ -466,6 +468,7 @@
       "execution": "lane_serial",
       "tags": [
         "evm",
+        "evm-fast",
         "full"
       ]
     },
@@ -709,7 +712,8 @@
       "execution": "lane_serial",
       "tags": [
         "full",
-        "solana"
+        "solana",
+        "solana-fast"
       ]
     },
     {
@@ -795,8 +799,8 @@
     },
     {
       "name": "rebuild-hash",
-      "lane": "wasm-other-exclusive",
-      "execution": "exclusive",
+      "lane": "evm",
+      "execution": "lane_serial",
       "tags": [
         "full",
         "wasm-other"
@@ -805,7 +809,7 @@
     {
       "name": "worker-limits",
       "lane": "wasm-other-exclusive",
-      "execution": "exclusive",
+      "execution": "lane_serial",
       "tags": [
         "full",
         "wasm-other"
@@ -814,7 +818,7 @@
     {
       "name": "worker-cgroup",
       "lane": "wasm-other-exclusive",
-      "execution": "exclusive",
+      "execution": "lane_serial",
       "tags": [
         "full",
         "wasm-other"
@@ -844,6 +848,7 @@
       "execution": "lane_serial",
       "tags": [
         "full",
+        "wasm-fast",
         "wasm-other"
       ]
     },
@@ -880,6 +885,7 @@
       "execution": "lane_serial",
       "tags": [
         "full",
+        "wasm-fast",
         "wasm-other"
       ]
     },
@@ -986,8 +992,8 @@
     },
     {
       "name": "testkit",
-      "lane": "wasm-other-exclusive",
-      "execution": "exclusive",
+      "lane": "solana",
+      "execution": "lane_serial",
       "tags": [
         "full",
         "wasm-other"
@@ -999,6 +1005,7 @@
       "execution": "lane_serial",
       "tags": [
         "evm",
+        "evm-fast",
         "full"
       ]
     },

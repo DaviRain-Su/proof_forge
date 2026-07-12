@@ -159,7 +159,9 @@ CI is product-first: required `just product` runs before backend-heavy suites.
 | Gate | Command | CI |
 |---|---|---|
 | Product (required, fail-fast) | `just product` | GitHub `product`; Woodpecker `proof-forge-product` |
-| Full static baseline | `just check` (`build` + `product` + backend) | Woodpecker `proof-forge-check`; local pre-push |
+| Fast affected-path baseline | `just check-fast` (fixed core/product + focused changed targets) | Local inner loop |
+| Full parallel baseline | `just check` / `just check-parallel` (108 recipes, default max 4 workers) | GitHub lane matrix; Woodpecker `proof-forge-check`; local pre-push |
+| Serial full reference | `just check-serial` | Local race diagnosis and coverage reference |
 | Backend-heavy | `build-test` after `product` | GitHub `build-test` (`needs: product`) |
 
 Optional GitHub jobs with `continue-on-error` are `aleo-smoke`,
@@ -179,7 +181,12 @@ The root `justfile` is the canonical command catalog (`just --list`). Key gates:
 - Build: `just build` (`lake build`).
 - Product gate: `just product`. Run this first for authoring or portable-path
   changes.
-- Full static baseline: `just check`.
+- Fast inner loop: `just check-fast`. Set `CHECK_BASE=<rev>` to override the
+  upstream merge-base selection.
+- Full static baseline: `just check` (alias of `just check-parallel`). Automatic
+  concurrency is capped at four; set `JOBS=<positive integer>` to override.
+- Serial diagnostic fallback: `just check-serial`. Parallel logs and timings are
+  written under `build/test-lanes/<run-id>/`.
 - Full EVM gates: `just evm-all`.
 - Lean commands must run through `lake env ...`.
 

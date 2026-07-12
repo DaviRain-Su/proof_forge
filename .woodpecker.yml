@@ -9,7 +9,7 @@
 # Gates (product-first):
 #   1. `just product` — business sources × multi-target (fail fast)
 #   2. canonical semantic/parity/boundary gates
-#   3. `just check` — full static baseline (includes product again + backend)
+#   3. `just check-parallel` — full static baseline through four local lanes
 
 when:
   - event: [push, pull_request]
@@ -47,5 +47,5 @@ steps:
       # Setup already ran in product step on the same workspace when sequential;
       # re-run setup for isolated step images.
       - scripts/ci/woodpecker-setup.sh
-      - just check
+      - JOBS=4 just check-parallel
       - just wave-t-gate

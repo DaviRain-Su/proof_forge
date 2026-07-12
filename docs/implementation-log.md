@@ -217,6 +217,61 @@ Rules:
   A6 acceptance criterion, not deferred completion evidence.
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
 
+## 2026-07-12 - Parallel test framework Tasks 1-7
+
+- Status: `done locally (remote CI verification pending)`
+- Manifest: 108 serial `check` recipes classified into four conflict-aware
+  lanes with exact coverage validation.
+- Scheduler: automatic `min(CPU, 4)` concurrency, positive `JOBS` override,
+  lane serialization, exclusive barriers, process-group cancellation, lane
+  logs, and structured timing reports.
+- Fast gate: conservative changed-path selection with fixed core/product
+  baseline and focused EVM, Solana, Wasm/NEAR, and documentation tags.
+- Verification:
+  - manifest, scheduler, and selector unit tests passed
+  - `JOBS=1` and `JOBS=4` full dry-runs selected identical coverage
+  - `CHECK_BASE=HEAD just check-fast` passed in 238.73 seconds
+  - the first fast run selected 11 of 108 full recipes; `product` was the
+    slowest recipe at 124.26 seconds
+  - `JOBS=4 just check-parallel` passed all 108 recipes in 1027.62 seconds
+    after the isolated worktree's Lake/npm dependencies were installed
+  - the first full run identified `rebuild-hash` (322.29 seconds),
+    `solana-light` (142.09 seconds), `testkit` (136.18 seconds), and
+    `quint-mbt-gate` (101.73 seconds) as the dominant critical-path work
+  - `git diff --check` passed
+- Entrypoints: `check` now selects the qualified parallel coordinator;
+  `check-parallel`, `check-serial`, `check-fast`, and `check-lane` retain
+  explicit full, diagnostic, inner-loop, and CI surfaces.
+- CI integration: GitHub uses a required four-lane matrix after `product`, and
+  Woodpecker runs the same coordinator with `JOBS=4` after its product step.
+- Commits: `d2512bab` through `eacfeadf` on
+  `feature/parallel-test-framework`.
+- Remaining: verify the first pushed GitHub matrix and record its critical-path
+  timing against the previous serial workflow. This is deployment evidence,
+  not missing local framework implementation.
+- First remote run `29191590503` exposed a pre-existing cold-cache dependency:
+  `source-dsl-isolation` imported three Solana example modules that the default
+  Lake target did not build. The recipe now builds those modules explicitly
+  before executing its Lean tests; a replacement CI run remains required.
+- Replacement run `29191835550` confirmed that repair, then exposed the same
+  issue in `intent-registry`: its test imports the `ProofForge.Contract`
+  umbrella while the recipe built only the registry leaf. The recipe now
+  builds the imported umbrella target explicitly.
+- Run `29192133516` passed the repaired cold-cache product gate and started all
+  four lanes. Its EVM lane showed that the new independent matrix runners also
+  need the old job's package bootstrap; every lane now runs `lake build` before
+  its manifest recipes.
+
+### Local parallel qualification
+
+- `check-serial` warm-cache baseline: 1297.26 seconds.
+- Three balanced `JOBS=4 just check-parallel` runs passed in 703.38, 862.21,
+  and 717.09 seconds; mean 760.89 seconds.
+- Mean local wall-time improvement: 41.35%, above the 35% acceptance threshold.
+- `rebuild-hash` remains the largest and most variable recipe (370-503 seconds)
+  but now overlaps independent core, Solana, Wasm, testkit, and Quint work.
+- Timing evidence: `docs/generated/test-timing-baseline.md`.
+
 ### A6 runtime closure
 
 - Status: `done (verified at 6a6022ea)`.

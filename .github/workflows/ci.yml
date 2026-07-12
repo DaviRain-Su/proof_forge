@@ -76,6 +76,106 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     needs: [product]
+    strategy:
+      fail-fast: true
+      matrix:
+        lane: [core-product, evm, solana, wasm-other-exclusive]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Lean packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: .lake/packages
+          key: ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@ad7910d95e317a4b12a9a3dfad520f4b409b3ec0  # 1.91.0
+
+      - name: Cache Cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            testkit/target
+            runtime/offline-host/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a  # v1.9.0
+        with:
+          version: stable
+
+      - name: Install solc and wabt
+        run: |
+          curl -L -o solc-static-linux https://github.com/ethereum/solidity/releases/download/v0.8.30/solc-static-linux
+          chmod +x solc-static-linux
+          sudo mv solc-static-linux /usr/local/bin/solc
+          sudo apt-get update
+          sudo apt-get install -y wabt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node and Quint dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install -g @informalsystems/quint
+
+      - name: Setup Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4.8.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Solana testkit tools
+        if: matrix.lane == 'solana'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler libudev-dev
+          scripts/solana/install-pinocchio-live-ci-tools.sh
+
+      - name: Validate lane manifest
+        run: just test-manifest
+
+      - name: Build Lean package
+        run: lake build
+
+      - name: Run ${{ matrix.lane }} lane
+        run: just check-lane ${{ matrix.lane }}
+
+      - name: Upload lane timing and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: check-${{ matrix.lane }}-${{ github.run_id }}
+          path: build/test-lanes/
+          if-no-files-found: error
+
+  # Retained temporarily as an auditable rollback reference. The matrix above
+  # owns the required build-test status.
+  build-test-reference:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    needs: [product]
 
     steps:
       - name: Checkout
@@ -331,6 +431,19 @@ jobs:
 
       - name: Run full static baseline
         run: just check
+
+  check-summary:
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [product, build-test]
+    steps:
+      - name: Require product and every parallel lane
+        env:
+          PRODUCT_RESULT: ${{ needs.product.result }}
+          BUILD_TEST_RESULT: ${{ needs.build-test.result }}
+        run: |
+          test "$PRODUCT_RESULT" = success
+          test "$BUILD_TEST_RESULT" = success
 
   solana-pinocchio-live:
     runs-on: ubuntu-latest

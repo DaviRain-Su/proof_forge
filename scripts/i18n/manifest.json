@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "29db6f9119942d685aeaf56879970107b1dfafac4e5898404e478d486cf8b7a2",
+    "sha256": "331918c9593e926d66be584e1f9f0a7152d9b9d07a122a35fa3bb2a9f59e46fc",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical architecture, primary routes, target maturity, and runtime safety gates"
+    "note": "manually synced for parallel, fast, and serial test commands"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "bfe4ffefa2b14238b8fe3103b2cdc4ab32631fa8bdcb26aa5001f38019530257",
+    "sha256": "b32a0bc7ee5764681bec219353e035f94b84ea1843b58bae37b02088aa668817",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical gates, CI order, and rollback window"
+    "note": "synced for fast, parallel, and serial local test gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
