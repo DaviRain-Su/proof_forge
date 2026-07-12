@@ -4,6 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scripts=(
   "$root/scripts/stylus/cargo-stylus-workspace.sh"
+  "$root/scripts/stylus/nitro-doctor.sh"
   "$root/tools/stylus-nitro/manage.sh"
   "$root/scripts/stylus/nitro-check.sh"
   "$root/scripts/stylus/nitro-deploy.sh"
@@ -17,6 +18,9 @@ done
 address="$(printf 'deployed code at address: \033[38;5;183;1m0xa6e41ffd769491a42a6e5ce453259b93983a22ef\033[0m\n' |
   python3 "$root/scripts/stylus/parse-deployed-address.py")"
 [[ "$address" == "0xa6e41ffd769491a42a6e5ce453259b93983a22ef" ]]
+doctor="$("$root/scripts/stylus/nitro-doctor.sh" --self-test)"
+[[ "$doctor" == *'"cargoStylus"'* && "$doctor" == *'"nitroRevision"'* &&
+   "$doctor" == *'"rpcChainId"'* ]]
 grep -Fq -- '--wasm-file=' "$root/scripts/stylus/nitro-check.sh"
 grep -Fq 'cargo-stylus-workspace' "$root/scripts/stylus/nitro-check.sh"
 grep -Fq 'Stylus.toml' "$root/scripts/stylus/cargo-stylus-workspace.sh"

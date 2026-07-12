@@ -120,6 +120,7 @@ are required.
 ```bash
 just stylus-nitro-install  # clone and verify the pinned revision
 PROOF_FORGE_NITRO_RESET=1 just stylus-nitro-init  # destructive: fresh L1/L2 state
+just stylus-nitro-doctor   # machine-readable toolchain and RPC readiness
 just stylus-nitro-status   # wait for http://127.0.0.1:8547
 just stylus-nitro-check    # cargo stylus check --wasm-file over local RPC
 just stylus-nitro-deploy   # deploy and activate direct Wasm
@@ -133,6 +134,10 @@ well-known Nitro Testnode key and must never be used on a public network.
 For direct `--wasm-file` commands, the scripts create an ignored empty
 Cargo/Stylus workspace under `build/`; cargo-stylus 0.10.8 otherwise attempts
 to load project metadata even though it does not compile a Rust crate.
+The doctor reports `ready`, exact Rust/cargo-stylus versions, Docker, Foundry,
+the checked-out Nitro revision, endpoint, and chain ID as JSON. Docker and RPC
+probes have hard timeouts so an unhealthy local VM produces evidence and a
+nonzero exit instead of hanging indefinitely.
 
 Sepolia is deliberately separate and requires an explicit key path:
 

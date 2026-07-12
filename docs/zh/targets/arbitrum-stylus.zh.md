@@ -104,6 +104,7 @@ revision；不会隐式跟随可能 force-push 的 upstream `release` 分支。�
 ```bash
 just stylus-nitro-install  # 克隆并校验固定 revision
 PROOF_FORGE_NITRO_RESET=1 just stylus-nitro-init  # 破坏性：重建 L1/L2 状态
+just stylus-nitro-doctor   # 机器可读的工具链与 RPC readiness
 just stylus-nitro-status   # 等待 http://127.0.0.1:8547
 just stylus-nitro-check    # 通过本地 RPC 执行官方 check
 just stylus-nitro-deploy   # 部署并 activate direct Wasm
@@ -116,6 +117,9 @@ just stylus-nitro-down
 对于 direct `--wasm-file` 命令，脚本会在 `build/` 下创建被忽略的空
 Cargo/Stylus workspace；否则 cargo-stylus 0.10.8 即使不编译 Rust crate，仍会
 尝试加载项目 metadata。
+doctor 以 JSON 报告 `ready`、准确的 Rust/cargo-stylus 版本、Docker、Foundry、
+已检出的 Nitro revision、endpoint 和 chain ID。Docker 与 RPC 探测都有硬超时，
+因此本地 VM 异常时会留下证据并返回非零，而不是无限挂起。
 
 Sepolia 流程单独提供，并强制显式指定密钥：
 

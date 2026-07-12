@@ -797,6 +797,10 @@ Rules:
   workspace rather than pretending the direct artifact belongs to the Rust
   oracle. Deployment-address parsing strips cargo-stylus ANSI formatting, and
   the E2E script supplies the documented Foundry path in non-interactive shells.
+- Added `just stylus-nitro-doctor`, which emits stable JSON for the pinned Rust
+  and cargo-stylus versions, Docker, Foundry, Testnode revision, RPC endpoint,
+  and chain ID. Docker/RPC probes are bounded to five seconds and a partial
+  environment returns `ready=false` with a nonzero status instead of hanging.
 
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 

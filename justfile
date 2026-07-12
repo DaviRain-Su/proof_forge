@@ -174,6 +174,9 @@ stylus-nitro-up:
 stylus-nitro-status:
     tools/stylus-nitro/manage.sh status
 
+stylus-nitro-doctor:
+    scripts/stylus/nitro-doctor.sh
+
 stylus-nitro-check:
     scripts/stylus/nitro-check.sh
 
