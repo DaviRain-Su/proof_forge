@@ -58,7 +58,7 @@
 - [x] Implement the exact structures from the companion design.
 - [x] Make registry creation reject duplicate `(targetId, family)` keys.
 - [x] Run `Tests/IntentRegistry.lean`, `just token-feature-matrix`, `just product`, and `git diff --check`.
-- [ ] Commit with `git commit -m "feat(intent): add target materializer contract"`.
+- [x] Commit with `git commit -m "feat(intent): add target materializer contract"`.
 
 ### Task 3: Define NFT Intent
 

@@ -98,3 +98,22 @@ Rules:
   `docs/document-status.md`, `docs/validation-gates.md`,
   `docs/zh/validation-gates.zh.md`, `scripts/canonical/check-legacy-freeze.sh`,
   `scripts/canonical/legacy-production-imports.txt`, `justfile`.
+
+## 2026-07-12 - A2: Add the intent materializer contract
+
+- Status: `done (verified at ad286336)`
+- Commit: `ad286336`
+- Result: created `ProofForge/Contract/Intent/Registry.lean` with
+  `IntentFamily`, `IntentContract`, `IntentMaterialization`,
+  `IntentMaterializer`, and `IntentRegistry` (duplicate-key rejection +
+  named diagnostic for missing materializer). Created
+  `Tests/IntentRegistry.lean` with 5 test cases: duplicate rejection,
+  exact lookup, missing materializer diagnostic, error preservation,
+  empty registry.
+- Interfaces: `IntentFamily`, `IntentContract`, `IntentMaterialization`,
+  `IntentMaterializer`, `IntentRegistry.create`, `IntentRegistry.resolve`,
+  `IntentRegistry.empty`.
+- Verification: `intent-registry: ok`, `token-feature-matrix: ok (36 rows)`,
+  `just product: ok`, `git diff --check: ok`.
+- Remaining: none for A2; A3 (NFT intent) is next.
+- Documentation: `AGENTS.md`, current implementation plan.
