@@ -107,6 +107,8 @@ private def supportsEquality : CoreType → Bool
 
 private def supportsCast (fromTy toTy : CoreType) : Bool :=
   (isIntegerLike fromTy && isIntegerLike toTy) ||
+    (fromTy == .address && toTy == .u64) ||
+    (fromTy == .u64 && toTy == .address) ||
     (fromTy == toTy && match fromTy with
       | .unit | .bool | .address | .bytes | .string | .hash => true
       | .u8 | .u32 | .u64 | .u128 | .fixedArray _ _ | .array _ |

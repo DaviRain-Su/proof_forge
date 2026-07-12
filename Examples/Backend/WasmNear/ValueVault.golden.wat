@@ -206,7 +206,7 @@
     i64.const 42000
     call $log_utf8
   )
-  (func $initialize (export "initialize") (local $initial i64) (local $checkpoint i64)
+  (func $initialize (export "initialize") (local $pc i32) (local $v0 i64) (local $v1 i64) (local $v2 i64) (local $v3 i64) (local $v4 i64)
     i64.const 0
     call $input
     i64.const 0
@@ -214,53 +214,71 @@
     call $read_register
     i32.const 44000
     i64.load
-    local.set $initial
-    call $block_index
-    local.set $checkpoint
+    local.set $v0
     i32.const 0
-    i32.const 7
-    local.get $initial
-    call $__pf_write_u64
-    i32.const 8
-    i32.const 8
-    i64.const 0
-    call $__pf_write_u64
-    i32.const 17
-    i32.const 4
-    i64.const 0
-    call $__pf_write_u64
-    i32.const 22
-    i32.const 10
-    local.get $initial
-    call $__pf_write_u64
-    i32.const 33
-    i32.const 15
-    local.get $checkpoint
-    call $__pf_write_u64
-    i32.const 49
-    i32.const 10
-    i64.const 1
-    call $__pf_write_u64
-    call $__pf_evt_start
-    i32.const 43000
-    i32.const 27
-    call $__pf_evt_putstr
-    i32.const 43028
-    i32.const 11
-    call $__pf_evt_putstr
-    local.get $initial
-    call $__pf_evt_putu64
-    i32.const 43040
-    i32.const 14
-    call $__pf_evt_putstr
-    local.get $checkpoint
-    call $__pf_evt_putu64
-    i32.const 42815
-    i32.const 1
-    call $__pf_evt_putstr
-    call $__pf_evt_log
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 0
+      i32.eq
+      if
+        call $block_index
+        local.set $v1
+        i32.const 0
+        i32.const 7
+        local.get $v0
+        call $__pf_write_u64
+        i64.const 0
+        local.set $v2
+        i32.const 8
+        i32.const 8
+        local.get $v2
+        call $__pf_write_u64
+        i64.const 0
+        local.set $v3
+        i32.const 17
+        i32.const 4
+        local.get $v3
+        call $__pf_write_u64
+        i32.const 22
+        i32.const 10
+        local.get $v0
+        call $__pf_write_u64
+        i32.const 33
+        i32.const 15
+        local.get $v1
+        call $__pf_write_u64
+        i64.const 1
+        local.set $v4
+        i32.const 49
+        i32.const 10
+        local.get $v4
+        call $__pf_write_u64
+        call $__pf_evt_start
+        i32.const 43000
+        i32.const 27
+        call $__pf_evt_putstr
+        i32.const 43027
+        i32.const 11
+        call $__pf_evt_putstr
+        local.get $v0
+        call $__pf_evt_putu64
+        i32.const 43038
+        i32.const 14
+        call $__pf_evt_putstr
+        local.get $v1
+        call $__pf_evt_putu64
+        i32.const 42815
+        i32.const 1
+        call $__pf_evt_putstr
+        call $__pf_evt_log
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $deposit (export "deposit") (local $amount i64) (local $current i64) (local $next i64) (local $ops i64) (local $next_ops i64)
+  (func $deposit (export "deposit") (local $pc i32) (local $v5 i64) (local $v6 i64) (local $v7 i64) (local $v8 i64) (local $v9 i64) (local $v10 i64)
     i64.const 0
     call $input
     i64.const 0
@@ -268,60 +286,88 @@
     call $read_register
     i32.const 44000
     i64.load
-    local.set $amount
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    local.set $current
-    local.get $current
-    local.get $amount
-    i64.add
-    local.set $next
-    i32.const 49
-    i32.const 10
-    call $__pf_read_u64
-    local.set $ops
-    local.get $ops
-    i64.const 1
-    i64.add
-    local.set $next_ops
-    i32.const 0
-    i32.const 7
-    local.get $next
-    call $__pf_write_u64
-    i32.const 22
-    i32.const 10
-    local.get $amount
-    call $__pf_write_u64
-    i32.const 49
-    i32.const 10
-    local.get $next_ops
-    call $__pf_write_u64
-    call $__pf_evt_start
-    i32.const 43055
-    i32.const 25
-    call $__pf_evt_putstr
-    i32.const 43081
-    i32.const 10
-    call $__pf_evt_putstr
-    local.get $amount
-    call $__pf_evt_putu64
-    i32.const 43092
-    i32.const 11
-    call $__pf_evt_putstr
-    local.get $next
-    call $__pf_evt_putu64
-    i32.const 43104
-    i32.const 14
-    call $__pf_evt_putstr
-    local.get $next_ops
-    call $__pf_evt_putu64
-    i32.const 42815
+    local.set $v5
     i32.const 1
-    call $__pf_evt_putstr
-    call $__pf_evt_log
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 1
+      i32.eq
+      if
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v6
+        local.get $v6
+        local.get $v5
+        i64.add
+        local.set $v7
+        local.get $v7
+        local.get $v6
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 49
+        i32.const 10
+        call $__pf_read_u64
+        local.set $v8
+        i64.const 1
+        local.set $v9
+        local.get $v8
+        local.get $v9
+        i64.add
+        local.set $v10
+        local.get $v10
+        local.get $v8
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 0
+        i32.const 7
+        local.get $v7
+        call $__pf_write_u64
+        i32.const 22
+        i32.const 10
+        local.get $v5
+        call $__pf_write_u64
+        i32.const 49
+        i32.const 10
+        local.get $v10
+        call $__pf_write_u64
+        call $__pf_evt_start
+        i32.const 43052
+        i32.const 25
+        call $__pf_evt_putstr
+        i32.const 43077
+        i32.const 10
+        call $__pf_evt_putstr
+        local.get $v5
+        call $__pf_evt_putu64
+        i32.const 43087
+        i32.const 11
+        call $__pf_evt_putstr
+        local.get $v7
+        call $__pf_evt_putu64
+        i32.const 43098
+        i32.const 14
+        call $__pf_evt_putstr
+        local.get $v10
+        call $__pf_evt_putu64
+        i32.const 42815
+        i32.const 1
+        call $__pf_evt_putstr
+        call $__pf_evt_log
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $charge_fee (export "charge_fee") (local $gross i64) (local $fee_bps i64) (local $fee i64) (local $net i64) (local $current i64) (local $next i64) (local $current_fees i64) (local $next_fees i64) (local $ops i64) (local $next_ops i64)
+  (func $charge_fee (export "charge_fee") (local $pc i32) (local $v11 i64) (local $v12 i64) (local $v13 i64) (local $v14 i64) (local $v15 i64) (local $v16 i64) (local $v17 i64) (local $v18 i64) (local $v19 i64) (local $v20 i64) (local $v21 i64) (local $v22 i64) (local $v23 i64)
     i64.const 0
     call $input
     i64.const 0
@@ -329,90 +375,150 @@
     call $read_register
     i32.const 44000
     i64.load
-    local.set $gross
+    local.set $v11
     i32.const 44008
     i64.load
-    local.set $fee_bps
-    local.get $gross
-    local.get $fee_bps
-    i64.mul
-    i64.const 10000
-    i64.div_u
-    local.set $fee
-    local.get $gross
-    local.get $fee
-    i64.sub
-    local.set $net
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    local.set $current
-    local.get $current
-    local.get $net
-    i64.add
-    local.set $next
-    i32.const 17
-    i32.const 4
-    call $__pf_read_u64
-    local.set $current_fees
-    local.get $current_fees
-    local.get $fee
-    i64.add
-    local.set $next_fees
-    i32.const 49
-    i32.const 10
-    call $__pf_read_u64
-    local.set $ops
-    local.get $ops
-    i64.const 1
-    i64.add
-    local.set $next_ops
-    i32.const 0
-    i32.const 7
-    local.get $next
-    call $__pf_write_u64
-    i32.const 17
-    i32.const 4
-    local.get $next_fees
-    call $__pf_write_u64
-    i32.const 22
-    i32.const 10
-    local.get $net
-    call $__pf_write_u64
-    i32.const 49
-    i32.const 10
-    local.get $next_ops
-    call $__pf_write_u64
-    call $__pf_evt_start
-    i32.const 43119
-    i32.const 23
-    call $__pf_evt_putstr
-    i32.const 43143
-    i32.const 9
-    call $__pf_evt_putstr
-    local.get $gross
-    call $__pf_evt_putu64
-    i32.const 43153
-    i32.const 7
-    call $__pf_evt_putstr
-    local.get $fee
-    call $__pf_evt_putu64
-    i32.const 43161
-    i32.const 7
-    call $__pf_evt_putstr
-    local.get $net
-    call $__pf_evt_putu64
-    i32.const 43092
-    i32.const 11
-    call $__pf_evt_putstr
-    local.get $next
-    call $__pf_evt_putu64
-    i32.const 42815
-    i32.const 1
-    call $__pf_evt_putstr
-    call $__pf_evt_log
+    local.set $v12
+    i32.const 2
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 2
+      i32.eq
+      if
+        local.get $v11
+        local.get $v12
+        i64.mul
+        local.set $v13
+        local.get $v12
+        i64.eqz
+        if
+        else
+          local.get $v13
+          local.get $v12
+          i64.div_u
+          local.get $v11
+          i64.ne
+          if
+            unreachable
+          else
+          end
+        end
+        i64.const 10000
+        local.set $v14
+        local.get $v13
+        local.get $v14
+        i64.div_u
+        local.set $v15
+        local.get $v11
+        local.get $v15
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        local.get $v11
+        local.get $v15
+        i64.sub
+        local.set $v16
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v17
+        local.get $v17
+        local.get $v16
+        i64.add
+        local.set $v18
+        local.get $v18
+        local.get $v17
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 17
+        i32.const 4
+        call $__pf_read_u64
+        local.set $v19
+        local.get $v19
+        local.get $v15
+        i64.add
+        local.set $v20
+        local.get $v20
+        local.get $v19
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 49
+        i32.const 10
+        call $__pf_read_u64
+        local.set $v21
+        i64.const 1
+        local.set $v22
+        local.get $v21
+        local.get $v22
+        i64.add
+        local.set $v23
+        local.get $v23
+        local.get $v21
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 0
+        i32.const 7
+        local.get $v18
+        call $__pf_write_u64
+        i32.const 17
+        i32.const 4
+        local.get $v20
+        call $__pf_write_u64
+        i32.const 22
+        i32.const 10
+        local.get $v16
+        call $__pf_write_u64
+        i32.const 49
+        i32.const 10
+        local.get $v23
+        call $__pf_write_u64
+        call $__pf_evt_start
+        i32.const 43112
+        i32.const 23
+        call $__pf_evt_putstr
+        i32.const 43135
+        i32.const 9
+        call $__pf_evt_putstr
+        local.get $v11
+        call $__pf_evt_putu64
+        i32.const 43144
+        i32.const 7
+        call $__pf_evt_putstr
+        local.get $v15
+        call $__pf_evt_putu64
+        i32.const 43151
+        i32.const 7
+        call $__pf_evt_putstr
+        local.get $v16
+        call $__pf_evt_putu64
+        i32.const 43087
+        i32.const 11
+        call $__pf_evt_putstr
+        local.get $v18
+        call $__pf_evt_putu64
+        i32.const 42815
+        i32.const 1
+        call $__pf_evt_putstr
+        call $__pf_evt_log
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $release (export "release") (local $amount i64) (local $current i64) (local $next i64) (local $released_before i64) (local $released_next i64) (local $ops i64) (local $next_ops i64)
+  (func $release (export "release") (local $pc i32) (local $v24 i64) (local $v25 i64) (local $v26 i64) (local $v27 i64) (local $v28 i64) (local $v29 i64) (local $v30 i64) (local $v31 i64)
     i64.const 0
     call $input
     i64.const 0
@@ -420,140 +526,222 @@
     call $read_register
     i32.const 44000
     i64.load
-    local.set $amount
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    local.set $current
-    local.get $current
-    local.get $amount
-    i64.sub
-    local.set $next
-    i32.const 8
-    i32.const 8
-    call $__pf_read_u64
-    local.set $released_before
-    local.get $released_before
-    local.get $amount
-    i64.add
-    local.set $released_next
-    i32.const 49
-    i32.const 10
-    call $__pf_read_u64
-    local.set $ops
-    local.get $ops
-    i64.const 1
-    i64.add
-    local.set $next_ops
-    i32.const 0
-    i32.const 7
-    local.get $next
-    call $__pf_write_u64
-    i32.const 8
-    i32.const 8
-    local.get $released_next
-    call $__pf_write_u64
-    i32.const 22
-    i32.const 10
-    local.get $amount
-    call $__pf_write_u64
-    i32.const 49
-    i32.const 10
-    local.get $next_ops
-    call $__pf_write_u64
-    call $__pf_evt_start
-    i32.const 43169
-    i32.const 24
-    call $__pf_evt_putstr
-    i32.const 43081
-    i32.const 10
-    call $__pf_evt_putstr
-    local.get $amount
-    call $__pf_evt_putu64
-    i32.const 43092
-    i32.const 11
-    call $__pf_evt_putstr
-    local.get $next
-    call $__pf_evt_putu64
-    i32.const 43194
-    i32.const 12
-    call $__pf_evt_putstr
-    local.get $released_next
-    call $__pf_evt_putu64
-    i32.const 42815
-    i32.const 1
-    call $__pf_evt_putstr
-    call $__pf_evt_log
+    local.set $v24
+    i32.const 3
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 3
+      i32.eq
+      if
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v25
+        local.get $v25
+        local.get $v24
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        local.get $v25
+        local.get $v24
+        i64.sub
+        local.set $v26
+        i32.const 8
+        i32.const 8
+        call $__pf_read_u64
+        local.set $v27
+        local.get $v27
+        local.get $v24
+        i64.add
+        local.set $v28
+        local.get $v28
+        local.get $v27
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 49
+        i32.const 10
+        call $__pf_read_u64
+        local.set $v29
+        i64.const 1
+        local.set $v30
+        local.get $v29
+        local.get $v30
+        i64.add
+        local.set $v31
+        local.get $v31
+        local.get $v29
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 0
+        i32.const 7
+        local.get $v26
+        call $__pf_write_u64
+        i32.const 8
+        i32.const 8
+        local.get $v28
+        call $__pf_write_u64
+        i32.const 22
+        i32.const 10
+        local.get $v24
+        call $__pf_write_u64
+        i32.const 49
+        i32.const 10
+        local.get $v31
+        call $__pf_write_u64
+        call $__pf_evt_start
+        i32.const 43158
+        i32.const 24
+        call $__pf_evt_putstr
+        i32.const 43077
+        i32.const 10
+        call $__pf_evt_putstr
+        local.get $v24
+        call $__pf_evt_putu64
+        i32.const 43087
+        i32.const 11
+        call $__pf_evt_putstr
+        local.get $v26
+        call $__pf_evt_putu64
+        i32.const 43182
+        i32.const 12
+        call $__pf_evt_putstr
+        local.get $v28
+        call $__pf_evt_putu64
+        i32.const 42815
+        i32.const 1
+        call $__pf_evt_putstr
+        call $__pf_evt_log
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $snapshot (export "snapshot") (local $checkpoint i64) (local $balance_now i64) (local $released_now i64) (local $fees_now i64)
-    call $block_index
-    local.set $checkpoint
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    local.set $balance_now
-    i32.const 8
-    i32.const 8
-    call $__pf_read_u64
-    local.set $released_now
-    i32.const 17
+  (func $snapshot (export "snapshot") (local $pc i32) (local $v32 i64) (local $v33 i64) (local $v34 i64) (local $v35 i64)
     i32.const 4
-    call $__pf_read_u64
-    local.set $fees_now
-    i32.const 33
-    i32.const 15
-    local.get $checkpoint
-    call $__pf_write_u64
-    call $__pf_evt_start
-    i32.const 43207
-    i32.const 24
-    call $__pf_evt_putstr
-    i32.const 43092
-    i32.const 11
-    call $__pf_evt_putstr
-    local.get $balance_now
-    call $__pf_evt_putu64
-    i32.const 43194
-    i32.const 12
-    call $__pf_evt_putstr
-    local.get $released_now
-    call $__pf_evt_putu64
-    i32.const 43232
-    i32.const 8
-    call $__pf_evt_putstr
-    local.get $fees_now
-    call $__pf_evt_putu64
-    i32.const 43040
-    i32.const 14
-    call $__pf_evt_putstr
-    local.get $checkpoint
-    call $__pf_evt_putu64
-    i32.const 42815
-    i32.const 1
-    call $__pf_evt_putstr
-    call $__pf_evt_log
-    local.get $balance_now
-    call $__pf_return_u64
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 4
+      i32.eq
+      if
+        call $block_index
+        local.set $v32
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v33
+        i32.const 8
+        i32.const 8
+        call $__pf_read_u64
+        local.set $v34
+        i32.const 17
+        i32.const 4
+        call $__pf_read_u64
+        local.set $v35
+        i32.const 33
+        i32.const 15
+        local.get $v32
+        call $__pf_write_u64
+        call $__pf_evt_start
+        i32.const 43194
+        i32.const 24
+        call $__pf_evt_putstr
+        i32.const 43087
+        i32.const 11
+        call $__pf_evt_putstr
+        local.get $v33
+        call $__pf_evt_putu64
+        i32.const 43182
+        i32.const 12
+        call $__pf_evt_putstr
+        local.get $v34
+        call $__pf_evt_putu64
+        i32.const 43218
+        i32.const 8
+        call $__pf_evt_putstr
+        local.get $v35
+        call $__pf_evt_putu64
+        i32.const 43038
+        i32.const 14
+        call $__pf_evt_putstr
+        local.get $v32
+        call $__pf_evt_putu64
+        i32.const 42815
+        i32.const 1
+        call $__pf_evt_putstr
+        call $__pf_evt_log
+        local.get $v33
+        call $__pf_return_u64
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $get_balance (export "get_balance")
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    call $__pf_return_u64
+  (func $get_balance (export "get_balance") (local $pc i32) (local $v36 i64)
+    i32.const 5
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 5
+      i32.eq
+      if
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v36
+        local.get $v36
+        call $__pf_return_u64
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $get_net_value (export "get_net_value") (local $balance_now i64) (local $fees_now i64)
-    i32.const 0
-    i32.const 7
-    call $__pf_read_u64
-    local.set $balance_now
-    i32.const 17
-    i32.const 4
-    call $__pf_read_u64
-    local.set $fees_now
-    local.get $balance_now
-    local.get $fees_now
-    i64.sub
-    call $__pf_return_u64
+  (func $get_net_value (export "get_net_value") (local $pc i32) (local $v37 i64) (local $v38 i64) (local $v39 i64)
+    i32.const 6
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 6
+      i32.eq
+      if
+        i32.const 0
+        i32.const 7
+        call $__pf_read_u64
+        local.set $v37
+        i32.const 17
+        i32.const 4
+        call $__pf_read_u64
+        local.set $v38
+        local.get $v37
+        local.get $v38
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        local.get $v37
+        local.get $v38
+        i64.sub
+        local.set $v39
+        local.get $v39
+        call $__pf_return_u64
+        return
+      else
+      end
+      br 0
+    end
   )
   (memory (export "memory") 1)
   (data (i32.const 0) "balance")
@@ -567,18 +755,18 @@
   (data (i32.const 12012) "0123456789abcdef")
   (data (i32.const 42800) "{\"event\":\"\",\"\":}")
   (data (i32.const 43000) "{\"event\":\"VaultInitialized\"")
-  (data (i32.const 43028) ",\"initial\":")
-  (data (i32.const 43040) ",\"checkpoint\":")
-  (data (i32.const 43055) "{\"event\":\"ValueDeposited\"")
-  (data (i32.const 43081) ",\"amount\":")
-  (data (i32.const 43092) ",\"balance\":")
-  (data (i32.const 43104) ",\"operations\":")
-  (data (i32.const 43119) "{\"event\":\"ValueCharged\"")
-  (data (i32.const 43143) ",\"gross\":")
-  (data (i32.const 43153) ",\"fee\":")
-  (data (i32.const 43161) ",\"net\":")
-  (data (i32.const 43169) "{\"event\":\"ValueReleased\"")
-  (data (i32.const 43194) ",\"released\":")
-  (data (i32.const 43207) "{\"event\":\"ValueSnapshot\"")
-  (data (i32.const 43232) ",\"fees\":")
+  (data (i32.const 43027) ",\"initial\":")
+  (data (i32.const 43038) ",\"checkpoint\":")
+  (data (i32.const 43052) "{\"event\":\"ValueDeposited\"")
+  (data (i32.const 43077) ",\"amount\":")
+  (data (i32.const 43087) ",\"balance\":")
+  (data (i32.const 43098) ",\"operations\":")
+  (data (i32.const 43112) "{\"event\":\"ValueCharged\"")
+  (data (i32.const 43135) ",\"gross\":")
+  (data (i32.const 43144) ",\"fee\":")
+  (data (i32.const 43151) ",\"net\":")
+  (data (i32.const 43158) "{\"event\":\"ValueReleased\"")
+  (data (i32.const 43182) ",\"released\":")
+  (data (i32.const 43194) "{\"event\":\"ValueSnapshot\"")
+  (data (i32.const 43218) ",\"fees\":")
 )

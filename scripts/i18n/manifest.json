@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "f560347adff51b6e6fd877fd8b51a06e282e781256f452b20538a673af1cbc35",
+    "sha256": "cacfa8d546ce930ffeb2dc85ef9ef276a23d876a15d42c621b5c25330137ab02",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 post-review verification and Foundry count update"
+    "note": "manually synced for canonical architecture and primary target routes"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "8d839ba1717905ec11b7b8bd86b6a5b8a5856d7749cea116d364142055fa46d6",
+    "sha256": "f14476228d8d246c7911e0f002ab1fc8665ef8b0e0610babb1a82cb57b7729c4",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "synced for active PF remediation and post-review plan links"
+    "note": "manually synced for canonical architecture documentation links"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
@@ -77,11 +77,23 @@
     "model": "manual-zh",
     "note": "manually synced through the 2026-07-10 audit integration"
   },
+  "docs/architecture.md": {
+    "sha256": "97ba93b5c8ff67fb24e80f7eee0d777ca1279b53f0b4761bdf68c5117ce7110b",
+    "zh": "docs/zh/architecture.zh.md",
+    "model": "manual-zh",
+    "note": "manually translated for canonical compiler architecture"
+  },
+  "docs/backend-interface.md": {
+    "sha256": "96975e84c6832bc7d99a1832b79a717e82173e7e65f7759c00e6c2a51005faf7",
+    "zh": "docs/zh/backend-interface.zh.md",
+    "model": "manual-zh",
+    "note": "manually translated for canonical backend interface"
+  },
   "docs/validation-gates.md": {
-    "sha256": "0ada7ceab327eb3c00dee6e16884a7a95f2add971ac25d4a18139f91ff433b96",
+    "sha256": "665bf9d4698dbc47bc365db4d55e908971926c9c2f28993f3eb39bd64f6678a8",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced after Product/Backend reorg and Counter module CLI correction"
+    "note": "manually synced for canonical gates, CI order, and rollback window"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

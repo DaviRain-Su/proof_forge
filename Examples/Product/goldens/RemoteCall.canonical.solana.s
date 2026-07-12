@@ -89,6 +89,7 @@ entrypoint_account_scan_4_aligned:
   jeq r2, 2, sol_core_2_2
   mov64 r0, 9
   exit
+sol_initialize:
 sol_core_0_0:
   mov64 r2, 0
   stxdw [r10-8], r2
@@ -96,13 +97,14 @@ sol_core_0_0:
   stxdw [r1+96], r2
   mov64 r0, 0
   exit
+sol_call_remote:
 sol_core_1_1:
   mov64 r2, 0
   stxdw [r10-16], r2
   mov64 r2, 1
   stxdw [r10-24], r2
-  ; portable peer handle -> peer/callee account index 4
-  mov64 r2, 4
+  ; portable peer handle -> peer/callee account index 2
+  mov64 r2, 2
   stxdw [r10-3280], r2
   ldxdw r2, [r10-24]
   mov64 r8, r10
@@ -186,6 +188,7 @@ core_cpi_1_1_2_return_end:
   call sol_set_return_data
   mov64 r0, 0
   exit
+sol_call_with_args:
 sol_core_2_2:
   mov64 r2, 0
   stxdw [r10-40], r2
@@ -195,8 +198,8 @@ sol_core_2_2:
   stxdw [r10-56], r2
   mov64 r2, 7
   stxdw [r10-64], r2
-  ; portable peer handle -> peer/callee account index 4
-  mov64 r2, 4
+  ; portable peer handle -> peer/callee account index 2
+  mov64 r2, 2
   stxdw [r10-3280], r2
   ldxdw r2, [r10-48]
   mov64 r8, r10

@@ -470,6 +470,8 @@ private def canonicalPromiseStrings (plan : NearModulePlan) : Array Layout.Strin
   strings
 
 private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn := Id.run do
+  if args.isEmpty then
+    return #[]
   let mut insns := #[.call Crosscall.crosscallArgsStartName, .i32Const 0x5b,
     .call Crosscall.crosscallArgsPutcName]
   for index in [:args.size] do
@@ -486,6 +488,14 @@ private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofFor
         insns := insns ++ #[.plain "i64.extend_i32_u"]
       insns := insns ++ #[.call Crosscall.crosscallArgsPutu64Name]
   insns ++ #[.i32Const 0x5d, .call Crosscall.crosscallArgsPutcName]
+
+private def canonicalCrosscallArgsLenPtr (args : Array NearValuePlan) :
+    Array ProofForge.Compiler.Wasm.Insn :=
+  if args.isEmpty then
+    #[.i64Const 0, .i64Const Memory.CROSSCALL_ARGS_EMPTY_PTR]
+  else
+    #[.globalGet Crosscall.crosscallPtrGlobal, .i32Const Memory.CROSSCALL_BUF,
+      .plain "i32.sub", .plain "i64.extend_i32_u", .i64Const Memory.CROSSCALL_BUF]
 
 private def canonicalNearI64 (value : NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn :=
   #[.localGet s!"v{value.id}"] ++
@@ -655,9 +665,8 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolLenName] ++
         canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolPtrName] ++
         canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
-        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName,
-          .globalGet Crosscall.crosscallPtrGlobal, .i32Const Memory.CROSSCALL_BUF,
-          .plain "i32.sub", .plain "i64.extend_i32_u", .i64Const Memory.CROSSCALL_BUF,
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName] ++
+        canonicalCrosscallArgsLenPtr args ++ #[
           .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
           .call "promise_create", .localSet s!"v{result.id}"]
   | .promiseThen result parent methodIndex args deposit =>
@@ -665,9 +674,8 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         canonicalNearI64 parent ++ #[.call Promise.promiseCurrentAccountName,
           .i32Const Memory.CTX_BUF, .plain "i64.extend_i32_u"] ++
         canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
-        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName,
-          .globalGet Crosscall.crosscallPtrGlobal, .i32Const Memory.CROSSCALL_BUF,
-          .plain "i32.sub", .plain "i64.extend_i32_u", .i64Const Memory.CROSSCALL_BUF,
+        canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName] ++
+        canonicalCrosscallArgsLenPtr args ++ #[
           .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
           .call "promise_then", .localSet s!"v{result.id}",
           .localGet s!"v{result.id}", .call "promise_return"]

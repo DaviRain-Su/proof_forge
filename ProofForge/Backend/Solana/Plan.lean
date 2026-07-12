@@ -116,6 +116,7 @@ nodes or Legacy IR declarations are stored here. -/
 inductive SolanaOpPlan where
   | literal (result : SolanaValuePlan) (value : Nat)
   | boolLiteral (result : SolanaValuePlan) (value : Bool)
+  | copy (result value : SolanaValuePlan)
   | loadState (result : SolanaValuePlan) (stateId : Nat) (absOff byteSize : Nat)
   | storeState (stateId : Nat) (absOff byteSize : Nat) (value : SolanaValuePlan)
   | loadMap (result : SolanaValuePlan) (stateId : Nat) (absOff capacity keyByteSize valueByteSize : Nat)
@@ -523,6 +524,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
   | .boolLiteral result value => .ok #[
       .instruction { opcode := .mov64, dst := some .r2, imm := some (.num (if value then 1 else 0)) },
       canonicalStoreValue result .r2]
+  | .copy result value => .ok #[canonicalLoadValue value .r2, canonicalStoreValue result .r2]
   | .portableCrosscall result calleeAccountIndex method args => do
       let site := s!"core_cpi_{fnId}_{blockId}_{opIndex}"
       let mut nodes : Array AstNode := #[
@@ -674,6 +676,11 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
   | .assert condition _ => .ok #[canonicalLoadValue condition .r2,
       .instruction { opcode := .jeq, dst := some .r2, imm := some (.num 0), off := some (.sym "assert_fail") }]
   | .context result field => do
+      if field.endsWith "sender" || field.endsWith "origin" then
+        return #[
+          .comment "solana.context.userId: account[0] pubkey u64-le word 0 handle",
+          .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 16) },
+          canonicalStoreValue result .r2]
       unless field.endsWith "blockNumber" || field.endsWith "blockTimestamp" do
         throw { message := s!"canonical Solana context `{field}` has no target handler" }
       let bufferOff := 480
@@ -736,7 +743,7 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
   return nodes
 
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
-  | .literal result _ | .boolLiteral result _ | .loadState result .. | .loadMap result .. |
+  | .literal result _ | .boolLiteral result _ | .copy result _ | .loadState result .. | .loadMap result .. |
     .loadArray result .. |
     .arithmetic result .. | .compare result .. | .context result _ |
     .portableCrosscall result .. => #[result]
@@ -765,6 +772,8 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
   for fn in plan.functions do
     if fn.blocks.isEmpty then throw { message := s!"canonical Solana function `{fn.name}` has no body" }
     for block in fn.blocks do
+      if block.id == fn.blocks[0]!.id then
+        nodes := nodes.push (.label s!"sol_{fn.name}")
       nodes := nodes.push (.label (canonicalBlockLabel fn.id block.id))
       if block.id == fn.blocks[0]!.id then
         let ep <- match plan.entrypoints.find? (fun ep => ep.name == fn.name) with

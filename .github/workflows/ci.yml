@@ -178,10 +178,10 @@ jobs:
             just legacy-freeze
           fi
           just canonical-foundation
-          just canonical-boundary
           just canonical-core
           just canonical-parity
           just canonical-product
+          just canonical-boundary
 
       - name: Check ContractSpec JSON schema
         run: just contract-spec-json
@@ -289,6 +289,9 @@ jobs:
 
       - name: Run three-chain portable StakingVault smoke
         run: just portable-staking-vault-multi-target
+
+      - name: Run full static baseline
+        run: just check
 
   solana-pinocchio-live:
     runs-on: ubuntu-latest

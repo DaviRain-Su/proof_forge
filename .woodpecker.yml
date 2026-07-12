@@ -8,7 +8,8 @@
 # Triggers: push and pull_request (all branches).
 # Gates (product-first):
 #   1. `just product` — business sources × multi-target (fail fast)
-#   2. `just check` — full static baseline (includes product again + backend)
+#   2. canonical semantic/parity/boundary gates
+#   3. `just check` — full static baseline (includes product again + backend)
 
 when:
   - event: [push, pull_request]
@@ -28,6 +29,16 @@ steps:
       - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
       - scripts/ci/woodpecker-setup.sh
       - just product
+
+  - name: proof-forge-canonical
+    image: ubuntu:24.04
+    commands:
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+      - scripts/ci/woodpecker-setup.sh
+      - just canonical-core
+      - just canonical-parity
+      - just canonical-product
+      - just canonical-boundary
 
   - name: proof-forge-check
     image: ubuntu:24.04

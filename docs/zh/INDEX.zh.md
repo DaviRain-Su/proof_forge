@@ -78,7 +78,11 @@ flowchart TB
 - [RFC 0007: 统一 Rust 测试框架](../rfcs/0007-unified-rust-test-framework.md) (草案 —— 基于 revm/Mollusk/wasmtime 的测试套件场景)
 - [RFC 0008: 链解耦的分配器抽象](../rfcs/0008-allocator-abstraction.md) (草案 —— 每个目标绑定一个分配器模型)
 
-## 工程- [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。
+## 工程
+
+- [规范编译器架构](architecture.zh.md)：输入、语义、状态所有权、目标路由和回滚边界。
+- [规范后端接口](backend-interface.zh.md)：目标计划所有权、精确 HostOp 失败规则和 Queue/Set 展开。
+- [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。
 - [新手入门](onboarding.zh.md)：本地设置路径、编辑器说明以及针对新贡献者的最小验证循环。
 - [Quint 模型生成](../quint.md)：从可移植 IR 发射可执行状态机模型，进行模拟、模型检查并重放 MBT 追踪。
 - [开发日志](../development-log.md)：带有验证说明和后续步骤的里程碑日志。

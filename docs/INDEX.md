@@ -87,6 +87,10 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
 
 ## Engineering
 
+- [Canonical compiler architecture](architecture.md): input, semantic,
+  state-ownership, target-routing, and rollback boundaries.
+- [Canonical backend interface](backend-interface.md): target-plan ownership,
+  exact HostOp failure rules, and Queue/Set expansion.
 - [Development standards](development-standards.md): contributor rules and source-of-truth map.
 - [Onboarding](onboarding.md): local setup path, editor notes, and the minimum
   validation loop for new contributors.

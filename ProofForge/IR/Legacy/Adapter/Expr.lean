@@ -96,6 +96,21 @@ def arithmeticValue (mode : OverflowMode) (op : ArithmeticOp) (lhs rhs : ValueRe
 def compareValue (op : CompareOp) (lhs rhs : ValueRef) : AdapterM NormalizedValue := do
   emitValueInstruction (.pure (.compare op lhs rhs)) .bool
 
+def coerceLegacyAddressHandle (value : NormalizedValue) (target : CoreType) :
+    AdapterM NormalizedValue := do
+  let isInteger : CoreType → Bool
+    | .u8 | .u32 | .u64 | .u128 => true
+    | _ => false
+  if value.value.type == target then
+    return value
+  else if (isInteger value.value.type && isInteger target) ||
+      (value.value.type == .address && target == .u64) ||
+      (value.value.type == .u64 && target == .address) then
+    let casted ← emitValueInstruction (.pure (.cast target value.value)) target
+    return { instructions := value.instructions ++ casted.instructions, value := casted.value }
+  else
+    throw (CanonicalizeError.typeMismatch (reprStr target) (reprStr value.value.type))
+
 /- The scalar element type of a state variable. -/
 
 def stateScalarType (name : String) : AdapterM CoreType := do
@@ -130,6 +145,12 @@ private def storagePathResultType (shape : StateShape)
 def exprType (e : Expr) : AdapterM CoreType := do
   match e with
   | .literal l => return (coreLiteralType (← liftExcept (adaptLiteral l)))
+  | .arrayLit elementType values =>
+      return .fixedArray (← liftExcept (adaptType (← get).env.typeIds elementType)) values.size
+  | .arrayGet (.local name) _ =>
+      match (← lookupLocalArray name)[0]? with
+      | some value => return value.type
+      | none => throw (CanonicalizeError.typeMismatch "non-empty local array" "empty local array")
   | .local name => do return (← lookupLocal name).type
   | .add lhs _ _ | .sub lhs _ _ | .mul lhs _ _ | .div lhs _ | .mod lhs _ | .pow lhs _
   | .bitAnd lhs _ | .bitOr lhs _ | .bitXor lhs _ | .shiftLeft lhs _ | .shiftRight lhs _ =>
@@ -311,12 +332,12 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }
   | .eq lhs rhs =>
       let nl ← normalizeExpr lhs
-      let nr ← normalizeExpr rhs
+      let nr ← coerceLegacyAddressHandle (← normalizeExpr rhs) nl.value.type
       let nv ← compareValue .eq nl.value nr.value
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }
   | .ne lhs rhs =>
       let nl ← normalizeExpr lhs
-      let nr ← normalizeExpr rhs
+      let nr ← coerceLegacyAddressHandle (← normalizeExpr rhs) nl.value.type
       let nv ← compareValue .ne nl.value nr.value
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }
   | .lt lhs rhs =>
@@ -365,32 +386,42 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       return { instructions := normalizedKey.instructions ++ loaded.instructions, value := loaded.value }
   | .effect (.storagePathRead name path) =>
       let stateId ← lookupState name
-      let mut instructions := #[]
-      let mut segments := #[]
-      let mut current ← lookupStateShape name
-      for segment in path do
-        match segment, current with
-        | .mapKey key, .map expectedKey value _ =>
-            let normalized ← normalizeExpr key
-            unless normalized.value.type == expectedKey do
-              throw (CanonicalizeError.typeMismatch (reprStr expectedKey) (reprStr normalized.value.type))
-            instructions := instructions ++ normalized.instructions
-            segments := segments.push (.mapKey normalized.value)
-            current := .scalar value
-        | .index index, .fixedArray element _ =>
-            let normalized ← normalizeExpr index
-            unless normalized.value.type == .u64 do
-              throw (CanonicalizeError.typeMismatch (reprStr CoreType.u64) (reprStr normalized.value.type))
-            instructions := instructions ++ normalized.instructions
-            segments := segments.push (.index normalized.value)
-            current := .scalar element
-        | .field _, _ =>
-            throw (CanonicalizeError.unsupportedConstructor "StoragePathSegment.field"
-              "record field IDs are not available in the initial adapter environment")
-        | _, _ => throw (CanonicalizeError.typeMismatch "compatible storage path" (reprStr current))
-      let resultType ← match current with
-        | .scalar type => pure type
-        | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
+      let shape ← lookupStateShape name
+      let (instructions, segments, resultType) ← match shape, path with
+        | .map .u64 value _, #[.mapKey outer, .mapKey inner] => do
+            let nouter ← coerceLegacyAddressHandle (← normalizeExpr outer) .u64
+            let ninner ← coerceLegacyAddressHandle (← normalizeExpr inner) .u64
+            let salt ← emitValueInstruction (.pure (.literal (.u64Lit 0x9e3779b185ebca87))) .u64
+            let mixed ← arithmeticValue .wrapping .mul nouter.value salt.value .u64
+            let key ← arithmeticValue .wrapping .xor mixed.value ninner.value .u64
+            pure (nouter.instructions ++ ninner.instructions ++ salt.instructions ++
+              mixed.instructions ++ key.instructions, #[Core.StorageSegment.mapKey key.value], value)
+        | _, _ => do
+            let mut instructions := #[]
+            let mut segments := #[]
+            let mut current := shape
+            for segment in path do
+              match segment, current with
+              | .mapKey key, .map expectedKey value _ =>
+                  let normalized ← coerceLegacyAddressHandle (← normalizeExpr key) expectedKey
+                  instructions := instructions ++ normalized.instructions
+                  segments := segments.push (.mapKey normalized.value)
+                  current := .scalar value
+              | .index index, .fixedArray element _ =>
+                  let normalized ← normalizeExpr index
+                  unless normalized.value.type == .u64 do
+                    throw (CanonicalizeError.typeMismatch (reprStr CoreType.u64) (reprStr normalized.value.type))
+                  instructions := instructions ++ normalized.instructions
+                  segments := segments.push (.index normalized.value)
+                  current := .scalar element
+              | .field _, _ =>
+                  throw (CanonicalizeError.unsupportedConstructor "StoragePathSegment.field"
+                    "record field IDs are not available in the initial adapter environment")
+              | _, _ => throw (CanonicalizeError.typeMismatch "compatible storage path" (reprStr current))
+            let resultType ← match current with
+              | .scalar type => pure type
+              | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
+            pure (instructions, segments, resultType)
       let loaded ← emitValueInstruction
         (.storageLoad { root := stateId, path := segments, resultType }) resultType
       return { instructions := instructions ++ loaded.instructions, value := loaded.value }
@@ -420,8 +451,18 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       emitValueInstruction (.contextRead .value) .u128
   | .arrayLit _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.arrayLit" "array literal not in initial fragment")
+  | .arrayGet (.local name) (.literal index) => do
+      let values ← lookupLocalArray name
+      let index ← match index with
+        | .u8 value | .u32 value | .u64 value => pure value
+        | _ => throw (CanonicalizeError.typeMismatch "integer array index" (reprStr index))
+      match values[index]? with
+      | some value => return { instructions := #[], value }
+      | none => throw (CanonicalizeError.unsupportedConstructor "Expr.arrayGet"
+          s!"constant index {index} is out of bounds for local array `{name}`")
   | .arrayGet _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.arrayGet" "array get not in initial fragment")
+      throw (CanonicalizeError.unsupportedConstructor "Expr.arrayGet"
+        "canonical local arrays currently require a named array and constant index")
   | .memoryArrayNew _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayNew" "memory array not in initial fragment")
   | .memoryArrayLength _ =>

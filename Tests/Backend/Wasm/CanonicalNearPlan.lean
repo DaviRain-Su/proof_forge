@@ -5,6 +5,7 @@ import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Target.Plan
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Examples.ValueVault
+import ProofForge.Contract.Stdlib.NearFungibleToken
 import ProofForge.Contract.Spec
 import ProofForge.Compiler.Wasm.Printer
 
@@ -181,5 +182,20 @@ def main : IO Unit := do
   let vaultWat := ProofForge.Compiler.Wasm.Printer.render vaultWasm
   require (vaultWat.contains "(export \"deposit\")" && vaultWat.contains "log_utf8")
     "ValueVault canonical WAT lost entrypoint or event host call"
+
+  let ftBundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy
+      (ProofForge.Contract.ContractSpec.fromIR ProofForge.Contract.Stdlib.NearFungibleToken.module) with
+    | .ok bundle => pure bundle
+    | .error e => throw <| IO.userError s!"NearFungibleToken adaptation failed: {repr e}"
+  let ftCapPlan : CapabilityPlan := {
+    targetId := "wasm-near", calls := ftBundle.contract.contract.requirements, metadata := #[]
+  }
+  let ftPlan <- match buildFromCore ftBundle.contract ftCapPlan with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"NearFungibleToken NEAR plan failed: {e.message}"
+  let ftOps := ftPlan.functions.flatMap (fun fn => fn.blocks.flatMap (fun block => block.ops))
+  require (ftOps.any fun op => match op with
+    | .literal _ 1 => true
+    | _ => false) "canonical NEAR plan lost the ft_resolve_transfer pool handle"
 
   IO.println "canonical-near-plan: ok"

@@ -107,18 +107,60 @@ def errorRefOf (message : String) (r : ErrorRef) : AdapterM CoreErrorRef := do
     form (r.soliditySelector?.map String.toLower) r.solidityArgWords r.solidityArgTypes
   return { id := id, args := #[] }
 
+private def normalizeStatementStoragePath (name : String) (path : Array StoragePathSegment) :
+    AdapterM (Array Instruction × Array Core.StorageSegment × CoreType) := do
+  let shape ← lookupStateShape name
+  match shape, path with
+  | .map .u64 value _, #[.mapKey outer, .mapKey inner] =>
+      let nouter ← coerceLegacyAddressHandle (← normalizeExpr outer) .u64
+      let ninner ← coerceLegacyAddressHandle (← normalizeExpr inner) .u64
+      let salt ← emitValueInstruction (.pure (.literal (.u64Lit 0x9e3779b185ebca87))) .u64
+      let mixed ← arithmeticValue .wrapping .mul nouter.value salt.value .u64
+      let key ← arithmeticValue .wrapping .xor mixed.value ninner.value .u64
+      return (nouter.instructions ++ ninner.instructions ++ salt.instructions ++
+        mixed.instructions ++ key.instructions, #[.mapKey key.value], value)
+  | _, _ =>
+      let mut instructions := #[]
+      let mut segments := #[]
+      let mut current := shape
+      for segment in path do
+        match segment, current with
+        | .mapKey key, .map expectedKey value _ =>
+            let normalized ← coerceLegacyAddressHandle (← normalizeExpr key) expectedKey
+            instructions := instructions ++ normalized.instructions
+            segments := segments.push (.mapKey normalized.value)
+            current := .scalar value
+        | .index index, .fixedArray element _ =>
+            let normalized ← normalizeExpr index
+            unless normalized.value.type == .u64 do
+              throw (CanonicalizeError.typeMismatch (reprStr CoreType.u64) (reprStr normalized.value.type))
+            instructions := instructions ++ normalized.instructions
+            segments := segments.push (.index normalized.value)
+            current := .scalar element
+        | .field _, _ =>
+            throw (CanonicalizeError.unsupportedConstructor "StoragePathSegment.field"
+              "record field IDs are not available in the initial adapter environment")
+        | _, _ => throw (CanonicalizeError.typeMismatch "compatible storage path" (reprStr current))
+      let resultType ← match current with
+        | .scalar type => pure type
+        | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
+      return (instructions, segments, resultType)
+
 /- Normalize a legacy `Effect` into the function builder. -/
 
 def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBuilder :=
   match eff with
   | .storageScalarWrite stateName value => do
-      let nv ← normalizeExpr value
-      let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let stateId ← lookupState stateName
       let resultType ← stateScalarType stateName
+      let nv ← coerceLegacyAddressHandle (← normalizeExpr value) resultType
+      let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
       liftExcept (fb.emitInstr instr)
   | .storageScalarAssignOp stateName op value => do
+      if stateName == "$eip1967.implementation" then
+        throw (CanonicalizeError.unsupportedConstructor "Effect.storageScalarAssignOp"
+          "compound assignment is not allowed for the EIP-1967 implementation state")
       let stateId ← lookupState stateName
       let resultType ← stateScalarType stateName
       let path := { root := stateId, resultType := resultType }
@@ -147,6 +189,14 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
         root := stateId
         path := #[.mapKey normalizedKey.value]
         resultType := valueType } normalizedValue.value })
+  | .storagePathWrite stateName path value => do
+      let stateId ← lookupState stateName
+      let (pathInstructions, segments, resultType) ← normalizeStatementStoragePath stateName path
+      let normalizedValue ← coerceLegacyAddressHandle (← normalizeExpr value) resultType
+      let fb ← liftExcept (pathInstructions.foldlM FunctionBuilder.emitInstr fb)
+      let fb ← liftExcept (normalizedValue.instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .storageStore {
+        root := stateId, path := segments, resultType } normalizedValue.value })
   | .eventEmit name fields => do
       let eventId ← lookupEvent name
       let mut args : Array ValueRef := #[]
@@ -182,19 +232,31 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
 
 def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : CoreType) : AdapterM FunctionBuilder :=
   match stmt with
+  | .letBind name ty (.arrayLit elementType values) => do
+      let coreTy ← liftExcept (adaptType (← get).env.typeIds ty)
+      let coreElementType ← liftExcept (adaptType (← get).env.typeIds elementType)
+      unless coreTy == CoreType.fixedArray coreElementType values.size do
+        throw (CanonicalizeError.typeMismatch
+          (reprStr (CoreType.fixedArray coreElementType values.size)) (reprStr coreTy))
+      let mut fb := fb
+      let mut normalizedValues := #[]
+      for value in values do
+        let normalized ← normalizeExpr value
+        unless normalized.value.type == coreElementType do
+          throw (CanonicalizeError.typeMismatch (reprStr coreElementType) (reprStr normalized.value.type))
+        fb ← liftExcept (normalized.instructions.foldlM FunctionBuilder.emitInstr fb)
+        normalizedValues := normalizedValues.push normalized.value
+      bindLocalArray name normalizedValues
+      return fb
   | .letBind name ty value => do
       let coreTy ← liftExcept (adaptType (← get).env.typeIds ty)
-      let nv ← normalizeExpr value
-      unless nv.value.type == coreTy do
-        throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
+      let nv ← coerceLegacyAddressHandle (← normalizeExpr value) coreTy
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
   | .letMutBind name ty value => do
       let coreTy ← liftExcept (adaptType (← get).env.typeIds ty)
-      let nv ← normalizeExpr value
-      unless nv.value.type == coreTy do
-        throw (CanonicalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
+      let nv ← coerceLegacyAddressHandle (← normalizeExpr value) coreTy
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
@@ -252,7 +314,7 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       liftExcept (fb.emitInstr instr)
   | .assertEq lhs rhs message errorRef? => do
       let nl ← normalizeExpr lhs
-      let nr ← normalizeExpr rhs
+      let nr ← coerceLegacyAddressHandle (← normalizeExpr rhs) nl.value.type
       let nc ← emitValueInstruction (.pure (.compare .eq nl.value nr.value)) .bool
       let fb ← liftExcept (nl.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nr.instructions.foldlM FunctionBuilder.emitInstr fb)
@@ -282,6 +344,7 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let fb ← liftExcept (fb.setTerminator (.branch nv.value trueId falseId))
       let entryBlocks ← liftExcept fb.sealedBlocks
       let localsBefore := (← get).env.localValues
+      let arraysBefore := (← get).env.localArrays
 
       let trueBuilder : FunctionBuilder := { blocks := entryBlocks, current := { id := trueId } }
       let trueBuilder ← thenBody.foldlM (fun b stmt => normalizeStatement b stmt retType) trueBuilder
@@ -293,7 +356,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let trueBlocks ← liftExcept trueBuilder.sealedBlocks
       let trueLocals := (← get).env.localValues
 
-      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      modify (fun s => { s with env := {
+        s.env with localValues := localsBefore, localArrays := arraysBefore } })
       let falseBuilder : FunctionBuilder := { blocks := trueBlocks, current := { id := falseId } }
       let falseBuilder ← elseBody.foldlM (fun b stmt => normalizeStatement b stmt retType) falseBuilder
       let falseFallsThrough := falseBuilder.active && falseBuilder.current.terminator.isNone
@@ -306,7 +370,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
 
       let mergedLocals ← liftExcept <|
         mergeBranchLocals localsBefore trueLocals falseLocals trueFallsThrough falseFallsThrough
-      modify (fun s => { s with env := { s.env with localValues := mergedLocals } })
+      modify (fun s => { s with env := {
+        s.env with localValues := mergedLocals, localArrays := arraysBefore } })
       return {
         blocks := branchBlocks
         current := { id := contId }
@@ -319,6 +384,7 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let bodyId ← freshBlockId
       let contId ← freshBlockId
       let localsBefore := (← get).env.localValues
+      let arraysBefore := (← get).env.localArrays
       let headerParamId ← freshValueId
       let indexParam : ValueDef := { id := headerParamId, type := .u64 }
       let boundRef : ValueRef := { id := headerParamId, type := .u64 }
@@ -359,7 +425,8 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
               s!"outer local `{name}` requires a loop-carried block parameter")
         | none => pure ()
       let loopBlocks ← liftExcept bodyBuilder.sealedBlocks
-      modify (fun s => { s with env := { s.env with localValues := localsBefore } })
+      modify (fun s => { s with env := {
+        s.env with localValues := localsBefore, localArrays := arraysBefore } })
       return { blocks := loopBlocks, current := { id := contId } }
   | .whileLoop _ _ =>
       throw (CanonicalizeError.unboundedLoop "whileLoop requires requiresUnbounded capability resolution")

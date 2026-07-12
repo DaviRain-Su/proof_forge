@@ -29,6 +29,7 @@ entrypoint_account_scan_0_aligned:
   jeq r2, 2, sol_core_2_2
   mov64 r0, 9
   exit
+sol_initialize:
 sol_core_0_0:
   mov64 r2, 0
   stxdw [r10-8], r2
@@ -36,6 +37,7 @@ sol_core_0_0:
   stxdw [r1+96], r2
   mov64 r0, 0
   exit
+sol_increment:
 sol_core_1_1:
   ldxdw r2, [r1+96]
   stxdw [r10-16], r2
@@ -51,6 +53,7 @@ sol_core_1_1:
   stxdw [r1+96], r2
   mov64 r0, 0
   exit
+sol_get:
 sol_core_2_2:
   ldxdw r2, [r1+96]
   stxdw [r10-40], r2

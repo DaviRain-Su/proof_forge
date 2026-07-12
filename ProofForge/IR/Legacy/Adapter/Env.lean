@@ -72,6 +72,7 @@ structure AdapterEnv where
   registeredErrors : Array RegisteredError
   overflowMode : OverflowMode
   localValues : Std.HashMap String ValueRef
+  localArrays : Std.HashMap String (Array ValueRef)
   nextTypeId : Nat
   nextStateId : Nat
   nextFunctionId : Nat
@@ -204,8 +205,16 @@ def lookupLocal (name : String) : AdapterM ValueRef := do
 def bindLocal (name : String) (ref : ValueRef) : AdapterM Unit :=
   modify (fun s => { s with env := { s.env with localValues := s.env.localValues.insert name ref } })
 
+def bindLocalArray (name : String) (values : Array ValueRef) : AdapterM Unit :=
+  modify (fun s => { s with env := { s.env with localArrays := s.env.localArrays.insert name values } })
+
+def lookupLocalArray (name : String) : AdapterM (Array ValueRef) := do
+  match Std.HashMap.get? (← get).env.localArrays name with
+  | some values => return values
+  | none => throw (CanonicalizeError.unboundLocal name)
+
 def resetLocals : AdapterM Unit :=
-  modify (fun s => { s with env := { s.env with localValues := {} } })
+  modify (fun s => { s with env := { s.env with localValues := {}, localArrays := {} } })
 
 /- Map a legacy `ValueType` to the canonical `CoreType`. -/
 
@@ -273,6 +282,7 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     registeredErrors := #[],
     overflowMode := if m.overflowChecked then .checked else .wrapping,
     localValues := {},
+    localArrays := {},
     nextTypeId := 0,
     nextStateId := 0,
     nextFunctionId := 0,

@@ -9,6 +9,9 @@
 | 统一 testkit 场景 | `just testkit` | Rust/Cargo；来自 `lean-toolchain` 的 Lean 工具链；用于 EVM 字节码分支的 `solc`；用于 ValueVault EVM 分支上 Contract SDK 选择器填充的 Foundry `cast`；用于 Solana/Mollusk 分支的可选 `sbpf` 加 `solana-keygen` | RFC 0007 testkit 发现 `testkit/scenarios/counter.toml` 和 `testkit/scenarios/value-vault.toml`，通过 Lean 发射 WAT fixture 并在确定性的 `runtime/offline-host` wasmtime NEAR 宿主上运行它们，发射 EVM 运行时字节码加制品元数据并在所需 EVM 工具可用时在 `revm` 上进程内运行覆盖的场景，发射 Solana sBPF 汇编/manifest/制品元数据，构建 sBPF ELF 程序，在可选 Solana 工具可用时通过 `mollusk-svm` 运行有状态场景，验证场景声明的制品预期，包括 Wasm/NEAR WAT、EVM Yul 和 Solana 汇编/manifest 的 Counter 黄金源码一致性，Wasm/NEAR WAT、EVM Yul 和 Solana sBPF 汇编/manifest 的 ValueVault 黄金一致性，结构化 JSON/TOML 元数据/manifest 路径断言（包括存在性、缺失、类型、非空以及数组/对象/表/字符串长度检查），EVM 部署 manifest 模式检查，针对生成的制品路径/字节大小/SHA-256 条目的 JSON 元数据文件引用检查，嵌入式 Solana IDL 元数据的跨制品 JSON 一致性，以及 ValueVault IDL/客户端形态检查，验证每个目标的返回预期，断言已执行目标之间归一化的可观察追踪一致性，并（根据 RFC 0010）报告每步资源预算：来自 Mollusk 的 Solana CU、来自 revm 的 EVM gas 以及作为仅供参考的 NEAR gas 代理的 wasmtime fuel；`counter.toml` 使用容差带锁定 Solana CU 和 EVM gas 基线，并在发生回归时使运行失败 | 真实的 NEAR 沙盒部署、真实的 EVM RPC/部署行为、Surfpool/Rust Solana 部署行为、所有遗留的针对每个目标的冒烟脚本的替换、事件/日志一致性、协议费或交易定价建模、精确的 NEAR gas 等效性 |
 | Lean 包构建 | `lake build` | 来自 `lean-toolchain` 的 Lean 工具链 | 库根节点类型检查和 `proof-forge` 链接 | 生成的 Yul/字节码有效性、外部工具、运行时行为 |
 | 目标注册表冒烟测试 | `lake env lean --run Tests/TargetRegistry.lean` | 来自 `lean-toolchain` 的 Lean 工具链 | 目标注册表将 `evm` 暴露为编译器目标，而 `robinhood-chain-testnet` 和 `anvil-local` 等 EVM 兼容链 profile 保持为仅供查找的部署 profile | 部署广播、真实 RPC 或区块浏览器可达性、钱包集成 |
+| Canonical 语义门禁 | `just canonical-core` | 来自 `lean-toolchain` 的 Lean 工具链 | 验证 Legacy v1 与 Surface v2 规范化、已检查 canonical 语义、精确 HostOp 签名、evidence 独立性、有界 Queue/Set 展开和共享 fixture | 目标语法或运行时执行 |
+| Canonical 目标 parity | `just canonical-parity` | 来自 `lean-toolchain` 的 Lean 工具链；可用时使用子门禁所需的目标语法工具 | 在冻结的 Legacy 共享子集上运行 EVM、Solana、NEAR canonical 计划与制品 parity | live network 部署或 Legacy 独有形状 |
+| Canonical 产品闭包 | `just canonical-product` | 来自 `lean-toolchain` 的 Lean 工具链；产品门禁前提 | 通过公开 `evm`、`solana-sbpf-asm`、`wasm-near` canonical 路径编译当前产品场景，不使用 Legacy fallback | 可选 live-network 套件 |
 | Canonical 架构边界 gate | `just canonical-boundary` | 来自 `lean-toolchain` 的 Lean 工具链 | 验证没有公共目标 ID 以 `-core` 结尾、没有后端导入 `Frontend.Surface`、没有 canonical builder 导入 `IR.Contract`、没有目标计划包含原始目标 AST 类型声明、Legacy IR 冻结保持完整、且没有并行 spike 文件残留 | 运行时行为、目标 builder 覆盖完整性 |
 | EVM 语义计划冒烟测试 | `just evm-plan` | 来自 `lean-toolchain` 的 Lean 工具链 | EVM 语义计划从目标解析的 `CapabilityPlan` 构建，拒绝非 EVM 目标计划，并在 Yul 生成前验证存储布局、标量存储槽、映射值槽、嵌套映射值槽、映射存在性槽、映射赋值操作辅助函数需求以及计划的辅助函数需求 | `ModulePlan` 对 ABI 调度、事件、跨链调用、构造函数元数据、制品元数据、`solc` 验收、字节码、运行时行为、更广泛的聚合存储规划的完整所有权 |
 | EVM 语义计划（entrypoints/events/metadata）冒烟测试 | `just evm-semantic-plan` | 来自 `lean-toolchain` 的 Lean 工具链 | 已填充的 `ModulePlan` 携带 `EntrypointPlan`（selector、ABI params、return plan）、`EventPlan`（signature、indexed/data fields）、crosscall/create helper specs、checked-arithmetic 标记和 `MetadataPlan`；artifact/deploy metadata 从计划构建，不从 Yul 反推 | 完整 `StmtPlan`/`ExprPlan` body lowering、plan-driven optimizer、`.evm-plan.json` snapshot |
@@ -123,6 +126,16 @@
 | CLI target-first 冒烟测试 | `just cli-target-first` | 来自 `lean-toolchain` 的 Lean 工具链 | 针对白名单 fixture triples 练习 target-first `emit`/`build`/`check` 路由（RFC 0009 M1/M3） | M4 legacy-flag removal、每个 target 上完整的 `contract_source` |
 | Aptos Counter Move 冒烟测试 | `just aptos-counter-smoke` | `aptos` CLI；来自 `lean-toolchain` 的 Lean 工具链 | 为 `move-aptos` 发射 Counter Move package，并针对 golden fixtures 运行 `aptos move test` | `contract_source` Aptos Counter、testkit harness |
 
+## Required CI 顺序与回滚
+
+Required CI 以产品优先，依次执行 `just product`、`just canonical-core`、
+`just canonical-parity`、`just canonical-product`、`just canonical-boundary`，
+最后执行 `just check`。Live Surfpool/Pinocchio 套件保持可选。
+
+Canonical 提升后的一个发布版本内，Legacy v1 dual-run helper 仅供测试使用。
+它们可以比较语义、计划和制品，但不能由公开 CLI 或 registry 选择，也不能成为
+生产 fallback。
+
 ## 尚未可运行的计划门控
 
 以下门禁仍为 `Planned` 或只部分落地：
@@ -144,7 +157,7 @@
 live Surfpool/Rust gates 是可选项。
   - **V-GATE-SOLANA-01** — `--emit-sbpf-asm` 生成被 `sbpf build` 接受的有效 `.s`（无汇编错误）。脚本：`scripts/solana/emit-asm-smoke.sh`（可运行，阶段 0 已完成）。
   - **V-GATE-SOLANA-02** — `sbpf build` 生成一个 `sbpf disassemble` 可往返处理的有效 ELF。脚本：`scripts/solana/emit-asm-smoke.sh`（可运行，阶段 0 已完成）。
-  - **V-GATE-SOLANA-03** — Counter 场景（initialize、increment、get）通过 `sbpf test` (Mollusk) 验证。脚本：`scripts/solana/counter-smoke.sh`（阶段 1 已完成；4 个 Mollusk 断言：initialize→0，increment 0→1，increment 5→6，get→return_data）。发射的 `.s` 现在包含账户验证前导代码（可写性 + 所有者检查），并附带 `manifest.toml`；被追踪的 `Examples/Backend/Solana/Counter.golden.s` / `Counter.manifest.toml` 由 `scripts/solana/build-examples.sh` 保持同步。
+  - **V-GATE-SOLANA-03** — Counter 场景（initialize、increment、get）通过 `sbpf test` (Mollusk) 验证。脚本：`scripts/solana/counter-smoke.sh`（阶段 1 已完成；4 个 Mollusk 断言：initialize→0，increment 0→1，increment 5→6，get→return_data）。Legacy fixture 的 `.s` 包含账户验证前导代码（可写性 + 所有者检查）；`Counter.legacy.golden.s` / `Counter.manifest.toml` 由 `scripts/solana/build-examples.sh` 保持同步，`Counter.golden.s` 则用于 canonical 公共管线的 testkit 产物。
   - **V-GATE-SOLANA-04** — Counter 场景通过 Surfpool 本地模拟网络部署和 Rust RPC 行为冒烟测试。脚本：`scripts/solana/counter-live-smoke.sh`（可选，受 `surfpool`、Solana CLI、`sbpf` 和 Cargo 限制）。该脚本构建 Counter ELF，启动 Surfpool，使用 `solana program deploy --use-rpc` 进行部署，通过 Rust live harness 创建程序拥有的 counter 账户，调用 initialize/increment/get，验证账户数据 0→1→2，并检查 `get` 返回数据。
   - **V-GATE-SOLANA-05** — 能力检查器拒绝使用不支持的能力的 IR 模块，并提供引用目标 id 和能力 id 的清晰诊断信息。脚本：`scripts/solana/diagnostic-smoke.sh` 运行 `Tests/Backend/Solana/SolanaDiagnostics.lean` 并断言 8 个跨调用拒绝案例（通用的 `crosscall.invoke` 家族）均产生预期消息 `target \`solana-sbpf-asm\` does not support capability \`crosscall.invoke\`: ...`。（阶段 1 已完成。）
   - **V-GATE-SOLANA-06** — `proof-forge-artifact.json` 包含 `target: "solana-sbpf-asm"`、`irVersion` 和入口列表。

@@ -522,6 +522,7 @@ private def constructorBindingCompatible (kind : ConstructorBindingKind)
   | .scalarU64, "uint64", .scalar .u64
   | .scalarU64, "uint32", .scalar .u64
   | .addressWord, "address", .scalar .address
+  | .addressWord, "address", .scalar .u64
   | .addressWord, "address", .scalar .hash
   | .addressKeccak, "address", .scalar .hash
   | .stringLength, "string", .scalar .u64

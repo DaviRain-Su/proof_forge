@@ -12,6 +12,9 @@ does not add or edit CI jobs.
 | Unified testkit scenarios | `just testkit` | Rust/Cargo; Lean toolchain from `lean-toolchain`; `solc` for the EVM bytecode branch; Foundry `cast` for Contract SDK selector hydration on the ValueVault EVM branch; optional `sbpf` plus `solana-keygen` for the Solana/Mollusk branch | RFC 0007 testkit discovers `testkit/scenarios/counter.toml` and `testkit/scenarios/value-vault.toml`, emits WAT fixtures through Lean and runs them on the deterministic `runtime/offline-host` wasmtime NEAR host, emits EVM runtime bytecode plus artifact metadata and runs the covered scenarios in-process on `revm` when required EVM tools are available, emits Solana sBPF assembly/manifest/artifact metadata, builds sBPF ELF programs, runs stateful scenarios through `mollusk-svm` when optional Solana tools are available, validates scenario-declared artifact expectations including Counter golden source equality for Wasm/NEAR WAT, EVM Yul, and Solana assembly/manifest, ValueVault golden equality for Wasm/NEAR WAT, EVM Yul, and Solana sBPF assembly/manifest, structured JSON/TOML metadata/manifest path assertions including presence, absence, type, non-empty, and array/object/table/string length checks, EVM deploy manifest schema checks, JSON metadata file-reference checks for generated artifact path/byte-size/SHA-256 entries, cross-artifact JSON equality for embedded Solana IDL metadata, and ValueVault IDL/client shape checks, validates every target's return expectations, asserts normalized observable trace parity across executed targets, and (per RFC 0010) reports per-step resource budgets: Solana CU from Mollusk, EVM gas from revm, and wasmtime fuel as an info-only NEAR gas proxy; `counter.toml` locks Solana CU and EVM gas baselines with tolerance bands and fails the run on regression | Live NEAR sandbox deployment, live EVM RPC/deployment behavior, Surfpool/Rust Solana deployment behavior, replacement of all legacy per-target smoke scripts, event/log parity, protocol-fee or transaction-pricing modeling, exact NEAR gas equivalence |
 | Lean package build | `lake build` | Lean toolchain from `lean-toolchain` | Library roots typecheck and `proof-forge` links | Generated Yul/bytecode validity, external tools, runtime behavior |
 | Target registry smoke | `lake env lean --run Tests/TargetRegistry.lean` | Lean toolchain from `lean-toolchain` | The target registry exposes `evm` as a compiler target while EVM-compatible chain profiles such as `robinhood-chain-testnet` and `anvil-local` stay lookup-only deployment profiles | Deployment broadcast, live RPC or explorer reachability, wallet integration |
+| Canonical semantic gate | `just canonical-core` | Lean toolchain from `lean-toolchain` | Validates Legacy v1 and Surface v2 normalization, checked canonical semantics, exact HostOp signatures, evidence independence, bounded Queue/Set expansion, and shared canonical fixtures | Target syntax or runtime execution |
+| Canonical target parity | `just canonical-parity` | Lean toolchain from `lean-toolchain`; target syntax tools used by child gates when available | Runs EVM, Solana, and NEAR canonical plan and artifact parity against the frozen shared Legacy fragment | Live network deployment or unsupported Legacy-only shapes |
+| Canonical product closure | `just canonical-product` | Lean toolchain from `lean-toolchain`; product-gate prerequisites | Compiles current product scenarios through the public `evm`, `solana-sbpf-asm`, and `wasm-near` canonical routes without a Legacy fallback | Optional live-network suites |
 | Canonical architecture boundary gate | `just canonical-boundary` | Lean toolchain from `lean-toolchain` | Verifies no public target ID ends in `-core`, no backend imports `Frontend.Surface`, no canonical builder imports `IR.Contract`, no target plan contains raw target AST in type declarations, the Legacy IR freeze is intact, and no parallel spike files remain | Runtime behavior, target builder coverage completeness |
 | EVM semantic plan smoke | `just evm-plan` | Lean toolchain from `lean-toolchain` | The EVM semantic plan builds from the target-resolved `CapabilityPlan`, rejects non-EVM target plans, and validates storage layout, scalar storage slots, map value slots, nested map value slots, map presence slots, map assign-op helper requirements, and planned helper requirements before Yul generation | Full `ModulePlan` ownership of ABI dispatch, events, crosscalls, constructor metadata, artifact metadata, `solc` acceptance, bytecode, runtime behavior, broader aggregate storage planning |
 | EVM semantic plan (entrypoints/events/metadata) smoke | `just evm-semantic-plan` | Lean toolchain from `lean-toolchain` | The populated `ModulePlan` carries `EntrypointPlan` (selector, ABI params, return plan), `EventPlan` (signature, indexed/data fields), crosscall/create helper specs, checked-arithmetic flag, and `MetadataPlan`; artifact/deploy metadata is built from the plan, not re-discovered from Yul | Full `StmtPlan`/`ExprPlan` body lowering, plan-driven optimizer, `.evm-plan.json` snapshot |
@@ -128,6 +131,16 @@ does not add or edit CI jobs.
 | CLI target-first smoke | `just cli-target-first` | Lean toolchain from `lean-toolchain` | Exercises target-first `emit`/`build`/`check` routing for whitelisted fixture triples (RFC 0009 M1/M3) | M4 legacy-flag removal, full `contract_source` on every target |
 | Aptos Counter Move smoke | `just aptos-counter-smoke` | `aptos` CLI; Lean toolchain from `lean-toolchain` | Emits Counter Move package for `move-aptos`, runs `aptos move test` against golden fixtures | `contract_source` Aptos Counter, testkit harness |
 
+## Required CI order and rollback
+
+Required CI is product-first and executes `just product`, `just canonical-core`,
+`just canonical-parity`, `just canonical-product`, `just canonical-boundary`,
+then `just check`. Live Surfpool/Pinocchio suites remain optional.
+
+The Legacy v1 dual-run helpers are test-only for one release after canonical
+promotion. They compare semantics, plans, and artifacts, but cannot be selected
+by the public CLI or registry and cannot serve as a production fallback.
+
 ## Planned gates that are not runnable yet
 
 The following gates are still `Planned` or only partially landed:
@@ -165,8 +178,9 @@ optional.
     4 Mollusk assertions: initialize→0, increment 0→1, increment 5→6, get→return_data).
     The emitted `.s` now includes the account-validation prologue
     (writable + owner checks) and is accompanied by `manifest.toml`; the
-    tracked `Examples/Backend/Solana/Counter.golden.s` / `Counter.manifest.toml` are
-    kept in sync by `scripts/solana/build-examples.sh`.
+    tracked legacy fixture `Examples/Backend/Solana/Counter.legacy.golden.s` and
+    `Counter.manifest.toml` are kept in sync by `scripts/solana/build-examples.sh`;
+    `Counter.golden.s` is the canonical public-pipeline testkit artifact.
   - **V-GATE-SOLANA-04** — Counter scenario passes
     a Surfpool local simnet deployment and Rust RPC behavior smoke. Script:
     `scripts/solana/counter-live-smoke.sh` (optional, gated on `surfpool`,

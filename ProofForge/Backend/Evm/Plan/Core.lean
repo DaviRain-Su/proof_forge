@@ -3,6 +3,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Target.Plan
+import ProofForge.Target.ProtocolMaterialize
 
 /-! # Build Existing EVM Plan from Canonical Core
 
@@ -150,9 +151,11 @@ private def resultName (instr : Instruction) : String :=
 
 structure CorePlanEnv where
   values : Array (ValueId × String) := #[]
+  literals : Array (ValueId × CoreLiteral) := #[]
   stateNames : Array (StateId × String) := #[]
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option ProofForge.IR.ErrorRef) := #[]
+  nearHostStrings : Array String := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
   match env.values.find? (fun entry => entry.fst == id) with
@@ -180,7 +183,35 @@ private def lookupErrorRef (env : CorePlanEnv) (id : ErrorId) : Except PlanError
 private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : CorePlanEnv :=
   let values := instr.results.foldl
     (fun values result => values.push (result.id, s!"v{result.id.value}")) env.values
-  { env with values }
+  let literals := match instr.op, instr.results[0]? with
+    | .pure (.literal literal), some result => env.literals.push (result.id, literal)
+    | _, _ => env.literals
+  { env with values, literals }
+
+private def crosscallTargetExpr (env : CorePlanEnv) (target : ValueRef) : Except PlanError ExprPlan := do
+  let some (_, .addressLit poolIndex) := env.literals.find? (fun entry => entry.fst == target.id)
+    | valueExpr env target
+  let some index := poolIndex.toNat?
+    | valueExpr env target
+  let some host := env.nearHostStrings[index]?
+    | valueExpr env target
+  let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? host
+    | valueExpr env target
+  return .literalWord address
+
+private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except PlanError ExprPlan := do
+  let some (_, literal) := env.literals.find? (fun entry => entry.fst == method.id)
+    | valueExpr env method
+  let index? := match literal with
+    | .addressLit poolIndex | .stringLit poolIndex => poolIndex.toNat?
+    | _ => none
+  let some index := index?
+    | valueExpr env method
+  let some name := env.nearHostStrings[index]?
+    | valueExpr env method
+  let some selector := ProofForge.Target.ProtocolMaterialize.evmSelector? name
+    | valueExpr env method
+  return .literalWord selector
 
 /-- Compute the slot span for a Core state declaration.
 Mirrors the existing `stateSlotSpan` logic: scalar/map/dynamicArray = 1,
@@ -384,8 +415,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       let callValue? ← spec.value.mapM (valueExpr env)
       .ok #[StmtPlan.letBind (resultName instr) (coreTypeToValueType spec.returnType)
         (.crosscall mode
-          (← valueExpr env spec.target)
-          (← valueExpr env spec.method)
+          (← crosscallTargetExpr env spec.target)
+          (← crosscallMethodExpr env spec.method)
           callValue?
           argPlans
           (coreTypeToValueType spec.returnType))]
@@ -569,6 +600,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
       (fun symbol => (symbol.stateId, symbol.name))
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
+    nearHostStrings := checked.contract.materialization.nearHostStrings
   }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]
@@ -608,11 +640,21 @@ def buildFromCore (checked : CheckedCanonicalContract)
       | .storageLoad { path := #[.index _], .. }
       | .storageStore { path := #[.index _], .. } _ => true
       | _ => false
+  let usesHashWord := m.functions.any fun function => function.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .pure (.hash _) => true
+      | _ => false
+  let usesHashPair := m.functions.any fun function => function.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .pure (.hashTwoToOne ..) => true
+      | _ => false
   let helpers :=
     (if usesCheckedWidth then #[Helper.checkedWidth] else #[]) ++
     (if usesArrayAccess then #[Helper.arraySlot] else #[]) ++
     (if usesMapRead || usesMapWrite then #[Helper.mapSlot] else #[]) ++
-    (if usesMapWrite then #[Helper.mapPresenceSlot, Helper.mapWrite] else #[])
+    (if usesMapWrite then #[Helper.mapPresenceSlot, Helper.mapWrite] else #[]) ++
+    (if usesHashWord then #[Helper.hashWord] else #[]) ++
+    (if usesHashPair then #[Helper.hashPair] else #[])
   let mut crosscalls := #[]
   for function in m.functions do
     for block in function.blocks do
@@ -635,6 +677,12 @@ def buildFromCore (checked : CheckedCanonicalContract)
             unless crosscalls.contains helper do
               crosscalls := crosscalls.push helper
         | _ => pure ()
+  let dispatchDefault :=
+    if checked.contract.materialization.moduleProxyPattern? == some .uups ||
+        checked.contract.materialization.proxyPattern? == some .uups then
+      DispatchDefaultPlan.uupsProxy
+    else
+      DispatchDefaultPlan.revert
   .ok {
     name := iface.contractName
     targetPlan := capPlan
@@ -642,7 +690,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     helpers
     mapAssignOps := #[]
     entrypoints
-    dispatch := { entrypoints, default := .revert }
+    dispatch := { entrypoints, default := dispatchDefault }
     events
     crosscalls
     creates := #[]

@@ -42,9 +42,9 @@ Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具�
 
 | Target id | 管线 | 阶段 | 本地验证 |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental（广泛 CI 门禁；不是完整 Solidity SDK） | golden Yul、诊断、Foundry 运行时冒烟（35 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
-| `wasm-near` | portable IR → `EmitWat`（Wasm AST → WAT）→ `wat2wasm` | Experimental | 诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
+| `evm` | Surface v2 / Legacy adapter → canonical contract → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental（广泛 CI 门禁；不是完整 Solidity SDK） | golden Yul、canonical plan/artifact parity、诊断、Foundry 运行时冒烟（35 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
+| `solana-sbpf-asm` | Surface v2 / Legacy adapter → canonical contract → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity、Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
+| `wasm-near` | Surface v2 / Legacy adapter → canonical contract → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity、诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening |
 | `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just soroban-promotion`（源身份 · fail-closed · HostBridge · wat2wasm · offline-host 生命周期 · 文档）；auth 仍为 always-auth spike；Stellar CLI/TTL 为后续 |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just cosmwasm-promotion`（产品 Counter · offline-host 0→1 · 无 NEAR 偷换）；`execute_msg` 仍为 stub；fixture `cosmwasm-check` 见 `just cosmwasm-counter-smoke` |
 | `move-aptos` | portable IR → Aptos Move 源码包 | Counter sourcegen Spike | fixture Counter 包 + capability 检查；`just aptos-promotion` 是严格晋级门，要求 `aptos move compile/test`，不作为默认最终制品证据 |
@@ -76,6 +76,7 @@ SPL Token / Token-2022 部署计划。
 just --list        # 所有 recipe
 just build         # lake build
 just product       # 产品主门禁：Examples/Product 多目标矩阵（CI required）
+just canonical-parity  # EVM/Solana/NEAR canonical 计划与制品 parity
 just check         # product + 后端静态门禁（Lean + Solana-light + NEAR + Psy + testkit + …）
 just evm-all       # 完整 EVM 门禁：示例编译、Foundry 冒烟、Anvil 部署
 just portable-counter-four-target-sdk  # EVM、Solana、NEAR、Sui 的 Counter SDK layout
@@ -113,6 +114,12 @@ lake env proof-forge emit --target wasm-cloudflare-workers --fixture counter --f
 [AGENTS.md](../../AGENTS.md)。
 
 ## 架构
+
+主要三目标先降低到已检查的 canonical contract，再进入现有目标语义计划。
+逻辑状态由 canonical 层拥有；物理 slot、账户偏移和线性内存地址由目标计划拥有。
+非语义 evidence 不得影响计划或制品。冻结的 Legacy adapter 只在一个发布版本的
+比较窗口内供测试使用，绝不是公开 fallback。另见[规范编译器架构](architecture.zh.md)
+和[规范后端接口](backend-interface.zh.md)。
 
 ```mermaid
 flowchart TB
@@ -176,6 +183,8 @@ flowchart TB
 ## 开发文档
 
 - [Development standards](../development-standards.md)
+- [规范编译器架构](architecture.zh.md)
+- [规范后端接口](backend-interface.zh.md)
 - [Validation gates](../validation-gates.md)
 - [Implementation backlog](../implementation-backlog.md) — 当前优先级是
   Workstream 24（合并收敛跟进）和 Workstream 25（形式化验证）。

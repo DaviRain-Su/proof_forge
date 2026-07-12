@@ -340,8 +340,15 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       /- Wasm locals are at most i64. The full u128 remains attached to the
       typed promise plan; this literal local is only its low word. -/
       return .literal (<- nearResult instr) (value % 18446744073709551616)
-  | .pure (.literal (.addressLit _)) | .pure (.literal (.stringLit _)) |
-    .pure (.literal (.bytesLit _)) | .pure (.literal (.hashLit _)) =>
+  | .pure (.literal (.addressLit value)) =>
+      let some handle := value.toNat?
+        | throw { message := s!"canonical NEAR address handle `{value}` is not numeric" }
+      if handle < 18446744073709551616 then
+        return .literal (<- nearResult instr) handle
+      else
+        throw { message := s!"canonical NEAR address handle `{value}` exceeds u64" }
+  | .pure (.literal (.stringLit _)) | .pure (.literal (.bytesLit _)) |
+    .pure (.literal (.hashLit _)) =>
       /- Non-numeric literals are metadata-only on NEAR; materialize as
       literal 0 so the plan is complete without adding a new op variant. -/
       return .literal (<- nearResult instr) 0

@@ -50,29 +50,80 @@
     i64.const 8192
     call $value_return
   )
-  (func $initialize (export "initialize")
+  (func $initialize (export "initialize") (local $pc i32) (local $v0 i64)
     i32.const 0
-    i32.const 5
-    i64.const 0
-    call $__pf_write_u64
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 0
+      i32.eq
+      if
+        i64.const 0
+        local.set $v0
+        i32.const 0
+        i32.const 5
+        local.get $v0
+        call $__pf_write_u64
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $increment (export "increment") (local $n i64)
-    i32.const 0
-    i32.const 5
-    call $__pf_read_u64
-    local.set $n
-    i32.const 0
-    i32.const 5
-    local.get $n
-    i64.const 1
-    i64.add
-    call $__pf_write_u64
+  (func $increment (export "increment") (local $pc i32) (local $v1 i64) (local $v2 i64) (local $v3 i64)
+    i32.const 1
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 1
+      i32.eq
+      if
+        i32.const 0
+        i32.const 5
+        call $__pf_read_u64
+        local.set $v1
+        i64.const 1
+        local.set $v2
+        local.get $v1
+        local.get $v2
+        i64.add
+        local.set $v3
+        local.get $v3
+        local.get $v1
+        i64.lt_u
+        if
+          unreachable
+        else
+        end
+        i32.const 0
+        i32.const 5
+        local.get $v3
+        call $__pf_write_u64
+        return
+      else
+      end
+      br 0
+    end
   )
-  (func $get (export "get")
-    i32.const 0
-    i32.const 5
-    call $__pf_read_u64
-    call $__pf_return_u64
+  (func $get (export "get") (local $pc i32) (local $v4 i64)
+    i32.const 2
+    local.set $pc
+    loop
+      local.get $pc
+      i32.const 2
+      i32.eq
+      if
+        i32.const 0
+        i32.const 5
+        call $__pf_read_u64
+        local.set $v4
+        local.get $v4
+        call $__pf_return_u64
+        return
+      else
+      end
+      br 0
+    end
   )
   (memory (export "memory") 1)
   (data (i32.const 0) "count")

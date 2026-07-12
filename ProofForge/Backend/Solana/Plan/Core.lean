@@ -115,7 +115,7 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
 
 /-- Build a default account plan for a Solana program.
 Phase 1: single account (account 0) holding all state. -/
-def coreDefaultAccounts (dataSize : Nat) (hasCrosscall : Bool) : Array SolanaAccountPlan :=
+def coreDefaultAccounts (dataSize : Nat) (hasCrosscall needsSender : Bool) : Array SolanaAccountPlan :=
   let state : SolanaAccountPlan := {
     name := "program_state"
     index := 0
@@ -123,7 +123,15 @@ def coreDefaultAccounts (dataSize : Nat) (hasCrosscall : Bool) : Array SolanaAcc
     writable := true
     owner := "BPFLoaderUpgradeable"
     dataSize := dataSize }
-  if hasCrosscall then
+  let authority : SolanaAccountPlan := {
+    name := "authority", index := 0, signer := true, writable := false,
+    owner := "any", dataSize := 0 }
+  let senderState := { state with index := 1 }
+  if needsSender && !hasCrosscall then
+    #[authority, senderState]
+  else if dataSize == 0 && !hasCrosscall then
+    #[]
+  else if hasCrosscall then
     #[state,
       { name := "payer", index := 1, signer := true, writable := true, owner := "any", dataSize := 0 },
       { name := "peer_program", index := 2, signer := false, writable := false,
@@ -140,6 +148,12 @@ private def coreHasCrosscall (m : ProofForge.IR.Core.Module) : Bool :=
       | .crosscall .. => true
       | _ => false
 
+private def coreNeedsSender (m : ProofForge.IR.Core.Module) : Bool :=
+  m.functions.any fun fn => fn.blocks.any fun block =>
+    block.instructions.any fun instruction => match instruction.op with
+      | .contextRead .sender | .contextRead .origin => true
+      | _ => false
+
 /-- Build an empty extensions plan. -/
 def coreEmptyExtensions : SolanaExtensionPlan := SolanaExtensionPlan.empty
 
@@ -151,7 +165,7 @@ def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
   stateFieldOffsets := stateFields.map (fun f => (f.id, f.absOff))
   structs := #[]
   stateDecls := #[]
-  inputLayout := computeInputLayoutWithReallocFlags (accounts.map fun account => (account.dataSize, false))
+  inputLayout := computeInputLayoutWithReallocFlags (accounts.map fun account => (account.dataSize, true))
   manifestAccounts := accounts.map fun account => {
     name := account.name, index := account.index, signer := account.signer,
     writable := account.writable, owner := account.owner }
@@ -232,6 +246,8 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
   | .pure (.arithmetic op mode lhs rhs) =>
       return .arithmetic (<- resultPlan instr) (arithmeticPlan op) (mode == .checked)
         (valuePlan lhs) (valuePlan rhs)
+  | .pure (.cast _ value) =>
+      return .copy (<- resultPlan instr) (valuePlan value)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- resultPlan instr) (comparePlan op) (valuePlan lhs) (valuePlan rhs)
   | .storageLoad ref =>
@@ -303,7 +319,15 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let iface := checked.contract.interface
   /- Compute account data size and layout. -/
   let dataSize <- coreModuleDataSize m
-  let (acctDataOff, _) := computeSingleAccountLayout dataSize
+  let hasCrosscall := coreHasCrosscall m
+  let needsSender := coreNeedsSender m
+  let accounts := coreDefaultAccounts dataSize hasCrosscall needsSender
+  let inputLayout := computeInputLayoutWithReallocFlags
+    (accounts.map fun account => (account.dataSize, true))
+  let stateAccountIndex := if needsSender && !hasCrosscall then 1 else 0
+  let acctDataOff ← match inputLayout.accounts[stateAccountIndex]? with
+    | some layout => pure layout.dataStart
+    | none => if dataSize == 0 then pure 0 else throw { message := "canonical Solana state account layout is missing" }
   /- Build state field plans from Core state declarations. -/
   let stateFields <- coreStateFields m acctDataOff
   /- Build entrypoint plans from interface. -/
@@ -314,12 +338,18 @@ def buildFromCore (checked : CheckedCanonicalContract)
     entrypoints := entrypoints.push epPlan
     tag := tag + 1
   /- Build accounts and extensions. -/
-  let hasCrosscall := coreHasCrosscall m
-  let accounts := coreDefaultAccounts dataSize hasCrosscall
   let extensions := coreEmptyExtensions
   /- Build lower context seed from resolved plan fields. -/
   let seed := coreLowerCtxSeed stateFields accounts
-  let calleeAccountIndex := if hasCrosscall then 4 else 0
+  let calleeAccountIndex :=
+    if hasCrosscall then
+      match accounts.find? (fun account => account.name == "peer_program") with
+      | some account => account.index
+      | none =>
+          match accounts.find? (fun account => account.name == "callee_program") with
+          | some account => account.index
+          | none => 0
+    else 0
   let functions <- m.functions.mapM (lowerFunctionPlan stateFields calleeAccountIndex iface)
   .ok {
     targetId := "solana-sbpf-asm"

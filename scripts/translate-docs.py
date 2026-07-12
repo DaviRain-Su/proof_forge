@@ -74,6 +74,8 @@ DOC_MAP: dict[str, str] = {
     "docs/implementation-backlog.md": "docs/zh/implementation-backlog.zh.md",
     "docs/review-checklist.md": "docs/zh/review-checklist.zh.md",
     "docs/development-standards.md": "docs/zh/development-standards.zh.md",
+    "docs/architecture.md": "docs/zh/architecture.zh.md",
+    "docs/backend-interface.md": "docs/zh/backend-interface.zh.md",
     "docs/validation-gates.md": "docs/zh/validation-gates.zh.md",
     "docs/rfcs/README.md": "docs/zh/rfcs-README.zh.md",
     "docs/rfcs/0001-multichain-platform.md": "docs/zh/rfcs/0001-multichain-platform.zh.md",
