@@ -54,3 +54,22 @@ Rules:
 - Documentation: `AGENTS.md`, `docs/implementation-log.md`,
   `docs/document-status.md`, `docs/INDEX.md`, and
   `docs/development-standards.md`.
+
+## 2026-07-12 - A1/D1: Isolate Solana grammar ownership
+
+- Status: `done (verified at c1433b2e)`
+- Commit: implementation `52402821`; review repair `c1433b2e`
+- Result: moved Solana account, allocator, PDA, CPI, realloc, and transfer-hook
+  grammar out of portable `Contract.Source` and into `Contract.Source.Solana`.
+  The review repair added positive Solana elaboration/IR intent pins and made
+  the isolation gate part of the required product aggregate.
+- Interfaces: `ProofForge.Contract.Source`,
+  `ProofForge.Contract.Source.Solana`, `source-dsl-isolation`, and Gate A1-1.
+- Verification: `just source-dsl-isolation`, `just portable-default`,
+  `just solana-light`, `just product`, and `git diff --check` passed. The
+  Solana suite covered source fixtures, PDA, CPI, realloc, plans, artifacts,
+  and Pinocchio reference-equivalence.
+- Remaining: none for A1/D1; Gate A1 remains open for A1-2 through A1-6.
+- Documentation: `AGENTS.md`, current implementation plan,
+  `docs/implementation-backlog.md`, `docs/gate-status.md`, and
+  `docs/legacy-replacement-ledger.md`.

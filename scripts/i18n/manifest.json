@@ -61,7 +61,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "2774a6676d67ad163a46f75542dd6dc7947c362a30064b773cb2172c025b525e",
+    "sha256": "ae53ac3f70a9ab418f1a6e74372eaa320448cdf15f72125cbe8173cefa134ee6",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
@@ -90,7 +90,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "665bf9d4698dbc47bc365db4d55e908971926c9c2f28993f3eb39bd64f6678a8",
+    "sha256": "3eb946ada26b648e143b5f365e18d8490446333347a88681c98650587d8e0b1b",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "manually synced for canonical gates, CI order, and rollback window"
@@ -168,10 +168,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/gate-status.md": {
-    "sha256": "a415e610e6483671ac2cec6906d5d9ac7fbfca52267e28cae1ab92f04b1adc47",
+    "sha256": "e5205644450574e8107565252b6b1f852ae15d9fac11aca50eb6ba9d547a2d38",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "a415e610e6483671ac2cec6906d5d9ac7fbfca52267e28cae1ab92f04b1adc47"
+    "en_sha256": "e5205644450574e8107565252b6b1f852ae15d9fac11aca50eb6ba9d547a2d38"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
   "docs/tutorials/portable-shared-path.md": {

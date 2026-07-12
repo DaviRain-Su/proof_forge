@@ -18,7 +18,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 所需证据 |
 |---|---|---|---|
-| A1-1 | 从 portable `Source` 隔离 Solana 语法 | pending | 隔离测试与不变的 Solana 门禁 |
+| A1-1 | 从 portable `Source` 隔离 Solana 语法 | ✅ met | `52402821` 移动语法；`c1433b2e` 固定 portable 拒绝与 Source.Solana account/PDA/CPI/realloc IR intent；`just solana-light` 和 `just product` 通过 |
 | A1-2 | 目标中立的 Intent materializer registry | pending | 防重复 registry；frontend 不按 target 分支 |
 | A1-3 | 最小 NFT intent 与实现契约 | pending | intent 校验与三个经过审查的候选实现 |
 | A1-4 | 主三链严格 NFT 物化 | pending | canonical 校验与 target plan |

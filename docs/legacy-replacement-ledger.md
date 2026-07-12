@@ -4,7 +4,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 
 | Boundary ID | Legacy entry | Replacement | State | Trigger | Removal condition | Evidence |
 |---|---|---|---|---|---|---|
-| D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | inventoried | A1 | portable reject + Solana parity | pending |
+| D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + Solana positive IR pins + Solana parity | `52402821`, review repair `c1433b2e` |
 | D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | inventoried | A2-A6 | each product family switched | pending |
 | D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | inventoried | A5/B2 | advertised fragments strict by default | pending |
 | D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | inventoried | A6 | build/emit/check native | pending |
@@ -28,9 +28,14 @@ reproducible positive and negative gates.
 - **Legacy:** Solana-specific `declare_syntax_cat` and `scoped syntax` productions in `ProofForge/Contract/Source.lean`
 - **Replacement:** `ProofForge/Contract/Source/Solana.lean` owns all Solana-only syntax
 - **Trigger:** A1 (Isolate Solana Grammar Ownership)
-- **Parity:** `just portable-default` (portable rejects Solana forms) + `just solana-light` (Solana fixtures compile)
-- **Current evidence:** A1 committed at `52402821`; `Tests/SourceDslIsolation.lean` passes
-- **Next state:** `removed` after D1 closes the guard
+- **Parity:** `Tests/SourceDslIsolation.lean` rejects Solana forms through the
+  portable import; `Tests/SourceDslSolanaAcceptance.lean` pins account, PDA,
+  CPI, and realloc `ContractSpec` intents; `just solana-light` preserves Solana
+  fixtures; `just product` carries the aggregate regression gate.
+- **Current evidence:** grammar move `52402821`; review repair and aggregate
+  gate `c1433b2e`.
+- **State:** `removed`. Portable Source no longer owns this grammar and the
+  required product gate prevents reintroduction.
 
 ## D2-product-spec
 
