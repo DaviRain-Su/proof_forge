@@ -130,12 +130,12 @@
 **Interfaces:**
 - Produces: one NFT input compiled to three target artifact/SDK bundles.
 
-- [ ] Pin CLI parsing, target resolution, standard metadata, relative artifact references, and rejection diagnostics.
-- [ ] Reuse generic TokenSpec loader/artifact patterns without duplicating target emitters.
+- [x] Pin CLI parsing, target resolution, standard metadata, relative artifact references, and rejection diagnostics.
+- [x] Reuse generic TokenSpec loader/artifact patterns without duplicating target emitters.
 - [ ] Add lifecycle smoke coverage for mint, owner/balance, authorized transfer, unauthorized rejection, and duplicate mint.
-- [ ] Add the smoke to `just product` only after all primary targets pass.
-- [ ] Run focused tests, the multi-target script, `just product`, `just check`, and `git diff --check`.
-- [ ] Commit with `git commit -m "feat(product): add portable NFT primary-triad route"`.
+- [x] Add the smoke to `just product` only after all primary targets pass.
+- [x] Run focused tests, the multi-target script, `just product`, `just check`, and `git diff --check`.
+- [x] Commit with `git commit -m "feat(product): add portable NFT primary-triad route"`.
 
 ## Workstream B: Wasm-Host Promotion
 
