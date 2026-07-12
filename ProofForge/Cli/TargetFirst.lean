@@ -150,6 +150,19 @@ def targetFirstYulOutput? (target flag : String) (out? yulOut? : Option String) 
         none
   | none, none => none
 
+def resolveBuildRequest (state : NewCommandParseState) : Except String (String × BuildRequest) := do
+  let target ← match state.target? with
+    | some t => Except.ok t
+    | none => Except.error "build requires --target <id>"
+  let req : BuildRequest := {
+    input? := state.input?
+    fixture? := state.fixture?
+    format? := state.format?
+    token := state.token
+    nft := state.nft
+  }
+  Except.ok (target, req)
+
 /-- Build legacy flag via registry-backed `TargetCliDriver` (PF-P1-01). -/
 def buildLegacyFlag (target : String) (input? : Option String) (fixture? : Option String := none)
     (format? : Option String := none) (token : Bool := false) (nft : Bool := false) : Except String String :=
