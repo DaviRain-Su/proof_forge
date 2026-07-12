@@ -210,6 +210,7 @@ mutual
     | .nearPromiseResultsCount => events
     | .nearPromiseResultStatus index => collectExprEvents events index
     | .nearPromiseResultU64 index => collectExprEvents events index
+    | .nearPromiseResultU128 index => collectExprEvents events index
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
         let events₁ := collectExprEvents events accountIndex
         let events₂ := collectExprEvents events₁ methodId

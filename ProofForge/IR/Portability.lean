@@ -99,6 +99,9 @@ mutual
     | .nearPromiseResultU64 index =>
         #[finding path "nearPromiseResultU64" (.targetFamilyOnly .wasmHost)] ++
           classifyExpr s!"{path}.index" index
+    | .nearPromiseResultU128 index =>
+        #[finding path "nearPromiseResultU128" (.targetFamilyOnly .wasmHost)] ++
+          classifyExpr s!"{path}.index" index
     | .crosscallInvoke target methodId args =>
         #[finding path "crosscall.invoke" .familyShared] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++

@@ -769,6 +769,11 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .normalize
         owner := "near-adapter"
         reason := "NEAR promise result U64 normalizes to a versioned HostOp" }
+  | .nearPromiseResultU128 _ =>
+      { nodeTag := "Expr.nearPromiseResultU128"
+        disposition := .normalize
+        owner := "near-adapter"
+        reason := "NEAR promise result U128 normalizes to a versioned HostOp" }
   | .effect _ =>
       { nodeTag := "Expr.effect"
         disposition := .normalize

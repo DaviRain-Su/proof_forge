@@ -377,6 +377,9 @@ def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (d
 def nearPromiseResultU64 (index : Expr) : Expr :=
   .nearPromiseResultU64 index
 
+def nearPromiseResultU128 (index : Expr) : Expr :=
+  .nearPromiseResultU128 index
+
 def nearAddressLit (idx : Nat) : Expr :=
   .literal (.address idx)
 

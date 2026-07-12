@@ -68,6 +68,7 @@ partial def canDuplicateExpr : Expr → Bool
   | .nearPromiseResultsCount
   | .nearPromiseResultStatus _
   | .nearPromiseResultU64 _
+  | .nearPromiseResultU128 _
   | .effect _ => false
 
 def exprReturnsNearPromise : Expr → Bool

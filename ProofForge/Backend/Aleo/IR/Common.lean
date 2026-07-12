@@ -210,7 +210,7 @@ mutual
     | .structLit _ fields =>
         fields.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {}
     | .field base _ | .cast base _ | .boolNot base | .hash base
-    | .nearPromiseResultStatus base | .nearPromiseResultU64 base => analyzeExpr base
+    | .nearPromiseResultStatus base | .nearPromiseResultU64 base | .nearPromiseResultU128 base => analyzeExpr base
     | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _
     | .div lhs rhs | .mod lhs rhs | .pow lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
@@ -390,6 +390,7 @@ mutual
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => effectExprIn p i
     | .nearPromiseResultU64 i => effectExprIn p i
+    | .nearPromiseResultU128 i => effectExprIn p i
     | .nearCrosscallInvokePool accountIndex methodId args deposit =>
         effectExprIn p accountIndex || effectExprIn p methodId || effectExprIn p deposit ||
           args.any (effectExprIn p ·)

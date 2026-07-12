@@ -118,6 +118,14 @@ def nearPromiseResultStatusSig : HostOpSig := {
   requiredCapabilities := #[.nearPromise]
 }
 
+def nearPromiseResultU128Sig : HostOpSig := {
+  id := { namespace_ := "near.promise", name := "result_u128", version := { major := 1, minor := 0, patch := 0 } },
+  params := #[.u64],
+  results := #[.u128],
+  effectClass := .external,
+  requiredCapabilities := #[.nearPromise]
+}
+
 /-- The canonical host-op catalog containing all registered host operations.
 Currently only `near.promise.create@1.0.0`. -/
 def canonicalHostOpCatalog : HostOpCatalog :=
@@ -125,7 +133,9 @@ def canonicalHostOpCatalog : HostOpCatalog :=
   | .ok cat => match cat.register nearPromiseResultU64Sig with
     | .ok cat => match cat.register nearPromiseResultsCountSig with
       | .ok cat => match cat.register nearPromiseResultStatusSig with
-        | .ok cat => cat
+        | .ok cat => match cat.register nearPromiseResultU128Sig with
+          | .ok cat => cat
+          | .error _ => HostOpCatalog.empty
         | .error _ => HostOpCatalog.empty
       | .error _ => HostOpCatalog.empty
     | .error _ => HostOpCatalog.empty

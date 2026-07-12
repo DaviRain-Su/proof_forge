@@ -66,7 +66,7 @@ where
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
     | .nearPromiseThen a b args d =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => pushExpr acc a
+    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => pushExpr acc a
     | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => acc
   pushEffect (acc : Array ContextField) : Effect → Array ContextField
     | .contextRead f => pushUnique acc f
@@ -121,7 +121,7 @@ where
     | .eip712PermitDigest a b c d e f =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => exprUses a
+    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i

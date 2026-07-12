@@ -273,7 +273,8 @@ mutual
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
+    | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _ =>
         .error { message := "NEAR promise API is not supported by Leo IR v0" }
     | .effect effect => inferEffectExprType module env effect
 

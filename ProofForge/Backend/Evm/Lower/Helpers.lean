@@ -185,7 +185,7 @@ mutual
           (← crosscallHelperSpecsFromExpr module env callValue)
           (← crosscallHelperSpecsFromExpr module env salt))
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => .ok #[]
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => .ok #[]
     | .effect effect =>
         crosscallHelperSpecsFromEffect module env effect
 
@@ -699,7 +699,7 @@ mutual
         let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
         pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => #[]
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => #[]
     | .effect effect =>
         createHelperSpecsFromEffect effect
 
@@ -862,7 +862,7 @@ mutual
         let nested := mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-    | .crosscallCreate callValue _ | .nearPromiseResultStatus callValue | .nearPromiseResultU64 callValue =>
+    | .crosscallCreate callValue _ | .nearPromiseResultStatus callValue | .nearPromiseResultU64 callValue | .nearPromiseResultU128 callValue =>
         abiPackedHelperSpecsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr callValue) (abiPackedHelperSpecsFromExpr salt)

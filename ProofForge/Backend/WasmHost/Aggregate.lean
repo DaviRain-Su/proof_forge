@@ -85,6 +85,7 @@ mutual
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => collectArrayLitsExpr index
     | .nearPromiseResultU64 index => collectArrayLitsExpr index
+    | .nearPromiseResultU128 index => collectArrayLitsExpr index
     | .effect eff => collectArrayLitsEffect eff
 
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
@@ -163,6 +164,7 @@ mutual
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => collectStructLitsExpr index
     | .nearPromiseResultU64 index => collectStructLitsExpr index
+    | .nearPromiseResultU128 index => collectStructLitsExpr index
     | .effect eff => collectStructLitsEffect eff
 
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=

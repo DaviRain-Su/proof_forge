@@ -213,7 +213,7 @@ where
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
     | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => exprUses target
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => exprUses a
+    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
@@ -290,7 +290,7 @@ partial def moduleUsesNearAsyncExtension (module : Module) : Bool :=
 where
   exprUses : Expr → Bool
     | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => true
+    | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => true
     | .nearCrosscallInvokePool .. => false  -- still promise_create shaped
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b

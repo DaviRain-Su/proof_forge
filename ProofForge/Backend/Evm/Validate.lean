@@ -215,7 +215,8 @@ mutual
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
+    | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _ =>
         .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
@@ -976,6 +977,7 @@ mutual
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
+    | .nearPromiseResultU128 i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

@@ -35,7 +35,7 @@ mutual
     | .crosscallCreate .. | .crosscallCreate2 .. | .crosscallNamed .. =>
         #["non-static crosscall"]
     | .nearCrosscallInvokePool .. | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus .. | .nearPromiseResultU64 .. =>
+    | .nearPromiseResultStatus .. | .nearPromiseResultU64 .. | .nearPromiseResultU128 .. =>
         #["promise operation"]
     | .effect effect => effectViolations effect
 

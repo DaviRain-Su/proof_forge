@@ -44,8 +44,26 @@ def promiseResultU64Func : Func :=
       ] } { insns := #[] },
       .localGet "r" ] } }
 
+def promiseResultU128Name : String := "__pf_promise_result_u128"
+
+/-! `__pf_promise_result_u128(idx)`: void. Reads the promise result at `idx`
+    into PROMISE_RESULT_BUF as 16 little-endian bytes (zeros on failure); the
+    caller reloads (lo, hi). Two-word u128 convention. -/
+def promiseResultU128Func : Func :=
+  { name := promiseResultU128Name,
+    params := #[{ name := "idx", type := .i64 }],
+    results := #[],
+    locals := #[{ name := "status", type := .i64 }],
+    body := { insns := #[
+      .i32Const PROMISE_RESULT_BUF, .i64Const 0, .store "i64.store" 0,
+      .i32Const (PROMISE_RESULT_BUF + 8), .i64Const 0, .store "i64.store" 0,
+      .localGet "idx", .i64Const 0, .call "promise_result", .localSet "status",
+      .localGet "status", .i64Const 1, .plain "i64.eq",
+      .if_ { insns := #[.i64Const 0, .i64Const PROMISE_RESULT_BUF, .call "read_register"] }
+        { insns := #[] } ] } }
+
 def promiseHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]) ++
-    (if plan.usesPromiseResultU64 then #[promiseResultU64Func] else #[])
+    (if plan.usesPromiseResultU64 then #[promiseResultU64Func, promiseResultU128Func] else #[])
 
 end ProofForge.Backend.WasmHost.Promise

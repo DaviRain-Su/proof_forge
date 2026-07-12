@@ -567,7 +567,7 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => pure collector
+    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
   partial def collectEventPlansFromEffect
@@ -820,6 +820,7 @@ mutual
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus i => localArrayGetLengthsExpr env i
     | .nearPromiseResultU64 i => localArrayGetLengthsExpr env i
+    | .nearPromiseResultU128 i => localArrayGetLengthsExpr env i
     | .effect effect =>
         localArrayGetLengthsEffect env effect
 
@@ -1015,6 +1016,7 @@ mutual
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus i => nestedLocalArrayGetShapesExpr env i
     | .nearPromiseResultU64 i => nestedLocalArrayGetShapesExpr env i
+    | .nearPromiseResultU128 i => nestedLocalArrayGetShapesExpr env i
     | .effect effect =>
         nestedLocalArrayGetShapesEffect env effect
 

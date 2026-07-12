@@ -179,6 +179,7 @@ mutual
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _
     | .nearCrosscallInvokePool _ _ _ _ =>
         throw "EmitTS: NEAR promise expressions are unsupported"
 

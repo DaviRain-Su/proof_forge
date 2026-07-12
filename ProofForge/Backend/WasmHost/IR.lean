@@ -161,7 +161,8 @@ mutual
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
+    | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _ =>
         .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 

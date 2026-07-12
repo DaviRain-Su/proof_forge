@@ -478,6 +478,7 @@ mutual
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
+    | .nearPromiseResultU128 i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

@@ -953,6 +953,23 @@ Rules:
   build is temporarily blocked by the concurrent NEAR `nearPromiseResultU128`
   addition missing exhaustive cases in shared non-Stylus modules.
 
+## 2026-07-13 - Stylus direct remote-call HostIO foundation
+
+- Status: `done for static args/u64 return; advanced lifecycle pending`
+- Added the pinned official `call_contract`, `static_call_contract`,
+  `delegate_call_contract`, and `read_return_data` imports. Direct lowering
+  hashes the plan-owned canonical signature, emits the selector and static ABI
+  words, applies optional gas, and validates a 32-byte u64 result.
+- Callee failure copies and returns the exact revert payload. Oversized and
+  malformed successful return data fail closed with named diagnostics.
+- The VM runner now accepts deterministic `--mock-call ADDRESS=STATUS:HEX`
+  bindings and traces target, calldata, value, gas, status, and return bytes.
+  Runtime vectors cover all three modes, two-u64 calldata, success, and revert.
+- The real `Examples.Product.RemoteCall` passes canonical envelope assertions;
+  the direct executable vectors use the same plan contract without depending
+  on Nitro. Value calls, dynamic returns, reentrancy/cache transitions, and
+  two-contract Nitro execution remain pending.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
@@ -1247,3 +1264,27 @@ Rules:
   `manifest.py --check` + `check_equivalence.py` (116 recipes).
 - Next: Phase 2 (NearFungibleToken u64→u128). Remaining plumbing: u128 promise
   result read (`nearPromiseResultU128`, binary) for `ft_resolve_transfer`.
+
+## 2026-07-13 - Phase 1.3 done: nearPromiseResultU128 + full u128 surface coverage
+
+- Status: `done (verified on real NEAR VM)`
+- Result. Added the last u128 surface the FT needs — promise-result decode:
+  new IR expr `nearPromiseResultU128`, `nearPromiseResultU128Sig` HostOp,
+  `__pf_promise_result_u128(idx)` (void; zero-extends PROMISE_RESULT_BUF then
+  reads the result register; caller reloads lo/hi), `Builder`/`Surface` sugar,
+  and the legacy-adapter lowering. The new `Expr` constructor required a
+  cross-backend exhaustiveness sweep (~20 match sites across EVM/Solana/Aleo/
+  Psy/Wasm-host/TS/IR — each mirrors `nearPromiseResultU64`, mostly rejecting
+  on non-NEAR backends).
+- With this, u128 is coherent across every surface `NearFungibleToken` touches:
+  params, locals, literals, arithmetic, scalar + map storage, comparison,
+  Borsh return, decimal formatting (events/crosscall), and promise results.
+- Evidence. `U128PromiseResultProbe.read_result` returns `nearPromiseResultU128
+  0`; on the unmodified NEAR VM with `--promise-result-u64 42` it returns u128
+  42 (`2a000000000000000000000000000000`).
+- Verification (all passed): the promise-result probe; `near-vm-u128-scalar`,
+  `near-vm-u128-map`, `near-u128-fmt-smoke`, `near-vm-conformance-ft`,
+  `near-vm-conformance`, `wasm-near-plan`, `near-ft-security`,
+  `portable-default`, `evm-plan`; full `lake build proof-forge` (792 jobs).
+- Next: Phase 2 — convert `NearFungibleToken` amounts u64→u128 (now
+  unblocked).

@@ -280,6 +280,7 @@ mutual
     | nearPromiseResultStatus (index : Expr)
     /-- NEAR host-extension only: Borsh-decoded U64 payload from promise result at `index`. -/
     | nearPromiseResultU64 (index : Expr)
+    | nearPromiseResultU128 (index : Expr)
     | effect (effect : Effect)
     deriving Repr, BEq
 
@@ -667,6 +668,7 @@ mutual
     | .nearPromiseResultsCount => #[.nearPromise]
     | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
     | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
+    | .nearPromiseResultU128 index => #[.nearPromise] ++ index.capabilities
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

@@ -743,6 +743,7 @@ mutual
     | .nearPromiseResultsCount => #[]
     | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .nearPromiseResultU64 index => contextOpsFromExpr index
+    | .nearPromiseResultU128 index => contextOpsFromExpr index
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=

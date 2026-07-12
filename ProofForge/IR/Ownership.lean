@@ -185,6 +185,7 @@ mutual
     | _ + 1, _, _, .nearPromiseResultsCount => pure ()
     | fuel + 1, entrypoint, env, .nearPromiseResultStatus index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearPromiseResultU64 index => checkExprFuel fuel entrypoint env index
+    | fuel + 1, entrypoint, env, .nearPromiseResultU128 index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit => do
         checkExprFuel fuel entrypoint env accountIndex
         checkExprFuel fuel entrypoint env methodId

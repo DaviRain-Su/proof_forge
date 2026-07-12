@@ -491,6 +491,7 @@ mutual
     | .nearPromiseResultsCount => .ok #[]
     | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .nearPromiseResultU64 index => contextOpsFromExpr index
+    | .nearPromiseResultU128 index => contextOpsFromExpr index
     | .effect effect =>
         contextOpsFromEffect effect
 
@@ -755,6 +756,8 @@ mutual
     | .nearPromiseResultStatus index =>
         return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResults
     | .nearPromiseResultU64 index =>
+        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
+    | .nearPromiseResultU128 index =>
         return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
     | .effect effect =>
         surfaceFromEffect module env effect

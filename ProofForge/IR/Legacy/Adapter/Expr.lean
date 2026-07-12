@@ -225,6 +225,7 @@ def exprTag (e : Expr) : String :=
   | .nearPromiseResultsCount => "Expr.nearPromiseResultsCount"
   | .nearPromiseResultStatus _ => "Expr.nearPromiseResultStatus"
   | .nearPromiseResultU64 _ => "Expr.nearPromiseResultU64"
+  | .nearPromiseResultU128 _ => "Expr.nearPromiseResultU128"
   | .effect _ => "Expr.effect"
 
 /- Stable constructor tag for effects. -/
@@ -589,6 +590,13 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         id := ProofForge.IR.Core.HostOp.nearPromiseResultU64Sig.id
         args := #[normalizedIndex.value]
       }) .u64
+      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
+  | .nearPromiseResultU128 index => do
+      let normalizedIndex ← normalizeExpr index
+      let result ← emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearPromiseResultU128Sig.id
+        args := #[normalizedIndex.value]
+      }) .u128
       return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
 
 end ProofForge.IR.Legacy.Adapter

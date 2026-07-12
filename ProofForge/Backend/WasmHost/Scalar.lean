@@ -176,7 +176,7 @@ mutual
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars i
     | .field base _ | .cast base _ | .boolNot base | .hash base
     | .memoryArrayLength base | .memoryArrayNew _ base
-    | .nearPromiseResultStatus base | .nearPromiseResultU64 base =>
+    | .nearPromiseResultStatus base | .nearPromiseResultU64 base | .nearPromiseResultU128 base =>
         exprReadsPackedScalar scalars base
     | .structLit _ fields => fields.any (fun f => exprReadsPackedScalar scalars f.snd)
     | .hashValue a b c d =>

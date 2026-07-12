@@ -437,6 +437,7 @@ mutual
     | .nearPromiseResultsCount => .ok .u64
     | .nearPromiseResultStatus _ => .ok .u64
     | .nearPromiseResultU64 _ => .ok .u64
+    | .nearPromiseResultU128 _ => .ok .u128
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType

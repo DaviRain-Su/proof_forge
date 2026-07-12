@@ -1195,6 +1195,7 @@ mutual
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _
     | .nearCrosscallInvokePool _ _ _ _ =>
         .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => do

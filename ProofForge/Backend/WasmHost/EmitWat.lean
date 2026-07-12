@@ -227,7 +227,7 @@ export ProofForge.Backend.WasmHost.Params (
 )
 
 export ProofForge.Backend.WasmHost.Promise (
-  promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name
+  promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name promiseResultU128Name
   promiseResultU64Func promiseHelperFuncsForModulePlan
 )
 
@@ -825,6 +825,14 @@ mutual
       else do
         let indexInsns ← lowerNearPromiseResultIndex ctx env index
         .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
+    | .nearPromiseResultU128 index =>
+      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
+      else do
+        let indexInsns ← lowerNearPromiseResultIndex ctx env index
+        -- promiseResultU128 is void (stages PROMISE_RESULT_BUF); reload lo/hi.
+        .ok (indexInsns ++ #[.call promiseResultU128Name,
+          .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0,
+          .i32Const (PROMISE_RESULT_BUF + 8), .load "i64.load" 0], .u128)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerMatchingNumericOperands (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)

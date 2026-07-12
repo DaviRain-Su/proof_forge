@@ -497,6 +497,9 @@ def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr) (args : 
 def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.nearPromiseResultU64 index
 
+def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearPromiseResultU128 index
+
 def cast (value : ProofForge.IR.Expr) (target : ValueType) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.cast value target
 

@@ -475,7 +475,8 @@ mutual
     | .nearCrosscallInvokePool _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
+    | .nearPromiseResultU64 _
+    | .nearPromiseResultU128 _ =>
         .error { message := "NEAR promise API is not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
@@ -894,6 +895,7 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .nearPromiseResultsCount
   | .nearPromiseResultStatus _
   | .nearPromiseResultU64 _
+  | .nearPromiseResultU128 _
   | .effect _ => false
 
 partial def exprSupportsPlanCrosscallArgYul : ProofForge.IR.Expr → Bool
