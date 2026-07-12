@@ -35,7 +35,7 @@ July 12 implementation plan.
 | A2 | Add `IntentContract` and materializer registry | done (review repaired) | duplicate-safe registry; checked target result; no frontend target dispatch |
 | A3 | Define target-neutral `NFTSpec` | done (review repaired) | identity and feature conflicts validated; asset model preserved before target selection |
 | A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | done (review repaired) | executable minimal lifecycle and explicit compliance limits |
-| A5 | Materialize NFT intent on the primary triad | in progress (EVM/NEAR strict; Solana blocked) | Solana canonical plan must support 32-byte hash/address hashing without advisory fallback |
+| A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
 | A6 | Open NFT CLI/product/runtime route | pending | one input produces three honest bundles and lifecycle evidence |
 | B1 | Extract neutral Wasm-host plan and ABI | pending after A6 | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | pending after B1 | adapter/validator/HostOp/builder errors fail closed |

@@ -173,6 +173,19 @@ Rules:
   named `just nft-materialization` gate pins both strict successes and the exact
   remaining blocker so advisory success cannot be mistaken for completion.
 
+### A5 Solana strict closure
+
+- Added the canonical Solana `hashAccount0` plan node for
+  `hash(contextRead sender/origin)` only; arbitrary address hashing remains
+  fail closed.
+- Lowering hashes all four 64-bit words of account[0]'s public key through
+  `sol_sha256`, checks the syscall result, and stores digest limb 0 according
+  to the existing portable identity-handle convention.
+- Numeric hash literals such as the zero-map sentinel are accepted explicitly;
+  non-numeric hash literals remain rejected.
+- The A5 gate now requires strict success on all three primary targets and
+  inspects the generated hash lowering for full-width loads and syscall use.
+
 ### A2 review repair
 
 - Added the promised `resolveIntentMaterializer` public API and the checked

@@ -242,6 +242,7 @@ private def comparePlan : CompareOp -> SolanaComparePlan
 
 private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
     (events : Array InterfaceEvent) (calleeAccountIndex : Nat)
+    (accountContextValues : Array Nat)
     (instr : Instruction) : Except PlanError SolanaOpPlan := do
   match instr.op with
   | .pure (.literal (.boolLit value)) => return .boolLiteral (<- resultPlan instr) value
@@ -252,6 +253,10 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
       match value.toNat? with
       | some word => return .literal (<- resultPlan instr) word
       | none => throw { message := "non-numeric address literals are not yet materialized by the Solana Core plan" }
+  | .pure (.literal (.hashLit value)) =>
+      match value.toNat? with
+      | some word => return .literal (<- resultPlan instr) word
+      | none => throw { message := "non-numeric hash literals are not yet materialized by the Solana Core plan" }
   | .pure (.literal (.stringLit value)) =>
       match value.toNat? with
       | some word => return .literal (<- resultPlan instr) word
@@ -263,6 +268,11 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
       return .copy (<- resultPlan instr) (valuePlan value)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- resultPlan instr) (comparePlan op) (valuePlan lhs) (valuePlan rhs)
+  | .pure (.hash value) =>
+      if accountContextValues.contains value.id.value then
+        return .hashAccount0 (<- resultPlan instr)
+      else
+        throw { message := "canonical Solana hash(address) requires a sender/origin context source" }
   | .storageLoad ref =>
       let field <- stateField fields ref.root
       match ref.path with
@@ -303,7 +313,14 @@ private def lowerFunctionPlan (fields : Array SolanaStateFieldPlan)
     | some ep => pure ep
     | none => throw { message := s!"missing Solana interface entrypoint for function {fn.id.value}" }
   let blocks <- fn.blocks.mapM fun block => do
-    let ops <- block.instructions.mapM (lowerInstructionPlan fields iface.events calleeAccountIndex)
+    let accountContextValues := block.instructions.filterMap fun instr =>
+      match instr.op, instr.results[0]? with
+      | .contextRead field, some result =>
+          let name := reprStr field
+          if name.endsWith "sender" || name.endsWith "origin" then some result.id.value else none
+      | _, _ => none
+    let ops <- block.instructions.mapM
+      (lowerInstructionPlan fields iface.events calleeAccountIndex accountContextValues)
     return {
       id := block.id.value
       params := block.params.map (fun p => { id := p.id.value, typeName := coreTypeToSolanaName p.type })

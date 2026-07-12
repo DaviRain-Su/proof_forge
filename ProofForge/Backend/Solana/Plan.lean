@@ -118,6 +118,8 @@ inductive SolanaOpPlan where
   | literal (result : SolanaValuePlan) (value : Nat)
   | boolLiteral (result : SolanaValuePlan) (value : Bool)
   | copy (result value : SolanaValuePlan)
+  /-- SHA-256 of the full account[0] pubkey for a sender/origin context value. -/
+  | hashAccount0 (result : SolanaValuePlan)
   | loadState (result : SolanaValuePlan) (stateId : Nat) (absOff byteSize : Nat)
   | storeState (stateId : Nat) (absOff byteSize : Nat) (value : SolanaValuePlan)
   | loadMap (result : SolanaValuePlan) (stateId : Nat) (absOff capacity keyByteSize valueByteSize : Nat)
@@ -525,6 +527,35 @@ private def canonicalCompareOpcode : SolanaComparePlan -> Opcode
 
 private def canonicalBlockLabel (fnId blockId : Nat) : String := s!"sol_core_{fnId}_{blockId}"
 
+/-- Lower the canonical sender hash without truncating the account pubkey. -/
+def lowerCanonicalHashAccount0 (result : SolanaValuePlan) : Array AstNode := #[
+  .comment "canonical hash(sender): sha256(account[0] full 32-byte pubkey)",
+  .instruction { opcode := .stxdw, dst := some .r10, off := some (.num 400), src := some .r1 },
+  .instruction { opcode := .mov64, dst := some .r4, src := some .r10 },
+  .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 416) },
+  .instruction { opcode := .ldxdw, dst := some .r5, src := some .r1, off := some (.num 16) },
+  .instruction { opcode := .stxdw, dst := some .r4, off := some (.num 0), src := some .r5 },
+  .instruction { opcode := .ldxdw, dst := some .r5, src := some .r1, off := some (.num 24) },
+  .instruction { opcode := .stxdw, dst := some .r4, off := some (.num 8), src := some .r5 },
+  .instruction { opcode := .ldxdw, dst := some .r5, src := some .r1, off := some (.num 32) },
+  .instruction { opcode := .stxdw, dst := some .r4, off := some (.num 16), src := some .r5 },
+  .instruction { opcode := .ldxdw, dst := some .r5, src := some .r1, off := some (.num 40) },
+  .instruction { opcode := .stxdw, dst := some .r4, off := some (.num 24), src := some .r5 },
+  .instruction { opcode := .mov64, dst := some .r5, src := some .r10 },
+  .instruction { opcode := .sub64, dst := some .r5, imm := some (.num 384) },
+  .instruction { opcode := .stxdw, dst := some .r5, off := some (.num 0), src := some .r4 },
+  .instruction { opcode := .mov64, dst := some .r6, imm := some (.num 32) },
+  .instruction { opcode := .stxdw, dst := some .r5, off := some (.num 8), src := some .r6 },
+  .instruction { opcode := .mov64, dst := some .r1, src := some .r5 },
+  .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 1) },
+  .instruction { opcode := .mov64, dst := some .r3, src := some .r10 },
+  .instruction { opcode := .sub64, dst := some .r3, imm := some (.num 448) },
+  .instruction { opcode := .call, imm := some (.sym sol_sha256) },
+  .instruction { opcode := .jne, dst := some .r0, imm := some (.num 0), off := some (.sym "error_syscall") },
+  .instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num 448) },
+  canonicalStoreValue result .r2,
+  .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
+
 private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Except SbpfAsm.LowerError (Array AstNode)
   | .literal result value => .ok #[
       .instruction { opcode := .mov64, dst := some .r2, imm := some (.num value) },
@@ -533,6 +564,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
       .instruction { opcode := .mov64, dst := some .r2, imm := some (.num (if value then 1 else 0)) },
       canonicalStoreValue result .r2]
   | .copy result value => .ok #[canonicalLoadValue value .r2, canonicalStoreValue result .r2]
+  | .hashAccount0 result => .ok (lowerCanonicalHashAccount0 result)
   | .portableCrosscall result calleeAccountIndex method args => do
       let site := s!"core_cpi_{fnId}_{blockId}_{opIndex}"
       let mut nodes : Array AstNode := #[
@@ -751,7 +783,8 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
   return nodes
 
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
-  | .literal result _ | .boolLiteral result _ | .copy result _ | .loadState result .. | .loadMap result .. |
+  | .literal result _ | .boolLiteral result _ | .copy result _ | .hashAccount0 result |
+    .loadState result .. | .loadMap result .. |
     .loadArray result .. |
     .arithmetic result .. | .compare result .. | .context result _ |
     .portableCrosscall result .. => #[result]
