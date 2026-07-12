@@ -13,6 +13,7 @@ import time
 from collections.abc import Mapping, Sequence
 
 from manifest import RecipeSpec, load_manifest
+from select_tests import changed_paths, resolve_base, select_tags
 
 
 @dataclasses.dataclass(frozen=True)
@@ -235,6 +236,7 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--full", action="store_true")
     mode.add_argument("--lane")
+    mode.add_argument("--fast", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--manifest",
@@ -255,6 +257,15 @@ def main() -> int:
             print(f"test-scheduler: unknown lane `{args.lane}`", file=sys.stderr)
             return 2
         recipes = [recipe for recipe in recipes if recipe.lane == args.lane]
+    elif args.fast:
+        try:
+            paths = changed_paths(resolve_base())
+        except subprocess.CalledProcessError as error:
+            print(f"test-scheduler: git selection failed: {error}", file=sys.stderr)
+            return 2
+        tags = select_tags(paths)
+        recipes = [recipe for recipe in recipes if tags.intersection(recipe.tags)]
+        print(f"check-fast: tags={','.join(sorted(tags))} paths={len(paths)}")
     commands = _commands(recipes)
     if args.dry_run:
         print(f"jobs={jobs}")

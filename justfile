@@ -1639,6 +1639,10 @@ test-manifest:
 test-scheduler:
     python3 -m unittest scripts/test-framework/test_scheduler.py
 
+# Run the conservative affected-path inner-loop gate.
+check-fast:
+    python3 scripts/test-framework/scheduler.py --fast
+
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:
     scripts/psy/dpn-golden-gate.sh

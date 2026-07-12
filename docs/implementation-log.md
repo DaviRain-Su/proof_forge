@@ -217,6 +217,26 @@ Rules:
   A6 acceptance criterion, not deferred completion evidence.
 - Documentation: `AGENTS.md`, current plan, `docs/implementation-log.md`.
 
+## 2026-07-12 - Parallel test framework Tasks 1-3
+
+- Status: `in_progress`
+- Manifest: 108 serial `check` recipes classified into four conflict-aware
+  lanes with exact coverage validation.
+- Scheduler: automatic `min(CPU, 4)` concurrency, positive `JOBS` override,
+  lane serialization, exclusive barriers, process-group cancellation, lane
+  logs, and structured timing reports.
+- Fast gate: conservative changed-path selection with fixed core/product
+  baseline and focused EVM, Solana, Wasm/NEAR, and documentation tags.
+- Verification:
+  - manifest, scheduler, and selector unit tests passed
+  - `JOBS=1` and `JOBS=4` full dry-runs selected identical coverage
+  - `CHECK_BASE=HEAD just check-fast` passed in 238.73 seconds
+  - the first fast run selected 11 of 108 full recipes; `product` was the
+    slowest recipe at 124.26 seconds
+  - `git diff --check` passed
+- Remaining: full parallel/serial entrypoints, equivalence gate, repeated
+  stability and performance qualification, then CI integration.
+
 ### A6 runtime closure
 
 - Status: `done (verified at 6a6022ea)`.
