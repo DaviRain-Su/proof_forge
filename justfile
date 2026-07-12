@@ -158,6 +158,37 @@ stylus-vm-runner:
 stylus-official-check: stylus-vm-runner
     scripts/stylus/official-wasm-check.sh
 
+# Validate pinned Nitro testnode orchestration without starting Docker.
+stylus-nitro-scripts:
+    scripts/stylus/nitro-scripts-self-test.sh
+
+stylus-nitro-install:
+    tools/stylus-nitro/manage.sh install
+
+stylus-nitro-init:
+    tools/stylus-nitro/manage.sh init
+
+stylus-nitro-up:
+    tools/stylus-nitro/manage.sh up
+
+stylus-nitro-status:
+    tools/stylus-nitro/manage.sh status
+
+stylus-nitro-check:
+    scripts/stylus/nitro-check.sh
+
+stylus-nitro-deploy:
+    scripts/stylus/nitro-deploy.sh
+
+stylus-nitro-e2e:
+    scripts/stylus/nitro-e2e.sh
+
+stylus-nitro-down:
+    tools/stylus-nitro/manage.sh down
+
+stylus-sepolia-e2e:
+    scripts/stylus/sepolia-e2e.sh
+
 
 
 canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan

@@ -110,6 +110,38 @@ is retained because official `replay` consumes a chain transaction trace and
 loads native shared libraries for debugging; it is not an offline Wasm
 interpreter API.
 
+## Full Nitro Development Chain
+
+ProofForge pins the official Nitro Testnode revision in
+`tools/stylus-nitro/nitro-testnode.rev`; the upstream `release` branch is not
+followed implicitly because it may be force-pushed. Docker and Docker Compose
+are required.
+
+```bash
+just stylus-nitro-install  # clone and verify the pinned revision
+PROOF_FORGE_NITRO_RESET=1 just stylus-nitro-init  # destructive: fresh L1/L2 state
+just stylus-nitro-status   # wait for http://127.0.0.1:8547
+just stylus-nitro-check    # cargo stylus check --wasm-file over local RPC
+just stylus-nitro-deploy   # deploy and activate direct Wasm
+just stylus-nitro-e2e      # initialize, increment, and ABI-read Counter == 1
+just stylus-nitro-down
+```
+
+After the first initialization, use `just stylus-nitro-up` to restart without
+resetting chain data. The local developer key written under `build/` is the
+well-known Nitro Testnode key and must never be used on a public network.
+
+Sepolia is deliberately separate and requires an explicit key path:
+
+```bash
+PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH=/secure/sepolia.key \
+  just stylus-sepolia-e2e
+```
+
+There is no automatic mainnet deployment recipe. Mainnet uses the same
+`cargo stylus check/deploy` protocol, but release approval, RPC selection, key
+custody, and deployment must remain explicit operational actions.
+
 ## Authoritative Sources
 
 - <https://github.com/OffchainLabs/stylus-sdk-rs>

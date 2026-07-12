@@ -515,6 +515,17 @@ If no runnable local command exists, the target remains `Research`.
 | Three-chain RoleGatedToken | `just portable-role-gated-token-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Product/RoleGatedToken.lean` to EVM + Solana + NEAR/Wasm with nested mapKey storage path support | Live RPC deploy, gas accounting |
 | Three-chain StakingVault | `just portable-staking-vault-multi-target` | Lean toolchain; `solc`+`cast` for EVM | Compiles `Examples/Product/StakingVault.lean` to EVM + Solana + NEAR/Wasm with nativeValue U64 truncation | NEAR U128 exact native value, live deploy |
 
+## Arbitrum Stylus gates
+
+| Gate | Command | Prerequisites | Evidence |
+|---|---|---|---|
+| Direct bytecode host | `just stylus-vm-runner` | Lean, `wat2wasm`, Rust/Cargo | Executes direct Wasm Counter lifecycle, public `user_entrypoint`, authorization, nonpayable policy, storage, result, and normalized host trace under Wasmtime |
+| Nitro orchestration syntax | `just stylus-nitro-scripts` | Bash | Validates pinned revision, script syntax, local RPC boundary, and separate Sepolia endpoint without starting containers |
+| Nitro install | `just stylus-nitro-install` | Git/network | Clones official Nitro Testnode and verifies exact pinned revision and submodules |
+| Official local check | `just stylus-nitro-check` | Running Nitro Testnode, cargo-stylus | Runs `cargo stylus check --wasm-file` against local Nitro RPC `127.0.0.1:8547` |
+| Local chain E2E | `just stylus-nitro-e2e` | Docker, cargo-stylus, Foundry `cast` | Deploys/activates direct Wasm, calls Counter through Solidity ABI, and observes value `1` |
+| Sepolia E2E | `just stylus-sepolia-e2e` | Explicit Sepolia private-key path and funded account | Checks, deploys, and activates through Arbitrum Sepolia RPC; never part of default static CI |
+
 ## Optional external tools
 
 Current CI installs `just` 1.48.0, Foundry stable, and `solc` 0.8.30. Local

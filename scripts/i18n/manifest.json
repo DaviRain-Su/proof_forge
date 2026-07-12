@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "e989b74dbcbd8d83b11f8c7aa8dcbd5b760dc2d6e2081f1410a536dd31ae55e8",
+    "sha256": "16ba281964f59c0ba7d008c819f5f73298082bfcbe2d183ccff9d647f08bb221",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced for fast, parallel, and serial local test gates"
+    "note": "synced for fast, parallel, serial, and Arbitrum Stylus gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

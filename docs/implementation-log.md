@@ -776,6 +776,22 @@ Rules:
   instrumentation/activation validation; `simulate`/`replay` remain RPC and
   trace-driven workflows rather than replacements for the offline Wasm host.
 
+## 2026-07-13 - Stylus Nitro local-development orchestration
+
+- Added a pinned official Nitro Testnode manager with install, destructive
+  first-time init, non-destructive restart, RPC wait/status, shutdown, and
+  local dev-key generation. Revision
+  `62f6cae30942f82958695697d3de8b4e1447ea7f` is explicit because upstream warns
+  that its `release` branch may be force-pushed.
+- Added local `cargo stylus check --wasm-file`, deploy/activate, and Counter ABI
+  E2E scripts against `http://127.0.0.1:8547`, plus a separately guarded
+  Sepolia workflow requiring an explicit private-key path. No automatic
+  mainnet deployment command exists.
+- Verification: `just stylus-nitro-scripts` passed; `just
+  stylus-nitro-install` cloned the official repository, checked out the pinned
+  revision, and initialized its Blockscout submodule. Docker chain init and
+  cargo-stylus E2E remain unexecuted because cargo-stylus is not installed.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

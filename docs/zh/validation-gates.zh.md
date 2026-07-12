@@ -224,6 +224,17 @@ live Surfpool/Rust gates 是可选项。
 | 三链 RoleGatedToken | `just portable-role-gated-token-multi-target` | Lean 工具链；EVM 需要 `solc`+`cast` | 将 `Examples/Product/RoleGatedToken.lean` 编译到 EVM + Solana + NEAR/Wasm，并覆盖 nested mapKey storage path support | live RPC deploy、gas accounting |
 | 三链 StakingVault | `just portable-staking-vault-multi-target` | Lean 工具链；EVM 需要 `solc`+`cast` | 将 `Examples/Product/StakingVault.lean` 编译到 EVM + Solana + NEAR/Wasm，并覆盖 nativeValue U64 truncation | NEAR U128 exact native value、live deploy |
 
+## Arbitrum Stylus 门禁
+
+| 门禁 | 命令 | 前提条件 | 证据 |
+|---|---|---|---|
+| Direct bytecode host | `just stylus-vm-runner` | Lean、`wat2wasm`、Rust/Cargo | 在 Wasmtime 中执行 direct Wasm Counter lifecycle、公开 `user_entrypoint`、authorization、nonpayable policy、storage、result 和标准化 host trace |
+| Nitro 编排语法 | `just stylus-nitro-scripts` | Bash | 不启动容器，校验固定 revision、脚本语法、本地 RPC 边界和独立 Sepolia endpoint |
+| Nitro 安装 | `just stylus-nitro-install` | Git/网络 | 克隆官方 Nitro Testnode，并校验准确的固定 revision 和 submodule |
+| 官方本地检查 | `just stylus-nitro-check` | 运行中的 Nitro Testnode、cargo-stylus | 对本地 Nitro RPC `127.0.0.1:8547` 执行 `cargo stylus check --wasm-file` |
+| 本地链 E2E | `just stylus-nitro-e2e` | Docker、cargo-stylus、Foundry `cast` | 部署并 activate direct Wasm，通过 Solidity ABI 调用 Counter，并观测值 `1` |
+| Sepolia E2E | `just stylus-sepolia-e2e` | 显式 Sepolia 私钥路径和已充值账户 | 通过 Arbitrum Sepolia RPC 检查、部署并 activate；绝不进入默认静态 CI |
+
 ## 可选外部工具
 
 当前的 CI 安装了 `just` 1.48.0、Foundry stable 和 `solc` 0.8.30。本地机器可能没有 `just`、`solc`、`cast`、`forge`、`psyup`、`dargo`、`sbpf`、`surfpool`、Solana CLI、Node 或 npm。缺少 `just` 会阻塞本地命令目录，但不会阻塞直接的脚本执行。缺少 EVM 工具会阻塞 EVM 工具链门控，但不会阻塞 `lake build`。缺少 Psy 工具仅会阻塞 Psy 冒烟测试的 Dargo 部分；源代码生成和黄金差异（golden diff）在每个脚本退出前仍会运行。缺少 Solana 工具会阻塞 Solana 汇编/运行时冒烟测试，但不会阻塞 Lean 构建或目标注册表检查。

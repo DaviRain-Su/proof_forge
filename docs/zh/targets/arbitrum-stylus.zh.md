@@ -95,6 +95,35 @@ activation 校验；固定版本 cargo-stylus 未安装时会明确 SKIP。保�
 原因是官方 `replay` 消费链上 transaction trace，并加载 native shared library
 进行调试，它不是离线 Wasm interpreter API。
 
+## 完整 Nitro 本地开发链
+
+ProofForge 在 `tools/stylus-nitro/nitro-testnode.rev` 固定官方 Nitro Testnode
+revision；不会隐式跟随可能 force-push 的 upstream `release` 分支。运行需要 Docker
+和 Docker Compose。
+
+```bash
+just stylus-nitro-install  # 克隆并校验固定 revision
+PROOF_FORGE_NITRO_RESET=1 just stylus-nitro-init  # 破坏性：重建 L1/L2 状态
+just stylus-nitro-status   # 等待 http://127.0.0.1:8547
+just stylus-nitro-check    # 通过本地 RPC 执行官方 check
+just stylus-nitro-deploy   # 部署并 activate direct Wasm
+just stylus-nitro-e2e      # initialize、increment、ABI 读取 Counter == 1
+just stylus-nitro-down
+```
+
+首次初始化后使用 `just stylus-nitro-up` 重启，不会重置链数据。写入 `build/`
+的本地开发密钥是公开的 Nitro Testnode key，绝不能用于公共网络。
+
+Sepolia 流程单独提供，并强制显式指定密钥：
+
+```bash
+PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH=/secure/sepolia.key \
+  just stylus-sepolia-e2e
+```
+
+项目不提供自动 mainnet 部署 recipe。主网虽然使用相同 cargo-stylus 协议，但发布
+审批、RPC、密钥托管和部署必须是显式运维操作。
+
 ## 权威来源
 
 - <https://github.com/OffchainLabs/stylus-sdk-rs>
