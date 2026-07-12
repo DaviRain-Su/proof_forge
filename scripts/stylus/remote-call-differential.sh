@@ -40,16 +40,25 @@ import sys
 
 selector, args_selector, target = sys.argv[1:4]
 success, revert, static, delegate, args, value_call = map(json.loads, sys.argv[4:10])
+def require_pre_call_cache(trace, event, clear):
+    index = next(i for i, item in enumerate(trace) if item["event"] == event)
+    assert index > 0
+    assert trace[index - 1]["event"] == "storage_flush"
+    assert trace[index - 1]["clear"] is clear
+
 assert success["calls"][0]["status"] == 0
 assert success["result"] == "00" * 31 + "2a"
 calls = [item for item in success["trace"] if item["event"] == "call_contract"]
 assert len(calls) == 1 and calls[0]["address"] == target and calls[0]["calldata"] == selector
+require_pre_call_cache(success["trace"], "call_contract", True)
 assert revert["calls"][0]["status"] == 1 and revert["result"] == "deadbeef"
 assert any(item["event"] == "read_return_data" for item in revert["trace"])
 assert static["calls"][0]["status"] == 0
 assert any(item["event"] == "static_call_contract" for item in static["trace"])
+require_pre_call_cache(static["trace"], "static_call_contract", False)
 assert delegate["calls"][0]["status"] == 0
 assert any(item["event"] == "delegate_call_contract" for item in delegate["trace"])
+require_pre_call_cache(delegate["trace"], "delegate_call_contract", True)
 arg_calls = [item for item in args["trace"] if item["event"] == "call_contract"]
 assert len(arg_calls) == 1
 assert arg_calls[0]["calldata"] == args_selector + "00" * 31 + "2a" + "00" * 31 + "07"

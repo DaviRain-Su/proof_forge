@@ -100,6 +100,11 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
       match type with
       | .uint 64 | .uint 128 | .uint 256 => pure ()
       | _ => fail s!"Stylus call `{call.id}` has unsupported value type {repr type}"
+    match call.mode, call.cachePolicy with
+    | .staticCall, .flush => pure ()
+    | .call, .clear | .delegateCall, .clear => pure ()
+    | .staticCall, _ => fail s!"Stylus static call `{call.id}` requires flush cache policy"
+    | _, _ => fail s!"Stylus call `{call.id}` requires clear cache policy"
   for function in plan.functions do
     let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
       | fail s!"Stylus function `{function.id}` references missing ABI method `{function.abiMethod}`"
@@ -113,6 +118,10 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
         | none => fail s!"Stylus dynamic parameter `{param.name}` has no maximum length"
       else if param.dynamicMaxLength?.isSome then
         fail s!"Stylus scalar parameter `{param.name}` has a dynamic length policy"
+    let hasCall := function.blocks.any fun block => block.operations.any fun operation =>
+      match operation with | .call .. => true | _ => false
+    if hasCall && !plan.hostOps.any (fun op => op.functionId == function.id && op.operation == .storageFlush) then
+      fail s!"Stylus calling function `{function.id}` has no pre-call storageFlush HostOp"
     unless function.params.map (fun param => param.valueId) |>.toList.Pairwise (· != ·) do
       fail s!"Stylus function `{function.id}` has duplicate parameter value ids"
   if plan.resources.requiresStorageFlush &&

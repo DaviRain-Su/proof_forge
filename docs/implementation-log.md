@@ -977,6 +977,24 @@ Rules:
   on Nitro. Dynamic returns, reentrancy/cache transitions, and two-contract
   Nitro execution remain pending.
 
+## 2026-07-13 - Stylus plan-owned external-call cache policy
+
+- Status: `pre-call policy done; nested invocation frames pending`
+- Added `StylusCachePolicy` to every call envelope. Canonical lowering follows
+  the pinned Stylus SDK reentrant rules: static calls use `flush`, while call
+  and delegate call use `clear` before crossing HostIO.
+- Strict validation rejects missing or mode-incompatible policies and requires
+  a `storageFlush` HostOp for every function containing an external call.
+- Direct Wasm emits `storage_flush_cache(0)` immediately before static HostIO
+  and `storage_flush_cache(1)` immediately before call/delegate HostIO. Runtime
+  traces lock both the ordering and clear flag.
+- Corrected terminal flushing: a function now flushes on successful return only
+  when its CFG actually caches a storage write. Merely importing storage flush
+  for call safety no longer causes a redundant post-call flush.
+- Scope boundary: nested caller/callee frames and transaction-level rollback
+  remain pending. Callee failure does not by itself discard caller state; caller
+  state rolls back only when the caller frame also reverts.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

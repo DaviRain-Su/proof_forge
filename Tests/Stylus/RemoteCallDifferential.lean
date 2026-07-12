@@ -25,6 +25,11 @@ def main : IO Unit := do
   let some withArgs := plan.calls[1]? | throw <| IO.userError "argument call envelope missing"
   if noArgs.mode != .call || !noArgs.arguments.isEmpty || noArgs.returnType != .uint 64 then
     throw <| IO.userError "nullary call envelope changed"
+  if noArgs.cachePolicy != .clear || withArgs.cachePolicy != .clear then
+    throw <| IO.userError "mutating calls must clear the storage cache before HostIO"
   if withArgs.paramTypes != #[.uint 64, .uint 64] || withArgs.arguments.size != 2 then
     throw <| IO.userError "typed call envelope changed"
+  for function in #["call_remote", "call_with_args"] do
+    if !plan.hostOps.any (fun op => op.functionId == function && op.operation == .storageFlush) then
+      throw <| IO.userError s!"{function} is missing its plan-owned pre-call storage flush"
   IO.println "stylus-remote-call-differential: ok"

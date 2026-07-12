@@ -449,17 +449,21 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
               s!"unsupported value type {repr type}"
         | _ =>
             throw <| diagnostic plan function block (opName op) "crosscall.value" "value id/type mismatch"
+      let cacheInsns := match call.cachePolicy with
+        | .doNothing => #[]
+        | .flush => #[.i32Const 0, .call "storage_flush_cache"]
+        | .clear => #[.i32Const 1, .call "storage_flush_cache"]
       let callInsns <- match call.mode with
         | .call =>
-          pure <| clearWord callValuePtr ++ valueInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+          pure <| clearWord callValuePtr ++ valueInsns ++ cacheInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
               .i32Const callDataPtr, .i32Const calldataLen, .i32Const callValuePtr] ++ gas ++
               #[.i32Const callReturnLenPtr, .call "call_contract", .localSet "callStatus"]
         | .staticCall =>
-          pure <| #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+          pure <| cacheInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
             .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
             .call "static_call_contract", .localSet "callStatus"]
         | .delegateCall =>
-          pure <| #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
+          pure <| cacheInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
             .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
             .call "delegate_call_contract", .localSet "callStatus"]
       let checkedInsns := insns ++ callInsns ++ #[.i32Const callReturnLenPtr, .load "i32.load" 0,
@@ -523,8 +527,11 @@ private partial def lowerBlock (plan : StylusPlan) (function : StylusFunctionPla
   for op in block.operations do body := body ++ (← lowerOp plan function block op)
   match block.terminator with
   | .return values =>
-      let flush := if plan.hostOps.any (fun op => op.functionId == function.id &&
-          op.operation == .storageFlush) then #[.i32Const 0, .call "storage_flush_cache"] else #[]
+      let mutatesStorage := function.blocks.any fun functionBlock =>
+        functionBlock.operations.any fun operation => match operation with
+          | .storageCache .. | .storagePathCache .. => true
+          | _ => false
+      let flush := if mutatesStorage then #[.i32Const 0, .call "storage_flush_cache"] else #[]
       pure <| body ++ flush ++ (← lowerReturn plan function block values)
   | .revert errorId =>
       let bytes := errorId.toUTF8.data

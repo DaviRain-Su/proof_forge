@@ -57,6 +57,10 @@ inductive StylusCallMode where
   | call | staticCall | delegateCall
   deriving Repr, BEq, DecidableEq
 
+inductive StylusCachePolicy where
+  | doNothing | flush | clear
+  deriving Repr, BEq, DecidableEq
+
 inductive StylusOverflowMode where
   | wrapping
   | checked
@@ -208,6 +212,7 @@ structure StylusCallPlan where
   value? : Option StylusValueId := none
   valueType? : Option StylusAbiType := none
   gas? : Option StylusValueId := none
+  cachePolicy : StylusCachePolicy := .doNothing
   support : RendererSupportPlan := {}
   deriving Repr, BEq
 

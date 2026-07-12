@@ -59,42 +59,49 @@ def main : IO Unit := do
     }]
     events := #[], calls := #[{
       id := "call-3", mode := .call, canonicalSignature := "ping()", target := 1, method := 2,
-      returnType := .uint 64, support
+      returnType := .uint 64, cachePolicy := .clear, support
     }, {
       id := "call-6", mode := .staticCall, canonicalSignature := "ping()", target := 4, method := 5,
-      returnType := .uint 64, support
+      returnType := .uint 64, cachePolicy := .flush, support
     }, {
       id := "call-9", mode := .delegateCall, canonicalSignature := "ping()", target := 7, method := 8,
-      returnType := .uint 64, support
+      returnType := .uint 64, cachePolicy := .clear, support
     }, {
       id := "call-14", mode := .call, canonicalSignature := "ping(uint64,uint64)", target := 10, method := 13,
-      arguments := #[11, 12], paramTypes := #[.uint 64, .uint 64], returnType := .uint 64, support
+      arguments := #[11, 12], paramTypes := #[.uint 64, .uint 64], returnType := .uint 64,
+      cachePolicy := .clear, support
     }, {
       id := "call-18", mode := .call, canonicalSignature := "pay()", target := 15, method := 17,
-      returnType := .uint 64, value? := some 16, valueType? := some (.uint 128), support
+      returnType := .uint 64, value? := some 16, valueType? := some (.uint 128),
+      cachePolicy := .clear, support
     }]
     hostOps := #[
       { id := "invoke.value", functionId := "invoke", operation := .msgValue, support },
+      { id := "invoke.flush", functionId := "invoke", operation := .storageFlush, support },
       { id := "invoke.keccak", functionId := "invoke", operation := .keccak256, support },
       { id := "invoke.call", functionId := "invoke", operation := .callContract, support },
       { id := "invoke.return", functionId := "invoke", operation := .readReturnData, support },
       { id := "invoke.result", functionId := "invoke", operation := .writeResult, support }
       , { id := "static.value", functionId := "invokeStatic", operation := .msgValue, support }
+      , { id := "static.flush", functionId := "invokeStatic", operation := .storageFlush, support }
       , { id := "static.keccak", functionId := "invokeStatic", operation := .keccak256, support }
       , { id := "static.call", functionId := "invokeStatic", operation := .staticCallContract, support }
       , { id := "static.return", functionId := "invokeStatic", operation := .readReturnData, support }
       , { id := "static.result", functionId := "invokeStatic", operation := .writeResult, support }
       , { id := "delegate.value", functionId := "invokeDelegate", operation := .msgValue, support }
+      , { id := "delegate.flush", functionId := "invokeDelegate", operation := .storageFlush, support }
       , { id := "delegate.keccak", functionId := "invokeDelegate", operation := .keccak256, support }
       , { id := "delegate.call", functionId := "invokeDelegate", operation := .delegateCallContract, support }
       , { id := "delegate.return", functionId := "invokeDelegate", operation := .readReturnData, support }
       , { id := "delegate.result", functionId := "invokeDelegate", operation := .writeResult, support }
       , { id := "args.value", functionId := "invokeArgs", operation := .msgValue, support }
+      , { id := "args.flush", functionId := "invokeArgs", operation := .storageFlush, support }
       , { id := "args.keccak", functionId := "invokeArgs", operation := .keccak256, support }
       , { id := "args.call", functionId := "invokeArgs", operation := .callContract, support }
       , { id := "args.return", functionId := "invokeArgs", operation := .readReturnData, support }
       , { id := "args.result", functionId := "invokeArgs", operation := .writeResult, support }
       , { id := "pay.value", functionId := "invokeValue", operation := .msgValue, support }
+      , { id := "pay.flush", functionId := "invokeValue", operation := .storageFlush, support }
       , { id := "pay.keccak", functionId := "invokeValue", operation := .keccak256, support }
       , { id := "pay.call", functionId := "invokeValue", operation := .callContract, support }
       , { id := "pay.return", functionId := "invokeValue", operation := .readReturnData, support }

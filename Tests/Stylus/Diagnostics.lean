@@ -51,6 +51,7 @@ def main : IO Unit := do
     id := "value-call", mode := .call, canonicalSignature := "pay()"
     target := 1, method := 2, returnType := .uint 64
     value? := some 3, valueType? := some (.uint 128)
+    cachePolicy := .clear
   }
   let invalidStaticValue := { invalidTypePlan with
     abi := { methods := #[], errors := #[] }
@@ -62,6 +63,11 @@ def main : IO Unit := do
     calls := #[{ valueCall with valueType? := some .bool }]
   }
   requireErrorContains "unsupported value type" (validatePlan invalidBoolValue)
+  let unsafeCallCache := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[{ valueCall with cachePolicy := .doNothing }]
+  }
+  requireErrorContains "requires clear cache policy" (validatePlan unsafeCallCache)
 
   let incomplete := { invalidTypePlan with
     abi := { methods := #[], errors := #[] }

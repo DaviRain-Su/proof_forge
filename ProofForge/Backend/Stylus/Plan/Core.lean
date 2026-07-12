@@ -242,9 +242,9 @@ private def instructionHostOps (instruction : Instruction) : Except PlanError (A
       | none => fail s!"Stylus plan has no context HostIO handler for `{repr field}`"
   | .emit .. => pure #[.keccak256, .emitLog]
   | .crosscall spec .. => match spec.mode with
-      | .invoke => pure #[.keccak256, .callContract, .readReturnData]
-      | .staticInvoke => pure #[.keccak256, .staticCallContract, .readReturnData]
-      | .delegateInvoke => pure #[.keccak256, .delegateCallContract, .readReturnData]
+      | .invoke => pure #[.keccak256, .storageFlush, .callContract, .readReturnData]
+      | .staticInvoke => pure #[.keccak256, .storageFlush, .staticCallContract, .readReturnData]
+      | .delegateInvoke => pure #[.keccak256, .storageFlush, .delegateCallContract, .readReturnData]
       | .nearPoolInvoke | .nearPromiseThen =>
           fail "Stylus plan rejects NEAR promise crosscall modes"
   | .pure (.hash ..) | .pure (.hashTwoToOne ..) => pure #[.keccak256]
@@ -336,6 +336,9 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               value? := spec.value.map fun value => value.id.value,
               valueType?,
               gas? := spec.gas.map fun value => value.id.value,
+              cachePolicy := match mode with
+                | .staticCall => .flush
+                | .call | .delegateCall => .clear
               support := { rustSdk := .planned, directWasm := .implemented }
             }
         | _ => pure ()
