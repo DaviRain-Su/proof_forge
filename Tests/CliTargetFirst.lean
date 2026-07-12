@@ -38,6 +38,20 @@ def requireErrorContains (args : List String) (needles : Array String) : IO Unit
       for needle in needles do
         require (err.contains needle) s!"CLI mapping error `{err}` missing `{needle}`"
 
+def requireBuildErrorContains (args : List String) (needles : Array String) : IO Unit := do
+  let state ← match ProofForge.Cli.parseNewOptions args {} with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"parse failed: {e}"
+  let (target, req) ← match ProofForge.Cli.resolveBuildRequest state with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError e
+  match ProofForge.Cli.resolveBuild target req with
+  | .ok r =>
+      throw <| IO.userError s!"expected build resolve error, got {repr r}"
+  | .error e =>
+      for needle in needles do
+        require (e.contains needle) s!"build resolve error `{e}` missing `{needle}`"
+
 def requireNftNative (target : String) (input : String) : IO Unit := do
   let state ← match ProofForge.Cli.parseNewOptions ["--target", target, "--nft", input] {} with
     | .ok s => pure s
@@ -300,6 +314,12 @@ def main : IO UInt32 := do
   requireNftNative "evm" "Examples/Product/Nft.lean"
   requireNftNative "solana-sbpf-asm" "Examples/Product/Nft.lean"
   requireNftNative "wasm-near" "Examples/Product/Nft.lean"
+  requireBuildErrorContains
+    ["--target", "not-a-target", "--nft", "Examples/Product/Nft.lean"]
+    #["unknown target"]
+  requireBuildErrorContains
+    ["--target", "evm", "--nft", "--fixture", "counter"]
+    #["requires a .lean NFTSpec source"]
   requireLegacy "evm" (some "counter")
   requireLegacy "solana-sbpf-asm" (some "counter")
   requireLegacy "wasm-near" (some "counter")
