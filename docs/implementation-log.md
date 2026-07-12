@@ -995,6 +995,29 @@ Rules:
   remain pending. Callee failure does not by itself discard caller state; caller
   state rolls back only when the caller frame also reverts.
 
+## 2026-07-13 - Stylus runner nested invocation frames
+
+- Status: `local nested-frame evidence done; Nitro two-contract evidence pending`
+- Added `--mock-reentrant ADDRESS=CALLDATA` to the Wasmtime runner. A matching
+  `call_contract` invokes the same module's `user_entrypoint` in a nested frame
+  with callee-address sender identity, zero callback value, and callback-owned
+  calldata, then restores the outer sender/value/calldata/result context.
+- Frame snapshots separate transaction rollback from cache policy. Successful
+  callbacks preserve flushed storage; reverted callbacks restore storage and
+  cache to the frame-entry snapshot while returning the exact callback revert
+  payload to the outer call.
+- Top-level exports now snapshot storage/cache and restore both on nonzero
+  status. The third vector lets a callback commit `seen = 42` and then makes the
+  outer frame revert; the final state is empty, matching whole-call-tree EVM
+  rollback rather than retaining an inner flush.
+- Added `ReentrantDirect`: the success callback caches and commits `seen = 42`;
+  the failing callback caches `seen = 99` and reverts. Runtime assertions lock
+  frame enter/exit identity, outer-context restoration, success persistence,
+  failed-frame isolation, and revert propagation.
+- The runner enforces a deterministic maximum nesting depth of 16. This is
+  local execution evidence, not a substitute for the pending Nitro two-contract
+  reentrancy scenario.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

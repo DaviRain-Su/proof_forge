@@ -133,8 +133,8 @@
 - [x] Extend the local runner with deterministic mock callees and overlapping return-data reads for all three call modes.
 - [ ] Lower only official `call_contract`, `static_call_contract`, `delegate_call_contract`, `return_data_len`, and `read_return_data` signatures from the pinned SDK.
 - [x] Encode the pinned SDK pre-call cache policy in `StylusPlan`: static calls flush without invalidation; call/delegate clear after persisting dirty values. Renderers may not invent transitions.
-- [ ] Model nested caller/callee frames and transaction-level commit/revert separately from cache policy; a failed callee frame must not discard caller state unless the caller itself reverts.
-- [ ] Extend the local runner with deterministic mock callees and nested invocation frames, preserving caller/storage/value identities.
+- [x] Model nested caller/callee frames and transaction-level commit/revert separately from cache policy; a failed callee frame must not discard caller state unless the caller itself reverts.
+- [x] Extend the local runner with deterministic mock callees and nested invocation frames, preserving caller/storage/value identities.
 - [ ] Execute Rust/direct/runner parity and a two-contract Nitro scenario.
 - [ ] Run `just stylus-remote-call-differential` and `just stylus-remote-call-nitro-e2e`.
 - [ ] Mark Task 13 complete and commit as `feat(stylus): complete remote call semantics`.

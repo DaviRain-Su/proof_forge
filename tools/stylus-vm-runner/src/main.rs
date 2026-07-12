@@ -19,6 +19,8 @@ struct HostState {
     result: Vec<u8>,
     return_data: Vec<u8>,
     mock_calls: BTreeMap<[u8; 20], (i32, Vec<u8>)>,
+    mock_reentrant: BTreeMap<[u8; 20], Vec<u8>>,
+    frame_depth: usize,
     trace: Vec<Value>,
 }
 
@@ -272,7 +274,55 @@ fn register_hooks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             let address = read::<20>(&mut caller, address_ptr)?;
             let calldata = read_vec(&mut caller, calldata_ptr, calldata_len)?;
             let value = read::<32>(&mut caller, value_ptr)?;
-            let (status, output) = caller.data().mock_calls.get(&address).cloned().unwrap_or((1, Vec::new()));
+            let reentrant = caller.data().mock_reentrant.get(&address).cloned();
+            let (status, output) = if let Some(callback) = reentrant {
+                if caller.data().frame_depth >= 16 {
+                    return Err(wasmtime::Error::msg("Stylus mock reentrant depth exceeds 16"));
+                }
+                let storage = caller.data().storage.clone();
+                let cache = caller.data().cache.clone();
+                let outer_sender = caller.data().sender;
+                let outer_value = caller.data().value;
+                let outer_calldata = caller.data().calldata.clone();
+                let outer_result = caller.data().result.clone();
+                let outer_return_data = caller.data().return_data.clone();
+                let depth = caller.data().frame_depth + 1;
+                caller.data_mut().sender = address;
+                caller.data_mut().value = [0; 32];
+                caller.data_mut().calldata = callback.clone();
+                caller.data_mut().result.clear();
+                caller.data_mut().return_data.clear();
+                caller.data_mut().frame_depth = depth;
+                caller.data_mut().trace.push(json!({
+                    "event":"frame_enter", "depth":depth, "sender":hex(&address),
+                    "value":hex(&[0_u8; 32]), "calldata":hex(&callback)
+                }));
+                let function = caller
+                    .get_export("user_entrypoint")
+                    .and_then(|export| export.into_func())
+                    .ok_or_else(|| wasmtime::Error::msg("missing reentrant user_entrypoint"))?;
+                let function = function.typed::<i32, i32>(&caller)?;
+                let callback_status = function.call(&mut caller, callback.len() as i32)?;
+                let callback_output = caller.data().result.clone();
+                if callback_status != 0 {
+                    caller.data_mut().storage = storage;
+                    caller.data_mut().cache = cache;
+                }
+                caller.data_mut().sender = outer_sender;
+                caller.data_mut().value = outer_value;
+                caller.data_mut().calldata = outer_calldata.clone();
+                caller.data_mut().result = outer_result;
+                caller.data_mut().return_data = outer_return_data;
+                caller.data_mut().frame_depth = depth - 1;
+                caller.data_mut().trace.push(json!({
+                    "event":"frame_exit", "depth":depth, "status":callback_status,
+                    "result":hex(&callback_output), "restoredSender":hex(&outer_sender),
+                    "restoredValue":hex(&outer_value), "restoredCalldata":hex(&outer_calldata)
+                }));
+                (callback_status, callback_output)
+            } else {
+                caller.data().mock_calls.get(&address).cloned().unwrap_or((1, Vec::new()))
+            };
             write(&mut caller, return_len_ptr, &(output.len() as u32).to_le_bytes())?;
             caller.data_mut().return_data = output.clone();
             caller.data_mut().trace.push(json!({"event":"call_contract","address":hex(&address),
@@ -375,6 +425,17 @@ fn main() -> Result<()> {
                     (status.parse().context("invalid mock call status")?, parse_hex_vec(output, "mock call output")?));
                 index += 2;
             }
+            "--mock-reentrant" => {
+                let binding = value(index)?;
+                let (address, calldata) = binding
+                    .split_once('=')
+                    .context("mock reentrant call must be ADDRESS=CALLDATA")?;
+                host.mock_reentrant.insert(
+                    parse_hex(address, "mock reentrant address")?,
+                    parse_hex_vec(calldata, "mock reentrant calldata")?,
+                );
+                index += 2;
+            }
             "--invoke" => {
                 exports.push(value(index)?.to_owned());
                 index += 2;
@@ -402,6 +463,8 @@ fn main() -> Result<()> {
 
     let mut calls = Vec::new();
     for export in &exports {
+        let storage_snapshot = store.data().storage.clone();
+        let cache_snapshot = store.data().cache.clone();
         store.data_mut().result.clear();
         let status = if export == "user_entrypoint" {
             let calldata_len = store.data().calldata.len() as i32;
@@ -417,7 +480,12 @@ fn main() -> Result<()> {
         }
         .map_err(|error| anyhow!("Stylus export `{export}` trapped: {error}"))?;
         if status != 0 {
-            store.data_mut().cache.clear();
+            store.data_mut().storage = storage_snapshot;
+            store.data_mut().cache = cache_snapshot;
+            store
+                .data_mut()
+                .trace
+                .push(json!({"event":"transaction_rollback","export":export}));
         }
         calls.push(json!({"export":export,"status":status,"result":hex(&store.data().result)}));
     }
