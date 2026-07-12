@@ -98,8 +98,9 @@ def main : IO Unit := do
   require (neutralWat == nearWat) "neutral Wasm-host plan changed canonical NEAR WAT"
 
   -- B3: Soroban now builds a plan (reusing NEAR layout with soroban bridge)
-  -- but lowering is still deferred. Verify the plan builds and the bridge
-  -- is correctly set to soroban.
+  -- but canonical lowering is deferred (storage helpers hard-code NEAR host
+  -- calls). CLI artifact emission uses EmitWat.lowerModule with .soroban
+  -- bridge. Verify the plan builds and lowering fails closed.
   let sorobanPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-stellar-soroban", calls := checked.contract.requirements, metadata := #[] }
   match ModulePlan.Core.buildFromCore checked sorobanPlan with
@@ -108,10 +109,12 @@ def main : IO Unit := do
         s!"soroban plan bridge should be soroban, got {repr plan.hostBridge.bridge}"
       require (plan.targetId == "wasm-stellar-soroban")
         s!"soroban plan targetId should be wasm-stellar-soroban, got {plan.targetId}"
-      -- Lowering still fails closed for Soroban until EmitWat supports it
+      -- Lowering fails closed for Soroban (deferred)
       match ModulePlan.lowerFromPlan plan with
-      | .ok _ => throw <| IO.userError "soroban lowering should fail (not implemented)"
-      | .error _ => pure ()
+      | .ok _ => throw <| IO.userError "soroban lowering should fail (deferred)"
+      | .error error =>
+          require (error.message.contains "deferred")
+            s!"expected deferred diagnostic, got: {error.message}"
   | .error error =>
       throw <| IO.userError s!"soroban plan should build (B3), got: {error.message}"
 

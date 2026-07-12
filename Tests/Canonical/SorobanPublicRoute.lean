@@ -112,30 +112,27 @@ def main : IO Unit := do
   require (plan.functions == nearPlan.functions)
     "Soroban and NEAR plans have different function plans"
 
-  -- -- Test 6: Soroban canonical plan lowering is deferred (EmitWat drives
-  -- CLI artifact emission with .soroban bridge). Verify the plan-driven
-  -- lowering fails closed with a clear diagnostic. --
+  -- -- Test 6: Soroban canonical plan lowering is deferred (storage helpers
+  -- hard-code NEAR host calls). Verify it fails closed with a clear diagnostic. --
   match ModulePlan.lowerFromPlan plan with
   | .ok _ => throw <| IO.userError "soroban lowering should fail (deferred)"
   | .error error =>
-      require (error.message.contains "Soroban")
-        s!"expected Soroban lowering diagnostic, got: {error.message}"
+      require (error.message.contains "deferred")
+        s!"expected deferred diagnostic, got: {error.message}"
 
-  -- -- Test 7: EmitWat produces correct Soroban WAT (with _get/_put imports) --
-  -- The CLI build path uses EmitWat.renderModule with the .soroban bridge,
-  -- not the canonical plan lowering. Verify the WAT contains Soroban host
-  -- imports (_get, _put) instead of NEAR imports (storage_read, storage_write).
+  -- -- Test 7: EmitWat legacy path produces correct Soroban WAT (with _get/_put
+  -- imports) — this is the path CLI build uses. --
   let watResult := ProofForge.Backend.WasmHost.EmitWat.renderModule
     ProofForge.IR.Examples.Counter.module .soroban
   match watResult with
   | .error e => throw <| IO.userError s!"EmitWat Soroban render failed: {e.message}"
   | .ok wat =>
-      require (wat.contains "_get") "Soroban WAT should contain _get host import"
-      require (wat.contains "_put") "Soroban WAT should contain _put host import"
+      require (wat.contains "_get") "Soroban EmitWat WAT should contain _get host import"
+      require (wat.contains "_put") "Soroban EmitWat WAT should contain _put host import"
       require (!wat.contains "storage_read")
-        "Soroban WAT should not contain NEAR storage_read import"
+        "Soroban EmitWat WAT should not contain NEAR storage_read import"
       require (!wat.contains "storage_write")
-        "Soroban WAT should not contain NEAR storage_write import"
+        "Soroban EmitWat WAT should not contain NEAR storage_write import"
 
   -- -- Test 8: CosmWasm still fails closed --
   let cosmwasmResult := runStrictCanonicalTargetGate "wasm-cosmwasm" counterSpec
