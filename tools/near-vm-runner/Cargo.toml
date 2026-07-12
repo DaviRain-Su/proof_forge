@@ -1,0 +1,14 @@
+[package]
+name = "near-vm-runner"
+version = "0.1.0"
+edition = "2021"
+
+# Dependencies will be added when the External trait is implemented.
+# For now this is a structural placeholder.
+# [dependencies]
+# near-vm-runner = { version = "0.37", features = ["wasmtime_vm"] }
+# near-primitives = "0.37"
+
+[[bin]]
+name = "near-vm-runner"
+path = "src/main.rs"
