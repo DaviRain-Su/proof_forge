@@ -154,11 +154,11 @@
 - Produces: `WasmHostModulePlan`, `WasmHostAbiPlan`, `HostBridgePlan`.
 - Preserves: NEAR canonical WAT and runtime behavior.
 
-- [ ] Pin NEAR plan and WAT preservation before renaming/extraction.
-- [ ] Introduce neutral public types and `ModulePlan.Core.buildFromCore` with temporary NEAR compatibility aliases.
-- [ ] Move Borsh planning behind a NEAR ABI builder.
-- [ ] Update EmitWat to consume the neutral plan.
-- [ ] Run canonical parity, NEAR ABI, promise, FT E2E, product, check, and diff gates.
+- [x] Pin NEAR plan and WAT preservation before renaming/extraction.
+- [x] Introduce neutral public types and `ModulePlan.Core.buildFromCore` with temporary NEAR compatibility aliases.
+- [x] Move Borsh planning behind a NEAR ABI builder.
+- [x] Update EmitWat to consume the neutral plan.
+- [x] Run canonical parity, NEAR ABI, promise, FT E2E, product, check, and diff gates.
 - [ ] Commit the extraction without adding Soroban behavior.
 
 ### Task 8: Add a Strict Canonical Target Gate

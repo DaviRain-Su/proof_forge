@@ -24,9 +24,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | D-052 Portable Intent and Target Promotion |
-| Active task | None (A1-A6 + D0-D4 done) |
-| Next task | B1 - Extract a neutral Wasm-host plan (or D5 - migrate Counter) |
-| Known blocker | A6 target-runtime lifecycle smoke is not implemented yet (non-blocking) |
+| Active task | None (B1 done) |
+| Next task | B2 - Add a strict canonical target gate |
+| Known blocker | None recorded |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -79,10 +79,10 @@ This table is only the agent routing index.
 | A3 | done | Define target-neutral NFT intent | Plan Task 3 |
 | A4 | done | Audit NFT implementation candidates | Plan Task 4 |
 | A5 | done (review repaired) | Add primary-triad NFT materializers | Plan Task 5 |
-| A6 | done | Open the NFT CLI and product route | Plan Task 6 |
+| A6 | done (verified at 6a6022ea) | Open the NFT CLI and product route | Plan Task 6 |
 | D3 | done (verified at 545d7a51) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
 | D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
-| B1 | pending after A6 | Extract a neutral Wasm-host plan | Plan Task 7 |
+| B1 | done | Extract a neutral Wasm-host plan | Plan Task 7 |
 | B2 | pending after B1 | Add a strict canonical target gate | Plan Task 8 |
 | B3 | pending after B2 | Promote Soroban Counter | Plan Task 9 |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
