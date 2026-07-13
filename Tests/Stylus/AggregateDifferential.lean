@@ -99,13 +99,13 @@ def main : IO Unit := do
   let fixedMethod : StylusAbiMethodPlan := {
     name := "acceptFixed", canonicalSignature := "acceptFixed(uint64[2])"
     selector := #[0xde, 0xad, 0xbe, 0x03]
-    params := #[{ name := "value", type := fixedPair }], returns := #[], mutability := .view
+    params := #[{ name := "value", type := fixedPair }], returns := #[fixedPair], mutability := .view
   }
   let tupleParam := StylusAbiType.tuple #[.address, fixedPair]
   let tupleMethod : StylusAbiMethodPlan := {
     name := "acceptTuple", canonicalSignature := "acceptTuple((address,uint64[2]))"
     selector := #[0xde, 0xad, 0xbe, 0x04]
-    params := #[{ name := "value", type := tupleParam }], returns := #[], mutability := .view
+    params := #[{ name := "value", type := tupleParam }], returns := #[tupleParam], mutability := .view
   }
   let mixedMethod : StylusAbiMethodPlan := {
     name := "echoMixed", canonicalSignature := "echoMixed(uint64[2],bytes)"
@@ -117,13 +117,13 @@ def main : IO Unit := do
     name := "acceptArray", canonicalSignature := "acceptArray(uint64[])"
     selector := #[0xde, 0xad, 0xbe, 0x06]
     params := #[{ name := "values", type := .dynamicArray (.uint 64) }]
-    returns := #[], mutability := .view
+    returns := #[.dynamicArray (.uint 64)], mutability := .view
   }
   let tupleArrayMethod : StylusAbiMethodPlan := {
     name := "acceptTupleArray", canonicalSignature := "acceptTupleArray((address,uint64[2])[])"
     selector := #[0xde, 0xad, 0xbe, 0x07]
     params := #[{ name := "values", type := .dynamicArray tupleParam }]
-    returns := #[], mutability := .view
+    returns := #[.dynamicArray tupleParam], mutability := .view
   }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
@@ -138,20 +138,20 @@ def main : IO Unit := do
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[2] }], support },
       { id := "acceptFixed", abiMethod := "acceptFixed", params := #[{
           valueId := 3, name := "value", type := fixedPair }]
-        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[3] }], support },
       { id := "acceptTuple", abiMethod := "acceptTuple", params := #[{
           valueId := 4, name := "value", type := tupleParam }]
-        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[4] }], support },
       { id := "echoMixed", abiMethod := "echoMixed", params := #[
           { valueId := 5, name := "pair", type := fixedPair },
           { valueId := 6, name := "payload", type := .bytes, dynamicMaxLength? := some 64 }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[6] }], support },
       { id := "acceptArray", abiMethod := "acceptArray", params := #[{
           valueId := 7, name := "values", type := .dynamicArray (.uint 64), dynamicMaxLength? := some 4 }]
-        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[7] }], support },
       { id := "acceptTupleArray", abiMethod := "acceptTupleArray", params := #[{
           valueId := 8, name := "values", type := .dynamicArray tupleParam, dynamicMaxLength? := some 2 }]
-        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support }
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[8] }], support }
     ]
     events := #[], calls := #[]
     hostOps := #[

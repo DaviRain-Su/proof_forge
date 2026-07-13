@@ -1,3 +1,4 @@
+import ProofForge.Backend.Stylus.AbiLayout
 import ProofForge.Backend.Stylus.DirectWasm.Context
 import ProofForge.Backend.Stylus.DirectWasm.Dispatch
 import ProofForge.Backend.Stylus.Validate
@@ -579,6 +580,39 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       match type with
       | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
+      | .fixedArray .. | .tuple .. => do
+          if type.isDynamic then
+            throw <| diagnostic plan function block "terminator" "abi.result"
+              "dynamic aggregate return encoding is not implemented"
+          let words ← staticAbiWords (plan.resources.maxMemoryPages * 2048) type
+            |>.mapError fun error => diagnostic plan function block "terminator" "abi.result" error.message
+          let bytes := words * 32
+          pure <| copyPointerBytes 32 (valueLocal value) bytes ++
+            #[.i32Const 32, .i32Const bytes, .call "write_result", .i32Const 0]
+      | .dynamicArray element => do
+          let maximum ← dynamicReturnMaximum plan function value |>.mapError fun error =>
+            diagnostic plan function block "terminator" "abi.result" error.message
+          if maximum > 64 then
+            throw <| diagnostic plan function block "terminator" "abi.result"
+              s!"dynamic-array maximum {maximum} exceeds static encoding limit 64"
+          let words ← staticAbiWords (plan.resources.maxMemoryPages * 2048) element
+            |>.mapError fun error => diagnostic plan function block "terminator" "abi.result" error.message
+          let stride ← checkedMul "dynamic-array return stride" (plan.resources.maxMemoryPages * wasmPageBytes)
+              words 32 |>.mapError fun error => diagnostic plan function block "terminator" "abi.result" error.message
+          let maximumPayload ← checkedMul "dynamic-array return payload"
+              (plan.resources.maxMemoryPages * wasmPageBytes) maximum stride
+            |>.mapError fun error => diagnostic plan function block "terminator" "abi.result" error.message
+          if 96 + maximumPayload > plan.resources.maxMemoryPages * wasmPageBytes then
+            throw <| diagnostic plan function block "terminator" "memory.result"
+              "dynamic-array return scratch exceeds declared memory pages"
+          pure <| #[.i32Const 32, .i32Const 0, .i32Const 64, .plain "memory.fill"] ++
+            writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
+              .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",
+              .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
+              .i32Const stride, .plain "i32.mul", .plain "memory.copy",
+              .i32Const 32, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
+              .i32Const stride, .plain "i32.mul", .i32Const 64, .plain "i32.add",
+              .call "write_result", .i32Const 0]
       | .bytes | .string => do
           let maximum <- dynamicReturnMaximum plan function value |>.mapError fun error =>
             diagnostic plan function block "terminator" "abi.result" error.message

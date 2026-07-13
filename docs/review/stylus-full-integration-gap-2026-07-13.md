@@ -88,7 +88,11 @@ recursive fixed-array/tuple leaves, and passes a pointer plus element count to
 the lowered function. `uint64[]` and `(address,uint64[2])[]` execute under the
 local runner and compile as equivalent Rust `Vec` signatures. Recursive
 relative offsets for dynamic elements and aggregate return encoding remain
-open.
+open. Static aggregate and static-element dynamic-array returns now encode from
+the same pointer carriers: fixed arrays/tuples copy their checked word count,
+while `T[]` emits the standard offset/count/payload envelope. Return scratch
+clearing is restricted to the head so it cannot overwrite calldata-backed
+payload sources.
 
 ### W4 - Remote-Call Parity Closure (medium)
 

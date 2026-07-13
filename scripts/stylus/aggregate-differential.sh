@@ -47,20 +47,24 @@ assert utf8["calls"][0]["status"] == 0 and bytes.fromhex(utf8["result"])[64:70] 
 for rejected in (unaligned, truncated, over_limit):
     assert rejected["calls"][0]["status"] == 1
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
-assert fixed["calls"][0]["status"] == 0 and fixed["result"] == ""
+assert fixed["calls"][0]["status"] == 0
+assert fixed["result"] == f"{7:064x}{9:064x}"
 assert fixed_bad["calls"][0]["status"] == 1
 assert bytes.fromhex(fixed_bad["result"]) == b"stylus: malformed calldata"
-assert tuple["calls"][0]["status"] == 0 and tuple["result"] == ""
+assert tuple["calls"][0]["status"] == 0
+assert tuple["result"] == "00" * 12 + "11" * 20 + f"{7:064x}{9:064x}"
 assert tuple_bad["calls"][0]["status"] == 1
 assert bytes.fromhex(tuple_bad["result"]) == b"stylus: malformed calldata"
 assert mixed["calls"][0]["status"] == 0 and bytes.fromhex(mixed["result"])[64:69] == b"hello"
 assert mixed_bad["calls"][0]["status"] == 1
 assert bytes.fromhex(mixed_bad["result"]) == b"stylus: malformed calldata"
-assert array["calls"][0]["status"] == 0 and array["result"] == ""
+assert array["calls"][0]["status"] == 0
+assert array["result"] == f"{32:064x}{2:064x}{7:064x}{9:064x}"
 for rejected in (array_bad, array_truncated):
     assert rejected["calls"][0]["status"] == 1
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
-assert tuple_array["calls"][0]["status"] == 0 and tuple_array["result"] == ""
+assert tuple_array["calls"][0]["status"] == 0
+assert tuple_array["result"] == f"{32:064x}{1:064x}" + "00" * 12 + "11" * 20 + f"{7:064x}{9:064x}"
 assert tuple_array_bad["calls"][0]["status"] == 1
 assert bytes.fromhex(tuple_array_bad["result"]) == b"stylus: malformed calldata"
 print("stylus-aggregate-differential-runtime: ok")

@@ -1678,3 +1678,22 @@ Rules:
 - Remaining: recursive ABI-relative offsets for arrays/tuples containing
   dynamic children, aggregate return encoding, and short/long storage. No W3
   completion checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Aggregate return encoding
+
+- Status: `static and static-element dynamic returns complete`
+- Result: direct Wasm now returns pointer-backed fixed arrays and static tuples
+  by copying the exact checked ABI word footprint. Static-element `T[]` returns
+  encode Solidity offset 32, element count, and contiguous payload using the
+  plan-owned element width and maximum; result scratch bounds are checked
+  against declared memory pages.
+- Runtime/Rust parity: `uint64[2]`, `(address,uint64[2])`, `uint64[]`, and
+  `(address,uint64[2])[]` echo methods return byte-exact Solidity ABI under the
+  local runner, while the same plan compiles matching Rust return types.
+- Repair: the first dynamic-array encoder cleared its maximum output range
+  before copying, which overlapped calldata-backed tuple-array sources and
+  zeroed the address. The encoder now clears only the 64-byte head/count area;
+  complete payload words are copied without destructive pre-clear.
+- Remaining: recursive offsets for dynamic children, dynamic aggregate
+  storage short/long transitions, and resource/Nitro evidence. No W3 completion
+  checkbox was closed.
