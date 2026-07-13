@@ -124,8 +124,22 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
         match param.dynamicMaxLength? with
         | some maximum => if maximum == 0 then fail s!"Stylus dynamic parameter `{param.name}` has zero maximum length"
         | none => fail s!"Stylus dynamic parameter `{param.name}` has no maximum length"
+        match param.type with
+        | .tuple fields =>
+            let dynamicCount := (fields.filter fun field => field.isDynamic).size
+            unless param.dynamicFieldMaxLengths.size == dynamicCount do
+              fail (s!"Stylus dynamic tuple parameter `{param.name}` has {dynamicCount} dynamic fields but " ++
+                s!"{param.dynamicFieldMaxLengths.size} field maxima")
+            for maximum in param.dynamicFieldMaxLengths do
+              if maximum == 0 || maximum > 4096 then
+                fail s!"Stylus dynamic tuple parameter `{param.name}` has invalid field maximum {maximum}"
+        | _ =>
+            unless param.dynamicFieldMaxLengths.isEmpty do
+              fail s!"Stylus non-tuple parameter `{param.name}` has dynamic field maxima"
       else if param.dynamicMaxLength?.isSome then
         fail s!"Stylus scalar parameter `{param.name}` has a dynamic length policy"
+      else unless param.dynamicFieldMaxLengths.isEmpty do
+        fail s!"Stylus static parameter `{param.name}` has dynamic field maxima"
     let hasCall := function.blocks.any fun block => block.operations.any fun operation =>
       match operation with | .call .. => true | _ => false
     if hasCall && !plan.hostOps.any (fun op => op.functionId == function.id && op.operation == .storageFlush) then

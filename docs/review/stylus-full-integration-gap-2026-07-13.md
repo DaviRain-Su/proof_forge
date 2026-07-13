@@ -2,7 +2,7 @@
 
 ## Executive Status
 
-The completion plan currently has 32 of 64 acceptance items checked (50%).
+The completion plan currently has 34 of 64 acceptance items checked (53%).
 That number understates the foundation already built but accurately shows that
 the target is not release-integrated. A useful engineering estimate is:
 

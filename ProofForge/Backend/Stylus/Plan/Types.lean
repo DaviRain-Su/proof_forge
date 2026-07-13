@@ -176,6 +176,9 @@ structure StylusFunctionParamPlan where
   name : String
   type : StylusAbiType
   dynamicMaxLength? : Option Nat := none
+  /-- Per-child maxima for dynamic aggregate fields, in ABI field order. Empty
+  for scalar bytes/string and dynamic arrays. -/
+  dynamicFieldMaxLengths : Array Nat := #[]
   deriving Repr, BEq
 
 structure StylusFunctionPlan where

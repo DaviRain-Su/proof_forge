@@ -179,7 +179,8 @@ def main : IO Unit := do
           valueId := 8, name := "values", type := .dynamicArray tupleParam, dynamicMaxLength? := some 2 }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[8] }], support },
       { id := "acceptDynamicTuple", abiMethod := "acceptDynamicTuple", params := #[{
-          valueId := 9, name := "value", type := dynamicTuple, dynamicMaxLength? := some 64 }]
+          valueId := 9, name := "value", type := dynamicTuple, dynamicMaxLength? := some 64
+          dynamicFieldMaxLengths := #[64] }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support }
     ]
     events := #[], calls := #[]

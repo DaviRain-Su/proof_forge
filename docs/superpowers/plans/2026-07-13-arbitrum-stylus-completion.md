@@ -8,9 +8,32 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 32/64 acceptance items are complete. Six remaining
+**Current checkpoint:** 34/64 acceptance items are complete. Six remaining
 work packages and their dependency order are audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
+
+## Continuous Execution Queue
+
+Agents execute this queue in order without stopping at internal checkpoints.
+Each package may contain multiple reviewed commits; only external environment
+blockers may defer an item.
+
+- [ ] **W3 aggregate closure:** multi-child direct tuple carriers, nested
+  dynamic arrays, dynamic storage short/long transitions, allocation/resource
+  adversarial gates, and Rust/direct fixtures.
+- [ ] **W4 remote-call closure:** official HostIO audit, Rust/direct/runner
+  parity, static/delegate/reentrant context vectors, and local two-contract
+  evidence.
+- [ ] **W5 live evidence:** ValueVault, token, remote, and aggregate Nitro
+  check/deploy/E2E evidence. Keep blocked with doctor JSON when Docker/RPC is
+  unavailable; do not substitute Wasmtime evidence.
+- [ ] **W6 renderer cutover:** explicit renderer option, direct default,
+  atomic WAT/Wasm/client/metadata, plan/ABI/storage/evidence hashes, and strict
+  no-fallback tests.
+- [ ] **W7 release integration:** `stylus-all`, four-worker lanes, CI artifact
+  upload, registry/docs/i18n, product/static regression, and final evidence.
+- [ ] **Final integration:** review the complete range, then rebase the main
+  working branch, resolve conflicts, rerun gates, and push.
 
 ## Global Constraints
 
@@ -161,8 +184,8 @@ work packages and their dependency order are audited in
 - [x] Add renderer-neutral dynamic ABI head/tail validation for empty/non-aligned payloads, malformed offsets, truncated tails, padding bounds, and maximum length.
 - [x] Add plan-owned pointer/length carriers for bounded bytes/string parameters and Solidity-compatible dynamic returns in direct Wasm; compile the same plan as Rust `Vec<u8>`/`String`.
 - [x] Lower bounded bytes/string literals into checked scratch carriers for canonical method names and other aggregate consumers.
-- [ ] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
-- [ ] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
+- [x] Compute ABI and storage layouts in separate Lean modules with checked addition/multiplication and explicit maximum lengths.
+- [x] Decode/copy only after complete bounds validation; failure must precede storage cache mutation.
 - [ ] Render and execute Rust/direct parity for every fixture and record Wasm bytes/pages plus Nitro ink/gas evidence.
 - [ ] Run `just stylus-aggregate-differential`, `just stylus-nitro-check`, and resource-limit adversarial gates.
 - [ ] Mark Task 14 complete and commit as `feat(stylus): complete aggregate ABI and storage`.
