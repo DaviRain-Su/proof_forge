@@ -4,6 +4,7 @@ import argparse
 import datetime
 import json
 import pathlib
+import re
 import sys
 
 
@@ -14,6 +15,10 @@ REQUIRED_GATES = (
     "remoteCall",
     "aggregate",
 )
+PINNED_REVISION = "62f6cae30942f82958695697d3de8b4e1447ea7f"
+LOCAL_RPC_ENDPOINT = "http://127.0.0.1:8547"
+HEX_32 = re.compile(r"^0x[0-9a-fA-F]{64}$")
+SHA_256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def fail(message: str) -> None:
@@ -52,6 +57,18 @@ def validate(payload: object, plan_sha: str, storage_sha: str, abi_sha: str,
         fail("generatedAt is in the future")
     if age > max_age_seconds:
         fail(f"evidence is stale ({int(age)} seconds old)")
+    nitro = payload.get("nitro")
+    if not isinstance(nitro, dict):
+        fail("nitro identity must be an object")
+    if nitro.get("revision") != PINNED_REVISION:
+        fail("nitro revision does not match the pinned testnode")
+    if nitro.get("rpcEndpoint") != LOCAL_RPC_ENDPOINT:
+        fail("nitro RPC endpoint is not the pinned local testnode")
+    chain_id = nitro.get("chainId")
+    if not isinstance(chain_id, int) or chain_id <= 0:
+        fail("nitro chainId must be a positive integer")
+    if not isinstance(nitro.get("doctorSha256"), str) or not SHA_256.fullmatch(nitro["doctorSha256"]):
+        fail("nitro doctor hash is malformed")
     gates = payload.get("gates")
     if not isinstance(gates, dict):
         fail("gates must be an object")
@@ -65,6 +82,22 @@ def validate(payload: object, plan_sha: str, storage_sha: str, abi_sha: str,
             fail(f"gate {name} did not pass")
         if gate.get("provenance") != "nitro-testnode":
             fail(f"gate {name} must have nitro-testnode provenance")
+        if gate.get("chainId") != chain_id:
+            fail(f"gate {name} does not match the Nitro chain id")
+        transactions = gate.get("transactions")
+        if not isinstance(transactions, dict) or not transactions:
+            fail(f"gate {name} must contain transactions")
+        if not all(isinstance(value, str) and HEX_32.fullmatch(value)
+                   for value in transactions.values()):
+            fail(f"gate {name} contains a malformed transaction hash")
+        artifacts = gate.get("artifacts")
+        if not isinstance(artifacts, dict) or not artifacts:
+            fail(f"gate {name} must contain artifact identities")
+        if not all(isinstance(value, str) and SHA_256.fullmatch(value)
+                   for value in artifacts.values()):
+            fail(f"gate {name} contains a malformed artifact hash")
+        if not isinstance(gate.get("summarySha256"), str) or not SHA_256.fullmatch(gate["summarySha256"]):
+            fail(f"gate {name} summary hash is malformed")
     return payload
 
 

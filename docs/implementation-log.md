@@ -2042,3 +2042,19 @@ Rules:
   because Docker, the pinned checkout, and the local Nitro RPC are unavailable;
   no live evidence or synthetic completion is claimed. No full repository suite
   was run during this development slice.
+
+## 2026-07-13 - STYLUS-W6 re-audit: atomic failure and provenance closure
+
+- Status: `complete`
+- Wrapped the entire Stylus artifact compiler with process-scoped temporary
+  bundle cleanup. Any renderer, subprocess, write, validation, or publication
+  failure now removes the `.bundle-tmp-*` directory; successful rename leaves
+  nothing for the cleanup path.
+- Strengthened cutover evidence validation to require the pinned Nitro revision
+  and local endpoint, doctor hash, positive common chain id, and well-formed
+  transaction, artifact, and gate-summary hashes. Passed/provenance labels alone
+  no longer authorize a final artifact.
+- Verification: targeted Lean/CLI build, `just stylus-public-route` including an
+  intentional `wat2wasm` exit-42 no-partial vector and invalid revision/hash
+  evidence vectors, `just stylus-nitro-scripts`, and `git diff --check` pass.
+  No full repository suite was run during this development slice.

@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W6 direct-Wasm cutover re-audit |
-| Next task | W7.2 release evidence and stale-document reconciliation |
+| Active task | Stylus continuous queue - W7.2 release evidence and document reconciliation |
+| Next task | Audit CI artifact durability, then reconcile the full-integration gap report |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

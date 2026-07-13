@@ -8,6 +8,7 @@ RUST_OUT="$ROOT/build/stylus/public-route-rust"
 INVALID_OUT="$ROOT/build/stylus/public-route-invalid"
 STALE_OUT="$ROOT/build/stylus/public-route-stale"
 VERIFIED_OUT="$ROOT/build/stylus/public-route-verified"
+FAILED_BUILD_OUT="$ROOT/build/stylus/public-route-failed-build"
 MISSING_EVIDENCE="$ROOT/build/stylus/no-cutover-evidence.json"
 export PATH="$HOME/.foundry/bin:$PATH"
 cd "$ROOT"
@@ -94,6 +95,30 @@ if compgen -G "$INVALID_OUT.bundle-tmp-*" >/dev/null; then
 fi
 echo "stylus-public-route-no-fallback: ok"
 
+FAILING_TOOLS="$ROOT/build/stylus/public-route-failing-tools"
+rm -rf "$FAILING_TOOLS" "$FAILED_BUILD_OUT" "$FAILED_BUILD_OUT".bundle-tmp-*
+mkdir -p "$FAILING_TOOLS"
+cat > "$FAILING_TOOLS/wat2wasm" <<'EOF'
+#!/usr/bin/env sh
+echo "intentional wat2wasm failure" >&2
+exit 42
+EOF
+chmod +x "$FAILING_TOOLS/wat2wasm"
+if PATH="$FAILING_TOOLS:$PATH" PROOF_FORGE_STYLUS_EVIDENCE="$MISSING_EVIDENCE" \
+    lake env proof-forge build --target wasm-arbitrum-stylus --root . \
+    -o "$FAILED_BUILD_OUT" Examples/Product/Counter.lean \
+    >build/stylus/failed-build.log 2>&1; then
+  echo "failing Stylus renderer unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -Fq 'intentional wat2wasm failure' build/stylus/failed-build.log
+test ! -e "$FAILED_BUILD_OUT"
+if compgen -G "$FAILED_BUILD_OUT.bundle-tmp-*" >/dev/null; then
+  echo "failing renderer left a partial bundle" >&2
+  exit 1
+fi
+echo "stylus-public-route-render-failure-atomic: ok"
+
 rm -rf "$TOKEN_OUT"
 rm -rf "$TOKEN_OUT".bundle-tmp-*
 PROOF_FORGE_STYLUS_EVIDENCE="$MISSING_EVIDENCE" \
@@ -141,11 +166,22 @@ identities = {
     "storageSha256": next(x for x in artifact["artifactBundle"]["outputs"] if x["kind"] == "stylus-storage-layout")["sha256"],
     "abiSha256": next(x for x in artifact["artifactBundle"]["outputs"] if x["kind"] == "solidity-abi")["sha256"],
 }
-gate = {"state": "passed", "skipped": False, "provenance": "nitro-testnode"}
+gate = {
+    "state": "passed", "skipped": False, "provenance": "nitro-testnode",
+    "chainId": 412346,
+    "transactions": {"scenario": "0x" + "2" * 64},
+    "artifacts": {"wasmSha256": "3" * 64},
+    "summarySha256": "4" * 64,
+}
 payload = {
     "schemaVersion": "1", "target": "wasm-arbitrum-stylus",
     "planSchemaVersion": "stylus-plan-v1", "generatedAt": "2026-07-13T12:00:00Z",
     "identities": identities,
+    "nitro": {
+        "revision": "62f6cae30942f82958695697d3de8b4e1447ea7f",
+        "rpcEndpoint": "http://127.0.0.1:8547", "chainId": 412346,
+        "doctorSha256": "5" * 64,
+    },
     "gates": {name: copy.deepcopy(gate) for name in
               ("valueVault", "mappingEvents", "token", "remoteCall", "aggregate")},
 }
@@ -173,6 +209,10 @@ skipped = copy.deepcopy(payload); skipped["gates"]["token"]["skipped"] = True
 result = run("skipped", skipped); assert result.returncode != 0 and "skipped=false" in result.stderr
 mismatch = copy.deepcopy(payload); mismatch["identities"]["abiSha256"] = "0" * 64
 result = run("mismatch", mismatch); assert result.returncode != 0 and "does not match" in result.stderr
+wrong_revision = copy.deepcopy(payload); wrong_revision["nitro"]["revision"] = "0" * 40
+result = run("revision", wrong_revision); assert result.returncode != 0 and "revision" in result.stderr
+bad_transaction = copy.deepcopy(payload); bad_transaction["gates"]["remoteCall"]["transactions"]["scenario"] = "0x1"
+result = run("transaction", bad_transaction); assert result.returncode != 0 and "transaction hash" in result.stderr
 print("stylus-cutover-evidence-vectors: ok")
 PY
 

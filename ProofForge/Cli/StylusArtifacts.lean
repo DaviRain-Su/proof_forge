@@ -70,7 +70,7 @@ private def hydrateStylusSelectors (cast : String) (module : ProofForge.IR.Modul
     | none => entrypoints := entrypoints.push { entrypoint with selector? := some derived }
   pure { module with entrypoints }
 
-unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
+private unsafe def compileContractSourceStylusImpl (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln "Stylus build requires a Lean contract_source input"
       return 1
@@ -253,5 +253,27 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   IO.FS.rename output finalOutput
   IO.println s!"wrote {finalOutput}"
   return 0
+
+private def cleanupStylusTemporaryBundle (opts : CliOptions) : IO Unit := do
+  let pid <- IO.Process.getPID
+  match opts.output? with
+  | some finalOutput =>
+      let temporary := System.FilePath.mk s!"{finalOutput}.bundle-tmp-{pid}"
+      if <- temporary.pathExists then IO.FS.removeDirAll temporary
+  | none =>
+      let some input := opts.input? | return
+      let parent := input.parent.getD "."
+      if <- parent.pathExists then
+        let suffix := s!".stylus.bundle-tmp-{pid}"
+        for entry in <- parent.readDir do
+          if entry.fileName.endsWith suffix && (← entry.path.isDir) then
+            IO.FS.removeDirAll entry.path
+
+unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
+  try
+    compileContractSourceStylusImpl opts
+  catch error =>
+    try cleanupStylusTemporaryBundle opts catch _ => pure ()
+    throw error
 
 end ProofForge.Cli

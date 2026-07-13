@@ -73,6 +73,11 @@ blockers may defer an item.
   evidence is explicit `unavailable`, while supplied final evidence must match
   plan/storage/ABI identities, Task 2-6 Nitro provenance, non-skipped states,
   and a seven-day freshness window before atomic publication.
+  W6 re-audit added process-wide temporary-bundle cleanup for every renderer or
+  file failure, plus a forced `wat2wasm` failure vector. Cutover validation now
+  also requires the pinned Nitro revision/local endpoint, doctor hash, one
+  chain id, and per-gate transaction/artifact/summary hashes rather than
+  accepting state/provenance labels alone.
 - [x] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
   RemoteCall, and Aggregate bundles through literal CLI commands for both
   supported renderer modes.
