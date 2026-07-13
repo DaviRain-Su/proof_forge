@@ -34,11 +34,13 @@ Region map (base -> base+size, all bytes are exclusive scratch space):
 | `PARAM_HASH_BUF`| 46000  | ~1000  | 47000  | 32-byte slots for decoded hash params |
 | `CROSSCALL_BUF` | 47000  | ~1100  | 48100  | NEAR crosscall JSON argument scratch |
 | `CROSSCALL_ARGS_EMPTY_PTR` | 48100 | 2 | 48102 | fixed "[]" payload |
+| `U128_RESULT_BUF` | 48200 | 16 | 48216 | transient U128 arithmetic result |
 | `CROSSCALL_STRING_BASE` | 49000 | ~1000 | 50000 | NEAR account/method string pool |
 | `ZERO_HASH_BUF` | 50000  | 32     | 50032  | 32 zero bytes for missing hash map entries |
 | `OLD_HASH_BUF`  | 50500  | 32     | 50532  | previous value for hash map set/insert |
 | `PROMISE_RESULT_BUF` | 51000 | 8   | 51008  | Borsh U64 promise callback payload |
 | `STRUCT_BUF`    | 52000  | ...    | ...    | struct-valued scalar state read/write |
+| `JSON_RET_BUF`  | 56000  | 4000   | 60000  | schema-driven JSON return assembly |
 | `ARR_HEAP`      | 60000  | ...    | ...    | bump-alloc base for array-value temporaries |
 
 The bump heaps (`HASH_HEAP`, `ARR_HEAP`) grow upward and are reset per
@@ -103,8 +105,10 @@ def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one
 def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-valued map entries
 def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
 def STRUCT_BUF      : Nat := 52000  -- buffer for reading/writing struct-valued scalar state
+def JSON_RET_BUF    : Nat := 56000  -- schema-driven JSON return assembly (4 KiB)
+def JSON_RET_CAP    : Nat := 4000
 def PROMISE_RESULT_BUF : Nat := 51000  -- scratch for Borsh U64 promise callback payloads
-def U128_RESULT_BUF : Nat := 56000  -- 16-byte transient slot for u128 arith helpers (lo@0, hi@8)
+def U128_RESULT_BUF : Nat := 48200  -- 16-byte transient slot for u128 arith helpers (lo@0, hi@8)
   -- NEAR VM disables `multi_value`, so __pf_u128_{add,sub,mul} are void and
   -- write their (lo, hi) result here; callers reload both words onto the stack.
 def crosscallPoolPtrName : String := "__pf_crosscall_pool_ptr"
@@ -131,11 +135,14 @@ def memoryLayoutNonoverlap : Bool :=
     (CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN),
     (CROSSCALL_STRING_BASE, 1000), (ZERO_HASH_BUF, 32),
     (OLD_HASH_BUF, 32), (PROMISE_RESULT_BUF, 8), (STRUCT_BUF, 4000),
+    (JSON_RET_BUF, JSON_RET_CAP),
     (U128_RESULT_BUF, 16)
   ]
-  regions.all (fun (a0, aSz) =>
-    regions.all (fun (b0, bSz) =>
-      a0 == b0 || disjointRegions a0 aSz b0 bSz))
+  (Array.range regions.size).all fun i =>
+    (Array.range regions.size).all fun j =>
+      i == j || match regions[i]?, regions[j]? with
+        | some (a0, aSz), some (b0, bSz) => disjointRegions a0 aSz b0 bSz
+        | _, _ => false
 
 /-- Decidable proof that the fixed EmitWat scratch regions are pairwise
 disjoint. If this theorem fails to elaborate, the memory layout constants

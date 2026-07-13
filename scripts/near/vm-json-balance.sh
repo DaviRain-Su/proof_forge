@@ -37,16 +37,21 @@ def u128(value):
     return struct.pack("<QQ", value, 0)
 
 account = "alice.testnet"
-json_query = ('{"account_id":"' + account + '"}').encode()
-print(",".join(value.hex() for value in [b"", account_slot(account) + u128(100), json_query]))
+json_query = (' \n{ "account_id" : "' + account + '" }\t').encode()
+escaped_query = b'{"account_id":"alice\\u002etestnet"}'
+print(",".join(value.hex() for value in [
+    b"", account_slot(account) + u128(100), b" \n{ }\t", json_query, escaped_query
+]))
 PY
 )"
 
-out="$("${RUNNER[@]}" "$WASM" init ft_mint ft_balance_of --inputs-hex "$INPUTS_HEX")"
+out="$("${RUNNER[@]}" "$WASM" init ft_mint ft_total_supply ft_balance_of ft_balance_of --inputs-hex "$INPUTS_HEX")"
 echo "$out"
-grep -qF 'call ft_balance_of: return_hex=2231303022' <<<"$out" \
-  || fail 'ft_balance_of did not return the JSON U128 string "100"'
-grep -qF '3 methods executed successfully on real NEAR VM' <<<"$out" \
+grep -qF 'call ft_total_supply: return_hex=2231303022' <<<"$out" \
+  || fail 'ft_total_supply did not return the JSON U128 string "100"'
+[[ "$(grep -cF 'call ft_balance_of: return_hex=2231303022' <<<"$out")" -eq 2 ]] \
+  || fail 'raw and Unicode-escaped ft_balance_of did not both return JSON "100"'
+grep -qF '5 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "valid JSON balance sequence did not complete"
 
 set +e
@@ -58,4 +63,4 @@ echo "$malformed_out"
 grep -qF 'call ft_balance_of: ABORTED:' <<<"$malformed_out" \
   || fail "malformed JSON input did not abort inside the real NEAR VM"
 
-echo "vm-json-balance: ok (canonical JSON input + quoted U128 output + malformed-input rejection)"
+echo "vm-json-balance: ok (schema whitespace + Unicode escape + JSON supply/balance + malformed rejection)"

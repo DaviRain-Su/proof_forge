@@ -1,7 +1,7 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T0 documentation reconciliation in
-progress; Phases 0-3 and Phase 4 Landings 4a-4b complete, Landing 4c next).
+Status: active (updated 2026-07-14; N-T0 and N-T1 complete; N-T2 / Phase 5
+in progress; Phases 0-4 complete).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -14,9 +14,9 @@ the broader completion work visible while each landing remains reviewable.
 
 | ID | State | Deliverable | Depends on |
 |---|---|---|---|
-| N-T0 | in_progress | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
-| N-T1 | pending | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
-| N-T2 | pending | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
+| N-T0 | done (`337ee823`) | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
+| N-T1 | done (2026-07-14) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
+| N-T2 | in_progress | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
 | N-T3 | pending | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
 | N-T4 | pending | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
@@ -323,11 +323,34 @@ real VM (or compare harness).
   results `"0"` and U128::MAX. Independent calls prove overflow, leading-zero,
   and field-order violations abort in the VM.
 
-Landings 4a-4b cover the standard JSON balance view and direct transfer call,
-not the whole phase. Landing 4c adds structured JSON return planning for
-NEP-145/148. Optional memo/msg fields, the standard `ft_transfer_call` JSON
-shape, generic JSON escaping/order tolerance, and other mutation entrypoints
-remain Borsh until their individual decoder and real-VM gates land.
+### Landing 4c - schema-driven JSON ABI (DONE 2026-07-14)
+
+- Replaced signature-specific JSON parsing with a validated schema graph for
+  objects, optional fields, strings, numbers, U128 decimal strings, structs,
+  fixed arrays, and dynamic arrays. Object decoding accepts arbitrary field
+  order and whitespace while rejecting unknown and duplicate fields.
+- String input decoding handles standard escapes and full `\uXXXX`, including
+  UTF-16 surrogate pairs converted to UTF-8. The real VM proves that
+  `alice\u002etestnet` resolves to the same balance as `alice.testnet`.
+- Legacy EmitWat and canonical NearModulePlan compile per-entrypoint JSON
+  return helpers from the same output schema. Structured return planning uses
+  the real aggregate carrier layout for U128 pairs, dynamic `(ptr,len)` values,
+  objects, optional fields, and arrays; schema compilation failures are
+  lowering errors rather than silently omitted helpers.
+- Generated TypeScript clients recursively map schema objects, arrays,
+  optional values, and U128 decimal strings to typed request/response values.
+- Fixed a real-VM-discovered scratch collision between JSON output and the
+  transient U128 division result. The non-overlap theorem now distinguishes
+  regions by index, so different regions sharing a base can no longer evade
+  the check.
+- Verification: `Tests/NearAbiPlan.lean`, `Tests/ContractClient.lean`,
+  `just near-abi-client`, `just near-vm-json-balance`,
+  `just near-vm-json-transfer`, `just near-vm-conformance-ft`, and
+  `git diff --check`. Per development-loop policy, no full aggregate gate ran.
+
+Optional memo/msg fields and the standard `ft_transfer_call` JSON shape move
+to N-T2. NEP-145/148 structured methods now have the shared ABI foundation and
+remain scheduled in N-T3/N-T4 with their own executable gates.
 
 ## Phase 5 — NEP-141 core interop (N-03)  (effort L; depends 4)
 

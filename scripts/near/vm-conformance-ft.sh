@@ -13,9 +13,10 @@
 # LinkError surfaces immediately. (Counter never imports storage_remove, which
 # is why the Counter-only gate could not catch that class of failure.)
 #
-# Phase 1 (host-ABI link + execute): `init` + `ft_total_supply` with no input —
-#   proves the complete host-import surface resolves against real
-#   near-vm-logic and executes without trap. ft_total_supply must read 0.
+# Phase 1 (host-ABI link + execute): `init` + `ft_total_supply` with the
+#   canonical NEP-141 `{}` JSON input proves the complete host-import surface
+#   resolves against real near-vm-logic and executes without trap.
+#   ft_total_supply must return the JSON decimal string `"0"`.
 #
 # Phase 2 (semantic + callback dispatch): the full NEP-141 transfer_call flow
 #   (init, ft_mint, ft_approve, balance_of*, ft_transfer_call, ft_resolve_transfer,
@@ -67,10 +68,10 @@ fail() {
 }
 
 echo "=== phase 1: host-ABI link + execute (init, ft_total_supply) ==="
-out="$("${RUNNER[@]}" "$WASM" init ft_total_supply)"
+out="$("${RUNNER[@]}" "$WASM" init ft_total_supply --inputs-hex ',7b7d')"
 echo "$out"
 grep -qiE 'ABORTED|failed|LinkError' <<<"$out" && fail "phase 1 link/execute failed on real NEAR VM"
-grep -qF 'call ft_total_supply: return_hex=00000000000000000000000000000000' <<<"$out" \
+grep -qF 'call ft_total_supply: return_hex=223022' <<<"$out" \
   || fail "phase 1 ft_total_supply != 0 (fresh storage)"
 grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 1 did not report 2 successful methods"

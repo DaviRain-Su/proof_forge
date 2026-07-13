@@ -11,6 +11,7 @@ import ProofForge.Backend.WasmHost.Context
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Event
 import ProofForge.Backend.WasmHost.Hash
+import ProofForge.Backend.WasmHost.JsonReturn
 import ProofForge.Backend.WasmHost.StringCmp
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -32,6 +33,7 @@ open ProofForge.Backend.WasmHost.Context
 open ProofForge.Backend.WasmHost.Crosscall
 open ProofForge.Backend.WasmHost.Event
 open ProofForge.Backend.WasmHost.Hash
+open ProofForge.Backend.WasmHost.JsonReturn
 open ProofForge.Backend.WasmHost.StringCmp
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.LoweringEnv
@@ -106,14 +108,22 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     if ctx.packScalars then #[]
     else scalarStorageHelperFuncsForModulePlan modulePlan ctx.bridge
   let jsonReturnHelpers :=
-    if ctx.entrypointAbis.any (fun abi => abi.outputCodec == .json) then
-      #[returnJsonU128Func, u128Divmod10Func, u128FmtFunc]
-    else #[]
+    let jsonAbis := ctx.entrypointAbis.filter (fun abi => abi.outputJson?.isSome)
+    if jsonAbis.isEmpty then #[] else
+      let schemaFuncs := jsonAbis.filterMap fun abi =>
+        abi.outputJson?.bind fun schema =>
+          (JsonReturn.buildReturnFunc abi.name ctx.structs schema abi.returnType).toOption
+      #[memcpyFunc, fmtU64Func, u128Divmod10Func, u128FmtFunc] ++
+        JsonReturn.runtimeFuncs ++ schemaFuncs
   let jsonInputHelpers :=
-    if ctx.entrypointAbis.any (fun abi =>
+    (if ctx.entrypointAbis.any (fun abi =>
         abi.inputCodec == .json && abi.params.any (fun param => param.type == .u128)) then
       #[parseU128DecimalFunc]
-    else #[]
+    else #[]) ++
+    (if ctx.entrypointAbis.any (fun abi =>
+        abi.inputCodec == .json && abi.params.any (fun param => param.type == .string)) then
+      #[parseJsonHex4Func, writeJsonUtf8Func]
+    else #[])
   let funcs := scalarHelpers ++ packHelpers ++
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
@@ -133,7 +143,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     else unique.push function) #[]
 
 def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.AllocatorConfig)
-    (packScalars : Bool := false) : Array Global :=
+    (packScalars : Bool := false) (usesJsonReturn : Bool := false) : Array Global :=
   let arrPtrDecls :=
     if allocator.requiresHost || !modulePlanUsesArrHeap modulePlan then #[]
     else if allocator.usesMinimalMallocShape then
@@ -142,6 +152,7 @@ def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.Al
   let hashGlobals := if modulePlanUsesHashAlloc modulePlan then #[hashPtrGlobalDecl] else #[]
   let packG := if packScalars then packGlobals else #[]
   hashGlobals ++ packG ++ (if modulePlan.usesEventApi then evtGlobals else #[]) ++
+    (if usesJsonReturn then #[JsonReturn.ptrGlobalDecl] else #[]) ++
     crosscallGlobalsForModulePlan modulePlan ++ arrPtrDecls
 
 end ProofForge.Backend.WasmHost.ModuleAssembly

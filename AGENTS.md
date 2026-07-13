@@ -69,6 +69,26 @@ Historical documents never reopen or reschedule work by themselves.
 
 ## Current Program
 
+The active NEAR execution order lives in the
+[NEP-141 / NEP-145 interop plan](docs/superpowers/plans/2026-07-13-near-nep141-interop-execution.md).
+Do not reopen completed U128, AccountId-string, `storage_remove`, gas-context,
+or JSON balance/transfer slices from stale gap prose.
+
+| ID | State | Task | Authoritative section |
+|---|---|---|---|
+| N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |
+| N-T1 | done (verified 2026-07-14) | Schema-driven JSON ABI and structured client types | Phase 4 |
+| N-T2 | in_progress | Standard NEP-141 ABI and exact one-yocto/registration rules | Phase 5 |
+| N-T3 | pending after N-T2 | Complete NEP-145 JSON, unregister, refunds, and accounting | Phase 6 |
+| N-T4 | pending after N-T2 | NEP-148 metadata and NEP-297 events | Phase 6 |
+| N-T5 | pending | One parameterized TokenSpec NEP-141 artifact | Phase 7 |
+| N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
+| N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |
+| N-T8 | pending | NEAR ecosystem extensions and formal preservation | Phase 9 extension |
+
+The D-052 cross-program routing index remains below for work not superseded by
+the active NEAR sequence.
+
 The authoritative task details and acceptance criteria live in the
 [July 12 implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
 This table is only the agent routing index.

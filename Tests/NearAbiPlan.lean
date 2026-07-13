@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.JsonReturn
 import ProofForge.Backend.WasmHost.NearAbiPlan
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.WasmInterpreter
@@ -36,6 +37,51 @@ def ftBalanceModule : Module := {
   name := "NearFtBalanceJson"
   state := #[]
   entrypoints := #[ftBalanceEntrypoint]
+}
+
+def ftSupplyEntrypoint : Entrypoint := {
+  name := "ft_total_supply"
+  mutability := .view
+  params := #[]
+  returns := .u128
+  body := #[.return (.literal (.u128 100))]
+}
+
+def ftSupplyModule : Module := {
+  name := "NearFtSupplyJson"
+  state := #[]
+  entrypoints := #[ftSupplyEntrypoint]
+}
+
+def jsonSchemaStructs : Array StructDecl := #[{
+  name := "StorageBalance"
+  fields := #[
+    { id := "total", type := .u128 },
+    { id := "available", type := .u128 },
+    { id := "flags", type := .fixedArray .bool 2 }
+  ]
+}]
+
+def aggregateCarrierModule : Module := {
+  name := "NearJsonAggregateCarrier"
+  structs := #[{
+    name := "JsonAggregateCarrier"
+    fields := #[
+      { id := "amount", type := .u128 },
+      { id := "memo", type := .string }
+    ]
+  }]
+  state := #[]
+  entrypoints := #[{
+    name := "aggregate_amount"
+    mutability := .view
+    params := #[("memo", .string)]
+    returns := .u128
+    body := #[.return (.field
+      (.structLit "JsonAggregateCarrier" #[
+        ("amount", .literal (.u128 100)), ("memo", .local "memo")
+      ]) "amount")]
+  }]
 }
 
 def ftTransferEntrypoint : Entrypoint := {
@@ -91,13 +137,23 @@ def main : IO Unit := do
     "NEAR ft_balance_of must use the standard JSON codec"
   require (ftAbi.inputByteWidth == 0 && ftAbi.outputByteWidth == 0)
     "dynamic JSON codec widths must not claim a fixed Borsh payload"
+  let some ftInputSchema := ftAbi.inputJson?
+    | throw <| IO.userError "ft_balance_of input JSON schema is missing"
+  let some ftInputRoot := ftInputSchema.root?
+    | throw <| IO.userError "ft_balance_of input JSON schema root is missing"
+  require (ftInputRoot.kind == .object && ftInputRoot.fields.map (·.wireName) == #["account_id"])
+    "ft_balance_of input JSON schema must own its canonical object field"
+  let some ftOutputSchema := ftAbi.outputJson?
+    | throw <| IO.userError "ft_balance_of output JSON schema is missing"
+  require (ftOutputSchema.root?.map (·.kind) == some .decimalString)
+    "ft_balance_of output JSON schema must encode U128 as a decimal string"
   let ftPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftBalanceModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message
   let ftWat ← match ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan ftBalanceModule ftPlan with
     | .ok wat => pure wat
     | .error error => throw <| IO.userError error.message
-  require (ftWat.contains "call $__pf_return_json_u128")
+  require (ftWat.contains "call $__pf_return_json_ft_balance_of")
     "NEAR ft_balance_of must route U128 through the JSON decimal-string return helper"
   require (ftWat.contains "i32.const 123" && ftWat.contains "i32.const 125")
     "NEAR ft_balance_of JSON input must validate object braces"
@@ -107,6 +163,25 @@ def main : IO Unit := do
       require (message.contains "must have signature")
         "invalid standard ft_balance_of signature must be actionable"
   | .ok _ => throw <| IO.userError "invalid standard ft_balance_of signature did not fail closed"
+  let supplyAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] ftSupplyEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (supplyAbi.inputCodec == .json && supplyAbi.outputCodec == .json)
+    "NEAR ft_total_supply must use standard JSON input/output"
+  require ((supplyAbi.inputJson?.bind (·.root?) |>.map (·.fields.isEmpty)) == some true)
+    "NEAR ft_total_supply must plan an empty JSON input object"
+  require ((supplyAbi.outputJson?.bind (·.root?) |>.map (·.kind)) == some .decimalString)
+    "NEAR ft_total_supply must plan a JSON U128 decimal-string output"
+  let supplyPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftSupplyModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  let supplyWat ← match ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan ftSupplyModule supplyPlan with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error.message
+  require (supplyWat.contains "call $__pf_return_json_ft_total_supply")
+    "NEAR ft_total_supply must use the JSON U128 return helper"
+  require (supplyWat.contains "i64.const 2" && supplyWat.contains "i32.const 123")
+    "NEAR ft_total_supply must validate the canonical empty JSON object"
   let transferAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] ftTransferEntrypoint with
     | .ok plan => pure plan
     | .error message => throw <| IO.userError message
@@ -114,6 +189,13 @@ def main : IO Unit := do
     "NEAR ft_transfer must use JSON input without claiming a JSON return payload"
   require (transferAbi.inputByteWidth == 0 && transferAbi.outputByteWidth == 0)
     "NEAR ft_transfer JSON input and Unit output must have dynamic/zero codec widths"
+  let some transferSchema := transferAbi.inputJson?
+    | throw <| IO.userError "ft_transfer input JSON schema is missing"
+  require (transferSchema.orderIndependent && transferSchema.rejectUnknownFields)
+    "NEAR JSON object schemas must accept field reordering and reject unknown fields"
+  require (transferSchema.root?.map (fun root => root.fields.map (·.wireName)) ==
+      some #["receiver_id", "amount"])
+    "ft_transfer JSON schema must own its two wire fields"
   let transferPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftTransferModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message
@@ -130,6 +212,125 @@ def main : IO Unit := do
       require (message.contains "must have signature")
         "invalid standard ft_transfer signature must be actionable"
   | .ok _ => throw <| IO.userError "invalid standard ft_transfer signature did not fail closed"
+  let aggregateSchema ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonValueSchema
+      jsonSchemaStructs (.structType "StorageBalance") with
+    | .ok schema => pure schema
+    | .error message => throw <| IO.userError message
+  require (aggregateSchema.root?.map (·.kind) == some .object)
+    "JSON schema graph must represent struct outputs as objects"
+  require (aggregateSchema.nodes.any fun node =>
+      node.kind == .fixedArray && node.fixedLength? == some 2)
+    "JSON schema graph must represent fixed-array fields"
+  let aggregateReturnFunc ← match
+      ProofForge.Backend.WasmHost.JsonReturn.buildReturnFunc "storage_balance_of"
+        jsonSchemaStructs aggregateSchema (.structType "StorageBalance") with
+    | .ok func => pure func
+    | .error message => throw <| IO.userError message
+  let aggregateReturnModule : ProofForge.Compiler.Wasm.Module := {
+    imports := #[]
+    globals := #[ProofForge.Backend.WasmHost.JsonReturn.ptrGlobalDecl]
+    funcs := ProofForge.Backend.WasmHost.JsonReturn.runtimeFuncs ++ #[aggregateReturnFunc]
+    memory := some { min := 1 }
+    dataSegments := #[]
+  }
+  let aggregateReturnWat := ProofForge.Compiler.Wasm.Printer.render aggregateReturnModule
+  require (aggregateReturnWat.contains "func $__pf_return_json_storage_balance_of" &&
+      aggregateReturnWat.contains "call $__pf_json_return_put_u128" &&
+      aggregateReturnWat.contains "call $__pf_json_return_put_bool")
+    "structured JSON return lowering must encode U128 fields and fixed Bool arrays"
+  let optionalSchema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan := {
+    rootNode := 1
+    nodes := #[
+      { id := 0, kind := .string, valueType? := some .string },
+      { id := 1, kind := .optional, elementNode? := some 0 }
+    ]
+  }
+  match optionalSchema.validate with
+  | .ok _ => pure ()
+  | .error message => throw <| IO.userError s!"valid optional JSON schema rejected: {message}"
+  let optionalInputBase ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonObjectSchema
+      #[] #[("memo", .string)] with
+    | .ok schema => pure schema
+    | .error message => throw <| IO.userError message
+  let optionalInput ← match optionalInputBase.withOptionalRootField "memo" with
+    | .ok schema => pure schema
+    | .error message => throw <| IO.userError message
+  let some optionalRoot := optionalInput.root?
+    | throw <| IO.userError "optional input schema root is missing"
+  let some optionalField := optionalRoot.fields[0]?
+    | throw <| IO.userError "optional input schema field is missing"
+  require (!optionalField.required &&
+      (optionalInput.nodes.find? (·.id == optionalField.nodeId) |>.map (·.kind)) == some .optional)
+    "optional root-field planning must wrap the wire node and allow omission"
+  let optionalPlan : ProofForge.Backend.WasmHost.AbiPlan.EntrypointPlan := {
+    name := "optional_json_probe"
+    inputCodec := .json
+    outputCodec := .borsh
+    params := #[{ name? := some "memo", type := .string, offset := 0, byteWidth := 0 }]
+    inputByteWidth := 0
+    returnType := .unit
+    outputByteWidth := 0
+    inputJson? := some optionalInput
+  }
+  let (optionalInsns, optionalLocals) ← match
+      ProofForge.Backend.WasmHost.Params.loadParams #[] #[("memo", .string)] optionalPlan with
+    | .ok result => pure result
+    | .error error => throw <| IO.userError error.message
+  let packedMemo := #[
+    .localGet "memo", .load "i32.load8_u" 0,
+    .localGet "memo", .i32Const 1, .plain "i32.add", .load "i32.load8_u" 0,
+    .i32Const 8, .plain "i32.shl", .plain "i32.or",
+    .localGet "memo", .i32Const 2, .plain "i32.add", .load "i32.load8_u" 0,
+    .i32Const 16, .plain "i32.shl", .plain "i32.or"
+  ]
+  let optionalFunc : ProofForge.Compiler.Wasm.Func := {
+    name := "optional_json_probe"
+    results := #[.i32]
+    locals := optionalLocals
+    body := { insns := optionalInsns ++ packedMemo }
+  }
+  let optionalWasm : ProofForge.Compiler.Wasm.Module := {
+    globals := #[ProofForge.Backend.WasmHost.ArrayHeap.arrPtrGlobalDecl 60000]
+    funcs := #[
+      ProofForge.Backend.WasmHost.ArrayHeap.arrAllocFunc ProofForge.IR.defaultAllocator,
+      ProofForge.Backend.WasmHost.Params.parseJsonHex4Func,
+      ProofForge.Backend.WasmHost.Params.writeJsonUtf8Func,
+      optionalFunc
+    ]
+  }
+  let optionalWat := ProofForge.Compiler.Wasm.Printer.render optionalWasm
+  require (optionalWat.contains "call $__pf_arr_alloc" &&
+      optionalWat.contains "i32.store8")
+    "optional JSON string decoding must materialize owned UTF-8 bytes"
+  require (optionalWat.contains "i32.const 110" &&
+      optionalWat.contains "i32.const 117" && optionalWat.contains "i32.const 108")
+    "optional JSON decoding must recognize the null literal"
+  require (optionalWat.contains "i32.const 10" && optionalWat.contains "i32.const 92")
+    "JSON string decoding must materialize newline and backslash escape cases"
+  require (optionalWat.contains "func $__pf_json_parse_hex4" &&
+      optionalWat.contains "func $__pf_json_write_utf8")
+    "JSON string decoding must include Unicode hex and UTF-8 helpers"
+  let invalidSchema := { optionalSchema with rootNode := 99 }
+  match invalidSchema.validate with
+  | .error message => do
+      require (message.contains "root node")
+        "invalid JSON schema must report its missing root"
+  | .ok _ => throw <| IO.userError "JSON schema accepted a missing root"
+  let aggregateCarrierPlan ← match
+      ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan aggregateCarrierModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  let aggregateCarrierWat ← match
+      ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan
+        aggregateCarrierModule aggregateCarrierPlan with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error.message
+  require (aggregateCarrierWat.contains "func $__pf_struct_get_u128_pair" &&
+      aggregateCarrierWat.contains "call $__pf_struct_get_u128_pair")
+    "aggregate U128 fields must use the two-word struct carrier"
+  require (aggregateCarrierWat.contains "local.get $memo_len" &&
+      aggregateCarrierWat.contains "i32.store")
+    "aggregate String fields must store the schema runtime (ptr,len) carrier"
   let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan echoModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message

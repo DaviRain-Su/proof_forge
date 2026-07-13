@@ -2293,3 +2293,29 @@ Rules:
   `near-abi-client`, `near-vm-json-transfer`, `near-vm-json-balance`,
   `near-vm-conformance-ft`, and `near-ft-security`.
 - Next: structured JSON return planning for NEP-145/148.
+
+## 2026-07-14 - NEAR N-T0: remaining-task reconciliation
+
+- Status: `done`.
+- Reconciled stale capability claims with current code and retained the real
+  remaining boundaries: schema-driven JSON, standard NEP-141/145/148/297,
+  TokenSpec artifact closure, sandbox evidence, receipt/network execution, and
+  formal preservation.
+- Verification recorded by the original task: documentation checks, i18n link
+  validation, and `git diff --check`.
+
+## 2026-07-14 - NEAR N-T1: schema-driven JSON ABI
+
+- Status: `done (verified on the unmodified upstream NEAR VM)`.
+- Added one validated JSON schema graph to `AbiPlan`; NEAR input decoding,
+  output encoding, and generated TypeScript clients consume that plan-owned
+  graph. Objects reject unknown/duplicate fields, strings support escapes and
+  Unicode surrogate pairs, and U128 remains a checked decimal string.
+- Added schema-compiled JSON return helpers for scalar, struct, fixed/dynamic
+  array, and optional outputs. Invalid output schemas fail lowering explicitly.
+- Corrected aggregate carriers and separated transient U128/JSON memory regions.
+- Verification recorded by the original task: affected WasmHost/CLI builds,
+  `Tests/NearAbiPlan.lean`, `Tests/ContractClient.lean`, `near-abi-client`, and
+  the focused JSON/FT real-VM gates.
+- Next: standard `ft_transfer_call` JSON, exact one-yocto guards, and receiver
+  registration behavior.

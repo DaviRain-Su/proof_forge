@@ -11,6 +11,10 @@ open ProofForge.IR
 abbrev Codec := ProofForge.Backend.WasmHost.AbiPlan.Codec
 abbrev ValuePlan := ProofForge.Backend.WasmHost.AbiPlan.ValuePlan
 abbrev EntrypointPlan := ProofForge.Backend.WasmHost.AbiPlan.EntrypointPlan
+abbrev JsonNodeKind := ProofForge.Backend.WasmHost.AbiPlan.JsonNodeKind
+abbrev JsonFieldPlan := ProofForge.Backend.WasmHost.AbiPlan.JsonFieldPlan
+abbrev JsonNodePlan := ProofForge.Backend.WasmHost.AbiPlan.JsonNodePlan
+abbrev JsonSchemaPlan := ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan
 
 partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except String Nat
   | .unit => .ok 0
@@ -30,26 +34,94 @@ partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except S
       .ok size
   | type => .error s!"NEAR Borsh ABI does not support dynamic `{type.name}` values"
 
-/-- First wallet-compatible inbound JSON slice. Keep this classification in
-the target ABI plan so contract lowering and generated clients consume the same
-decision. Additional NEP-141/145 methods join only when their decoder and
-real-VM gate land. -/
-def jsonCodecsForSignature (name : String) (params : Array (String × ValueType))
-    (returns : ValueType) : Except String (Bool × Bool) := do
+partial def appendJsonValueSchema (structs : Array StructDecl) (type : ValueType)
+    (nodes : Array JsonNodePlan) : Except String (Nat × Array JsonNodePlan) := do
+  let appendLeaf (kind : JsonNodeKind) : Nat × Array JsonNodePlan :=
+    let id := nodes.size
+    (id, nodes.push { id, kind, valueType? := some type })
+  match type with
+  | .unit => return appendLeaf .unit
+  | .bool => return appendLeaf .bool
+  | .u8 | .u32 | .u64 | .address => return appendLeaf .number
+  | .u128 => return appendLeaf .decimalString
+  | .string | .bytes | .hash => return appendLeaf .string
+  | .fixedArray element length =>
+      let (elementId, nodes) ← appendJsonValueSchema structs element nodes
+      let id := nodes.size
+      return (id, nodes.push {
+        id, kind := .fixedArray, valueType? := some type,
+        elementNode? := some elementId, fixedLength? := some length })
+  | .array element =>
+      let (elementId, nodes) ← appendJsonValueSchema structs element nodes
+      let id := nodes.size
+      return (id, nodes.push {
+        id, kind := .array, valueType? := some type, elementNode? := some elementId })
+  | .structType name =>
+      let some decl := structs.find? (·.name == name)
+        | throw s!"NEAR JSON ABI references unknown struct `{name}`"
+      let mut nodes := nodes
+      let mut fields := #[]
+      for field in decl.fields do
+        let (nodeId, nextNodes) ← appendJsonValueSchema structs field.type nodes
+        nodes := nextNodes
+        fields := fields.push {
+          wireName := field.id, sourceName? := some field.id, nodeId, required := true }
+      let id := nodes.size
+      return (id, nodes.push {
+        id, kind := .object, valueType? := some type, fields })
+
+def buildJsonObjectSchema (structs : Array StructDecl)
+    (params : Array (String × ValueType)) : Except String JsonSchemaPlan := do
+  let mut nodes := #[]
+  let mut fields := #[]
+  for param in params do
+    let (nodeId, nextNodes) ← appendJsonValueSchema structs param.snd nodes
+    nodes := nextNodes
+    fields := fields.push {
+      wireName := param.fst, sourceName? := some param.fst, nodeId, required := true }
+  let rootNode := nodes.size
+  nodes := nodes.push { id := rootNode, kind := .object, fields }
+  return { rootNode, nodes, orderIndependent := true, rejectUnknownFields := true }
+
+def buildJsonValueSchema (structs : Array StructDecl) (type : ValueType) :
+    Except String JsonSchemaPlan := do
+  let (rootNode, nodes) ← appendJsonValueSchema structs type #[]
+  return { rootNode, nodes }
+
+/-- Wallet-compatible JSON selection plus its explicit wire schemas. Contract
+lowering and generated clients consume this single target ABI decision. -/
+def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
+    (params : Array (String × ValueType)) (returns : ValueType) :
+    Except String (Option JsonSchemaPlan × Option JsonSchemaPlan) := do
+  if name == "ft_total_supply" then
+    unless params.isEmpty && returns == .u128 do
+      throw "NEAR standard entrypoint `ft_total_supply` must have signature () -> U128"
+    return (some (← buildJsonObjectSchema structs params),
+      some (← buildJsonValueSchema structs returns))
   if name == "ft_balance_of" then
     unless params == #[("account_id", .string)] && returns == .u128 do
       throw "NEAR standard entrypoint `ft_balance_of` must have signature (account_id : String) -> U128"
-    return (true, true)
+    return (some (← buildJsonObjectSchema structs params),
+      some (← buildJsonValueSchema structs returns))
   if name == "ft_transfer" then
     unless params == #[("receiver_id", .string), ("amount", .u128)] && returns == .unit do
       throw "NEAR standard entrypoint `ft_transfer` must have signature (receiver_id : String, amount : U128) -> Unit"
-    return (true, false)
-  return (false, false)
+    return (some (← buildJsonObjectSchema structs params), none)
+  return (none, none)
 
 def buildSignaturePlan (structs : Array StructDecl) (name : String)
     (signatureParams : Array (String × ValueType)) (returns : ValueType) :
     Except String EntrypointPlan := do
-  let (useJsonInput, useJsonOutput) ← jsonCodecsForSignature name signatureParams returns
+  let (inputJson?, outputJson?) ←
+    jsonSchemasForSignature structs name signatureParams returns
+  match inputJson? with
+  | some schema => schema.validate
+  | none => pure ()
+  match outputJson? with
+  | some schema => schema.validate
+  | none => pure ()
+  let useJsonInput := inputJson?.isSome
+  let useJsonOutput := outputJson?.isSome
   let inputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
     if useJsonInput then .json else .borsh
   let outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
@@ -69,6 +141,8 @@ def buildSignaturePlan (structs : Array StructDecl) (name : String)
     inputByteWidth := offset
     returnType := returns
     outputByteWidth
+    inputJson?
+    outputJson?
   }
 
 def buildEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint) :

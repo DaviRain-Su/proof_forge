@@ -314,6 +314,17 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
   require (!contains ftWrapper "nearViewFunctionBorsh({")
     "NEAR ft_balance_of client must not use Borsh transport"
 
+  let some ftSupply := ProofForge.Contract.Stdlib.NearFungibleToken.spec.module.entrypoints.find?
+      (fun entrypoint => entrypoint.name == "ft_total_supply")
+    | throw <| IO.userError "NEAR FT fixture missing ft_total_supply"
+  let supplyWrapper := ProofForge.Contract.Client.nearEntrypointWrapper ftSupply
+  require (contains supplyWrapper "nearViewFunctionJson({")
+    "NEAR ft_total_supply client must use JSON transport"
+  require (contains supplyWrapper "args: {}")
+    "NEAR ft_total_supply client must emit the empty JSON object"
+  require (contains supplyWrapper "BigInt(result as string)")
+    "NEAR ft_total_supply client must decode the schema-planned U128 string"
+
   let some ftTransfer := ProofForge.Contract.Stdlib.NearFungibleToken.spec.module.entrypoints.find?
       (fun entrypoint => entrypoint.name == "ft_transfer")
     | throw <| IO.userError "NEAR FT fixture missing ft_transfer"
@@ -325,6 +336,74 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
     "NEAR ft_transfer client must encode receiver_id and decimal-string U128 amount"
   require (!contains transferWrapper "nearFunctionCallBorsh({")
     "NEAR ft_transfer client must not use Borsh transaction transport"
+
+def testNearStructuredJsonSchemaClient : IO Unit := do
+  let inputSchema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan := {
+    rootNode := 3
+    nodes := #[
+      { id := 0, kind := .decimalString, valueType? := some .u128 },
+      { id := 1, kind := .string, valueType? := some .string },
+      { id := 2, kind := .object, fields := #[
+        { wireName := "amount", sourceName? := some "amount", nodeId := 0 },
+        { wireName := "label", sourceName? := some "label", nodeId := 1 }
+      ] },
+      { id := 3, kind := .object, fields := #[
+        { wireName := "request", sourceName? := some "request", nodeId := 2 }
+      ] }
+    ]
+    orderIndependent := true
+    rejectUnknownFields := true
+  }
+  let outputSchema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan := {
+    rootNode := 5
+    nodes := #[
+      { id := 0, kind := .decimalString, valueType? := some .u128 },
+      { id := 1, kind := .string, valueType? := some .string },
+      { id := 2, kind := .optional, elementNode? := some 1 },
+      { id := 3, kind := .bool, valueType? := some .bool },
+      { id := 4, kind := .fixedArray, valueType? := some (.fixedArray .bool 2),
+        elementNode? := some 3, fixedLength? := some 2 },
+      { id := 5, kind := .object, valueType? := some (.structType "StorageBalance"),
+        fields := #[
+          { wireName := "total", sourceName? := some "total", nodeId := 0 },
+          { wireName := "memo", sourceName? := some "memo", nodeId := 2, required := false },
+          { wireName := "flags", sourceName? := some "flags", nodeId := 4 }
+        ] }
+    ]
+    orderIndependent := true
+    rejectUnknownFields := true
+  }
+  let entrypoint : ProofForge.IR.Entrypoint := {
+    name := "structured_view"
+    mutability := .view
+    params := #[("request", .structType "Request")]
+    «returns» := .structType "StorageBalance"
+    body := #[]
+  }
+  let plan : ProofForge.Backend.WasmHost.AbiPlan.EntrypointPlan := {
+    name := entrypoint.name
+    inputCodec := .json
+    outputCodec := .json
+    params := #[{ name? := some "request", type := .structType "Request", offset := 0, byteWidth := 0 }]
+    inputByteWidth := 0
+    returnType := .structType "StorageBalance"
+    outputByteWidth := 0
+    inputJson? := some inputSchema
+    outputJson? := some outputSchema
+  }
+  let wrapper := ProofForge.Contract.Client.nearEntrypointWrapperWithPlan entrypoint plan
+  require (contains wrapper
+      "args: {\"request\": {\"amount\": request[\"amount\"].toString(), \"label\": request[\"label\"]}}")
+    "NEAR JSON client must recursively encode structured arguments from the schema"
+  require (contains wrapper
+      "Promise<{ \"total\": bigint; \"memo\"?: string | null; \"flags\": Array<boolean> }>")
+    "NEAR JSON client must expose a structured schema-derived return type"
+  require (contains wrapper "BigInt((result as Record<string, unknown>)[\"total\"] as string)")
+    "NEAR JSON client must recursively decode decimal-string U128 fields"
+  require (contains wrapper "== null ? null")
+    "NEAR JSON client must preserve optional JSON fields"
+  require (contains wrapper ".map((value) => value)")
+    "NEAR JSON client must recursively decode array fields"
 
 def testAbiWordControlsTypescriptParameterType : IO Unit := do
   let wrapper ← renderEvm addressOverrideSpec "AddressOverrideProbe"
@@ -387,6 +466,7 @@ def main : IO UInt32 := do
   testEvmAbiRejectsUnknownStruct
   testNearViewAndCallEntrypoints
   testNearClientUsesContractBorshCodec
+  testNearStructuredJsonSchemaClient
   testReturnValueDoesNotImplyView
   testAbiWordControlsTypescriptParameterType
   testAbiWordControlsTypescriptReturnType

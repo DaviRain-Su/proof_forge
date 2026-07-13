@@ -283,13 +283,91 @@ def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec
 def nearArgsObject (entrypoint : Entrypoint) : String :=
   "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"
 
-def nearJsonValueExpr (name : String) : ValueType → String
-  | .u128 => name ++ ".toString()"
-  | _ => name
+partial def nearJsonSchemaValueExpr
+    (schema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan)
+    (nodeId : Nat) (name : String) : String :=
+  match schema.nodes.find? (·.id == nodeId) with
+  | some node => match node.kind with
+    | .decimalString => name ++ ".toString()"
+    | .fixedArray | .array =>
+        match node.elementNode? with
+        | some childId =>
+            name ++ ".map((value) => " ++ nearJsonSchemaValueExpr schema childId "value" ++ ")"
+        | none => name
+    | .object =>
+        "{" ++ String.intercalate ", " (node.fields.map fun field =>
+          let sourceName := field.sourceName?.getD field.wireName
+          let access := name ++ "[\"" ++ sourceName ++ "\"]"
+          "\"" ++ field.wireName ++ "\": " ++
+            nearJsonSchemaValueExpr schema field.nodeId access).toList ++ "}"
+    | .optional =>
+        match node.elementNode? with
+        | some childId => s!"({name} == null ? null : {nearJsonSchemaValueExpr schema childId name})"
+        | none => name
+    | _ => name
+  | none => name
 
-def nearJsonArgsObject (entrypoint : Entrypoint) : String :=
-  "{" ++ String.intercalate ", " (entrypoint.params.map fun p =>
-    "\"" ++ p.fst ++ "\": " ++ nearJsonValueExpr p.fst p.snd).toList ++ "}"
+partial def nearJsonSchemaTsType
+    (schema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan)
+    (nodeId : Nat) : String :=
+  match schema.nodes.find? (·.id == nodeId) with
+  | some node => match node.kind with
+    | .unit => "void"
+    | .bool => "boolean"
+    | .number => node.valueType?.map typeToTs |>.getD "number"
+    | .decimalString => "bigint"
+    | .string => "string"
+    | .fixedArray | .array =>
+        match node.elementNode? with
+        | some childId => "Array<" ++ nearJsonSchemaTsType schema childId ++ ">"
+        | none => "unknown[]"
+    | .object =>
+        "{ " ++ String.intercalate "; " (node.fields.map fun field =>
+          "\"" ++ field.wireName ++ "\"" ++ (if field.required then "" else "?") ++
+            ": " ++ nearJsonSchemaTsType schema field.nodeId).toList ++ " }"
+    | .optional =>
+        match node.elementNode? with
+        | some childId => nearJsonSchemaTsType schema childId ++ " | null"
+        | none => "unknown | null"
+  | none => "unknown"
+
+partial def nearDecodeJsonSchemaValueExpr
+    (schema : ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan)
+    (nodeId : Nat) (name : String) : String :=
+  match schema.nodes.find? (·.id == nodeId) with
+  | some node => match node.kind with
+    | .decimalString => "BigInt(" ++ name ++ " as string)"
+    | .fixedArray | .array =>
+        match node.elementNode? with
+        | some childId =>
+            "(" ++ name ++ " as unknown[]).map((value) => " ++
+              nearDecodeJsonSchemaValueExpr schema childId "value" ++ ")"
+        | none => name
+    | .object =>
+        "({" ++ String.intercalate ", " (node.fields.map fun field =>
+          let access := "(" ++ name ++ " as Record<string, unknown>)[\"" ++ field.wireName ++ "\"]"
+          "\"" ++ field.wireName ++ "\": " ++
+            nearDecodeJsonSchemaValueExpr schema field.nodeId access).toList ++ "})"
+    | .optional =>
+        match node.elementNode? with
+        | some childId =>
+            "(" ++ name ++ " == null ? null : " ++
+              nearDecodeJsonSchemaValueExpr schema childId name ++ ")"
+        | none => name
+    | _ => name
+  | none => name
+
+def nearJsonArgsObject (entrypoint : Entrypoint)
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan) : String :=
+  match abiPlan.inputJson? with
+  | some schema => match schema.root? with
+    | some root =>
+        "{" ++ String.intercalate ", " (root.fields.map fun field =>
+          let sourceName := field.sourceName?.getD field.wireName
+          "\"" ++ field.wireName ++ "\": " ++
+            nearJsonSchemaValueExpr schema field.nodeId sourceName).toList ++ "}"
+    | none => nearArgsObject entrypoint
+  | none => nearArgsObject entrypoint
 
 partial def nearBorshSchemaExpr (structs : Array StructDecl) : ValueType → String
   | .u8 => "\"u8\""
@@ -324,10 +402,18 @@ def nearDecodeResultExpr (structs : Array StructDecl) (type : ValueType) (bytesE
   | .unit => "undefined"
   | _ => "decodeNearBorshResult(" ++ nearBorshSchemaExpr structs type ++ ", " ++ bytesExpr ++ ")"
 
-def nearDecodeJsonResultExpr (type : ValueType) (resultExpr : String) : String :=
-  match type with
-  | .u128 => "BigInt(" ++ resultExpr ++ " as string)"
-  | _ => resultExpr
+def nearDecodeJsonResultExpr
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan)
+    (resultExpr : String) : String :=
+  match abiPlan.outputJson? with
+  | some schema => nearDecodeJsonSchemaValueExpr schema schema.rootNode resultExpr
+  | none => resultExpr
+
+def nearJsonReturnType
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan) : String :=
+  match abiPlan.outputJson? with
+  | some schema => nearJsonSchemaTsType schema schema.rootNode
+  | none => typeToTs abiPlan.returnType
 
 def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
     (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan)
@@ -346,7 +432,7 @@ def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
     let returnKeyword := if entrypoint.returns == .unit then "" else "return "
     let useJson := abiPlan.inputCodec == .json
     let callHelper := if useJson then "nearFunctionCallJson" else "nearFunctionCallBorsh"
-    let argsExpr := if useJson then nearJsonArgsObject entrypoint else argsBytes
+    let argsExpr := if useJson then nearJsonArgsObject entrypoint abiPlan else argsBytes
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ returnType ++ "> {\n" ++
     "  " ++ returnKeyword ++ "await " ++ callHelper ++ "({\n" ++
     "    contractId,\n" ++
@@ -365,17 +451,17 @@ def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
         params ++ ", options: NearViewOptions = {}"
     let useJson := abiPlan.inputCodec == .json && abiPlan.outputCodec == .json
     let viewHelper := if useJson then "nearViewFunctionJson" else "nearViewFunctionBorsh"
-    let argsExpr := if useJson then nearJsonArgsObject entrypoint else argsBytes
-    let resultExpr := if useJson then nearDecodeJsonResultExpr abiPlan.returnType "result"
+    let argsExpr := if useJson then nearJsonArgsObject entrypoint abiPlan else argsBytes
+    let resultExpr := if useJson then nearDecodeJsonResultExpr abiPlan "result"
       else nearDecodeResultExpr structs abiPlan.returnType "result"
-    "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
+    "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ nearJsonReturnType abiPlan ++ "> {\n" ++
     "  const result = await " ++ viewHelper ++ "({\n" ++
     "    ...options,\n" ++
     "    contractId,\n" ++
     "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
     "    args: " ++ argsExpr ++ ",\n" ++
     "  });\n" ++
-    "  return " ++ resultExpr ++ " as " ++ typeToTs abiPlan.returnType ++ ";\n" ++
+    "  return " ++ resultExpr ++ " as " ++ nearJsonReturnType abiPlan ++ ";\n" ++
     "}\n"
 
 def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=

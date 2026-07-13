@@ -38,6 +38,7 @@ import ProofForge.Backend.WasmHost.ExprAnalysis
 import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Imports
 import ProofForge.Backend.WasmHost.JsonEncode
+import ProofForge.Backend.WasmHost.JsonReturn
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Locals
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -791,7 +792,14 @@ mutual
         | some s =>
           match structFieldOffset? s fieldName, structFieldType? s fieldName with
           | some off, some ft =>
-            .ok (pb ++ #[.i32Const off, .plain "i32.add", .load (loadOpFor ft) 0], ft)
+            let address := pb ++ #[.i32Const off, .plain "i32.add"]
+            let load := match ft with
+              | .u128 => #[.call structU128PairName]
+              | .string | .bytes | .array _ => #[.call structDynamicPairName]
+              | .hash => #[]
+              | .fixedArray _ _ | .structType _ => #[.load "i32.load" 0]
+              | _ => #[.load (loadOpFor ft) 0]
+            .ok (address ++ load, ft)
           | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
     | .crosscallInvoke target method args =>
@@ -1150,14 +1158,14 @@ mutual
 
 end
 
-def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType)
+def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (entrypointName : String)
     (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
   if outputCodec == .json then
-    unless expected == .u128 && t == .u128 do
-      err s!"EmitWat: JSON return codec currently supports U128, got `{t.name}` for `{expected.name}`"
-    .ok (is ++ #[.call returnJsonU128Name])
+    unless expected == t do
+      err s!"EmitWat: JSON return expression type `{t.name}` does not match `{expected.name}`"
+    .ok (is ++ #[.call (JsonReturn.helperName entrypointName)])
   else
     let aggBytes? ← borshReturnPayloadBytes ctx.structs expected
     returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars aggBytes?
@@ -1178,6 +1186,7 @@ partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (field
   .ok (header ++ fieldInsns ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
+    (entrypointName : String)
     (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec)
     (s : Statement) : Except EmitError (Array Insn) :=
   match s with
@@ -1247,16 +1256,19 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
                             .if_ { insns := failInsns } { insns := #[] }])
   | .release name => do
     releaseInsns ctx env name
-  | .return e => lowerReturn ctx env returns outputCodec e
+  | .return e => lowerReturn ctx env returns entrypointName outputCodec e
   | .ifElse cond thenBody elseBody => do
     let (cis, ct) ← lowerExpr ctx env cond
     if ct != .bool then err "EmitWat: if/else condition must be Bool"
     else do
-      let thenInsns ← appendInsnChunksM thenBody fun s => lowerStmt ctx env returns outputCodec s
-      let elseInsns ← appendInsnChunksM elseBody fun s => lowerStmt ctx env returns outputCodec s
+      let thenInsns ← appendInsnChunksM thenBody fun s =>
+        lowerStmt ctx env returns entrypointName outputCodec s
+      let elseInsns ← appendInsnChunksM elseBody fun s =>
+        lowerStmt ctx env returns entrypointName outputCodec s
       .ok (ifElseInsns cis thenInsns elseInsns)
   | .boundedFor indexName start stop body => do
-    let bodyInsns ← appendInsnChunksM body fun s => lowerStmt ctx env returns outputCodec s
+    let bodyInsns ← appendInsnChunksM body fun s =>
+      lowerStmt ctx env returns entrypointName outputCodec s
     .ok (boundedForInsns indexName start stop bodyInsns)
   | _ => err "EmitWat: this statement form is not yet supported"
 
@@ -1292,7 +1304,7 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
     else
       #[{ name := b.name, type := wasmTypeOf b.vt : Local }])
   let bodyInsns ← appendInsnChunksM ep.body fun s =>
-    lowerStmt ctx allLocalTypes ep.returns abiPlan.outputCodec s
+    lowerStmt ctx allLocalTypes ep.returns ep.name abiPlan.outputCodec s
   let resetPrefix : Array Insn :=
     (if ctx.usesHashAlloc then #[.i32Const HASH_HEAP, .globalSet hashPtrGlobal] else #[]) ++
     (if ctx.allocator.usesEntryReset then
@@ -1326,11 +1338,18 @@ function of `(mod, modulePlan, ctx)` — it does not re-derive any layout. -/
 def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan)
     (ctx : Ctx) : Except EmitError ProofForge.Compiler.Wasm.Module := do
   let ctx := { ctx with usesHashAlloc := modulePlanUsesHashAlloc modulePlan }
+  for abi in ctx.entrypointAbis do
+    if let some schema := abi.outputJson? then
+      match JsonReturn.buildReturnFunc abi.name ctx.structs schema abi.returnType with
+      | .ok _ => pure ()
+      | .error message =>
+          err s!"EmitWat: JSON return ABI `{abi.name}` cannot be lowered: {message}"
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let hasPanic := !ctx.panics.isEmpty
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic ctx.bridge
   let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
   let globals := globalsForModulePlan modulePlan mod.allocator ctx.packScalars
+    (ctx.entrypointAbis.any fun abi => abi.outputJson?.isSome)
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := dataSegmentsForModulePlan modulePlan ctx }

@@ -273,18 +273,59 @@ def arrEqFunc (elemType : ValueType) (len : Nat) : Func :=
 def arrEqHelperFuncs (mod : ProofForge.IR.Module) : Array Func :=
   moduleArrayLits mod |>.map (fun (e, n) => arrEqFunc e n)
 
+def structU128PairName : String := "__pf_struct_get_u128_pair"
+def structDynamicPairName : String := "__pf_struct_get_dynamic_pair"
+
+def structU128PairFunc : Func :=
+  { name := structU128PairName
+    params := #[{ name := "p", type := .i32 }]
+    results := #[.i64, .i64]
+    body := { insns := #[
+      .localGet "p", .load "i64.load" 0,
+      .localGet "p", .i32Const 8, .plain "i32.add", .load "i64.load" 0
+    ] } }
+
+def structDynamicPairFunc : Func :=
+  { name := structDynamicPairName
+    params := #[{ name := "p", type := .i32 }]
+    results := #[.i32, .i32]
+    body := { insns := #[
+      .localGet "p", .load "i32.load" 0,
+      .localGet "p", .i32Const 4, .plain "i32.add", .load "i32.load" 0
+    ] } }
+
 /-- `__pf_struct_lit_<name>(f0,f1,..) -> i32`: alloc totalSize bytes, store each
     field at its cumulative offset, return the base pointer. -/
 def structLitFunc (s : ProofForge.IR.StructDecl) : Func :=
   let total := structTotalSize s
+  let params := s.fields.flatMap fun f => match f.type with
+    | .u128 => #[
+        { name := f.id, type := .i64 }, { name := u128HiName f.id, type := .i64 }
+      ]
+    | .string | .bytes | .array _ => #[
+        { name := f.id, type := .i32 }, { name := f.id ++ "_len", type := .i32 }
+      ]
+    | _ => #[{ name := f.id, type := wasmTypeOf f.type }]
   let stores : Array Insn :=
     (s.fields.foldl (fun st f =>
-        (st.1 + scalarWidth f.type,
-         st.2 ++ #[.i32Const st.1, .localGet "p", .plain "i32.add",
-                   .localGet f.id, .store (storeOpFor f.type) 0]))
+        let dst := #[.i32Const st.1, .localGet "p", .plain "i32.add"]
+        let write := match f.type with
+          | .u128 => dst ++ #[.localGet f.id, .store "i64.store" 0] ++
+              #[.i32Const (st.1 + 8), .localGet "p", .plain "i32.add",
+                .localGet (u128HiName f.id), .store "i64.store" 0]
+          | .string | .bytes | .array _ => dst ++ #[
+              .localGet f.id, .store "i32.store" 0,
+              .i32Const (st.1 + 4), .localGet "p", .plain "i32.add",
+              .localGet (f.id ++ "_len"), .store "i32.store" 0
+            ]
+          | .hash => dst ++ #[.localGet f.id, .i32Const 32, .call memcpyName]
+          | .fixedArray _ _ | .structType _ =>
+              dst ++ #[.localGet f.id, .store "i32.store" 0]
+          | _ => dst ++ #[.localGet f.id, .store (storeOpFor f.type) 0]
+        (st.1 + scalarWidth f.type, st.2 ++ write))
       (0, (#[] : Array Insn))).2
   { name := structLitName s.name,
-    params := s.fields.map (fun f => { name := f.id, type := wasmTypeOf f.type }),
+    params
     results := #[.i32],
     locals := #[{ name := "p", type := .i32 }],
     body := { insns :=
@@ -322,7 +363,14 @@ def structLitFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module)
   plan.structLitNames.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
 
 def aggregateHelperFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
+  let pairHelpers :=
+    (if mod.structs.any (fun decl => decl.fields.any (·.type == .u128)) then
+      #[structU128PairFunc] else #[]) ++
+    (if mod.structs.any (fun decl => decl.fields.any fun field => match field.type with
+        | .string | .bytes | .array _ => true
+        | _ => false) then #[structDynamicPairFunc] else #[])
   arrayLitFuncsForModulePlan plan ++ arrayEqFuncsForModulePlan plan ++
-    structLitFuncsForModulePlan plan mod ++ arrHeapHelperFuncsForModulePlan plan mod.allocator
+    structLitFuncsForModulePlan plan mod ++ pairHelpers ++
+    arrHeapHelperFuncsForModulePlan plan mod.allocator
 
 end ProofForge.Backend.WasmHost.Aggregate
