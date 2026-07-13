@@ -166,7 +166,8 @@ def isPackedScalarId (scalars : Array StateInfo) (id : String) : Bool :=
 mutual
   partial def exprReadsPackedScalar (scalars : Array StateInfo) : Expr → Bool
     | .effect eff => effectReadsPackedScalar scalars eff
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
+    | .nearStorageUsage | .nearPromiseResultsCount => false
     | .arrayLit _ vs => vs.any (exprReadsPackedScalar scalars)
     | .arrayGet a i | .memoryArrayGet a i | .hashTwoToOne a i
     | .add a i _ | .sub a i _ | .mul a i _ | .div a i | .mod a i | .pow a i
@@ -208,6 +209,8 @@ mutual
     | .nearPromiseThen p c args d _ =>
         exprReadsPackedScalar scalars p || exprReadsPackedScalar scalars c ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
+    | .nearPromiseTransfer account amount =>
+        exprReadsPackedScalar scalars account || exprReadsPackedScalar scalars amount
 
   partial def effectReadsPackedScalar (scalars : Array StateInfo) : Effect → Bool
     | .storageScalarRead id => isPackedScalarId scalars id
@@ -611,20 +614,36 @@ def u128SubFunc : Func :=
       .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
-/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a * b to
-    `U128_RESULT_BUF`. Simplified: only computes lo = alo * blo,
-    hi = alo * bhi + ahi * blo (cross terms). Full 128-bit mul would need
-    192-bit intermediates; this handles common cases. See `u128AddFunc` for
-    the multi_value workaround. -/
+/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: void; writes the low 128 bits of
+    `a * b` to `U128_RESULT_BUF`. The 64x64 high word is computed from 32-bit
+    limbs, then combined with the two cross terms. -/
 def u128MulFunc : Func :=
   { name := u128MulName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
     results := #[],
-    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
+      { name := "a0", type := .i64 }, { name := "a1", type := .i64 },
+      { name := "b0", type := .i64 }, { name := "b1", type := .i64 },
+      { name := "w0", type := .i64 }, { name := "t", type := .i64 },
+      { name := "w1", type := .i64 }, { name := "w2", type := .i64 }],
     body := { insns := #[
+      .localGet "alo", .i64Const 0xffffffff, .plain "i64.and", .localSet "a0",
+      .localGet "alo", .i64Const 32, .plain "i64.shr_u", .localSet "a1",
+      .localGet "blo", .i64Const 0xffffffff, .plain "i64.and", .localSet "b0",
+      .localGet "blo", .i64Const 32, .plain "i64.shr_u", .localSet "b1",
+      .localGet "a0", .localGet "b0", .plain "i64.mul", .localSet "w0",
+      .localGet "a1", .localGet "b0", .plain "i64.mul",
+      .localGet "w0", .i64Const 32, .plain "i64.shr_u", .plain "i64.add", .localSet "t",
+      .localGet "t", .i64Const 0xffffffff, .plain "i64.and", .localSet "w1",
+      .localGet "t", .i64Const 32, .plain "i64.shr_u", .localSet "w2",
+      .localGet "a0", .localGet "b1", .plain "i64.mul",
+      .localGet "w1", .plain "i64.add", .localSet "w1",
       .localGet "alo", .localGet "blo", .plain "i64.mul", .localSet "lo",
-      .localGet "alo", .localGet "bhi", .plain "i64.mul",
+      .localGet "a1", .localGet "b1", .plain "i64.mul",
+      .localGet "w2", .plain "i64.add",
+      .localGet "w1", .i64Const 32, .plain "i64.shr_u", .plain "i64.add",
+      .localGet "alo", .localGet "bhi", .plain "i64.mul", .plain "i64.add",
       .localGet "ahi", .localGet "blo", .plain "i64.mul",
       .plain "i64.add", .localSet "hi",
       .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,

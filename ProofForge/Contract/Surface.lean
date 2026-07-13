@@ -506,6 +506,18 @@ def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.nearPromiseResultU128 index
 
+/-- Full U128 NEAR attached deposit. NEAR-only. -/
+def nearAttachedDeposit : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearAttachedDeposit
+
+/-- Current NEAR trie storage usage in bytes. NEAR-only. -/
+def nearStorageUsage : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearStorageUsage
+
+/-- Schedule a NEAR native-token refund to a runtime AccountId. NEAR-only. -/
+def nearPromiseTransfer (account amount : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearPromiseTransfer account amount
+
 def cast (value : ProofForge.IR.Expr) (target : ValueType) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.cast value target
 

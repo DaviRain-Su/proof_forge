@@ -211,13 +211,15 @@ mutual
     | .nearPromiseResultStatus index => collectExprEvents events index
     | .nearPromiseResultU64 index => collectExprEvents events index
     | .nearPromiseResultU128 index => collectExprEvents events index
+    | .nearPromiseTransfer account amount =>
+        collectExprEvents (collectExprEvents events account) amount
     | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         let events₁ := collectExprEvents events accountIndex
         let events₂ := collectExprEvents events₁ methodId
         let events₃ := collectExprEvents events₂ deposit
         args.foldl collectExprEvents events₃
     | .effect effect => collectEffectEvents events effect
-    | .literal _ | .local _ | .nativeValue => events
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => events
 
   partial def collectEffectEvents (events : Array String) : Effect → Array String
     | .storageScalarWrite _ value

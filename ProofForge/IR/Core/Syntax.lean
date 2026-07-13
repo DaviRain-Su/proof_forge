@@ -57,6 +57,7 @@ inductive PureOp
   | cast (to : CoreType) (arg : ValueRef)
   | hash (arg : ValueRef)
   | hashTwoToOne (lhs rhs : ValueRef)
+  | structLit (typeId : TypeId) (fields : Array ValueRef)
   deriving BEq, Repr
 
 /- Instructions are the unit of effect in Core. Every value-producing effect
@@ -67,6 +68,7 @@ inductive InstructionOp
   | storageLoad (path : StorageRef)
   | storageContains (path : StorageRef)
   | storageStore (path : StorageRef) (value : ValueRef)
+  | storageRemove (path : StorageRef)
   | storageLength (root : StateId)
   | storageResize (root : StateId) (length : ValueRef)
   | memoryAlloc (type : CoreType) (length : ValueRef)

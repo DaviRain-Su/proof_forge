@@ -102,6 +102,13 @@ mutual
     | .nearPromiseResultU128 index =>
         #[finding path "nearPromiseResultU128" (.targetFamilyOnly .wasmHost)] ++
           classifyExpr s!"{path}.index" index
+    | .nearAttachedDeposit =>
+        #[finding path "nearAttachedDeposit" (.targetFamilyOnly .wasmHost)]
+    | .nearStorageUsage =>
+        #[finding path "nearStorageUsage" (.targetFamilyOnly .wasmHost)]
+    | .nearPromiseTransfer account amount =>
+        #[finding path "nearPromiseTransfer" (.targetFamilyOnly .wasmHost)] ++
+          classifyExpr s!"{path}.account" account ++ classifyExpr s!"{path}.amount" amount
     | .crosscallInvoke target methodId args =>
         #[finding path "crosscall.invoke" .familyShared] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++

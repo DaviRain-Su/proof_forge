@@ -968,6 +968,46 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
         },
     )?;
 
+    linker.func_wrap(
+        "env",
+        "storage_usage",
+        |caller: Caller<'_, HostState>| -> i64 {
+            caller
+                .data()
+                .storage
+                .iter()
+                .map(|(key, value)| key.len() + value.len())
+                .sum::<usize>() as i64
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "promise_batch_create",
+        |mut caller: Caller<'_, HostState>, account_len: i64, account_ptr: i64| -> Result<i64> {
+            let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
+            let state = caller.data_mut();
+            let id = state.next_promise_id;
+            state.next_promise_id += 1;
+            state
+                .promise_trace
+                .push(format!("promise_batch_create id={id} account={account}"));
+            Ok(id as i64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "promise_batch_action_transfer",
+        |mut caller: Caller<'_, HostState>, promise_id: i64, amount_ptr: i64| -> Result<()> {
+            let amount = read_u128_le(&mut caller, amount_ptr)?;
+            caller.data_mut().promise_trace.push(format!(
+                "promise_batch_action_transfer id={promise_id} amount={amount}"
+            ));
+            Ok(())
+        },
+    )?;
+
     // Promise API stubs.
     // near-sys: amount is a *pointer* to little-endian u128 (16 bytes), not a
     // raw yocto value (matches EmitWat.lowerNearDeposit). Trace preserves the

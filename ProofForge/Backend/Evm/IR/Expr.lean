@@ -456,6 +456,10 @@ mutual
             dynTargetOffsets dynTargets)
     | .nativeValue =>
         lowerExprThroughPlan module env .nativeValue
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         lowerExprThroughPlan module env (.crosscallInvoke target methodId args)
     | .crosscallInvokeTyped target methodId args returnType => do
@@ -883,6 +887,9 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
       exprSupportsPlanScalarYul callValue &&
         exprSupportsPlanScalarYul salt
   | .crosscallNamed _ _ _ _ => false
+  | .nearAttachedDeposit
+  | .nearStorageUsage
+  | .nearPromiseTransfer _ _ => false
   | .arrayLit _ _
   | .arrayGet _ _
   | .memoryArrayNew _ _

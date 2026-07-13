@@ -146,6 +146,10 @@ mutual
         .ok s!"__pf_hash_two_to_one({← lowerExpr module lhs}, {← lowerExpr module rhs})"
     | .nativeValue =>
         .ok "env::attached_deposit()"
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations require the canonical EmitWat backend and are not supported by Rust sourcegen v0" }
     | .crosscallInvoke _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallInvokeTyped _ _ _ _

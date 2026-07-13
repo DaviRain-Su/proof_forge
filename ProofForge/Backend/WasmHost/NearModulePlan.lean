@@ -346,6 +346,7 @@ private def canonicalNearType (name : String) : ValueType :=
   else if name.endsWith "u128" then .u128
   else if name.endsWith "hash" then .hash
   else if name.endsWith "string" then .string
+  else if name.contains "structType" then .structType ""
   else .u64
 
 /-! Two-word value conventions (mirrors the legacy path):
@@ -435,6 +436,22 @@ private def canonicalPromiseStrings (plan : NearModulePlan) : Array Layout.Strin
         | _ => pure ()
   strings
 
+private def canonicalLiteralStrings (plan : NearModulePlan)
+    (eventStrings : Array Layout.StringInfo) : Array Layout.StringInfo := Id.run do
+  let mut strings := #[]
+  let mut ptr := eventStrings.foldl (fun end_ entry => max end_ (entry.ptr + entry.len))
+    Memory.STRING_BASE
+  for fn in plan.functions do
+    for block in fn.blocks do
+      for op in block.ops do
+        match op with
+        | .stringLiteral _ value =>
+            if !strings.any (fun entry => entry.str == value) then
+              strings := strings.push { str := value, ptr, len := value.length }
+              ptr := ptr + value.length
+        | _ => pure ()
+  strings
+
 private def canonicalStaticJsonBytes (value : String) : Array ProofForge.Compiler.Wasm.Insn :=
   value.toUTF8.data.foldl (init := #[]) fun insns byte =>
     insns ++ #[.i32Const byte.toNat, .call Crosscall.crosscallArgsPutcName]
@@ -490,17 +507,42 @@ private def canonicalDepositPtr (deposit : NearValuePlan) : Array ProofForge.Com
     .i32Const (Memory.RET_BUF + 8), .i64Const 0, .store "i64.store" 0]
 
 private def lowerCanonicalNearOp (plan : NearModulePlan)
-    (eventStrings promiseStrings : Array Layout.StringInfo) :
+    (eventStrings promiseStrings literalStrings : Array Layout.StringInfo) :
     NearOpPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
   | .literal result value =>
       if canonicalNearType result.typeName == .u128 then
         .ok (#[.i64Const value, .i64Const 0] ++ canonicalNearSet result.id result.typeName)
       else
         .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
+  | .stringLiteral result value => do
+      let some info := literalStrings.find? (fun entry => entry.str == value)
+        | Diagnostics.err s!"canonical NEAR string literal is missing from the data pool"
+      return #[.i32Const info.ptr, .localSet s!"v{result.id}",
+        .i32Const info.len, .localSet s!"v{result.id}_len"]
   | .hashLiteral result a b c d => .ok #[
       .i64Const a, .i64Const b, .i64Const c, .i64Const d,
       .call Hash.hashMakeName, .localSet s!"v{result.id}"]
   | .boolLiteral result value => .ok #[.i32Const (if value then 1 else 0), .localSet s!"v{result.id}"]
+  | .structLit result _ fields => do
+      let total := fields.foldl (fun size field => size + Types.scalarWidth (canonicalNearType field.typeName)) 0
+      let mut offset := 0
+      let mut stores : Array ProofForge.Compiler.Wasm.Insn := #[]
+      for field in fields do
+        let ty := canonicalNearType field.typeName
+        let address := #[.localGet s!"v{result.id}", .i32Const offset, .plain "i32.add"]
+        if ty == .u128 then
+          stores := stores ++ address ++ #[.localGet s!"v{field.id}", .store "i64.store" 0] ++
+            #[.localGet s!"v{result.id}", .i32Const (offset + 8), .plain "i32.add",
+              .localGet (Types.u128HiName s!"v{field.id}"), .store "i64.store" 0]
+        else if ty == .string || ty == .bytes then
+          stores := stores ++ address ++ #[.localGet s!"v{field.id}", .store "i32.store" 0] ++
+            #[.localGet s!"v{result.id}", .i32Const (offset + 4), .plain "i32.add",
+              .localGet s!"v{field.id}_len", .store "i32.store" 0]
+        else
+          stores := stores ++ address ++ canonicalNearGet field.id field.typeName ++
+            #[.store (Types.storeOpFor ty) 0]
+        offset := offset + Types.scalarWidth ty
+      .ok (#[.i64Const total, .call ArrayHeap.arrAllocName, .localSet s!"v{result.id}"] ++ stores)
   | .loadState result stateId => do
       let state <- match canonicalNearState? plan stateId with
         | some state => pure state
@@ -538,6 +580,17 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       -- A U128 map write yields Unit (the void write helper cannot return the
       -- prior value as two words); skip the drop for Unit, mirror the legacy path.
       return instructions ++ (if outType == .unit then #[] else #[.drop])
+  | .removeMap stateId key => do
+      let mapPlan ← match plan.layout.maps.find? (fun entry => entry.coreId? == some stateId) with
+        | some entry => pure entry
+        | none => Diagnostics.err s!"canonical NEAR references unknown map state {stateId}"
+      let mapInfo : Layout.MapInfo := {
+        id := mapPlan.id, keyType := mapPlan.keyType, valueType := mapPlan.valueType,
+        prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
+      let deleteCall ← Map.mapDeleteCall mapInfo
+      let (instructions, _) := Map.mapDeleteValueInsns mapInfo
+        (canonicalNearGet key.id key.typeName) deleteCall
+      return instructions ++ #[.drop]
   | .arithmetic result op checked lhs rhs =>
       let ty := canonicalNearType result.typeName
       if ty == .u128 then
@@ -547,9 +600,10 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         let arithName : String := match op with
           | .add => Scalar.u128AddName
           | .sub => Scalar.u128SubName
+          | .mul => Scalar.u128MulName
           | _ => ""
         if arithName.isEmpty then
-          Diagnostics.err s!"canonical NEAR: u128 arithmetic not yet supported (only add/sub)"
+          Diagnostics.err s!"canonical NEAR: u128 arithmetic not yet supported (only add/sub/mul)"
         else
           .ok (canonicalNearGet lhs.id lhs.typeName ++
             canonicalNearGet rhs.id rhs.typeName ++
@@ -652,8 +706,14 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
     else if field.endsWith "origin" then
       .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
     else if field.endsWith "value" then
-      .ok #[.i64Const Memory.RET_BUF, .call "attached_deposit",
-        .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
+      if canonicalNearType result.typeName == .u128 then
+        .ok (#[.i64Const Memory.RET_BUF, .call "attached_deposit",
+          .i32Const Memory.RET_BUF, .load "i64.load" 0,
+          .i32Const (Memory.RET_BUF + 8), .load "i64.load" 0] ++
+          canonicalNearSet result.id result.typeName)
+      else
+        .ok #[.i64Const Memory.RET_BUF, .call "attached_deposit",
+          .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
     else if field.endsWith "sender" then
       .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
     else if field.endsWith "accountId" then
@@ -783,6 +843,22 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       else
         return canonicalNearI64 index ++ #[.i64Const 0, .call "promise_result",
           .localSet s!"v{result.id}"]
+  | .storageUsage result =>
+      if plan.hostBridge.bridge != .near then
+        Diagnostics.err "storageUsage is supported only on NEAR"
+      else
+        return #[.call "storage_usage", .localSet s!"v{result.id}"]
+  | .promiseTransfer result account amount =>
+      if plan.hostBridge.bridge != .near then
+        Diagnostics.err "promiseTransfer is supported only on NEAR"
+      else if canonicalNearType account.typeName != .string then
+        Diagnostics.err "promiseTransfer account must be a runtime String"
+      else if canonicalNearType amount.typeName != .u128 then
+        Diagnostics.err "promiseTransfer amount must be U128"
+      else
+        return canonicalNearGet account.id account.typeName ++
+          canonicalNearGet amount.id amount.typeName ++
+          #[.call Promise.promiseTransferName, .localSet s!"v{result.id}"]
 
 private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan)
     (entrypointName : String) (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec) :
@@ -790,13 +866,14 @@ private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan)
   | .return values => match values[0]? with
       | some value =>
           pure <| if value.typeName == "promiseReturn" then #[.return_]
+          else if outputCodec == .json then canonicalNearGet value.id value.typeName ++ #[
+            .call (JsonReturn.helperName entrypointName), .return_]
           else match canonicalNearType value.typeName with
             | .hash => #[.i64Const 32, .localGet s!"v{value.id}", .plain "i64.extend_i32_u",
                 .call "value_return", .return_]
             | .u32 => #[.localGet s!"v{value.id}", .call Types.returnU32Name, .return_]
             | .u128 => canonicalNearGet value.id value.typeName ++ #[
-                .call (if outputCodec == .json then JsonReturn.helperName entrypointName
-                  else Types.returnU128Name), .return_]
+                .call Types.returnU128Name, .return_]
             | .bool => #[.localGet s!"v{value.id}", .call Types.returnBoolName, .return_]
             | _ => #[.localGet s!"v{value.id}", .call Types.returnU64Name, .return_]
       | none => pure #[.return_]
@@ -806,14 +883,15 @@ private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan)
         | Diagnostics.err s!"canonical NEAR jump targets missing block {target}"
       unless targetBlock.params.size == args.size do
         Diagnostics.err s!"canonical NEAR jump to block {target} has {args.size} arguments, expected {targetBlock.params.size}"
-      let pushArgs := args.map fun arg => .localGet s!"v{arg.id}"
-      let bindParams := targetBlock.params.reverse.map fun param => .localSet s!"v{param.id}"
+      let pushArgs := args.flatMap fun arg => canonicalNearGet arg.id arg.typeName
+      let bindParams := targetBlock.params.reverse.flatMap fun param =>
+        canonicalNearSet param.id param.typeName
       pure <| pushArgs ++ bindParams ++ #[.i32Const target, .localSet "pc"]
   | .branch condition ifTrue ifFalse => pure #[.localGet s!"v{condition.id}",
       .if_ { insns := #[.i32Const ifTrue, .localSet "pc"] }
         { insns := #[.i32Const ifFalse, .localSet "pc"] }]
 
-private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : Array Layout.StringInfo)
+private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings literalStrings : Array Layout.StringInfo)
     (fn : NearFunctionPlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Func := do
   if fn.blocks.isEmpty then Diagnostics.err s!"canonical NEAR function `{fn.name}` has no blocks"
   let abiPlan ← match plan.entrypointAbis.find? (fun abi => abi.name == fn.name) with
@@ -821,11 +899,15 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
     | none => Diagnostics.err s!"canonical NEAR function `{fn.name}` has no ABI plan"
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
-      | .literal result _ | .hashLiteral result .. | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
+      | .literal result _ | .stringLiteral result _ | .hashLiteral result .. | .boolLiteral result _ |
+        .loadState result _ | .loadMap result .. |
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
+        .structLit result .. |
         .context result _ |
+        .storageUsage result |
         .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |
-        .promiseThen result .. | .promiseResultU64 result .. | .promiseResultU128 result .. |
+        .promiseThen result .. | .promiseTransfer result .. |
+        .promiseResultU64 result .. | .promiseResultU128 result .. |
         .promiseResultsCount result | .promiseResultStatus result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let authPrologue :=
@@ -839,7 +921,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   for block in fn.blocks do
     let mut body := #[]
     for op in block.ops do
-      body := body ++ (<- lowerCanonicalNearOp plan eventStrings promiseStrings op)
+      body := body ++ (<- lowerCanonicalNearOp plan eventStrings promiseStrings literalStrings op)
     body := body ++ (<- lowerCanonicalNearTerminator fn.blocks fn.name abiPlan.outputCodec block.terminator)
     dispatch := dispatch ++ #[.localGet "pc", .i32Const block.id, .plain "i32.eq",
       .if_ { insns := body } { insns := #[] }]
@@ -880,10 +962,11 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
        plan.surface.hashIndexedWriteTypes.contains .hash) then
     Diagnostics.err "canonical Soroban lowering does not support 32-byte Hash storage with the scalar `_get` ABI"
   let eventStrings := canonicalEventStrings plan
+  let literalStrings := canonicalLiteralStrings plan eventStrings
   let promiseStrings := canonicalPromiseStrings plan
   if promiseStrings.any (fun entry => entry.ptr + entry.len > Memory.ZERO_HASH_BUF) then
     Diagnostics.err "canonical NEAR promise string pool exceeds reserved memory"
-  let funcs <- plan.functions.mapM (lowerCanonicalNearFunction plan eventStrings)
+  let funcs <- plan.functions.mapM (lowerCanonicalNearFunction plan eventStrings literalStrings)
   let scalarTypes := plan.layout.scalars.foldl (fun acc state =>
     if acc.contains state.type then acc else acc.push state.type) #[]
   let helperFuncs := scalarTypes.foldl (fun acc ty =>
@@ -955,6 +1038,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     (if eventStrings.isEmpty then #[] else #[{
       offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
     }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
+    literalStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
     promiseStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
     (if plan.surface.usesCrosscallArgs then
       plan.layout.crosscallStrings.map (fun entry =>

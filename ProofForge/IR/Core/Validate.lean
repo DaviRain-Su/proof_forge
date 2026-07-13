@@ -526,7 +526,7 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
           checkCoreTypeReferences m result.type s!"instruction result {repr result.id}"
             (some f.id) (some b.id) (some idx)
         match instr.op with
-        | .storageLoad path | .storageStore path _ =>
+        | .storageLoad path | .storageStore path _ | .storageRemove path =>
           checkStoragePath m f.id b.id idx path
         | .storageContains path =>
           checkStoragePath m f.id b.id idx path true
@@ -675,10 +675,12 @@ private def referencedValueRefs (op : InstructionOp) : Array ValueRef :=
     | .cast _ arg => #[arg]
     | .hash arg => #[arg]
     | .hashTwoToOne lhs rhs => #[lhs, rhs]
+    | .structLit _ fields => fields
   | .storageLoad path => storagePathValueRefs path
   | .storageContains path => storagePathValueRefs path
   | .storageStore path value =>
     (storagePathValueRefs path).push value
+  | .storageRemove path => storagePathValueRefs path
   | .storageLength _ => #[]
   | .storageResize _ length => #[length]
   | .memoryAlloc _ length => #[length]
@@ -822,6 +824,10 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
     unless lhs.type == .hash && rhs.type == .hash && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         "hashTwoToOne expects two hash operands and a hash result"
+  | .structLit typeId _, #[r] =>
+    unless r.type == .structType typeId do
+      .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
+        s!"struct literal result must be {repr (CoreType.structType typeId)}, got {repr r.type}"
   | _, _ =>
     .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
       s!"pure operation produced {results.size} results, expected 1"
@@ -835,9 +841,11 @@ private def expectedResultCount (op : InstructionOp) : Nat :=
   | .pure (.cast _ _) => 1
   | .pure (.hash _) => 1
   | .pure (.hashTwoToOne _ _) => 1
+  | .pure (.structLit _ _) => 1
   | .storageLoad _ => 1
   | .storageContains _ => 1
   | .storageStore _ _ => 0
+  | .storageRemove _ => 0
   | .storageLength _ => 1
   | .storageResize _ _ => 0
   | .memoryAlloc _ _ => 1
@@ -901,6 +909,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     unless value.type == path.resultType do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"storageStore value type {repr value.type} does not match path {repr path.resultType}"
+  | .storageRemove _ => pure ()
   | .storageLength _ =>
     match instr.results with
     | #[r] =>

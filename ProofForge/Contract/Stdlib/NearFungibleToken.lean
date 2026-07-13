@@ -11,11 +11,8 @@ Implements the core NEP-141 interface:
 - `ft_approve` — set allowance for a spender using a flat `(owner, spender)` hash key
 - `ft_transfer_call` — transfer with `ft_on_transfer` promise + `ft_resolve_transfer` callback
 - `ft_metadata` — token metadata (NEP-148: decimals)
-- `storage_deposit` / `storage_withdraw` / `storage_balance_of` /
-  `storage_balance_bounds` — NEP-145-lite U64 projections. `storage_withdraw`
-  enforces the 1-yoctoNEAR minimum deposit guard (NEP-145 requirement).
-  Predecessor refund via `promise_transfer` remains a TODO (requires a
-  runtime-account-id promise effect, not just pool-index crosscall).
+- full NEP-145 storage management with JSON `StorageBalance` objects,
+  exact one-yocto guards, predecessor refunds, unregister, and measured byte cost
 
 `module.nearCrosscallStrings` layout for this mixin:
 - `0` = `ft_on_transfer` method name
@@ -23,8 +20,6 @@ Implements the core NEP-141 interface:
 
 `ft_transfer_call` passes its runtime `receiver_id` directly to
 `promise_create`; receiver and callback arguments use named JSON objects.
-The NEP-145 functions still model registration balances as U64 values until
-N-T3 supplies the standard JSON object returns and refund accounting.
 -/
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Source
@@ -69,9 +64,12 @@ def tokenName : ScalarRef :=
 def tokenSymbol : ScalarRef :=
   ProofForge.Contract.Surface.slot "tokenSymbol" .u64
 
-/-- Minimum storage deposit for account registration (U64 projection). -/
+/-- Minimum storage deposit and protocol byte price, both in yoctoNEAR. -/
 def storageRequired : ScalarRef :=
-  ProofForge.Contract.Surface.slot "storageRequired" .u64
+  ProofForge.Contract.Surface.slot "storageRequired" .u128
+
+def storageByteCost : ScalarRef :=
+  ProofForge.Contract.Surface.slot "storageByteCost" .u128
 
 /-- Balance mapping: account id string -> u128 balance. -/
 def balances : MapRef :=
@@ -81,9 +79,106 @@ def balances : MapRef :=
 def allowances : MapRef :=
   { id := "allowances", keyType := .hash, valueType := .u128 }
 
-/-- NEP-145 storage deposits: account id string -> U64 projected yoctoNEAR balance. -/
+/-- NEP-145 locked deposits and measured registration bytes. -/
 def storageDeposits : MapRef :=
-  { id := "storageDeposits", keyType := .string, valueType := .u64 }
+  { id := "storageDeposits", keyType := .string, valueType := .u128 }
+
+def storageBytes : MapRef :=
+  { id := "storageBytes", keyType := .string, valueType := .u64 }
+
+def storageBalanceDecl : ProofForge.IR.StructDecl := {
+  name := "StorageBalance"
+  fields := #[
+    { id := "total", type := .u128 },
+    { id := "available", type := .u128 }
+  ]
+}
+
+def storageBalanceBoundsDecl : ProofForge.IR.StructDecl := {
+  name := "StorageBalanceBounds"
+  fields := #[
+    { id := "min", type := .u128 },
+    { id := "max", type := .u128 }
+  ]
+}
+
+def storageBalanceValue (total : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  .structLit "StorageBalance" #[
+    ("total", total), ("available", u128 0)
+  ]
+
+def storageBalanceBoundsValue (min : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  .structLit "StorageBalanceBounds" #[
+    ("min", min), ("max", u128 0)
+  ]
+
+def mapDelete (mapRef : MapRef) (key : ProofForge.IR.Expr) : EntryM Unit :=
+  ProofForge.Contract.Builder.effect (.storageMapDelete mapRef.id key)
+
+def entryBody (body : EntryM Unit) : Array ProofForge.IR.Statement :=
+  (body.run {}).2.body
+
+def storageDepositNewBody : EntryM Unit := do
+  ProofForge.Contract.Surface.requireGe (ProofForge.IR.Expr.local "attached")
+    (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small"
+  ProofForge.Contract.Builder.letBind "registration_before" .u64 nearStorageUsage
+  mapWrite balances (ProofForge.IR.Expr.local "storage_account") (u128 0)
+  mapWrite storageDeposits (ProofForge.IR.Expr.local "storage_account")
+    (ProofForge.Contract.Surface.read storageRequired)
+  mapWrite storageBytes (ProofForge.IR.Expr.local "storage_account") (u64 1)
+  ProofForge.Contract.Builder.letBind "registration_after" .u64 nearStorageUsage
+  ProofForge.Contract.Builder.letBind "registration_used" .u64
+    (ProofForge.Contract.Builder.sub (ProofForge.IR.Expr.local "registration_after")
+      (ProofForge.IR.Expr.local "registration_before"))
+  mapWrite storageBytes (ProofForge.IR.Expr.local "storage_account")
+    (ProofForge.IR.Expr.local "registration_used")
+  ProofForge.Contract.Builder.assign (ProofForge.IR.Expr.local "storage_total")
+    (ProofForge.Contract.Surface.read storageRequired)
+  ProofForge.Contract.Builder.letBind "storage_deposit_excess" .u128
+    (ProofForge.Contract.Builder.sub (ProofForge.IR.Expr.local "attached")
+      (ProofForge.Contract.Surface.read storageRequired))
+  ProofForge.Contract.Builder.ifElse
+    (ProofForge.Contract.Builder.gt (ProofForge.IR.Expr.local "storage_deposit_excess") (u128 0))
+    #[.letBind "storage_deposit_refund" .u64
+      (nearPromiseTransfer (ProofForge.IR.Expr.local "storage_account")
+        (ProofForge.IR.Expr.local "storage_deposit_excess"))]
+    #[]
+
+def storageDepositExistingBody : EntryM Unit :=
+  ProofForge.Contract.Builder.ifElse
+    (ProofForge.Contract.Builder.gt (ProofForge.IR.Expr.local "attached") (u128 0))
+    #[.letBind "storage_deposit_existing_refund" .u64
+      (nearPromiseTransfer (ProofForge.IR.Expr.local "storage_account")
+        (ProofForge.IR.Expr.local "attached"))]
+    #[]
+
+def storageUnregisterBody : EntryM Unit := do
+  ProofForge.Contract.Builder.letBind "unregister_token_balance" .u128
+    (mapRead balances (ProofForge.IR.Expr.local "account"))
+  ProofForge.Contract.Builder.ifElse (ProofForge.IR.Expr.local "force") #[] #[
+    .assert (ProofForge.Contract.Builder.eq
+      (ProofForge.IR.Expr.local "unregister_token_balance") (u128 0))
+      "positive token balance requires force" none
+  ]
+  ProofForge.Contract.Builder.ifElse
+    (ProofForge.Contract.Builder.gt (ProofForge.IR.Expr.local "unregister_token_balance") (u128 0))
+    #[
+      .letBind "unregister_supply" .u128 (ProofForge.Contract.Surface.read totalSupply),
+      .effect (.storageScalarWrite totalSupply.id
+        (ProofForge.Contract.Builder.sub (ProofForge.IR.Expr.local "unregister_supply")
+          (ProofForge.IR.Expr.local "unregister_token_balance")))
+    ] #[]
+  ProofForge.Contract.Builder.letBind "unregister_locked" .u128
+    (mapRead storageDeposits (ProofForge.IR.Expr.local "account"))
+  mapDelete balances (ProofForge.IR.Expr.local "account")
+  mapDelete storageDeposits (ProofForge.IR.Expr.local "account")
+  mapDelete storageBytes (ProofForge.IR.Expr.local "account")
+  ProofForge.Contract.Builder.letBind "unregister_refund_amount" .u128
+    (ProofForge.Contract.Builder.add (ProofForge.IR.Expr.local "unregister_locked") (u128 1))
+  ProofForge.Contract.Builder.letBind "unregister_refund" .u64
+    (nearPromiseTransfer (ProofForge.IR.Expr.local "account")
+      (ProofForge.IR.Expr.local "unregister_refund_amount"))
+  ProofForge.Contract.Builder.assign (ProofForge.IR.Expr.local "removed") (boolLit true)
 
 /-- One-shot initialization marker and mint authority. -/
 def initialized : ScalarRef :=
@@ -138,17 +233,21 @@ def registerFtMethods : ProofForge.Contract.Builder.ModuleM Unit := do
 
 contract_mixin NearFungibleTokenMixin do
   do registerFtMethods;
+  do ProofForge.Contract.Builder.struct storageBalanceDecl;
+  do ProofForge.Contract.Builder.struct storageBalanceBoundsDecl;
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar tokenDecimals
   use ProofForge.Contract.Surface.scalar tokenName
   use ProofForge.Contract.Surface.scalar tokenSymbol
   use ProofForge.Contract.Surface.scalar storageRequired
+  use ProofForge.Contract.Surface.scalar storageByteCost
   use ProofForge.Contract.Surface.scalar initialized
   use ProofForge.Contract.Surface.scalar mintAuthority
   use ProofForge.Contract.Surface.scalar nextTransferId
   use ProofForge.Contract.Surface.mapState balances
   use ProofForge.Contract.Surface.mapState allowances
   use ProofForge.Contract.Surface.mapState storageDeposits
+  use ProofForge.Contract.Surface.mapState storageBytes
   use ProofForge.Contract.Surface.mapState pendingAmounts
   use ProofForge.Contract.Surface.mapState pendingActive
 
@@ -173,39 +272,60 @@ contract_mixin NearFungibleTokenMixin do
   query ft_metadata_symbol returns(.u64) do
     return tokenSymbol;
 
-  query storage_balance_bounds returns(.u64) do
-    return storageRequired;
+  query storage_balance_bounds returns(.structType "StorageBalanceBounds") do
+    return storageBalanceBoundsValue (ProofForge.Contract.Surface.read storageRequired);
 
-  query storage_balance_of (account_id : .string) returns(.u64) do
-    return mapRead storageDeposits account_id;
+  query storage_balance_of (account_id : .string) returns(.structType "StorageBalance") do
+    return storageBalanceValue (mapRead storageDeposits account_id);
 
-  entry storage_deposit (account_id : .string) do
-    let amount : .u64 := ProofForge.Contract.Surface.cast nativeValue .u64;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref amount)
-      (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small";
-    let previous : .u64 := mapRead storageDeposits account_id;
-    do mapWrite storageDeposits account_id (previous +! amount);
-    emit StorageDeposit indexed #[fieldAsName "account" account_id] data #[fieldAsName "amount" amount];
+  entry storage_deposit (account_id : .string, registration_only : .bool)
+      returns(.structType "StorageBalance") do
+    do ProofForge.Contract.Builder.letMutBind "storage_account" .string (expr account_id);
+    do ProofForge.Contract.Builder.ifElse
+      (ProofForge.Contract.Builder.eq (ProofForge.IR.Expr.local "storage_account") (.literal (.string "")))
+      #[.assign (.local "storage_account") callerAccountId] #[];
+    let attached : .u128 := nearAttachedDeposit;
+    let registered_bytes : .u64 := mapRead storageBytes (ProofForge.IR.Expr.local "storage_account");
+    do ProofForge.Contract.Builder.letMutBind "storage_total" .u128
+      (mapRead storageDeposits (ProofForge.IR.Expr.local "storage_account"));
+    do ProofForge.Contract.Builder.ifElse
+      (ProofForge.Contract.Builder.eq (expr registered_bytes) (u64 0))
+      (entryBody storageDepositNewBody)
+      (entryBody storageDepositExistingBody);
+    emit StorageDeposit indexed #[fieldAsName "account" (ProofForge.IR.Expr.local "storage_account")]
+      data #[fieldAsName "amount" (ProofForge.IR.Expr.local "storage_total")];
+    return storageBalanceValue (ProofForge.IR.Expr.local "storage_total");
 
-  entry storage_withdraw (account_id : .string, amount : .u64) do
-    let deposit : .u64 := nativeValue;
-    do ProofForge.Contract.Surface.requireEq callerAccountId
-      (ProofForge.Contract.Surface.ref account_id) "storage withdraw caller mismatch";
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref deposit)
-      (u64 1) "storage withdraw requires at least 1 yoctoNEAR deposit";
-    let previous : .u64 := mapRead storageDeposits account_id;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref previous)
-      (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";
-    do mapWrite storageDeposits account_id (previous -! amount);
+  entry storage_withdraw (amount : .u128) returns(.structType "StorageBalance") do
+    do ProofForge.Contract.Surface.requireEq nearAttachedDeposit (u128 1)
+      "storage withdraw requires exactly 1 yoctoNEAR";
+    let account : .string := callerAccountId;
+    let registered_bytes : .u64 := mapRead storageBytes account;
+    do ProofForge.Contract.Surface.requireGe (expr registered_bytes) (u64 1)
+      "account is not registered";
+    do ProofForge.Contract.Surface.requireEq (expr amount) (u128 0)
+      "available storage balance is zero";
+    return storageBalanceValue (mapRead storageDeposits account);
+
+  entry storage_unregister (force : .bool) returns(.bool) do
+    do ProofForge.Contract.Surface.requireEq nearAttachedDeposit (u128 1)
+      "storage unregister requires exactly 1 yoctoNEAR";
+    let account : .string := callerAccountId;
+    let registered_bytes : .u64 := mapRead storageBytes account;
+    do ProofForge.Contract.Builder.letMutBind "removed" .bool (boolLit false);
+    do ProofForge.Contract.Builder.ifElse
+      (ProofForge.Contract.Builder.gt (expr registered_bytes) (u64 0))
+      (entryBody storageUnregisterBody) #[];
+    return ProofForge.IR.Expr.local "removed";
 
   entry ft_transfer (receiver_id : .string, amount : .u128, memo : .string) do
     let deposit : .u64 := nativeValue;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref deposit)
       (u64 1) "ft_transfer requires exactly 1 yoctoNEAR";
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
-    let receiverStorage : .u64 := mapRead storageDeposits receiver_id;
+    let receiverStorage : .u64 := mapRead storageBytes receiver_id;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref receiverStorage)
-      (ProofForge.Contract.Surface.read storageRequired) "receiver is not registered";
+      (u64 1) "receiver is not registered";
     let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
@@ -246,9 +366,9 @@ contract_mixin NearFungibleTokenMixin do
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref deposit)
       (u64 1) "ft_transfer_call requires exactly 1 yoctoNEAR";
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
-    let receiverStorage : .u64 := mapRead storageDeposits receiver_id;
+    let receiverStorage : .u64 := mapRead storageBytes receiver_id;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref receiverStorage)
-      (ProofForge.Contract.Surface.read storageRequired) "receiver is not registered";
+      (u64 1) "receiver is not registered";
     let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
@@ -298,6 +418,17 @@ contract_source NearFungibleToken do
     tokenDecimals := u64 18;
     tokenName := u64 0;
     tokenSymbol := u64 0;
-    storageRequired := u64 1;
+    storageByteCost := u128 10000000000000000000;
+    let before : .u64 := nearStorageUsage;
+    let dummy : .string := ProofForge.IR.Expr.literal (.string "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    do mapWrite balances dummy (u128 0);
+    do mapWrite storageDeposits dummy (u128 0);
+    do mapWrite storageBytes dummy (u64 1);
+    let after : .u64 := nearStorageUsage;
+    let used : .u128 := ProofForge.Contract.Surface.cast (after -! before) .u128;
+    storageRequired := used *! ProofForge.Contract.Surface.read storageByteCost;
+    do mapDelete balances (expr dummy);
+    do mapDelete storageDeposits (expr dummy);
+    do mapDelete storageBytes (expr dummy);
 
 end ProofForge.Contract.Stdlib.NearFungibleToken

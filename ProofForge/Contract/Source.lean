@@ -901,6 +901,15 @@ def contractId : ProofForge.IR.Expr :=
 def nativeValue : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.nativeValue
 
+def nearAttachedDeposit : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.nearAttachedDeposit
+
+def nearStorageUsage : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.nearStorageUsage
+
+def nearPromiseTransfer (account amount : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.nearPromiseTransfer account amount
+
 def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.hash4 a b c d
 

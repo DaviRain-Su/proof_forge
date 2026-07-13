@@ -519,7 +519,7 @@ mutual
       (env : TypeEnv)
       (collector : EventCollector) :
       Expr → Except LowerError EventCollector
-    | .literal _ | .local _ | .nativeValue => pure collector
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => pure collector
     | .arrayLit _ values =>
         values.foldlM (init := collector) (collectEventPlansFromExpr module env)
     | .arrayGet array index => do
@@ -567,6 +567,9 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
+    | .nearPromiseTransfer account amount => do
+        let collector ← collectEventPlansFromExpr module env collector account
+        collectEventPlansFromExpr module env collector amount
     | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
@@ -751,7 +754,7 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
 
 mutual
   partial def localArrayGetLengthsExpr (env : TypeEnv) : Expr → Array Nat
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatSets acc (localArrayGetLengthsExpr env value)
@@ -821,6 +824,8 @@ mutual
     | .nearPromiseResultStatus i => localArrayGetLengthsExpr env i
     | .nearPromiseResultU64 i => localArrayGetLengthsExpr env i
     | .nearPromiseResultU128 i => localArrayGetLengthsExpr env i
+    | .nearPromiseTransfer account amount =>
+        mergeNatSets (localArrayGetLengthsExpr env account) (localArrayGetLengthsExpr env amount)
     | .effect effect =>
         localArrayGetLengthsEffect env effect
 
@@ -943,7 +948,7 @@ def buildLocalArrayGetLengths (module : Module) : Except LowerError (Array Nat) 
 
 mutual
   partial def nestedLocalArrayGetShapesExpr (env : TypeEnv) : Expr → Array (Array Nat)
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env value)
@@ -1017,6 +1022,9 @@ mutual
     | .nearPromiseResultStatus i => nestedLocalArrayGetShapesExpr env i
     | .nearPromiseResultU64 i => nestedLocalArrayGetShapesExpr env i
     | .nearPromiseResultU128 i => nestedLocalArrayGetShapesExpr env i
+    | .nearPromiseTransfer account amount =>
+        mergeNatArraySets (nestedLocalArrayGetShapesExpr env account)
+          (nestedLocalArrayGetShapesExpr env amount)
     | .effect effect =>
         nestedLocalArrayGetShapesEffect env effect
 

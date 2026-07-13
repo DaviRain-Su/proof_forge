@@ -88,6 +88,20 @@ def buildJsonValueSchema (structs : Array StructDecl) (type : ValueType) :
   let (rootNode, nodes) ← appendJsonValueSchema structs type #[]
   return { rootNode, nodes }
 
+def withOptionalRoot (schema : JsonSchemaPlan) : Except String JsonSchemaPlan := do
+  let optionalId := schema.nodes.foldl (fun next node => max next (node.id + 1)) 0
+  let result : JsonSchemaPlan := {
+    schema with
+    rootNode := optionalId
+    nodes := schema.nodes.push {
+      id := optionalId
+      kind := .optional
+      elementNode? := some schema.rootNode
+    }
+  }
+  result.validate
+  pure result
+
 /-- Wallet-compatible JSON selection plus its explicit wire schemas. Contract
 lowering and generated clients consume this single target ABI decision. -/
 def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
@@ -120,6 +134,37 @@ def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
         returns == .u128 do
       throw "NEAR private callback `ft_resolve_transfer` must have signature (transfer_id : U64, sender : String, receiver : String) -> U128"
     return (some (← buildJsonObjectSchema structs params),
+      some (← buildJsonValueSchema structs returns))
+  if name == "storage_balance_bounds" then
+    unless params.isEmpty && returns == .structType "StorageBalanceBounds" do
+      throw "NEAR standard entrypoint `storage_balance_bounds` must have signature () -> StorageBalanceBounds"
+    let output ← buildJsonValueSchema structs returns
+    return (some (← buildJsonObjectSchema structs params),
+      some (← output.withOptionalRootField "max"))
+  if name == "storage_balance_of" then
+    unless params == #[("account_id", .string)] && returns == .structType "StorageBalance" do
+      throw "NEAR standard entrypoint `storage_balance_of` must have signature (account_id : String) -> Option<StorageBalance>"
+    return (some (← buildJsonObjectSchema structs params),
+      some (← withOptionalRoot (← buildJsonValueSchema structs returns)))
+  if name == "storage_deposit" then
+    unless params == #[("account_id", .string), ("registration_only", .bool)] &&
+        returns == .structType "StorageBalance" do
+      throw "NEAR standard entrypoint `storage_deposit` must have signature (account_id : Option<String>, registration_only : Option<Bool>) -> StorageBalance"
+    let input ← buildJsonObjectSchema structs params
+    let input ← input.withOptionalRootField "account_id"
+    let input ← input.withOptionalRootField "registration_only"
+    return (some input, some (← buildJsonValueSchema structs returns))
+  if name == "storage_withdraw" then
+    unless params == #[("amount", .u128)] && returns == .structType "StorageBalance" do
+      throw "NEAR standard entrypoint `storage_withdraw` must have signature (amount : Option<U128>) -> StorageBalance"
+    let input ← buildJsonObjectSchema structs params
+    return (some (← input.withOptionalRootField "amount"),
+      some (← buildJsonValueSchema structs returns))
+  if name == "storage_unregister" then
+    unless params == #[("force", .bool)] && returns == .bool do
+      throw "NEAR standard entrypoint `storage_unregister` must have signature (force : Option<Bool>) -> Bool"
+    let input ← buildJsonObjectSchema structs params
+    return (some (← input.withOptionalRootField "force"),
       some (← buildJsonValueSchema structs returns))
   return (none, none)
 

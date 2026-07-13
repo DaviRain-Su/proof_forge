@@ -282,6 +282,8 @@ mutual
         discard <| inferExprType module env rhs
         .ok .hash
     | .nativeValue => .ok .u64
+    | .nearAttachedDeposit => .ok .u128
+    | .nearStorageUsage | .nearPromiseTransfer _ _ => .ok .u64
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType

@@ -66,7 +66,7 @@ mutual
   partial def crosscallHelperSpecsFromExpr
       (module : Module)
       (env : TypeEnv) : Expr → Except LowerError (Array CrosscallHelperSpec)
-    | .literal _ | .local _ | .nativeValue => .ok #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => .ok #[]
     | .arrayLit _ values =>
         values.foldlM (init := #[]) fun acc value => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env value))
@@ -184,6 +184,10 @@ mutual
         .ok (mergeCrosscallHelperSpecs
           (← crosscallHelperSpecsFromExpr module env callValue)
           (← crosscallHelperSpecsFromExpr module env salt))
+    | .nearPromiseTransfer account amount => do
+        .ok (mergeCrosscallHelperSpecs
+          (← crosscallHelperSpecsFromExpr module env account)
+          (← crosscallHelperSpecsFromExpr module env amount))
     | .crosscallNamed _ _ _ _
     | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => .ok #[]
     | .effect effect =>
@@ -640,7 +644,7 @@ def mergeCreateHelperSpecs
 
 mutual
   partial def createHelperSpecsFromExpr : Expr → Array CreateHelperSpec
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr value)
@@ -698,6 +702,8 @@ mutual
     | .crosscallCreate2 callValue salt initCodeHex =>
         let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
         pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
+    | .nearPromiseTransfer account amount =>
+        mergeCreateHelperSpecs (createHelperSpecsFromExpr account) (createHelperSpecsFromExpr amount)
     | .crosscallNamed _ _ _ _
     | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => #[]
     | .effect effect =>
@@ -808,7 +814,7 @@ def mergeAbiPackedHelperSpecs
 
 mutual
   partial def abiPackedHelperSpecsFromExpr : Expr → Array AbiPackedHelperSpec
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr value)
@@ -876,6 +882,9 @@ mutual
         let nested := args.foldl (init := nested) fun acc arg =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
         mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr d)
+    | .nearPromiseTransfer account amount =>
+        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr account)
+          (abiPackedHelperSpecsFromExpr amount)
     | .crosscallNamed _ _ _ _ => #[]
     | .nearPromiseResultsCount => #[]
     | .effect effect => abiPackedHelperSpecsFromEffect effect

@@ -84,6 +84,8 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "promise_then" => plan.usesPromiseThen
     | "promise_results_count" | "promise_result" => plan.usesPromiseResults
     | "promise_return" => plan.usesPromiseReturn
+    | "storage_usage" => plan.usesStorageUsage
+    | "promise_batch_create" | "promise_batch_action_transfer" => plan.usesPromiseTransfer
     | "log_utf8" => plan.usesEventApi
     | "signer_account_id" => plan.contextOps.contains .origin
     | "block_timestamp" => plan.contextOps.contains .timestamp
@@ -143,7 +145,8 @@ def stripNearPromiseImports (imports : Array Import) : Array Import :=
   imports.filter fun import_ =>
     match import_.name with
     | "promise_create" | "promise_then" | "promise_results_count"
-    | "promise_result" | "promise_return" => false
+    | "promise_result" | "promise_return" | "promise_batch_create"
+    | "promise_batch_action_transfer" => false
     | _ => true
 
 /-- C.8: drop NEAR storage_* ABI; Soroban scalars use `_get`/`_put`.
@@ -152,7 +155,8 @@ shape until Soroban-specific input encoding lands. -/
 def stripNearStorageImports (imports : Array Import) : Array Import :=
   imports.filter fun import_ =>
     match import_.name with
-    | "storage_read" | "storage_write" | "storage_has_key" | "storage_remove" => false
+    | "storage_read" | "storage_write" | "storage_has_key" | "storage_remove"
+    | "storage_usage" => false
     | _ => true
 
 def sorobanGetImport : Import :=

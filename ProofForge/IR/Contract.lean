@@ -288,6 +288,14 @@ mutual
     /-- NEAR host-extension only: Borsh-decoded U64 payload from promise result at `index`. -/
     | nearPromiseResultU64 (index : Expr)
     | nearPromiseResultU128 (index : Expr)
+    /-- NEAR host-extension only: full 128-bit attached deposit. The portable
+        `nativeValue` compatibility expression remains a U64 projection. -/
+    | nearAttachedDeposit
+    /-- NEAR host-extension only: current trie storage usage in bytes. -/
+    | nearStorageUsage
+    /-- NEAR host-extension only: schedule a native-token transfer to a
+        runtime AccountId and return the batch promise index. -/
+    | nearPromiseTransfer (account amount : Expr)
     | effect (effect : Effect)
     deriving Repr, BEq
 
@@ -677,6 +685,10 @@ mutual
     | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
     | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
     | .nearPromiseResultU128 index => #[.nearPromise] ++ index.capabilities
+    | .nearAttachedDeposit => #[.valueNative]
+    | .nearStorageUsage => #[.storageScalar]
+    | .nearPromiseTransfer account amount =>
+        #[.nearPromise] ++ account.capabilities ++ amount.capabilities
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

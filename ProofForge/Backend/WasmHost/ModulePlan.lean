@@ -61,18 +61,21 @@ inductive ComparePlan where
 
 inductive OpPlan where
   | literal (result : ValuePlan) (value : Nat)
+  | stringLiteral (result : ValuePlan) (value : String)
   | hashLiteral (result : ValuePlan) (a b c d : Nat)
   | boolLiteral (result : ValuePlan) (value : Bool)
   | loadState (result : ValuePlan) (stateId : Nat)
   | storeState (stateId : Nat) (value : ValuePlan)
   | loadMap (result : ValuePlan) (stateId : Nat) (key : ValuePlan)
   | storeMap (stateId : Nat) (key value : ValuePlan)
+  | removeMap (stateId : Nat) (key : ValuePlan)
   | arithmetic (result : ValuePlan) (op : ArithmeticPlan)
       (checked : Bool) (lhs rhs : ValuePlan)
   | compare (result : ValuePlan) (op : ComparePlan) (lhs rhs : ValuePlan)
   | hashTwoToOne (result : ValuePlan) (lhs rhs : ValuePlan)
   | hash (result value : ValuePlan)
   | cast (result value : ValuePlan)
+  | structLit (result : ValuePlan) (typeName : String) (fields : Array ValuePlan)
   | context (result : ValuePlan) (field : String)
   | log (eventName : String) (fields : Array (String × ValuePlan))
   | assert (condition : ValuePlan) (errorCode : Nat)
@@ -88,6 +91,8 @@ inductive OpPlan where
   | promiseResultU128 (result index : ValuePlan)
   | promiseResultsCount (result : ValuePlan)
   | promiseResultStatus (result index : ValuePlan)
+  | storageUsage (result : ValuePlan)
+  | promiseTransfer (result account amount : ValuePlan)
   deriving Repr, BEq, Inhabited
 
 inductive TerminatorPlan where

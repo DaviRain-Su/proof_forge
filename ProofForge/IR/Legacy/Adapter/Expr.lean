@@ -169,6 +169,8 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .hash _ | .hashTwoToOne _ _ => return .hash
   | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
+  | .nearAttachedDeposit => return .u128
+  | .nearStorageUsage | .nearPromiseTransfer _ _ => return .u64
   | _ => throw (CanonicalizeError.typeMismatch "known" "unknown expression type")
 
 /- Stable constructor tag for error messages. -/
@@ -226,6 +228,9 @@ def exprTag (e : Expr) : String :=
   | .nearPromiseResultStatus _ => "Expr.nearPromiseResultStatus"
   | .nearPromiseResultU64 _ => "Expr.nearPromiseResultU64"
   | .nearPromiseResultU128 _ => "Expr.nearPromiseResultU128"
+  | .nearAttachedDeposit => "Expr.nearAttachedDeposit"
+  | .nearStorageUsage => "Expr.nearStorageUsage"
+  | .nearPromiseTransfer _ _ => "Expr.nearPromiseTransfer"
   | .effect _ => "Expr.effect"
 
 /- Stable constructor tag for effects. -/
@@ -479,8 +484,16 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayLength" "memory array length not in initial fragment")
   | .memoryArrayGet _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.memoryArrayGet" "memory array get not in initial fragment")
-  | .structLit _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.structLit" "struct literal not in initial fragment")
+  | .structLit typeName fields => do
+      let typeId ← lookupType typeName
+      let mut instructions := #[]
+      let mut values := #[]
+      for field in fields do
+        let normalized ← normalizeExpr field.snd
+        instructions := instructions ++ normalized.instructions
+        values := values.push normalized.value
+      let result ← emitValueInstruction (.pure (.structLit typeId values)) (.structType typeId)
+      return { instructions := instructions ++ result.instructions, value := result.value }
   | .field _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.field" "field projection not in initial fragment")
   | .hashValue _ _ _ _ =>
@@ -606,5 +619,22 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         args := #[normalizedIndex.value]
       }) .u128
       return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
+  | .nearAttachedDeposit =>
+      emitValueInstruction (.contextRead .value) .u128
+  | .nearStorageUsage =>
+      emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearStorageUsageSig.id, args := #[] }) .u64
+  | .nearPromiseTransfer account amount => do
+      let normalizedAccount ← normalizeExpr account
+      let normalizedAmount ← normalizeExpr amount
+      let result ← emitValueInstruction (.hostCall {
+        id := ProofForge.IR.Core.HostOp.nearPromiseTransferSig.id
+        args := #[normalizedAccount.value, normalizedAmount.value]
+      }) .u64
+      return {
+        instructions := normalizedAccount.instructions ++ normalizedAmount.instructions ++
+          result.instructions
+        value := result.value
+      }
 
 end ProofForge.IR.Legacy.Adapter

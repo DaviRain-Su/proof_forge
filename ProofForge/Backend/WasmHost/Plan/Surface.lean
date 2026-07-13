@@ -49,6 +49,8 @@ structure ModuleSurface where
   usesPromiseResultU64 : Bool := false
   usesPromiseReturn : Bool := false
   usesPromiseReceiverAccount : Bool := false
+  usesStorageUsage : Bool := false
+  usesPromiseTransfer : Bool := false
   usesCrosscallArgs : Bool := false
   usesCrosscallHash : Bool := false
   usesFmtU64 : Bool := false
@@ -110,6 +112,8 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPromiseResultU64 := lhs.usesPromiseResultU64 || rhs.usesPromiseResultU64
   usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
   usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
+  usesStorageUsage := lhs.usesStorageUsage || rhs.usesStorageUsage
+  usesPromiseTransfer := lhs.usesPromiseTransfer || rhs.usesPromiseTransfer
   usesCrosscallArgs := lhs.usesCrosscallArgs || rhs.usesCrosscallArgs
   usesCrosscallHash := lhs.usesCrosscallHash || rhs.usesCrosscallHash
   usesFmtU64 := lhs.usesFmtU64 || rhs.usesFmtU64
@@ -203,6 +207,15 @@ def withPromiseThen : ModuleSurface := {
 def withPromiseResults : ModuleSurface := {
   usesPromiseApi := true
   usesPromiseResults := true
+}
+
+def withStorageUsage : ModuleSurface := {
+  usesStorageUsage := true
+}
+
+def withPromiseTransfer : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseTransfer := true
 }
 
 /-- NEAR callback result payload decode (`promise_result` + Borsh U64 from register). -/
@@ -451,7 +464,8 @@ def indexedStorageContainsSurfaceSummary
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Except PlanError (Array ContextExprPlan) :=
     match expr with
-    | .literal _ | .local _ | .nativeValue => .ok #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
+    | .nearStorageUsage => .ok #[]
     | .arrayLit _ values =>
         values.foldlM (init := #[]) fun acc value =>
           return mergeContextExprPlans acc (← contextOpsFromExpr value)
@@ -532,6 +546,8 @@ mutual
     | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .nearPromiseResultU128 index => contextOpsFromExpr index
+    | .nearPromiseTransfer account amount =>
+        return mergeContextExprPlans (← contextOpsFromExpr account) (← contextOpsFromExpr amount)
     | .effect effect =>
         contextOpsFromEffect effect
 
@@ -686,6 +702,15 @@ mutual
         .ok ModuleSurface.empty
     | .nativeValue =>
         .ok ModuleSurface.withNativeValue
+    | .nearAttachedDeposit =>
+        .ok ModuleSurface.withNativeValue
+    | .nearStorageUsage =>
+        .ok ModuleSurface.withStorageUsage
+    | .nearPromiseTransfer account amount =>
+        return mergeModuleSurfaces
+          (mergeModuleSurfaces (← surfaceFromExpr module env account)
+            (← surfaceFromExpr module env amount))
+          ModuleSurface.withPromiseTransfer
     | .arrayLit elementType values => do
         let valueSurface ← values.foldlM (init := ModuleSurface.empty) fun acc value =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env value)

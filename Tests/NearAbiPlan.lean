@@ -115,6 +115,37 @@ def ftResolveTransferEntrypoint : Entrypoint := {
   body := #[.return (.literal (.u128 0))]
 }
 
+def nep145Structs : Array StructDecl := #[
+  { name := "StorageBalance", fields := #[
+      { id := "total", type := .u128 }, { id := "available", type := .u128 }] },
+  { name := "StorageBalanceBounds", fields := #[
+      { id := "min", type := .u128 }, { id := "max", type := .u128 }] }
+]
+
+def storageDepositEntrypoint : Entrypoint := {
+  name := "storage_deposit"
+  mutability := .call
+  params := #[("account_id", .string), ("registration_only", .bool)]
+  returns := .structType "StorageBalance"
+  body := #[]
+}
+
+def storageWithdrawEntrypoint : Entrypoint := {
+  name := "storage_withdraw"
+  mutability := .call
+  params := #[("amount", .u128)]
+  returns := .structType "StorageBalance"
+  body := #[]
+}
+
+def storageUnregisterEntrypoint : Entrypoint := {
+  name := "storage_unregister"
+  mutability := .call
+  params := #[("force", .bool)]
+  returns := .bool
+  body := #[]
+}
+
 def dynamicBytesModule : Module := {
   name := "DynamicBytesNearAbi"
   state := #[]
@@ -251,6 +282,32 @@ def main : IO Unit := do
     | .error message => throw <| IO.userError message
   require (resolverAbi.inputCodec == .json && resolverAbi.outputCodec == .json)
     "ft_resolve_transfer callback must use JSON object input and JSON U128 output"
+  let storageDepositAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      nep145Structs storageDepositEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (storageDepositAbi.inputCodec == .json && storageDepositAbi.outputCodec == .json)
+    "storage_deposit must use the standard NEP-145 JSON boundary"
+  require ((storageDepositAbi.inputJson?.bind (·.root?) |>.map (fun root =>
+      root.fields.map (fun field => (field.wireName, field.required)))) ==
+      some #[("account_id", false), ("registration_only", false)])
+    "storage_deposit account_id and registration_only must both be optional"
+  require ((storageDepositAbi.outputJson?.bind (·.root?) |>.map (·.kind)) == some .object)
+    "storage_deposit must return a StorageBalance JSON object"
+  let storageWithdrawAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      nep145Structs storageWithdrawEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require ((storageWithdrawAbi.inputJson?.bind (·.root?) |>.bind (fun root => root.fields[0]?)
+      |>.map (·.required)) == some false)
+    "storage_withdraw amount must be optional"
+  let storageUnregisterAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      nep145Structs storageUnregisterEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require ((storageUnregisterAbi.inputJson?.bind (·.root?) |>.bind (fun root => root.fields[0]?)
+      |>.map (·.required)) == some false && storageUnregisterAbi.outputCodec == .json)
+    "storage_unregister force must be optional and its Bool result must use JSON"
   let aggregateSchema ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonValueSchema
       jsonSchemaStructs (.structType "StorageBalance") with
     | .ok schema => pure schema

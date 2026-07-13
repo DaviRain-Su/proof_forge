@@ -24,6 +24,8 @@ inductive NearOpPlan
   | promiseResultStatus
   | promiseResultU64
   | promiseResultU128
+  | storageUsage
+  | promiseTransfer
   deriving Repr, BEq
 
 instance : Inhabited NearOpPlan := ⟨.promiseCreate⟩
@@ -45,6 +47,8 @@ def promiseResultU128Id : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResul
 
 def promiseResultsCountId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id
 def promiseResultStatusId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id
+def storageUsageId : HostOpId := ProofForge.IR.Core.HostOp.nearStorageUsageSig.id
+def promiseTransferId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseTransferSig.id
 
 /-- Registry for the supported `near.promise` host operations. -/
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
@@ -67,9 +71,15 @@ def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
   let registry ← HostOpRegistry.register registry {
     targetId := "wasm-near", id := promiseResultsCountId,
     lower := #[NearOpPlan.promiseResultsCount] }
-  HostOpRegistry.register registry {
+  let registry ← HostOpRegistry.register registry {
     targetId := "wasm-near", id := promiseResultStatusId,
     lower := #[NearOpPlan.promiseResultStatus] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := storageUsageId,
+    lower := #[NearOpPlan.storageUsage] }
+  HostOpRegistry.register registry {
+    targetId := "wasm-near", id := promiseTransferId,
+    lower := #[NearOpPlan.promiseTransfer] }
 
 /-- Check whether a host-op ID has a handler for `wasm-near`. -/
 def hasNearHandler (id : HostOpId) : Bool :=

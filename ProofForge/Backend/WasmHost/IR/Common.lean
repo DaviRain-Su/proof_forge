@@ -424,6 +424,8 @@ mutual
     | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
         .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by wasm-near IR v0" }
     | .nativeValue => .ok .u64
+    | .nearAttachedDeposit => .ok .u128
+    | .nearStorageUsage | .nearPromiseTransfer _ _ => .ok .u64
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType

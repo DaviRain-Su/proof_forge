@@ -1137,6 +1137,10 @@ mutual
           dynLenOffset? dynPlan dynTargetOffsets tgtPlans)
     | .nativeValue =>
         .ok .nativeValue
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         .ok (.crosscall .call
           (← buildExprPlan module env

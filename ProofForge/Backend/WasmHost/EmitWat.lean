@@ -230,7 +230,7 @@ export ProofForge.Backend.WasmHost.Params (
 
 export ProofForge.Backend.WasmHost.Promise (
   promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name promiseResultU128Name
-  promiseResultU64Func promiseHelperFuncsForModulePlan
+  promiseResultU64Func promiseTransferName promiseHelperFuncsForModulePlan
 )
 
 export ProofForge.Backend.WasmHost.Return (
@@ -756,6 +756,23 @@ mutual
       -- stay well below 2^64). Full U128 nativeValue is a future enhancement.
       .ok (#[.i64Const RET_BUF, .call "attached_deposit",
              .i32Const RET_BUF, .load "i64.load" 0], .u64)
+    | .nearAttachedDeposit =>
+      .ok (#[.i64Const RET_BUF, .call "attached_deposit",
+        .i32Const RET_BUF, .load "i64.load" 0,
+        .i32Const (RET_BUF + 8), .load "i64.load" 0], .u128)
+    | .nearStorageUsage =>
+      if ctx.bridge == .near then .ok (#[.call "storage_usage"], .u64)
+      else err "EmitWat: storage_usage is supported only on NEAR"
+    | .nearPromiseTransfer account amount =>
+      if ctx.bridge != .near then err "EmitWat: promise_transfer is supported only on NEAR"
+      else do
+        let (accountInsns, accountType) ← lowerExpr ctx env account
+        let (amountInsns, amountType) ← lowerExpr ctx env amount
+        unless accountType == .string do
+          err s!"EmitWat: promise_transfer account expected String, got `{accountType.name}`"
+        unless amountType == .u128 do
+          err s!"EmitWat: promise_transfer amount expected U128, got `{amountType.name}`"
+        .ok (accountInsns ++ amountInsns ++ #[.call promiseTransferName], .u64)
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s => .ok (storageScalarReadInsns s)

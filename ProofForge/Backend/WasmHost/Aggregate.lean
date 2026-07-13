@@ -65,7 +65,7 @@ mutual
         collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
           collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
     | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectArrayLitsExpr target
-    | .nativeValue => #[]
+    | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .crosscallInvoke t m args => collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _
@@ -86,6 +86,8 @@ mutual
     | .nearPromiseResultStatus index => collectArrayLitsExpr index
     | .nearPromiseResultU64 index => collectArrayLitsExpr index
     | .nearPromiseResultU128 index => collectArrayLitsExpr index
+    | .nearPromiseTransfer account amount =>
+        collectArrayLitsExpr account ++ collectArrayLitsExpr amount
     | .effect eff => collectArrayLitsEffect eff
 
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
@@ -123,7 +125,7 @@ mutual
 
   partial def collectStructLitsExpr (e : Expr) : Array String :=
     match e with
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values => values.foldl (fun acc v => acc ++ collectStructLitsExpr v) #[]
     | .arrayGet a i => collectStructLitsExpr a ++ collectStructLitsExpr i
     | .memoryArrayNew _ length => collectStructLitsExpr length
@@ -165,6 +167,8 @@ mutual
     | .nearPromiseResultStatus index => collectStructLitsExpr index
     | .nearPromiseResultU64 index => collectStructLitsExpr index
     | .nearPromiseResultU128 index => collectStructLitsExpr index
+    | .nearPromiseTransfer account amount =>
+        collectStructLitsExpr account ++ collectStructLitsExpr amount
     | .effect eff => collectStructLitsEffect eff
 
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=

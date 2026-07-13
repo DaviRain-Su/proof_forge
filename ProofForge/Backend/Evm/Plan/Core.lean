@@ -276,6 +276,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
   | .pure (.literal lit) => do
       .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
         (← coreLiteralToExprPlan lit)]
+  | .pure (.structLit _ _) =>
+      throw { message := "canonical struct literals are not yet materialized by the EVM Core plan" }
   | .pure (.unary op arg) => do
       let argExpr ← valueExpr env arg
       match op with
@@ -356,6 +358,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         .ok #[StmtPlan.effect (.storageArrayWrite (← lookupStateName env path.root)
           (← valueExpr env index) (← valueExpr env value))]
       | _ => .error { message := "EVM Core plan supports one mapKey or index storage-store segment" }
+  | .storageRemove _ =>
+      .error { message := "canonical storage removal is not yet materialized by the EVM Core plan" }
   | .contextRead field => do
       let resultType ← match instr.results[0]? with
         | some result => pure (coreTypeToValueType result.type)

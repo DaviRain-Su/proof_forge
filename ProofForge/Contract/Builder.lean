@@ -382,6 +382,15 @@ def nearPromiseResultU64 (index : Expr) : Expr :=
 def nearPromiseResultU128 (index : Expr) : Expr :=
   .nearPromiseResultU128 index
 
+def nearAttachedDeposit : Expr :=
+  .nearAttachedDeposit
+
+def nearStorageUsage : Expr :=
+  .nearStorageUsage
+
+def nearPromiseTransfer (account amount : Expr) : Expr :=
+  .nearPromiseTransfer account amount
+
 def nearAddressLit (idx : Nat) : Expr :=
   .literal (.address idx)
 

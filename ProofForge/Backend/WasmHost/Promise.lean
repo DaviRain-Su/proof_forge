@@ -62,8 +62,28 @@ def promiseResultU128Func : Func :=
       .if_ { insns := #[.i64Const 0, .i64Const PROMISE_RESULT_BUF, .call "read_register"] }
         { insns := #[] } ] } }
 
+def promiseTransferName : String := "__pf_promise_transfer"
+
+/-- Create a NEAR batch promise containing one native-token transfer action. -/
+def promiseTransferFunc : Func :=
+  { name := promiseTransferName
+    params := #[
+      { name := "account_ptr", type := .i32 }, { name := "account_len", type := .i32 },
+      { name := "amount_lo", type := .i64 }, { name := "amount_hi", type := .i64 }]
+    results := #[.i64]
+    locals := #[{ name := "promise", type := .i64 }]
+    body := { insns := #[
+      .localGet "account_len", .plain "i64.extend_i32_u",
+      .localGet "account_ptr", .plain "i64.extend_i32_u",
+      .call "promise_batch_create", .localSet "promise",
+      .i32Const RET_BUF, .localGet "amount_lo", .store "i64.store" 0,
+      .i32Const (RET_BUF + 8), .localGet "amount_hi", .store "i64.store" 0,
+      .localGet "promise", .i64Const RET_BUF, .call "promise_batch_action_transfer",
+      .localGet "promise"] } }
+
 def promiseHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if plan.usesPromiseThen then #[promiseCurrentAccountFunc] else #[]) ++
-    (if plan.usesPromiseResultU64 then #[promiseResultU64Func, promiseResultU128Func] else #[])
+    (if plan.usesPromiseResultU64 then #[promiseResultU64Func, promiseResultU128Func] else #[]) ++
+    (if plan.usesPromiseTransfer then #[promiseTransferFunc] else #[])
 
 end ProofForge.Backend.WasmHost.Promise

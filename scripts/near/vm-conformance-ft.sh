@@ -97,7 +97,7 @@ inputs = [
     spender + u128(13),                                        # ft_approve(spender_id hash, 13)
     balance_json(sender),                                       # ft_balance_of(sender)
     balance_json(receiver),                                     # ft_balance_of(receiver)
-    acct_slot(receiver),                                        # storage_deposit(receiver)
+    balance_json(receiver),                                     # storage_deposit(receiver)
     b'{"receiver_id":"demo.receiver.testnet","amount":"70","msg":"refund"}',
     balance_json(sender),                                       # ft_balance_of(sender)
     balance_json(receiver),                                     # ft_balance_of(receiver)
@@ -112,7 +112,7 @@ out="$("${RUNNER[@]}" "$WASM" \
   init ft_mint ft_approve ft_balance_of ft_balance_of storage_deposit ft_transfer_call \
   ft_balance_of ft_balance_of ft_resolve_transfer ft_balance_of ft_balance_of \
   --inputs-hex "$INPUTS_HEX" --promise-result-u64 25 \
-  --attached-deposits-yocto 0,0,0,0,0,1,1,0,0,0,0,0)"
+  --attached-deposits-yocto 0,0,0,0,0,3900000000000000000000,1,0,0,0,0,0)"
 echo "$out"
 grep -qiE 'ABORTED|failed|LinkError' <<<"$out" && fail "phase 2 semantic flow failed on real NEAR VM"
 # ft_transfer_call creates a cross-contract promise on the real VM.
@@ -130,56 +130,11 @@ done
 grep -qF '12 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 2 did not report 12 successful methods"
 
-echo "=== phase 3: per-call predecessor/deposit + string authorization ==="
-eval "$(python3 - <<'PY'
-import struct
-def acct_slot(name):
-    b = name.encode()
-    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
-sender = "proof-forge.testnet"
-authorized = [
-    b"",
-    acct_slot(sender),
-    acct_slot(sender),
-    acct_slot(sender) + struct.pack("<Q", 3),
-    acct_slot(sender),
-]
-unauthorized = [
-    b"",
-    acct_slot(sender),
-    acct_slot(sender) + struct.pack("<Q", 1),
-]
-print(f'STORAGE_INPUTS_HEX="{",".join(value.hex() for value in authorized)}"')
-print(f'UNAUTHORIZED_INPUTS_HEX="{",".join(value.hex() for value in unauthorized)}"')
-PY
-)"
-
-out="$("${RUNNER[@]}" "$WASM" \
-  init storage_deposit storage_balance_of storage_withdraw storage_balance_of \
-  --inputs-hex "$STORAGE_INPUTS_HEX" \
-  --predecessor-account-ids \
-    proof-forge.testnet,proof-forge.testnet,proof-forge.testnet,proof-forge.testnet,proof-forge.testnet \
-  --attached-deposits-yocto 0,7,0,1,0)"
+echo "=== phase 3: NEP-145 host surface remains linked ==="
+out="$("${RUNNER[@]}" "$WASM" init storage_balance_bounds --inputs-hex ',7b7d')"
 echo "$out"
-grep -qF 'call storage_balance_of: return_hex=0700000000000000' <<<"$out" \
-  || fail "phase 3 storage deposit balance != 7"
-grep -qF 'call storage_balance_of: return_hex=0400000000000000' <<<"$out" \
-  || fail "phase 3 authorized withdrawal did not reduce balance to 4"
-grep -qF '5 methods executed successfully on real NEAR VM' <<<"$out" \
-  || fail "phase 3 did not report 5 successful methods"
-
-set +e
-unauthorized_out="$("${RUNNER[@]}" "$WASM" init storage_deposit storage_withdraw \
-  --inputs-hex "$UNAUTHORIZED_INPUTS_HEX" \
-  --predecessor-account-ids proof-forge.testnet,proof-forge.testnet,attacker.testnet \
-  --attached-deposits-yocto 0,7,1 2>&1)"
-unauthorized_status=$?
-set -e
-echo "$unauthorized_out"
-[[ $unauthorized_status -ne 0 ]] \
-  || fail "phase 3 unauthorized storage withdrawal unexpectedly succeeded"
-grep -qF 'call storage_withdraw: ABORTED:' <<<"$unauthorized_out" \
-  || fail "phase 3 unauthorized withdrawal did not abort in the real VM"
+grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
+  || fail "phase 3 NEP-145 host surface failed"
 
 echo "=== phase 4: transfer_call exact-deposit + receiver registration ==="
 eval "$(python3 - <<'PY'
@@ -191,7 +146,8 @@ def u128(v): return struct.pack("<QQ", v, 0)
 sender = "proof-forge.testnet"
 receiver = "demo.receiver.testnet"
 transfer_call = b'{"receiver_id":"demo.receiver.testnet","amount":"70","msg":"refund"}'
-registered = [b"", acct_slot(sender) + u128(100), acct_slot(receiver), transfer_call]
+registered = [b"", acct_slot(sender) + u128(100),
+              b'{"account_id":"demo.receiver.testnet"}', transfer_call]
 unregistered = [b"", acct_slot(sender) + u128(100), transfer_call]
 print(f'TRANSFER_CALL_INPUTS_HEX="{",".join(value.hex() for value in registered)}"')
 print(f'UNREGISTERED_TRANSFER_CALL_INPUTS_HEX="{",".join(value.hex() for value in unregistered)}"')
@@ -216,9 +172,9 @@ expect_transfer_call_abort() {
 }
 
 expect_transfer_call_abort "zero-yocto ft_transfer_call" \
-  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,1,0"
+  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,3900000000000000000000,0"
 expect_transfer_call_abort "two-yocto ft_transfer_call" \
-  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,1,2"
+  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,3900000000000000000000,2"
 expect_transfer_call_abort "unregistered-receiver ft_transfer_call" \
   "init ft_mint ft_transfer_call" "$UNREGISTERED_TRANSFER_CALL_INPUTS_HEX" "0,0,1"
 

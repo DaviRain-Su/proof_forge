@@ -77,10 +77,10 @@ or JSON balance/transfer slices from stale gap prose.
 | ID | State | Task | Authoritative section |
 |---|---|---|---|
 | N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |
-| N-T1 | done (verified 2026-07-14) | Schema-driven JSON ABI and structured client types | Phase 4 |
-| N-T2 | in_progress | Standard NEP-141 ABI and exact one-yocto/registration rules | Phase 5 |
-| N-T3 | pending after N-T2 | Complete NEP-145 JSON, unregister, refunds, and accounting | Phase 6 |
-| N-T4 | pending after N-T2 | NEP-148 metadata and NEP-297 events | Phase 6 |
+| N-T1 | done (verified at `38def4de`) | Schema-driven JSON ABI and structured client types | Phase 4 |
+| N-T2 | done (verified 2026-07-14) | Standard NEP-141 ABI and exact one-yocto/registration rules | Phase 5 |
+| N-T3 | done (verified 2026-07-14) | Complete NEP-145 JSON, unregister, refunds, and accounting | Phase 6 |
+| N-T4 | pending | NEP-148 metadata and NEP-297 events | Phase 6 |
 | N-T5 | pending | One parameterized TokenSpec NEP-141 artifact | Phase 7 |
 | N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
 | N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |

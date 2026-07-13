@@ -156,6 +156,8 @@ mutual
         checkExprFuel fuel entrypoint env d
     | fuel + 1, entrypoint, env, .hash preimage => checkExprFuel fuel entrypoint env preimage
     | _ + 1, _, _, .nativeValue => .ok ()
+    | _ + 1, _, _, .nearAttachedDeposit => .ok ()
+    | _ + 1, _, _, .nearStorageUsage => .ok ()
     | fuel + 1, entrypoint, env, .crosscallInvoke target methodId args => do
         checkExprFuel fuel entrypoint env target
         checkExprFuel fuel entrypoint env methodId
@@ -186,6 +188,9 @@ mutual
     | fuel + 1, entrypoint, env, .nearPromiseResultStatus index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearPromiseResultU64 index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearPromiseResultU128 index => checkExprFuel fuel entrypoint env index
+    | fuel + 1, entrypoint, env, .nearPromiseTransfer account amount => do
+        checkExprFuel fuel entrypoint env account
+        checkExprFuel fuel entrypoint env amount
     | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
         checkExprFuel fuel entrypoint env accountIndex
         checkExprFuel fuel entrypoint env methodId

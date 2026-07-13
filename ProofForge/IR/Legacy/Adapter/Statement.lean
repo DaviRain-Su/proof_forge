@@ -195,6 +195,15 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
         root := stateId
         path := #[.mapKey normalizedKey.value]
         resultType := valueType } normalizedValue.value })
+  | .storageMapDelete stateName key => do
+      let stateId ← lookupState stateName
+      let (keyType, valueType) ← stateMapTypes stateName
+      let normalizedKey ← coerceLegacyAddressHandle (← normalizeExpr key) keyType
+      let fb ← liftExcept (normalizedKey.instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .storageRemove {
+        root := stateId
+        path := #[.mapKey normalizedKey.value]
+        resultType := valueType } })
   | .storagePathWrite stateName path value => do
       let stateId ← lookupState stateName
       let (pathInstructions, segments, resultType) ← normalizeStatementStoragePath stateName path

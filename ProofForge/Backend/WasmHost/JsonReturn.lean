@@ -212,7 +212,9 @@ def loadAccess (access : Access) : Except String (Array Insn) :=
   if !access.memory then
     pure access.insns
   else match access.type with
-    | .u128 => pure <| access.insns ++ #[.call structU128PairName]
+    | .u128 => pure <|
+        access.insns ++ #[.load "i64.load" 0] ++
+        access.insns ++ #[.load "i64.load" 8]
     | .string | .bytes | .array _ =>
         pure <| access.insns ++ #[.call structDynamicPairName]
     | .hash => pure access.insns
@@ -222,13 +224,25 @@ def loadAccess (access : Access) : Except String (Array Insn) :=
     | .u64 | .address => pure <| access.insns ++ #[.load "i64.load" 0]
     | .unit => throw "JSON return cannot load Unit from aggregate memory"
 
-def accessIsAbsent (access : Access) : Except String (Array Insn) :=
+def accessIsAbsent (structs : Array StructDecl) (access : Access) : Except String (Array Insn) :=
   match access.type with
   | .string | .bytes | .array _ =>
       if access.memory then
         pure <| access.insns ++ #[.load "i32.load" 0, .plain "i32.eqz"]
       else
         pure <| access.insns ++ #[.drop, .plain "i32.eqz"]
+  | .u128 => do
+      pure <| (← loadAccess access) ++ #[.plain "i64.or", .plain "i64.eqz"]
+  | .structType typeName => do
+      let some decl := structs.find? (·.name == typeName)
+        | throw s!"JSON optional carrier references unknown struct `{typeName}`"
+      let some first := decl.fields[0]?
+        | throw s!"JSON optional carrier struct `{typeName}` has no sentinel field"
+      unless first.type == .u128 do
+        throw s!"JSON optional carrier struct `{typeName}` must begin with U128 sentinel"
+      let base ← loadAccess access
+      pure <| base ++ #[.load "i64.load" 0] ++ base ++
+        #[.load "i64.load" 8, .plain "i64.or", .plain "i64.eqz"]
   | _ => throw s!"JSON optional carrier `{access.type.name}` has no absence sentinel"
 
 def structFieldAccess (structs : Array StructDecl) (base : Access)
@@ -286,7 +300,7 @@ partial def emitNode (schema : JsonSchemaPlan) (structs : Array StructDecl)
         if child.kind == .optional then
           let some childId := child.elementNode?
             | throw s!"JSON optional field `{field.wireName}` has no child node"
-          let absent ← accessIsAbsent fieldAccess
+          let absent ← accessIsAbsent structs fieldAccess
           body := body ++ absent ++ #[
             .if_ { insns := staticBytes "null" }
               { insns := (← emitNode schema structs childId fieldAccess) }
@@ -344,7 +358,7 @@ partial def emitNode (schema : JsonSchemaPlan) (structs : Array StructDecl)
   | .optional =>
       let some childId := node.elementNode?
         | throw s!"JSON optional node {nodeId} has no child node"
-      let absent ← accessIsAbsent access
+      let absent ← accessIsAbsent structs access
       pure <| absent ++ #[
         .if_ { insns := staticBytes "null" }
           { insns := (← emitNode schema structs childId access) }

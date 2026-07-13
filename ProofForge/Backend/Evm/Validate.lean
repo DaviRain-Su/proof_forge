@@ -155,6 +155,10 @@ mutual
           ensureType "abi-packed runtime Call target" .u64 (← inferExprType module env t)
         .ok .u64
     | .nativeValue => .ok .u64
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         ensureCrosscallHandleType "crosscall target contract id"
           (← inferExprType module env target)
@@ -933,7 +937,7 @@ mutual
 
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
-    | .literal _ | .local _ | .nativeValue => false
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
     | .memoryArrayNew _ l => exprUsesCheckedArithmetic l
@@ -978,6 +982,8 @@ mutual
     | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
     | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
     | .nearPromiseResultU128 i => exprUsesCheckedArithmetic i
+    | .nearPromiseTransfer account amount =>
+        exprUsesCheckedArithmetic account || exprUsesCheckedArithmetic amount
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

@@ -118,6 +118,10 @@ mutual
     | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr ctx lhs) (← buildExpr ctx rhs)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations are not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         .ok <| .crosscallInvoke (← buildExpr ctx target) (← buildExpr ctx methodId) (← args.mapM (buildExpr ctx))
     | .crosscallInvokeTyped _ _ _ returnType =>

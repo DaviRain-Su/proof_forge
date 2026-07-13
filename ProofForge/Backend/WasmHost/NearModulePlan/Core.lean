@@ -43,6 +43,17 @@ def coreTypeToValueType : CoreType → ValueType
   | .memoryRef elem => .array (coreTypeToValueType elem)
   | .structType tid => .structType (toString tid.value)
 
+def coreTypeToValueTypeWith (materialization : MaterializationContract) :
+    CoreType → ValueType
+  | .fixedArray element length =>
+      .fixedArray (coreTypeToValueTypeWith materialization element) length
+  | .array element | .memoryRef element =>
+      .array (coreTypeToValueTypeWith materialization element)
+  | .structType typeId =>
+      .structType ((materialization.typeLayouts.find? (·.typeId == typeId)).map (·.name)
+        |>.getD (toString typeId.value))
+  | type => coreTypeToValueType type
+
 /-- Build a NearStatePlan from a Core scalar state declaration.
 NEAR stores scalars as UTF-8 key strings in the host key-value store.
 The key pointer is the string pool offset for the state id string. -/
@@ -132,6 +143,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
   let mut usesStorageWrite := false
   let mut usesNativeValue := false
   let mut usesPromiseCreate := false
+  let mut usesStorageUsage := false
+  let mut usesPromiseTransfer := false
   let mut usesEventApi := false
   let mut usesEventNumeric := false
   let mut usesEventBool := false
@@ -156,6 +169,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
           | .storageStore { path := #[.mapKey _], .. } _
           | .storageStore { path := #[.index _], .. } _ => scalarWriteTypes := scalarWriteTypes
           | _ => scalarWriteTypes := scalarWriteTypes.push (coreTypeToValueType value.type)
+        | .storageRemove _ => usesStorageWrite := true
         | .contextRead .value => usesNativeValue := true
         | .contextRead .sender => contextOps := contextOps.push .userId |>.push .userIdHash
         | .contextRead .contractAddress => contextOps := contextOps.push .contractId
@@ -175,6 +189,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
           | none => pure ()
         | .hostCall call =>
           if call.id == HostOps.promiseCreateId then usesPromiseCreate := true
+          if call.id == HostOps.storageUsageId then usesStorageUsage := true
+          if call.id == HostOps.promiseTransferId then usesPromiseTransfer := true
         | .crosscall spec _ =>
           if spec.mode == .nearPromiseThen then pure () else usesPromiseCreate := true
         | _ => pure ()
@@ -206,7 +222,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .storageStore { path := #[.mapKey key], .. } _ => key.type != .hash
         | .storageStore { path := #[.index _], .. } _ => true
         | _ => false
-    usesPromiseApi := usesPromiseCreate
+    usesPromiseApi := usesPromiseCreate || usesPromiseTransfer
     usesPromiseCreate
     usesPromiseThen := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
@@ -227,6 +243,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesPromiseReceiverAccount := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
+    usesStorageUsage
+    usesPromiseTransfer
     usesCrosscallArgs := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .crosscall { mode := .nearPoolInvoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
@@ -262,20 +280,25 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | _ => false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
-    stringIndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
-      block.instructions.filterMap fun instruction => match instruction.op with
-      | .storageLoad { path := #[.mapKey key], resultType, .. } =>
-          if key.type == .string then some (coreTypeToValueType resultType) else none
-      | _ => none))
-    stringIndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
-      block.instructions.filterMap fun instruction => match instruction.op with
-      | .storageStore { path := #[.mapKey key], resultType, .. } _ =>
-          if key.type == .string then some (coreTypeToValueType resultType) else none
-      | _ => none))
+    stringIndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function =>
+      function.blocks.flatMap (fun block => block.instructions.filterMap fun instruction =>
+        match instruction.op with
+        | .storageLoad { path := #[.mapKey key], resultType, .. } =>
+            if key.type == .string then some (coreTypeToValueType resultType) else none
+        | _ => none))
+    stringIndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function =>
+      function.blocks.flatMap (fun block => block.instructions.filterMap fun instruction =>
+        match instruction.op with
+        | .storageStore { path := #[.mapKey key], resultType, .. } _ =>
+            if key.type == .string then some (coreTypeToValueType resultType) else none
+        | .storageRemove { path := #[.mapKey key], resultType, .. } =>
+            if key.type == .string then some (coreTypeToValueType resultType) else none
+        | _ => none))
     usesStringIndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
       | .storageLoad { path := #[.mapKey key], .. }
       | .storageStore { path := #[.mapKey key], .. } _ => key.type == .string
+      | .storageRemove { path := #[.mapKey key], .. } => key.type == .string
       | _ => false
     usesStringIndexedContains := false
     usesHashMake := m.functions.any fun function => function.blocks.any fun block =>
@@ -311,15 +334,32 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     arrayEqShapes := #[]
     structLitNames := #[]
     usesArrAlloc := m.functions.any (fun fn =>
-      fn.params.any (fun p => p.type == .string || p.type == .bytes))
+      fn.params.any (fun p => p.type == .string || p.type == .bytes) ||
+      fn.blocks.any (fun block => block.instructions.any fun instruction =>
+        match instruction.op with | .pure (.structLit _ _) => true | _ => false))
     usesArrDealloc := false
   }
 
 /-- Build an empty lower context seed. The canonical builder does not store
 Legacy `StructDecl` or `AllocatorConfig`; it stores resolved target layout. -/
-def coreLowerCtxSeed : NearLowerCtxSeed :=
+def coreLowerCtxSeed (m : ProofForge.IR.Core.Module)
+    (materialization : MaterializationContract) : NearLowerCtxSeed :=
   { keyBuf := 0, mapkeyBuf := 0, stringBase := 0, crosscallStringBase := 0,
-    structs := #[], allocator := defaultAllocator }
+    structs := materialization.typeLayouts.filterMap fun layout => do
+      let declaration ← m.structs.find? (·.id == layout.typeId)
+      some {
+        name := layout.name
+        fields := Array.zipWith (fun field metadata => {
+          id := metadata.name
+          type := coreTypeToValueTypeWith materialization field.type
+          isPublic := metadata.isPublic
+          isRef := field.ownership == .reference
+        }) declaration.fields layout.fields
+        deriveStorage := layout.deriveStorage
+        isPublic := layout.isPublic
+        isRecord := declaration.semantics == .linearRecord
+      }
+    allocator := defaultAllocator }
 
 private def nearValue (value : ValueRef) : NearValuePlan :=
   { id := value.id.value, typeName := reprStr value.type }
@@ -392,9 +432,10 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
   | .pure (.literal (.hashLit value)) =>
       let (a, b, c, d) <- unpackHashLiteral value
       return .hashLiteral (<- nearResult instr) a b c d
-  | .pure (.literal (.stringLit _)) | .pure (.literal (.bytesLit _)) =>
-      /- Non-numeric literals are metadata-only on NEAR; materialize as
-      literal 0 so the plan is complete without adding a new op variant. -/
+  | .pure (.literal (.stringLit value)) =>
+      return .stringLiteral (<- nearResult instr) value
+  | .pure (.literal (.bytesLit _)) =>
+      /- Byte literals remain metadata-only on the canonical NEAR path. -/
       return .literal (<- nearResult instr) 0
   | .pure (.arithmetic op mode lhs rhs) =>
       return .arithmetic (<- nearResult instr) (nearArithmetic op) (mode == .checked)
@@ -407,6 +448,10 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       return .cast (<- nearResult instr) (nearValue value)
   | .pure (.hashTwoToOne lhs rhs) =>
       return .hashTwoToOne (<- nearResult instr) (nearValue lhs) (nearValue rhs)
+  | .pure (.structLit typeId fields) =>
+      let typeName := (materialization.typeLayouts.find? (·.typeId == typeId)).map (·.name)
+        |>.getD s!"type_{typeId.value}"
+      return .structLit (<- nearResult instr) typeName (fields.map nearValue)
   | .storageLoad ref =>
       match ref.path with
       | #[] => return .loadState (<- nearResult instr) ref.root.value
@@ -419,6 +464,11 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       | #[.mapKey key] | #[.index key] =>
           return .storeMap ref.root.value (nearValue key) (nearValue value)
       | _ => throw { message := "NEAR canonical storage supports one mapKey or index segment" }
+  | .storageRemove ref =>
+      match ref.path with
+      | #[.mapKey key] | #[.index key] =>
+          return .removeMap ref.root.value (nearValue key)
+      | _ => throw { message := "NEAR canonical storage removal supports one mapKey or index segment" }
   | .contextRead field => return .context (<- nearResult instr) (reprStr field)
   | .emit event args =>
       let decl <- match iface.events.find? (fun decl => decl.eventId == event) with
@@ -471,6 +521,15 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         unless handler.lower == #[HostOps.NearOpPlan.promiseResultStatus] && call.args.size == 1 do
           throw { message := "near.promise.result_status@1.0.0 requires one argument" }
         return .promiseResultStatus (<- nearResult instr) (nearValue call.args[0]!)
+      else if call.id == HostOps.storageUsageId then
+        unless handler.lower == #[HostOps.NearOpPlan.storageUsage] && call.args.isEmpty do
+          throw { message := "near.storage.usage@1.0.0 requires no arguments" }
+        return .storageUsage (<- nearResult instr)
+      else if call.id == HostOps.promiseTransferId then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseTransfer] && call.args.size == 2 do
+          throw { message := "near.promise.transfer@1.0.0 requires account and amount" }
+        return .promiseTransfer (<- nearResult instr) (nearValue call.args[0]!)
+          (nearValue call.args[1]!)
       else
         throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
   | .crosscall spec args =>
@@ -554,15 +613,16 @@ def buildFromCore (checked : CheckedCanonicalContract)
       throw { message := s!"NEAR capability plan is missing `{requirement.capability.id}`" }
   let m := checked.contract.module
   let iface := checked.contract.interface
+  let lowerCtxSeed := coreLowerCtxSeed m checked.contract.materialization
   /- Build layout from Core state declarations. -/
   let layout <- coreLayout m checked.contract.materialization
   /- Build surface from Core module and interface. -/
   let surface := coreSurface m
   let entrypointAbis ← iface.entrypoints.mapM fun entrypoint =>
     let signatureParams := entrypoint.params.map fun param =>
-      (param.name, coreTypeToValueType param.type)
-    match NearAbiPlan.buildSignaturePlan #[] entrypoint.name signatureParams
-        (coreTypeToValueType entrypoint.retType) with
+      (param.name, coreTypeToValueTypeWith checked.contract.materialization param.type)
+    match NearAbiPlan.buildSignaturePlan lowerCtxSeed.structs entrypoint.name signatureParams
+        (coreTypeToValueTypeWith checked.contract.materialization entrypoint.retType) with
     | .ok plan => pure plan
     | .error message => throw { message }
   let functions <- m.functions.mapM (lowerNearFunction iface checked.contract.materialization)
@@ -575,7 +635,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     entrypointAbis
     layout
     functions
-    lowerCtxSeed := coreLowerCtxSeed
+    lowerCtxSeed
   }
 
 end ProofForge.Backend.WasmHost.NearModulePlan.Core

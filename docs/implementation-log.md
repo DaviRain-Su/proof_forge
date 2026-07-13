@@ -2336,3 +2336,21 @@ Rules:
   `wasm-near-ft-transfer-call`, and `near-vm-conformance-ft`.
 - Next: complete NEP-145 JSON, unregister/refund semantics, and storage byte
   accounting.
+
+## 2026-07-14 - NEAR N-T3: complete NEP-145 storage management
+
+- Status: `done (verified on the unmodified upstream NEAR VM)`.
+- Implemented the five standard JSON storage methods, including optional
+  arguments, standard balance/bounds objects, and null for unregistered users.
+- Added canonical struct-literal and storage-removal support plus target-owned
+  NEAR operations for attached deposit, storage usage, and promise transfer.
+  Other backends reject those target operations explicitly.
+- Registration measures real storage usage, tracks actual byte deltas, refunds
+  repeat deposits, and unregisters with exact locked-deposit refunds and forced
+  balance burn semantics.
+- Fixed U128 multiplication, canonical jump/phi multiword moves, and JSON struct
+  extraction issues exposed by the real VM.
+- Verification recorded by the original task: `Tests/NearAbiPlan.lean`, public
+  CLI Wasm emission, `near-vm-nep145`, `near-vm-json-transfer`, and
+  `near-vm-conformance-ft`.
+- Next: NEP-148 metadata and NEP-297 event envelopes.

@@ -67,7 +67,9 @@ where
     | .nearPromiseThen a b args d _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
     | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => pushExpr acc a
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => acc
+    | .nearPromiseTransfer account amount => pushExpr (pushExpr acc account) amount
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
+    | .nearStorageUsage | .nearPromiseResultsCount => acc
   pushEffect (acc : Array ContextField) : Effect → Array ContextField
     | .contextRead f => pushUnique acc f
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
@@ -134,7 +136,9 @@ where
         exprUses a || exprUses b || args.any exprUses || exprUses d
     | .nearPromiseThen a b args d _ =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => false
+    | .nearPromiseTransfer account amount => exprUses account || exprUses amount
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
+    | .nearStorageUsage | .nearPromiseResultsCount => false
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v

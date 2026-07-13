@@ -776,6 +776,21 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .normalize
         owner := "near-adapter"
         reason := "NEAR promise result U128 normalizes to a versioned HostOp" }
+  | .nearAttachedDeposit =>
+      { nodeTag := "Expr.nearAttachedDeposit"
+        disposition := .normalize
+        owner := "near-adapter"
+        reason := "full NEAR attached deposit normalizes to the U128 value context" }
+  | .nearStorageUsage =>
+      { nodeTag := "Expr.nearStorageUsage"
+        disposition := .normalize
+        owner := "near-adapter"
+        reason := "NEAR storage usage normalizes to a versioned HostOp" }
+  | .nearPromiseTransfer _ _ =>
+      { nodeTag := "Expr.nearPromiseTransfer"
+        disposition := .normalize
+        owner := "near-adapter"
+        reason := "NEAR native refund normalizes to a versioned promise HostOp" }
   | .effect _ =>
       { nodeTag := "Expr.effect"
         disposition := .normalize
@@ -926,6 +941,9 @@ def exprInventory : Array Expr := #[
   .nearPromiseResultStatus (.local "i"),
   .nearPromiseResultU64 (.local "i"),
   .nearPromiseResultU128 (.local "i"),
+  .nearAttachedDeposit,
+  .nearStorageUsage,
+  .nearPromiseTransfer (.local "account") (.local "amount"),
   .effect (Effect.contextRead .userId)
 ]
 

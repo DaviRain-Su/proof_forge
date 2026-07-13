@@ -737,6 +737,9 @@ def evalPureOp (env : Env) (resultType : CoreType) (op : PureOp) : Except Runtim
   | .cast to arg => evalCast to (← evalRef env arg)
   | .hash _ => .error .unsupportedHash
   | .hashTwoToOne _ _ => .error .unsupportedHash
+  | .structLit typeId fields =>
+      .ok (.structValue typeId (← fields.mapIdxM fun index field => do
+        pure (⟨index⟩, ← evalRef env field)))
 
 /- Storage cell accessors used by path read/write. -/
 
@@ -1111,6 +1114,16 @@ def writePath (module : Module) (env : Env) (state : LogicalState) (path : Stora
   validateStorageCell module declaration.shape newCell
   .ok (setStateCell state path.root newCell)
 
+def removePath (module : Module) (env : Env) (state : LogicalState) (path : StorageRef) :
+    Except RuntimeError LogicalState := do
+  let cell ← getStateCell module state path.root
+  let newCell ← match cell, path.path.toList with
+    | .map keyType valueType capacity entries, [.mapKey keyRef] => do
+        let key ← evalRef env keyRef
+        .ok (.map keyType valueType capacity (entries.filter fun entry => entry.1 != key))
+    | _, _ => .error .invalidStorageShape
+  .ok (setStateCell state path.root newCell)
+
 def containsPath (module : Module) (env : Env) (state : LogicalState)
     (path : StorageRef) : Except RuntimeError CoreValue := do
   let cell ← getStateCell module state path.root
@@ -1327,6 +1340,8 @@ def execInstruction (host : HostSemantics) (module : Module) (env : Env) (state 
     let v ← evalRef env value
     let state' ← writePath module env state path v
     .ok (env, state', trace)
+  | .storageRemove path =>
+    .ok (env, ← removePath module env state path, trace)
   | .storageLength root =>
     let v ← storageLength module state root
     let env' ← bindResults module instr.results #[v] env

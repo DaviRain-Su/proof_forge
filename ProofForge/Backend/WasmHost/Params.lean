@@ -492,6 +492,20 @@ def parseFlatJsonField (param : String × ValueType) (field : JsonFieldPlan)
         .if_ { insns := #[] } { insns := #[.unreachable] },
         .i32Const U128_RESULT_BUF, .load "i64.load" 0, .localSet name
       ], #[{ name := name, type := .i64 }])
+  | .bool, .bool =>
+      pure (#[] ++ #[
+        .i32Const INPUT_BUF, .localGet jsonCursorName, .plain "i32.add",
+        .load "i32.load8_u" 0, .i32Const 0x74, .plain "i32.eq",
+        .if_ {
+          insns := expectJsonByte 0x74 ++ expectJsonByte 0x72 ++
+            expectJsonByte 0x75 ++ expectJsonByte 0x65 ++
+            #[.i32Const 1, .localSet name]
+        } {
+          insns := expectJsonByte 0x66 ++ expectJsonByte 0x61 ++
+            expectJsonByte 0x6c ++ expectJsonByte 0x73 ++ expectJsonByte 0x65 ++
+            #[.i32Const 0, .localSet name]
+        }
+      ], #[{ name := name, type := .i32 }])
   | _, _ =>
       err s!"EmitWat: JSON field `{field.wireName}` node `{kind.id}` cannot bind portable parameter `{name} : {param.snd.name}`"
   let parseValue :=

@@ -164,6 +164,10 @@ mutual
         ensureType "abi-packed call target" .u64 (← inferExprType module env target)
         .ok .u64
     | .nativeValue => .ok .u64
+    | .nearAttachedDeposit
+    | .nearStorageUsage
+    | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         ensureCrosscallHandleType "crosscall target contract id"
           (← inferExprType module env target)

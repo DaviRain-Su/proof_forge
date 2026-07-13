@@ -201,7 +201,8 @@ def ExprFacts.merge (lhs rhs : ExprFacts) : ExprFacts :=
 
 mutual
   partial def analyzeExpr : Expr → ExprFacts
-    | .literal _ | .nativeValue | .nearPromiseResultsCount => {}
+    | .literal _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage
+    | .nearPromiseResultsCount => {}
     | .local name => { locals := #[name] }
     | .arrayLit _ values => values.foldl (fun acc value => acc.merge (analyzeExpr value)) {}
     | .arrayGet array index | .memoryArrayGet array index =>
@@ -246,6 +247,8 @@ mutual
     | .nearPromiseThen account method args deposit _ =>
         args.foldl (fun acc arg => acc.merge (analyzeExpr arg))
           ((((analyzeExpr account).merge (analyzeExpr method)).merge (analyzeExpr deposit)))
+    | .nearPromiseTransfer account amount =>
+        (analyzeExpr account).merge (analyzeExpr amount)
     | .effect effect => analyzeEffect effect
 
   partial def analyzeEffect : Effect → ExprFacts
@@ -391,6 +394,8 @@ mutual
     | .nearPromiseResultStatus i => effectExprIn p i
     | .nearPromiseResultU64 i => effectExprIn p i
     | .nearPromiseResultU128 i => effectExprIn p i
+    | .nearPromiseTransfer account amount => effectExprIn p account || effectExprIn p amount
+    | .nearAttachedDeposit | .nearStorageUsage => false
     | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         effectExprIn p accountIndex || effectExprIn p methodId || effectExprIn p deposit ||
           args.any (effectExprIn p ·)

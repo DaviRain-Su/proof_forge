@@ -1,7 +1,7 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T0 through N-T2 complete; N-T3 / Phase 6
-in progress; Phases 0-5 complete).
+Status: active (updated 2026-07-14; N-T0 through N-T3 complete; N-T4 / Phase 6
+in progress; Phases 0-5 and the NEP-145 portion of Phase 6 complete).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -17,7 +17,7 @@ the broader completion work visible while each landing remains reviewable.
 | N-T0 | done (`337ee823`) | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
 | N-T1 | done (`38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
 | N-T2 | done (2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
-| N-T3 | in_progress | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
+| N-T3 | done (2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
 | N-T4 | pending | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
@@ -369,12 +369,21 @@ after the NEP-145/148 surface is complete.
 
 ## Phase 6 — NEP-145 / 148 / 297 closure (N-04)  (effort L; depends 3,4)
 
-`storage_unregister` (force one-yocto); predecessor refund via
-`promise_transfer`; `StorageBalance` / `StorageBalanceBounds` JSON; storage
-byte accounting / cost (`storage_usage` host APIs); attack tests. NEP-148
-metadata object `{spec, name, symbol, decimals, …}`. NEP-297 `EVENT_JSON`
-envelopes. Lift the route-test ban on advertising `storage_unregister`.
-**Gate:** compare harness `storage-deposit` → `verified: yes`.
+N-T3 completed 2026-07-14: all five NEP-145 methods use standard JSON,
+including optional deposit/withdraw/unregister arguments and structured
+`StorageBalance` / `StorageBalanceBounds` results. Initialization measures the
+maximum-AccountId registration `storage_usage` delta and locks that byte count
+times the configured cost, while registration records its actual byte delta;
+repeat deposits refund the full attachment, and unregister removes all account records and
+uses `promise_transfer` to refund the locked balance plus the required one
+yoctoNEAR. `just near-vm-nep145` proves the positive lifecycle, exact-one-yocto
+failures, underfunding, force protection/burn, refund actions, and storage
+restoration on the unmodified upstream VM.
+
+N-T4 remains in this phase: NEP-148 metadata object
+`{spec, name, symbol, decimals, …}` and NEP-297 `EVENT_JSON` envelopes. The
+compare-harness `storage-deposit -> verified: yes` evidence remains N-T6 and is
+not implied by the N-T3 VM gate.
 
 ## Phase 7 — TokenSpec parameterized runtime (N-02)  (effort M; depends 2)
 

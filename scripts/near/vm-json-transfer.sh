@@ -43,12 +43,13 @@ sender = "alice.testnet"
 receiver = "bob.testnet"
 maximum = (1 << 128) - 1
 transfer = ('{"receiver_id":"' + receiver + '","amount":"' + str(maximum) + '"}').encode()
-inputs = [b"", account_slot(sender) + u128(maximum), account_slot(receiver), transfer,
+registration = b'{"account_id":"bob.testnet"}'
+inputs = [b"", account_slot(sender) + u128(maximum), registration, transfer,
           balance_json(sender), balance_json(receiver)]
 overflow = ('{"receiver_id":"bob.testnet","amount":"' + str(1 << 128) + '"}').encode()
 leading_zero = b'{"receiver_id":"bob.testnet","amount":"01"}'
 reordered = b' { "memo" : null, "amount" : "1" , "receiver_id" : "bob.testnet" } '
-reordered_inputs = [b"", account_slot(sender) + u128(1), account_slot(receiver), reordered,
+reordered_inputs = [b"", account_slot(sender) + u128(1), registration, reordered,
                     balance_json(sender), balance_json(receiver)]
 unknown = b'{"receiver_id":"bob.testnet","amount":"1","extra":"x"}'
 duplicate = b'{"receiver_id":"bob.testnet","amount":"1","amount":"1"}'
@@ -64,7 +65,7 @@ PY
 
 out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer ft_balance_of ft_balance_of \
   --inputs-hex "$INPUTS_HEX" --predecessor-account-id alice.testnet \
-  --attached-deposits-yocto 0,0,1,1,0,0)"
+  --attached-deposits-yocto 0,0,3900000000000000000000,1,0,0)"
 echo "$out"
 grep -qF 'call ft_balance_of: return_hex=223022' <<<"$out" \
   || fail 'sender balance was not JSON "0" after U128::MAX transfer'
@@ -75,7 +76,7 @@ grep -qF '6 methods executed successfully on real NEAR VM' <<<"$out" \
 
 reordered_out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer ft_balance_of ft_balance_of \
   --inputs-hex "$REORDERED_INPUTS_HEX" --predecessor-account-id alice.testnet \
-  --attached-deposits-yocto 0,0,1,1,0,0)"
+  --attached-deposits-yocto 0,0,3900000000000000000000,1,0,0)"
 echo "$reordered_out"
 grep -qF 'call ft_balance_of: return_hex=223022' <<<"$reordered_out" \
   || fail 'sender balance was not JSON "0" after reordered transfer'
@@ -115,7 +116,7 @@ def u128(value):
 sender, receiver = 'alice.testnet', 'bob.testnet'
 transfer = b'{"receiver_id":"bob.testnet","amount":"1"}'
 print(','.join(value.hex() for value in [
-    b'', slot(sender) + u128(1), slot(receiver), transfer
+    b'', slot(sender) + u128(1), b'{"account_id":"bob.testnet"}', transfer
 ]))
 PY
 )"
@@ -124,7 +125,7 @@ for bad_deposit in 0 2; do
   set +e
   deposit_out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer \
     --inputs-hex "$SETUP_INPUTS_HEX" --predecessor-account-id alice.testnet \
-    --attached-deposits-yocto "0,0,1,$bad_deposit" 2>&1)"
+    --attached-deposits-yocto "0,0,3900000000000000000000,$bad_deposit" 2>&1)"
   deposit_status=$?
   set -e
   [[ $deposit_status -ne 0 ]] || fail "ft_transfer accepted $bad_deposit yoctoNEAR"

@@ -20,6 +20,8 @@ structure ModulePlan where
   usesPromiseResultU64 : Bool
   usesPromiseReturn : Bool
   usesPromiseReceiverAccount : Bool
+  usesStorageUsage : Bool
+  usesPromiseTransfer : Bool
   usesCrosscallArgs : Bool
   usesCrosscallHash : Bool
   usesFmtU64 : Bool
@@ -72,6 +74,8 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesPromiseResultU64 := surface.usesPromiseResultU64
     usesPromiseReturn := surface.usesPromiseReturn
     usesPromiseReceiverAccount := surface.usesPromiseReceiverAccount
+    usesStorageUsage := surface.usesStorageUsage
+    usesPromiseTransfer := surface.usesPromiseTransfer
     usesCrosscallArgs := surface.usesCrosscallArgs
     usesCrosscallHash := surface.usesCrosscallHash
     usesFmtU64 := surface.usesFmtU64

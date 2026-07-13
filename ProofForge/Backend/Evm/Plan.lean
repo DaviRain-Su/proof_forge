@@ -689,7 +689,7 @@ def ModulePlan.hasHelper (plan : ModulePlan) (helper : Helper) : Bool :=
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Array ContextPlan :=
     match expr with
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc v => acc ++ contextOpsFromExpr v
     | .arrayGet array index =>
@@ -747,6 +747,8 @@ mutual
     | .nearPromiseResultStatus index => contextOpsFromExpr index
     | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .nearPromiseResultU128 index => contextOpsFromExpr index
+    | .nearPromiseTransfer account amount =>
+        contextOpsFromExpr account ++ contextOpsFromExpr amount
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=

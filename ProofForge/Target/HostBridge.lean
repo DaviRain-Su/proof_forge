@@ -63,7 +63,10 @@ def HostBridge.requiredImports : HostBridge → Array String
       "env.promise_then",
       "env.promise_results_count",
       "env.promise_result",
-      "env.promise_return"
+      "env.promise_return",
+      "env.storage_usage",
+      "env.promise_batch_create",
+      "env.promise_batch_action_transfer"
     ]
   | .cosmWasm => #[
       "env.db_read",
@@ -104,7 +107,10 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "promise_then", params := #["i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
       { name := "promise_results_count", params := #[], results := #["i64"] },
       { name := "promise_result", params := #["i64", "i64"], results := #["i64"] },
-      { name := "promise_return", params := #["i64"], results := #[] }
+      { name := "promise_return", params := #["i64"], results := #[] },
+      { name := "storage_usage", params := #[], results := #["i64"] },
+      { name := "promise_batch_create", params := #["i64", "i64"], results := #["i64"] },
+      { name := "promise_batch_action_transfer", params := #["i64", "i64"], results := #[] }
     ]
   | .cosmWasm => #[
       { name := "db_read",  params := #["i32"], results := #["i32"] },

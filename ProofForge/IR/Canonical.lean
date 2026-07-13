@@ -322,6 +322,7 @@ private def stateShapeCapabilities : StateShape → Array Capability
 private def pureOpCapabilities : PureOp → Array Capability
   | .arithmetic _ .checked _ _ => #[.checkedArithmetic]
   | .hash _ | .hashTwoToOne _ _ => #[.cryptoHash]
+  | .structLit _ _ => #[.dataStruct]
   | .literal _ | .unary _ _ | .arithmetic _ .wrapping _ _ |
       .compare _ _ _ | .cast _ _ => #[]
 
@@ -339,7 +340,7 @@ private def instructionCapabilities (instruction : Instruction) : Array Capabili
     (fun caps result => caps ++ coreTypeCapabilities result.type) #[]
   let opCaps := match instruction.op with
     | .pure op => pureOpCapabilities op
-    | .storageLoad _ | .storageContains _ | .storageStore _ _ |
+    | .storageLoad _ | .storageContains _ | .storageStore _ _ | .storageRemove _ |
         .storageLength _ | .storageResize _ _ => #[]
     | .memoryAlloc type _ =>
         #[.runtimeMemory, .runtimeAllocator] ++ coreTypeCapabilities type
@@ -434,7 +435,7 @@ private def viewInstructionAllowed : InstructionOp → Bool
   | .contextRead .value => false
   | .contextRead _ => true
   | .crosscall spec _ => spec.mode == .staticInvoke
-  | .storageStore _ _ | .storageResize _ _ | .emit _ _ | .hostCall _ => false
+  | .storageStore _ _ | .storageRemove _ | .storageResize _ _ | .emit _ _ | .hostCall _ => false
 
 private def validateInterface (module : Core.Module)
     (interface : InterfaceContract) : Except ValidationError Unit := do

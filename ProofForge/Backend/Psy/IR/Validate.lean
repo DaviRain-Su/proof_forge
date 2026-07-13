@@ -193,6 +193,8 @@ mutual
         .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by Psy IR v0" }
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
+    | .nearAttachedDeposit | .nearStorageUsage | .nearPromiseTransfer _ _ =>
+        .error { message := "NEAR host expressions are not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         let targetType ← inferExprType module env target
         ensureType "crosscall target contract id" .u64 targetType

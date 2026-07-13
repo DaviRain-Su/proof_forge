@@ -334,6 +334,7 @@ fn main() {
     let mut storage_usage: StorageUsage = 0;
 
     for (call_index, method) in config.methods.iter().enumerate() {
+        let action_log_start = ext.action_log.len();
         let input: Rc<[u8]> = Rc::from(config.inputs[call_index].as_slice());
         let context = make_context(
             storage_usage,
@@ -389,6 +390,10 @@ fn main() {
                             outcome.burnt_gas.as_gas()
                         );
                     }
+                }
+                println!("call {}: storage_usage={}", method, storage_usage);
+                for action in &ext.action_log[action_log_start..] {
+                    println!("call {}: action={:?}", method, action);
                 }
             }
             Err(err) => {

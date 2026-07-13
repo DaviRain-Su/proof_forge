@@ -460,6 +460,8 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallCreate .. | .crosscallCreate2 ..
   | .crosscallNamed .. => acc
   | .nearCrosscallInvokePool .. | .nearPromiseThen .. => acc
+  | .nearPromiseTransfer account amount =>
+      collectFromExpr entrypoint (collectFromExpr entrypoint acc account) amount
   | .effect e => collectFromEffect entrypoint acc e
   | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
@@ -489,7 +491,8 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
       collectFromExpr entrypoint
         (collectFromExpr entrypoint
           (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-  | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => acc
+  | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
+  | .nearStorageUsage | .nearPromiseResultsCount => acc
 where
   collectFromEffect (entrypoint : String) (acc : Array PortableCrosscallSite) :
       Effect → Array PortableCrosscallSite
