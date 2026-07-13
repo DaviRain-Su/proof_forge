@@ -111,9 +111,9 @@ sender = hashlib.sha256(b"alice.testnet").digest()
 receiver = hashlib.sha256(b"bob.testnet").digest()
 inputs = [
     b"",
-    sender + struct.pack("<Q", 100),
+    sender + struct.pack("<QQ", 100, 0),
     sender,
-    receiver + struct.pack("<Q", 30),
+    receiver + struct.pack("<QQ", 30, 0),
     sender,
     receiver,
 ]
@@ -134,9 +134,9 @@ out="$("${HOST[@]}" "$LIFECYCLE_WAT" \
   --current-account-id proof-forge.testnet \
   --inputs-hex "$INPUTS_HEX")"
 echo "$out"
-grep -Fq "return_u64=100" <<<"$out" || fail "expected mint balance 100"
-grep -Fq "return_u64=70" <<<"$out" || fail "expected sender balance 70 after transfer"
-grep -Fq "return_u64=30" <<<"$out" || fail "expected receiver balance 30 after transfer"
+grep -Fq "return_hex=64000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected mint balance 100"
+grep -Fq "return_hex=46000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected sender balance 70 after transfer"
+grep -Fq "return_hex=1e000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected receiver balance 30 after transfer"
 echo "backend FT offline mint/transfer conformance: ok"
 
 echo "product-token-near: ok (TokenSpec plan · stdlib body WAT · backend FT offline conformance)"

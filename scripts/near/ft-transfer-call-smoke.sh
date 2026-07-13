@@ -65,11 +65,11 @@ unused_amount = 25
 
 inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    spender + struct.pack("<Q", approve_amount),
+    sender + struct.pack("<QQ", mint_amount, 0),
+    spender + struct.pack("<QQ", approve_amount, 0),
     sender,
     receiver,
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", transfer_amount),
+    receiver + struct.pack("<I", receiver_idx) + struct.pack("<QQ", transfer_amount, 0),
     sender,
     receiver,
     struct.pack("<Q", 0) + sender + receiver,
@@ -85,17 +85,17 @@ print(f'INPUTS_HEX="{",".join(item.hex() for item in inputs)}"')
 receiver2 = hashlib.sha256(b"second.receiver.testnet").digest()
 refund_inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", transfer_amount),
+    sender + struct.pack("<QQ", mint_amount, 0),
+    receiver + struct.pack("<I", receiver_idx) + struct.pack("<QQ", transfer_amount, 0),
     struct.pack("<Q", 0) + sender + receiver,
     sender,
     receiver,
 ]
 concurrent_inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", 30),
-    receiver2 + struct.pack("<I", receiver_idx) + struct.pack("<Q", 20),
+    sender + struct.pack("<QQ", mint_amount, 0),
+    receiver + struct.pack("<I", receiver_idx) + struct.pack("<QQ", 30, 0),
+    receiver2 + struct.pack("<I", receiver_idx) + struct.pack("<QQ", 20, 0),
     struct.pack("<Q", 1) + sender + receiver2,
     struct.pack("<Q", 0) + sender + receiver,
     sender,
@@ -138,8 +138,8 @@ echo "$out"
 
 assert_contains "$out" "call 1:ft_mint: return=<none>" "mint call"
 assert_contains "$out" "call 1:ft_approve: return=<none>" "approve call"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after mint"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance before transfer"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=64000000000000000000000000000000 return_len=16" "sender balance after mint"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=00000000000000000000000000000000 return_len=16" "receiver balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"
 # deposit is near-sys amount_ptr → offline-host reads the full u128 LE value.
 # The private callback receives Borsh transfer id + sender/receiver hashes.
@@ -148,11 +148,11 @@ assert_contains "$out" "promise_then id=1 parent=0 account=proof-forge.testnet m
 assert_contains "$out" "promise_return id=1" "promise_return trace"
 assert_order "$out" "promise_create id=0" "promise_then id=1 parent=0"
 assert_contains "$out" "promise_result index=0 status=1 return_u64=25" "promise result stub"
-assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=2d00000000000000 return_u64=45" "resolve used amount"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=1e00000000000000 return_u64=30" "sender balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=4600000000000000 return_u64=70" "receiver balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=3700000000000000 return_u64=55" "sender balance after refund"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=2d00000000000000 return_u64=45" "receiver balance after refund"
+assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=2d000000000000000000000000000000 return_len=16" "resolve used amount"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=1e000000000000000000000000000000 return_len=16" "sender balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=46000000000000000000000000000000 return_len=16" "receiver balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=37000000000000000000000000000000 return_len=16" "sender balance after refund"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=2d000000000000000000000000000000 return_len=16" "receiver balance after refund"
 
 assert_traps "repeat init" "${HOST[@]}" "$WAT" init init \
   --predecessor-account-id proof-forge.testnet \
@@ -172,9 +172,9 @@ refund_out="$("${HOST[@]}" "$WAT" \
   --current-account-id proof-forge.testnet \
   --promise-result-u64 1000 \
   --inputs-hex "$REFUND_INPUTS_HEX")"
-assert_contains "$refund_out" "call 1:ft_resolve_transfer: return_hex=0000000000000000 return_u64=0" "refund bounded to original amount"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after bounded refund"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_resolve_transfer: return_hex=00000000000000000000000000000000 return_len=16" "refund bounded to original amount"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=64000000000000000000000000000000 return_len=16" "sender balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=00000000000000000000000000000000 return_len=16" "receiver balance after bounded refund"
 
 concurrent_out="$("${HOST[@]}" "$WAT" \
   init ft_mint ft_transfer_call ft_transfer_call ft_resolve_transfer ft_resolve_transfer \
@@ -184,8 +184,8 @@ concurrent_out="$("${HOST[@]}" "$WAT" \
   --current-account-id proof-forge.testnet \
   --promise-result-u64 5 \
   --inputs-hex "$CONCURRENT_INPUTS_HEX")"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=3c00000000000000 return_u64=60" "sender balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=1900000000000000 return_u64=25" "first receiver balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=0f00000000000000 return_u64=15" "second receiver balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=3c000000000000000000000000000000 return_len=16" "sender balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=19000000000000000000000000000000 return_len=16" "first receiver balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=0f000000000000000000000000000000 return_len=16" "second receiver balance after out-of-order callbacks"
 
 echo "ft-transfer-call-smoke: ok (happy path, repeat-init, private callback, bounded refund, concurrent contexts)"

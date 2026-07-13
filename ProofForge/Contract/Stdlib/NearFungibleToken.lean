@@ -55,9 +55,9 @@ def ftMethodOnTransferIdx : Nat := 0
 def ftMethodResolveIdx : Nat := 1
 def ftReceiverBaseIdx : Nat := 2
 
-/-- Total token supply state (u64). -/
+/-- Total token supply state (u128). -/
 def totalSupply : ScalarRef :=
-  ProofForge.Contract.Surface.slot "totalSupply" .u64
+  ProofForge.Contract.Surface.slot "totalSupply" .u128
 
 /-- Token decimals (NEP-148). -/
 def tokenDecimals : ScalarRef :=
@@ -75,13 +75,13 @@ def tokenSymbol : ScalarRef :=
 def storageRequired : ScalarRef :=
   ProofForge.Contract.Surface.slot "storageRequired" .u64
 
-/-- Balance mapping: account hash -> u64 balance. -/
+/-- Balance mapping: account hash -> u128 balance. -/
 def balances : MapRef :=
-  { id := "balances", keyType := .hash, valueType := .u64 }
+  { id := "balances", keyType := .hash, valueType := .u128 }
 
-/-- Allowance mapping: hashTwoToOne(owner, spender) -> u64 allowance. -/
+/-- Allowance mapping: hashTwoToOne(owner, spender) -> u128 allowance. -/
 def allowances : MapRef :=
-  { id := "allowances", keyType := .hash, valueType := .u64 }
+  { id := "allowances", keyType := .hash, valueType := .u128 }
 
 /-- NEP-145 storage deposits: account hash -> U64 projected yoctoNEAR balance. -/
 def storageDeposits : MapRef :=
@@ -99,20 +99,23 @@ def nextTransferId : ScalarRef :=
   ProofForge.Contract.Surface.slot "nextTransferId" .u64
 
 def pendingAmounts : MapRef :=
-  { id := "pendingAmounts", keyType := .u64, valueType := .u64 }
+  { id := "pendingAmounts", keyType := .u64, valueType := .u128 }
 
 def pendingActive : MapRef :=
   { id := "pendingActive", keyType := .u64, valueType := .u64 }
 
 def refundFtUnused (sender receiver refund : ProofForge.IR.Expr) : EntryM Unit := do
-  ProofForge.Contract.Surface.whenPositive refund do
+  let body : EntryM Unit := do
     let senderBal := mapRead balances sender
     do mapWrite balances sender (senderBal +! refund);
     let recvBal := mapRead balances receiver
     do mapWrite balances receiver (recvBal -! refund)
+  let (_, entryBuilder) := body.run {}
+  ProofForge.Contract.Builder.ifElse
+    (ProofForge.Contract.Builder.gt refund (u128 0)) entryBuilder.body #[]
 
 def boundedRefund (unused amount receiverBalance : ProofForge.IR.Expr) : EntryM ProofForge.IR.Expr := do
-  ProofForge.Contract.Builder.letMutBind "refund" .u64 unused
+  ProofForge.Contract.Builder.letMutBind "refund" .u128 unused
   ProofForge.Contract.Builder.ifElse
     (ProofForge.Contract.Builder.lt amount (.local "refund"))
     #[.assign (.local "refund") amount]
@@ -124,10 +127,10 @@ def boundedRefund (unused amount receiverBalance : ProofForge.IR.Expr) : EntryM 
   pure (.local "refund")
 
 def callbackUnused (amount : ProofForge.IR.Expr) : EntryM ProofForge.IR.Expr := do
-  ProofForge.Contract.Builder.letMutBind "unused" .u64 amount
+  ProofForge.Contract.Builder.letMutBind "unused" .u128 amount
   ProofForge.Contract.Builder.ifElse
     (ProofForge.Contract.Builder.eq (.nearPromiseResultStatus (u64 0)) (u64 1))
-    #[.assign (.local "unused") (.nearPromiseResultU64 (u64 0))]
+    #[.assign (.local "unused") (.nearPromiseResultU128 (u64 0))]
     #[]
   pure (.local "unused")
 
@@ -158,10 +161,10 @@ contract_mixin NearFungibleTokenMixin do
   event FApproval
   event StorageDeposit
 
-  query ft_total_supply returns(.u64) do
+  query ft_total_supply returns(.u128) do
     return totalSupply;
 
-  query ft_balance_of (account_id : .hash) returns(.u64) do
+  query ft_balance_of (account_id : .hash) returns(.u128) do
     return mapRead balances account_id;
 
   query ft_metadata returns(.u64) do
@@ -198,50 +201,50 @@ contract_mixin NearFungibleTokenMixin do
       (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";
     do mapWrite storageDeposits account_id (previous -! amount);
 
-  entry ft_transfer (receiver_id : .hash, amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
+  entry ft_transfer (receiver_id : .hash, amount : .u128) do
+    do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
     let sender : .hash := callerHash;
-    let srcBal : .u64 := mapRead balances sender;
+    let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
     do mapWrite balances sender (srcBal -! amount);
-    let dstBal : .u64 := mapRead balances receiver_id;
+    let dstBal : .u128 := mapRead balances receiver_id;
     do mapWrite balances receiver_id (dstBal +! amount);
     emit FTransfer indexed #[fieldAsName "from" sender, fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
 
-  entry ft_mint (receiver_id : .hash, amount : .u64) do
+  entry ft_mint (receiver_id : .hash, amount : .u128) do
     do ProofForge.Contract.Surface.requireEq callerHash
       (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
-    let srcBal : .u64 := mapRead balances receiver_id;
+    let srcBal : .u128 := mapRead balances receiver_id;
     do mapWrite balances receiver_id (srcBal +! amount);
-    let ts : .u64 := totalSupply;
+    let ts : .u128 := totalSupply;
     totalSupply := ts +! amount;
     emit FMint indexed #[fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
 
-  entry ft_burn (amount : .u64) do
+  entry ft_burn (amount : .u128) do
     let who : .hash := callerHash;
-    let bal : .u64 := mapRead balances who;
+    let bal : .u128 := mapRead balances who;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref bal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
     do mapWrite balances who (bal -! amount);
-    let ts : .u64 := totalSupply;
+    let ts : .u128 := totalSupply;
     totalSupply := ts -! amount;
     emit FBurn indexed #[fieldAsName "from" who] data #[fieldAsName "amount" amount];
 
-  entry ft_approve (spender_id : .hash, amount : .u64) do
+  entry ft_approve (spender_id : .hash, amount : .u128) do
     let ownerAcct : .hash := callerHash;
     let allowanceKey : .hash := ProofForge.IR.Expr.hashTwoToOne (expr ownerAcct) (expr spender_id);
     do mapWrite allowances allowanceKey amount;
     emit FApproval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
 
-  entry ft_transfer_call (receiver_id : .hash, receiver_idx : .u32, amount : .u64) returns(.u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
+  entry ft_transfer_call (receiver_id : .hash, receiver_idx : .u32, amount : .u128) returns(.u64) do
+    do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
     let sender : .hash := callerHash;
-    let srcBal : .u64 := mapRead balances sender;
+    let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
     do mapWrite balances sender (srcBal -! amount);
-    let dstBal : .u64 := mapRead balances receiver_id;
+    let dstBal : .u128 := mapRead balances receiver_id;
     do mapWrite balances receiver_id (dstBal +! amount);
     emit FTransfer indexed #[fieldAsName "from" sender, fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
     let transferId : .u64 := nextTransferId;
@@ -260,17 +263,17 @@ contract_mixin NearFungibleTokenMixin do
       #[ProofForge.Contract.Surface.ref transferId, ProofForge.Contract.Surface.ref sender,
         ProofForge.Contract.Surface.ref receiver_id] (u64 0);
 
-  entry ft_resolve_transfer (transfer_id : .u64, sender : .hash, receiver : .hash) returns(.u64) do
+  entry ft_resolve_transfer (transfer_id : .u64, sender : .hash, receiver : .hash) returns(.u128) do
     do ProofForge.Contract.Surface.requireEq caller contractId "callback must be private";
     do ProofForge.Contract.Surface.requireEq .nearPromiseResultsCount (u64 1)
       "callback requires exactly one promise result";
     let active : .u64 := mapRead pendingActive transfer_id;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref active) (u64 1)
       "pending transfer missing";
-    let amount : .u64 := mapRead pendingAmounts transfer_id;
+    let amount : .u128 := mapRead pendingAmounts transfer_id;
     do mapWrite pendingActive transfer_id (u64 0);
     do discard <| callbackUnused (expr amount);
-    let receiverBalance : .u64 := mapRead balances receiver;
+    let receiverBalance : .u128 := mapRead balances receiver;
     do discard <| boundedRefund (.local "unused") (expr amount) (expr receiverBalance);
     do refundFtUnused (expr sender) (expr receiver) (.local "refund");
     return amount -! ProofForge.IR.Expr.local "refund";
@@ -281,7 +284,7 @@ contract_source NearFungibleToken do
     do ProofForge.Contract.Surface.requireZero initialized "already initialized";
     initialized := u64 1;
     mintAuthority := callerHash;
-    totalSupply := u64 0;
+    totalSupply := u128 0;
     tokenDecimals := u64 18;
     tokenName := u64 0;
     tokenSymbol := u64 0;

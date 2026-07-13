@@ -1416,3 +1416,72 @@ Rules:
   Nitro deployment evidence remains in W5.
 - Documentation: closed the W1 acceptance items in the Stylus completion plan,
   advanced the integration audit to W2, and updated the agent checkpoint.
+
+## 2026-07-13 - Phase 2: NearFungibleToken u64→u128 conversion (canonical path)
+
+- Status: `done (verified on real NEAR VM)`
+- Result. Converted the `NearFungibleToken` amounts from U64 to U128
+  end-to-end through the CANONICAL `NearModulePlan` lowering (the path
+  `contract_source` / Surface v2 lowers through, including the FT):
+  - Stdlib (`Stdlib/NearFungibleToken.lean`): `totalSupply` scalar,
+    `balances` / `allowances` (`Map<hash, u128>`) and `pendingAmounts`
+    value (`Map<u64, u128>`) now U128; `ft_total_supply` / `ft_balance_of`
+    return U128; `ft_transfer` / `ft_mint` / `ft_burn` / `ft_approve` /
+    `ft_transfer_call` / `ft_resolve_transfer` amount params + balance locals
+    are U128; `ft_resolve_transfer` returns U128; `refundFtUnused` /
+    `boundedRefund` / `callbackUnused` use U128 locals and
+    `nearPromiseResultU128`; the non-zero amount guard is inlined with
+    `u128 0` (the shared `requireNonZero`/`whenPositive` helpers hardcode
+    `u64 0` for the u64 contracts that still use them). `ft_transfer_call`
+    stays `returns(.u64)` (promise handle, not an amount). NEP-145 storage
+    (`storageRequired` / `storageDeposits`) and counters (`nextTransferId`,
+    `pendingActive`) stay U64 — full NEP-145 U128 closure is Phase 6.
+  - Canonical lowering (`NearModulePlan.lean` + `ModulePlan.lean` +
+    `NearModulePlan/Core.lean` + `HostOps.lean`): completed the two remaining
+    canonical U128 surfaces Phase 1C had not yet wired — (a) added
+    `OpPlan.promiseResultU128` + the `near.promise.result_u128@1.0.0`
+    HostOp handler, the `lowerCanonicalNearOp` case (void call + reload
+    lo/hi), and the `usesPromiseResults`/`usesPromiseResultU64` surface flags
+    so `__pf_promise_result_u128` is emitted for `ft_resolve_transfer`;
+    (b) `canonicalCrosscallArgs` now dispatches U128 to
+    `__pf_crosscall_args_putu128` (push lo+hi) instead of truncating to
+    `putu64`; (c) the `.log` event-field lowering uses `canonicalNearGet`
+    (two words) for U128 so `__pf_evt_putu128` receives (lo,hi); (d)
+    `.storeMap` skips the trailing `.drop` for U128 (void write helper).
+  - Event helper fix (`Event.lean`): `evtHelperFuncsForModulePlan` now emits
+    `__pf_fmt_u128` + `__pf_u128_divmod10` alongside `__pf_evt_putu128`
+    (mirroring the crosscall path), so a contract with numeric events but no
+    other U128 surface (e.g. `NearNft`, U64 tokenId events) links cleanly.
+    This was a latent bug — `__pf_evt_putu128` referenced `__pf_fmt_u128`
+    which was only emitted under `usesU128`; it had been masking `just
+    product` / `portable-nft-multi-target` before the documented OwnableHash
+    failure.
+- Evidence. The full `ft_transfer_call` + `ft_resolve_transfer` flow runs on
+  the unmodified upstream NEAR VM with U128 Borsh inputs (16-byte LE amounts):
+  mint 100 → `64000000000000000000000000000000`; transfer 70 → sender
+  `1e000000000000000000000000000000` (30), receiver
+  `46000000000000000000000000000000` (70); resolve (unused=25, refund=25) →
+  `2d000000000000000000000000000000` (45); after refund sender
+  `37000000000000000000000000000000` (55), receiver
+  `2d000000000000000000000000000000` (45). Events encode amounts as decimal
+  (`"amount":100`); crosscall args encode the U128 amount as a decimal
+  (`args=["<hash>",70]`); `--promise-result-u64 N` is zero-extended to U128.
+- Verification (all passed): `just near-vm-conformance-ft` (real NEAR VM,
+  both phases); `just wasm-near-ft-transfer-call` + `wasm-near-ft-transfer-call-e2e`
+  (offline host: happy path, repeat-init, private callback, bounded refund,
+  concurrent out-of-order callbacks); `just near-ft-security`; `just
+  product-token-near` (required `just product` lane); `just near-vm-u128-scalar`,
+  `just near-vm-u128-map`, `just near-u128-fmt-smoke`, `just near-vm-conformance`,
+  `just wasm-near-plan`, `just near-map-hash-alias` (no regression); manifest
+  (`test-manifest`) + equivalence (`test-equivalence`), 116 recipes; `lake
+  build proof-forge` (792 jobs). `just product` / `just check-fast` now fail
+  only on the documented pre-existing `OwnableHash Soroban` failure (recorded
+  2026-07-12, unrelated to this work); the NFT build failure they previously
+  hit first is fixed.
+- Note (deferred). The `testkit/compare/near/fungible-token` reference crate
+  still models U64 amounts and a U64 `decode_le_u64`; it is sandbox-gated
+  (not in baseline) and its real U128/AccountId/JSON differential is the
+  plan's Phase 8 (`compare harness → semantic equivalence`), not Phase 2.
+- Next (interop plan): Phase 3 — AccountId string keys; Phase 4 — JSON
+  codecs (the long pole / highest risk). Orthogonal to the active D-052
+  program (next task C1).

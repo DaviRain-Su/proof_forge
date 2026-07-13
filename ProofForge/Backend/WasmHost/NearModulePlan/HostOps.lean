@@ -23,6 +23,7 @@ inductive NearOpPlan
   | promiseResultsCount
   | promiseResultStatus
   | promiseResultU64
+  | promiseResultU128
   deriving Repr, BEq
 
 instance : Inhabited NearOpPlan := ⟨.promiseCreate⟩
@@ -40,6 +41,8 @@ def promiseResultU64Id : HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
+def promiseResultU128Id : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultU128Sig.id
+
 def promiseResultsCountId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id
 def promiseResultStatusId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id
 
@@ -55,6 +58,11 @@ def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
     targetId := "wasm-near",
     id := promiseResultU64Id,
     lower := #[NearOpPlan.promiseResultU64]
+  }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near",
+    id := promiseResultU128Id,
+    lower := #[NearOpPlan.promiseResultU128]
   }
   let registry ← HostOpRegistry.register registry {
     targetId := "wasm-near", id := promiseResultsCountId,

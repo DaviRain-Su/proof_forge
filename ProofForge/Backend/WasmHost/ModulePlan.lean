@@ -85,6 +85,7 @@ inductive OpPlan where
   | promiseThen (result : ValuePlan) (parent methodIndex : ValuePlan)
       (args : Array ValuePlan) (deposit : ValuePlan)
   | promiseResultU64 (result index : ValuePlan)
+  | promiseResultU128 (result index : ValuePlan)
   | promiseResultsCount (result : ValuePlan)
   | promiseResultStatus (result index : ValuePlan)
   deriving Repr, BEq, Inhabited

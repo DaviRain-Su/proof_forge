@@ -213,10 +213,12 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesPromiseResults := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .hostCall call => call.id == HostOps.promiseResultU64Id ||
+            call.id == HostOps.promiseResultU128Id ||
             call.id == HostOps.promiseResultsCountId || call.id == HostOps.promiseResultStatusId | _ => false
     usesPromiseResultU64 := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .hostCall call => call.id == HostOps.promiseResultU64Id | _ => false
+        | .hostCall call => call.id == HostOps.promiseResultU64Id ||
+            call.id == HostOps.promiseResultU128Id | _ => false
     usesPromiseReturn := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .crosscall { mode := .invoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
@@ -433,6 +435,12 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         unless call.args.size == 1 do
           throw { message := "near.promise.result_u64@1.0.0 requires one argument" }
         return .promiseResultU64 (<- nearResult instr) (nearValue call.args[0]!)
+      else if call.id == HostOps.promiseResultU128Id then
+        unless handler.lower == #[HostOps.NearOpPlan.promiseResultU128] do
+          throw { message := s!"invalid HostOp plan for {call.id.render}" }
+        unless call.args.size == 1 do
+          throw { message := "near.promise.result_u128@1.0.0 requires one argument" }
+        return .promiseResultU128 (<- nearResult instr) (nearValue call.args[0]!)
       else if call.id == HostOps.promiseResultsCountId then
         unless handler.lower == #[HostOps.NearOpPlan.promiseResultsCount] && call.args.isEmpty do
           throw { message := "near.promise.results_count@1.0.0 requires no arguments" }

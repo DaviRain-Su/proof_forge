@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "ad867cb928d3cb26cbead1f0b942f363ef51f3b1bb69a4796796f74d63ed86d7",
+    "sha256": "4e1fccca8eb83300c459a6d1375fe9794aef9534c287c5310b84cff6b8e50d28",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced for fast, parallel, serial, Arbitrum Stylus, NEP-141 FT real-VM, and U128 scalar real-VM conformance gates"
+    "note": "synced for fast, parallel, serial, Arbitrum Stylus, NEP-141 FT real-VM (U128 amounts, Phase 2), and U128 scalar real-VM conformance gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

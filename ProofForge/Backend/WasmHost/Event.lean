@@ -146,7 +146,9 @@ def evtHelperFuncsForModulePlan (plan : ModulePlan)
   (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
     (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
     (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
-    (if plan.usesEventNumeric then #[evtPutu128Func] else #[]) ++
+    -- evt_putu128 references __pf_fmt_u128 / __pf_u128_divmod10; emit them
+    -- alongside so the event helper set is self-contained (mirrors crosscall).
+    (if plan.usesEventNumeric then #[evtPutu128Func, u128Divmod10Func, u128FmtFunc] else #[]) ++
     (if plan.usesEventBool then #[evtPutboolFunc] else #[]) ++
     (if plan.usesEventHash then #[evtPutHashFunc] else #[]) ++
     (if plan.usesEventApi then #[evtLogFunc bridge] else #[])

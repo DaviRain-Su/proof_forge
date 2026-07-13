@@ -64,7 +64,7 @@ echo "=== phase 1: host-ABI link + execute (init, ft_total_supply) ==="
 out="$("${RUNNER[@]}" "$WASM" init ft_total_supply)"
 echo "$out"
 grep -qiE 'ABORTED|failed|LinkError' <<<"$out" && fail "phase 1 link/execute failed on real NEAR VM"
-grep -qF 'call ft_total_supply: return_hex=0000000000000000' <<<"$out" \
+grep -qF 'call ft_total_supply: return_hex=00000000000000000000000000000000' <<<"$out" \
   || fail "phase 1 ft_total_supply != 0 (fresh storage)"
 grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 1 did not report 2 successful methods"
@@ -79,11 +79,11 @@ receiver = hashlib.sha256(b"demo.receiver.testnet").digest()
 spender = hashlib.sha256(b"spender.testnet").digest()
 inputs = [
     b"",
-    sender + struct.pack("<Q", 100),
-    spender + struct.pack("<Q", 13),
+    sender + struct.pack("<QQ", 100, 0),
+    spender + struct.pack("<QQ", 13, 0),
     sender,
     receiver,
-    receiver + struct.pack("<I", 0) + struct.pack("<Q", 70),
+    receiver + struct.pack("<I", 0) + struct.pack("<QQ", 70, 0),
     sender,
     receiver,
     struct.pack("<Q", 0) + sender + receiver,
@@ -105,7 +105,7 @@ grep -qF 'call ft_transfer_call: return=receipt(' <<<"$out" \
 # ft_resolve_transfer reads the injected promise_result via the REAL host
 # functions and computes the same refund (u64 45 = LE 2d00000000000000) as the
 # offline host.
-grep -qF 'call ft_resolve_transfer: return_hex=2d00000000000000' <<<"$out" \
+grep -qF 'call ft_resolve_transfer: return_hex=2d000000000000000000000000000000' <<<"$out" \
   || fail "phase 2 ft_resolve_transfer refund != 45 (callback dispatch mismatch)"
 grep -qF '11 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 2 did not report 11 successful methods"

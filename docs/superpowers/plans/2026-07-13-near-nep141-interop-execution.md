@@ -88,7 +88,7 @@ input param echoed back — all on the real VM.
 **Acceptance:** a u128 value can be let-bound, asserted, stored in a map, read
 from a call argument, and returned — coherently — on the unmodified NEAR VM.
 
-## Phase 2 — NearFungibleToken U128 conversion  (BLOCKED on Phase 1C)
+## Phase 2 — NearFungibleToken U128 conversion  (DONE 2026-07-13)
 
 **2026-07-13 critical discovery:** `contract_source` (Surface v2 — the FT's
 authoring surface) lowers via the **canonical `NearModulePlan` path**, NOT the
@@ -112,10 +112,16 @@ Phase 1.1–1.4 but for the canonical path. **Gate:** a canonical-path u128 prob
 on the real VM (e.g. a `proof-forge build`-emitted module asserting u128
 returns), or extend `near-vm-u128-*` to exercise the canonical lowering.
 
-Once Phase 1C lands, the FT u64→u128 stdlib conversion + the cascading
-Borsh-input test updates (`WasmNearFtTransferCall`, `near-ft-security`,
-`ft-transfer-call-smoke.sh`, `near-vm-conformance-ft`, compare harness — amount
-8→16 bytes) becomes mechanical.
+DONE 2026-07-13: the FT stdlib is converted to U128 (totalSupply, balances,
+allowances, pendingAmounts, all amount params/locals/returns, the refund
+helpers via `nearPromiseResultU128`); the canonical `NearModulePlan` lowering
+gained the two remaining U128 surfaces (promiseResultU128 op + u128 crosscall
+args + u128 event fields + void u128 map write); and the Borsh-input/return
+cascade landed in `WasmNearFtTransferCall`, `near-ft-security`, the two offline
+smoke scripts, and `near-vm-conformance-ft` (verified on the real NEAR VM).
+The `Event.lean` helper set is now self-contained for u128 (`__pf_fmt_u128`/
+`__pf_u128_divmod10` emitted with `__pf_evt_putu128`). The compare-harness
+reference crate (U64 + sandbox-gated) is deferred to Phase 8.
 
 ## Phase 3 — AccountId string keys  (effort M; depends 1)
 

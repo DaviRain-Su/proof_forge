@@ -432,6 +432,10 @@ private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofFor
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPutboolName]
     else if arg.typeName.endsWith "hash" then
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPuthashName]
+    else if canonicalNearType arg.typeName == .u128 then
+      -- u128 crosscall arg: two-word (lo, hi) → decimal string via putu128.
+      insns := insns ++ #[.localGet s!"v{arg.id}", .localGet (Types.u128HiName s!"v{arg.id}"),
+        .call Crosscall.crosscallArgsPutu128Name]
     else
       insns := insns ++ #[.localGet s!"v{arg.id}"]
       if canonicalNearType arg.typeName == .u32 then
@@ -498,10 +502,12 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         id := mapPlan.id, keyType := mapPlan.keyType, valueType := mapPlan.valueType,
         prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
       let writeCall ← Map.mapWriteCall mapInfo
-      let (instructions, _) ← Map.mapWriteValueInsns mapInfo mapInfo.id
+      let (instructions, outType) ← Map.mapWriteValueInsns mapInfo mapInfo.id
         (canonicalNearGet key.id key.typeName)
         (canonicalNearGet value.id value.typeName) writeCall mapInfo.valueType
-      return instructions ++ #[.drop]
+      -- A U128 map write yields Unit (the void write helper cannot return the
+      -- prior value as two words); skip the drop for Unit, mirror the legacy path.
+      return instructions ++ (if outType == .unit then #[] else #[.drop])
   | .arithmetic result op checked lhs rhs =>
       let ty := canonicalNearType result.typeName
       if ty == .u128 then
@@ -629,7 +635,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         let key <- match eventStrings.find? (fun entry => entry.str == Layout.eventFieldPoolString field) with
           | some entry => pure entry
           | none => Diagnostics.err s!"canonical NEAR event field `{field}` is missing"
-        insns := insns ++ (<- Event.evtFieldInsns field key #[.localGet s!"v{value.id}"]
+        insns := insns ++ (<- Event.evtFieldInsns field key (canonicalNearGet value.id value.typeName)
           (canonicalNearType value.typeName))
       return insns ++ Event.evtFooterInsns
   | .promiseCreate result accountId methodName args deposit gas => do
@@ -708,6 +714,16 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       else
         return canonicalNearI64 index ++ #[.call Promise.promiseResultU64Name,
           .localSet s!"v{result.id}"]
+  | .promiseResultU128 result index =>
+      if plan.hostBridge.bridge == .soroban then
+        Diagnostics.err "promiseResultU128 is not supported on Soroban (NEAR-only)"
+      else
+        -- promiseResultU128 is void (stages PROMISE_RESULT_BUF); reload lo/hi
+        -- and set the two-word u128 result local (mirrors the legacy path).
+        return canonicalNearI64 index ++ #[.call Promise.promiseResultU128Name,
+          .i32Const Memory.PROMISE_RESULT_BUF, .load "i64.load" 0,
+          .i32Const (Memory.PROMISE_RESULT_BUF + 8), .load "i64.load" 0]
+          ++ canonicalNearSet result.id result.typeName
   | .promiseResultsCount result =>
       if plan.hostBridge.bridge == .soroban then
         Diagnostics.err "promiseResultsCount is not supported on Soroban (NEAR-only)"
@@ -756,7 +772,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
         .context result _ |
         .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |
-        .promiseThen result .. | .promiseResultU64 result .. |
+        .promiseThen result .. | .promiseResultU64 result .. | .promiseResultU128 result .. |
         .promiseResultsCount result | .promiseResultStatus result .. => #[result]
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let authPrologue :=
