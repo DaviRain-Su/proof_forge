@@ -74,6 +74,20 @@ The active NEAR execution order lives in the
 Do not reopen completed U128, AccountId-string, `storage_remove`, gas-context,
 or JSON balance/transfer slices from stale gap prose.
 
+The immediate architecture prerequisite is the
+[IR Target Extension Boundary plan](docs/superpowers/plans/2026-07-14-ir-target-extension-boundary.md).
+Complete IR-B0 through IR-B3 before N-T4 adds more NEAR behavior to shared IR.
+
+| ID | State | Task |
+|---|---|---|
+| IR-B0 | done (verified 2026-07-14) | Audit all shared-layer target leakage and freeze the boundary |
+| IR-B1 | in_progress | Open extension identities and split target catalogs |
+| IR-B2 | pending | Remove NEAR promise modes and semantics from Canonical Core |
+| IR-B3 | pending | Remove NEAR constructors and fields from legacy shared IR |
+| IR-B4 | pending | Move EVM protocol and ABI operations out of shared IR |
+| IR-B5 | pending | Move target environment/interface/materialization fields |
+| IR-B6 | pending | Empty the compatibility allowlist and enforce the boundary |
+
 | ID | State | Task | Authoritative section |
 |---|---|---|---|
 | N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |

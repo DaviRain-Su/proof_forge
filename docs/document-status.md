@@ -12,9 +12,11 @@ generated artifacts remain the implementation truth.
 |---|---|
 | Settled decisions | [decisions.md](decisions.md) |
 | Current compiler architecture | [Canonical Core design](superpowers/specs/2026-07-11-core-ir-target-plan-design.md) |
+| IR versus target-extension ownership | [IR Target Extension Boundary design](superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) |
 | Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
 | Incremental legacy replacement policy | [Legacy Replacement design](superpowers/specs/2026-07-12-incremental-legacy-replacement-design.md) |
 | Current execution order | [NEAR NEP-141 / NEP-145 interop plan](superpowers/plans/2026-07-13-near-nep141-interop-execution.md) |
+| Active architecture prerequisite | [IR Target Extension Boundary plan](superpowers/plans/2026-07-14-ir-target-extension-boundary.md) |
 | Cross-program portable-intent order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
 | Companion legacy migration order | [Legacy Replacement implementation plan](superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Legacy migration ledger | [legacy-replacement-ledger.md](legacy-replacement-ledger.md) |

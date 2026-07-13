@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "50a800e88cf2012729dd41fbf65a387646bfb4c7eba606bc89b19bf862e10f4a",
+    "sha256": "1a63facfbdbc7f1df687b4de51eefa1a091fd5bf12fb9cf86933ebfdd9527e3c",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for D-053 Stylus classification"
+    "note": "manually synced through D-054 IR target-extension boundary"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",

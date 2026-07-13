@@ -2354,3 +2354,20 @@ Rules:
   CLI Wasm emission, `near-vm-nep145`, `near-vm-json-transfer`, and
   `near-vm-conformance-ft`.
 - Next: NEP-148 metadata and NEP-297 event envelopes.
+
+## 2026-07-14 - IR-B0: target-extension boundary audit and freeze
+
+- Status: `done (verified 2026-07-14)`.
+- Audited the legacy shared IR, Canonical Core, interface, and materialization
+  records after NEP-145 exposed the cost of adding chain-specific constructors.
+- Confirmed that the debt is broader than NEAR: EVM EIP/ERC/ABI operations,
+  chain-only context fields, Solidity error layout, fallback/receive dispatch,
+  and target string/policy fields also cross the intended shared boundary.
+- Accepted D-054 and added the IR/target-extension boundary design plus the
+  IR-B0 through IR-B6 migration plan. N-T4 is paused until the NEAR shared-layer
+  cleanup reaches IR-B3.
+- Added `just ir-target-boundary`. Its counted baseline permits removals but
+  rejects new or increased target/protocol identifiers in shared IR/Core files.
+- Verification: `just ir-target-boundary`, `just docs-check`, and
+  `git diff --check`.
+- Next: IR-B1, open extension identities and target-owned catalog composition.

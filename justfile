@@ -511,6 +511,11 @@ ir-counter-semantics-smoke:
 ir-portability-smoke:
     lake build ProofForge.IR.Portability ProofForge.IR.NearHost ProofForge.Target.StorageBinding ProofForge.IR.Examples.Counter ProofForge.IR.Examples.NearCrosscallProbe ProofForge.Backend.Evm.Validate ProofForge.Backend.Move.Sui ProofForge.Backend.Move.Aptos
     lake env lean --run Tests/IRPortability.lean
+    ./scripts/ir/check-target-boundary.sh
+
+# Freeze target/protocol leakage in shared IR while IR-B1..IR-B6 remove it.
+ir-target-boundary:
+    ./scripts/ir/check-target-boundary.sh
 
 # FV-9.0 M6: exercise the shared total fueled IR interpreter (the ∀-module theorem's quantification target).
 semantics-fuel-smoke:
