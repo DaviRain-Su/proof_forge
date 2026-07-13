@@ -97,6 +97,10 @@ private def rejectNonZeroPrefix (ptr width : Nat) (message : String) : Array Ins
   return check ++ #[.if_ (.mk <| writeBytes 32 message.toUTF8.data ++ #[.i32Const 32,
     .i32Const message.toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]
 
+private def rejectIf (condition : Array Insn) (message : String) : Array Insn :=
+  condition ++ #[.if_ (.mk <| writeBytes 32 message.toUTF8.data ++ #[.i32Const 32,
+    .i32Const message.toUTF8.data.size, .call "write_result", .i32Const 1, .return_]) .empty]
+
 private def copyPointerBytes (target : Nat) (source : String) (width : Nat) : Array Insn := Id.run do
   let mut insns := #[]
   for index in [0:width] do
@@ -218,10 +222,16 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
       match op with
       | .literal result .bytes _ | .literal result .string _ =>
           if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
+      | .call result type _ =>
+          if type.isDynamic && !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | _ => pure ()
   let values := values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
   let hasCall := function.blocks.any fun block => block.operations.any fun op =>
     match op with | .call .. => true | _ => false
+  let hasDynamicCall := function.blocks.any fun block => block.operations.any fun op =>
+    match op with | .call _ type _ => type.isDynamic | _ => false
+  let values := if hasDynamicCall then values ++ #[{ name := "callPaddingIndex", type := .i32 },
+    { name := "callPaddingEnd", type := .i32 }] else values
   return if hasCall then values ++ #[{ name := "callStatus", type := .i32 },
     { name := "callReturnLen", type := .i32 }] else values
 
@@ -466,24 +476,57 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           pure <| cacheInsns ++ #[.localGet (valueLocal call.target), .plain "i32.wrap_i64",
             .i32Const callDataPtr, .i32Const calldataLen] ++ gas ++ #[.i32Const callReturnLenPtr,
             .call "delegate_call_contract", .localSet "callStatus"]
+      let returnBound := if call.returnType.isDynamic then
+        match call.returnMaxLength? with
+        | some maximum => 64 + ((maximum + 31) / 32) * 32
+        | none => callReturnMaxBytes
+      else callReturnMaxBytes
       let checkedInsns := insns ++ callInsns ++ #[.i32Const callReturnLenPtr, .load "i32.load" 0,
-        .localSet "callReturnLen", .localGet "callReturnLen", .i32Const callReturnMaxBytes,
+        .localSet "callReturnLen", .localGet "callReturnLen", .i32Const returnBound,
         .plain "i32.gt_u", .if_ (.mk <| writeBytes 32 "stylus: return data exceeds limit".toUTF8.data ++ #[
           .i32Const 32, .i32Const "stylus: return data exceeds limit".toUTF8.data.size,
           .call "write_result", .i32Const 1, .return_]) .empty]
-      let copyReturn := #[.i32Const callReturnPtr, .i32Const 0, .localGet "callReturnLen",
+      let copyReturn := #[.i32Const callReturnPtr, .i32Const 0, .i32Const returnBound,
+        .plain "memory.fill", .i32Const callReturnPtr, .i32Const 0, .localGet "callReturnLen",
         .call "read_return_data", .plain "drop"]
       let statusInsns := #[.localGet "callStatus", .if_ (.mk <| copyReturn ++ #[
         .i32Const callReturnPtr, .localGet "callReturnLen", .call "write_result",
         .i32Const 1, .return_]) .empty]
-      if call.returnType != .uint 64 then
-        throw <| diagnostic plan function block (opName op) "crosscall.return"
-          s!"unsupported return type {repr call.returnType}"
-      pure <| checkedInsns ++ statusInsns ++ #[.localGet "callReturnLen", .i32Const 32, .plain "i32.ne",
-        .if_ (.mk <| writeBytes 32 "stylus: malformed return data".toUTF8.data ++ #[
-          .i32Const 32, .i32Const "stylus: malformed return data".toUTF8.data.size,
-          .call "write_result", .i32Const 1, .return_]) .empty] ++ copyReturn ++
-        decodeUnsigned (callReturnPtr + 24) 8 (valueLocal result)
+      match call.returnType with
+      | .uint 64 =>
+          pure <| checkedInsns ++ statusInsns ++ rejectIf #[.localGet "callReturnLen",
+            .i32Const 32, .plain "i32.ne"] "stylus: malformed return data" ++ copyReturn ++
+            decodeUnsigned (callReturnPtr + 24) 8 (valueLocal result)
+      | .bytes | .string => do
+          let some maximum := call.returnMaxLength?
+            | throw <| diagnostic plan function block (opName op) "crosscall.return"
+                "dynamic return has no maximum length"
+          let malformed := "stylus: malformed dynamic return data"
+          let exceeds := "stylus: dynamic return exceeds plan limit"
+          let paddingCheck := #[
+            .localGet (dynamicLengthLocal result), .plain "i32.wrap_i64", .localSet "callPaddingIndex",
+            .localGet "callPaddingIndex", .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+            .plain "i32.and", .localSet "callPaddingEnd",
+            .block_ (.mk #[.loop_ (.mk <|
+              #[.localGet "callPaddingIndex", .localGet "callPaddingEnd", .plain "i32.ge_u", .brIf 1,
+                .i32Const (callReturnPtr + 64), .localGet "callPaddingIndex", .plain "i32.add",
+                .load "i32.load8_u" 0] ++ rejectIf #[] malformed ++ #[
+                .localGet "callPaddingIndex", .i32Const 1, .plain "i32.add",
+                .localSet "callPaddingIndex", .br 0])])]
+          pure <| checkedInsns ++ statusInsns ++
+            rejectIf #[.localGet "callReturnLen", .i32Const 64, .plain "i32.lt_u"] malformed ++
+            copyReturn ++ rejectNonZeroPrefix callReturnPtr 31 malformed ++
+            rejectIf #[.i32Const (callReturnPtr + 31), .load "i32.load8_u" 0,
+              .i32Const 32, .plain "i32.ne"] malformed ++
+            rejectNonZeroPrefix (callReturnPtr + 32) 24 malformed ++
+            decodeUnsigned (callReturnPtr + 56) 8 (dynamicLengthLocal result) ++
+            rejectIf #[.localGet (dynamicLengthLocal result), .i64Const maximum,
+              .plain "i64.gt_u"] exceeds ++
+            rejectIf #[.localGet (dynamicLengthLocal result), .plain "i32.wrap_i64",
+              .i32Const 31, .plain "i32.add", .i32Const 4294967264, .plain "i32.and",
+              .i32Const 64, .plain "i32.add", .localGet "callReturnLen", .plain "i32.ne"] malformed ++
+            paddingCheck ++ #[.i64Const (callReturnPtr + 64), .localSet (valueLocal result)]
+      | _ => throw <| diagnostic plan function block (opName op) "crosscall.return" (s!"unsupported return type {repr call.returnType}")
 
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do
@@ -500,8 +543,7 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
       | .bytes | .string => do
-          let maximum := (function.params.find? (fun param => param.valueId == value)).bind
-            (fun param => param.dynamicMaxLength?) |>.getD dynamicLiteralMaxBytes
+          let maximum := 4096
           pure <| #[.i32Const 32, .i32Const 0, .i32Const (64 + maximum), .plain "memory.fill"] ++
             writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
               .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",

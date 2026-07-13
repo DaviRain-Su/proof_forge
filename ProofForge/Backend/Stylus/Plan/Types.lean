@@ -209,6 +209,7 @@ structure StylusCallPlan where
   arguments : Array StylusValueId := #[]
   paramTypes : Array StylusAbiType := #[]
   returnType : StylusAbiType
+  returnMaxLength? : Option Nat := none
   value? : Option StylusValueId := none
   valueType? : Option StylusAbiType := none
   gas? : Option StylusValueId := none

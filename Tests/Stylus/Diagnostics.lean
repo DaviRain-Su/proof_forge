@@ -68,6 +68,26 @@ def main : IO Unit := do
     calls := #[{ valueCall with cachePolicy := .doNothing }]
   }
   requireErrorContains "requires clear cache policy" (validatePlan unsafeCallCache)
+  let dynamicCall := { valueCall with
+    returnType := .bytes
+    value? := none
+    valueType? := none
+  }
+  let missingReturnBound := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[dynamicCall]
+  }
+  requireErrorContains "dynamic return has no maximum length" (validatePlan missingReturnBound)
+  let excessiveReturnBound := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[{ dynamicCall with returnMaxLength? := some 4097 }]
+  }
+  requireErrorContains "invalid dynamic return maximum" (validatePlan excessiveReturnBound)
+  let staticReturnBound := { invalidTypePlan with
+    abi := { methods := #[], errors := #[] }
+    calls := #[{ valueCall with returnMaxLength? := some 64 }]
+  }
+  requireErrorContains "static return has a dynamic maximum" (validatePlan staticReturnBound)
 
   let incomplete := { invalidTypePlan with
     abi := { methods := #[], errors := #[] }

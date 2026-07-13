@@ -1031,6 +1031,23 @@ Rules:
   must decode the callee's Solidity ABI offset/length/padded tail rather than
   treating raw return bytes as a dynamic value.
 
+## 2026-07-13 - Stylus bounded dynamic remote-call returns
+
+- Status: `direct bytes/string ABI returns done; Rust/Nitro parity pending`
+- Added plan-owned `returnMaxLength?` to call envelopes. Strict validation
+  requires a 1..4096 maximum for dynamic returns, rejects a maximum on static
+  returns, and canonical Core assigns 4096 to dynamic crosscall results.
+- Direct Wasm now decodes callee bytes/string results as Solidity ABI rather
+  than raw bytes: the envelope must have at least two words, offset exactly 32,
+  a length word with a zero high prefix, payload within the plan maximum, exact
+  `64 + ceil32(length)` total size, and all padding bytes zero.
+- The decoded payload becomes the normal dynamic SSA pointer/length pair and is
+  re-encoded through the existing caller ABI return path. Runtime vectors cover
+  empty bytes, `hello`, bad offset, truncated padding, nonzero padding, and a
+  65-byte payload rejected by a 64-byte plan limit.
+- Return scratch is cleared before copying, so a shorter later response cannot
+  observe or be rejected because of bytes left by an earlier call.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`

@@ -322,6 +322,7 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
             let methodName <- stringLiteralFor function spec.method.id
             let paramTypes <- spec.paramTypes.mapM coreTypeToAbi
+            let returnType <- coreTypeToAbi spec.returnType
             let valueType? <- match spec.value with
               | some value => pure (some (← coreTypeToAbi value.type))
               | none => pure none
@@ -332,7 +333,8 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               method := spec.method.id.value,
               arguments := arguments.map fun value => value.id.value,
               paramTypes,
-              returnType := ← coreTypeToAbi spec.returnType,
+              returnType,
+              returnMaxLength? := if returnType.isDynamic then some 4096 else none,
               value? := spec.value.map fun value => value.id.value,
               valueType?,
               gas? := spec.gas.map fun value => value.id.value,

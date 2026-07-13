@@ -92,6 +92,14 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
       fail s!"Stylus call `{call.id}` argument/type arity mismatch"
     for type in call.paramTypes do validateAbiType type
     validateAbiType call.returnType
+    if call.returnType.isDynamic then
+      match call.returnMaxLength? with
+      | some maximum =>
+          if maximum == 0 || maximum > 4096 then
+            fail s!"Stylus call `{call.id}` has invalid dynamic return maximum {maximum}"
+      | none => fail s!"Stylus call `{call.id}` dynamic return has no maximum length"
+    else if call.returnMaxLength?.isSome then
+      fail s!"Stylus call `{call.id}` static return has a dynamic maximum length"
     if call.value?.isSome != call.valueType?.isSome then
       fail s!"Stylus call `{call.id}` value id/type mismatch"
     if let some type := call.valueType? then

@@ -129,7 +129,7 @@
 
 - [ ] Pin success, empty/dynamic result, callee revert, truncation, value call, static write rejection, delegate context, gas bound, and reentrant callback traces.
 - [x] Preserve canonical call/static/delegate envelopes in `StylusPlan`, including target, bounded method string, typed arguments, optional value/gas, and return type.
-- [x] Lower official call/static/delegate and `read_return_data` signatures for static arguments, u64 results, and call values of uint64/128/256; propagate callee revert bytes.
+- [x] Lower official call/static/delegate and `read_return_data` signatures for static arguments, u64 and bounded bytes/string results, and call values of uint64/128/256; propagate callee revert bytes.
 - [x] Extend the local runner with deterministic mock callees and overlapping return-data reads for all three call modes.
 - [ ] Lower only official `call_contract`, `static_call_contract`, `delegate_call_contract`, `return_data_len`, and `read_return_data` signatures from the pinned SDK.
 - [x] Encode the pinned SDK pre-call cache policy in `StylusPlan`: static calls flush without invalidation; call/delegate clear after persisting dirty values. Renderers may not invent transitions.

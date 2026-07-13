@@ -44,6 +44,31 @@ empty_return="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.t
 oversized_return="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/remote-call/call.wasm --mock-call "$target=0:$(printf 'aa%.0s' {1..4097})" \
   --calldata ca110001${target_word} --invoke user_entrypoint)"
+abi_offset="$(printf '%064x' 32)"
+abi_empty="${abi_offset}$(printf '%064x' 0)"
+abi_hello="${abi_offset}$(printf '%064x' 5)68656c6c6f$(printf '00%.0s' {1..27})"
+abi_bad_offset="$(printf '%064x' 64)$(printf '%064x' 0)"
+abi_bad_padding="${abi_offset}$(printf '%064x' 5)68656c6c6f"
+abi_nonzero_padding="${abi_offset}$(printf '%064x' 5)68656c6c6f$(printf '00%.0s' {1..26})ff"
+abi_too_long="${abi_offset}$(printf '%064x' 65)$(printf 'aa%.0s' {1..65})$(printf '00%.0s' {1..31})"
+bytes_empty="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_empty" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
+bytes_hello="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_hello" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
+bytes_bad_offset="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_bad_offset" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
+bytes_bad_padding="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_bad_padding" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
+bytes_nonzero_padding="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_nonzero_padding" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
+bytes_too_long="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/remote-call/call.wasm --mock-call "$target=0:$abi_too_long" \
+  --calldata ca110007${target_word} --invoke user_entrypoint)"
 reentrant_success="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/reentrant/reentrant.wasm --mock-reentrant "$target=ca120002" \
   --calldata ca120001${target_word} --invoke user_entrypoint)"
@@ -54,12 +79,12 @@ outer_revert="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.t
   build/stylus/reentrant/reentrant.wasm --mock-reentrant "$target=ca120002" \
   --calldata ca120004${target_word} --invoke user_entrypoint)"
 
-python3 - "$selector" "$args_selector" "$target" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$gas_call" "$empty_return" "$oversized_return" "$reentrant_success" "$reentrant_revert" "$outer_revert" <<'PY'
+python3 - "$selector" "$args_selector" "$target" "$abi_empty" "$abi_hello" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$gas_call" "$empty_return" "$oversized_return" "$bytes_empty" "$bytes_hello" "$bytes_bad_offset" "$bytes_bad_padding" "$bytes_nonzero_padding" "$bytes_too_long" "$reentrant_success" "$reentrant_revert" "$outer_revert" <<'PY'
 import json
 import sys
 
-selector, args_selector, target = sys.argv[1:4]
-success, revert, static, delegate, args, value_call, gas_call, empty_return, oversized_return, reentrant_success, reentrant_revert, outer_revert = map(json.loads, sys.argv[4:16])
+selector, args_selector, target, abi_empty, abi_hello = sys.argv[1:6]
+success, revert, static, delegate, args, value_call, gas_call, empty_return, oversized_return, bytes_empty, bytes_hello, bytes_bad_offset, bytes_bad_padding, bytes_nonzero_padding, bytes_too_long, reentrant_success, reentrant_revert, outer_revert = map(json.loads, sys.argv[6:24])
 def require_pre_call_cache(trace, event, clear):
     index = next(i for i, item in enumerate(trace) if item["event"] == event)
     assert index > 0
@@ -91,6 +116,16 @@ assert empty_return["calls"][0]["status"] == 1
 assert empty_return["result"] == "stylus: malformed return data".encode().hex()
 assert oversized_return["calls"][0]["status"] == 1
 assert oversized_return["result"] == "stylus: return data exceeds limit".encode().hex()
+assert bytes_empty["calls"][0]["status"] == 0 and bytes_empty["result"] == abi_empty
+assert bytes_hello["calls"][0]["status"] == 0 and bytes_hello["result"] == abi_hello
+assert bytes_bad_offset["calls"][0]["status"] == 1
+assert bytes_bad_offset["result"] == "stylus: malformed dynamic return data".encode().hex()
+assert bytes_bad_padding["calls"][0]["status"] == 1
+assert bytes_bad_padding["result"] == "stylus: malformed dynamic return data".encode().hex()
+assert bytes_nonzero_padding["calls"][0]["status"] == 1
+assert bytes_nonzero_padding["result"] == "stylus: malformed dynamic return data".encode().hex()
+assert bytes_too_long["calls"][0]["status"] == 1
+assert bytes_too_long["result"] == "stylus: return data exceeds limit".encode().hex()
 slot_zero = "00" * 32
 word_42 = "00" * 31 + "2a"
 assert reentrant_success["calls"][0]["status"] == 0
