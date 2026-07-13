@@ -1603,3 +1603,22 @@ Rules:
   cargo-stylus 0.10.8, and cast 0.3.0 present, but `ready=false` because Docker,
   the pinned Nitro checkout, and the local RPC are unavailable. No live
   completion checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Checked static aggregate layouts
+
+- Status: `foundation complete; renderer integration pending`
+- Result: extended `Stylus.AbiLayout` with bounded addition/multiplication,
+  recursive fixed-array/nested-tuple static word footprints, and mixed
+  static/dynamic method-head sizing. Added the separate
+  `Stylus.StorageLayout.Aggregate` module for explicitly word-aligned static
+  storage footprints; packing and Solidity short/long dynamic storage remain
+  separate future decisions.
+- Fail-closed vectors: zero-length arrays, empty tuples, dynamic values in
+  static storage, aggregate widths beyond the explicit limit, and nested
+  addition/multiplication exhaustion all reject before renderer work.
+- Verification: `just stylus-aggregate-differential` passes the new layout
+  vectors plus existing bytes/string direct-Wasm execution and generated Rust
+  SDK crate compilation.
+- Remaining: make the direct ABI dispatcher consume plan-owned multi-word
+  fixed-array/tuple layouts, then add nested dynamic tails and storage
+  short/long transitions. No W3 completion checkbox was closed.

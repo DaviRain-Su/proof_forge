@@ -16,6 +16,33 @@ structure DynamicAbiSlice where
 private def fail (message : String) : Except AbiLayoutError α :=
   .error { message }
 
+def checkedAdd (context : String) (limit lhs rhs : Nat) : Except AbiLayoutError Nat := do
+  if lhs > limit || rhs > limit || rhs > limit - lhs then
+    fail s!"{context} exceeds layout limit {limit}: {lhs} + {rhs}"
+  pure (lhs + rhs)
+
+def checkedMul (context : String) (limit lhs rhs : Nat) : Except AbiLayoutError Nat := do
+  if lhs > limit || rhs > limit || (lhs != 0 && rhs > limit / lhs) then
+    fail s!"{context} exceeds layout limit {limit}: {lhs} * {rhs}"
+  pure (lhs * rhs)
+
+partial def staticAbiWords (limit : Nat) : StylusAbiType -> Except AbiLayoutError Nat
+  | .bool | .uint _ | .address | .fixedBytes _ => pure 1
+  | .fixedArray element size => do
+      if size == 0 then fail "static ABI fixed array length must be positive"
+      checkedMul "static ABI fixed array" limit size (← staticAbiWords limit element)
+  | .tuple fields => do
+      if fields.isEmpty then fail "static ABI tuple must contain at least one field"
+      fields.foldlM (fun words field => do
+        checkedAdd "static ABI tuple" limit words (← staticAbiWords limit field)) 0
+  | .bytes | .string | .dynamicArray _ =>
+      fail "dynamic ABI type has no fixed static-word layout"
+
+def abiHeadWords (limit : Nat) (params : Array StylusAbiParamPlan) : Except AbiLayoutError Nat :=
+  params.foldlM (fun words param => do
+    let width ← if param.type.isDynamic then pure 1 else staticAbiWords limit param.type
+    checkedAdd s!"ABI head for `{param.name}`" limit words width) 0
+
 def roundUpWord (length : Nat) : Nat :=
   ((length + 31) / 32) * 32
 

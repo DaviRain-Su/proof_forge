@@ -64,6 +64,13 @@ tails, dynamic/short-long storage, and allocation/resource exhaustion do not.
 Layout arithmetic must move into dedicated checked plan modules before this can
 be called a general-contract fragment.
 
+The first W3 foundation now computes word-aligned fixed-array and nested-tuple
+ABI/storage footprints in separate Lean modules. Explicit layout limits guard
+every addition and multiplication; zero-length aggregates, dynamic types in a
+static storage calculation, and exhaustion fail with named diagnostics. The
+direct dispatcher does not yet consume multi-word composite carriers, so this
+is layout evidence rather than renderer completion.
+
 ### W4 - Remote-Call Parity Closure (medium)
 
 Direct/local execution is substantial. Remaining evidence is static-write

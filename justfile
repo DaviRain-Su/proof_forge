@@ -175,7 +175,7 @@ stylus-token-evm-interop:
     scripts/stylus/token-evm-interop.sh
 
 stylus-aggregate-differential:
-    lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.StorageLayout.Aggregate ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/aggregate-differential.sh
 
 stylus-remote-call-differential:

@@ -2,6 +2,7 @@ import ProofForge.Backend.Stylus.AbiLayout
 import ProofForge.Backend.Stylus.DirectWasm.Module
 import ProofForge.Backend.Stylus.Package
 import ProofForge.Backend.Stylus.RustSdk.Render
+import ProofForge.Backend.Stylus.StorageLayout.Aggregate
 import ProofForge.Compiler.Wasm.Printer
 
 open ProofForge.Backend.Stylus
@@ -9,10 +10,36 @@ open ProofForge.Backend.Stylus
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
+def requireWords (result : Except AbiLayoutError Nat) (expected : Nat) (message : String) : IO Unit :=
+  match result with
+  | .ok actual => require (actual == expected) message
+  | .error error => throw <| IO.userError s!"{message}: {error.message}"
+
 def word (value : Nat) : Array UInt8 :=
   (List.range 32).toArray.map fun index => UInt8.ofNat ((value / (2 ^ (8 * (31 - index)))) % 256)
 
 def main : IO Unit := do
+  let fixedPair := StylusAbiType.fixedArray (.uint 64) 2
+  let nestedTuple := StylusAbiType.tuple #[.address, fixedPair, .tuple #[.bool, .uint 128]]
+  requireWords (staticAbiWords 16 fixedPair) 2 "fixed-array ABI word layout changed"
+  requireWords (staticAbiWords 16 nestedTuple) 5 "nested tuple ABI word layout changed"
+  requireWords (ProofForge.Backend.Stylus.StorageLayout.Aggregate.staticStorageSlots 16 nestedTuple) 5
+    "nested tuple storage slot layout changed"
+  requireWords (abiHeadWords 16 #[
+      { name := "pair", type := fixedPair },
+      { name := "payload", type := .bytes },
+      { name := "meta", type := nestedTuple }]) 8
+    "mixed static/dynamic ABI head layout changed"
+  for result in #[
+      staticAbiWords 3 nestedTuple,
+      staticAbiWords 16 (.fixedArray (.uint 64) 0),
+      staticAbiWords 16 (.tuple #[]),
+      staticAbiWords 16 (.fixedArray (.uint 64) 17),
+      ProofForge.Backend.Stylus.StorageLayout.Aggregate.staticStorageSlots 16 .bytes] do
+    match result with
+    | .error _ => pure ()
+    | .ok words => throw <| IO.userError s!"invalid aggregate layout was accepted as {words} words"
+
   let empty := word 32 ++ word 0
   let emptySlice <- match decodeDynamicArgument empty 1 0 64 with
     | .ok value => pure value | .error error => throw <| IO.userError error.message
