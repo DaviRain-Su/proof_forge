@@ -75,6 +75,7 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let wasmPath := output / "contract.wasm"
   let watPath := output / "contract.wat"
   let deployPath := output / "proof-forge-deploy.json"
+  let evidencePath := output / "proof-forge-evidence.json"
   let clientSpec := if opts.token then
       { spec with module := { spec.module with
           entrypoints := spec.module.entrypoints.map fun entrypoint =>
@@ -136,6 +137,30 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let storageDigest <- fileDigestAndBytes storagePath
   let wasmDigest <- fileDigestAndBytes wasmPath
   let deployDigest <- fileDigestAndBytes deployPath
+  let evidenceInput <- match ← IO.getEnv "PROOF_FORGE_STYLUS_EVIDENCE" with
+    | some path => pure <| FilePath.mk path
+    | none => pure <| opts.root?.getD "." / "build/evidence/stylus/final.json"
+  let evidenceVerified <- if ← evidenceInput.pathExists then do
+      let script := opts.root?.getD "." / "scripts/stylus/check-cutover-evidence.py"
+      let result <- IO.Process.output {
+        cmd := "python3"
+        args := #[script.toString, "--input", evidenceInput.toString,
+          "--output", evidencePath.toString, "--plan-sha256", planDigest.1,
+          "--storage-sha256", storageDigest.1, "--abi-sha256", abiDigest.1]
+      }
+      if result.exitCode != 0 then
+        IO.FS.removeDirAll output
+        throw <| IO.userError result.stderr.trimAscii.toString
+      pure true
+    else do
+      IO.FS.writeFile evidencePath <|
+        "{\"schemaVersion\":\"1\",\"target\":\"wasm-arbitrum-stylus\"," ++
+        "\"state\":\"unavailable\",\"reason\":\"live Nitro cutover evidence not provided\"," ++
+        "\"planSchemaVersion\":\"stylus-plan-v1\",\"identities\":{" ++
+        s!"\"planSha256\":\"{planDigest.1}\",\"storageSha256\":\"{storageDigest.1}\",\"abiSha256\":\"{abiDigest.1}\"" ++
+        "}}\n"
+      pure false
+  let evidenceDigest <- fileDigestAndBytes evidencePath
   let source : ProofForge.Target.ArtifactBundle.SourceIdentity := {
     moduleName := spec.name, path? := some input.toString, leanElaborated := true
   }
@@ -155,12 +180,23 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
           "contract.wat" "contract.wasm" "proof-forge-abi.json" "proof-forge-client.ts"
           "proof-forge-deploy.json" watDigest.1 wasmDigest.1 abiDigest.1 clientDigest.1 deployDigest.1
           watDigest.2 wasmDigest.2 abiDigest.2 clientDigest.2 deployDigest.2 sourceTools
-  let artifactBundle := { artifactBundle with outputs := artifactBundle.outputs ++ #[
+  let extraOutputs : Array ProofForge.Target.ArtifactBundle.TypedOutput := #[
     { kind := "stylus-plan", role := .sidecar, path? := some "proof-forge-plan.txt",
       sha256? := some planDigest.1, bytes? := some planDigest.2 },
     { kind := "stylus-storage-layout", role := .sidecar, path? := some "proof-forge-storage.txt",
-      sha256? := some storageDigest.1, bytes? := some storageDigest.2 }
-  ] }
+      sha256? := some storageDigest.1, bytes? := some storageDigest.2 },
+    { kind := "stylus-cutover-evidence", role := .sidecar, path? := some "proof-forge-evidence.json",
+      sha256? := some evidenceDigest.1, bytes? := some evidenceDigest.2 }
+  ]
+  let evidenceValidation : ProofForge.Target.ArtifactBundle.ValidationEntry :=
+    if evidenceVerified then
+      { name := "nitro-evidence", state := .passed }
+    else
+      { name := "nitro-evidence", state := .unavailable,
+        detail? := some "live Nitro evidence is required before release promotion" }
+  let artifactBundle := { artifactBundle with outputs := artifactBundle.outputs ++ extraOutputs }
+  let artifactBundle := { artifactBundle with
+    validations := artifactBundle.validations.push evidenceValidation }
   match ProofForge.Target.ArtifactBundle.validateHonesty artifactBundle with
   | .error error => throw <| IO.userError error.message
   | .ok () => pure ()

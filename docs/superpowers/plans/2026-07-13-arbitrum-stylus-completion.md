@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 42/80 acceptance items are complete. Six remaining
+**Current checkpoint:** 46/80 acceptance items are complete. Six remaining
 work packages and their dependency order are audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
 
@@ -53,12 +53,15 @@ blockers may defer an item.
 - [x] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
   default, Rust-oracle mode, named unavailable-renderer diagnostics, and strict
   no-fallback tests without promoting Stylus into the primary triad.
-- [ ] **W6.2 Atomic artifact bundle:** publish WAT/Wasm/ABI/client/plan metadata
+- [x] **W6.2 Atomic artifact bundle:** publish WAT/Wasm/ABI/client/plan metadata
   atomically with renderer, plan-schema, ABI, storage, toolchain, and evidence
   hashes; reject skipped or stale required evidence.
   Directory publication and WAT/Wasm/ABI/client/deploy hashes are implemented;
   independent renderer-neutral plan/storage files and hashes are now verified
-  equal across direct/Rust. Evidence hashes and freshness rejection remain open.
+  equal across direct/Rust. Evidence is now a hashed sidecar: absent live
+  evidence is explicit `unavailable`, while supplied final evidence must match
+  plan/storage/ABI identities, Task 2-6 Nitro provenance, non-skipped states,
+  and a seven-day freshness window before atomic publication.
 - [ ] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
   RemoteCall, and Aggregate bundles through literal CLI commands for both
   supported renderer modes.
@@ -249,9 +252,9 @@ blockers may defer an item.
 **Interfaces:**
 - Produces: direct `.wasm` as default final output and explicit `--renderer rust-sdk` oracle/source mode.
 
-- [ ] Pin CLI tests for direct default, explicit Rust selection, identical plan/ABI/storage hashes, no fallback, atomic artifacts, and unavailable-renderer diagnostics.
-- [ ] Add renderer selection to CLI options without adding Stylus to the public-beta primary triad.
-- [ ] Publish direct Wasm, WAT, ABI, client, plan metadata, renderer id, tool versions, and evidence hash atomically.
+- [x] Pin CLI tests for direct default, explicit Rust selection, identical plan/ABI/storage hashes, no fallback, atomic artifacts, and unavailable-renderer diagnostics.
+- [x] Add renderer selection to CLI options without adding Stylus to the public-beta primary triad.
+- [x] Publish direct Wasm, WAT, ABI, client, plan metadata, renderer id, tool versions, and evidence hash atomically.
 - [ ] Require a machine-readable evidence manifest whose Task 2-6 gates match the current plan-schema hash and are neither skipped nor stale.
 - [ ] Run literal CLI builds for Counter, ValueVault, Token, RemoteCall, and Aggregate fixtures and inspect artifact bundles.
 - [ ] Commit as `feat(stylus): make direct Wasm the canonical renderer`.

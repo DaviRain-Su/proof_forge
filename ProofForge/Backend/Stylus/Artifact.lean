@@ -72,9 +72,7 @@ def directWasmBundle (source : SourceIdentity)
   validations := #[
     { name := "canonical-plan", state := .passed },
     { name := "direct-wasm-render", state := .passed },
-    { name := "wat2wasm", state := .passed },
-    { name := "nitro-evidence", state := .unavailable,
-      detail? := some "live Nitro evidence is required before release promotion" }
+    { name := "wat2wasm", state := .passed }
   ]
 }
 

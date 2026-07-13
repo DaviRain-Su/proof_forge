@@ -1857,3 +1857,24 @@ Rules:
   `just test-manifest`, `just test-equivalence`, scheduler/select unit tests,
   and `git diff --check` pass. The manifest contains 141 unique recipes across
   eight conflict-aware lanes and still defaults to at most four workers.
+
+## 2026-07-13 - STYLUS-W6.2: Evidence-bound atomic artifact bundles
+
+- Status: `implementation complete; real Nitro evidence still unavailable`
+- Every direct-Wasm and Rust-oracle bundle now includes a hashed
+  `proof-forge-evidence.json` sidecar. Research builds without live evidence
+  are explicit `unavailable`; they never serialize a green Nitro validation.
+- Added `check-cutover-evidence.py` with a versioned schema. Supplied final
+  evidence must match the current renderer-neutral plan, storage, and ABI
+  SHA-256 identities; contain passed, non-skipped `nitro-testnode` results for
+  ValueVault, mapping/events, token, remote call, and aggregate; and be no more
+  than seven days old. Future timestamps beyond clock tolerance also fail.
+- The CLI validates evidence inside its temporary bundle. Validation failure
+  removes that directory before returning, so stale evidence cannot publish a
+  final or partial artifact.
+- Verification: `lake build ProofForge.Cli.StylusArtifacts proof-forge` and
+  `just stylus-public-route` pass unavailable, valid, stale, skipped, identity
+  mismatch, verified-publication, and temporary-directory cleanup vectors.
+- Remaining release blocker: `build/evidence/stylus/final.json` cannot be
+  produced honestly until the pinned Nitro environment is available and all
+  five live gate families have passed.
