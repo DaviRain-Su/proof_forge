@@ -61,7 +61,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "0ada12c52675f38ba3ee4a9ae8571da2c0da222962b720c1ab66282c0893bef4",
+    "sha256": "8951abd48b13aca7afd487fc0d9da18492e61f9a2314116ddbb248d62aefb24d",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh for the 2026-07-14 target-extension boundary program"
@@ -168,10 +168,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "0b41cbae7932489078f8f92c6cdd4249bbf5c5890ed1a6f8df632fe960034841",
+    "sha256": "b3d04943391f07a3318a43bae02919ec9c4421320933cea8d06de4672ee2d437",
     "zh": "docs/zh/targets/wasm-near.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for runtime receiver and standard NEP-141 transfer_call ABI"
+    "note": "manually synced for neutral crosscall string-pool ownership"
   },
   "docs/gate-status.md": {
     "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",

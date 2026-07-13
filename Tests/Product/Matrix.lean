@@ -192,7 +192,7 @@ def testRemote : IO Unit := do
   assertFourHost "AuthRemoteCall" authRemote
   assertFourHost "ExternalTokenTransfer" extFt
   assertFourHost "ExternalVault" extVault
-  require (extFt.nearCrosscallStrings.any (· == "ft_transfer"))
+  require (extFt.crosscallStrings.any (· == "ft_transfer"))
     "ExternalTokenTransfer registers protocol method ft_transfer"
   -- EVM CALL (product sources are name-only; pin selectors for Yul emit only)
   let remoteEvm : Module := {

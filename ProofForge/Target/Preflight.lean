@@ -55,7 +55,7 @@ structure Report where
   capabilityOk : Bool
   capabilityError? : Option String
   /-- L0 hard: no *family-only constructors* illegal on this family
-  (e.g. nearPromiseThen on Solana). Foreign *metadata* (e.g. nearCrosscallStrings
+  (e.g. nearPromiseThen on Solana). Foreign *metadata* (e.g. crosscallStrings
   on EVM) is recorded but does not block materialize — backends ignore it. -/
   portabilityOk : Bool
   portabilityViolations : Array String

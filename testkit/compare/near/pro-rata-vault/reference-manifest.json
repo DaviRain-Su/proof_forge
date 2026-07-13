@@ -20,6 +20,6 @@
   "honesty": [
     "ERC-4626-inspired internal vault; no IERC20 transferFrom/transfer.",
     "donate skews exchange rate (assets without shares).",
-    "Full Stdlib.ERC4626 blocked on NEAR (nearCrosscallStrings for asset peer)."
+    "Full Stdlib.ERC4626 blocked on NEAR (crosscallStrings for asset peer)."
   ]
 }

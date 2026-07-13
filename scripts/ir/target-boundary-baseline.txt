@@ -1,5 +1,4 @@
 ProofForge/IR/Canonical.lean:fallback 5
-ProofForge/IR/Canonical.lean:nearHostStrings 2
 ProofForge/IR/Canonical.lean:origin 1
 ProofForge/IR/Canonical.lean:receive 5
 ProofForge/IR/Canonical.lean:solidityArgTypes 4
@@ -22,7 +21,6 @@ ProofForge/IR/Contract.lean:evmProxyPattern 1
 ProofForge/IR/Contract.lean:fallback 2
 ProofForge/IR/Contract.lean:nearAttachedDeposit 2
 ProofForge/IR/Contract.lean:nearCrosscallInvokePool 2
-ProofForge/IR/Contract.lean:nearCrosscallStrings 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1
 ProofForge/IR/Contract.lean:nearPromise 7
 ProofForge/IR/Contract.lean:nearPromiseResultStatus 2

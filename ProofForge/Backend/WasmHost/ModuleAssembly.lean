@@ -61,7 +61,7 @@ def loweringCtxForModule (mod : ProofForge.IR.Module)
     maps := mapLayout mod
     strings := strings
     panics := panics
-    crosscallStrings := crosscallStringInfos mod.nearCrosscallStrings CROSSCALL_STRING_BASE
+    crosscallStrings := crosscallStringInfos mod.crosscallStrings CROSSCALL_STRING_BASE
     structs := mod.structs
     allocator := mod.allocator
     bridge := bridge

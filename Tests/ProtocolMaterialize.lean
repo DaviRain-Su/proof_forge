@@ -39,12 +39,12 @@ def main : IO UInt32 := do
 
   -- Product ExternalTokenTransfer module has protocol method pool strings
   let mod := Examples.Product.ExternalTokenTransfer.module
-  require (mod.nearCrosscallStrings.any (· == "usdc.peer")) "registers usdc.peer"
-  require (mod.nearCrosscallStrings.any (· == "ft_transfer")) "registers ft_transfer"
-  require (mod.nearCrosscallStrings.any (· == "ft_balance_of")) "registers ft_balance_of"
-  require (mod.nearCrosscallStrings.any (· == "ft_total_supply")) "registers ft_total_supply"
+  require (mod.crosscallStrings.any (· == "usdc.peer")) "registers usdc.peer"
+  require (mod.crosscallStrings.any (· == "ft_transfer")) "registers ft_transfer"
+  require (mod.crosscallStrings.any (· == "ft_balance_of")) "registers ft_balance_of"
+  require (mod.crosscallStrings.any (· == "ft_total_supply")) "registers ft_total_supply"
   -- Product path must not require Protocols import (surface is Contract.Protocol)
-  require (!(mod.nearCrosscallStrings.any (· == "protocols.evm.ierc20"))) "no Layer B catalog id in pool"
+  require (!(mod.crosscallStrings.any (· == "protocols.evm.ierc20"))) "no Layer B catalog id in pool"
 
   IO.println "ProtocolMaterialize: ok"
   pure 0

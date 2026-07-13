@@ -7,7 +7,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Portable product path for NEAR cross-contract intent:
 
 ```
-remoteCall / crosscall.invoke  +  module.nearCrosscallStrings
+remoteCall / crosscall.invoke  +  module.crosscallStrings
   → EmitWat materializes promise_create
 ```
 
@@ -52,10 +52,10 @@ def usesPromiseExtension (module : Module) : Bool :=
 def isPortableNearCrosscall (module : Module) : Bool :=
   !usesPromiseExtension module &&
     ((classifyModule module).any fun f => f.detail.startsWith "crosscall.invoke" ||
-      f.path == "module.nearCrosscallStrings")
+      f.path == "module.crosscallStrings")
 
 def productGuidance : String :=
-  "Portable: remoteCall/crosscall.invoke + nearCrosscallStrings → promise_create. " ++
+  "Portable: remoteCall/crosscall.invoke + crosscallStrings → promise_create. " ++
   "Host-extension (Source.Near): nearPromiseThen / result decode."
 
 end ProofForge.IR.NearHost

@@ -566,7 +566,7 @@ mutual
       (args : Array Expr) (deposit : Expr) (argNames : Array String) :
       Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR crosscall pool invoke requires `module.nearCrosscallStrings` to be populated"
+      err "EmitWat: NEAR crosscall pool invoke requires `module.crosscallStrings` to be populated"
     let (_, accountType) ← lowerExpr ctx env account
     let accountLenPtr ← if accountType == .string then
         match account with
@@ -597,7 +597,7 @@ mutual
       (target method : Expr) (args : Array Expr) (hostFn bridgeLabel : String) :
       Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err s!"EmitWat: {bridgeLabel} remote requires `module.nearCrosscallStrings` for contract/method names"
+      err s!"EmitWat: {bridgeLabel} remote requires `module.crosscallStrings` for contract/method names"
     let contract ← resolveCrosscallStringRef ctx target "target contract id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
@@ -625,7 +625,7 @@ mutual
   partial def lowerNearPromiseCreate (ctx : Ctx) (env : LocalTypes) (target method : Expr)
       (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR crosscall requires `module.nearCrosscallStrings` to be populated"
+      err "EmitWat: NEAR crosscall requires `module.crosscallStrings` to be populated"
     let account ← resolveCrosscallStringRef ctx target "target account id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ←
@@ -652,7 +652,7 @@ mutual
       (args : Array Expr) (deposit : Expr) (argNames : Array String) :
       Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR promise_then requires `module.nearCrosscallStrings` for callback method names"
+      err "EmitWat: NEAR promise_then requires `module.crosscallStrings` for callback method names"
     let (parentInsns, parentType) ← lowerExpr ctx env parentPromise
     if parentType != .u64 then
       err s!"EmitWat: NEAR promise_then parent expected `U64` promise id, got `{parentType.name}`"

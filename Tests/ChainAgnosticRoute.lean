@@ -347,7 +347,7 @@ def main : IO UInt32 := do
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[.literal (.u64 0)])
       ]
     }]
-    nearCrosscallStrings := #[]
+    crosscallStrings := #[]
   }
   match resolveSpec solanaSbpfAsm (ContractSpec.fromIR remoteModEmptyPeer) with
   | .ok _ => throw (IO.userError "Solana empty peer must reject on resolveSpec")
@@ -368,7 +368,7 @@ def main : IO UInt32 := do
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[.literal (.u64 0)])
       ]
     }]
-    nearCrosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
+    crosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
   }
   match resolveSpec solanaSbpfAsm (ContractSpec.fromIR remoteMod) with
   | .error d => throw (IO.userError s!"Solana portable remote resolve: {d.message}")

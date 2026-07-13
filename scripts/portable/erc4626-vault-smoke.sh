@@ -102,7 +102,7 @@ def main : IO Unit := do
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m with
   | .ok _ => throw (IO.userError "NEAR should honest-reject selector remotes without string pool")
   | .error e =>
-      require (e.message.contains "nearCrosscallStrings" || e.message.contains "crosscall" ||
+      require (e.message.contains "crosscallStrings" || e.message.contains "crosscall" ||
           e.message.contains "Address")
         s!"NEAR diagnostic: {e.message}"
   IO.println "erc4626-vault emit: ok"

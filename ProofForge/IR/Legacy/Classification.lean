@@ -258,7 +258,7 @@ def classifyModuleFields : Module → Array LegacyDecision
       payloadDecision "Module.eventAbiWords" .materialization "target-plan-events" "event ABI overrides are target materialization metadata",
       payloadDecision "Module.allocator" .materialization "target-plan-allocator" "allocator model is classified field-by-field for target materialization",
       payloadDecision "Module.proxyPattern?" .materialization "target-plan-upgrade" "module proxy layout is target materialization metadata",
-      payloadDecision "Module.nearCrosscallStrings" .materialization "near-adapter" "NEAR host string pool is target materialization metadata",
+      payloadDecision "Module.crosscallStrings" .materialization "near-adapter" "NEAR host string pool is target materialization metadata",
       payloadDecision "Module.overflowChecked" .normalize "canonical-core-arithmetic" "overflow mode selects canonical arithmetic semantics"
     ]
 

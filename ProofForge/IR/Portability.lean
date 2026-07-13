@@ -302,9 +302,9 @@ def classifyModule (module : Module) : Array PortabilityFinding :=
         #[finding "module.proxyPattern" pattern (.targetMetadata (some .evm))]
     | none => #[]
   let nearStringFindings :=
-    if module.nearCrosscallStrings.isEmpty then #[]
+    if module.crosscallStrings.isEmpty then #[]
     else
-      #[finding "module.nearCrosscallStrings" "NEAR host string pool"
+      #[finding "module.crosscallStrings" "NEAR host string pool"
           (.targetMetadata (some .wasmHost))]
   let eventAbiFindings :=
     if module.eventAbiWords.isEmpty then #[]

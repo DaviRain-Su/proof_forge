@@ -11,9 +11,9 @@ parameters**, applied here before Wasm host emit — never hand-written as
 chain-specific APIs in Shared business logic.
 
 ```text
-  Shared IR:   nearCrosscallStrings = #["peer.callee", "remote_call"]
+  Shared IR:   crosscallStrings = #["peer.callee", "remote_call"]
   PeerMap:     peer.callee → callee.example.near
-  After apply: nearCrosscallStrings = #["callee.example.near", "remote_call"]
+  After apply: crosscallStrings = #["callee.example.near", "remote_call"]
 ```
 
 Wasm-NEAR / Soroban materialize the pool into host call arguments. EVM (PF-P2-03)
@@ -72,13 +72,13 @@ def rewriteId (m : Map) (id : String) : String :=
   | some host => host
   | none => id
 
-/-- Apply deploy map to `module.nearCrosscallStrings` (host string pool). -/
+/-- Apply deploy map to `module.crosscallStrings` (host string pool). -/
 def applyToModule (module : Module) (m : Map) : Module :=
   if m.bindings.isEmpty then
     module
   else
     { module with
-      nearCrosscallStrings := module.nearCrosscallStrings.map (rewriteId m) }
+      crosscallStrings := module.crosscallStrings.map (rewriteId m) }
 
 /-- NEAR demo map used by multi-target smokes / local deploy docs.
 Logical peers in Shared.RemoteCall resolve to classic testnet-shaped names. -/

@@ -54,7 +54,7 @@ pick a chain at write time and violated D-028. **Removed.**
 ## Slice 2 (mostly landed)
 
 - [x] NEAR Promise product split (D-050 Slice 3 partial): portable path is
-      `crosscall.invoke` + `nearCrosscallStrings` → `promise_create`
+      `crosscall.invoke` + `crosscallStrings` → `promise_create`
       (`Backend.WasmHost.PortableCrosscall`, `NearCrosscallProbe.portableModule`,
       `Shared.RemoteCall`, `just portable-remote-call-multi-target`).
       Host-extension vocabulary: `ProofForge.IR.NearHost` + `Source.Near`.

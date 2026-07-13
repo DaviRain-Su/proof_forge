@@ -582,7 +582,7 @@ def materializationNote (module : Module) : String :=
     "no portable crosscall sites"
   else
     let peer? :=
-      match module.nearCrosscallStrings[0]? with
+      match module.crosscallStrings[0]? with
       | some s => if s.isEmpty then none else some s
       | none => none
     let inferNote :=

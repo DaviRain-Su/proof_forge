@@ -91,7 +91,7 @@ not an accepted exception to the boundary.
 | `ErrorRef.solidity*` and canonical `ErrorEncoding.solidity*` | Solidity ABI payload layout crosses the canonical semantic boundary | EVM error ABI plan |
 | `EntrypointKind.fallback`, `receive` | EVM dispatch modes are presented as portable entrypoint kinds | EVM dispatch extension metadata |
 | `Module.proxyPattern?` | upgrade materialization is stored on the portable module | intent/materialization policy resolved by the target |
-| `Module.nearCrosscallStrings` / `MaterializationContract.nearHostStrings` | NEAR emitter pool leaks into shared records | neutral constant pool or NEAR plan-owned pool |
+| `Module.crosscallStrings` / `MaterializationContract.crosscallStrings` | NEAR emitter pool leaks into shared records | neutral constant pool or NEAR plan-owned pool |
 
 ### P1: target implementation in Canonical Core
 

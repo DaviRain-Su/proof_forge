@@ -205,7 +205,7 @@ def requireIdentityHonesty (targetId : String) (module : Module) : Except String
 /-- Declared logical peer for Solana account inference (`declareRemote` / string pool).
 Empty or missing → inference cannot run; resolve must reject (no silent placeholder). -/
 def declaredPeerId? (module : Module) : Option String :=
-  match module.nearCrosscallStrings[0]? with
+  match module.crosscallStrings[0]? with
   | some s => if s.isEmpty then none else some s
   | none => none
 
@@ -213,7 +213,7 @@ def declaredPeerId? (module : Module) : Option String :=
 Host-extension-only modules (promise_then without portable crosscallInvoke) are
 allowed on wasm-near only (family portability still applies elsewhere).
 
-Solana: requires a **non-empty declared peer** in `nearCrosscallStrings` so
+Solana: requires a **non-empty declared peer** in `crosscallStrings` so
 `inferSolanaAccounts` runs (empty peer fails closed — no `portable.peer` invent). -/
 def requireSyncCrosscallHonesty (targetId : String) (module : Module) : Except String Unit := do
   if moduleUsesPortableSyncCrosscall module then
@@ -223,7 +223,7 @@ def requireSyncCrosscallHonesty (targetId : String) (module : Module) : Except S
       | none =>
           .error
             "PortableHonesty Crosscall: Solana portable remote requires a non-empty peer id \
-from `remote peerId \"logical.peer\" \"method\"` / declareRemote (nearCrosscallStrings / PeerMap). \
+from `remote peerId \"logical.peer\" \"method\"` / declareRemote (crosscallStrings / PeerMap). \
 empty peer cannot be inferred — fail-closed (no portable.peer invent)"
       | some peer =>
           match materializeSyncRemote targetId module peer with

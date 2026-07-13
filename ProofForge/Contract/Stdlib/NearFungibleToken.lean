@@ -14,7 +14,7 @@ Implements the core NEP-141 interface:
 - full NEP-145 storage management with JSON `StorageBalance` objects,
   exact one-yocto guards, predecessor refunds, unregister, and measured byte cost
 
-`module.nearCrosscallStrings` layout for this mixin:
+`module.crosscallStrings` layout for this mixin:
 - `0` = `ft_on_transfer` method name
 - `1` = `ft_resolve_transfer` callback method name
 
@@ -44,7 +44,7 @@ theorem burn_decreases_supply {supply amount : Nat}
 
 end Spec
 
-/-- Pool indices into `module.nearCrosscallStrings` (see module header). -/
+/-- Pool indices into `module.crosscallStrings` (see module header). -/
 def ftMethodOnTransferIdx : Nat := 0
 def ftMethodResolveIdx : Nat := 1
 

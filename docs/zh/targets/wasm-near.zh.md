@@ -43,8 +43,8 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 
 | IR 表达式 | NEAR host import | 作用 |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.nearCrosscallStrings` 取 account 与 method 字符串并创建 promise。 |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.nearCrosscallStrings`。 |
+| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.crosscallStrings` 取 account 与 method 字符串并创建 promise。 |
+| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.crosscallStrings`。 |
 | `nearPromiseResultsCount` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
 | `nearPromiseResultStatus index` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
 | `nearPromiseResultU64 index` | `promise_result`、`read_register` | 将 `index` 处结果 payload 按 Borsh 解码为 `U64`（失败时返回 `0`）。 |

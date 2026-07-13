@@ -156,7 +156,7 @@ structure CorePlanEnv where
   stateNames : Array (StateId × String) := #[]
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option ProofForge.IR.ErrorRef) := #[]
-  nearHostStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
   match env.values.find? (fun entry => entry.fst == id) with
@@ -194,7 +194,7 @@ private def crosscallTargetExpr (env : CorePlanEnv) (target : ValueRef) : Except
     | valueExpr env target
   let some index := poolIndex.toNat?
     | valueExpr env target
-  let some host := env.nearHostStrings[index]?
+  let some host := env.crosscallStrings[index]?
     | valueExpr env target
   let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? host
     | valueExpr env target
@@ -208,7 +208,7 @@ private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except
     | _ => none
   let some index := index?
     | valueExpr env method
-  let some name := env.nearHostStrings[index]?
+  let some name := env.crosscallStrings[index]?
     | valueExpr env method
   let some selector := ProofForge.Target.ProtocolMaterialize.evmSelector? name
     | valueExpr env method
@@ -607,7 +607,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
       (fun symbol => (symbol.stateId, symbol.name))
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
-    nearHostStrings := checked.contract.materialization.nearHostStrings
+    crosscallStrings := checked.contract.materialization.crosscallStrings
   }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]

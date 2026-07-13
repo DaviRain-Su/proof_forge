@@ -141,7 +141,7 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
     upgradePolicy? := spec.upgradePolicy?.map adaptUpgradePolicy,
     proxyPattern? := spec.proxyPattern?.map adaptProxyPattern,
     moduleProxyPattern? := moduleProxyPattern?,
-    nearHostStrings := spec.module.nearCrosscallStrings,
+    crosscallStrings := spec.module.crosscallStrings,
     stateSymbols := stateSymbols,
     typeLayouts := typeLayouts,
     intents := intents,

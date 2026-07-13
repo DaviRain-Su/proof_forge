@@ -273,7 +273,7 @@ mutual
     | crosscallNamed (programId method : String) (args : Array Expr) (returnType : ValueType)
     /-- NEAR host-extension only (not portable product path): `promise_create`
         with either a runtime AccountId string or an index into
-        `module.nearCrosscallStrings`. `argNames` selects JSON-object encoding;
+        `module.crosscallStrings`. `argNames` selects JSON-object encoding;
         an empty array preserves the historical JSON-array encoding. -/
     | nearCrosscallInvokePool (account : Expr) (methodId : Expr) (args : Array Expr)
         (deposit : Expr) (argNames : Array String)
@@ -538,7 +538,7 @@ structure Module where
   /-- NEAR EmitWat host strings indexed by `.literal (.address i)` (remote account/method
       names and local promise callback method names). Target-family metadata, not a
       portable IR constructor (see `IR.Portability`). -/
-  nearCrosscallStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
   /-- Integer-overflow mode for this module's `Expr.add/.sub/.mul` nodes.
 
       `false` (default): portable wrapping arithmetic — matches Solana (sBPF

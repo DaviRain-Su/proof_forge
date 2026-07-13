@@ -58,8 +58,8 @@ the `near.promise` capability on the canonical EmitWat path:
 
 | IR expression | NEAR host import(s) | Role |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.nearCrosscallStrings` for the account and method names. |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.nearCrosscallStrings` via `.literal (.address i)`. |
+| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.crosscallStrings` for the account and method names. |
+| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.crosscallStrings` via `.literal (.address i)`. |
 | `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
 | `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
 | `nearPromiseResultU64 index` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |

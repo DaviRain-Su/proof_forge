@@ -221,7 +221,7 @@ structure MaterializationContract where
   upgradePolicy? : Option CanonicalUpgradePolicy := none
   proxyPattern? : Option CanonicalProxyPattern := none
   moduleProxyPattern? : Option CanonicalProxyPattern := none
-  nearHostStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
   stateSymbols : Array StateDisplaySymbol := #[]
   typeLayouts : Array TypeLayoutMetadata := #[]
   intents : Array MaterializationIntent := #[]
@@ -612,8 +612,8 @@ private def validateMaterialization (module : Core.Module)
       if ref.isEmpty then
         throw <| materializationError "upgrade governance reference is empty"
   | some .immutable | none => pure ()
-  if materialization.nearHostStrings.any (·.isEmpty) then
-    throw <| materializationError "NEAR host string pool contains an empty entry"
+  if materialization.crosscallStrings.any (·.isEmpty) then
+    throw <| materializationError "crosscall string pool contains an empty entry"
 
   unless materialization.stateSymbols.size == module.state.size do
     throw <| materializationError "state display symbol table is incomplete"

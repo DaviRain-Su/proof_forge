@@ -148,7 +148,7 @@ def buildPanics (mod : Module) (stringPoolEnd : Nat) : Array NearStringPoolEntry
 /-- Project the NEAR crosscall string pool, reusing `EmitWat.crosscallStringInfos`
 with the same `CROSSCALL_STRING_BASE` constant `EmitWat.lowerModule` uses. -/
 def buildCrosscallStrings (mod : Module) : Array NearStringPoolEntry :=
-  (crosscallStringInfos mod.nearCrosscallStrings CROSSCALL_STRING_BASE).map
+  (crosscallStringInfos mod.crosscallStrings CROSSCALL_STRING_BASE).map
     fun s => { str := s.str, ptr := s.ptr, len := s.len }
 
 /-- Build the full `NearModulePlan` for a module. The `surface` reuses

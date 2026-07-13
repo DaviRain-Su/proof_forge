@@ -210,7 +210,7 @@ structure NearModulePlan where
 | `layout.maps[i].prefixPtr` | `EmitWat.mapLayout mod` → `MapInfo.prefixPtr` (from `MAPKEY_BUF` + cumulative prefix lengths) | Pointers unique, ascending, within `MAPKEY_BUF..MAPKEY_BUF+17500` |
 | `layout.strings[i].ptr` | `EmitWat.stringPool mod STRING_BASE` → `StringInfo.ptr` | Within `STRING_BASE..STRING_BASE+1000` |
 | `layout.panics[i].ptr` | `EmitWat.panicPool mod (stringInfoEnd STRING_BASE strs)` | After string pool; within scratch budget |
-| `layout.crosscallStrings[i].ptr` | `EmitWat.crosscallStringInfos mod.nearCrosscallStrings CROSSCALL_STRING_BASE` | Within `CROSSCALL_STRING_BASE..CROSSCALL_STRING_BASE+1000` |
+| `layout.crosscallStrings[i].ptr` | `EmitWat.crosscallStringInfos mod.crosscallStrings CROSSCALL_STRING_BASE` | Within `CROSSCALL_STRING_BASE..CROSSCALL_STRING_BASE+1000` |
 | `layout.stringPoolEnd` | `stringInfoEnd STRING_BASE strs` | End of string pool; panics start here |
 | `lowerCtxSeed.keyBuf` etc. | `EmitWat.KEY_BUF` / `MAPKEY_BUF` / `STRING_BASE` / `CROSSCALL_STRING_BASE` constants | Frozen by `memoryLayoutNonoverlap_valid` theorem |
 | `lowerCtxSeed.structs` | `mod.structs` (read-only mirror) | Subset accepted by `wasmNear` profile |

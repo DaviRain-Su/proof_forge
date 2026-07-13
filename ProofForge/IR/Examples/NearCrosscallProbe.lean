@@ -12,7 +12,7 @@ def stateMarker : StateDecl := {
 
 /-- Portable product path: `crosscall.invoke` only. Account/method names are
 compile-time strings referenced by address-literal indices into
-`nearCrosscallStrings`. Backend materializes as `promise_create` — authors do
+`crosscallStrings`. Backend materializes as `promise_create` — authors do
 not write Promise constructors. -/
 def callRemote : Entrypoint := {
   name := "call_remote"
@@ -62,7 +62,7 @@ def module : Module := {
   name := "NearCrosscallProbe"
   state := #[stateMarker]
   entrypoints := #[callRemote, callRemoteWithAmount, callRemoteWithCallback, handleRemote]
-  nearCrosscallStrings := #["callee.testnet", "remote_call", "handle_remote"]
+  crosscallStrings := #["callee.testnet", "remote_call", "handle_remote"]
 }
 
 /-- Portable NEAR crosscall subset: only `crosscall.invoke` + string pool.
@@ -71,7 +71,7 @@ def portableModule : Module := {
   name := "NearCrosscallPortable"
   state := #[stateMarker]
   entrypoints := #[callRemote, callRemoteWithAmount]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  crosscallStrings := #["callee.testnet", "remote_call"]
 }
 
 /-- Host-extension Promise chaining only (then + callback result decode). -/
@@ -79,7 +79,7 @@ def promiseExtensionModule : Module := {
   name := "NearPromiseExtension"
   state := #[stateMarker]
   entrypoints := #[callRemoteWithCallback, handleRemote]
-  nearCrosscallStrings := #["callee.testnet", "remote_call", "handle_remote"]
+  crosscallStrings := #["callee.testnet", "remote_call", "handle_remote"]
 }
 
 end ProofForge.IR.Examples.NearCrosscallProbe

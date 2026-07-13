@@ -126,7 +126,7 @@ def testAuthRemoteCall : IO Unit := do
 /-- Protocol external token: peer strings registered; Solana still auto-portable. -/
 def testExternalTokenTransfer : IO Unit := do
   let m := Examples.Product.ExternalTokenTransfer.module
-  require (m.nearCrosscallStrings.any (· == "usdc.peer"))
+  require (m.crosscallStrings.any (· == "usdc.peer"))
     "ExternalTokenTransfer registers usdc.peer"
   let report := report m {}
   require (report.mode == .autoPortable)
@@ -153,7 +153,7 @@ def testEmptyPeerDiagnostic : IO Unit := do
       name := "go"
       body := #[.return (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[])]
     }]
-    nearCrosscallStrings := #[]
+    crosscallStrings := #[]
   }
   match ProofForge.Target.resolveModule ProofForge.Target.solanaSbpfAsm bare with
   | .ok _ => throw (IO.userError "empty peer must fail resolveModule")

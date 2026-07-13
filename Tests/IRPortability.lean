@@ -208,12 +208,12 @@ def main : IO Unit := do
     "NEAR promise constructors must be legal for wasmHost"
   require (!isPortableCoreModule nearExt)
     "promise extension module is not portable-core"
-  -- Portable invoke-only module still carries nearCrosscallStrings metadata
+  -- Portable invoke-only module still carries crosscallStrings metadata
   -- (wasmHost target metadata), so it is not portable-core, but it has no
   -- family-only Promise constructors for non-wasm families beyond the string pool.
   require ((familyOnlyViolations nearPortable .solana).any fun f =>
-      f.path == "module.nearCrosscallStrings")
-    "portable NEAR crosscall still flags nearCrosscallStrings as wasmHost metadata"
+      f.path == "module.crosscallStrings")
+    "portable NEAR crosscall still flags crosscallStrings as wasmHost metadata"
   require (!(classifyModule nearPortable).any fun f =>
       match f.class_ with
       | .targetFamilyOnly _ =>

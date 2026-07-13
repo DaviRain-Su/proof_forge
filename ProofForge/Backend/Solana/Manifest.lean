@@ -575,7 +575,7 @@ default CPI account roles on the transaction account list:
 Authors still do not write CPI account metas; the lowerer **selectively** packs
 signer / writable / program-owned / executable accounts into `sol_invoke_signed_c`.
 
-Peer id for inference: first `nearCrosscallStrings` entry when present; else a
+Peer id for inference: first `crosscallStrings` entry when present; else a
 non-empty synthetic peer for packing-only (resolveSpec still requires a declared
 peer — see PortableHonesty). -/
 def ensurePortableCrosscallAccounts (module : Module) (accounts : Array AccountEntry) :
@@ -584,7 +584,7 @@ def ensurePortableCrosscallAccounts (module : Module) (accounts : Array AccountE
     accounts
   else
     let peer :=
-      match module.nearCrosscallStrings[0]? with
+      match module.crosscallStrings[0]? with
       | some s => if s.isEmpty then "portable.peer" else s
       | none => "portable.peer"
     let accounts :=

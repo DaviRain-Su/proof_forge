@@ -307,7 +307,7 @@ def envelopeProbeModule : ProofForge.IR.Module := {
     hostProvided := true
   } }
   proxyPattern? := some "uups"
-  nearCrosscallStrings := #["remote.near", "configure"]
+  crosscallStrings := #["remote.near", "configure"]
 }
 
 def envelopeProbeSpec : ContractSpec := {
@@ -553,7 +553,7 @@ def runAssertions : IO Unit := do
   require (probeMaterialization.proxyPattern? == some .uups &&
       probeMaterialization.moduleProxyPattern? == some .uups)
     "spec/module proxy policy changed"
-  require (probeMaterialization.nearHostStrings == #["remote.near", "configure"])
+  require (probeMaterialization.crosscallStrings == #["remote.near", "configure"])
     "NEAR host string pool changed"
   require (probeMaterialization.stateSymbols.map (·.name) ==
       #["labelLength", "labelHash", "quota"])

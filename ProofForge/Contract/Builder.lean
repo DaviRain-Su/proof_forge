@@ -13,7 +13,7 @@ structure ModuleBuilder where
   state : Array StateDecl := #[]
   entrypoints : Array Entrypoint := #[]
   eventAbiWords : Array EventAbiWord := #[]
-  nearCrosscallStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
   intents : Array Intent := #[]
   constructorParams : Array ProofForge.Contract.ConstructorParam := #[]
   constructorInitBindings : Array ProofForge.Contract.ConstructorInitBinding := #[]
@@ -45,7 +45,7 @@ def ModuleBuilder.toModule (builder : ModuleBuilder) : Module := {
   state := builder.state
   entrypoints := builder.entrypoints
   eventAbiWords := builder.eventAbiWords
-  nearCrosscallStrings := builder.nearCrosscallStrings
+  crosscallStrings := builder.crosscallStrings
   proxyPattern? := builder.proxyPattern?.map ProofForge.Contract.ProxyPattern.kind
 }
 
@@ -79,16 +79,16 @@ def capability (capability : Capability) (operation : String := capability.id)
     (source? : Option String := none) (metadata : Array TargetMetadata := #[]) : ModuleM Unit :=
   intent (Intent.capability capability operation source? metadata)
 
-/-- Register a compile-time host string for `module.nearCrosscallStrings`
+/-- Register a compile-time host string for `module.crosscallStrings`
 (Wasm-NEAR `promise_create` / Soroban `invoke_contract` name pool).
 Dedupes by value so portable `declareRemote` can re-use peer/method ids. -/
 def ensureCrosscallString (value : String) : ModuleM Nat := do
   let builder ← get
-  match builder.nearCrosscallStrings.findIdx? (· == value) with
+  match builder.crosscallStrings.findIdx? (· == value) with
   | some idx => pure idx
   | none =>
-      let idx := builder.nearCrosscallStrings.size
-      modify fun b => { b with nearCrosscallStrings := b.nearCrosscallStrings.push value }
+      let idx := builder.crosscallStrings.size
+      modify fun b => { b with crosscallStrings := b.crosscallStrings.push value }
       pure idx
 
 /-- Compatibility alias — prefer `ensureCrosscallString` / Surface `declareRemote`. -/

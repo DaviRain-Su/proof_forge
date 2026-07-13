@@ -2418,3 +2418,20 @@ Rules:
   `just ir-target-boundary`; and `git diff --check`. No full `just check` ran.
 - Next: IR-B3, replace legacy shared NEAR `Expr` constructors and materialized
   string-pool fields with neutral calls or target-owned extension payloads.
+
+## 2026-07-14 - IR-B3a: neutral shared crosscall string pool
+
+- Status: `done (verified 2026-07-14)`.
+- Renamed legacy `Module.nearCrosscallStrings` and canonical/plan
+  `nearHostStrings` to the target-neutral `crosscallStrings`. The pool is
+  shared peer/method materialization used by EVM, Solana, NEAR, Soroban, and
+  CosmWasm, so NEAR ownership was both misleading and architecturally wrong.
+- Updated adapters, deploy maps, target materializers, backends, diagnostics,
+  refinement statements, fixtures, tests, and current documentation. The
+  source-scan baseline no longer permits either old shared field name.
+- Verification passed: `lake build` (802 jobs), Canonical LegacyAdapter,
+  CrosscallMaterialize, ProtocolMaterialize, PortableAuthMaterialize,
+  IRPortability, WasmNearPlan, SolanaPdaSeeds, `just ir-target-boundary`,
+  documentation sync, and `git diff --check`.
+- Next: IR-B3b, add a generic legacy extension-call carrier and migrate promise
+  result, storage usage, transfer, and typed call-value wrappers.

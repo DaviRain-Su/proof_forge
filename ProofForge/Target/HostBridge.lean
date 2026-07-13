@@ -128,7 +128,7 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "log_from_slice", params := #["i32", "i32"], results := #[] },
       { name := "require_auth_for_args", params := #["i32", "i32"], results := #["i32"] },
       -- Portable crosscall.invoke materializes here (not NEAR promise_create).
-      -- Contract/method names come from the shared nearCrosscallStrings pool;
+      -- Contract/method names come from the shared crosscallStrings pool;
       -- args are the same JSON scratch buffer used by NEAR. Returns a host
       -- result handle (i64) — real Env::invoke_contract lands as a later spike.
       { name := "invoke_contract",

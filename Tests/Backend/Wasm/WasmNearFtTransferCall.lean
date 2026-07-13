@@ -48,7 +48,7 @@ def requireFtApproveAllowanceShape (module : Module) : IO Unit := do
 
 def main : IO UInt32 := do
   let module := ProofForge.Contract.Stdlib.NearFungibleToken.module
-  if module.nearCrosscallStrings != #["ft_on_transfer", "ft_resolve_transfer"] then
+  if module.crosscallStrings != #["ft_on_transfer", "ft_resolve_transfer"] then
     throw <| IO.userError "NearFungibleToken must register only its promise method names"
   requireFtApproveAllowanceShape module
   match ProofForge.Backend.WasmHost.Plan.buildModulePlan module with

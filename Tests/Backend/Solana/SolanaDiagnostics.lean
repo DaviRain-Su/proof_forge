@@ -7,7 +7,7 @@ import ProofForge.IR.Contract
 Portable `crosscall.invoke` **is** supported on Solana (CPI). Diagnostics now
 come from:
 
-* **PortableHonesty** — empty peer id (no `declareRemote` / nearCrosscallStrings)
+* **PortableHonesty** — empty peer id (no `declareRemote` / crosscallStrings)
 * **Backend policy** — EVM-only create/create2 cannot lower as CPI
 
 Exact old message `does not support capability crosscall.invoke` is obsolete

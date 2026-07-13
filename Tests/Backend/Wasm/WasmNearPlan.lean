@@ -516,7 +516,7 @@ def crosscallCreateOnlyModule : Module := {
   name := "NearCrosscallCreateOnly"
   state := #[]
   entrypoints := #[ProofForge.IR.Examples.NearCrosscallProbe.callRemote]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  crosscallStrings := #["callee.testnet", "remote_call"]
 }
 
 def crosscallValueDeposit : Entrypoint := {
@@ -530,7 +530,7 @@ def crosscallValueDepositModule : Module := {
   name := "NearCrosscallValueDeposit"
   state := #[]
   entrypoints := #[crosscallValueDeposit]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  crosscallStrings := #["callee.testnet", "remote_call"]
 }
 
 def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do

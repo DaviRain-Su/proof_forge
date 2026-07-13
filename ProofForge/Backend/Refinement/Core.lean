@@ -378,7 +378,7 @@ equality on the canonical Counter constant alone. -/
 def isCounterShapeLowerable (module : Module) : Bool :=
   module.structs.size == 0 &&
     module.proxyPattern?.isNone &&
-    module.nearCrosscallStrings.size == 0 &&
+    module.crosscallStrings.size == 0 &&
     module.eventAbiWords.size == 0 &&
     !module.overflowChecked &&
     decide (module.allocator = defaultAllocator) &&
@@ -654,7 +654,7 @@ theorem isCounterShapeLowerable_flags
     (m : Module) (h : isCounterShapeLowerable m = true) :
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
-      m.nearCrosscallStrings = #[] ∧
+      m.crosscallStrings = #[] ∧
       m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = defaultAllocator ∧
@@ -672,7 +672,7 @@ theorem isCounterShapeLowerable_flags
     | some _ =>
       intro hp
       simp [Option.isNone] at hp
-  have hnear : m.nearCrosscallStrings = #[] :=
+  have hnear : m.crosscallStrings = #[] :=
     Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp hnearB)
   have heventAbi : m.eventAbiWords = #[] :=
     Array.eq_empty_of_size_eq_zero (beq_iff_eq.mp heventAbiB)
@@ -859,7 +859,7 @@ def counterShapeModule (name : String) : Module := {
   eventAbiWords := #[]
   allocator := defaultAllocator
   proxyPattern? := none
-  nearCrosscallStrings := #[]
+  crosscallStrings := #[]
   overflowChecked := false
 }
 
@@ -874,7 +874,7 @@ theorem isCounterShapeLowerable_matches_counterShapeModule
       m.state = (counterShapeModule m.name).state ∧
       m.entrypoints = (counterShapeModule m.name).entrypoints ∧
       m.proxyPattern? = (counterShapeModule m.name).proxyPattern? ∧
-      m.nearCrosscallStrings = (counterShapeModule m.name).nearCrosscallStrings ∧
+      m.crosscallStrings = (counterShapeModule m.name).crosscallStrings ∧
       m.eventAbiWords = (counterShapeModule m.name).eventAbiWords ∧
       m.overflowChecked = (counterShapeModule m.name).overflowChecked ∧
       m.allocator = (counterShapeModule m.name).allocator := by
@@ -892,7 +892,7 @@ theorem isCounterShapeLowerable_eq_counterShapeModule
   obtain ⟨_, hstructs, hstate, hentr, hproxy, hnear, heventAbi, hoverflow, halloc⟩ :=
     isCounterShapeLowerable_matches_counterShapeModule m h
   cases m
-  case mk name structs state entrypoints eventAbiWords allocator proxyPattern? nearCrosscallStrings overflowChecked =>
+  case mk name structs state entrypoints eventAbiWords allocator proxyPattern? crosscallStrings overflowChecked =>
     simp only [counterShapeModule] at hstructs hstate hentr hproxy hnear heventAbi hoverflow halloc ⊢
     subst hstructs; subst hstate; subst hentr; subst hproxy; subst hnear; subst heventAbi
     subst hoverflow; subst halloc
@@ -909,7 +909,7 @@ theorem isCounterShapeLowerable_skeleton
     (m : Module) (h : isCounterShapeLowerable m = true) :
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
-      m.nearCrosscallStrings = #[] ∧
+      m.crosscallStrings = #[] ∧
       m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = defaultAllocator ∧

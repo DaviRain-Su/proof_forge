@@ -83,7 +83,7 @@ Expr	hash	lowered	lowerExpr emits __pf_hash(preimage) and moduleHelpers emits th
 Expr	hashTwoToOne	lowered	lowerExpr emits __pf_hash_two_to_one(lhs, rhs) and moduleHelpers emits the sha256-backed helper when cryptoHash is used.
 Expr	effect	lowered	lowerExpr delegates to lowerEffectExpr, which validates expression-only effects and rejects statement-only effects; fixtures and diagnostics cover the split.
 Expr	nativeValue	lowered	inferExprType types nativeValue as U64 and Rust sourcegen lowers it to env::attached_deposit(); Tests/Backend/Wasm/WasmNearDiagnostics.lean covers the rendered expression.
-Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create/promise_return using module.nearCrosscallStrings address literals; wasm-near target profile admits crosscall.invoke for the canonical EmitWat path while Rust sourcegen remains frozen.
+Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create/promise_return using module.crosscallStrings address literals; wasm-near target profile admits crosscall.invoke for the canonical EmitWat path while Rust sourcegen remains frozen.
 Expr	crosscallInvokeTyped	unsupported	EmitWat rejects typed cross-contract calls with an explicit NEAR diagnostic; use untyped crosscallInvoke / nearCrosscallInvokePool with string-pool literals.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat rejects value-bearing typed cross-contract calls; NEAR value transfer is modeled on nearCrosscallInvokePool/crosscallInvoke deposit operands.
 Expr	crosscallInvokeStaticTyped	unsupported	EmitWat rejects static typed cross-contract calls as EVM-only.
@@ -95,7 +95,7 @@ Expr	crosscallAbiPacked	unsupported	wasm-near IR v0 rejects ABI-packed crosscall
 Expr	ecrecover	unsupported	wasm-near IR v0 rejects ecrecover (secp256k1) as EVM-specific with an explicit diagnostic.
 Expr	eip712PermitDigest	unsupported	wasm-near IR v0 rejects EIP-712 permit digest as EVM-specific with an explicit diagnostic.
 Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call fixture covers sender-hash plus amount ft_on_transfer args.
-Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on the current contract account using module.nearCrosscallStrings callback method literals; wasm-near target profile admits near.promise for the canonical EmitWat path.
+Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on the current contract account using module.crosscallStrings callback method literals; wasm-near target profile admits near.promise for the canonical EmitWat path.
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
 Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.
 Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64); NearFungibleToken ft_resolve_transfer returns pending amount minus unused callback amount.

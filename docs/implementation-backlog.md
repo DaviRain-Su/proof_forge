@@ -3642,8 +3642,10 @@ fixtures.
 - ✅ IR-B1: open capability/HostOp identities and target-owned NEAR catalog.
 - ✅ IR-B2: Core uses neutral named-invocation/continuation modes and NEAR
   reference semantics is target-owned.
-- IR-B3: remove NEAR legacy constructors and materialization fields from shared
-  IR before resuming N-T4.
+- ✅ IR-B3a: shared peer/method materialization now uses neutral
+  `crosscallStrings` across all targets.
+- IR-B3b/IR-B3c: replace NEAR legacy constructors with generic extension and
+  continuation operations before resuming N-T4.
 - IR-B4: extract EVM ABI, protocol, call-mode, and dispatch details.
 - IR-B5: audit/migrate Solana PDA, CPI, account, sysvar, and packing details.
 - IR-B6: audit other Wasm-host profiles, Move, Aleo, Psy, and Quint ownership.

@@ -386,9 +386,9 @@ def buildCrosscallReturnAssignmentPlan
     returns
     mode
     target := ← buildExprPlan module env
-      (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target)
+      (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target)
     methodId := ← buildExprPlan module env
-      (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId)
+      (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId)
     callValue? := ← callValue?.mapM (buildExprPlan module env)
     args := ← buildCrosscallArgWordPlansMany module env (crosscallModeArgContext mode) args
   }

@@ -1455,7 +1455,7 @@ theorem evm_lowerable_implies_counter_skeleton
     (h : evmYulTargetSemantics.lowerableAccepts m = true) :
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
-      m.nearCrosscallStrings = #[] ∧
+      m.crosscallStrings = #[] ∧
       m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = ProofForge.IR.defaultAllocator ∧

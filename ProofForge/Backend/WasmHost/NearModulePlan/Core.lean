@@ -128,7 +128,7 @@ def coreLayout (m : ProofForge.IR.Core.Module)
       prefixPtr := prefixPtr + symbol.name.length + 2
   let mut crosscallStrings := #[]
   let mut crosscallPtr := ProofForge.Backend.WasmHost.Memory.CROSSCALL_STRING_BASE
-  for value in materialization.nearHostStrings do
+  for value in materialization.crosscallStrings do
     crosscallStrings := crosscallStrings.push { str := value, ptr := crosscallPtr, len := value.length }
     crosscallPtr := crosscallPtr + value.length
   return { scalars := scalars, maps := maps, strings := #[], panics := #[], crosscallStrings, stringPoolEnd := prefixPtr }
@@ -537,10 +537,10 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       | .invoke =>
         let targetIndex ← literalFor literals spec.target >>= literalIndex
         let methodIndex ← literalFor literals spec.method >>= literalIndex
-        let accountId ← match materialization.nearHostStrings[targetIndex]? with
+        let accountId ← match materialization.crosscallStrings[targetIndex]? with
           | some value => pure value
           | none => throw { message := s!"canonical NEAR crosscall target handle {targetIndex} is out of range" }
-        let methodName ← match materialization.nearHostStrings[methodIndex]? with
+        let methodName ← match materialization.crosscallStrings[methodIndex]? with
           | some value => pure value
           | none => throw { message := s!"canonical NEAR crosscall method handle {methodIndex} is out of range" }
         let encodedArgs ← args.mapM fun argument =>

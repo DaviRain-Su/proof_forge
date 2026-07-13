@@ -238,7 +238,7 @@ Implementation sketch:
      `SbpfAsm` method+args → ix data; auto `callee_program` account;
      `sol_log_64_` + `sol_get_return_data` stub). `Source.Solana` CPI remains
      for hand-tuned account vectors.
-   - **NEAR:** `promise_create` via `nearCrosscallStrings` address-literal
+   - **NEAR:** `promise_create` via `crosscallStrings` address-literal
      indices; typed/STATIC/DELEGATE/create reject with honest diagnostics.
    - Map + gate: `Target.CrosscallMaterialize` + `just crosscall-materialize`.
 

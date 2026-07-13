@@ -20,7 +20,7 @@ NEAR-specific `Expr` constructors gated by the `near.promise` capability.
 
 ### Module metadata
 
-Reuse `module.nearCrosscallStrings` for:
+Reuse `module.crosscallStrings` for:
 
 - remote account ids and method names (`crosscallInvoke`)
 - **local callback method names** (`nearPromiseThen`)

@@ -1144,45 +1144,45 @@ mutual
     | .crosscallInvoke target methodId args => do
         .ok (.crosscall .call
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (wrapCrosscallExprWordPlans (← args.mapM (buildExprPlan module env)))
           .u64)
     | .crosscallInvokeTyped target methodId args returnType => do
         .ok (.crosscall .call
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "typed crosscall argument" args)
           returnType)
     | .crosscallInvokeValueTyped target methodId callValue args returnType => do
         .ok (.crosscall .callValue
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           (some (← buildExprPlan module env callValue))
           (← buildCrosscallArgWordPlansMany module env "value crosscall argument" args)
           returnType)
     | .crosscallInvokeStaticTyped target methodId args returnType => do
         .ok (.crosscall .staticcall
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "static crosscall argument" args)
           returnType)
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         .ok (.crosscall .delegatecall
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "delegate crosscall argument" args)
           returnType)

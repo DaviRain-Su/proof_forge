@@ -49,7 +49,7 @@ def portablePdaRemoteSpec : ProofForge.Contract.ContractSpec :=
         (isSigner := true)
       ret (ProofForge.IR.Expr.crosscallInvoke
         (localVar "target") (localVar "method") #[])
-  { s with module := { s.module with nearCrosscallStrings := #["portable.callee"] } }
+  { s with module := { s.module with crosscallStrings := #["portable.callee"] } }
 
 def main : IO UInt32 := do
   match ProofForge.Backend.Solana.Package.renderPackageForSpec "pda-seeds" pdaOnlySpec with
@@ -126,7 +126,7 @@ def main : IO UInt32 := do
           #[("target", .u64), ("method", .u64)] .u64 do
         ret (ProofForge.IR.Expr.crosscallInvoke
           (localVar "target") (localVar "method") #[])
-    { s with module := { s.module with nearCrosscallStrings := #["portable.callee"] } }
+    { s with module := { s.module with crosscallStrings := #["portable.callee"] } }
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
       "pure-peer-cpi-accounts" purePeerSpec with
   | .ok pkg =>
