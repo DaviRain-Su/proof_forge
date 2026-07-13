@@ -340,8 +340,32 @@ def renderModuleFromPlan (mod : Module) (plan : NearModulePlan) :
 private def canonicalNearType (name : String) : ValueType :=
   if name.endsWith "bool" then .bool
   else if name.endsWith "u32" then .u32
+  else if name.endsWith "u128" then .u128
   else if name.endsWith "hash" then .hash
   else .u64
+
+/-! Two-word u128 local convention (mirrors the legacy path): a u128 value
+    `v{id}` occupies `v{id}` (lo) and `v{id}__hi` (hi). get pushes both words
+    (lo then hi); set consumes hi then lo. -/
+
+private def canonicalNearGet (id : Nat) (typeName : String) :
+    Array ProofForge.Compiler.Wasm.Insn :=
+  if canonicalNearType typeName == .u128 then
+    #[.localGet s!"v{id}", .localGet (Types.u128HiName s!"v{id}")]
+  else #[.localGet s!"v{id}"]
+
+private def canonicalNearSet (id : Nat) (typeName : String) :
+    Array ProofForge.Compiler.Wasm.Insn :=
+  if canonicalNearType typeName == .u128 then
+    #[.localSet (Types.u128HiName s!"v{id}"), .localSet s!"v{id}"]
+  else #[.localSet s!"v{id}"]
+
+private def canonicalNearLocals (value : NearValuePlan) : Array ProofForge.Compiler.Wasm.Local :=
+  if canonicalNearType value.typeName == .u128 then
+    #[{ name := s!"v{value.id}", type := .i64 },
+      { name := Types.u128HiName s!"v{value.id}", type := .i64 }]
+  else
+    #[{ name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }]
 
 private def canonicalNearLocal (value : NearValuePlan) : ProofForge.Compiler.Wasm.Local :=
   { name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }
@@ -434,7 +458,11 @@ private def canonicalDepositPtr (deposit : NearValuePlan) : Array ProofForge.Com
 private def lowerCanonicalNearOp (plan : NearModulePlan)
     (eventStrings promiseStrings : Array Layout.StringInfo) :
     NearOpPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
-  | .literal result value => .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
+  | .literal result value =>
+      if canonicalNearType result.typeName == .u128 then
+        .ok (#[.i64Const value, .i64Const 0] ++ canonicalNearSet result.id result.typeName)
+      else
+        .ok #[.const (Types.wasmTypeOf (canonicalNearType result.typeName)) (toString value), .localSet s!"v{result.id}"]
   | .hashLiteral result a b c d => .ok #[
       .i64Const a, .i64Const b, .i64Const c, .i64Const d,
       .call Hash.hashMakeName, .localSet s!"v{result.id}"]
@@ -444,13 +472,13 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         | some state => pure state
         | none => Diagnostics.err s!"canonical NEAR references unknown scalar state {stateId}"
       let (insns, _) := Scalar.storageScalarReadInsns state
-      return insns ++ #[.localSet s!"v{result.id}"]
+      return insns ++ canonicalNearSet result.id result.typeName
   | .storeState stateId value => do
       let state <- match canonicalNearState? plan stateId with
         | some state => pure state
         | none => Diagnostics.err s!"canonical NEAR references unknown scalar state {stateId}"
-      Scalar.storageScalarWriteInsns #[] state state.id #[.localGet s!"v{value.id}"]
-        (canonicalNearType value.typeName)
+      Scalar.storageScalarWriteInsns #[] state state.id
+        (canonicalNearGet value.id value.typeName) state.type
   | .loadMap result stateId key => do
       let mapPlan ← match plan.layout.maps.find? (fun entry => entry.coreId? == some stateId) with
         | some entry => pure entry
@@ -459,8 +487,9 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         id := mapPlan.id, keyType := mapPlan.keyType, valueType := mapPlan.valueType,
         prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
       let readCall ← Map.mapReadCall mapInfo mapInfo.id
-      let (instructions, _) := Map.mapReadValueInsns mapInfo #[.localGet s!"v{key.id}"] readCall
-      return instructions ++ #[.localSet s!"v{result.id}"]
+      let (instructions, _) := Map.mapReadValueInsns mapInfo
+        (canonicalNearGet key.id key.typeName) readCall
+      return instructions ++ canonicalNearSet result.id result.typeName
   | .storeMap stateId key value => do
       let mapPlan ← match plan.layout.maps.find? (fun entry => entry.coreId? == some stateId) with
         | some entry => pure entry
@@ -470,36 +499,77 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         prefixPtr := mapPlan.prefixPtr, prefixLen := mapPlan.prefixLen, isArray := false }
       let writeCall ← Map.mapWriteCall mapInfo
       let (instructions, _) ← Map.mapWriteValueInsns mapInfo mapInfo.id
-        #[.localGet s!"v{key.id}"] #[.localGet s!"v{value.id}"] writeCall mapInfo.valueType
+        (canonicalNearGet key.id key.typeName)
+        (canonicalNearGet value.id value.typeName) writeCall mapInfo.valueType
       return instructions ++ #[.drop]
   | .arithmetic result op checked lhs rhs =>
       let ty := canonicalNearType result.typeName
-      let calculation := #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
-        .plain (canonicalNearArithmetic ty op), .localSet s!"v{result.id}"]
+      if ty == .u128 then
+        -- u128 arithmetic: two-word operands → __pf_u128_add/sub (void, writes
+        -- U128_RESULT_BUF) → reload lo/hi → set result. Checked-overflow on
+        -- u128 is not yet wired (the FT's +!/-! on amounts stays unchecked here).
+        let arithName : String := match op with
+          | .add => Scalar.u128AddName
+          | .sub => Scalar.u128SubName
+          | _ => ""
+        if arithName.isEmpty then
+          Diagnostics.err s!"canonical NEAR: u128 arithmetic not yet supported (only add/sub)"
+        else
+          .ok (canonicalNearGet lhs.id lhs.typeName ++
+            canonicalNearGet rhs.id rhs.typeName ++
+            #[.call arithName,
+              .i32Const Memory.U128_RESULT_BUF, .load "i64.load" 0,
+              .i32Const (Memory.U128_RESULT_BUF + 8), .load "i64.load" 0]
+            ++ canonicalNearSet result.id result.typeName)
+      else
+      let calculation := canonicalNearGet lhs.id lhs.typeName ++
+        canonicalNearGet rhs.id rhs.typeName ++
+        #[.plain (canonicalNearArithmetic ty op)] ++ canonicalNearSet result.id result.typeName
       if !checked then .ok calculation else
         match op with
-        | .add => .ok (calculation ++ #[.localGet s!"v{result.id}", .localGet s!"v{lhs.id}",
-            .plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }])
-        | .sub => .ok (#[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
-            .plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
-        | .div | .mod => .ok (#[.localGet s!"v{rhs.id}",
-            .plain (Types.widthOf ty ++ ".eqz"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
-        | .mul => .ok (calculation ++ #[
-            .localGet s!"v{rhs.id}", .plain (Types.widthOf ty ++ ".eqz"),
-            .if_ { insns := #[] } { insns := #[
-              .localGet s!"v{result.id}", .localGet s!"v{rhs.id}",
-              .plain (Types.widthOf ty ++ ".div_u"), .localGet s!"v{lhs.id}",
-              .plain (Types.widthOf ty ++ ".ne"),
-              .if_ { insns := #[.unreachable] } { insns := #[] }] }])
+        | .add => .ok (calculation ++ canonicalNearGet result.id result.typeName ++
+            canonicalNearGet lhs.id lhs.typeName ++
+            #[.plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }])
+        | .sub => .ok (canonicalNearGet lhs.id lhs.typeName ++
+            canonicalNearGet rhs.id rhs.typeName ++
+            #[.plain (Types.widthOf ty ++ ".lt_u"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
+        | .div | .mod => .ok (canonicalNearGet rhs.id rhs.typeName ++
+            #[.plain (Types.widthOf ty ++ ".eqz"), .if_ { insns := #[.unreachable] } { insns := #[] }] ++ calculation)
+        | .mul => .ok (calculation ++ canonicalNearGet rhs.id rhs.typeName ++
+            #[.plain (Types.widthOf ty ++ ".eqz"),
+            .if_ { insns := #[] } { insns := (canonicalNearGet result.id result.typeName ++
+              canonicalNearGet rhs.id rhs.typeName ++
+              #[.plain (Types.widthOf ty ++ ".div_u")] ++ canonicalNearGet lhs.id lhs.typeName ++
+              #[.plain (Types.widthOf ty ++ ".ne"),
+              .if_ { insns := #[.unreachable] } { insns := #[] }]) }])
         | _ => .ok calculation
   | .compare result op lhs rhs =>
       let ty := canonicalNearType lhs.typeName
       if ty == .hash && (op == .eq || op == .ne) then
         .ok (#[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}", .call Hash.hashEqName] ++
           (if op == .ne then #[.plain "i32.eqz"] else #[]) ++ #[.localSet s!"v{result.id}"])
+      else if ty == .u128 then
+        -- u128 comparison: two-word operands → __pf_u128_eq / __pf_u128_lt.
+        -- eq/ne → u128_eq (+ eqz for ne); ge → u128_lt + eqz;
+        -- lt → u128_lt; gt → swapped u128_lt; le → swapped + eqz.
+        let cmpInsns : Array ProofForge.Compiler.Wasm.Insn :=
+          match op with
+          | .eq => canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName
+                    ++ #[.call Scalar.u128EqName]
+          | .ne => canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName
+                    ++ #[.call Scalar.u128EqName, .plain "i32.eqz"]
+          | .lt => canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName
+                    ++ #[.call Scalar.u128LtName]
+          | .ge => canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName
+                    ++ #[.call Scalar.u128LtName, .plain "i32.eqz"]
+          | .gt => canonicalNearGet rhs.id rhs.typeName ++ canonicalNearGet lhs.id lhs.typeName
+                    ++ #[.call Scalar.u128LtName]
+          | .le => canonicalNearGet rhs.id rhs.typeName ++ canonicalNearGet lhs.id lhs.typeName
+                    ++ #[.call Scalar.u128LtName, .plain "i32.eqz"]
+        .ok (cmpInsns ++ #[.localSet s!"v{result.id}"])
       else
-        .ok #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
-          .plain (canonicalNearCompare ty op), .localSet s!"v{result.id}"]
+        .ok (canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName ++
+          #[.plain (canonicalNearCompare ty op), .localSet s!"v{result.id}"])
   | .hashTwoToOne result lhs rhs =>
       .ok #[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}",
         .call Hash.hashTwoName, .localSet s!"v{result.id}"]
@@ -659,6 +729,8 @@ private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
             | .hash => #[.i64Const 32, .localGet s!"v{value.id}", .plain "i64.extend_i32_u",
                 .call "value_return", .return_]
             | .u32 => #[.localGet s!"v{value.id}", .call Types.returnU32Name, .return_]
+            | .u128 => canonicalNearGet value.id value.typeName ++
+                #[.call Types.returnU128Name, .return_]
             | .bool => #[.localGet s!"v{value.id}", .call Types.returnBoolName, .return_]
             | _ => #[.localGet s!"v{value.id}", .call Types.returnU64Name, .return_]
       | none => pure #[.return_]
@@ -712,7 +784,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
   let (paramPrologue, _) ← Params.loadParams #[] inputParams loweringAbiPlan plan.hostBridge.bridge
   return {
     name := fn.name, exportName := some fn.name
-    locals := #[{ name := "pc", type := .i32 }] ++ values.map canonicalNearLocal
+    locals := #[{ name := "pc", type := .i32 }] ++ values.flatMap canonicalNearLocals
     body := { insns := authPrologue ++ paramPrologue ++ #[.i32Const fn.blocks[0]!.id, .localSet "pc",
       .loop_ { insns := dispatch ++ #[.br 0] }] }
   }
@@ -742,8 +814,14 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     if acc.contains state.type then acc else acc.push state.type) #[]
   let helperFuncs := scalarTypes.foldl (fun acc ty =>
     if ty == .hash then acc else
-      let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty bridge) else acc
-      if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty bridge) else acc) #[]
+      if ty == .u128 then
+        -- u128 scalar storage uses the two-word read/write helpers, not the
+        -- single-word generic readFunc/writeFunc.
+        let acc := if plan.surface.scalarReadTypes.contains ty then acc.push Scalar.readU128FuncNear else acc
+        if plan.surface.scalarWriteTypes.contains ty then acc.push Scalar.writeU128FuncNear else acc
+      else
+        let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty bridge) else acc
+        if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty bridge) else acc) #[]
   let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface bridge ++
     Map.mapHashHelperFuncsForModulePlan plan.surface bridge
   let hashHelpers := Hash.hashExprHelperFuncsForModulePlan plan.surface
@@ -757,7 +835,18 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface bridge
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
+    (if plan.surface.returnTypes.contains .u128 then #[Scalar.returnU128Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc bridge] else #[])
+  -- u128 arithmetic / comparison / formatter helpers are needed whenever any
+  -- u128 value is used (scalar, map, arithmetic, comparison, events, crosscall).
+  let usesU128 := plan.surface.scalarReadTypes.contains .u128 ||
+    plan.surface.scalarWriteTypes.contains .u128 ||
+    plan.surface.returnTypes.contains .u128 ||
+    plan.surface.hashIndexedReadTypes.contains .u128 ||
+    plan.surface.hashIndexedWriteTypes.contains .u128 ||
+    plan.surface.u64IndexedReadTypes.contains .u128 ||
+    plan.surface.u64IndexedWriteTypes.contains .u128
+  let u128ArithHelpers := if usesU128 then Scalar.u128ArithFuncs else #[]
   let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface bridge
   let imports := Imports.importsForModulePlan plan.surface defaultAllocator false bridge
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
@@ -778,8 +867,9 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     globals := (if Hash.modulePlanUsesHashAlloc plan.surface then #[Hash.hashPtrGlobalDecl] else #[]) ++
       (if eventStrings.isEmpty then #[] else Event.evtGlobals) ++
       Crosscall.crosscallGlobalsForModulePlan plan.surface
-    funcs := helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
-      returnFuncs ++ eventHelpers ++ funcs
+    funcs := (helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
+      returnFuncs ++ eventHelpers ++ u128ArithHelpers ++ funcs).foldl
+      (fun acc f => if acc.any (fun g => g.name == f.name) then acc else acc.push f) #[]
     memory := some { min := 1 }
     dataSegments := data }
 
