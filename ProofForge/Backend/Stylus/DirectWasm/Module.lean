@@ -192,14 +192,16 @@ private def dynamicArrayParam (index headBytes maximum elementWords : Nat)
   pure <| body ++ #[.localGet offsetName, .i32Const (calldataPtr + 4 + 32), .plain "i32.add",
     .plain "i64.extend_i32_u", .localGet lengthName, .plain "i64.extend_i32_u"]
 
-private def dynamicTupleParam (index headBytes maximum : Nat) (fields : Array StylusAbiType) :
+private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Nat)
+    (fields : Array StylusAbiType) :
     Except LowerError (Array Insn) := do
   let dynamicFields := fields.filter fun field => field.isDynamic
-  unless dynamicFields.size == 1 && (dynamicFields[0]? == some .bytes || dynamicFields[0]? == some .string) do
-    throw { message := "direct Wasm dynamic tuple currently requires exactly one bytes/string field" }
+  unless dynamicFields.all fun field => field == .bytes || field == .string do
+    throw { message := "direct Wasm dynamic tuple currently supports only bytes/string dynamic fields" }
+  unless dynamicFields.size == maximumLengths.size do
+    throw { message := s!"direct Wasm dynamic tuple has {dynamicFields.size} dynamic fields but {maximumLengths.size} maxima" }
   let offsetName := s!"abi_offset_{index}"
-  let lengthName := s!"abi_length_{index}"
-  let childOffsetName := s!"abi_child_offset_{index}"
+  let extentName := s!"abi_tuple_extent_{index}"
   let headPtr := calldataPtr + 4 + index * 32
   let tupleHeadWords ← fields.foldlM (fun words (field : StylusAbiType) => do
     let width ← if field.isDynamic then pure 1 else staticAbiWords 2048 field
@@ -216,52 +218,62 @@ private def dynamicTupleParam (index headBytes maximum : Nat) (fields : Array St
   body := body ++ rejectIf #[.localGet offsetName, .i32Const tupleHeadBytes, .plain "i32.add",
     .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
   let mut wordOffset := 0
-  let mut childWord := 0
+  let mut dynamicIndex := 0
   for field in fields do
     if field.isDynamic then
-      childWord := wordOffset
+      let childOffsetName := s!"abi_child_offset_{index}_{dynamicIndex}"
+      let lengthName := s!"abi_child_length_{index}_{dynamicIndex}"
+      let maximum := maximumLengths[dynamicIndex]!
+      let childPtrBase := calldataPtr + 4 + wordOffset * 32
+      let mut highChild : Array Insn := #[.i32Const 0]
+      for byte in [0:28] do highChild := highChild ++ #[.localGet offsetName,
+        .i32Const (childPtrBase + byte), .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or"]
+      body := body ++ rejectIf highChild ++ #[.localGet offsetName, .i32Const (childPtrBase + 28),
+        .plain "i32.add", .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
+        .localGet offsetName, .i32Const (childPtrBase + 29), .plain "i32.add", .load "i32.load8_u" 0,
+        .i32Const 16, .plain "i32.shl", .plain "i32.or",
+        .localGet offsetName, .i32Const (childPtrBase + 30), .plain "i32.add", .load "i32.load8_u" 0,
+        .i32Const 8, .plain "i32.shl", .plain "i32.or",
+        .localGet offsetName, .i32Const (childPtrBase + 31), .plain "i32.add", .load "i32.load8_u" 0,
+        .plain "i32.or", .localSet childOffsetName]
+      body := body ++ rejectIf #[.localGet childOffsetName, .i32Const 31, .plain "i32.and"]
+      body := body ++ rejectIf #[.localGet childOffsetName, .i32Const tupleHeadBytes, .plain "i32.lt_u"]
+      body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
+        .i32Const 32, .plain "i32.add", .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
+      let lengthBase := calldataPtr + 4 + 28
+      let mut highLength : Array Insn := #[.i32Const 0]
+      for byte in [0:28] do highLength := highLength ++ #[.localGet offsetName,
+        .localGet childOffsetName, .plain "i32.add", .i32Const (calldataPtr + 4 + byte),
+        .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or"]
+      body := body ++ rejectIf highLength
+      body := body ++ #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
+        .i32Const lengthBase, .plain "i32.add", .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
+        .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 1),
+        .plain "i32.add", .load "i32.load8_u" 0, .i32Const 16, .plain "i32.shl", .plain "i32.or",
+        .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 2),
+        .plain "i32.add", .load "i32.load8_u" 0, .i32Const 8, .plain "i32.shl", .plain "i32.or",
+        .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 3),
+        .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or", .localSet lengthName]
+      body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
+      body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
+        .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const 31, .plain "i32.add",
+        .i32Const 4294967264, .plain "i32.and", .plain "i32.add",
+        .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
+      body := body ++ #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
+        .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+        .plain "i32.and", .plain "i32.add", .localGet extentName, .plain "i32.gt_u",
+        .if_ (.mk #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
+          .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+          .plain "i32.and", .plain "i32.add", .localSet extentName]) .empty]
+      dynamicIndex := dynamicIndex + 1
       wordOffset := wordOffset + 1
     else
       let (checks, next) ← validateDynamicStatic offsetName 0 wordOffset field
       body := body ++ checks
       wordOffset := next
-  let childPtrBase := calldataPtr + 4 + childWord * 32
-  let mut highChild : Array Insn := #[.i32Const 0]
-  for byte in [0:28] do highChild := highChild ++ #[.localGet offsetName,
-    .i32Const (childPtrBase + byte), .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or"]
-  body := body ++ rejectIf highChild ++ #[.localGet offsetName, .i32Const (childPtrBase + 28),
-    .plain "i32.add", .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
-    .localGet offsetName, .i32Const (childPtrBase + 29), .plain "i32.add", .load "i32.load8_u" 0,
-    .i32Const 16, .plain "i32.shl", .plain "i32.or",
-    .localGet offsetName, .i32Const (childPtrBase + 30), .plain "i32.add", .load "i32.load8_u" 0,
-    .i32Const 8, .plain "i32.shl", .plain "i32.or",
-    .localGet offsetName, .i32Const (childPtrBase + 31), .plain "i32.add", .load "i32.load8_u" 0,
-    .plain "i32.or", .localSet childOffsetName]
-  body := body ++ rejectIf #[.localGet childOffsetName, .i32Const 31, .plain "i32.and"]
-  body := body ++ rejectIf #[.localGet childOffsetName, .i32Const tupleHeadBytes, .plain "i32.lt_u"]
-  body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
-    .i32Const 32, .plain "i32.add", .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
-  let lengthBase := calldataPtr + 4 + 28
-  let mut highLength : Array Insn := #[.i32Const 0]
-  for byte in [0:28] do highLength := highLength ++ #[.localGet offsetName,
-    .localGet childOffsetName, .plain "i32.add", .i32Const (calldataPtr + 4 + byte),
-    .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or"]
-  body := body ++ rejectIf highLength
-  body := body ++ #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
-    .i32Const lengthBase, .plain "i32.add", .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
-    .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 1),
-    .plain "i32.add", .load "i32.load8_u" 0, .i32Const 16, .plain "i32.shl", .plain "i32.or",
-    .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 2),
-    .plain "i32.add", .load "i32.load8_u" 0, .i32Const 8, .plain "i32.shl", .plain "i32.or",
-    .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 3),
-    .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or", .localSet lengthName]
-  body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
-  body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
-    .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const 31, .plain "i32.add",
-    .i32Const 4294967264, .plain "i32.and", .plain "i32.add",
-    .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
-  pure <| body ++ #[.localGet offsetName, .i32Const (calldataPtr + 4), .plain "i32.add",
-    .plain "i64.extend_i32_u", .localGet lengthName, .plain "i64.extend_i32_u"]
+  pure <| #[.i32Const tupleHeadBytes, .localSet extentName] ++ body ++
+    #[.localGet offsetName, .i32Const (calldataPtr + 4), .plain "i32.add",
+      .plain "i64.extend_i32_u", .localGet extentName, .plain "i64.extend_i32_u"]
 
 private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Except LowerError (Array Insn) := do
   let malformed := "stylus: malformed calldata".toUTF8.data
@@ -291,7 +303,8 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
             |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
           body := body ++ (← dynamicArrayParam headIndex (headWords * 32) maximum elementWords element)
       | .tuple fields =>
-          body := body ++ (← dynamicTupleParam headIndex (headWords * 32) maximum fields)
+          body := body ++ (← dynamicTupleParam headIndex (headWords * 32)
+            functionParam.dynamicFieldMaxLengths fields)
       | type =>
           throw { message := s!"direct Wasm ABI method `{method.name}` has unsupported nested dynamic type {repr type}" }
       headIndex := headIndex + 1
@@ -316,15 +329,25 @@ private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
       .if_ (.mk (← methodCall plan method)) .empty
     ])
   let mut maxParams := 0
+  let mut maxDynamicChildren := 0
   for method in plan.abi.methods do
     let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
       |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
     maxParams := max maxParams headWords
+    for param in method.params do
+      match param.type with
+      | .tuple fields =>
+          maxDynamicChildren := max maxDynamicChildren (fields.countP fun field => field.isDynamic)
+      | _ => pure ()
   let mut locals := #[{ name := "selector", type := ValType.i32 }]
   for index in [0:maxParams] do
     locals := locals ++ #[{ name := s!"abi_offset_{index}", type := .i32 },
       { name := s!"abi_length_{index}", type := .i32 },
-      { name := s!"abi_child_offset_{index}", type := .i32 }]
+      { name := s!"abi_child_offset_{index}", type := .i32 },
+      { name := s!"abi_tuple_extent_{index}", type := .i32 }]
+    for child in [0:maxDynamicChildren] do
+      locals := locals ++ #[{ name := s!"abi_child_offset_{index}_{child}", type := .i32 },
+        { name := s!"abi_child_length_{index}_{child}", type := .i32 }]
   pure {
     name := "user_entrypoint"
     exportName := some "user_entrypoint"

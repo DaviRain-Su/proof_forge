@@ -1737,6 +1737,22 @@ Rules:
   array/tuple children, and implement dynamic storage. No W3 completion
   checkbox was closed.
 
+## 2026-07-13 - STYLUS-W3: Multi-child dynamic tuple direct carrier
+
+- Status: `multi-child bytes/string tuple slice complete; recursive children pending`
+- `DirectWasm.Module.dynamicTupleParam` now consumes every plan-owned dynamic
+  field maximum, validates each tuple-relative offset/length/padded tail before
+  the function call, and computes the complete tuple extent. Entrypoint locals
+  are derived from the largest method shape instead of a fixed child count.
+- The aggregate fixture now compiles `(uint64,bytes,string)` through both direct
+  Wasm and the generated Rust SDK crate. Runner vectors pin successful UTF-8
+  payloads, pointers into the tuple head, per-field limit violations, and
+  truncated secondary tails.
+- Verification: `just stylus-aggregate-differential` passes Lean generation,
+  `wat2wasm`, local runner assertions, and generated Rust crate tests.
+- Remaining: recursively planned dynamic array/tuple children, aggregate
+  storage short/long transitions, and resource exhaustion. W3.1 remains open.
+
 ## 2026-07-13 - STYLUS-W4: Rust SDK static-call oracle foundation
 
 - Status: `static uint64 call slice complete; runtime parity closure pending`

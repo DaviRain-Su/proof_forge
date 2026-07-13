@@ -18,22 +18,55 @@ Agents execute this queue in order without stopping at internal checkpoints.
 Each package may contain multiple reviewed commits; only external environment
 blockers may defer an item.
 
-- [ ] **W3 aggregate closure:** multi-child direct tuple carriers, nested
-  dynamic arrays, dynamic storage short/long transitions, allocation/resource
-  adversarial gates, and Rust/direct fixtures.
-- [ ] **W4 remote-call closure:** official HostIO audit, Rust/direct/runner
-  parity, static/delegate/reentrant context vectors, and local two-contract
-  evidence.
-- [ ] **W5 live evidence:** ValueVault, token, remote, and aggregate Nitro
-  check/deploy/E2E evidence. Keep blocked with doctor JSON when Docker/RPC is
-  unavailable; do not substitute Wasmtime evidence.
-- [ ] **W6 renderer cutover:** explicit renderer option, direct default,
-  atomic WAT/Wasm/client/metadata, plan/ABI/storage/evidence hashes, and strict
-  no-fallback tests.
-- [ ] **W7 release integration:** `stylus-all`, four-worker lanes, CI artifact
-  upload, registry/docs/i18n, product/static regression, and final evidence.
-- [ ] **Final integration:** review the complete range, then rebase the main
-  working branch, resolve conflicts, rerun gates, and push.
+- [ ] **W3.1 Direct aggregate carriers:** lower multi-child dynamic tuple
+  extents and recursively nested dynamic array/tuple tails from plan-owned
+  layouts; add malformed-offset and complete-before-copy runtime vectors.
+  Multi-child bytes/string tuple extents and adversarial direct-Wasm vectors
+  are implemented; recursive dynamic array/tuple children remain open.
+- [ ] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
+  dynamic bytes/string/array short-long storage transitions, checked allocation
+  exhaustion, maximum-page gates, and Rust/direct differential fixtures.
+- [ ] **W3.3 Aggregate closure gate:** run the complete aggregate differential,
+  diagnostics, resource-adversarial, Rust oracle, and direct-Wasm gates; update
+  Task 6 evidence without claiming Nitro execution.
+- [ ] **W4.1 HostIO/context closure:** audit all remote-call imports against the
+  pinned SDK and add static-write rejection plus delegate caller/value/address/
+  storage context vectors to the local runner.
+- [ ] **W4.2 Renderer parity:** support the same bounded static and dynamic
+  return envelopes in generated Rust, then compare normalized Rust/direct/
+  runner results, failures, calldata, cache transitions, and nested frames.
+- [ ] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
+  callee local evidence manifest and make the remote differential gate verify
+  its schema and hashes. This is local evidence, never Nitro evidence.
+- [ ] **W5.1 Environment audit:** run the Nitro doctor and persist doctor JSON.
+  If Docker/RPC is unavailable, record the external blocker and continue with
+  every independent W6/W7 static item rather than stopping the queue.
+- [ ] **W5.2 Live Nitro evidence:** when available, run ValueVault, token,
+  remote two-contract, and aggregate check/deploy/E2E scenarios and persist
+  addresses, transaction hashes, receipts, results, logs, gas/ink, tool
+  versions, and source/artifact hashes.
+- [ ] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
+  default, Rust-oracle mode, named unavailable-renderer diagnostics, and strict
+  no-fallback tests without promoting Stylus into the primary triad.
+- [ ] **W6.2 Atomic artifact bundle:** publish WAT/Wasm/ABI/client/plan metadata
+  atomically with renderer, plan-schema, ABI, storage, toolchain, and evidence
+  hashes; reject skipped or stale required evidence.
+- [ ] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
+  RemoteCall, and Aggregate bundles through literal CLI commands for both
+  supported renderer modes.
+- [ ] **W7.1 Static test integration:** create `stylus-all` with no named skip,
+  register every static gate exactly once in four-worker lanes and serial
+  coverage, and preserve live Nitro as an explicit separate gate.
+- [ ] **W7.2 CI/release evidence:** add GitHub/Woodpecker artifact upload and
+  failure doctor data, synchronize registry/README/status/roadmap/i18n claims,
+  and generate the final evidence manifest only after live requirements pass.
+- [ ] **W7.3 Full regression:** run `just product`, `just stylus-all`, manifest
+  and equivalence checks, docs/i18n checks, `JOBS=4 just check-parallel`, and
+  `git diff --check`; review the complete range for hidden fallback or
+  unsupported claims.
+- [ ] **Final integration:** only after the queue is closed or externally
+  blocked with exact evidence, review the complete branch, rebase the main
+  working branch, resolve conflicts, rerun required gates, and push.
 
 ## Global Constraints
 

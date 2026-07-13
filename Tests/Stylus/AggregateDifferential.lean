@@ -151,10 +151,18 @@ def main : IO Unit := do
     selector := #[0xde, 0xad, 0xbe, 0x08]
     params := #[{ name := "value", type := dynamicTuple }], returns := #[], mutability := .view
   }
+  let multiDynamicTuple := StylusAbiType.tuple #[.uint 64, .bytes, .string]
+  let multiDynamicTupleMethod : StylusAbiMethodPlan := {
+    name := "acceptMultiDynamicTuple"
+    canonicalSignature := "acceptMultiDynamicTuple((uint64,bytes,string))"
+    selector := #[0xde, 0xad, 0xbe, 0x09]
+    params := #[{ name := "value", type := multiDynamicTuple }], returns := #[], mutability := .view
+  }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
     abi := { methods := #[bytesMethod, stringMethod, fixedMethod, tupleMethod, mixedMethod,
-      arrayMethod, tupleArrayMethod, dynamicTupleMethod], errors := #[] }, storage := { words := #[] }
+      arrayMethod, tupleArrayMethod, dynamicTupleMethod, multiDynamicTupleMethod], errors := #[] },
+    storage := { words := #[] }
     functions := #[
       { id := "echoBytes", abiMethod := "echoBytes", params := #[{
           valueId := 1, name := "value", type := .bytes, dynamicMaxLength? := some 64 }]
@@ -181,6 +189,10 @@ def main : IO Unit := do
       { id := "acceptDynamicTuple", abiMethod := "acceptDynamicTuple", params := #[{
           valueId := 9, name := "value", type := dynamicTuple, dynamicMaxLength? := some 64
           dynamicFieldMaxLengths := #[64] }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+      { id := "acceptMultiDynamicTuple", abiMethod := "acceptMultiDynamicTuple", params := #[{
+          valueId := 10, name := "value", type := multiDynamicTuple, dynamicMaxLength? := some 64,
+          dynamicFieldMaxLengths := #[64, 64] }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support }
     ]
     events := #[], calls := #[]
@@ -200,7 +212,9 @@ def main : IO Unit := do
       { id := "tuple-array.value", functionId := "acceptTupleArray", operation := .msgValue, support },
       { id := "tuple-array.result", functionId := "acceptTupleArray", operation := .writeResult, support },
       { id := "dynamic-tuple.value", functionId := "acceptDynamicTuple", operation := .msgValue, support },
-      { id := "dynamic-tuple.result", functionId := "acceptDynamicTuple", operation := .writeResult, support }
+      { id := "dynamic-tuple.result", functionId := "acceptDynamicTuple", operation := .writeResult, support },
+      { id := "multi-dynamic-tuple.value", functionId := "acceptMultiDynamicTuple", operation := .msgValue, support },
+      { id := "multi-dynamic-tuple.result", functionId := "acceptMultiDynamicTuple", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := false }
     artifacts := { solidityAbi := true, typescriptClient := true }

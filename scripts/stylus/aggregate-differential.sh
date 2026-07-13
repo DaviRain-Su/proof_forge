@@ -37,12 +37,17 @@ tuple_array_bad="$(call "deadbe07${head}$(printf '%064x' 1)01$(printf '00%.0s' {
 dynamic_tuple="$(call "deadbe08${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 5)${hello_payload}$(printf '00%.0s' {1..27})")"
 dynamic_tuple_bad="$(call "deadbe08${head}$(printf '%064x' 7)${head}$(printf '%064x' 0)")"
 dynamic_tuple_high_length="$(call "deadbe08${head}$(printf '%064x' 7)$(printf '%064x' 64)01$(printf '00%.0s' {1..31})")"
+multi_tuple_payload="$(printf '%064x' 7)$(printf '%064x' 96)$(printf '%064x' 160)$(printf '%064x' 5)${hello_payload}$(printf '00%.0s' {1..27})$(printf '%064x' 6)${utf8_payload}$(printf '00%.0s' {1..26})"
+multi_dynamic_tuple="$(call "deadbe09${head}${multi_tuple_payload}")"
+multi_dynamic_inside_head="$(call "deadbe09${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 160)$(printf '%064x' 0)$(printf '%064x' 0)$(printf '%064x' 0)")"
+multi_dynamic_over_limit="$(call "deadbe09${head}$(printf '%064x' 7)$(printf '%064x' 96)$(printf '%064x' 224)$(printf '%064x' 65)$(printf '00%.0s' {1..96})$(printf '%064x' 0)")"
+multi_dynamic_truncated="$(call "deadbe09${head}$(printf '%064x' 7)$(printf '%064x' 96)$(printf '%064x' 128)$(printf '%064x' 0)$(printf '%064x' 33)$(printf '00%.0s' {1..32})")"
 
-python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" "$array" "$array_bad" "$array_truncated" "$tuple_array" "$tuple_array_bad" "$dynamic_tuple" "$dynamic_tuple_bad" "$dynamic_tuple_high_length" <<'PY'
+python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" "$array" "$array_bad" "$array_truncated" "$tuple_array" "$tuple_array_bad" "$dynamic_tuple" "$dynamic_tuple_bad" "$dynamic_tuple_high_length" "$multi_dynamic_tuple" "$multi_dynamic_inside_head" "$multi_dynamic_over_limit" "$multi_dynamic_truncated" <<'PY'
 import json
 import sys
 
-empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array, tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length = map(json.loads, sys.argv[1:])
+empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array, tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length, multi_dynamic_tuple, multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dynamic_truncated = map(json.loads, sys.argv[1:])
 assert empty["calls"][0]["status"] == 0
 assert empty["result"] == "00" * 31 + "20" + "00" * 32
 assert hello["calls"][0]["status"] == 0 and bytes.fromhex(hello["result"])[64:69] == b"hello"
@@ -75,6 +80,10 @@ assert dynamic_tuple_bad["calls"][0]["status"] == 1
 assert bytes.fromhex(dynamic_tuple_bad["result"]) == b"stylus: malformed calldata"
 assert dynamic_tuple_high_length["calls"][0]["status"] == 1
 assert bytes.fromhex(dynamic_tuple_high_length["result"]) == b"stylus: malformed calldata"
+assert multi_dynamic_tuple["calls"][0]["status"] == 0
+for rejected in (multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dynamic_truncated):
+    assert rejected["calls"][0]["status"] == 1
+    assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
 print("stylus-aggregate-differential-runtime: ok")
 PY
 

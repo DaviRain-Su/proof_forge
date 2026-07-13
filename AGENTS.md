@@ -24,9 +24,10 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W3 - Aggregate storage and general ABI layout |
-| Next task | Compile multi-child tuple extent carriers into direct Wasm, then recurse nested arrays |
+| Active task | Stylus continuous queue - W3 aggregate closure, then W4 remote-call closure |
+| Next task | Finish W3.1 recursive dynamic array/tuple child planning after the landed multi-child bytes/string tuple carrier |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
+| Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
