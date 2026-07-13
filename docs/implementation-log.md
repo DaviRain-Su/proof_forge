@@ -1622,3 +1622,22 @@ Rules:
 - Remaining: make the direct ABI dispatcher consume plan-owned multi-word
   fixed-array/tuple layouts, then add nested dynamic tails and storage
   short/long transitions. No W3 completion checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Static aggregate direct ABI dispatch
+
+- Status: `static parameter slice complete; aggregate returns pending`
+- Result: the direct `user_entrypoint` now derives calldata size, parameter
+  positions, dynamic offsets, and temporary locals from checked ABI head-word
+  layouts rather than parameter count. Fixed arrays and nested static tuples
+  recursively validate every scalar leaf before passing a pointer-backed
+  aggregate carrier to the lowered function.
+- Runtime vectors: executed `uint64[2]`, `(address,uint64[2])`, and mixed
+  `uint64[2],bytes` methods through generated Wasm. Non-canonical uint64/address
+  padding and a dynamic offset pointing inside the three-word head reject
+  before function execution; the valid mixed tail begins at 96 bytes.
+- Rust oracle: the same immutable plan compiles methods with `[u64; 2]`,
+  `(Address, [u64; 2])`, and `[u64; 2]` plus `Vec<u8>` signatures under the
+  pinned Stylus SDK.
+- Remaining: plan and execute static aggregate returns, then nested dynamic
+  array/tuple tails with complete-before-copy validation. No W3 completion
+  checkbox was closed.

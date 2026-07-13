@@ -69,7 +69,13 @@ ABI/storage footprints in separate Lean modules. Explicit layout limits guard
 every addition and multiplication; zero-length aggregates, dynamic types in a
 static storage calculation, and exhaustion fail with named diagnostics. The
 direct dispatcher does not yet consume multi-word composite carriers, so this
-is layout evidence rather than renderer completion.
+was initially layout evidence rather than renderer completion. The direct
+dispatcher now consumes the static part of that contract: fixed arrays and
+nested static tuples are recursively padding-validated and passed as calldata
+pointers, mixed static/dynamic methods derive their tail offsets and local
+allocation from plan-owned head words, and the same plan compiles Rust array
+and tuple method types. Aggregate returns, nested dynamic tails, and storage
+short/long transitions remain open.
 
 ### W4 - Remote-Call Parity Closure (medium)
 

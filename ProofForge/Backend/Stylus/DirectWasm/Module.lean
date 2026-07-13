@@ -1,3 +1,4 @@
+import ProofForge.Backend.Stylus.AbiLayout
 import ProofForge.Backend.Stylus.DirectWasm.Lower
 
 namespace ProofForge.Backend.Stylus.DirectWasm
@@ -49,6 +50,28 @@ private def validateParam (index width : Nat) (type : StylusAbiType) : Array Ins
   return check ++ #[.if_ (.mk <| writeLiteral 32 malformed ++ #[.i32Const 32,
     .i32Const malformed.size, .call "write_result", .i32Const 1, .return_]) .empty]
 
+private partial def validateStaticAggregate (wordIndex : Nat) : StylusAbiType ->
+    Except LowerError (Array Insn × Nat)
+  | .fixedArray element size => do
+      let mut body := #[]
+      let mut next := wordIndex
+      for _ in [0:size] do
+        let (checks, after) ← validateStaticAggregate next element
+        body := body ++ checks
+        next := after
+      pure (body, next)
+  | .tuple fields => do
+      let mut body := #[]
+      let mut next := wordIndex
+      for field in fields do
+        let (checks, after) ← validateStaticAggregate next field
+        body := body ++ checks
+        next := after
+      pure (body, next)
+  | type => do
+      let width ← scalarParamWidth type
+      pure (validateParam wordIndex width type, wordIndex + 1)
+
 private def decodeU32BE (ptr : Nat) (name : String) : Array Insn := #[
   .i32Const ptr, .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
   .i32Const (ptr + 1), .load "i32.load8_u" 0, .i32Const 16, .plain "i32.shl", .plain "i32.or",
@@ -95,7 +118,9 @@ private def dynamicParam (index headBytes maximum : Nat) : Array Insn := Id.run 
 
 private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Except LowerError (Array Insn) := do
   let malformed := "stylus: malformed calldata".toUTF8.data
-  let expected := 4 + method.params.size * 32
+  let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
+    |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
+  let expected := 4 + headWords * 32
   let hasDynamic := method.params.any fun param => param.type.isDynamic
   let some function := plan.functions.find? (fun function => function.abiMethod == method.name)
     | throw { message := s!"direct Wasm ABI method `{method.name}` has no function plan" }
@@ -103,6 +128,7 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
   let mut body : Array Insn := #[.localGet "args_len", .i32Const expected, .plain sizeCheck,
     .if_ (.mk <| writeLiteral 32 malformed ++ #[.i32Const 32, .i32Const malformed.size,
       .call "write_result", .i32Const 1, .return_]) .empty]
+  let mut headIndex := 0
   for h : index in [0:method.params.size] do
     let param := method.params[index]
     if param.type.isDynamic then
@@ -110,10 +136,17 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
         | throw { message := s!"direct Wasm ABI method `{method.name}` parameter plan is missing" }
       let some maximum := functionParam.dynamicMaxLength?
         | throw { message := s!"direct Wasm ABI method `{method.name}` dynamic maximum is missing" }
-      body := body ++ dynamicParam index (method.params.size * 32) maximum
+      body := body ++ dynamicParam headIndex (headWords * 32) maximum
+      headIndex := headIndex + 1
+    else if param.type matches .fixedArray .. | .tuple .. then
+      let start := headIndex
+      let (checks, next) ← validateStaticAggregate headIndex param.type
+      body := body ++ checks ++ #[.i64Const (calldataPtr + 4 + start * 32)]
+      headIndex := next
     else
       let width <- scalarParamWidth param.type
-      body := body ++ validateParam index width param.type ++ decodeParam index width
+      body := body ++ validateParam headIndex width param.type ++ decodeParam headIndex width
+      headIndex := headIndex + 1
   pure <| body ++ #[.call ("__pf_" ++ method.name), .return_]
 
 private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
@@ -125,7 +158,11 @@ private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
       .localGet "selector", .const .i32 (toString (selectorNat method.selector)), .plain "i32.eq",
       .if_ (.mk (← methodCall plan method)) .empty
     ])
-  let maxParams := plan.abi.methods.foldl (fun maximum method => max maximum method.params.size) 0
+  let mut maxParams := 0
+  for method in plan.abi.methods do
+    let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
+      |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
+    maxParams := max maxParams headWords
   let mut locals := #[{ name := "selector", type := ValType.i32 }]
   for index in [0:maxParams] do
     locals := locals ++ #[{ name := s!"abi_offset_{index}", type := .i32 },

@@ -21,12 +21,20 @@ utf8="$(call "deadbe02${head}$(printf '%064x' 6)${utf8_payload}$(printf '00%.0s'
 unaligned="$(call "deadbe01$(printf '%064x' 33)$(printf '%064x' 0)")"
 truncated="$(call "deadbe01${head}$(printf '%064x' 33)$(printf '00%.0s' {1..32})")"
 over_limit="$(call "deadbe01${head}$(printf '%064x' 65)$(printf '00%.0s' {1..96})")"
+fixed="$(call "deadbe03$(printf '%064x' 7)$(printf '%064x' 9)")"
+fixed_bad="$(call "deadbe03ff$(printf '00%.0s' {1..31})$(printf '%064x' 9)")"
+address_word="$(printf '00%.0s' {1..12})$(printf '11%.0s' {1..20})"
+tuple="$(call "deadbe04${address_word}$(printf '%064x' 7)$(printf '%064x' 9)")"
+tuple_bad="$(call "deadbe0401$(printf '00%.0s' {1..11})$(printf '11%.0s' {1..20})$(printf '%064x' 7)$(printf '%064x' 9)")"
+mixed_head="$(printf '%064x' 7)$(printf '%064x' 9)$(printf '%064x' 96)"
+mixed="$(call "deadbe05${mixed_head}$(printf '%064x' 5)${hello_payload}$(printf '00%.0s' {1..27})")"
+mixed_bad="$(call "deadbe05$(printf '%064x' 7)$(printf '%064x' 9)$(printf '%064x' 64)$(printf '%064x' 0)")"
 
-python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" <<'PY'
+python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" <<'PY'
 import json
 import sys
 
-empty, hello, utf8, unaligned, truncated, over_limit = map(json.loads, sys.argv[1:])
+empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad = map(json.loads, sys.argv[1:])
 assert empty["calls"][0]["status"] == 0
 assert empty["result"] == "00" * 31 + "20" + "00" * 32
 assert hello["calls"][0]["status"] == 0 and bytes.fromhex(hello["result"])[64:69] == b"hello"
@@ -34,6 +42,15 @@ assert utf8["calls"][0]["status"] == 0 and bytes.fromhex(utf8["result"])[64:70] 
 for rejected in (unaligned, truncated, over_limit):
     assert rejected["calls"][0]["status"] == 1
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
+assert fixed["calls"][0]["status"] == 0 and fixed["result"] == ""
+assert fixed_bad["calls"][0]["status"] == 1
+assert bytes.fromhex(fixed_bad["result"]) == b"stylus: malformed calldata"
+assert tuple["calls"][0]["status"] == 0 and tuple["result"] == ""
+assert tuple_bad["calls"][0]["status"] == 1
+assert bytes.fromhex(tuple_bad["result"]) == b"stylus: malformed calldata"
+assert mixed["calls"][0]["status"] == 0 and bytes.fromhex(mixed["result"])[64:69] == b"hello"
+assert mixed_bad["calls"][0]["status"] == 1
+assert bytes.fromhex(mixed_bad["result"]) == b"stylus: malformed calldata"
 print("stylus-aggregate-differential-runtime: ok")
 PY
 

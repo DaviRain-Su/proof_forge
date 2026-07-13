@@ -71,23 +71,56 @@ def main : IO Unit := do
     name := "echoString", canonicalSignature := "echoString(string)", selector := #[0xde, 0xad, 0xbe, 0x02]
     params := #[{ name := "value", type := .string }], returns := #[.string], mutability := .view
   }
+  let fixedMethod : StylusAbiMethodPlan := {
+    name := "acceptFixed", canonicalSignature := "acceptFixed(uint64[2])"
+    selector := #[0xde, 0xad, 0xbe, 0x03]
+    params := #[{ name := "value", type := fixedPair }], returns := #[], mutability := .view
+  }
+  let tupleParam := StylusAbiType.tuple #[.address, fixedPair]
+  let tupleMethod : StylusAbiMethodPlan := {
+    name := "acceptTuple", canonicalSignature := "acceptTuple((address,uint64[2]))"
+    selector := #[0xde, 0xad, 0xbe, 0x04]
+    params := #[{ name := "value", type := tupleParam }], returns := #[], mutability := .view
+  }
+  let mixedMethod : StylusAbiMethodPlan := {
+    name := "echoMixed", canonicalSignature := "echoMixed(uint64[2],bytes)"
+    selector := #[0xde, 0xad, 0xbe, 0x05]
+    params := #[{ name := "pair", type := fixedPair }, { name := "payload", type := .bytes }]
+    returns := #[.bytes], mutability := .view
+  }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
-    abi := { methods := #[bytesMethod, stringMethod], errors := #[] }, storage := { words := #[] }
+    abi := { methods := #[bytesMethod, stringMethod, fixedMethod, tupleMethod, mixedMethod], errors := #[] }, storage := { words := #[] }
     functions := #[
       { id := "echoBytes", abiMethod := "echoBytes", params := #[{
           valueId := 1, name := "value", type := .bytes, dynamicMaxLength? := some 64 }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[1] }], support },
       { id := "echoString", abiMethod := "echoString", params := #[{
           valueId := 2, name := "value", type := .string, dynamicMaxLength? := some 64 }]
-        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[2] }], support }
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[2] }], support },
+      { id := "acceptFixed", abiMethod := "acceptFixed", params := #[{
+          valueId := 3, name := "value", type := fixedPair }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+      { id := "acceptTuple", abiMethod := "acceptTuple", params := #[{
+          valueId := 4, name := "value", type := tupleParam }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+      { id := "echoMixed", abiMethod := "echoMixed", params := #[
+          { valueId := 5, name := "pair", type := fixedPair },
+          { valueId := 6, name := "payload", type := .bytes, dynamicMaxLength? := some 64 }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[6] }], support }
     ]
     events := #[], calls := #[]
     hostOps := #[
       { id := "bytes.value", functionId := "echoBytes", operation := .msgValue, support },
       { id := "bytes.result", functionId := "echoBytes", operation := .writeResult, support },
       { id := "string.value", functionId := "echoString", operation := .msgValue, support },
-      { id := "string.result", functionId := "echoString", operation := .writeResult, support }
+      { id := "string.result", functionId := "echoString", operation := .writeResult, support },
+      { id := "fixed.value", functionId := "acceptFixed", operation := .msgValue, support },
+      { id := "fixed.result", functionId := "acceptFixed", operation := .writeResult, support },
+      { id := "tuple.value", functionId := "acceptTuple", operation := .msgValue, support },
+      { id := "tuple.result", functionId := "acceptTuple", operation := .writeResult, support },
+      { id := "mixed.value", functionId := "echoMixed", operation := .msgValue, support },
+      { id := "mixed.result", functionId := "echoMixed", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := false }
     artifacts := { solidityAbi := true, typescriptClient := true }
