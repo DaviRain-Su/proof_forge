@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W2 - Canonical ERC-20 state machine |
-| Next task | Add standard EVM-client token interoperability and Nitro evidence |
+| Active task | W3 - Aggregate storage and general ABI layout |
+| Next task | Add fixed arrays/tuples and checked aggregate layout planning |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

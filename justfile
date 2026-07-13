@@ -169,6 +169,11 @@ stylus-token-differential:
     lake build ProofForge.Backend.Stylus.Token ProofForge.Backend.Stylus.TokenSemantics ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/token-differential.sh
 
+# Standard Solidity ABI encoding/client vectors against generated direct Wasm.
+stylus-token-evm-interop:
+    lake build ProofForge.Backend.Stylus.Token ProofForge.Backend.Stylus.DirectWasm.Module
+    scripts/stylus/token-evm-interop.sh
+
 stylus-aggregate-differential:
     lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/aggregate-differential.sh
@@ -228,6 +233,9 @@ stylus-nitro-e2e:
 
 stylus-value-vault-nitro-e2e:
     scripts/stylus/value-vault-nitro-e2e.sh
+
+stylus-token-nitro-e2e:
+    scripts/stylus/token-nitro-e2e.sh
 
 stylus-nitro-down:
     tools/stylus-nitro/manage.sh down

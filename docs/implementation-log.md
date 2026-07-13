@@ -1584,3 +1584,22 @@ Rules:
 - Verification: `just stylus-token-differential` and `just
   stylus-public-route` passed. Remaining W2 work is standard-client Nitro
   deployment/interoperability evidence.
+
+## 2026-07-13 - STYLUS-W2: Standard ABI interoperability gate
+
+- Status: `local complete; Nitro blocked by environment`
+- Result: added `just stylus-token-evm-interop`. Foundry `cast calldata`
+  produces standard ERC-20 mint, transfer, approve, transferFrom, balanceOf,
+  and allowance calls consumed by the generated direct Wasm; the gate checks
+  Solidity mapping slots, boolean/uint256 results, Transfer/Approval logs, and
+  rejected-transfer rollback.
+- Public client: the artifact smoke now pins address parameters as TypeScript
+  `string` and uint256 amounts as `bigint` for transfer, approve, and
+  transferFrom.
+- Live path: added `stylus-token-nitro-e2e`, which deploys the same direct Wasm,
+  executes the lifecycle through `cast send/call`, and writes transaction and
+  state evidence under ignored `build/evidence/stylus/token/`.
+- Environment evidence: `just stylus-nitro-doctor` reports Rust 1.91.0,
+  cargo-stylus 0.10.8, and cast 0.3.0 present, but `ready=false` because Docker,
+  the pinned Nitro checkout, and the local RPC are unavailable. No live
+  completion checkbox was closed.

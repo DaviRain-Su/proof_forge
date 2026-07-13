@@ -51,7 +51,11 @@ lifecycle, edge cases, rollback, standard selectors/events, and unlimited
 allowance; the generated Rust SDK crate compiles. Normalized Lean abstract,
 Rust oracle, and direct-Wasm traces now agree, and the public `--token` route
 emits checked Wasm, ABI, client, and metadata artifacts. Remaining W2 work is
-Nitro deployment and standard-client live interoperability evidence.
+Nitro deployment and standard-client live interoperability evidence. The local
+`just stylus-token-evm-interop` gate now derives every call from standard
+Foundry ABI signatures and verifies direct-Wasm state, results, logs, and
+rollback; `stylus-token-nitro-e2e` is implemented but remains unexecuted while
+the Docker daemon and local Nitro RPC are unavailable.
 
 ### W3 - Aggregate Storage and General ABI Layout (large)
 

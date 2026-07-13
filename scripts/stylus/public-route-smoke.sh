@@ -60,6 +60,10 @@ abi = json.loads((root / "proof-forge-abi.json").read_text())
 assert {entry["name"] for entry in abi} >= {
     "totalSupply", "balanceOf", "transfer", "allowance", "approve", "transferFrom"
 }
+client = (root / "proof-forge-client.ts").read_text()
+assert "export async function transfer(recipient: string, amount: bigint)" in client
+assert "export async function approve(spender: string, amount: bigint)" in client
+assert "export async function transferFrom(src: string, dst: string, amount: bigint)" in client
 assert (root / "contract.wasm").read_bytes()[:4] == b"\x00asm"
 print("stylus-public-token-route: ok")
 PY
