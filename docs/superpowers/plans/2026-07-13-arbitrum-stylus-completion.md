@@ -96,8 +96,9 @@ blockers may defer an item.
   and generate the final evidence manifest only after live requirements pass.
   GitHub now runs four independent static lanes and uploads artifacts, traces,
   evidence, timings, and failure doctor JSON. Woodpecker packages the same
-  evidence in its shared workspace, but durable upload is externally blocked
-  until Codeberg supplies an artifact sink and credentials. Registry and
+  evidence in its shared workspace, fails on archive errors, and verifies the
+  doctor JSON is present in the archive, but durable upload is externally
+  blocked until Codeberg supplies an artifact sink and credentials. Registry and
   bilingual status/gate/roadmap docs are synchronized; `final.json` remains
   correctly absent without Nitro.
 - [x] **W7.3 Full regression:** run `just product`, `just stylus-all`, manifest

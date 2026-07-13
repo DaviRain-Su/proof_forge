@@ -2,151 +2,100 @@
 
 ## Executive Status
 
-The completion plan currently has 34 of 64 acceptance items checked (53%).
-That number understates the foundation already built but accurately shows that
-the target is not release-integrated. A useful engineering estimate is:
+`wasm-arbitrum-stylus` has a locally executable general-contract research
+backend. Canonical Core produces one checked `StylusPlan`; direct HostIO Wasm
+is the CLI default, and pinned `stylus-sdk = 0.10.8` remains the explicit Rust
+oracle. The target must remain at Research maturity because recursive aggregate
+storage/resource work and real Nitro evidence are still open.
 
-- compiler/plan/runtime foundation: about 60% complete;
-- public default artifact and release integration: about 35-40% complete;
-- remaining delivery: seven work packages, four of them large.
-
-`wasm-arbitrum-stylus` must remain research maturity. The CLI still emits the
-Rust SDK artifact by default, the registry still describes a Counter-only
-fragment, and no current Nitro evidence authorizes a direct-Wasm cutover.
+The active completion plan records 51 of 79 acceptance items complete. Six
+queue packages remain: W3.1-W3.3, environment-blocked W5.2, externally limited
+W7.2, and final integration. This audit is a gap ledger, not completion proof;
+the plan and reproducible gates remain authoritative.
 
 ## Verified Baseline
 
-| Surface | Current evidence | Honest status |
+| Surface | Evidence | Current status |
 |---|---|---|
-| Wide scalar semantics | `just stylus-wide-values`, `just stylus-wide-arithmetic` | Complete for the planned u128 slice |
-| Canonical ValueVault | `just stylus-value-vault-canonical` | Rust/direct/local runtime green; Nitro evidence missing |
-| Mapping/event layouts | `just stylus-mapping-events`, `just stylus-nested-map` | scalar and nested maps, ABI overrides, and standard Transfer/Approval layouts green |
-| Canonical nested mapping | `just stylus-nested-map` | address-to-address-to-u128 semantics, plan keys, Rust SDK crate, direct Wasm, and local VM slot parity green |
-| Canonical ERC-20 lifecycle | `just stylus-token-differential` | shared TokenSpec, canonical plan, mint/transfer/approve/transferFrom, rollback, edge vectors, and unlimited allowance green locally |
-| Dynamic ABI | `just stylus-aggregate-differential` | bounded bytes/string parameter/return slice green after the plan-derived clear-bound fix |
-| Remote calls | `just stylus-remote-call-differential` | modes, value, gas, bounded static/dynamic returns, revert, cache policy, nested local frames green |
-| Full Lean build/docs | `lake build`, `just docs-check` | green at this checkpoint |
+| Wide scalar semantics | `just stylus-wide-values`, `just stylus-wide-arithmetic` | planned u128 slice complete locally |
+| ValueVault | `just stylus-value-vault-canonical` | Rust/direct/local runtime green; Nitro pending |
+| Mapping/events and ERC-20 | `just stylus-nested-map`, `just stylus-token-differential`, `just stylus-token-evm-interop` | nested slots, standard events/selectors, lifecycle and rollback green locally |
+| Aggregate ABI | `just stylus-aggregate-differential` | bytes/string, fixed/static composites, static-element arrays, recursive `bytes[]`, and selected dynamic tuples green locally |
+| Remote calls | `just stylus-remote-call-differential` | Rust/direct normalized parity plus runner-only cache/frame/context vectors and local two-contract evidence green |
+| Public artifact route | `just stylus-public-route`, `just stylus-cli-matrix` | direct default, explicit Rust oracle, no fallback, atomic bundles, exact ABI selectors, and evidence hashes green |
+| Static integration | `just stylus-all`, `just test-manifest` | 24 Stylus gates registered once across four lanes; live Nitro remains separate |
 
-The audit found and repaired a dynamic-return regression: clearing a fixed 4096
-bytes before ABI return encoding overwrote dynamic input calldata. The encoder
-now obtains the clear bound from the producing function parameter or call
-envelope.
+## Closed Packages
 
-## Remaining Work Packages
+### W1 - Nested Storage and Event Layouts
 
-### W1 - Canonical Nested Storage and Full Event Layouts (complete)
+Canonical composite maps retain ordered key types through Core and
+`StylusPlan`. Rust and direct Wasm consume the same slot/event layouts, with
+Foundry-derived nested-map and Transfer/Approval vectors.
 
-Core now represents composite maps with `StateShape.mapN`, validates every key
-in order, and gives logical semantics to the composite key. Both Stylus
-renderers consume the same ordered `StylusStorageWordPlan.keyTypes`. The gates
-pin nested slots with Foundry `cast index`, execute both direct-Wasm read/write
-paths, compile the generated nested Rust SDK crate, and verify standard
-`Transfer(address,address,uint256)` / `Approval(address,address,uint256)` logs.
+### W2 - Canonical ERC-20 State Machine
 
-### W2 - Canonical ERC-20 State Machine (large, now unblocked)
+The shared TokenSpec materializes through canonical Core into one Stylus plan.
+Local direct/Rust evidence covers mint, transfer, approve, transferFrom,
+unlimited allowance, rollback, standard client calldata, mappings, and logs.
+Only the live Nitro portion remains under W5.
 
-The shared TokenSpec now materializes through the existing ERC-20 stdlib into
-canonical Core and one Stylus plan. Direct Wasm executes the complete local
-lifecycle, edge cases, rollback, standard selectors/events, and unlimited
-allowance; the generated Rust SDK crate compiles. Normalized Lean abstract,
-Rust oracle, and direct-Wasm traces now agree, and the public `--token` route
-emits checked Wasm, ABI, client, and metadata artifacts. Remaining W2 work is
-Nitro deployment and standard-client live interoperability evidence. The local
-`just stylus-token-evm-interop` gate now derives every call from standard
-Foundry ABI signatures and verifies direct-Wasm state, results, logs, and
-rollback; `stylus-token-nitro-e2e` is implemented but remains unexecuted while
-the Docker daemon and local Nitro RPC are unavailable.
+### W4 - Remote-Call Parity
 
-### W3 - Aggregate Storage and General ABI Layout (large)
+Generated Rust and direct Wasm emit the same normalized seven-step common
+trace for call/static/delegate modes, success/revert, calldata/value, and
+bounded results. Static-write rejection, delegate context, reentrancy, cache
+transitions, and nested frames are explicitly runner-only where upstream
+`stylus-test` exposes no equivalent observability. The live two-contract run
+remains under W5.
 
-Bytes/string calldata and return carriers exist, but arrays, tuples, nested
-tails, dynamic/short-long storage, and allocation/resource exhaustion do not.
-Layout arithmetic must move into dedicated checked plan modules before this can
-be called a general-contract fragment.
+### W6 - Direct-Wasm CLI Cutover
 
-The first W3 foundation now computes word-aligned fixed-array and nested-tuple
-ABI/storage footprints in separate Lean modules. Explicit layout limits guard
-every addition and multiplication; zero-length aggregates, dynamic types in a
-static storage calculation, and exhaustion fail with named diagnostics. The
-direct dispatcher does not yet consume multi-word composite carriers, so this
-was initially layout evidence rather than renderer completion. The direct
-dispatcher now consumes the static part of that contract: fixed arrays and
-nested static tuples are recursively padding-validated and passed as calldata
-pointers, mixed static/dynamic methods derive their tail offsets and local
-allocation from plan-owned head words, and the same plan compiles Rust array
-and tuple method types. Aggregate returns, nested dynamic tails, and storage
-short/long transitions remain open.
+Direct Wasm is the default renderer and `--renderer rust-sdk` is explicit.
+Bundles are atomically published and globally cleaned on failure. Cutover
+evidence is fresh and identity-bound, and must include the pinned local Nitro
+revision, doctor hash, one chain id, and per-gate transaction/artifact/summary
+hashes. Missing evidence stays `unavailable` and cannot promote maturity.
 
-The layout layer also decodes Solidity `T[]` tails when `T` is fully static,
-including fixed arrays and tuples. It checks offsets, element counts, bounded
-word/byte multiplication, complete tail bounds, and canonical padding for
-every nested scalar leaf before returning a slice. Nested dynamic elements are
-still rejected pending recursive relative-offset planning, and the direct
-dispatcher initially did not execute this dynamic-array decoder. It now emits
-bounded, complete-before-call validation for static-element arrays, including
-recursive fixed-array/tuple leaves, and passes a pointer plus element count to
-the lowered function. `uint64[]` and `(address,uint64[2])[]` execute under the
-local runner and compile as equivalent Rust `Vec` signatures. Recursive
-relative offsets for dynamic elements and aggregate return encoding remain
-open. Static aggregate and static-element dynamic-array returns now encode from
-the same pointer carriers: fixed arrays/tuples copy their checked word count,
-while `T[]` emits the standard offset/count/payload envelope. Return scratch
-clearing is restricted to the head so it cannot overwrite calldata-backed
-payload sources.
+## Open Packages
 
-The first recursive dynamic tuple slice is also executable: `(uint64,bytes)`
-validates a top-level argument-relative offset and a tuple-relative bytes tail,
-including high-bit length rejection and complete padded bounds. This is
-deliberately limited to one bytes/string child; multiple dynamic children and
-nested dynamic arrays were not admitted by that direct slice. The plan-side
-layout now supports multiple bytes/string children with independent maxima and
-returns a validated tuple extent; `(uint64,bytes,string)` and adversarial
-relative-offset vectors are pinned. Direct multi-child extent lowering and
-nested dynamic arrays remain open.
+### W3.1-W3.3 - Aggregate Completion
 
-### W4 - Remote-Call Parity Closure (medium)
+Tree-shaped bounds for nested dynamic tuple children and arrays of dynamic
+tuples remain open. Dynamic bytes/string/array storage needs Solidity-compatible
+short/long transitions, checked allocation exhaustion, maximum-page gates, and
+Rust/direct differential fixtures. W3 closes only after the complete aggregate,
+diagnostic, and resource-adversarial gate set passes.
 
-Direct/local execution is substantial. Remaining evidence is static-write
-rejection, delegate caller/value/storage context, Rust call rendering/parity,
-and a real two-contract Nitro scenario.
+### W5.2 - Live Nitro Evidence (environment-blocked)
 
-### W5 - Nitro Evidence for ValueVault, Token, Remote, and Aggregates (medium, environment-blocked)
+ValueVault, Token/mapping-events, RemoteCall two-contract, and Aggregate live
+recipes plus a fail-closed final assembler are implemented and pass local
+syntax/schema/product preflight. The current doctor is `ready=false`: Docker,
+the pinned checkout, and local RPC are unavailable. Therefore no address,
+receipt, gas/ink, or `final.json` evidence is claimed.
 
-`cargo-stylus` and `wat2wasm` are installed. Docker CLI exists but its daemon is
-not running; `cast` is not on the current shell PATH. Live gates must persist
-machine-readable address/transaction/result evidence and may not be replaced by
-the Wasmtime runner.
+### W7.2 - CI and Release Evidence (partially external)
 
-### W6 - Direct-Wasm CLI Cutover (complete locally)
+GitHub runs four independent optional Stylus static lanes and always uploads
+artifacts, traces, evidence, and timings; failures also run the Nitro doctor.
+Woodpecker packages and verifies the same workspace evidence, including doctor
+JSON. Durable Codeberg publication still requires an externally configured
+artifact sink and credentials. Real `final.json` generation remains gated by
+W5.2.
 
-`ProofForge.Cli.StylusArtifacts` defaults to direct Wasm and retains explicit
-`--renderer rust-sdk` oracle mode. Atomic bundles publish plan-derived ABI,
-client, plan, storage, Wasm/WAT or Rust source, deploy metadata, and hashed
-evidence. `just stylus-cli-matrix` covers five product sources through both
-renderers, including logical-peer fail-closed and full-address runtime checks.
-Unavailable, stale, skipped, or identity-mismatched Nitro evidence cannot be
-promoted.
+### Final Integration
 
-### W7 - Unified Static CI and Release Evidence (medium, last)
-
-`stylus-all` and four-worker registration are complete. GitHub still only runs
-the older optional generated-Rust Counter smoke, Woodpecker has no durable
-artifact sink configured, and registry/status documents remain stale. CI
-artifact preservation, failure doctor data, claim synchronization, full
-regression, and real Nitro evidence remain.
+After W3 closes and external blockers are either cleared or recorded with exact
+evidence, review the complete branch, rebase the main work branch, resolve
+conflicts, and run the final full regression once. Feature iteration continues
+to use only change-related gates.
 
 ## Critical Path
 
-Execute in this order:
-
-1. W1 nested storage and full event vectors. Complete at `095ef266`.
-2. W2 canonical ERC-20. Current next package.
-3. W3 remaining aggregate layouts and resource limits.
-4. W4 Rust/direct remote parity and context closure.
-5. W5 Nitro evidence when the daemon/tool PATH is available.
-6. W6 direct-Wasm CLI cutover.
-7. W7 static CI, registry/docs, release evidence, and final review.
-
-ValueVault Nitro can run opportunistically during W1-W4, but it must not reorder
-the compiler critical path. Task checkboxes should only be closed by their named
-runtime or live evidence, not by source inspection.
+1. Finish W3.1 recursive aggregate bounds.
+2. Finish W3.2 storage and resource semantics.
+3. Close W3.3 aggregate evidence.
+4. Run W5.2 when the pinned Nitro environment is available.
+5. Configure the Woodpecker durable artifact sink for W7.2.
+6. Perform final review, rebase, conflict resolution, and one full regression.

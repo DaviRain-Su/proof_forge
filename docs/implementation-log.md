@@ -2058,3 +2058,22 @@ Rules:
   intentional `wat2wasm` exit-42 no-partial vector and invalid revision/hash
   evidence vectors, `just stylus-nitro-scripts`, and `git diff --check` pass.
   No full repository suite was run during this development slice.
+
+## 2026-07-13 - STYLUS-W7.2: CI artifact and gap-document re-audit
+
+- Status: `local CI contract complete; durable Woodpecker upload externally blocked`
+- Confirmed GitHub owns four independent optional Stylus static lanes, runs the
+  doctor on failure, and uploads artifacts, traces, evidence, and timings on
+  every outcome. The previous gap report's older-Counter-only claim was stale.
+- Woodpecker no longer suppresses `tar` failures or accepts file existence as
+  sufficient evidence. It creates the expected directories, requires doctor
+  JSON, builds the archive without `|| true`, and inspects the archive for that
+  doctor entry. Durable publication still needs a configured Codeberg/S3 sink
+  and credentials and is not claimed complete.
+- Rewrote the July 13 Stylus integration gap audit around the current 51/79
+  plan state, closed W1/W2/W4/W6 packages, and the remaining W3, W5.2, W7.2,
+  and final-integration path.
+- Verification: both CI YAML files parse, the Woodpecker archive contract was
+  exercised locally, `just test-manifest` reports 142 unique recipes across
+  eight lanes, `just docs-check`, and `git diff --check` pass. No full
+  repository suite was run during this development slice.

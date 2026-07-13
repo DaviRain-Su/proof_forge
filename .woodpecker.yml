@@ -58,8 +58,10 @@ steps:
     commands:
       - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
       - just stylus-nitro-doctor || true
-      - mkdir -p build/ci-artifacts
-      - tar -czf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" build/stylus build/evidence/stylus build/test-lanes 2>/dev/null || true
+      - mkdir -p build/ci-artifacts build/stylus build/evidence/stylus build/test-lanes
+      - test -f build/evidence/stylus/nitro-doctor.json
+      - tar -czf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" build/stylus build/evidence/stylus build/test-lanes
       - test -f "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz"
+      - tar -tzf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" | grep -Fq build/evidence/stylus/nitro-doctor.json
     when:
       - status: [success, failure]
