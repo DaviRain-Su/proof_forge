@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 51/79 acceptance items are complete. Six open queue
+**Current checkpoint:** 54/80 acceptance items are complete. Five open queue
 packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
 Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
@@ -19,14 +19,16 @@ Agents execute this queue in order without stopping at internal checkpoints.
 Each package may contain multiple reviewed commits; only external environment
 blockers may defer an item.
 
-- [ ] **W3.1 Direct aggregate carriers:** lower multi-child dynamic tuple
+- [x] **W3.1 Direct aggregate carriers:** lower multi-child dynamic tuple
   extents and recursively nested dynamic array/tuple tails from plan-owned
   layouts; add malformed-offset and complete-before-copy runtime vectors.
   Multi-child bytes/string tuple extents, `bytes[]` recursive child tails, and
   dynamic tuples containing static-element dynamic arrays are implemented with
-  malformed head/offset/length/canonical-element/truncation vectors. Nested
-  dynamic tuple children and arrays of dynamic tuples still need tree-shaped
-  bounds and remain open.
+  malformed head/offset/length/canonical-element/truncation vectors. Recursive
+  preorder policies now cover nested dynamic tuple children and arrays of
+  dynamic tuples. The pure decoder, direct-Wasm validator/local VM, and pinned
+  Rust renderer agree for `(uint64,(bytes,string))` and
+  `(uint64,bytes)[]`, including inside-head, over-limit, and truncated tails.
 - [ ] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
   dynamic bytes/string/array short-long storage transitions, checked allocation
   exhaustion, maximum-page gates, and Rust/direct differential fixtures.

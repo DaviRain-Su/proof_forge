@@ -52,6 +52,11 @@ structure DynamicTupleAbiSlice where
   dynamicFields : Array DynamicTupleFieldSlice
   deriving Repr, BEq
 
+structure RecursiveDynamicAbiSlice where
+  offset : Nat
+  endOffset : Nat
+  deriving Repr, BEq, Inhabited
+
 private def fail (message : String) : Except AbiLayoutError α :=
   .error { message }
 
@@ -125,6 +130,126 @@ private partial def validateStaticAt (bytes : Array UInt8) (offset : Nat) : Styl
       pure next
   | .bytes | .string | .dynamicArray _ =>
       fail "nested dynamic-array elements require recursive tail planning"
+
+private def policyMaximum (maximums : Array Nat) (index : Nat) : Except AbiLayoutError Nat := do
+  let some maximum := maximums[index]?
+    | fail s!"dynamic ABI policy {index} is missing"
+  if maximum == 0 then fail s!"dynamic ABI policy {index} has a zero maximum"
+  pure maximum
+
+private partial def decodeRecursiveValueAt (arguments : Array UInt8) (base : Nat)
+    (type : StylusAbiType) (maximums : Array Nat) (policyIndex : Nat) :
+    Except AbiLayoutError (RecursiveDynamicAbiSlice × Nat) := do
+  match type with
+  | .bytes | .string =>
+      let maximum <- policyMaximum maximums policyIndex
+      let length := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments base)
+      if length > maximum then fail s!"dynamic ABI length {length} exceeds maximum {maximum}"
+      let dataOffset <- checkedAdd "recursive dynamic data" arguments.size base 32
+      let endOffset <- checkedAdd "recursive dynamic tail" arguments.size dataOffset (roundUpWord length)
+      if endOffset > arguments.size then fail "recursive dynamic tail exceeds calldata"
+      pure ({ offset := base, endOffset }, policyIndex + 1)
+  | .dynamicArray element =>
+      let maximum <- policyMaximum maximums policyIndex
+      let length := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments base)
+      if length > maximum then fail s!"dynamic-array length {length} exceeds maximum {maximum}"
+      let dataOffset <- checkedAdd "recursive array data" arguments.size base 32
+      if element.isDynamic then
+        let headBytes <- checkedMul "recursive array head" arguments.size length 32
+        let headEnd <- checkedAdd "recursive array head end" arguments.size dataOffset headBytes
+        if headEnd > arguments.size then fail "recursive array head exceeds calldata"
+        let childPolicyStart := policyIndex + 1
+        let childPolicyEnd := childPolicyStart + element.dynamicPolicyArity
+        if childPolicyEnd > maximums.size then fail "recursive array child policy is incomplete"
+        let mut endOffset := headEnd
+        for childIndex in [0:length] do
+          let relativeOffset := ProofForge.Backend.Stylus.DirectWasm.wordToNat
+            (← wordAt arguments (dataOffset + childIndex * 32))
+          if relativeOffset % 32 != 0 then
+            fail s!"recursive array child {childIndex} offset is not aligned"
+          if relativeOffset < headBytes then
+            fail s!"recursive array child {childIndex} points inside array head"
+          let childBase <- checkedAdd s!"recursive array child {childIndex}" arguments.size
+            dataOffset relativeOffset
+          let (child, nextPolicy) <- decodeRecursiveValueAt arguments childBase element
+            maximums childPolicyStart
+          unless nextPolicy == childPolicyEnd do fail "recursive array child policy consumption changed"
+          endOffset := max endOffset child.endOffset
+        pure ({ offset := base, endOffset }, childPolicyEnd)
+      else
+        let elementWords <- staticAbiWords (arguments.size / 32 + 1) element
+        let payloadWords <- checkedMul "recursive array payload words"
+          (arguments.size / 32 + 1) length elementWords
+        let payloadBytes <- checkedMul "recursive array payload bytes" arguments.size payloadWords 32
+        let endOffset <- checkedAdd "recursive array tail" arguments.size dataOffset payloadBytes
+        if endOffset > arguments.size then fail "recursive array tail exceeds calldata"
+        let mut cursor := dataOffset
+        for _ in [0:length] do cursor <- validateStaticAt arguments cursor element
+        pure ({ offset := base, endOffset }, policyIndex + 1)
+  | .tuple fields =>
+      if fields.isEmpty then fail "recursive dynamic tuple must contain at least one field"
+      let mut headWords := 0
+      for field in fields do
+        let width <- if field.isDynamic then pure 1
+          else staticAbiWords (arguments.size / 32 + 1) field
+        headWords <- checkedAdd "recursive tuple head" (arguments.size / 32 + 1) headWords width
+      let headBytes <- checkedMul "recursive tuple head bytes" arguments.size headWords 32
+      let headEnd <- checkedAdd "recursive tuple head end" arguments.size base headBytes
+      if headEnd > arguments.size then fail "recursive tuple head exceeds calldata"
+      let mut wordIndex := 0
+      let mut nextPolicy := policyIndex
+      let mut endOffset := headEnd
+      for h : fieldIndex in [0:fields.size] do
+        let field := fields[fieldIndex]
+        if field.isDynamic then
+          let relativeOffset := ProofForge.Backend.Stylus.DirectWasm.wordToNat
+            (← wordAt arguments (base + wordIndex * 32))
+          if relativeOffset % 32 != 0 then
+            fail s!"recursive tuple field {fieldIndex} offset is not aligned"
+          if relativeOffset < headBytes then
+            fail s!"recursive tuple field {fieldIndex} points inside tuple head"
+          let childBase <- checkedAdd s!"recursive tuple field {fieldIndex}" arguments.size
+            base relativeOffset
+          let (child, afterPolicy) <- decodeRecursiveValueAt arguments childBase field maximums nextPolicy
+          nextPolicy := afterPolicy
+          endOffset := max endOffset child.endOffset
+          wordIndex := wordIndex + 1
+        else
+          wordIndex <- validateStaticAt arguments (base + wordIndex * 32) field |>.map fun next =>
+            (next - base) / 32
+      pure ({ offset := base, endOffset }, nextPolicy)
+  | .fixedArray element size =>
+      if size == 0 then fail "recursive dynamic fixed array length must be positive"
+      if element.isDynamic then
+        decodeRecursiveValueAt arguments base (.tuple (Array.replicate size element)) maximums policyIndex
+      else
+        let endOffset <- validateStaticAt arguments base type
+        pure ({ offset := base, endOffset }, policyIndex)
+  | _ =>
+      let endOffset <- validateStaticAt arguments base type
+      pure ({ offset := base, endOffset }, policyIndex)
+
+/-- Decode any recursively dynamic argument from an ABI method head. The root
+maximum is the byte length for bytes/string or element count for a dynamic
+array. Tuple roots consume only their preorder child maxima. -/
+def decodeRecursiveDynamicArgument (arguments : Array UInt8) (headWords index rootMaximum : Nat)
+    (type : StylusAbiType) (childMaximums : Array Nat) :
+    Except AbiLayoutError RecursiveDynamicAbiSlice := do
+  if index >= headWords then fail s!"recursive ABI index {index} exceeds head words {headWords}"
+  let headBytes <- checkedMul "recursive ABI head" arguments.size headWords 32
+  if headBytes > arguments.size then fail "recursive ABI head is truncated"
+  let offset := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments (index * 32))
+  if offset % 32 != 0 then fail s!"recursive ABI offset {offset} is not word aligned"
+  if offset < headBytes then fail s!"recursive ABI offset {offset} points inside the static head"
+  let rootMaximums := match type with
+    | .bytes | .string | .dynamicArray _ => #[rootMaximum] ++ childMaximums
+    | _ => childMaximums
+  unless rootMaximums.size == type.dynamicPolicyArity do
+    fail (s!"recursive ABI type needs {type.dynamicPolicyArity} maxima but " ++
+      s!"{rootMaximums.size} were provided")
+  let (slice, nextPolicy) <- decodeRecursiveValueAt arguments offset type rootMaximums 0
+  unless nextPolicy == rootMaximums.size do fail "recursive ABI policy consumption is incomplete"
+  pure slice
 
 def decodeDynamicArgument (arguments : Array UInt8) (headWords index maximumLength : Nat) :
     Except AbiLayoutError DynamicAbiSlice := do

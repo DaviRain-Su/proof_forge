@@ -8,8 +8,9 @@ is the CLI default, and pinned `stylus-sdk = 0.10.8` remains the explicit Rust
 oracle. The target must remain at Research maturity because recursive aggregate
 storage/resource work and real Nitro evidence are still open.
 
-The active completion plan records 51 of 79 acceptance items complete. Six
-queue packages remain: W3.1-W3.3, environment-blocked W5.2, externally limited
+The active completion plan records 54 of 80 acceptance items complete. Five
+queue packages remain. The active gaps are W3.2-W3.3,
+environment-blocked W5.2, externally limited
 W7.2, and final integration. This audit is a gap ledger, not completion proof;
 the plan and reproducible gates remain authoritative.
 
@@ -59,10 +60,10 @@ hashes. Missing evidence stays `unavailable` and cannot promote maturity.
 
 ## Open Packages
 
-### W3.1-W3.3 - Aggregate Completion
+### W3.2-W3.3 - Aggregate Completion
 
 Tree-shaped bounds for nested dynamic tuple children and arrays of dynamic
-tuples remain open. Dynamic bytes/string/array storage needs Solidity-compatible
+tuples now use one recursive preorder policy and execute in direct Wasm. Dynamic bytes/string/array storage still needs Solidity-compatible
 short/long transitions, checked allocation exhaustion, maximum-page gates, and
 Rust/direct differential fixtures. W3 closes only after the complete aggregate,
 diagnostic, and resource-adversarial gate set passes.
@@ -93,9 +94,8 @@ to use only change-related gates.
 
 ## Critical Path
 
-1. Finish W3.1 recursive aggregate bounds.
-2. Finish W3.2 storage and resource semantics.
-3. Close W3.3 aggregate evidence.
-4. Run W5.2 when the pinned Nitro environment is available.
-5. Configure the Woodpecker durable artifact sink for W7.2.
-6. Perform final review, rebase, conflict resolution, and one full regression.
+1. Finish W3.2 storage and resource semantics.
+2. Close W3.3 aggregate evidence.
+3. Run W5.2 when the pinned Nitro environment is available.
+4. Configure the Woodpecker durable artifact sink for W7.2.
+5. Perform final review, rebase, conflict resolution, and one full regression.

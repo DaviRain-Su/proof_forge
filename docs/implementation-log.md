@@ -2077,3 +2077,21 @@ Rules:
   exercised locally, `just test-manifest` reports 142 unique recipes across
   eight lanes, `just docs-check`, and `git diff --check` pass. No full
   repository suite was run during this development slice.
+
+## 2026-07-13 - STYLUS-W3.1: Recursive dynamic aggregate closure
+
+- Status: `complete`
+- Replaced immediate-child maximum counting with a recursive preorder policy:
+  nested bytes/string nodes contribute byte bounds and nested dynamic arrays
+  contribute element-count bounds before their descendants. Existing flat
+  fixtures retain the same policy arrays.
+- Added a checked pure recursive ABI decoder and one direct-Wasm recursive
+  validator for bytes/string, dynamic arrays, tuples, fixed arrays, and static
+  leaves. Bounds use widened arithmetic before memory access, validate complete
+  heads/tails, and reuse bounded locals across unrolled array elements.
+- Added Rust/direct/local vectors for `(uint64,(bytes,string))` and
+  `(uint64,bytes)[]`, including inside-head offsets, child over-limit lengths,
+  malformed nesting, and truncated tails.
+- Verification: `just stylus-aggregate-differential`, `just
+  stylus-diagnostics`, targeted Lean module builds, and `git diff --check` pass.
+  No full repository suite was run during this development slice.

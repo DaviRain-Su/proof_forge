@@ -391,6 +391,187 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
     #[.localGet offsetName, .i32Const (calldataPtr + 4), .plain "i32.add",
       .plain "i64.extend_i32_u", .localGet extentName, .plain "i64.extend_i32_u"]
 
+private def recursiveLocal (kind : String) (depth : Nat) : String :=
+  s!"abi_recursive_{kind}_{depth}"
+
+private def recursiveAddress (baseName : String) (bias : Nat) : Array Insn := #[
+  .localGet baseName, .i32Const (calldataPtr + 4 + bias), .plain "i32.add"]
+
+private def recursiveRangeCheck (baseName : String) (bias : Nat) : Array Insn :=
+  rejectIf #[.localGet baseName, .plain "i64.extend_i32_u", .i64Const (bias + 32),
+    .plain "i64.add", .localGet "args_len", .i32Const 4, .plain "i32.sub",
+    .plain "i64.extend_i32_u", .plain "i64.gt_u"]
+
+private def recursiveReadU32 (baseName : String) (bias : Nat) (output : String) : Array Insn := Id.run do
+  let mut high : Array Insn := #[.i32Const 0]
+  for byte in [0:28] do
+    high := high ++ recursiveAddress baseName (bias + byte) ++
+      #[.load "i32.load8_u" 0, .plain "i32.or"]
+  recursiveRangeCheck baseName bias ++ rejectIf high ++
+    recursiveAddress baseName (bias + 28) ++ #[.load "i32.load8_u" 0,
+      .i32Const 24, .plain "i32.shl"] ++ recursiveAddress baseName (bias + 29) ++
+    #[.load "i32.load8_u" 0, .i32Const 16, .plain "i32.shl", .plain "i32.or"] ++
+    recursiveAddress baseName (bias + 30) ++ #[.load "i32.load8_u" 0,
+      .i32Const 8, .plain "i32.shl", .plain "i32.or"] ++
+    recursiveAddress baseName (bias + 31) ++ #[.load "i32.load8_u" 0,
+      .plain "i32.or", .localSet output]
+
+private def recursiveAbsoluteBound (baseName offsetName : String) (bias : Nat := 0) : Array Insn :=
+  rejectIf #[.localGet baseName, .plain "i64.extend_i32_u", .localGet offsetName,
+    .plain "i64.extend_i32_u", .plain "i64.add", .i64Const bias, .plain "i64.add",
+    .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i64.extend_i32_u",
+    .plain "i64.gt_u"]
+
+private partial def validateRecursiveDynamicValue (type : StylusAbiType)
+    (maximums : Array Nat) (policyIndex depth : Nat) :
+    Except LowerError (Array Insn × Nat) := do
+  let baseName := recursiveLocal "base" depth
+  let offsetName := recursiveLocal "offset" depth
+  let lengthName := recursiveLocal "length" depth
+  let endName := recursiveLocal "end" depth
+  match type with
+  | .bytes | .string =>
+      let some maximum := maximums[policyIndex]?
+        | throw { message := s!"direct Wasm recursive policy {policyIndex} is missing" }
+      let mut body := recursiveReadU32 baseName 0 lengthName
+      body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
+      body := body ++ rejectIf #[.localGet baseName, .plain "i64.extend_i32_u", .i64Const 32,
+        .plain "i64.add", .localGet lengthName, .i32Const 31, .plain "i32.add",
+        .i32Const 4294967264, .plain "i32.and", .plain "i64.extend_i32_u", .plain "i64.add",
+        .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i64.extend_i32_u",
+        .plain "i64.gt_u"]
+      body := body ++ #[.localGet baseName, .i32Const 32, .plain "i32.add",
+        .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+        .plain "i32.and", .plain "i32.add", .localSet endName]
+      pure (body, policyIndex + 1)
+  | .dynamicArray element =>
+      let some maximum := maximums[policyIndex]?
+        | throw { message := s!"direct Wasm recursive policy {policyIndex} is missing" }
+      if maximum > 64 then
+        throw { message := s!"direct Wasm recursive array maximum {maximum} exceeds validation limit 64" }
+      let mut body := recursiveReadU32 baseName 0 lengthName
+      body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
+      if element.isDynamic then
+        body := body ++ rejectIf #[.localGet baseName, .plain "i64.extend_i32_u", .i64Const 32,
+          .plain "i64.add", .localGet lengthName, .plain "i64.extend_i32_u", .i64Const 32,
+          .plain "i64.mul", .plain "i64.add", .localGet "args_len", .i32Const 4,
+          .plain "i32.sub", .plain "i64.extend_i32_u", .plain "i64.gt_u"]
+        body := body ++ #[.localGet baseName, .i32Const 32, .plain "i32.add",
+          .localGet lengthName, .i32Const 32, .plain "i32.mul", .plain "i32.add",
+          .localSet endName]
+        let childPolicyStart := policyIndex + 1
+        let expectedChildEnd := childPolicyStart + element.dynamicPolicyArity
+        for item in [0:maximum] do
+          let (childChecks, childPolicyEnd) <-
+            validateRecursiveDynamicValue element maximums childPolicyStart (depth + 1)
+          unless childPolicyEnd == expectedChildEnd do
+            throw { message := "direct Wasm recursive array policy consumption changed" }
+          let childBaseName := recursiveLocal "base" (depth + 1)
+          let childEndName := recursiveLocal "end" (depth + 1)
+          let mut checks := recursiveReadU32 baseName (32 + item * 32) offsetName
+          checks := checks ++ rejectIf #[.localGet offsetName, .i32Const 31, .plain "i32.and"]
+          checks := checks ++ rejectIf #[.localGet offsetName, .localGet lengthName,
+            .i32Const 32, .plain "i32.mul", .plain "i32.lt_u"]
+          checks := checks ++ recursiveAbsoluteBound baseName offsetName 32 ++ #[
+            .localGet baseName, .i32Const 32, .plain "i32.add", .localGet offsetName,
+            .plain "i32.add", .localSet childBaseName] ++ childChecks ++ #[
+            .localGet childEndName, .localGet endName, .plain "i32.gt_u",
+            .if_ (.mk #[.localGet childEndName, .localSet endName]) .empty]
+          body := body ++ #[.localGet lengthName, .i32Const item, .plain "i32.gt_u",
+            .if_ (.mk checks) .empty]
+        pure (body, expectedChildEnd)
+      else
+        let elementWords <- staticAbiWords 2048 element |>.mapError fun error => { message := error.message }
+        let stride := elementWords * 32
+        body := body ++ rejectIf #[.localGet baseName, .plain "i64.extend_i32_u", .i64Const 32,
+          .plain "i64.add", .localGet lengthName, .plain "i64.extend_i32_u", .i64Const stride,
+          .plain "i64.mul", .plain "i64.add", .localGet "args_len", .i32Const 4,
+          .plain "i32.sub", .plain "i64.extend_i32_u", .plain "i64.gt_u"]
+        for item in [0:maximum] do
+          let (checks, _) <- validateDynamicStatic baseName 32 (item * elementWords) element
+          body := body ++ #[.localGet lengthName, .i32Const item, .plain "i32.gt_u",
+            .if_ (.mk checks) .empty]
+        body := body ++ #[.localGet baseName, .i32Const 32, .plain "i32.add",
+          .localGet lengthName, .i32Const stride, .plain "i32.mul", .plain "i32.add",
+          .localSet endName]
+        pure (body, policyIndex + 1)
+  | .tuple fields =>
+      if fields.isEmpty then throw { message := "direct Wasm recursive tuple is empty" }
+      let headWords <- fields.foldlM (fun words (field : StylusAbiType) => do
+        let width <- if field.isDynamic then pure 1 else staticAbiWords 2048 field
+        checkedAdd "direct recursive tuple head" 2048 words width) 0
+        |>.mapError fun (error : AbiLayoutError) => { message := error.message }
+      let headBytes := headWords * 32
+      let mut body := rejectIf #[.localGet baseName, .plain "i64.extend_i32_u",
+        .i64Const headBytes, .plain "i64.add", .localGet "args_len", .i32Const 4,
+        .plain "i32.sub", .plain "i64.extend_i32_u", .plain "i64.gt_u"] ++ #[
+        .localGet baseName, .i32Const headBytes, .plain "i32.add", .localSet endName]
+      let mut wordOffset := 0
+      let mut nextPolicy := policyIndex
+      for field in fields do
+        if field.isDynamic then
+          let (childChecks, afterPolicy) <-
+            validateRecursiveDynamicValue field maximums nextPolicy (depth + 1)
+          let childBaseName := recursiveLocal "base" (depth + 1)
+          let childEndName := recursiveLocal "end" (depth + 1)
+          body := body ++ recursiveReadU32 baseName (wordOffset * 32) offsetName
+          body := body ++ rejectIf #[.localGet offsetName, .i32Const 31, .plain "i32.and"]
+          body := body ++ rejectIf #[.localGet offsetName, .i32Const headBytes, .plain "i32.lt_u"]
+          body := body ++ recursiveAbsoluteBound baseName offsetName ++ #[
+            .localGet baseName, .localGet offsetName, .plain "i32.add", .localSet childBaseName] ++
+            childChecks ++ #[.localGet childEndName, .localGet endName, .plain "i32.gt_u",
+              .if_ (.mk #[.localGet childEndName, .localSet endName]) .empty]
+          nextPolicy := afterPolicy
+          wordOffset := wordOffset + 1
+        else
+          let (checks, next) <- validateDynamicStatic baseName 0 wordOffset field
+          body := body ++ checks
+          wordOffset := next
+      pure (body, nextPolicy)
+  | .fixedArray element size =>
+      if size == 0 then throw { message := "direct Wasm recursive fixed array is empty" }
+      if element.isDynamic then
+        validateRecursiveDynamicValue (.tuple (Array.replicate size element)) maximums policyIndex depth
+      else
+        let (body, next) <- validateDynamicStatic baseName 0 0 type
+        pure (body ++ #[.localGet baseName, .i32Const (next * 32), .plain "i32.add",
+          .localSet endName], policyIndex)
+  | _ =>
+      let (body, next) <- validateDynamicStatic baseName 0 0 type
+      pure (body ++ #[.localGet baseName, .i32Const (next * 32), .plain "i32.add",
+        .localSet endName], policyIndex)
+
+private def recursiveDynamicParam (index headBytes rootMaximum : Nat)
+    (childMaximums : Array Nat) (type : StylusAbiType) : Except LowerError (Array Insn) := do
+  let maximums := match type with
+    | .bytes | .string | .dynamicArray _ => #[rootMaximum] ++ childMaximums
+    | _ => childMaximums
+  unless maximums.size == type.dynamicPolicyArity do
+    throw { message := s!"direct Wasm recursive type needs {type.dynamicPolicyArity} maxima but {maximums.size} were provided" }
+  let rootBase := recursiveLocal "base" 0
+  let rootLength := recursiveLocal "length" 0
+  let rootEnd := recursiveLocal "end" 0
+  let headPtr := calldataPtr + 4 + index * 32
+  let mut highOffset : Array Insn := #[.i32Const 0]
+  for byte in [0:28] do highOffset := highOffset ++ #[.i32Const (headPtr + byte),
+    .load "i32.load8_u" 0, .plain "i32.or"]
+  let mut body := rejectIf highOffset ++ decodeU32BE (headPtr + 28) rootBase
+  body := body ++ rejectIf #[.localGet rootBase, .i32Const 31, .plain "i32.and"]
+  body := body ++ rejectIf #[.localGet rootBase, .i32Const headBytes, .plain "i32.lt_u"]
+  let (checks, nextPolicy) <- validateRecursiveDynamicValue type maximums 0 0
+  unless nextPolicy == maximums.size do
+    throw { message := "direct Wasm recursive policy consumption is incomplete" }
+  body := body ++ checks
+  match type with
+  | .bytes | .string | .dynamicArray _ =>
+      pure <| body ++ #[.localGet rootBase, .i32Const (calldataPtr + 4 + 32),
+        .plain "i32.add", .plain "i64.extend_i32_u", .localGet rootLength,
+        .plain "i64.extend_i32_u"]
+  | _ =>
+      pure <| body ++ #[.localGet rootBase, .i32Const (calldataPtr + 4), .plain "i32.add",
+        .plain "i64.extend_i32_u", .localGet rootEnd, .localGet rootBase, .plain "i32.sub",
+        .plain "i64.extend_i32_u"]
+
 private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Except LowerError (Array Insn) := do
   let malformed := "stylus: malformed calldata".toUTF8.data
   let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
@@ -411,23 +592,8 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
         | throw { message := s!"direct Wasm ABI method `{method.name}` parameter plan is missing" }
       let some maximum := functionParam.dynamicMaxLength?
         | throw { message := s!"direct Wasm ABI method `{method.name}` dynamic maximum is missing" }
-      match param.type with
-      | .bytes | .string =>
-          body := body ++ dynamicParam headIndex (headWords * 32) maximum
-      | .dynamicArray element =>
-          if element == .bytes || element == .string then
-            let some childMaximum := functionParam.dynamicFieldMaxLengths[0]?
-              | throw { message := s!"direct Wasm ABI method `{method.name}` dynamic element maximum is missing" }
-            body := body ++ (← dynamicBytesArrayParam headIndex (headWords * 32) maximum childMaximum)
-          else
-            let elementWords ← staticAbiWords (plan.resources.maxMemoryPages * 2048) element
-              |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
-            body := body ++ (← dynamicArrayParam headIndex (headWords * 32) maximum elementWords element)
-      | .tuple fields =>
-          body := body ++ (← dynamicTupleParam headIndex (headWords * 32)
-            functionParam.dynamicFieldMaxLengths fields)
-      | type =>
-          throw { message := s!"direct Wasm ABI method `{method.name}` has unsupported nested dynamic type {repr type}" }
+      body := body ++ (← recursiveDynamicParam headIndex (headWords * 32) maximum
+        functionParam.dynamicFieldMaxLengths param.type)
       headIndex := headIndex + 1
     else if param.type matches .fixedArray .. | .tuple .. then
       let start := headIndex
@@ -440,6 +606,14 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
       headIndex := headIndex + 1
   pure <| body ++ #[.call ("__pf_" ++ method.name), .return_]
 
+private partial def recursiveDynamicDepth : StylusAbiType -> Nat
+  | .bytes | .string => 1
+  | .dynamicArray element => 1 + if element.isDynamic then recursiveDynamicDepth element else 0
+  | .fixedArray element _ => 1 + if element.isDynamic then recursiveDynamicDepth element else 0
+  | .tuple fields => 1 + fields.foldl (fun depth field => max depth
+      (if field.isDynamic then recursiveDynamicDepth field else 0)) 0
+  | _ => 1
+
 private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
   let malformed := "stylus: malformed calldata".toUTF8.data
   let unknown := "stylus: unknown selector".toUTF8.data
@@ -451,11 +625,14 @@ private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
     ])
   let mut maxParams := 0
   let mut maxDynamicChildren := 0
+  let mut maxRecursiveDepth := 0
   for method in plan.abi.methods do
     let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
       |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
     maxParams := max maxParams headWords
     for param in method.params do
+      if param.type.isDynamic then
+        maxRecursiveDepth := max maxRecursiveDepth (recursiveDynamicDepth param.type)
       match param.type with
       | .tuple fields =>
           maxDynamicChildren := max maxDynamicChildren (fields.countP fun field => field.isDynamic)
@@ -471,6 +648,11 @@ private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
       locals := locals ++ #[{ name := s!"abi_child_offset_{index}_{child}", type := .i32 },
         { name := s!"abi_child_length_{index}_{child}", type := .i32 },
         { name := s!"abi_child_base_{index}_{child}", type := .i32 }]
+  for depth in [0:maxRecursiveDepth] do
+    locals := locals ++ #[{ name := recursiveLocal "base" depth, type := .i32 },
+      { name := recursiveLocal "offset" depth, type := .i32 },
+      { name := recursiveLocal "length" depth, type := .i32 },
+      { name := recursiveLocal "end" depth, type := .i32 }]
   pure {
     name := "user_entrypoint"
     exportName := some "user_entrypoint"

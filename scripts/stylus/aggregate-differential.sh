@@ -61,6 +61,15 @@ nested_array_tuple_high_offset="$(call "deadbe0b${head}$(printf '%064x' 7)$(prin
 nested_array_tuple_over_limit="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 4)$(printf '00%.0s' {1..128})")"
 nested_array_tuple_bad="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)01$(printf '00%.0s' {1..31})")"
 nested_array_tuple_truncated="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)")"
+recursive_nested_tuple="$(call "deadbe0c${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 64)$(printf '%064x' 128)$(printf '%064x' 2)6869$(printf '00%.0s' {1..30})$(printf '%064x' 5)776f726c64$(printf '00%.0s' {1..27})")"
+recursive_nested_tuple_inside_head="$(call "deadbe0c${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 32)$(printf '%064x' 128)$(printf '00%.0s' {1..128})")"
+recursive_nested_tuple_over_limit="$(call "deadbe0c${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 64)$(printf '%064x' 128)$(printf '%064x' 17)$(printf '00%.0s' {1..32})$(printf '%064x' 0)")"
+recursive_nested_tuple_truncated="$(call "deadbe0c${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 64)$(printf '%064x' 128)$(printf '%064x' 0)$(printf '00%.0s' {1..32})$(printf '%064x' 5)776f")"
+dynamic_tuple_array="$(call "deadbe0d${head}$(printf '%064x' 2)$(printf '%064x' 64)$(printf '%064x' 192)$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)6869$(printf '00%.0s' {1..30})$(printf '%064x' 9)$(printf '%064x' 64)$(printf '%064x' 5)776f726c64$(printf '00%.0s' {1..27})")"
+dynamic_tuple_array_inside_head="$(call "deadbe0d${head}$(printf '%064x' 2)$(printf '%064x' 32)$(printf '%064x' 192)$(printf '00%.0s' {1..256})")"
+dynamic_tuple_array_tuple_inside_head="$(call "deadbe0d${head}$(printf '%064x' 1)$(printf '%064x' 32)$(printf '%064x' 7)$(printf '%064x' 32)$(printf '00%.0s' {1..96})")"
+dynamic_tuple_array_over_limit="$(call "deadbe0d${head}$(printf '%064x' 1)$(printf '%064x' 32)$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 17)$(printf '00%.0s' {1..32})")"
+dynamic_tuple_array_truncated="$(call "deadbe0d${head}$(printf '%064x' 1)$(printf '%064x' 32)$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 5)776f")"
 batch_output="$("$runner" build/stylus/aggregate-differential/echo.wasm \
   --calldata-file "$batch_input" --invoke user_entrypoint)"
 
@@ -77,7 +86,11 @@ batch = json.loads(sys.argv[1])["batch"]
  bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit,
  bytes_array_truncated, nested_array_tuple, nested_array_tuple_inside_head,
  nested_array_tuple_high_offset, nested_array_tuple_over_limit,
- nested_array_tuple_bad, nested_array_tuple_truncated) = batch
+ nested_array_tuple_bad, nested_array_tuple_truncated, recursive_nested_tuple,
+ recursive_nested_tuple_inside_head, recursive_nested_tuple_over_limit,
+ recursive_nested_tuple_truncated, dynamic_tuple_array,
+ dynamic_tuple_array_inside_head, dynamic_tuple_array_tuple_inside_head,
+ dynamic_tuple_array_over_limit, dynamic_tuple_array_truncated) = batch
 assert empty["calls"][0]["status"] == 0
 assert empty["result"] == "00" * 31 + "20" + "00" * 32
 assert hello["calls"][0]["status"] == 0 and bytes.fromhex(hello["result"])[64:69] == b"hello"
@@ -122,6 +135,16 @@ assert nested_array_tuple["calls"][0]["status"] == 0 and nested_array_tuple["res
 for rejected in (nested_array_tuple_inside_head, nested_array_tuple_high_offset,
                  nested_array_tuple_over_limit, nested_array_tuple_bad,
                  nested_array_tuple_truncated):
+    assert rejected["calls"][0]["status"] == 1
+    assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
+assert recursive_nested_tuple["calls"][0]["status"] == 0 and recursive_nested_tuple["result"] == ""
+for rejected in (recursive_nested_tuple_inside_head, recursive_nested_tuple_over_limit,
+                 recursive_nested_tuple_truncated):
+    assert rejected["calls"][0]["status"] == 1
+    assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
+assert dynamic_tuple_array["calls"][0]["status"] == 0 and dynamic_tuple_array["result"] == ""
+for rejected in (dynamic_tuple_array_inside_head, dynamic_tuple_array_tuple_inside_head,
+                 dynamic_tuple_array_over_limit, dynamic_tuple_array_truncated):
     assert rejected["calls"][0]["status"] == 1
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
 print("stylus-aggregate-differential-runtime: ok")

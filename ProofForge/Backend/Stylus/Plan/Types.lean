@@ -37,6 +37,16 @@ partial def StylusAbiType.isDynamic : StylusAbiType -> Bool
   | .tuple fields => fields.any isDynamic
   | _ => false
 
+/-- Number of preorder maxima required by a recursively dynamic ABI value.
+Bytes/string contribute a length bound, dynamic arrays contribute an element
+count plus their dynamic element policy, and tuples only aggregate children. -/
+partial def StylusAbiType.dynamicPolicyArity : StylusAbiType -> Nat
+  | .bytes | .string => 1
+  | .dynamicArray element => 1 + if element.isDynamic then element.dynamicPolicyArity else 0
+  | .fixedArray element size => if element.isDynamic then size * element.dynamicPolicyArity else 0
+  | .tuple fields => fields.foldl (fun count field => count + field.dynamicPolicyArity) 0
+  | _ => 0
+
 inductive StylusSlotExpr where
   | literal (slot : StylusBytes)
   | add (base : StylusSlotExpr) (offset : Nat)
@@ -176,9 +186,9 @@ structure StylusFunctionParamPlan where
   name : String
   type : StylusAbiType
   dynamicMaxLength? : Option Nat := none
-  /-- Per-child maxima for immediate dynamic aggregate children, in ABI order.
-  Dynamic tuples provide one entry per dynamic field; dynamic arrays with a
-  dynamic element provide one entry for that element type. -/
+  /-- Recursive child maxima in preorder ABI order. The root bound remains in
+  `dynamicMaxLength?`; nested bytes/string contribute a byte bound and nested
+  dynamic arrays contribute an element-count bound before their descendants. -/
   dynamicFieldMaxLengths : Array Nat := #[]
   deriving Repr, BEq
 
