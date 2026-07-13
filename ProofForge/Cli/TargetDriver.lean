@@ -393,7 +393,7 @@ def stylusResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if req.nft then
     Except.error "proof-forge build --target wasm-arbitrum-stylus: NFT surfaces are not implemented"
   else if isLeanSourceFile req.input? then
-    Except.ok { dispatchKind := .native, nativeOp? := some .stylusRustSdk }
+    Except.ok { dispatchKind := .native, nativeOp? := some .stylusContractSource }
   else
     Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean ContractSpec or TokenSpec input"
 

@@ -108,9 +108,10 @@ blockers may defer an item.
   both renderers, compares renderer-neutral identities and every published
   hash, validates plan-derived aggregate ABI types, rejects an unbound logical
   peer before publication, and executes the bound RemoteCall direct Wasm
-  against the full 20-byte address. Aggregate currently covers bytes, string,
-  and fixed-array parameters; dynamic-array resource bounds and tuple source
-  expression remain W3 work, not W6 CLI blockers.
+  against the full 20-byte address. Aggregate covers its current product API of
+  bytes, string, and fixed-array parameters; bounded dynamic-array storage is
+  separately pinned through the checked Core/renderer gates and is not hidden
+  behind a Rust-specific CLI dispatch.
 - [x] **W7.1 Static test integration:** create `stylus-all` with no named skip,
   register every static gate exactly once in four-worker lanes and serial
   coverage, and preserve live Nitro as an explicit separate gate.

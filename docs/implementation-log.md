@@ -2176,3 +2176,18 @@ Rules:
   self-tests. All five E2E entrypoints fail at the doctor guard in the current
   environment and preserve the non-ready report. No live deployment, receipt,
   gas/ink, or Nitro completion is claimed.
+
+## 2026-07-13 - STYLUS-W6 review: Renderer-neutral CLI dispatch
+
+- Status: `W6.1-W6.3 reviewed complete locally; live evidence remains unavailable`
+- Renamed the target-first native operation from the obsolete
+  `stylusRustSdk`/`--stylus-rust-sdk` identity to
+  `stylusContractSource`/`--stylus-contract-source`. Renderer selection remains
+  an orthogonal option: Direct-Wasm is the default artifact and Rust SDK is the
+  explicit oracle, with no fallback between them.
+- Re-audited temporary bundle cleanup, forced renderer/tool failure, plan/
+  storage/ABI identities, stale and verified evidence, final-output roles, and
+  literal Counter/ValueVault/Token/RemoteCall/Aggregate dual-renderer builds.
+- Verification: `just stylus-public-route` and `just stylus-cli-matrix` pass.
+  The latter executes all five product pairs and the bound full-address remote
+  call. No full Stylus or repository suite was run.

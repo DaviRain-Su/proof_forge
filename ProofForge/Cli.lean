@@ -332,13 +332,13 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     | .nftEvmBytecode => Except.ok .evmBytecode
     | .nftSolanaSbpf => Except.ok .contractSourceSbpf
     | .nftNearEmitWat => Except.ok .contractSourceEmitWat
-    | .stylusRustSdk => Except.ok .contractSourceEmitWat
+    | .stylusContractSource => Except.ok .contractSourceEmitWat
   let target := state.target?.getD ""
   let flag ← match op with
     | .nftEvmBytecode => Except.ok "--evm-bytecode"
     | .nftSolanaSbpf => Except.ok "--contract-source-sbpf"
     | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
-    | .stylusRustSdk => Except.ok "--stylus-rust-sdk"
+    | .stylusContractSource => Except.ok "--stylus-contract-source"
   let output? := state.out?.map (targetFirstNativeOutput target flag ·)
   let stylusRenderer ← match state.renderer? with
     | some renderer => StylusRenderer.parse renderer
@@ -367,7 +367,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     targetId? := state.target?
     fixture? := state.fixture?
     format? := state.format?
-    nft := op != .stylusRustSdk
+    nft := op != .stylusContractSource
     peerMap := state.peers.foldl (fun m spec =>
       match ProofForge.Target.PeerMap.parseBinding spec with
       | .ok b => ProofForge.Target.PeerMap.merge m { bindings := #[b] }
@@ -509,7 +509,7 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
                   | .nftEvmBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
                   | .nftSolanaSbpf => ProofForge.Cli.compileContractSourceSbpf opts
                   | .nftNearEmitWat => ProofForge.Cli.compileContractSourceEmitWat opts
-                  | .stylusRustSdk => ProofForge.Cli.compileContractSourceStylus opts
+                  | .stylusContractSource => ProofForge.Cli.compileContractSourceStylus opts
               | none => ProofForge.Cli.compileFile opts
       | Except.error msg =>
           IO.eprintln msg

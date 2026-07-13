@@ -4,7 +4,7 @@ inductive NativeBuildOp
   | nftEvmBytecode
   | nftSolanaSbpf
   | nftNearEmitWat
-  | stylusRustSdk
+  | stylusContractSource
   deriving BEq, Repr
 
 end ProofForge.Cli

@@ -27,7 +27,8 @@ def main : IO Unit := do
     input? := some "Examples/Product/FungibleToken.lean", token := true }
   match tokenRoute with
   | .ok route =>
-      require (route.nativeOp? == some .stylusRustSdk) "Stylus token did not select the Rust SDK compiler"
+      require (route.nativeOp? == some .stylusContractSource)
+        "Stylus token did not select the renderer-neutral contract-source compiler"
   | .error error => throw <| IO.userError s!"Stylus token route was rejected: {error}"
   match ProofForge.Cli.stylusResolveBuild {
       input? := some "Examples/Product/FungibleToken.lean", nft := true } with
