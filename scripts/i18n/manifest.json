@@ -147,7 +147,7 @@
     "note": "manually synced for implemented Stylus research classification"
   },
   "docs/targets/arbitrum-stylus.md": {
-    "sha256": "ab9a146946e00c51330e4a3bdb1d7f686bf2ac4953392955c5d2f877d321dc12",
+    "sha256": "aece7de3d9bad3e6440f3615c18c305c6a120974ffaa7b2f154b618fe93eb891",
     "zh": "docs/zh/targets/arbitrum-stylus.zh.md",
     "model": "manual-zh",
     "note": "initial docs-only Stylus target classification"

@@ -117,6 +117,11 @@ cargo run --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   __pf_initialize __pf_increment __pf_get
 ```
 
+For independent calldata vectors against one compiled module, pass a file with
+one hex payload per line via `--calldata-file`. The runner compiles the module
+once, creates a fresh Store for every line, and returns results under `batch`;
+this avoids cross-case state while keeping differential gates fast.
+
 Run `just stylus-vm-runner` for the checked Counter and authorization smokes.
 This proves that emitted Wasm bytecode instantiates and executes; it is a local
 compatibility host, not Nitro activation, `cargo stylus check`, or deployment

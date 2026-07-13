@@ -1991,3 +1991,20 @@ Rules:
 - Hardened dynamic tuple offsets against 32-bit addition wraparound while
   retaining the existing multi-tail bytes/string behavior.
 - Verification: `just stylus-aggregate-differential` and `git diff --check`.
+
+## 2026-07-13 - Stylus aggregate targeted-gate acceleration
+
+- Status: `complete`
+- `stylus-vm-runner` now accepts `--calldata-file`, compiles the module once,
+  executes every line in a fresh Store, and returns a version-stable `batch`
+  array. Single-calldata output remains backward compatible.
+- The aggregate differential script uses that batch mode instead of compiling
+  Wasm in a new runner process for every vector.
+- The generated Rust oracle keeps a parent-level `Cargo.lock` cache across
+  atomic crate regeneration, avoiding repeated dependency resolution while
+  still allowing Cargo to refresh the lock when its manifest changes.
+- This is deliberately scoped to the active aggregate gate; no full test suite
+  is part of feature iteration.
+- Verification: the targeted gate fell from 82.74 seconds before batching to
+  12.92 seconds after batching on the same worktree; runner Cargo tests and all
+  aggregate Rust/direct runtime assertions pass.

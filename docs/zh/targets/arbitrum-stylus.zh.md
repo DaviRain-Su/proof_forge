@@ -96,6 +96,10 @@ cargo run --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   __pf_initialize __pf_increment __pf_get
 ```
 
+对于同一已编译模块上的多组独立 calldata，可以通过 `--calldata-file` 传入每行一个
+十六进制 payload 的文件。Runner 只编译一次模块，为每一行创建全新的 Store，并在
+`batch` 字段中返回结果；这样既避免测试用例之间共享状态，也能加快 differential gate。
+
 `just stylus-vm-runner` 会执行 Counter 和 authorization smoke。该 gate 证明生成的
 Wasm 字节码能够实例化并执行；runner 是本地兼容宿主，不代表 Nitro activation、
 `cargo stylus check` 或部署证据。

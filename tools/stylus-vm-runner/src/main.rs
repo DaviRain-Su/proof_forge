@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use wasmtime::{Caller, Engine, Linker, Memory, Module, Store};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct HostState {
     storage: BTreeMap<[u8; 32], [u8; 32]>,
     cache: BTreeMap<[u8; 32], [u8; 32]>,
@@ -491,12 +491,66 @@ fn register_hooks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     Ok(())
 }
 
+fn run_case(
+    engine: &Engine,
+    module: &Module,
+    linker: &Linker<HostState>,
+    host: HostState,
+    exports: &[String],
+) -> Result<Value> {
+    let mut store = Store::new(engine, host);
+    let instance = linker
+        .instantiate(&mut store, module)
+        .map_err(|error| anyhow!("failed to instantiate Stylus Wasm with vm_hooks: {error}"))?;
+    let mut calls = Vec::new();
+    for export in exports {
+        let storage_snapshot = store.data().storage.clone();
+        let cache_snapshot = store.data().cache.clone();
+        store.data_mut().result.clear();
+        let status = if export == "user_entrypoint" {
+            let calldata_len = store.data().calldata.len() as i32;
+            let function = instance
+                .get_typed_func::<i32, i32>(&mut store, export)
+                .map_err(|error| anyhow!("missing Stylus entrypoint `{export}`: {error}"))?;
+            function.call(&mut store, calldata_len)
+        } else {
+            let function = instance
+                .get_typed_func::<(), i32>(&mut store, export)
+                .map_err(|error| anyhow!("missing zero-argument i32 export `{export}`: {error}"))?;
+            function.call(&mut store, ())
+        }
+        .map_err(|error| anyhow!("Stylus export `{export}` trapped: {error}"))?;
+        if status != 0 {
+            store.data_mut().storage = storage_snapshot;
+            store.data_mut().cache = cache_snapshot;
+            store
+                .data_mut()
+                .trace
+                .push(json!({"event":"transaction_rollback","export":export}));
+        }
+        calls.push(json!({"export":export,"status":status,"result":hex(&store.data().result)}));
+    }
+    let storage = store
+        .data()
+        .storage
+        .iter()
+        .map(|(key, value)| (hex(key), Value::String(hex(value))))
+        .collect::<serde_json::Map<_, _>>();
+    Ok(json!({
+        "calls": calls,
+        "storage": storage,
+        "result": hex(&store.data().result),
+        "trace": store.data().trace,
+    }))
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.len() < 2 {
         bail!("usage: stylus-vm-runner <module.wasm> [context options] <export> [export ...]");
     }
     let mut host = HostState::default();
+    let mut calldata_batch = Vec::new();
     let mut exports = Vec::new();
     let mut index = 1;
     while index < args.len() {
@@ -520,7 +574,22 @@ fn main() -> Result<()> {
                 index += 2;
             }
             "--calldata" => {
-                host.calldata = parse_hex_vec(value(index)?, "calldata")?;
+                calldata_batch.push(parse_hex_vec(value(index)?, "calldata")?);
+                index += 2;
+            }
+            "--calldata-file" => {
+                let path = value(index)?;
+                let contents = fs::read_to_string(path)
+                    .with_context(|| format!("failed to read calldata batch {path}"))?;
+                for (line_index, line) in contents.lines().enumerate() {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        calldata_batch.push(parse_hex_vec(
+                            line,
+                            &format!("calldata batch line {}", line_index + 1),
+                        )?);
+                    }
+                }
                 index += 2;
             }
             "--block-number" => {
@@ -604,54 +673,20 @@ fn main() -> Result<()> {
         .map_err(|error| anyhow!("failed to compile Stylus Wasm: {error}"))?;
     let mut linker = Linker::new(&engine);
     register_hooks(&mut linker).map_err(|error| anyhow!("failed to register vm_hooks: {error}"))?;
-    let mut store = Store::new(&engine, host);
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .map_err(|error| anyhow!("failed to instantiate Stylus Wasm with vm_hooks: {error}"))?;
-
-    let mut calls = Vec::new();
-    for export in &exports {
-        let storage_snapshot = store.data().storage.clone();
-        let cache_snapshot = store.data().cache.clone();
-        store.data_mut().result.clear();
-        let status = if export == "user_entrypoint" {
-            let calldata_len = store.data().calldata.len() as i32;
-            let function = instance
-                .get_typed_func::<i32, i32>(&mut store, export)
-                .map_err(|error| anyhow!("missing Stylus entrypoint `{export}`: {error}"))?;
-            function.call(&mut store, calldata_len)
-        } else {
-            let function = instance
-                .get_typed_func::<(), i32>(&mut store, export)
-                .map_err(|error| anyhow!("missing zero-argument i32 export `{export}`: {error}"))?;
-            function.call(&mut store, ())
-        }
-        .map_err(|error| anyhow!("Stylus export `{export}` trapped: {error}"))?;
-        if status != 0 {
-            store.data_mut().storage = storage_snapshot;
-            store.data_mut().cache = cache_snapshot;
-            store
-                .data_mut()
-                .trace
-                .push(json!({"event":"transaction_rollback","export":export}));
-        }
-        calls.push(json!({"export":export,"status":status,"result":hex(&store.data().result)}));
+    if calldata_batch.is_empty() {
+        calldata_batch.push(host.calldata.clone());
     }
-
-    let storage = store
-        .data()
-        .storage
-        .iter()
-        .map(|(key, value)| (hex(key), Value::String(hex(value))))
-        .collect::<serde_json::Map<_, _>>();
-    println!(
-        "{}",
-        json!({
-            "calls": calls,
-            "storage": storage,
-            "result": hex(&store.data().result),
-            "trace": store.data().trace,
-        })
-    );
+    let batch_mode = calldata_batch.len() > 1;
+    let mut results = Vec::with_capacity(calldata_batch.len());
+    for calldata in calldata_batch {
+        let mut case_host = host.clone();
+        case_host.calldata = calldata;
+        results.push(run_case(&engine, &module, &linker, case_host, &exports)?);
+    }
+    if batch_mode {
+        println!("{}", json!({"batch": results}));
+    } else {
+        println!("{}", results.pop().expect("single calldata result"));
+    }
     Ok(())
 }

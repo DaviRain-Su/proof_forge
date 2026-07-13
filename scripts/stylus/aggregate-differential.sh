@@ -7,9 +7,15 @@ cd "$root"
 lake env lean --run Tests/Stylus/AggregateDifferential.lean
 wat2wasm build/stylus/aggregate-differential/echo.wat -o build/stylus/aggregate-differential/echo.wasm
 
+runner_target="${CARGO_TARGET_DIR:-build/stylus/cargo-target}"
+CARGO_TARGET_DIR="$runner_target" cargo build --quiet \
+  --manifest-path tools/stylus-vm-runner/Cargo.toml
+runner="$runner_target/debug/stylus-vm-runner"
+batch_input="build/stylus/aggregate-differential/calldata.batch"
+: > "$batch_input"
+
 call() {
-  cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
-    build/stylus/aggregate-differential/echo.wasm --calldata "$1" --invoke user_entrypoint
+  printf '%s\n' "$1" >> "$batch_input"
 }
 
 head="$(printf '%064x' 32)"
@@ -55,12 +61,23 @@ nested_array_tuple_high_offset="$(call "deadbe0b${head}$(printf '%064x' 7)$(prin
 nested_array_tuple_over_limit="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 4)$(printf '00%.0s' {1..128})")"
 nested_array_tuple_bad="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)01$(printf '00%.0s' {1..31})")"
 nested_array_tuple_truncated="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)")"
+batch_output="$("$runner" build/stylus/aggregate-differential/echo.wasm \
+  --calldata-file "$batch_input" --invoke user_entrypoint)"
 
-python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" "$array" "$array_bad" "$array_truncated" "$tuple_array" "$tuple_array_bad" "$dynamic_tuple" "$dynamic_tuple_bad" "$dynamic_tuple_high_length" "$multi_dynamic_tuple" "$multi_dynamic_inside_head" "$multi_dynamic_over_limit" "$multi_dynamic_truncated" "$bytes_array" "$bytes_array_inside_head" "$bytes_array_unaligned" "$bytes_array_high_offset" "$bytes_array_over_limit" "$bytes_array_truncated" "$nested_array_tuple" "$nested_array_tuple_inside_head" "$nested_array_tuple_high_offset" "$nested_array_tuple_over_limit" "$nested_array_tuple_bad" "$nested_array_tuple_truncated" <<'PY'
+python3 - "$batch_output" <<'PY'
 import json
 import sys
 
-empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array, tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length, multi_dynamic_tuple, multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dynamic_truncated, bytes_array, bytes_array_inside_head, bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit, bytes_array_truncated, nested_array_tuple, nested_array_tuple_inside_head, nested_array_tuple_high_offset, nested_array_tuple_over_limit, nested_array_tuple_bad, nested_array_tuple_truncated = map(json.loads, sys.argv[1:])
+batch = json.loads(sys.argv[1])["batch"]
+(empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple,
+ tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array,
+ tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length,
+ multi_dynamic_tuple, multi_dynamic_inside_head, multi_dynamic_over_limit,
+ multi_dynamic_truncated, bytes_array, bytes_array_inside_head,
+ bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit,
+ bytes_array_truncated, nested_array_tuple, nested_array_tuple_inside_head,
+ nested_array_tuple_high_offset, nested_array_tuple_over_limit,
+ nested_array_tuple_bad, nested_array_tuple_truncated) = batch
 assert empty["calls"][0]["status"] == 0
 assert empty["result"] == "00" * 31 + "20" + "00" * 32
 assert hello["calls"][0]["status"] == 0 and bytes.fromhex(hello["result"])[64:69] == b"hello"
@@ -110,5 +127,10 @@ for rejected in (nested_array_tuple_inside_head, nested_array_tuple_high_offset,
 print("stylus-aggregate-differential-runtime: ok")
 PY
 
+lock_cache="build/stylus/aggregate-differential/rust.Cargo.lock"
+if [[ -f "$lock_cache" ]]; then
+  cp "$lock_cache" build/stylus/aggregate-differential/rust/Cargo.lock
+fi
 RUSTUP_TOOLCHAIN=1.91.0 CARGO_TARGET_DIR=build/stylus/cargo-target \
   cargo test --manifest-path build/stylus/aggregate-differential/rust/Cargo.toml --features stylus-test
+cp build/stylus/aggregate-differential/rust/Cargo.lock "$lock_cache"
