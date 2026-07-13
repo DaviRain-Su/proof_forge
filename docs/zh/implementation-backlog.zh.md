@@ -1648,23 +1648,32 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables
 
-### NEAR SDK blockers（2 个 P0 开放，4 个已关闭，9 个 P1）
+### NEAR SDK blockers（2026-07-14 校准）
 
 - ✅ P0：Promise materialization（HostBridge host imports + EmitWat 的真实 Promise 编码；
   完整异步执行和更丰富 callback 仍是 P1）
-- P0 开放：TokenSpec 必须生成一个参数化 NEP-141 runtime artifact；当前 stdlib、
-  plan 与 offline 路径尚未合并成该单一制品。
+- P0 开放：TokenSpec 自动检测和 `NearSpec` 路由已存在，但仍缺少单一的参数化
+  NEP-141 runtime artifact：name、symbol、decimals、initial supply、按 feature
+  裁剪的 init/body、生成客户端和 metadata 必须共同描述同一份 Wasm。
 - ✅ P0：signer_account_id host import + Surface.signer
 - ✅ P0：attached_deposit / native value host import
 - ✅ P0：Aggregate ABI（loadParams Borsh struct/array decode）
-- P0 开放：NEP-145 withdraw 仍需 1-yocto guard 和 predecessor refund Promise；
-  JSON balance objects 与完整 accounting 仍是 P1。
-- ✅ P1 partial：callback handling（promise_result host import + offline stub）
+- P0 开放：NEP-145 withdraw 已有 caller 检查和最小 1 yocto guard，但仍需
+  **精确** 1 yocto guard、predecessor refund Promise、JSON balance objects、
+  unregister 和 byte accounting。
+- ✅ P1 partial：callback handling 已通过真实 `promise_result` host call 执行完整
+  `ft_transfer_call` / `ft_resolve_transfer` 本地余额流；`near-vm-runner` 不调度
+  产生的 receipt 或 peer contract。
 - ✅ P1：block_timestamp（`block_timestamp` host import + `.contextRead .timestamp` 降级 + Surface/Source 辅助）
 - ✅ P1：epoch_height（`epoch_height` host import + `.contextRead .epochHeight` 降级 + Surface/Source 辅助）
 - ✅ P1：random_seed（`random_seed(register_id)` host import + `.contextRead .randomSeed` 降级 + Surface/Source 辅助，返回 `Hash`）
 - ✅ P1：near-api-js client options（view 调用使用 `NearViewOptions`，function call 使用 gas/attached-deposit `NearCallOptions`）
-- ✅ P1：NEP-145 storage-management starter（`storage_deposit`/`storage_balance_*` 的 U64 投影 + Hash map target-first/offline-host smoke）
-- P1：完整 Promise async execution、NEP-145 JSON balance objects/storage byte accounting、
-  NEP-148 metadata、NEP-171 NFT、keccak256/crypto、storage_remove、
-  gas accounting APIs、real NEAR broadcast smoke
+- ✅ P1：NEP-145 storage-management starter（`storage_deposit` /
+  `storage_balance_*` 的 U64 投影 + AccountId-string map target-first、
+  offline-host 与真实 VM smoke）
+- ✅ P1：`storage_remove`、`prepaid_gas` 和 `used_gas` host imports 及 canonical
+  EmitWat lowering 已有覆盖，不得再作为缺失项排期。
+- P1：完整 Promise receipt execution；schema-driven JSON ABI；完整
+  NEP-141/145；NEP-148 metadata；NEP-297 events；在现有最小 lifecycle 之上的
+  完整 NEP-171 compliance；其他 crypto/account/economics host APIs；protocol gas
+  bands；real NEAR broadcast smoke。

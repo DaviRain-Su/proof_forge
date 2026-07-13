@@ -3603,23 +3603,34 @@ fixtures.
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
-### NEAR SDK blockers (2 open P0, 4 closed, 9 P1)
+### NEAR SDK blockers (reconciled 2026-07-14)
 
 - ✅ P0: Promise materialization (host imports in HostBridge + real EmitWat
   Promise encoding; full async execution and richer callbacks remain P1)
-- P0 open: TokenSpec must produce one parameterized NEP-141 runtime artifact;
-  the current stdlib/plan/offline paths are not yet that single artifact.
+- P0 open: TokenSpec auto-detection and `NearSpec` routing exist, but one
+  parameterized NEP-141 runtime artifact is still missing: name, symbol,
+  decimals, initial supply, feature-gated init/body, generated client, and
+  metadata must describe the same emitted Wasm.
 - ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
-- P0 open: NEP-145 withdrawal still needs the 1-yocto guard and predecessor
-  refund Promise; JSON balance objects and full accounting remain P1.
-- ✅ P1 partial: Callback handling (promise_result host import + offline stub)
+- P0 open: NEP-145 withdrawal has a caller check and a minimum-one-yocto guard,
+  but still needs an **exact** one-yocto guard, predecessor refund Promise,
+  JSON balance objects, unregister, and byte accounting.
+- ✅ P1 partial: Callback handling executes the complete local
+  `ft_transfer_call` / `ft_resolve_transfer` balance flow with real
+  `promise_result` host calls; produced receipts and peer contracts are not
+  scheduled by `near-vm-runner`.
 - ✅ P1: block_timestamp (`block_timestamp` host import + `.contextRead .timestamp` lowering + Surface/Source helpers)
 - ✅ P1: epoch_height (`epoch_height` host import + `.contextRead .epochHeight` lowering + Surface/Source helpers)
 - ✅ P1: random_seed (`random_seed(register_id)` host import + `.contextRead .randomSeed` lowering + Surface/Source helpers returning `Hash`)
 - ✅ P1: near-api-js client options (`NearViewOptions` for views, gas/attached-deposit `NearCallOptions` for function calls)
-- ✅ P1: NEP-145 storage-management starter (`storage_deposit`/`storage_balance_*` U64 projection + Hash map target-first/offline-host smoke)
-- P1: Full Promise async execution, full NEP-145 JSON balance objects/storage byte accounting,
-  NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove,
-  gas accounting, real NEAR broadcast smoke
+- ✅ P1: NEP-145 storage-management starter (`storage_deposit` /
+  `storage_balance_*` U64 projection + AccountId-string map target-first,
+  offline-host, and real-VM smoke)
+- ✅ P1: `storage_remove`, `prepaid_gas`, and `used_gas` host imports and
+  canonical EmitWat lowering are covered; do not reschedule them as missing.
+- P1: Full Promise receipt execution; schema-driven JSON ABI; complete
+  NEP-141/145; NEP-148 metadata; NEP-297 events; complete NEP-171 compliance
+  beyond the existing minimal lifecycle; additional crypto/account/economics
+  host APIs; protocol gas bands; real NEAR broadcast smoke.

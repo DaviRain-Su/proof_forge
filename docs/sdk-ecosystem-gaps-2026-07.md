@@ -204,13 +204,13 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | `RoleGatedToken.lean` | contract_source | OK | maps + multi-param entries |
 | `EscrowVault.lean` (+ other NEAR-compare vaults) | contract_source | OK | product compile |
 | `SoulboundTokenBody.lean` | contract_source | OK | body balances (no TokenSpec) |
-| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | **FAIL** as bare `build` (actionable diagnostic) | needs `--token` / `just product-token-near`; N1.3 message points at TokenSpec path |
+| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | Bare `build --target wasm-near` auto-detects TokenSpec through `NearSpec` | route exists; runtime metadata/initial-supply parameterization remains N-T5 |
 | NEP-141 body | stdlib + TokenSpec plan | OK via `just product-token-near` | plan JSON + `NearFungibleToken.wat` |
 
 **Gap classes for N1 (ordered):**
 
-1. **TokenSpec CLI UX** — bare `build` on TokenSpec modules throws ContractSpec missing; authors need a single documented path (N1.3).
-2. **Dynamic Borsh** — one authoritative plan now drives Wasm and generated clients for fixed-width values; bytes/string remain unsupported (N1.2).
+1. **TokenSpec runtime parameterization** — bare build routing exists, but name/symbol/decimals/initialSupply do not yet materialize into one executable Wasm (N-T5).
+2. **Schema-driven JSON** — one authoritative plan drives the two landed standard JSON signatures; structs, optional values, field-order tolerance, escaping, and generic dynamic values remain unsupported (N-T1).
 3. **Promise peer correctness** — materialize exists; sandbox/offline peer returns need N1.4.
 4. **NEP-141/145 product depth** — plan+WAT exist; full FT lifecycle + storage deposit economics still shallow (N1.3/N1.5).
 5. **Budget honesty** — offline `wasmtimeFuel*` only; real `nearGas` from sandbox (N1.6).
@@ -220,7 +220,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
 | Entrypoint ABI (per-entrypoint JSON/Borsh) | Partial (N1.2/N-01) | `NearAbiPlan` is authoritative for Wasm input validation and generated TypeScript encoding/decoding. Standard `ft_balance_of` uses JSON AccountId input and decimal-string U128 output; standard `ft_transfer` uses exact two-field JSON input and full-range U128 parsing. `just near-abi-plan`, `just near-abi-client`, `just near-vm-json-balance`, and `just near-vm-json-transfer` cover these paths. Other entrypoints retain Borsh; generic dynamic `bytes`/`string`, optional fields, and structured JSON remain fail-closed/unimplemented | P1 remain: schema-driven dynamic/structured JSON |
-| State storage (scalar/map/hash) | Covered | Hash-valued U64/Hash-keyed reads and old-value returns allocate stable per-entrypoint copies; the hash bump allocator resets on every affected entrypoint. `just near-map-hash-alias` and `just near-map-hash-alias-sandbox` retain two reads across later map operations | — |
+| State storage (scalar/map/hash/string) | Covered | U128 values and raw AccountId-string map keys run through canonical EmitWat; Hash-valued alias safety remains covered by `just near-map-hash-alias` and `just near-map-hash-alias-sandbox`; real-VM U128/String map gates cover the standard FT balance shape | — |
 | Generic events via log_utf8 | Covered | EmitWat event lowering + offline host | — |
 | Cross-contract calls (Promise API) | Partial (N1.4) | Host imports + materialize; **offline** `just near-remote-call-offline-peer` (`call_with_args → 49`); **testkit** `just testkit-remote-call` includes NEAR peer observation (N1.4 closed: offline-host materializes promise_create/return → 49 alongside EVM/Solana peers); **sandbox** `just near-sandbox-peer` real PeerOracle; IR semantics remain sum stub (not a peer VM; see `docs/formal-verification.md` § Crosscall honesty) | P1 remain: richer multi-hop peer simulation |
 | Callback handling | Partial | Full `ft_transfer_call` -> private keyed `ft_resolve_transfer` dispatch, injected real-VM promise result, bounded refund, and concurrent/out-of-order context isolation are covered by `just near-vm-conformance-ft`, `just wasm-near-ft-transfer-call-e2e`, and `just near-ft-security`. The VM runner does not schedule or execute the produced peer receipt | P1 remain: node/sandbox receipt execution |
@@ -232,7 +232,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | NEP-141 (fungible token) | Interoperable subset; compliance `experimental` | Amounts are U128 end-to-end and balances use raw AccountId string keys. Standard JSON `ft_balance_of` and direct `ft_transfer` run on the unmodified upstream VM (`just near-vm-json-balance`, `just near-vm-json-transfer`); private keyed resolver, bounded refunds, and out-of-order callback isolation are covered by `just near-vm-conformance-ft`, `just near-ft-security`, and `just wasm-near-ft-transfer-call-e2e`. `ft_transfer_call`, memo/msg, remaining mutation inputs, and structured standard returns are not yet standard JSON | P0: complete JSON surface and bound compare evidence |
 | NEP-145 (storage management) | Implemented ledger subset; compliance `experimental` | Product `storage_deposit` plus caller-bound `storage_withdraw` ledger debit; canonical JSON objects, refunds, unregister, complete one-yocto behavior, and requirement evidence remain open | P0/P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
-| NEP-171 (NFT) | Missing | No NFT example | P1 |
+| NEP-171 (NFT) | Minimal lifecycle; compliance incomplete | NFT intent materializes a NEAR `standardId=nep-171` artifact and `just portable-nft-runtime` executes init/mint/owner/balance/authorized-transfer/rejection on the NEAR offline host; metadata, approvals, enumeration, JSON interoperability, and live-node compliance remain open | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
 | NEP-245 (multi-token) | Missing | No multi-token example | P2 |
 
@@ -240,7 +240,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P1 |
+| current_account_id / predecessor_account_id | Partial | `callerAccountId` exposes the full predecessor AccountId string and powers the standard FT balance keys; hashed caller/contract identities remain available. A general full-string `current_account_id` authoring value is not yet exposed outside the promise receiver path | P1 remain: full current-account string surface |
 | signer_account_id | Covered | `signer_account_id` host import + `ctxSignerFunc` + `Surface.signer` | — |
 | Access keys | Missing | No function-call/full-access key APIs | P1 |
 | Storage staking / byte accounting | Missing | No storage_usage / staking host APIs | P1 |
@@ -251,7 +251,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 |---|---|---|---|
 | attached_deposit (native value) | Covered | `attached_deposit` host import + `.nativeValue` EmitWat lowering (U64 truncation of U128); `StoragePathWrite` supports nested `mapKey+mapKey` paths | — |
 | balance_of / balance_change | Missing | No balance host APIs | P1 |
-| prepaid_gas / used_gas / GAS_PRICE | Missing | No in-contract host imports or portable IR operations | P1 |
+| prepaid_gas / used_gas / GAS_PRICE | Partial | `ContextField.prepaidGas` / `usedGas`, host imports, canonical lowering, and Wasm coverage exist. Gas price and protocol-accurate budget regression bands remain missing | P1 remain: gas price + live bands |
 | Execution budget reporting (N1.6) | Partial | Offline host reports `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` only (`just near-budget-honesty`); sandbox reports real `nearGas` via `just near-sandbox-peer` | P1 remain: required sandbox budget regression bands |
 
 ### Crypto / misc
@@ -265,7 +265,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
 | epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
 | random_seed | Covered | `random_seed(register_id)` host import + `.contextRead .randomSeed` EmitWat lowering + `Surface.randomSeed`, returning the 32-byte register payload as `Hash` | — |
-| storage_remove | Missing | No remove host import | P1 |
+| storage_remove | Covered | `HostBridge.near`, ModulePlan-driven imports, map-delete lowering, real-VM FT host-link conformance, and Wasm coverage include the three-argument NEAR `storage_remove` ABI | — |
 
 ### Deployment
 

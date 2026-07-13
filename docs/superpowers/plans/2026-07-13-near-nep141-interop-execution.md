@@ -1,10 +1,31 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; Phases 0-3 and Phase 4 Landings 4a-4b
-complete, Landing 4c next). Scope: make the ProofForge `wasm-near` NEP-141
+Status: active (updated 2026-07-14; N-T0 documentation reconciliation in
+progress; Phases 0-3 and Phase 4 Landings 4a-4b complete, Landing 4c next).
+Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
 conformance.
+
+## Execution task index
+
+This index is the authoritative order for the current NEAR program. It keeps
+the broader completion work visible while each landing remains reviewable.
+
+| ID | State | Deliverable | Depends on |
+|---|---|---|---|
+| N-T0 | in_progress | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
+| N-T1 | pending | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
+| N-T2 | pending | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
+| N-T3 | pending | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
+| N-T4 | pending | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
+| N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
+| N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
+| N-T7 | pending | Executed receipt chain, testnet runner, deployment evidence, gas bands | N-T6 |
+| N-T8 | pending | NEP-171/178/245 depth, missing host APIs/crypto, formal preservation | independent slices after N-T1 |
+
+Completion means all nine rows are `done` with direct gates. A completed
+landing does not reduce the remaining objective.
 
 This plan operationalizes the `pending` Wave-N tasks (`N-01`→`N-04`) from
 `docs/superpowers/plans/2026-07-11-primary-triad-multichain-runtime.md`. It is

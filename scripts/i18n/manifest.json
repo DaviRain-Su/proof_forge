@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "607d4ae364fcf0d72f8c9b9faeaf05717c7085057c6d6b40ffaa59e680dd0170",
+    "sha256": "02f9177aaa3572d4be58ebe9bc2e61e5a6a4cdfc3707605fbc4a5ce64ad58028",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh B2 strict canonical target gate verification status"
+    "note": "synced EN/zh for the 2026-07-14 NEAR task and capability reconciliation"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -179,7 +179,7 @@
     "model": "manual-zh",
     "en_sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd"
   },
-  "docs/sdk-ecosystem-gaps-2026-07.md": "1dc6d19342aa556a71629c5cea3d7fa444c36347578b8a367f3ee9da01339605",
+  "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {
     "sha256": "01bc8f804f62c56a171796721b7adbba2fd36955bdedbc48187f7020236ace08",
     "zh": "docs/zh/tutorials/portable-shared-path.zh.md",
