@@ -280,8 +280,12 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
     (fields : Array StylusAbiType) :
     Except LowerError (Array Insn) := do
   let dynamicFields := fields.filter fun field => field.isDynamic
-  unless dynamicFields.all fun field => field == .bytes || field == .string do
-    throw { message := "direct Wasm dynamic tuple currently supports only bytes/string dynamic fields" }
+  for field in dynamicFields do
+    match field with
+    | .bytes | .string => pure ()
+    | .dynamicArray element =>
+        let _ <- staticAbiWords 2048 element |>.mapError fun error => { message := error.message }
+    | _ => throw { message := "direct Wasm dynamic tuple child requires recursive bound planning" }
   unless dynamicFields.size == maximumLengths.size do
     throw { message := s!"direct Wasm dynamic tuple has {dynamicFields.size} dynamic fields but {maximumLengths.size} maxima" }
   let offsetName := s!"abi_offset_{index}"
@@ -299,6 +303,8 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
   body := body ++ rejectIf highOffset ++ decodeU32BE (headPtr + 28) offsetName
   body := body ++ rejectIf #[.localGet offsetName, .i32Const 31, .plain "i32.and"]
   body := body ++ rejectIf #[.localGet offsetName, .i32Const headBytes, .plain "i32.lt_u"]
+  body := body ++ rejectIf #[.localGet offsetName, .localGet "args_len", .i32Const 4,
+    .plain "i32.sub", .plain "i32.gt_u"]
   body := body ++ rejectIf #[.localGet offsetName, .i32Const tupleHeadBytes, .plain "i32.add",
     .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
   let mut wordOffset := 0
@@ -307,6 +313,7 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
     if field.isDynamic then
       let childOffsetName := s!"abi_child_offset_{index}_{dynamicIndex}"
       let lengthName := s!"abi_child_length_{index}_{dynamicIndex}"
+      let childBaseName := s!"abi_child_base_{index}_{dynamicIndex}"
       let maximum := maximumLengths[dynamicIndex]!
       let childPtrBase := calldataPtr + 4 + wordOffset * 32
       let mut highChild : Array Insn := #[.i32Const 0]
@@ -322,6 +329,8 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
         .plain "i32.or", .localSet childOffsetName]
       body := body ++ rejectIf #[.localGet childOffsetName, .i32Const 31, .plain "i32.and"]
       body := body ++ rejectIf #[.localGet childOffsetName, .i32Const tupleHeadBytes, .plain "i32.lt_u"]
+      body := body ++ rejectIf #[.localGet childOffsetName, .localGet "args_len",
+        .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
       body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
         .i32Const 32, .plain "i32.add", .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
       let lengthBase := calldataPtr + 4 + 28
@@ -339,16 +348,39 @@ private def dynamicTupleParam (index headBytes : Nat) (maximumLengths : Array Na
         .localGet offsetName, .localGet childOffsetName, .plain "i32.add", .i32Const (lengthBase + 3),
         .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or", .localSet lengthName]
       body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
-      body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
-        .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const 31, .plain "i32.add",
-        .i32Const 4294967264, .plain "i32.and", .plain "i32.add",
-        .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
-      body := body ++ #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
-        .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
-        .plain "i32.and", .plain "i32.add", .localGet extentName, .plain "i32.gt_u",
-        .if_ (.mk #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
-          .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
-          .plain "i32.and", .plain "i32.add", .localSet extentName]) .empty]
+      match field with
+      | .bytes | .string =>
+          body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
+            .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const 31, .plain "i32.add",
+            .i32Const 4294967264, .plain "i32.and", .plain "i32.add",
+            .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
+          body := body ++ #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
+            .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+            .plain "i32.and", .plain "i32.add", .localGet extentName, .plain "i32.gt_u",
+            .if_ (.mk #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
+              .localGet lengthName, .i32Const 31, .plain "i32.add", .i32Const 4294967264,
+              .plain "i32.and", .plain "i32.add", .localSet extentName]) .empty]
+      | .dynamicArray element =>
+          if maximum > 64 then
+            throw { message := s!"direct Wasm nested dynamic-array maximum {maximum} exceeds validation limit 64" }
+          let elementWords <- staticAbiWords 2048 element |>.mapError fun error => { message := error.message }
+          let stride := elementWords * 32
+          body := body ++ rejectIf #[.localGet offsetName, .localGet childOffsetName, .plain "i32.add",
+            .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const stride,
+            .plain "i32.mul", .plain "i32.add", .localGet "args_len", .i32Const 4,
+            .plain "i32.sub", .plain "i32.gt_u"]
+          body := body ++ #[.localGet offsetName, .localGet childOffsetName,
+            .plain "i32.add", .localSet childBaseName]
+          for item in [0:maximum] do
+            let (checks, _) <- validateDynamicStatic childBaseName 32 (item * elementWords) element
+            body := body ++ #[.localGet lengthName, .i32Const item, .plain "i32.gt_u",
+              .if_ (.mk checks) .empty]
+          body := body ++ #[.localGet childOffsetName, .i32Const 32, .plain "i32.add",
+            .localGet lengthName, .i32Const stride, .plain "i32.mul", .plain "i32.add",
+            .localGet extentName, .plain "i32.gt_u", .if_ (.mk #[.localGet childOffsetName,
+              .i32Const 32, .plain "i32.add", .localGet lengthName, .i32Const stride,
+              .plain "i32.mul", .plain "i32.add", .localSet extentName]) .empty]
+      | _ => throw { message := "direct Wasm dynamic tuple child requires recursive bound planning" }
       dynamicIndex := dynamicIndex + 1
       wordOffset := wordOffset + 1
     else
@@ -437,7 +469,8 @@ private def userEntrypoint (plan : StylusPlan) : Except LowerError Func := do
       { name := s!"abi_tuple_extent_{index}", type := .i32 }]
     for child in [0:maxDynamicChildren] do
       locals := locals ++ #[{ name := s!"abi_child_offset_{index}_{child}", type := .i32 },
-        { name := s!"abi_child_length_{index}_{child}", type := .i32 }]
+        { name := s!"abi_child_length_{index}_{child}", type := .i32 },
+        { name := s!"abi_child_base_{index}_{child}", type := .i32 }]
   pure {
     name := "user_entrypoint"
     exportName := some "user_entrypoint"

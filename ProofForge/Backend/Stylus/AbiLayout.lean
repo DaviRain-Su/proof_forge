@@ -205,9 +205,9 @@ def decodeDynamicBytesArrayArgument (arguments : Array UInt8)
       length := childLength, paddedEnd }
   pure { offset, dataOffset, length, endOffset, children }
 
-/-- Decode a dynamic tuple whose dynamic children are bytes/string. Static
-children may themselves be fixed arrays or static tuples. Child offsets are
-relative to the tuple base, not the outer argument block. -/
+/-- Decode a dynamic tuple whose dynamic children are bytes/string or dynamic
+arrays with static element layouts. Static children may themselves be fixed
+arrays or static tuples. Child offsets are relative to the tuple base. -/
 def decodeDynamicTupleArgument (arguments : Array UInt8) (outerHeadWords index : Nat)
     (fields : Array StylusAbiType) (maximumLengths : Array Nat) :
     Except AbiLayoutError DynamicTupleAbiSlice := do
@@ -221,8 +221,12 @@ def decodeDynamicTupleArgument (arguments : Array UInt8) (outerHeadWords index :
   let mut dynamicCount := 0
   for field in fields do
     if field.isDynamic then
-      unless field == .bytes || field == .string do
-        fail "dynamic-tuple nested arrays/tuples require recursive child planning"
+      match field with
+      | .bytes | .string => pure ()
+      | .dynamicArray element =>
+          let _ <- staticAbiWords (arguments.size / 32 + 1) element
+          pure ()
+      | _ => fail "dynamic-tuple nested dynamic type requires recursive child planning"
       tupleHeadWords ← checkedAdd "dynamic-tuple head" (arguments.size / 32 + 1) tupleHeadWords 1
       dynamicCount := dynamicCount + 1
     else
@@ -249,8 +253,23 @@ def decodeDynamicTupleArgument (arguments : Array UInt8) (outerHeadWords index :
       let maximum := maximumLengths[maximumIndex]!
       if length > maximum then fail s!"dynamic tuple field {fieldIndex} length {length} exceeds maximum {maximum}"
       let dataOffset ← checkedAdd s!"dynamic tuple field {fieldIndex} data" arguments.size lengthOffset 32
-      let paddedEnd ← checkedAdd s!"dynamic tuple field {fieldIndex} tail" arguments.size
-        dataOffset (roundUpWord length)
+      let paddedEnd ← match field with
+        | .bytes | .string => do
+            let tail <- checkedAdd s!"dynamic tuple field {fieldIndex} tail"
+              arguments.size dataOffset (roundUpWord length)
+            pure tail
+        | .dynamicArray element => do
+            let elementWords <- staticAbiWords (arguments.size / 32 + 1) element
+            let payloadWords <- checkedMul s!"dynamic tuple field {fieldIndex} array words"
+              (arguments.size / 32 + 1) length elementWords
+            let payloadBytes <- checkedMul s!"dynamic tuple field {fieldIndex} array bytes"
+              arguments.size payloadWords 32
+            let tail <- checkedAdd s!"dynamic tuple field {fieldIndex} array tail"
+              arguments.size dataOffset payloadBytes
+            let mut cursor := dataOffset
+            for _ in [0:length] do cursor <- validateStaticAt arguments cursor element
+            pure tail
+        | _ => fail s!"dynamic tuple field {fieldIndex} has unsupported recursive type"
       if paddedEnd > arguments.size then fail s!"dynamic tuple field {fieldIndex} tail exceeds calldata"
       endOffset := max endOffset paddedEnd
       slices := slices.push { fieldIndex, relativeOffset, dataOffset, length, paddedEnd }

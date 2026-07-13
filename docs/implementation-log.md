@@ -1977,3 +1977,17 @@ Rules:
   two-element array and malformed inside-head, unaligned, high-offset,
   over-limit, and truncated-child inputs.
 - Verification: `just stylus-aggregate-differential` and `git diff --check`.
+
+## 2026-07-13 - STYLUS-W3.1b: Dynamic-array children inside tuples
+
+- Status: `complete slice; tree-shaped recursive bounds remain W3.1`
+- Generalized pure tuple ABI decoding and Direct Wasm entry validation from
+  bytes/string children to dynamic arrays whose element type has a static ABI
+  layout. Tuple-relative offsets, element counts, computed strides, canonical
+  element words, and full tail extents are validated before function entry.
+- Added `(uint64,uint64[])` generated Rust and direct-Wasm coverage with valid,
+  inside-head, high-offset, over-limit, non-canonical-element, and truncated
+  local VM vectors. Unsupported dynamic-array elements continue to fail closed.
+- Hardened dynamic tuple offsets against 32-bit addition wraparound while
+  retaining the existing multi-tail bytes/string behavior.
+- Verification: `just stylus-aggregate-differential` and `git diff --check`.

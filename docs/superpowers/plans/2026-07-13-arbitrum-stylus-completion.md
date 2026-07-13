@@ -22,9 +22,11 @@ blockers may defer an item.
 - [ ] **W3.1 Direct aggregate carriers:** lower multi-child dynamic tuple
   extents and recursively nested dynamic array/tuple tails from plan-owned
   layouts; add malformed-offset and complete-before-copy runtime vectors.
-  Multi-child bytes/string tuple extents and `bytes[]` recursive child tails are
-  implemented with malformed head/offset/length/truncation vectors. Nested
-  dynamic tuple children and arrays of dynamic tuples remain open.
+  Multi-child bytes/string tuple extents, `bytes[]` recursive child tails, and
+  dynamic tuples containing static-element dynamic arrays are implemented with
+  malformed head/offset/length/canonical-element/truncation vectors. Nested
+  dynamic tuple children and arrays of dynamic tuples still need tree-shaped
+  bounds and remain open.
 - [ ] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
   dynamic bytes/string/array short-long storage transitions, checked allocation
   exhaustion, maximum-page gates, and Rust/direct differential fixtures.

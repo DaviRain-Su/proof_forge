@@ -99,12 +99,27 @@ def main : IO Unit := do
   require (twoTail.headWords == 3 && twoTail.dynamicFields.size == 2 &&
       twoTail.dynamicFields[0]!.length == 5 && twoTail.dynamicFields[1]!.length == 6 &&
       twoTail.endOffset == 256) "multi-tail dynamic tuple layout changed"
+  let nestedArrayTupleArgs := word 32 ++ word 7 ++ word 64 ++ word 2 ++ word 7 ++ word 9
+  let nestedArrayTuple <- match decodeDynamicTupleArgument nestedArrayTupleArgs 1 0
+      #[.uint 64, .dynamicArray (.uint 64)] #[3] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.message
+  require (nestedArrayTuple.headWords == 2 && nestedArrayTuple.dynamicFields.size == 1 &&
+      nestedArrayTuple.dynamicFields[0]!.dataOffset == 128 &&
+      nestedArrayTuple.dynamicFields[0]!.length == 2 && nestedArrayTuple.endOffset == 192)
+    "nested dynamic-array tuple layout changed"
   for result in #[
       decodeDynamicTupleArgument twoTailArgs 1 0 #[.uint 64, .bytes, .string] #[64],
       decodeDynamicTupleArgument (word 32 ++ word 7 ++ word 64 ++ word 160 ++ word 0 ++
         Array.replicate 64 0) 1 0 #[.uint 64, .bytes, .string] #[64, 64],
       decodeDynamicTupleArgument twoTailArgs 1 0 #[.uint 64, .bytes, .string] #[4, 64],
-      decodeDynamicTupleArgument twoTailArgs 1 0 #[.dynamicArray (.uint 64)] #[4]] do
+      decodeDynamicTupleArgument nestedArrayTupleArgs 1 0
+        #[.uint 64, .dynamicArray (.uint 64)] #[1],
+      decodeDynamicTupleArgument (word 32 ++ word 7 ++ word 32 ++ Array.replicate 96 0) 1 0
+        #[.uint 64, .dynamicArray (.uint 64)] #[3],
+      decodeDynamicTupleArgument (word 32 ++ word 7 ++ word 64 ++ word 2 ++ word 7) 1 0
+        #[.uint 64, .dynamicArray (.uint 64)] #[3],
+      decodeDynamicTupleArgument twoTailArgs 1 0 #[.dynamicArray (.dynamicArray (.uint 64))] #[4]] do
     match result with
     | .error _ => pure ()
     | .ok _ => throw <| IO.userError "invalid multi-tail dynamic tuple vector was accepted"
@@ -187,11 +202,18 @@ def main : IO Unit := do
     selector := #[0xde, 0xad, 0xbe, 0x0a]
     params := #[{ name := "values", type := .dynamicArray .bytes }], returns := #[], mutability := .view
   }
+  let nestedArrayTuple := StylusAbiType.tuple #[.uint 64, .dynamicArray (.uint 64)]
+  let nestedArrayTupleMethod : StylusAbiMethodPlan := {
+    name := "acceptNestedArrayTuple"
+    canonicalSignature := "acceptNestedArrayTuple((uint64,uint64[]))"
+    selector := #[0xde, 0xad, 0xbe, 0x0b]
+    params := #[{ name := "value", type := nestedArrayTuple }], returns := #[], mutability := .view
+  }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
     abi := { methods := #[bytesMethod, stringMethod, fixedMethod, tupleMethod, mixedMethod,
       arrayMethod, tupleArrayMethod, dynamicTupleMethod, multiDynamicTupleMethod,
-      bytesArrayMethod], errors := #[] },
+      bytesArrayMethod, nestedArrayTupleMethod], errors := #[] },
     storage := { words := #[] }
     functions := #[
       { id := "echoBytes", abiMethod := "echoBytes", params := #[{
@@ -227,6 +249,10 @@ def main : IO Unit := do
       { id := "acceptBytesArray", abiMethod := "acceptBytesArray", params := #[{
           valueId := 11, name := "values", type := .dynamicArray .bytes, dynamicMaxLength? := some 3,
           dynamicFieldMaxLengths := #[16] }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+      { id := "acceptNestedArrayTuple", abiMethod := "acceptNestedArrayTuple", params := #[{
+          valueId := 12, name := "value", type := nestedArrayTuple, dynamicMaxLength? := some 64,
+          dynamicFieldMaxLengths := #[3] }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support }
     ]
     events := #[], calls := #[]
@@ -250,7 +276,9 @@ def main : IO Unit := do
       { id := "multi-dynamic-tuple.value", functionId := "acceptMultiDynamicTuple", operation := .msgValue, support },
       { id := "multi-dynamic-tuple.result", functionId := "acceptMultiDynamicTuple", operation := .writeResult, support },
       { id := "bytes-array.value", functionId := "acceptBytesArray", operation := .msgValue, support },
-      { id := "bytes-array.result", functionId := "acceptBytesArray", operation := .writeResult, support }
+      { id := "bytes-array.result", functionId := "acceptBytesArray", operation := .writeResult, support },
+      { id := "nested-array-tuple.value", functionId := "acceptNestedArrayTuple", operation := .msgValue, support },
+      { id := "nested-array-tuple.result", functionId := "acceptNestedArrayTuple", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := false }
     artifacts := { solidityAbi := true, typescriptClient := true }

@@ -49,12 +49,18 @@ bytes_array_unaligned="$(call "deadbe0a${head}$(printf '%064x' 1)$(printf '%064x
 bytes_array_high_offset="$(call "deadbe0a${head}$(printf '%064x' 1)$(printf '%064x' 4294967264)$(printf '00%.0s' {1..96})")"
 bytes_array_over_limit="$(call "deadbe0a${head}$(printf '%064x' 1)$(printf '%064x' 32)$(printf '%064x' 17)$(printf '00%.0s' {1..32})")"
 bytes_array_truncated="$(call "deadbe0a${head}$(printf '%064x' 2)$(printf '%064x' 64)$(printf '%064x' 128)$(printf '%064x' 0)$(printf '00%.0s' {1..32})$(printf '%064x' 10)776f726c64")"
+nested_array_tuple="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)$(printf '%064x' 9)")"
+nested_array_tuple_inside_head="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 32)$(printf '00%.0s' {1..96})")"
+nested_array_tuple_high_offset="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 4294967264)$(printf '00%.0s' {1..96})")"
+nested_array_tuple_over_limit="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 4)$(printf '00%.0s' {1..128})")"
+nested_array_tuple_bad="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)01$(printf '00%.0s' {1..31})")"
+nested_array_tuple_truncated="$(call "deadbe0b${head}$(printf '%064x' 7)$(printf '%064x' 64)$(printf '%064x' 2)$(printf '%064x' 7)")"
 
-python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" "$array" "$array_bad" "$array_truncated" "$tuple_array" "$tuple_array_bad" "$dynamic_tuple" "$dynamic_tuple_bad" "$dynamic_tuple_high_length" "$multi_dynamic_tuple" "$multi_dynamic_inside_head" "$multi_dynamic_over_limit" "$multi_dynamic_truncated" "$bytes_array" "$bytes_array_inside_head" "$bytes_array_unaligned" "$bytes_array_high_offset" "$bytes_array_over_limit" "$bytes_array_truncated" <<'PY'
+python3 - "$empty" "$hello" "$utf8" "$unaligned" "$truncated" "$over_limit" "$fixed" "$fixed_bad" "$tuple" "$tuple_bad" "$mixed" "$mixed_bad" "$array" "$array_bad" "$array_truncated" "$tuple_array" "$tuple_array_bad" "$dynamic_tuple" "$dynamic_tuple_bad" "$dynamic_tuple_high_length" "$multi_dynamic_tuple" "$multi_dynamic_inside_head" "$multi_dynamic_over_limit" "$multi_dynamic_truncated" "$bytes_array" "$bytes_array_inside_head" "$bytes_array_unaligned" "$bytes_array_high_offset" "$bytes_array_over_limit" "$bytes_array_truncated" "$nested_array_tuple" "$nested_array_tuple_inside_head" "$nested_array_tuple_high_offset" "$nested_array_tuple_over_limit" "$nested_array_tuple_bad" "$nested_array_tuple_truncated" <<'PY'
 import json
 import sys
 
-empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array, tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length, multi_dynamic_tuple, multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dynamic_truncated, bytes_array, bytes_array_inside_head, bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit, bytes_array_truncated = map(json.loads, sys.argv[1:])
+empty, hello, utf8, unaligned, truncated, over_limit, fixed, fixed_bad, tuple, tuple_bad, mixed, mixed_bad, array, array_bad, array_truncated, tuple_array, tuple_array_bad, dynamic_tuple, dynamic_tuple_bad, dynamic_tuple_high_length, multi_dynamic_tuple, multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dynamic_truncated, bytes_array, bytes_array_inside_head, bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit, bytes_array_truncated, nested_array_tuple, nested_array_tuple_inside_head, nested_array_tuple_high_offset, nested_array_tuple_over_limit, nested_array_tuple_bad, nested_array_tuple_truncated = map(json.loads, sys.argv[1:])
 assert empty["calls"][0]["status"] == 0
 assert empty["result"] == "00" * 31 + "20" + "00" * 32
 assert hello["calls"][0]["status"] == 0 and bytes.fromhex(hello["result"])[64:69] == b"hello"
@@ -93,6 +99,12 @@ for rejected in (multi_dynamic_inside_head, multi_dynamic_over_limit, multi_dyna
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
 assert bytes_array["calls"][0]["status"] == 0 and bytes_array["result"] == ""
 for rejected in (bytes_array_inside_head, bytes_array_unaligned, bytes_array_high_offset, bytes_array_over_limit, bytes_array_truncated):
+    assert rejected["calls"][0]["status"] == 1
+    assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
+assert nested_array_tuple["calls"][0]["status"] == 0 and nested_array_tuple["result"] == ""
+for rejected in (nested_array_tuple_inside_head, nested_array_tuple_high_offset,
+                 nested_array_tuple_over_limit, nested_array_tuple_bad,
+                 nested_array_tuple_truncated):
     assert rejected["calls"][0]["status"] == 1
     assert bytes.fromhex(rejected["result"]) == b"stylus: malformed calldata"
 print("stylus-aggregate-differential-runtime: ok")
