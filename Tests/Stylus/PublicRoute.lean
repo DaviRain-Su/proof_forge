@@ -23,6 +23,16 @@ def main : IO Unit := do
     "Stylus must not advertise final deployability before direct-Wasm evidence"
   require (!isPrimaryTriad profile.id) "Stylus must not enter the primary triad"
   require (ProofForge.Cli.findCliDriver? profile.id).isSome "Stylus CLI driver is missing"
+  let tokenRoute := ProofForge.Cli.stylusResolveBuild {
+    input? := some "Examples/Product/FungibleToken.lean", token := true }
+  match tokenRoute with
+  | .ok route =>
+      require (route.nativeOp? == some .stylusRustSdk) "Stylus token did not select the Rust SDK compiler"
+  | .error error => throw <| IO.userError s!"Stylus token route was rejected: {error}"
+  match ProofForge.Cli.stylusResolveBuild {
+      input? := some "Examples/Product/FungibleToken.lean", nft := true } with
+  | .ok _ => throw <| IO.userError "Stylus NFT route was accepted before implementation"
+  | .error _ => pure ()
   let counter := ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
   match runStrictCanonicalTargetGate profile.id counter with
   | .ok () => pure ()

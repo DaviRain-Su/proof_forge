@@ -2,10 +2,12 @@ import ProofForge.Backend.Stylus.Artifact
 import ProofForge.Backend.Stylus.Package
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.Backend.Stylus.RustSdk.Render
+import ProofForge.Backend.Stylus.Token
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.Options
+import ProofForge.Cli.TokenLoader
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.Target.Registry
 
@@ -23,8 +25,15 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln "Stylus build requires a Lean contract_source input"
       return 1
-  let sourceSpec <- loadContractSpecForOptions opts input "wasm-arbitrum-stylus"
-  let hydratedModule <- hydrateEvmSelectors opts.cast sourceSpec.module
+  let sourceSpec <- if opts.token then do
+      let (_, tokenSpec) <- ProofForge.Cli.TokenLoader.loadToken input opts.root? opts.moduleName?
+      pure <| ProofForge.Backend.Stylus.Token.specFor tokenSpec
+    else
+      loadContractSpecForOptions opts input "wasm-arbitrum-stylus"
+  let hydratedModule <- if opts.token then
+      pure sourceSpec.module
+    else
+      hydrateEvmSelectors opts.cast sourceSpec.module
   let spec := { sourceSpec with module := hydratedModule }
   let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
     | .ok bundle => pure bundle
@@ -56,10 +65,28 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let clientPath := output / "proof-forge-client.ts"
   let wasmPath := output / "contract.wasm"
   let deployPath := output / "proof-forge-deploy.json"
-  let abi <- match ProofForge.Contract.Client.abiJson spec.module with
+  let clientSpec := if opts.token then
+      { spec with module := { spec.module with
+          entrypoints := spec.module.entrypoints.map fun entrypoint =>
+            let paramAbiWords := entrypoint.paramAbiWords.map fun word =>
+              if word == some "uint256" then none else word
+            let returnAbiWord? :=
+              if entrypoint.returnAbiWord? == some "uint256" then none
+              else entrypoint.returnAbiWord?
+            if returnAbiWord? == some "uint8" then
+              { entrypoint with
+                paramAbiWords := paramAbiWords
+                returnAbiWord? := returnAbiWord?
+                «returns» := .u8 }
+            else
+              { entrypoint with
+                paramAbiWords := paramAbiWords
+                returnAbiWord? := returnAbiWord? } } }
+    else spec
+  let abi <- match ProofForge.Contract.Client.abiJson clientSpec.module with
     | .ok abi => pure abi
     | .error error => throw <| IO.userError error
-  let client <- match ProofForge.Contract.Client.renderEvmAbiWrapper spec "contract" with
+  let client <- match ProofForge.Contract.Client.renderEvmAbiWrapper clientSpec "contract" with
     | .ok client => pure client
     | .error error => throw <| IO.userError error
   IO.FS.writeFile abiPath (abi ++ "\n")

@@ -72,7 +72,11 @@ Stylus backend must not route through `NearModulePlan`.
    scalar storage support. Ordering remains fail-closed pending the rest of the
    ValueVault slice.
 2. ValueVault: address, sender, value, block context, authorization, payable.
-3. Token: mappings, indexed events, allowance, EVM ABI interoperability.
+3. Token (research implementation): shared `TokenSpec` materializes through the
+   canonical ERC-20 body, address-keyed balances and nested allowances, indexed
+   events, standard Solidity selectors, Rust SDK/direct Wasm renderers, and a
+   local VM lifecycle. The public CLI route is
+   `proof-forge build --target wasm-arbitrum-stylus --token ...`.
 4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.
 5. Aggregates: structs, arrays, bytes, string, dynamic ABI and storage layouts.
 

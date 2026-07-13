@@ -369,6 +369,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
       | .ok b => ProofForge.Target.PeerMap.merge m { bindings := #[b] }
       | .error _ => m) (if state.peersDemo then ProofForge.Target.PeerMap.nearDemo else ProofForge.Target.PeerMap.identity)
     nativeBuildOp? := some op
+    token := state.token
     fromNewSurface := true
     : CliOptions
   }

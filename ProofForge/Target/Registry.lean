@@ -250,7 +250,15 @@ def wasmArbitrumStylus : TargetProfile := {
   artifactKind := .wasm
   deploymentAllocator? := some (ProofForge.IR.AllocatorConfig.hostBump)
   offlineAllocators := #[ProofForge.IR.AllocatorConfig.hostBump]
-  capabilities := #[.storageScalar, .checkedArithmetic]
+  capabilities := #[
+    .storageScalar,
+    .storageMap,
+    .callerSender,
+    .eventsEmit,
+    .assertions,
+    .controlConditional,
+    .checkedArithmetic
+  ]
   requiredTools := #["rustup", "cargo", "cargo-stylus"]
   support := {
     maturity := .research
@@ -259,8 +267,9 @@ def wasmArbitrumStylus : TargetProfile := {
     outputStages := #[.sourcegen, .intermediate]
     validationLevel := .plan
     supportedFragment :=
-      "Counter research slice via canonical StylusPlan and pinned Rust SDK renderer; " ++
-      "direct Counter WAT and abstract differential gate; native HostIO runtime and deploy support unavailable"
+      "Counter, ValueVault, mapping/event, and ERC-20 research slices via canonical StylusPlan; " ++
+      "pinned Rust SDK and direct Wasm renderers with local differential evidence; " ++
+      "target-native Nitro deployment evidence remains optional"
     toolStages := #[
       { tool := "rustc-1.91.0", stage := "wasm-bootstrap" },
       { tool := "cargo-stylus-0.10.8", stage := "artifact-check" }

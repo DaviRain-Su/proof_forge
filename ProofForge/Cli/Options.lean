@@ -50,6 +50,7 @@ structure CliOptions where
   scenario? : Option FilePath := none
   mode : EmitMode := .yul
   fromNewSurface : Bool := false
+  token : Bool := false
   nft : Bool := false
   /-- Deploy-time logical peer → host identity. Default **identity** (no silent
   rewrite). Use `--peer logical=host` and/or `--peers-demo`. -/

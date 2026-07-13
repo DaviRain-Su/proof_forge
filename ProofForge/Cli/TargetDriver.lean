@@ -390,12 +390,12 @@ def cloudflareResolveEmit (req : EmitRequest) : Except String String :=
     Except.error s!"emit --target wasm-cloudflare-workers --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
 def stylusResolveBuild (req : BuildRequest) : Except String BuildResult :=
-  if req.token || req.nft then
-    Except.error "proof-forge build --target wasm-arbitrum-stylus: token and NFT surfaces are not implemented"
+  if req.nft then
+    Except.error "proof-forge build --target wasm-arbitrum-stylus: NFT surfaces are not implemented"
   else if isLeanSourceFile req.input? then
     Except.ok { dispatchKind := .native, nativeOp? := some .stylusRustSdk }
   else
-    Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean contract_source input"
+    Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean ContractSpec or TokenSpec input"
 
 def stylusResolveEmit (_req : EmitRequest) : Except String String :=
   Except.error "proof-forge emit --target wasm-arbitrum-stylus is unavailable; use build with contract_source"
