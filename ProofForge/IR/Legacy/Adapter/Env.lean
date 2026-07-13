@@ -246,8 +246,12 @@ def adaptStateShape (typeIds : Std.HashMap String TypeId) (decl : StateDecl) :
   match decl.kind with
   | .scalar => do .ok (.scalar (← adaptType typeIds decl.type))
   | .map keyType capacity => do
-      .ok (.map (← adaptType typeIds keyType)
-        (← adaptType typeIds decl.type) (some capacity))
+      if decl.keyPathTypes.isEmpty then
+        .ok (.map (← adaptType typeIds keyType)
+          (← adaptType typeIds decl.type) (some capacity))
+      else
+        .ok (.mapN (← decl.keyPathTypes.mapM (adaptType typeIds))
+          (← adaptType typeIds decl.type) (some capacity))
   | .array length => do .ok (.fixedArray (← adaptType typeIds decl.type) length)
   | .dynamicArray => do .ok (.dynamicArray (← adaptType typeIds decl.type))
 

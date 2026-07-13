@@ -164,6 +164,11 @@ stylus-nested-map:
     lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/nested-map.sh
 
+# Shared TokenSpec -> canonical ERC-20 -> both Stylus renderers and local VM lifecycle.
+stylus-token-differential:
+    lake build ProofForge.Backend.Stylus.Token ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/token-differential.sh
+
 stylus-aggregate-differential:
     lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/aggregate-differential.sh

@@ -22,6 +22,7 @@ inductive RustReturnType where
 
 inductive RustStmt where
   | letLiteral (name typeName value : String)
+  | letCast (name typeName expression : String)
   | letStorageGet (name field : String) (type : StylusAbiType)
   | letMapGet (name field : String) (keys : Array String) (type : StylusAbiType)
   | letAdd (name typeName lhs rhs : String) (mode : StylusOverflowMode)
@@ -29,6 +30,7 @@ inductive RustStmt where
   | letContext (name expression : String)
   | letCompare (name lhs rhs : String) (op : StylusCompareOp)
   | assert_ (condition message : String)
+  | ifElse (condition : String) (thenBody elseBody : Array RustStmt)
   | emitEvent (signature : String)
       (indexed data : Array (String × StylusAbiType))
   | storageSet (field value : String) (type : StylusAbiType)

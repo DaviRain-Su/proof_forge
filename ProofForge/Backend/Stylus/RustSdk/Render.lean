@@ -52,7 +52,9 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
   | .bool true => pure "true"
   | .bool false => pure "false"
   | .uint value => pure (toString value)
-  | .address value => pure s!"Address::parse_checksummed(\"{value}\", None).unwrap()"
+  | .address value => match value.toNat? with
+      | some number => pure s!"Address::from_word(B256::from(U256::from({number})))"
+      | none => pure s!"Address::parse_checksummed(\"{value}\", None).unwrap()"
   | .fixedBytes _ => fail "Rust SDK fixed-bytes literals are not implemented"
   | .bytes value => pure s!"vec![{String.intercalate ", " (value.toList.map (fun byte => toString byte.toNat))}]"
   | .string value =>
@@ -80,6 +82,15 @@ private def storageField (plan : StylusPlan) (id : String) : Except RenderError 
 private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderError RustStmt
   | .literal result type value => do
       pure (.letLiteral (localName result) (← rustTypeName type) (← literalText value))
+  | .cast result fromType toType value => do
+      let expression <- match fromType, toType with
+        | .uint 64, .address =>
+            pure s!"Address::from_word(B256::from(U256::from({localName value})))"
+        | .address, .uint 64 =>
+            pure s!"U256::from_be_slice({localName value}.as_slice()).to::<u64>()"
+        | fromType, toType =>
+            fail s!"Rust SDK cast from `{repr fromType}` to `{repr toType}` is not implemented"
+      pure (.letCast (localName result) (← rustTypeName toType) expression)
   | .storageLoad result wordId => do
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
@@ -131,17 +142,39 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
   let some method := plan.abi.methods.find? (fun method => method.name == function.abiMethod)
     | fail s!"Rust SDK function `{function.id}` has no ABI method"
-  let #[block] := function.blocks
-    | fail s!"Rust SDK function `{function.id}` requires one block in the Counter slice"
-  unless block.id == function.entryBlock do
-    fail s!"Rust SDK function `{function.id}` entry block is inconsistent"
-  let mut body <- block.operations.mapM (renderOperation plan)
-  let hasCheckedArithmetic := block.operations.any fun operation =>
+  let some entry := function.blocks.find? (fun block => block.id == function.entryBlock)
+    | fail s!"Rust SDK function `{function.id}` entry block is missing"
+  let scheduled <- match entry.terminator with
+    | .return values => pure (← entry.operations.mapM (renderOperation plan), .return values)
+    | .branch condition onTrue onFalse => do
+        let some thenBlock := function.blocks.find? (fun block => block.id == onTrue)
+          | fail s!"Rust SDK function `{function.id}` true block is missing"
+        let some elseBlock := function.blocks.find? (fun block => block.id == onFalse)
+          | fail s!"Rust SDK function `{function.id}` false block is missing"
+        let (.jump thenMerge) := thenBlock.terminator
+          | fail s!"Rust SDK function `{function.id}` true block must jump to a merge"
+        let (.jump elseMerge) := elseBlock.terminator
+          | fail s!"Rust SDK function `{function.id}` false block must jump to a merge"
+        unless thenMerge == elseMerge do
+          fail s!"Rust SDK function `{function.id}` branch blocks have different merges"
+        let some mergeBlock := function.blocks.find? (fun block => block.id == thenMerge)
+          | fail s!"Rust SDK function `{function.id}` merge block is missing"
+        let prefixBody <- entry.operations.mapM (renderOperation plan)
+        let thenBody <- thenBlock.operations.mapM (renderOperation plan)
+        let elseBody <- elseBlock.operations.mapM (renderOperation plan)
+        let suffix <- mergeBlock.operations.mapM (renderOperation plan)
+        pure (prefixBody ++ #[.ifElse (localName condition) thenBody elseBody] ++ suffix,
+          mergeBlock.terminator)
+    | _ => fail s!"Rust SDK function `{function.id}` control flow is not a supported diamond"
+  let mut body := scheduled.1
+  let finalTerminator := scheduled.2
+  let operations := function.blocks.foldl (fun operations block => operations ++ block.operations) #[]
+  let hasCheckedArithmetic := operations.any fun operation =>
     match operation with
     | .add _ _ .checked _ _ | .sub _ _ .checked _ _ | .mul _ _ .checked _ _
     | .div _ _ .checked _ _ => true
     | _ => false
-  let hasAssertion := block.operations.any fun operation =>
+  let hasAssertion := operations.any fun operation =>
     match operation with | .assert_ .. => true | _ => false
   let returnType <- match method.returns with
     | #[] => pure <| if hasCheckedArithmetic || hasAssertion then .resultUnit else .unit
@@ -149,7 +182,7 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
         let name <- rustTypeName type
         pure <| if hasCheckedArithmetic || hasAssertion then .resultValue name else .value name
     | _ => fail s!"Rust SDK function `{function.id}` has multiple returns"
-  match block.terminator with
+  match finalTerminator with
   | .return #[] => if hasCheckedArithmetic || hasAssertion then body := body.push .okUnit else pure ()
   | .return #[value] =>
       if hasCheckedArithmetic || hasAssertion then body := body.push (.okValue (localName value))
@@ -204,9 +237,10 @@ private def mapWrite (field : String) (keys : Array String) (value : String)
   | some alias => s!"{access}.insert({key}, {alias}::from({value}));"
   | none => s!"{access}.insert({key}, {value});"
 
-private def renderStmt (stmt : RustStmt) : Array String :=
+private partial def renderStmt (stmt : RustStmt) : Array String :=
   match stmt with
   | .letLiteral name typeName value => #[s!"let {name}: {typeName} = {value};"]
+  | .letCast name typeName expression => #[s!"let {name}: {typeName} = {expression};"]
   | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
   | .letMapGet name field keys (.uint bits) =>
       #[s!"let {name} = {mapRead field keys}.to::<u{bits}>();"]
@@ -236,6 +270,12 @@ private def renderStmt (stmt : RustStmt) : Array String :=
   | .assert_ condition message => #[
       "if !" ++ condition ++ " {", "    return Err(b\"" ++ message ++ "\".to_vec());", "}"
     ]
+  | .ifElse condition thenBody elseBody =>
+      let thenLines := thenBody.foldl (fun lines statement =>
+        lines ++ (renderStmt statement).map (fun line => indent 1 ++ line)) #[]
+      let elseLines := elseBody.foldl (fun lines statement =>
+        lines ++ (renderStmt statement).map (fun line => indent 1 ++ line)) #[]
+      #["if " ++ condition ++ " {"] ++ thenLines ++ #["} else {"] ++ elseLines ++ #["}"]
   | .emitEvent signature indexed data =>
       let renderWord := fun (value, type) => match type with
         | .address => s!"__pf_event.extend_from_slice({value}.into_word().as_slice());"

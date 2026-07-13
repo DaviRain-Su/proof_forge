@@ -6,7 +6,9 @@ open ProofForge.Compiler.Wasm
 
 def addressBytes : Nat := 20
 def u256Bytes : Nat := 32
-def senderPtr : Nat := 64
+/- Context values survive across storage operations, so they must not overlap
+   the 0..96 transient storage key/value scratch region. -/
+def senderPtr : Nat := 512
 def valuePtr : Nat := senderPtr + addressBytes
 def contractPtr : Nat := valuePtr + u256Bytes
 

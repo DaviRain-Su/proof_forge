@@ -382,9 +382,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
   | .effect (.storageMapGet name key) =>
       let stateId ← lookupState name
       let (keyType, valueType) ← stateMapTypes name
-      let normalizedKey ← normalizeExpr key
-      unless normalizedKey.value.type == keyType do
-        throw (CanonicalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+      let normalizedKey ← coerceLegacyAddressHandle (← normalizeExpr key) keyType
       let loaded ← emitValueInstruction (.storageLoad {
         root := stateId, path := #[.mapKey normalizedKey.value], resultType := valueType }) valueType
       return { instructions := normalizedKey.instructions ++ loaded.instructions, value := loaded.value }
@@ -411,6 +409,14 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
                   instructions := instructions ++ normalized.instructions
                   segments := segments.push (.mapKey normalized.value)
                   current := .scalar value
+              | .mapKey key, .mapN expectedKeys value _ =>
+                  let some expectedKey := expectedKeys[0]?
+                    | throw (CanonicalizeError.typeMismatch "nested map key" "empty key list")
+                  let normalized ← coerceLegacyAddressHandle (← normalizeExpr key) expectedKey
+                  instructions := instructions ++ normalized.instructions
+                  segments := segments.push (.mapKey normalized.value)
+                  let remaining := expectedKeys.extract 1 expectedKeys.size
+                  current := if remaining.isEmpty then .scalar value else .mapN remaining value none
               | .index index, .fixedArray element _ =>
                   let normalized ← normalizeExpr index
                   unless normalized.value.type == .u64 do

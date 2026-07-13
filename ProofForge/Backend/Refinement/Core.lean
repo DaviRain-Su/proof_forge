@@ -169,7 +169,8 @@ def noArgFunctionReturning (entrypoint : Entrypoint) (name : String)
 def isCounterStateDecl (decl : StateDecl) : Bool :=
   decl.id == "count" &&
     decide (decl.kind = .scalar) &&
-    decide (decl.type = .u64)
+    decide (decl.type = .u64) &&
+    decl.keyPathTypes.isEmpty
 
 /-! ### Counter body predicates (FV-9.5 decide-friendly form)
 
@@ -443,12 +444,14 @@ theorem isCounterShapeLowerable_implies_isCounterModule_with_canonical_name
 theorem isCounterStateDecl_eq
     (decl : StateDecl) (h : isCounterStateDecl decl = true) :
     decl = { id := "count", kind := .scalar, type := .u64 } := by
-  simp only [isCounterStateDecl, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
-  obtain ⟨⟨hid, hkind⟩, htype⟩ := h
-  cases decl
-  simp only at hid hkind htype
-  subst hid; subst hkind; subst htype
-  rfl
+  cases decl with
+  | mk id kind type keys =>
+      simp only [isCounterStateDecl, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
+      obtain ⟨⟨⟨hid, hkind⟩, htype⟩, hkeys⟩ := h
+      subst id; subst kind; subst type
+      have : keys = #[] := Array.isEmpty_iff.mp hkeys
+      subst keys
+      rfl
 
 /-- `ValueType` derives `BEq` without an automatic `LawfulBEq` instance; recover
 equality for the Counter predicates that use `== .unit` / `== .u64`. -/

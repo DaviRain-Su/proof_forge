@@ -211,10 +211,11 @@ def classifyStructDeclFields : StructDecl → Array LegacyDecision
     ]
 
 def classifyStateDeclFields : StateDecl → Array LegacyDecision
-  | ⟨_, _, _⟩ => #[
+  | ⟨_, _, _, _⟩ => #[
       payloadDecision "StateDecl.id" .preserve "canonical-core-storage" "state identity is preserved in canonical storage declarations",
       payloadDecision "StateDecl.kind" .normalize "canonical-core-storage" "state shape is classified by StateKind",
-      payloadDecision "StateDecl.type" .normalize "canonical-core-storage" "stored value type maps recursively to canonical Core"
+      payloadDecision "StateDecl.type" .normalize "canonical-core-storage" "stored value type maps recursively to canonical Core",
+      payloadDecision "StateDecl.keyPathTypes" .normalize "canonical-core-maps" "ordered composite map key types normalize to canonical mapN storage"
     ]
 
 def classifyErrorRefFields : ErrorRef → Array LegacyDecision

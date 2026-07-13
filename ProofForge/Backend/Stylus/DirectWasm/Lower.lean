@@ -19,6 +19,7 @@ private def widePtr (id : StylusValueId) : Nat := wideScratchPtr id
 
 private def opName : StylusOpPlan -> String
   | .literal result .. => s!"literal-{result}"
+  | .cast result .. => s!"cast-{result}"
   | .add result .. => s!"add-{result}"
   | .sub result .. => s!"sub-{result}"
   | .mul result .. => s!"mul-{result}"
@@ -194,7 +195,7 @@ private def mappingSlot (word : StylusStorageWordPlan) (keys : Array StylusValue
 
 private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   match op with
-  | .literal result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
+  | .literal result .. | .cast result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
   | .storageLoad result .. | .storagePathLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
   | .call result .. => #[result]
@@ -246,6 +247,13 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           else if bits == 128 then pure <| writeBytes (widePtr result) (natBytes 16 value) ++
             #[.i64Const (widePtr result), .localSet (valueLocal result)]
           else throw <| diagnostic plan function block (opName op) "literal" s!"uint{bits} is not implemented"
+      | .address, .address value =>
+          let some number := value.toNat?
+            | throw <| diagnostic plan function block (opName op) "literal.address"
+                "direct address literals currently require a decimal canonical value"
+          pure <| clearWord (widePtr result) ++
+            writeBytes (widePtr result + 12) (natBytes 8 number) ++
+            #[.i64Const (widePtr result), .localSet (valueLocal result)]
       | .bytes, .bytes value =>
           if value.size > dynamicLiteralMaxBytes then
             throw <| diagnostic plan function block (opName op) "literal.bytes" "literal exceeds 256 bytes"
@@ -260,6 +268,14 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             .i64Const (dynamicLiteralPtr result), .localSet (valueLocal result),
             .i64Const bytes.size, .localSet (dynamicLengthLocal result)]
       | _, _ => throw <| diagnostic plan function block (opName op) "literal" "literal/type mismatch"
+  | .cast result fromType toType value =>
+      match fromType, toType with
+      | .uint 64, .address =>
+          pure <| clearWord (widePtr result) ++
+            encodeUnsigned (widePtr result + 12) 8 (valueLocal value) ++
+            #[.i64Const (widePtr result), .localSet (valueLocal result)]
+      | _, _ => throw (diagnostic plan function block (opName op) "cast"
+          s!"unsupported cast from {repr fromType} to {repr toType}")
   | .add result type mode lhs rhs => do
       if type == .uint 128 then
         pure (addWide128 result lhs rhs mode)
@@ -596,16 +612,16 @@ private partial def lowerBlock (plan : StylusPlan) (function : StylusFunctionPla
           | .storageCache .. | .storagePathCache .. => true
           | _ => false
       let flush := if mutatesStorage then #[.i32Const 0, .call "storage_flush_cache"] else #[]
-      pure <| body ++ flush ++ (← lowerReturn plan function block values)
+      pure <| body ++ flush ++ (← lowerReturn plan function block values) ++ #[.return_]
   | .revert errorId =>
       let bytes := errorId.toUTF8.data
       pure <| body ++ writeBytes 32 bytes ++ #[.i32Const 32, .i32Const bytes.size,
-        .call "write_result", .i32Const 1]
+        .call "write_result", .i32Const 1, .return_]
   | .jump target => pure <| body ++ (← lowerBlock plan function target (fuel - 1))
   | .branch condition onTrue onFalse =>
       pure <| body ++ #[.localGet (valueLocal condition), .plain "i64.eqz",
         .if_ (.mk (← lowerBlock plan function onFalse (fuel - 1)))
-          (.mk (← lowerBlock plan function onTrue (fuel - 1)))]
+          (.mk (← lowerBlock plan function onTrue (fuel - 1))), .i32Const 0]
 
 def lowerFunction (plan : StylusPlan) (function : StylusFunctionPlan) : Except LowerError Func := do
   let some entry := function.blocks.find? (fun block => block.id == function.entryBlock)

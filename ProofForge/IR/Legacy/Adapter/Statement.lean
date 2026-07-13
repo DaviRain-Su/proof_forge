@@ -130,6 +130,14 @@ private def normalizeStatementStoragePath (name : String) (path : Array StorageP
             instructions := instructions ++ normalized.instructions
             segments := segments.push (.mapKey normalized.value)
             current := .scalar value
+        | .mapKey key, .mapN expectedKeys value _ =>
+            let some expectedKey := expectedKeys[0]?
+              | throw (CanonicalizeError.typeMismatch "nested map key" "empty key list")
+            let normalized ← coerceLegacyAddressHandle (← normalizeExpr key) expectedKey
+            instructions := instructions ++ normalized.instructions
+            segments := segments.push (.mapKey normalized.value)
+            let remaining := expectedKeys.extract 1 expectedKeys.size
+            current := if remaining.isEmpty then .scalar value else .mapN remaining value none
         | .index index, .fixedArray element _ =>
             let normalized ← normalizeExpr index
             unless normalized.value.type == .u64 do
@@ -177,10 +185,8 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
   | .storageMapSet stateName key value => do
       let stateId ← lookupState stateName
       let (keyType, valueType) ← stateMapTypes stateName
-      let normalizedKey ← normalizeExpr key
+      let normalizedKey ← coerceLegacyAddressHandle (← normalizeExpr key) keyType
       let normalizedValue ← normalizeExpr value
-      unless normalizedKey.value.type == keyType do
-        throw (CanonicalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
       unless normalizedValue.value.type == valueType do
         throw (CanonicalizeError.typeMismatch (reprStr valueType) (reprStr normalizedValue.value.type))
       let fb ← liftExcept (normalizedKey.instructions.foldlM FunctionBuilder.emitInstr fb)

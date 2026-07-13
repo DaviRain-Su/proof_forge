@@ -80,7 +80,8 @@ private def buildMethod (entrypoint : InterfaceEntrypoint) (function : Function)
   let returns <- match entrypoint.retType with
     | .unit => pure #[]
     | type => pure #[← coreTypeToAbi type]
-  let paramNames := params.toList.map (fun param => abiTypeName param.type)
+  let paramNames := (entrypoint.params.zip params).toList.map fun (source, param) =>
+    source.abiWord?.getD (abiTypeName param.type)
   pure {
     name := entrypoint.name
     canonicalSignature := s!"{entrypoint.name}({String.intercalate "," paramNames})"
@@ -132,6 +133,9 @@ private def instructionPlan (contract : CanonicalContract) (instruction : Instru
   | .pure (.literal literal) => do
       let (type, value) <- literalPlan literal
       pure (.literal (← resultId instruction) type value)
+  | .pure (.cast target value) => do
+      pure (.cast (← resultId instruction) (← coreTypeToAbi value.type)
+        (← coreTypeToAbi target) value.id.value)
   | .pure (.arithmetic operation mode lhs rhs) => do
       let type <- match instruction.results with
         | #[result] => coreTypeToAbi result.type

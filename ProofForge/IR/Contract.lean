@@ -136,6 +136,9 @@ structure StateDecl where
   id : String
   kind : StateKind
   type : ValueType
+  /-- Compatibility input hint for ordered composite map keys. Empty keeps the
+  legacy single-key `StateKind.map` meaning. Canonical Core owns the semantics. -/
+  keyPathTypes : Array ValueType := #[]
   deriving Repr
 
 inductive Literal where

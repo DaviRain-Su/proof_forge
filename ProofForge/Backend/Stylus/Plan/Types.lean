@@ -81,6 +81,7 @@ inductive StylusLiteralPlan where
 
 inductive StylusOpPlan where
   | literal (result : StylusValueId) (type : StylusAbiType) (value : StylusLiteralPlan)
+  | cast (result : StylusValueId) (fromType toType : StylusAbiType) (value : StylusValueId)
   | add (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)
       (lhs rhs : StylusValueId)
   | sub (result : StylusValueId) (type : StylusAbiType) (mode : StylusOverflowMode)

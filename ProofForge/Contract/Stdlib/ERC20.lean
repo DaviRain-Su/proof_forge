@@ -45,6 +45,13 @@ def balances : MapRef :=
 def allowances : MapRef :=
   { id := "allowances", keyType := .u64, valueType := .u64 }
 
+def spendAllowanceUnlessUnlimited (owner spender current amount : ProofForge.IR.Expr) :
+    EntryM Unit := do
+  let (_, body) := (pathWriteAllowance allowances owner spender (current -! amount)).run {}
+  ProofForge.Contract.Builder.ifElse
+    (ProofForge.Contract.Surface.ne current (ProofForge.Contract.Surface.u64 18446744073709551615))
+    body.body #[]
+
 contract_mixin ERC20Mixin do
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar tokenDecimals
@@ -107,8 +114,9 @@ contract_mixin ERC20Mixin do
       (ProofForge.Contract.Surface.ref spender);
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref current)
       (ProofForge.Contract.Surface.ref amount) "insufficient allowance";
-    do pathWriteAllowance allowances (ProofForge.Contract.Surface.ref src)
-      (ProofForge.Contract.Surface.ref spender) (current -! amount);
+    do spendAllowanceUnlessUnlimited (ProofForge.Contract.Surface.ref src)
+      (ProofForge.Contract.Surface.ref spender) (ProofForge.Contract.Surface.ref current)
+      (ProofForge.Contract.Surface.ref amount);
     let srcBal : .u64 := mapRead balances src;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
