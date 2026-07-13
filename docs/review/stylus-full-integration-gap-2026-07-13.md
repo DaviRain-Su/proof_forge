@@ -94,6 +94,12 @@ while `T[]` emits the standard offset/count/payload envelope. Return scratch
 clearing is restricted to the head so it cannot overwrite calldata-backed
 payload sources.
 
+The first recursive dynamic tuple slice is also executable: `(uint64,bytes)`
+validates a top-level argument-relative offset and a tuple-relative bytes tail,
+including high-bit length rejection and complete padded bounds. This is
+deliberately limited to one bytes/string child; multiple dynamic children and
+nested dynamic arrays are not yet admitted.
+
 ### W4 - Remote-Call Parity Closure (medium)
 
 Direct/local execution is substantial. Remaining evidence is static-write

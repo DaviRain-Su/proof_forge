@@ -1697,3 +1697,21 @@ Rules:
 - Remaining: recursive offsets for dynamic children, dynamic aggregate
   storage short/long transitions, and resource/Nitro evidence. No W3 completion
   checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: First recursive dynamic tuple offset
+
+- Status: `single dynamic child complete; general recursion pending`
+- Result: direct `user_entrypoint` now decodes `(uint64,bytes)` using two ABI
+  bases: the top-level offset is relative to the argument block and the bytes
+  offset is relative to the tuple head. Static tuple leaves are canonical-
+  validated before the child tail is admitted.
+- Bounds: the tuple head, inner aligned offset, 32-byte length word, maximum
+  payload, padded tail end, and child length high 28 bytes are checked before
+  function execution. The carrier passes the tuple pointer plus child byte
+  length to the lowered function.
+- Runtime/Rust parity: valid hello payload, inner offset pointing inside the
+  tuple head, and high-bit child length vectors execute/reject as expected;
+  the same plan compiles `(u64, Vec<u8>)` under Stylus SDK 0.10.8.
+- Scope: exactly one bytes/string dynamic field is supported. Multiple dynamic
+  fields, nested dynamic arrays, dynamic tuple returns, and storage remain
+  named follow-ups; no W3 completion checkbox was closed.
