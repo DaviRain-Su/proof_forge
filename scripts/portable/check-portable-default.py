@@ -39,6 +39,7 @@ FORBIDDEN_IMPORT_PREFIXES = (
 FORBIDDEN_NEAR_EXTENSION = [
     "nearPromiseThen",
     "nearPromiseResultU64",
+    "nearPromiseResultU128",
     "nearPromiseResultsCount",
     "nearCrosscallPool",
     "nearCrosscallInvokePool",

@@ -85,10 +85,14 @@ blockers may defer an item.
   until Codeberg supplies an artifact sink and credentials. Registry and
   bilingual status/gate/roadmap docs are synchronized; `final.json` remains
   correctly absent without Nitro.
-- [ ] **W7.3 Full regression:** run `just product`, `just stylus-all`, manifest
+- [x] **W7.3 Full regression:** run `just product`, `just stylus-all`, manifest
   and equivalence checks, docs/i18n checks, `JOBS=4 just check-parallel`, and
   `git diff --check`; review the complete range for hidden fallback or
   unsupported claims.
+  The final four-worker run passed all lanes in 1020.51 seconds after repairing
+  stale NEAR dynamic-ABI expectations, both ValueVault WAT goldens, standalone
+  gate rebuild dependencies, exclusive Anvil scheduling, and complete
+  Canonical/EVM/Psy/Wasm constructor coverage manifests.
 - [ ] **Final integration:** only after the queue is closed or externally
   blocked with exact evidence, review the complete branch, rebase the main
   working branch, resolve conflicts, rerun required gates, and push.

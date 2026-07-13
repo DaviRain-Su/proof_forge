@@ -645,9 +645,9 @@ partial def surfaceFromValueType (module : Module) (type : ValueType) : ModuleSu
   match type with
   | .hash => ModuleSurface.withMemcpy
   | .string | .bytes =>
-    -- Borsh dynamic string/bytes params allocate a payload buffer via
-    -- `__pf_arr_alloc` (see `Params.loadParams`).
-    ModuleSurface.withArrAlloc
+    -- Borsh dynamic string/bytes params allocate a payload buffer and copy the
+    -- four-byte length prefix into it (see `Params.loadParams`).
+    mergeModuleSurfaces ModuleSurface.withArrAlloc ModuleSurface.withMemcpy
   | .fixedArray elemType _ =>
       mergeModuleSurfaces ModuleSurface.withArrAlloc
         (if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType)

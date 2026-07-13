@@ -21,6 +21,8 @@ Literal	hash4	lowered	EmitWat emits four U64 limbs and calls the hash constructo
 Literal	address	lowered	EmitWat emits i64.const for Address literals (same as U64); address is treated as a u64 scalar in the wasm-near backend.
 Literal	u8	lowered	EmitWat emits i32.const for U8 literals (same as U32); U8 is treated as a u32 scalar.
 Literal	u128	unsupported	EmitWat does not support U128 literals.
+Literal	bytes	unsupported	EmitWat rejects bytes literals with an explicit diagnostic; dynamic bytes are accepted through decoded parameters or allocated memory.
+Literal	string	unsupported	EmitWat rejects string literals with an explicit diagnostic; dynamic strings are accepted through decoded parameters or allocated memory.
 ContextField	userId	lowered	EmitWat lowers userId to predecessor_account_id hashing through the context helper.
 ContextField	userIdHash	lowered	EmitWat lowers userIdHash to __pf_ctx_user_hash, hashing predecessor_account_id bytes into a Hash; NearFungibleToken callerHash covers hash-keyed balance transfers.
 ContextField	contractId	lowered	EmitWat lowers contractId to current_account_id hashing through the context helper.
@@ -30,6 +32,8 @@ ContextField	epochHeight	lowered	EmitWat lowers epochHeight to the epoch_height 
 ContextField	chainId	unsupported	EmitWat does not lower chainId context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	gasPrice	unsupported	EmitWat does not lower gasPrice context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	gasLeft	unsupported	EmitWat does not lower gasLeft context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	prepaidGas	lowered	EmitWat lowers prepaidGas to the NEAR prepaid_gas host import and records the context operation in ModulePlan.
+ContextField	usedGas	lowered	EmitWat lowers usedGas to the NEAR used_gas host import and records the context operation in ModulePlan.
 ContextField	baseFee	unsupported	EmitWat does not lower baseFee context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	prevRandao	unsupported	EmitWat does not lower prevRandao context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	randomSeed	lowered	EmitWat lowers randomSeed to the random_seed host import and returns the 32-byte register payload as Hash; Tests/Backend/Wasm/EmitWatContext.lean and offline-host smoke cover the returned bytes.
@@ -93,6 +97,7 @@ Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen after promise_create
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count for callback entrypoints.
 Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns status as U64.
 Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64).
+Expr	nearPromiseResultU128	lowered	EmitWat lowers nearPromiseResultU128 via __pf_promise_result_u128 (promise_result + read_register Borsh U128).
 Expr	effect	lowered	EmitWat lowerExpr delegates expression-position effects to storage/context/map/array/struct effect lowering.
 Effect	storageScalarRead	lowered	EmitWat lowers scalar reads through typed storage_read helpers.
 Effect	storageScalarWrite	lowered	EmitWat lowers scalar writes through typed storage_write helpers, including struct-valued scalar writes.
@@ -101,6 +106,7 @@ Effect	storageMapContains	lowered	EmitWat lowers map contains through storage_ha
 Effect	storageMapGet	lowered	EmitWat lowers map get through typed map read helpers with default-on-missing behavior.
 Effect	storageMapInsert	lowered	EmitWat lowers map insert through the same map write helper surface as set, returning the previous value.
 Effect	storageMapSet	lowered	EmitWat lowers map set through map write helpers, returning the previous value when used as an expression.
+Effect	storageMapDelete	lowered	EmitWat lowers map deletion through the typed storage_remove helper in expression and statement position.
 Effect	storageArrayRead	lowered	EmitWat lowers array state reads as U64-keyed map reads for U32/U64/Bool/Hash arrays.
 Effect	storageArrayWrite	lowered	EmitWat lowers array state writes as U64-keyed map writes for U32/U64/Bool/Hash arrays.
 Effect	storageArrayStructFieldRead	lowered	EmitWat lowers field reads inside struct-valued storage arrays by reading the U64-indexed storage blob into STRUCT_BUF and loading the field offset.

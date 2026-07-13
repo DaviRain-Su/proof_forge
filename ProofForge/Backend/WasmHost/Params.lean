@@ -34,6 +34,16 @@ def nearInputPrologue (expectedBytes : Nat) : Array Insn :=
     .if_ { insns := #[.unreachable] } { insns := #[] },
     .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
 
+/-- A single dynamic Borsh parameter uses a bounded input region. Its exact
+length is checked against the decoded u32 prefix before allocation. -/
+def nearDynamicInputPrologue (maximumBytes : Nat) : Array Insn :=
+  #[.i64Const 0, .call "input",
+    .i64Const 0, .call "register_len", .i64Const maximumBytes, .plain "i64.gt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i64Const 0, .call "register_len", .i64Const 4, .plain "i64.lt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
+
 def rawInputPrologue : Array Insn :=
   #[.i64Const 0, .call "input", .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
 
@@ -65,8 +75,15 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
   else
   if abiPlan.inputCodec != .borsh || abiPlan.inputByteWidth == 0 then
     err s!"EmitWat: entrypoint `{abiPlan.name}` has an invalid NEAR input codec plan"
+  let dynamicCount := params.foldl (fun count (_, type) =>
+    if type == .bytes || type == .string then count + 1 else count) 0
+  if dynamicCount > 0 && params.size != 1 then
+    err s!"EmitWat: entrypoint `{abiPlan.name}` supports a dynamic bytes/string parameter only as its sole parameter"
   let prologue : Array Insn :=
-    if bridge == .near then nearInputPrologue abiPlan.inputByteWidth else rawInputPrologue
+    if bridge == .near then
+      if dynamicCount == 1 then nearDynamicInputPrologue abiPlan.inputByteWidth
+      else nearInputPrologue abiPlan.inputByteWidth
+    else rawInputPrologue
   let result ← params.foldlM (init := (prologue, (#[] : Array Local), 0, 0))
     fun (insns, locals, offset, hslot) p =>
       let (name, vt) := p
@@ -140,9 +157,13 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
         let lenOff := INPUT_BUF + offset
         let loadInsns :=
           #[.i32Const lenOff, .load "i32.load" 0, .localSet (name ++ "_len"),
+            .localGet (name ++ "_len"), .plain "i64.extend_i32_u", .i64Const 4,
+            .plain "i64.add", .i64Const 0, .call "register_len", .plain "i64.ne",
+            .if_ { insns := #[.unreachable] } { insns := #[] },
             .localGet (name ++ "_len"), .plain "i64.extend_i32_u", .i64Const 4, .plain "i64.add",
             .call arrAllocName, .localSet name,
-            .localGet name, .i32Const lenOff, .i32Const 4, .call memcpyName,
+            .localGet name, .i32Const lenOff, .localGet (name ++ "_len"),
+            .i32Const 4, .plain "i32.add", .call memcpyName,
             .localGet name, .i32Const 4, .plain "i32.add", .localSet name]
         .ok (insns ++ loadInsns,
             locals.push { name := name ++ "_len", type := .i32 } |>.push { name := name, type := .i32 },

@@ -924,6 +924,7 @@ def exprInventory : Array Expr := #[
   .nearPromiseResultsCount,
   .nearPromiseResultStatus (.local "i"),
   .nearPromiseResultU64 (.local "i"),
+  .nearPromiseResultU128 (.local "i"),
   .effect (Effect.contextRead .userId)
 ]
 

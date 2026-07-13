@@ -19,7 +19,7 @@ rm -rf "$OUT"
 lake build ProofForge.Backend.WasmHost.EmitWat
 lake env lean --run Tests/Backend/Wasm/EmitWatAggregateAbi.lean
 
-for name in struct-return fixed-array-return hash-array-return; do
+for name in struct-return fixed-array-return hash-array-return bytes-roundtrip; do
   wat="$OUT/$name.wat"
   [[ -s "$wat" ]] || fail "missing generated $wat"
   wat2wasm "$wat" -o "$OUT/$name.wasm" || fail "$name WAT validation failed"
@@ -42,4 +42,10 @@ expected_hashes="010000000000000002000000000000000300000000000000040000000000000
 grep -Fq "return_hex=$expected_hashes return_len=64" <<<"$hash_out" || \
   fail "fixedArray<Hash,2> return copied pointers instead of 64 payload bytes"
 
-echo "emitwat-aggregate-abi: ok (wat2wasm + exact offline-host Borsh returns)"
+bytes_out="$("${HOST[@]}" "$OUT/bytes-roundtrip.wat" set \
+  --inputs-hex 0500000068656c6c6f)"
+echo "$bytes_out"
+grep -Fq "return_hex=0500000068656c6c6f return_len=9" <<<"$bytes_out" || \
+  fail "bytes roundtrip does not preserve the Borsh length prefix and payload"
+
+echo "emitwat-aggregate-abi: ok (wat2wasm + exact offline-host Borsh aggregate returns)"

@@ -10,7 +10,7 @@ import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.Options
 import ProofForge.Cli.TokenLoader
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target.Registry
 import ProofForge.Compiler.Wasm.Printer
 
@@ -39,9 +39,9 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
       hydrateEvmSelectors opts.cast sourceSpec.module
   let spec := { sourceSpec with
     module := ProofForge.Target.PeerMap.applyToModule hydratedModule opts.peerMap }
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle <- match ProofForge.Compiler.adaptContractSpecCanonical spec with
     | .ok bundle => pure bundle
-    | .error error => throw <| IO.userError s!"Stylus canonical adapter: {repr error}"
+    | .error error => throw <| IO.userError s!"Stylus canonical adapter: {error}"
   let capPlan <- match ProofForge.Target.requireCapabilityPlan ProofForge.Target.wasmArbitrumStylus {
       targetId := "wasm-arbitrum-stylus"
       calls := bundle.contract.contract.requirements

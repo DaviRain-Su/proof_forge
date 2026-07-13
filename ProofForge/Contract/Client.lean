@@ -393,7 +393,21 @@ def nearBorshHelpersTs : String :=
     "}"
   ]
 
+partial def nearClientCodecSupported (structs : Array StructDecl) : ValueType → Bool
+  | .bytes | .string | .array _ => false
+  | .fixedArray element _ => nearClientCodecSupported structs element
+  | .structType name =>
+      match structs.find? (fun decl => decl.name == name) with
+      | some decl => decl.fields.all (fun field => nearClientCodecSupported structs field.type)
+      | none => false
+  | _ => true
+
 def renderNearWrapperChecked (spec : ContractSpec) : Except String String := do
+  for entrypoint in spec.module.entrypoints do
+    let paramsSupported := entrypoint.params.all (fun param =>
+      nearClientCodecSupported spec.module.structs param.snd)
+    unless paramsSupported && nearClientCodecSupported spec.module.structs entrypoint.returns do
+      .error s!"NEAR client codec does not support dynamic or unresolved type in entrypoint `{entrypoint.name}`"
   let plans <- ProofForge.Backend.WasmHost.NearAbiPlan.buildModulePlans spec.module
   let entrypointLines := String.intercalate "" <| (spec.module.entrypoints.filterMap fun entrypoint =>
     plans.find? (fun plan => plan.name == entrypoint.name) |>.map

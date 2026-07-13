@@ -35,13 +35,10 @@ OUT_DIR="build/wasm-near"
 WAT="$OUT_DIR/emitwat-string-key-map.wat"
 WASM="$OUT_DIR/emitwat-string-key-map.wasm"
 EXPECTED="64000000000000000000000000000000"
-# Borsh string "alice.near": 4-byte LE length (10) + UTF-8 payload. ProofForge's
-# NEAR input ABI reserves a flat 260-byte slot per dynamic string param (see
-# `borshFlatWidth` / `Params.loadParams`), and the entrypoint prologue asserts
-# `register_len == 260`; pad the 14-byte Borsh string to the 260-byte slot.
-# (Variable-length string INPUT is the Phase 4 JSON/Borsh codec; Landing 1
-# validates the string-keyed MAP mechanism with the existing flat convention.)
-INPUT_HEX="0a000000616c6963652e6e656172$(printf '00%.0s' {1..246})"
+# Borsh string "alice.near": 4-byte LE length (10) + UTF-8 payload. The dynamic
+# input decoder bounds the payload to 256 bytes and requires this exact length,
+# so trailing flat-slot padding must be rejected.
+INPUT_HEX="0a000000616c6963652e6e656172"
 
 echo "=== building + rendering StringKeyMapProbe ==="
 lake build ProofForge.Backend.WasmHost.EmitWat ProofForge.IR.Examples.StringKeyMapProbe >/dev/null

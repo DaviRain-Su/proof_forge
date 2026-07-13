@@ -213,7 +213,7 @@ theorem write_read_same_cell (cell updated : StorageCell) (value : CoreValue)
       · cases hwrite
         rfl
       · contradiction
-  | map _ _ _ _ | fixedArray _ _ | dynamicArray _ _ | record _ _ =>
+  | map _ _ _ _ | mapN _ _ _ _ | fixedArray _ _ | dynamicArray _ _ | record _ _ =>
       simp [StorageCell.writeScalar] at hwrite
 
 theorem write_read_same (module : Module) (state : LogicalState)

@@ -307,7 +307,7 @@
     {
       "name": "canonical-parity",
       "lane": "core-product",
-      "execution": "lane_serial",
+      "execution": "exclusive",
       "tags": [
         "core",
         "fast",

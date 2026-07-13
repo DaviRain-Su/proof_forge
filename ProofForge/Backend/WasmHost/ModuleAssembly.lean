@@ -6,6 +6,7 @@ import ProofForge.IR.Contract
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.Aggregate
 import ProofForge.Backend.WasmHost.ArrayHeap
+import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Context
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Event
@@ -24,6 +25,7 @@ namespace ProofForge.Backend.WasmHost.ModuleAssembly
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.Aggregate
 open ProofForge.Backend.WasmHost.ArrayHeap
+open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Context
 open ProofForge.Backend.WasmHost.Crosscall
 open ProofForge.Backend.WasmHost.Event
@@ -110,7 +112,8 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     mapHashHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapStringHelperFuncsForModulePlan modulePlan ctx.bridge ++
     u128ArithFuncs ++
-    aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
+    aggregateHelperFuncsForModulePlan modulePlan mod ++
+    (if modulePlan.usesMemcpy then #[memcpyFunc] else #[]) ++ entryFuncs
   funcs.foldl (fun unique function =>
     if unique.any (fun prior => prior.name == function.name) then unique
     else unique.push function) #[]

@@ -97,5 +97,8 @@ reproducible positive and negative gates.
 - **Trigger:** D6-D12 (incremental migration of Counter, ValueVault, Token, RemoteCall, etc.)
 - **Parity:** each migrated module passes strict canonical gate
 - **Current evidence:** baseline captured at `21cdd587`; fail-closed missing-file
-  behavior and import-freeze self-tests verified at `5bc3196c`.
+  behavior and import-freeze self-tests verified at `5bc3196c`. The Stylus
+  public driver enters Legacy-compatible normalization through the reviewed
+  `Compiler.adaptContractSpecCanonical` boundary, without growing the direct
+  production import baseline.
 - **Next state:** `replacement_ready` as each module migrates

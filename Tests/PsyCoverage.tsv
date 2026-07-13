@@ -139,6 +139,7 @@ Expr	nearPromiseThen	unsupported	Psy IR v0 rejects NEAR promise chaining with th
 Expr	nearPromiseResultsCount	unsupported	Psy IR v0 rejects NEAR callback promise-result count reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Expr	nearPromiseResultStatus	unsupported	Psy IR v0 rejects NEAR callback promise-result status reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Expr	nearPromiseResultU64	unsupported	Psy IR v0 rejects NEAR callback promise-result U64 reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
+Expr	nearPromiseResultU128	unsupported	Psy IR v0 rejects NEAR callback promise-result U128 reads with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Effect	eventEmit	lowered	lowerEffectStmt emits __emit([fields]) with an event-name comment; EventProbe covers it and Dargo test confirms result_events contains the emitted data.
 Effect	eventEmitIndexed	unsupported	Psy IR v0 rejects indexed events with an explicit diagnostic instead of lowering and silently dropping indexed-topic semantics.
 Effect	checkErc721Received	unsupported	Psy IR v0 rejects checkErc721Received (EVM-only IERC721Receiver callback; PF-P2-02) with an explicit diagnostic.

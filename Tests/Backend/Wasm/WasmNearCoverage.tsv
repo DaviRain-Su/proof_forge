@@ -21,6 +21,8 @@ Literal	hash4	lowered	literal emits four-limb [u64; 4] arrays and is covered by 
 Literal	address	lowered	literal emits {value}u64 and is covered by validateLiteralBounds and pattern match exhaustiveness across the wasm-near backend; address is treated as a u64 scalar.
 Literal	u8	lowered	wasm-near IR v0 emits i32.const for U8 literals (same as U32); covered by literalType and checkLiteralBounds with max 255.
 Literal	u128	unsupported	wasm-near IR v0 does not support U128 literals; literal function returns placeholder, literalType maps to .u128 but valueTypeName rejects it.
+Literal	bytes	unsupported	EmitWat rejects bytes literals with an explicit diagnostic; dynamic bytes are accepted only through decoded parameters or allocated memory.
+Literal	string	unsupported	EmitWat rejects string literals with an explicit diagnostic; dynamic strings are accepted only through decoded parameters or allocated memory.
 ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::predecessor_account_id()); Hasher fixture covers it and the context-as-statement diagnostic guards misuse.
 ContextField	userIdHash	lowered	EmitWat lowers contextRead userIdHash to __pf_ctx_user_hash (sha256 predecessor account id bytes); NearFungibleToken callerHash covers hash-keyed balance transfers.
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
@@ -30,6 +32,8 @@ ContextField	epochHeight	unsupported	wasm-near IR v0 sourcegen is frozen and rej
 ContextField	chainId	unsupported	wasm-near IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	wasm-near IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	wasm-near IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
+ContextField	prepaidGas	lowered	EmitWat lowers prepaidGas to the NEAR prepaid_gas host import and tracks it in the module plan.
+ContextField	usedGas	lowered	EmitWat lowers usedGas to the NEAR used_gas host import and tracks it in the module plan.
 ContextField	baseFee	unsupported	wasm-near IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	wasm-near IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	randomSeed	unsupported	wasm-near IR v0 sourcegen is frozen and rejects randomSeed with an explicit diagnostic; EmitWat is the canonical path for env.random_seed.
@@ -94,6 +98,7 @@ Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on t
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
 Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.
 Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64); NearFungibleToken ft_resolve_transfer returns pending amount minus unused callback amount.
+Expr	nearPromiseResultU128	lowered	EmitWat lowers nearPromiseResultU128 via __pf_promise_result_u128 (promise_result + read_register Borsh U128); callback amounts preserve both 64-bit limbs.
 Effect	storageScalarRead	lowered	lowerEffectExpr emits self.<id>; Counter get covers it and the read-as-statement diagnostic guards misuse.
 Effect	storageScalarWrite	lowered	lowerEffectStmt emits self.<id> = value;; Counter increment covers it and the write-as-expression diagnostic guards misuse.
 Effect	storageScalarAssignOp	unsupported	validateEffectStmtTypes and lowerEffectStmt both reject storage.scalar.assign_op in wasm-near IR v0; diagnostic covers it.
@@ -101,6 +106,7 @@ Effect	storageMapContains	lowered	lowerEffectExpr emits env::storage_has_key aft
 Effect	storageMapGet	lowered	lowerEffectExpr emits __pf_decode_<t>(env::storage_read(...)); Ledger get covers it.
 Effect	storageMapInsert	lowered	lowerEffectExpr and lowerEffectStmt emit __pf_map_set_<t>(key, value); Ledger fixtures cover expression and statement forms.
 Effect	storageMapSet	lowered	lowerEffectExpr and lowerEffectStmt emit __pf_map_set_<t>(key, value); Ledger set covers the statement form.
+Effect	storageMapDelete	lowered	EmitWat lowers map deletion through the typed storage_remove helper in expression and statement position.
 Effect	storageArrayRead	unsupported	Rust sourcegen v0 rejects storage array reads in lowerEffectExpr; storage.array is present on the target profile for EmitWat coverage.
 Effect	storageArrayWrite	unsupported	Rust sourcegen v0 rejects storage array writes in lowerEffectStmt; storage.array is present on the target profile for EmitWat coverage.
 Effect	storageArrayStructFieldRead	unsupported	Rust sourcegen v0 rejects storage array struct field reads in lowerEffectExpr; storage.array/data.struct are present on the target profile for EmitWat coverage.

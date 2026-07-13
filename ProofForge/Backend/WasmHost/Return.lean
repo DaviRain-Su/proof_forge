@@ -33,9 +33,9 @@ def returnBytesFromPtrInsns (byteLen : Nat) (insns : Array Insn)
     #[.i64Const byteLen] ++ insns ++
       #[.plain "i64.extend_i32_u", .call "value_return"]
 
-/-- Encode a dynamic bytes/string return: the lowered expr leaves an i32 pointer
-    to a Borsh buffer (4-byte LE length prefix + payload). We call the
-    `__pf_return_bytes` helper which reads the length and calls `value_return`. -/
+/-- Encode a dynamic bytes/string return: the lowered expression leaves the
+    payload pointer and checked length. The helper includes the preceding Borsh
+    length word in the host return range. -/
 def returnDynamicBytesInsns (insns : Array Insn) : Array Insn :=
   insns ++ #[.call returnBytesName]
 

@@ -1917,3 +1917,28 @@ Rules:
   validation catalog, Chinese mirrors, and i18n hashes. Claims now distinguish
   direct-Wasm default, Rust oracle, local VM evidence, incomplete W3/W4 work,
   and required Nitro promotion evidence.
+
+## 2026-07-13 - STYLUS-W7.3: Full regression closure
+
+- Status: `complete`
+- The final `JOBS=4 just check-parallel` run passed every registered lane in
+  1020.51 seconds. Product, Solana-light, testkit normalized multi-chain
+  scenarios, Stylus plan/runtime/differential lanes, backend coverage, and
+  documentation gates all completed in one stable worktree snapshot.
+- Full execution repaired stale contracts instead of weakening gates: dynamic
+  NEAR bytes/string now use exact bounded Borsh input; the real NEAR VM string
+  map no longer sends obsolete 260-byte padding; both ValueVault WAT goldens
+  match the public compiler output; and the NEAR client generator fails closed
+  for dynamic codecs it cannot yet encode.
+- Constructor inventory is synchronized across Legacy classification and
+  refinement, EVM, Psy, Wasm/NEAR, and EmitWat manifests for
+  `nearPromiseResultU128`. The shared portable-source guard also rejects this
+  target-only extension.
+- Standalone gates now build the `.olean` dependencies they execute, and the
+  Anvil-owning canonical parity gate is exclusive under the parallel scheduler.
+  The reviewed compiler boundary owns Stylus Legacy-compatible adaptation, so
+  the production Legacy import freeze did not grow.
+- Verification also includes `just contract-client`, `just near-abi-plan`,
+  `just emitwat-aggregate-abi`, `just near-vm-string-key-map`, `just testkit`,
+  all constructor coverage scripts, `just portable-default`, and
+  `git diff --check`.

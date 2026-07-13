@@ -24,13 +24,25 @@ def echoModule : Module := {
   entrypoints := #[echoEntrypoint]
 }
 
-def unsupportedDynamicModule : Module := {
-  name := "UnsupportedDynamicNearAbi"
+def dynamicBytesModule : Module := {
+  name := "DynamicBytesNearAbi"
   state := #[]
   entrypoints := #[{
     name := "echo_bytes"
     mutability := .view
     params := #[("value", .bytes)]
+    returns := .bytes
+    body := #[.return (.local "value")]
+  }]
+}
+
+def mixedDynamicModule : Module := {
+  name := "MixedDynamicNearAbi"
+  state := #[]
+  entrypoints := #[{
+    name := "echo_bytes_with_tag"
+    mutability := .view
+    params := #[("value", .bytes), ("tag", .u64)]
     returns := .bytes
     body := #[.return (.local "value")]
   }]
@@ -82,11 +94,28 @@ def main : IO Unit := do
   match evalFunc wasm echoFunc #[] defaultFuel malformed with
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "NEAR ABI accepted a malformed one-byte u64 payload"
-  match ProofForge.Backend.WasmHost.NearAbiPlan.buildModulePlans unsupportedDynamicModule with
-  | .error message =>
-      require (message.contains "does not support dynamic")
-        "unsupported NEAR codec must return an actionable build error"
-  | .ok _ => throw <| IO.userError "unsupported dynamic NEAR codec did not fail closed"
+  let dynamicPlans ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildModulePlans dynamicBytesModule with
+    | .ok plans => pure plans
+    | .error message => throw <| IO.userError message
+  let some dynamicAbi := dynamicPlans[0]?
+    | throw <| IO.userError "NEAR dynamic bytes plan is missing its entrypoint"
+  require (dynamicPlans.size == 1 && dynamicAbi.inputByteWidth == 260 &&
+      dynamicAbi.outputByteWidth == 260)
+    "NEAR dynamic bytes plan must reserve a four-byte Borsh prefix plus bounded payload"
+  let dynamicPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan dynamicBytesModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  match ProofForge.Backend.WasmHost.NearModulePlan.lowerModuleFromPlan dynamicBytesModule dynamicPlan with
+  | .error error => throw <| IO.userError error.message
+  | .ok _ => pure ()
+  let mixedPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan mixedDynamicModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  match ProofForge.Backend.WasmHost.NearModulePlan.lowerModuleFromPlan mixedDynamicModule mixedPlan with
+  | .error error =>
+      require (error.message.contains "sole parameter")
+        "mixed dynamic NEAR parameters must return an actionable lowering error"
+  | .ok _ => throw <| IO.userError "mixed dynamic NEAR parameters did not fail closed"
   let bareCtx := { (ProofForge.Backend.WasmHost.ModuleAssembly.loweringCtxForModule echoModule .near) with
     entrypointAbis := #[] }
   match ProofForge.Backend.WasmHost.EmitWat.lowerEntrypoint bareCtx echoEntrypoint with

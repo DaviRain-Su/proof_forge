@@ -190,6 +190,7 @@ mutual
     | .nearPromiseResultsCount => allAcceptable #[classifyExpr .nearPromiseResultsCount]
     | .nearPromiseResultStatus i => allAcceptable #[classifyExpr (.nearPromiseResultStatus (.literal (.u64 0)))] && scalarFragmentExpr i
     | .nearPromiseResultU64 i => allAcceptable #[classifyExpr (.nearPromiseResultU64 (.literal (.u64 0)))] && scalarFragmentExpr i
+    | .nearPromiseResultU128 i => allAcceptable #[classifyExpr (.nearPromiseResultU128 (.literal (.u64 0)))] && scalarFragmentExpr i
     | .effect eff => allAcceptable #[classifyExpr (.effect (Effect.contextRead .userId))] && scalarFragmentEffect eff
 
   /-- Recursively check that an effect belongs to the scalar fragment. -/

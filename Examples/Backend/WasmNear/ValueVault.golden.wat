@@ -200,6 +200,155 @@
       global.set $evt_ptr
     end
   )
+  (func $__pf_evt_putu128 (param $lo i64) (param $hi i64) (local $p i32) (local $len i32)
+    local.get $lo
+    local.get $hi
+    call $__pf_fmt_u128
+    local.set $p
+    i32.const 8232
+    local.get $p
+    i32.sub
+    local.set $len
+    global.get $evt_ptr
+    local.get $p
+    local.get $len
+    call $__pf_memcpy
+    global.get $evt_ptr
+    local.get $len
+    i32.add
+    global.set $evt_ptr
+  )
+  (func $__pf_u128_divmod10 (param $alo i64) (param $ahi i64) (result i64) (local $rem i64) (local $cur i64) (local $ql0 i64) (local $ql1 i64) (local $ql2 i64) (local $ql3 i64)
+    i64.const 0
+    local.set $rem
+    local.get $rem
+    i64.const 32
+    i64.shl
+    local.get $ahi
+    i64.const 32
+    i64.shr_u
+    i64.or
+    local.tee $cur
+    i64.const 10
+    i64.div_u
+    local.set $ql3
+    local.get $cur
+    i64.const 10
+    i64.rem_u
+    local.set $rem
+    local.get $rem
+    i64.const 32
+    i64.shl
+    local.get $ahi
+    i64.const 4294967295
+    i64.and
+    i64.or
+    local.tee $cur
+    i64.const 10
+    i64.div_u
+    local.set $ql2
+    local.get $cur
+    i64.const 10
+    i64.rem_u
+    local.set $rem
+    local.get $rem
+    i64.const 32
+    i64.shl
+    local.get $alo
+    i64.const 32
+    i64.shr_u
+    i64.or
+    local.tee $cur
+    i64.const 10
+    i64.div_u
+    local.set $ql1
+    local.get $cur
+    i64.const 10
+    i64.rem_u
+    local.set $rem
+    local.get $rem
+    i64.const 32
+    i64.shl
+    local.get $alo
+    i64.const 4294967295
+    i64.and
+    i64.or
+    local.tee $cur
+    i64.const 10
+    i64.div_u
+    local.set $ql0
+    local.get $cur
+    i64.const 10
+    i64.rem_u
+    local.set $rem
+    i32.const 56000
+    local.get $ql0
+    local.get $ql1
+    i64.const 32
+    i64.shl
+    i64.or
+    i64.store
+    i32.const 56008
+    local.get $ql2
+    local.get $ql3
+    i64.const 32
+    i64.shl
+    i64.or
+    i64.store
+    local.get $rem
+  )
+  (func $__pf_fmt_u128 (param $alo i64) (param $ahi i64) (result i32) (local $ql i64) (local $qh i64) (local $rem i64) (local $p i32)
+    local.get $alo
+    local.set $ql
+    local.get $ahi
+    local.set $qh
+    i32.const 8232
+    local.set $p
+    local.get $ql
+    i64.eqz
+    local.get $qh
+    i64.eqz
+    i32.and
+    if
+      i32.const 8231
+      i32.const 48
+      i32.store8
+      i32.const 8231
+      local.set $p
+    else
+      block
+        loop
+          local.get $ql
+          i64.eqz
+          local.get $qh
+          i64.eqz
+          i32.and
+          br_if 1
+          local.get $ql
+          local.get $qh
+          call $__pf_u128_divmod10
+          local.set $rem
+          i32.const 56000
+          i64.load
+          local.set $ql
+          i32.const 56008
+          i64.load
+          local.set $qh
+          local.get $p
+          i32.const 1
+          i32.sub
+          local.tee $p
+          i32.const 48
+          local.get $rem
+          i32.wrap_i64
+          i32.add
+          i32.store8
+          br 0
+        end
+      end
+    end
+    local.get $p
+  )
   (func $__pf_evt_log
     global.get $evt_ptr
     i32.const 42000

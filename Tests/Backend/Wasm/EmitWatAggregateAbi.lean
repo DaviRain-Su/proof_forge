@@ -4,11 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 # N1.2 EmitWat aggregate Borsh ABI smoke
 
-Positive: flat struct param + struct/fixedArray return lower to WAT with
+Positive: flat struct, fixed-array, and dynamic-bytes values lower to WAT with
 `value_return` and expected payload sizes. The shell gate validates the emitted
 WAT and executes exact Borsh return bytes in the offline host.
-
-Negative: dynamic `bytes` params still fail closed with a stable diagnostic.
 -/
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.IR.Contract
@@ -74,13 +72,13 @@ def hashArrayReturnModule : Module := {
 }
 
 def bytesParamModule : Module := {
-  name := "BytesParamProbe"
+  name := "BytesRoundtripProbe"
   state := #[]
   entrypoints := #[{
     name := "set"
     params := #[("data", .bytes)]
-    returns := .unit
-    body := #[]
+    returns := .bytes
+    body := #[.return (.local "data")]
   }]
 }
 
@@ -139,17 +137,16 @@ def main : IO UInt32 := do
     writeAggregateWat "hash-array-return" wat
     IO.println s!"hash-fixedArray-return: ok ({wat.length} bytes)"
 
-  -- Negative: dynamic bytes param fail-closed
+  -- Positive: dynamic bytes use Borsh u32 length prefix plus payload.
   match renderModule bytesParamModule with
-  | .ok _ =>
-    IO.eprintln "bytes param must fail closed"
-    return 1
   | .error e =>
-    if !(e.message.contains "dynamic_bytes" || e.message.contains "Bytes" ||
-         e.message.contains "unsupported") then
-      IO.eprintln s!"unexpected bytes diagnostic: {e.message}"
-      return 1
-    IO.println s!"bytes-param: fail-closed ok ({e.message})"
+    IO.eprintln s!"bytes roundtrip failed: {e.message}"
+    return 1
+  | .ok wat =>
+    requireContains wat "read_register" "bytes param Borsh input"
+    requireContains wat "value_return" "bytes return host"
+    writeAggregateWat "bytes-roundtrip" wat
+    IO.println s!"bytes-roundtrip: ok ({wat.length} bytes)"
 
   IO.println "emitwat-aggregate-abi: ok"
   pure 0

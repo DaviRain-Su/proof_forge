@@ -532,24 +532,25 @@ def writeU128FuncNear : Func :=
       .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
       .i64Const 16, .i64Const KEY_BUF, .i64Const 0, .call "storage_write", .drop ] } }
 
-/-- `__pf_return_bytes(ptr)`: Borsh dynamic return. The buffer at `ptr` has a
-4-byte LE length prefix at `ptr - 4`, followed by the payload. Computes
-`total = 4 + len` and calls `value_return(total, ptr - 4)`. -/
+/-- `__pf_return_bytes(ptr, len)`: Borsh dynamic return. The buffer at `ptr`
+has a 4-byte LE length prefix at `ptr - 4`, followed by the payload. -/
 def returnBytesFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
   | .cosmWasm | .soroban =>
-      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 },
+          { name := "len", type := .i32 }],
         body := { insns := #[
           .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
-          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .localGet "len", .plain "i64.extend_i32_u",
           .i64Const 4, .plain "i64.add",
           .localGet "ptr", .plain "i64.extend_i32_u",
           .call "set_return_data" ] } }
   | _ =>
-      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 },
+          { name := "len", type := .i32 }],
         body := { insns := #[
           .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
-          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .localGet "len", .plain "i64.extend_i32_u",
           .i64Const 4, .plain "i64.add",
           .localGet "ptr", .plain "i64.extend_i32_u",
           .call "value_return" ] } }
