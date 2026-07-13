@@ -23,10 +23,10 @@ Keep this section short and update it whenever the active task changes.
 
 | Field | Current value |
 |---|---|
-| Program | D-052 Portable Intent and Target Promotion |
-| Active task | None (B3 done — full bridge-aware canonical lowering) |
-| Next task | C1 - Add PSy canonical planning |
-| Known blocker | None recorded |
+| Program | Arbitrum Stylus general-contract completion |
+| Active task | W1 - Canonical nested storage and full event layouts |
+| Next task | Pin `Transfer` / `Approval` event layouts and deployed Foundry allowance reference |
+| Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task

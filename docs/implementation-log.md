@@ -1379,3 +1379,21 @@ Rules:
   `portable-default`, `evm-plan`; full `lake build proof-forge` (792 jobs).
 - Next: Phase 2 — convert `NearFungibleToken` amounts u64→u128 (now
   unblocked).
+
+## 2026-07-13 - STYLUS-W1: Canonical nested mapping
+
+- Status: `done (verified at 09579b6d)`
+- Commit: `09579b6d`
+- Result: added ordered composite `StateShape.mapN` keys with canonical
+  validation and logical semantics, then preserved the key path through the
+  Stylus plan, direct Wasm slot hashing, and nested Rust SDK `StorageMap` output.
+- Interfaces: Core storage/semantics, canonical capability derivation, Stylus
+  Plan/Rust renderers, and explicit fail-closed EVM/Solana plan handling.
+- Verification: `just stylus-nested-map`, `lake build` (792 jobs),
+  `just docs-check`, and `git diff --check` all passed. The gate executed the
+  generated Wasm in `tools/stylus-vm-runner` and compiled the generated crate
+  with `stylus-sdk = 0.10.8` and its `stylus-test` feature.
+- Remaining: W1 still needs deployed Foundry allowance-slot evidence and full
+  `Transfer` / `Approval` topic/data vectors before the package is complete.
+- Documentation: updated the Stylus completion plan and full-integration gap
+  audit without closing the remaining W1 event/reference criteria.
