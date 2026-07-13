@@ -60,5 +60,6 @@ def returnU64Name  : String := "__pf_return_u64"
 def returnBoolName : String := "__pf_return_bool"
 def returnBytesName : String := "__pf_return_bytes"
 def returnU128Name : String := "__pf_return_u128"
+def returnJsonU128Name : String := "__pf_return_json_u128"
 
 end ProofForge.Backend.WasmHost.Types

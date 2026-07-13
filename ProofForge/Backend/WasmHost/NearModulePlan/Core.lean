@@ -558,29 +558,13 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let layout <- coreLayout m checked.contract.materialization
   /- Build surface from Core module and interface. -/
   let surface := coreSurface m
-  let entrypointAbis ← iface.entrypoints.mapM fun entrypoint => do
-    let mut offset := 0
-    let mut params := #[]
-    for param in entrypoint.params do
-      let type := coreTypeToValueType param.type
-      let width ← match NearAbiPlan.borshByteWidth #[] type with
-        | .ok width => pure width
-        | .error message => throw { message }
-      params := params.push {
-        name? := some param.name, type, offset, byteWidth := width }
-      offset := offset + width
-    let returnType := coreTypeToValueType entrypoint.retType
-    let outputByteWidth ← match NearAbiPlan.borshByteWidth #[] returnType with
-      | .ok width => pure width
-      | .error message => throw { message }
-    pure {
-      name := entrypoint.name
-      inputCodec := .borsh
-      outputCodec := .borsh
-      params
-      inputByteWidth := offset
-      returnType
-      outputByteWidth }
+  let entrypointAbis ← iface.entrypoints.mapM fun entrypoint =>
+    let signatureParams := entrypoint.params.map fun param =>
+      (param.name, coreTypeToValueType param.type)
+    match NearAbiPlan.buildSignaturePlan #[] entrypoint.name signatureParams
+        (coreTypeToValueType entrypoint.retType) with
+    | .ok plan => pure plan
+    | .error message => throw { message }
   let functions <- m.functions.mapM (lowerNearFunction iface checked.contract.materialization)
   .ok {
     moduleName := iface.contractName

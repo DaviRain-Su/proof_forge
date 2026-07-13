@@ -507,6 +507,24 @@ def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
           .i32Const (RET_BUF + 8), .localGet "hi", .store "i64.store" 0,
           .i64Const 16, .i64Const RET_BUF, .call "value_return" ] } }
 
+/-- NEP-141 JSON U128 return: format `(lo, hi)` as unsigned decimal, surround
+it with quotes, and return the raw JSON string bytes. `__pf_fmt_u128` writes at
+most 39 digits ending at `RET_BUF + 40`, leaving one byte on each side for the
+quotes. -/
+def returnJsonU128Func : Func :=
+  { name := returnJsonU128Name,
+    params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .localGet "lo", .localGet "hi", .call u128FmtName, .localSet "p",
+      .localGet "p", .i32Const 1, .plain "i32.sub", .localTee "p",
+      .i32Const 0x22, .store "i32.store8" 0,
+      .i32Const (RET_BUF + 40), .i32Const 0x22, .store "i32.store8" 0,
+      .i32Const (RET_BUF + 41), .localGet "p", .plain "i32.sub", .localSet "len",
+      .localGet "len", .plain "i64.extend_i32_u",
+      .localGet "p", .plain "i64.extend_i32_u", .call "value_return"
+    ] } }
+
 /-- `__pf_read_u128(kp, kl)`: void. NEAR register ABI: `storage_read` into
     register 0, `read_register` into KEY_BUF (16 bytes, lo@0 hi@8). The caller
     reloads the two i64 words from KEY_BUF. -/

@@ -2256,3 +2256,23 @@ Rules:
   `near-ft-security`, `product-token-near`, `near-vm-caller-account-id-map`,
   `near-vm-string-key-map`, the U128 VM gates, and focused canonical gates.
 - Next: wallet-compatible JSON argument and return codecs.
+
+## 2026-07-13 - NEAR-NEP141: Landing 4a - JSON `ft_balance_of`
+
+- Status: `done (verified on the unmodified upstream NEAR VM)`.
+- Added JSON as a first-class `NearAbiPlan` codec and extracted
+  `buildSignaturePlan`, removing the canonical Core builder's duplicated,
+  hard-coded Borsh plan. Both legacy compatibility lowering and canonical
+  `NearModulePlan` consume the same per-entrypoint decision.
+- `ft_balance_of(account_id : String) -> U128` accepts canonical JSON input,
+  validates the exact one-field frame and payload bound, and returns a quoted
+  decimal JSON U128 through `__pf_return_json_u128`. Other entrypoints remain
+  Borsh in this landing.
+- Added `near-vm-json-balance`; it proves mint 100, JSON balance `"100"`, and
+  malformed-input abort on the real VM. Existing FT smokes now use JSON balance
+  queries while retaining Borsh mutation calls.
+- Verification recorded by the original landing: `near-abi-plan`,
+  `near-abi-client`, `near-vm-json-balance`, `near-vm-conformance-ft`,
+  `wasm-near-ft-transfer-call-e2e`, and `product-token-near`.
+- Next: reusable multi-field JSON call decoding and generated-client JSON
+  transaction transport.

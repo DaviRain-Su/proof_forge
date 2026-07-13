@@ -103,6 +103,10 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
   let scalarHelpers :=
     if ctx.packScalars then #[]
     else scalarStorageHelperFuncsForModulePlan modulePlan ctx.bridge
+  let jsonReturnHelpers :=
+    if ctx.entrypointAbis.any (fun abi => abi.outputCodec == .json) then
+      #[returnJsonU128Func, u128Divmod10Func, u128FmtFunc]
+    else #[]
   let funcs := scalarHelpers ++ packHelpers ++
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
@@ -114,7 +118,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     mapHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapHashHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapStringHelperFuncsForModulePlan modulePlan ctx.bridge ++
-    u128ArithFuncs ++
+    u128ArithFuncs ++ jsonReturnHelpers ++
     aggregateHelperFuncsForModulePlan modulePlan mod ++
     (if modulePlan.usesMemcpy then #[memcpyFunc] else #[]) ++ entryFuncs
   funcs.foldl (fun unique function =>

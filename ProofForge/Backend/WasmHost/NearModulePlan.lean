@@ -770,7 +770,8 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         return canonicalNearI64 index ++ #[.i64Const 0, .call "promise_result",
           .localSet s!"v{result.id}"]
 
-private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
+private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan)
+    (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec) :
     NearTerminatorPlan -> Except Diagnostics.EmitError (Array ProofForge.Compiler.Wasm.Insn)
   | .return values => match values[0]? with
       | some value =>
@@ -780,7 +781,8 @@ private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
                 .call "value_return", .return_]
             | .u32 => #[.localGet s!"v{value.id}", .call Types.returnU32Name, .return_]
             | .u128 => canonicalNearGet value.id value.typeName ++
-                #[.call Types.returnU128Name, .return_]
+                #[.call (if outputCodec == .json then Types.returnJsonU128Name else Types.returnU128Name),
+                  .return_]
             | .bool => #[.localGet s!"v{value.id}", .call Types.returnBoolName, .return_]
             | _ => #[.localGet s!"v{value.id}", .call Types.returnU64Name, .return_]
       | none => pure #[.return_]
@@ -800,6 +802,11 @@ private def lowerCanonicalNearTerminator (blocks : Array NearBlockPlan) :
 private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : Array Layout.StringInfo)
     (fn : NearFunctionPlan) : Except Diagnostics.EmitError ProofForge.Compiler.Wasm.Func := do
   if fn.blocks.isEmpty then Diagnostics.err s!"canonical NEAR function `{fn.name}` has no blocks"
+  let abiPlan ← match plan.entrypointAbis.find? (fun abi => abi.name == fn.name) with
+    | some abiPlan => pure abiPlan
+    | none => Diagnostics.err s!"canonical NEAR function `{fn.name}` has no ABI plan"
+  if abiPlan.outputCodec == .json && abiPlan.returnType != .u128 then
+    Diagnostics.err s!"canonical NEAR JSON return codec currently supports U128, got `{abiPlan.returnType.name}`"
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
       | .literal result _ | .hashLiteral result .. | .boolLiteral result _ | .loadState result _ | .loadMap result .. |
@@ -821,20 +828,25 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings : A
     let mut body := #[]
     for op in block.ops do
       body := body ++ (<- lowerCanonicalNearOp plan eventStrings promiseStrings op)
-    body := body ++ (<- lowerCanonicalNearTerminator fn.blocks block.terminator)
+    body := body ++ (<- lowerCanonicalNearTerminator fn.blocks abiPlan.outputCodec block.terminator)
     dispatch := dispatch ++ #[.localGet "pc", .i32Const block.id, .plain "i32.eq",
       .if_ { insns := body } { insns := #[] }]
-  let abiPlan ← match plan.entrypointAbis.find? (fun abi => abi.name == fn.name) with
-    | some abiPlan => pure abiPlan
-    | none => Diagnostics.err s!"canonical NEAR function `{fn.name}` has no ABI plan"
   let inputParams := fn.params.map (fun value => (s!"v{value.id}", canonicalNearType value.typeName))
   let loweringParams := (abiPlan.params.zip fn.params).map fun (param, value) =>
     { param with name? := some s!"v{value.id}" }
   let loweringAbiPlan := { abiPlan with params := loweringParams }
-  let (paramPrologue, _) ← Params.loadParams #[] inputParams loweringAbiPlan plan.hostBridge.bridge
+  let wireParamNames := abiPlan.params.map (fun param => param.name?.getD "")
+  let (paramPrologue, paramLocals) ←
+    Params.loadParams #[] inputParams loweringAbiPlan plan.hostBridge.bridge (some wireParamNames)
+  let pcLocal : ProofForge.Compiler.Wasm.Local := { name := "pc", type := .i32 }
+  let locals := paramLocals.foldl
+    (fun (acc : Array ProofForge.Compiler.Wasm.Local)
+        (newLocal : ProofForge.Compiler.Wasm.Local) =>
+      if acc.any (fun old => old.name == newLocal.name) then acc else acc.push newLocal)
+    (#[pcLocal] ++ values.flatMap canonicalNearLocals)
   return {
     name := fn.name, exportName := some fn.name
-    locals := #[{ name := "pc", type := .i32 }] ++ values.flatMap canonicalNearLocals
+    locals
     body := { insns := authPrologue ++ paramPrologue ++ #[.i32Const fn.blocks[0]!.id, .localSet "pc",
       .loop_ { insns := dispatch ++ #[.br 0] }] }
   }
@@ -900,6 +912,10 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     plan.surface.u64IndexedReadTypes.contains .u128 ||
     plan.surface.u64IndexedWriteTypes.contains .u128
   let u128ArithHelpers := if usesU128 then Scalar.u128ArithFuncs else #[]
+  let jsonReturnHelpers :=
+    if plan.entrypointAbis.any (fun abi => abi.outputCodec == .json) then
+      #[Scalar.returnJsonU128Func, Scalar.u128Divmod10Func, Scalar.u128FmtFunc]
+    else #[]
   let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface bridge
   let imports := Imports.importsForModulePlan plan.surface defaultAllocator false bridge
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
@@ -923,7 +939,8 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
       (if ArrayHeap.modulePlanUsesArrHeap plan.surface && !defaultAllocator.requiresHost then
         #[ArrayHeap.arrPtrGlobalDecl defaultAllocator.heapBase] else #[])
     funcs := (helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
-      strEqHelpers ++ arrHeapHelpers ++ returnFuncs ++ eventHelpers ++ u128ArithHelpers ++ funcs).foldl
+      strEqHelpers ++ arrHeapHelpers ++ returnFuncs ++ eventHelpers ++ u128ArithHelpers ++
+      jsonReturnHelpers ++ funcs).foldl
       (fun acc f => if acc.any (fun g => g.name == f.name) then acc else acc.push f) #[]
     memory := some { min := 1 }
     dataSegments := data }

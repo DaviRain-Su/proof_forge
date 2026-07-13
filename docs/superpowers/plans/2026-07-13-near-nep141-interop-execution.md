@@ -1,6 +1,7 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (2026-07-13; Phases 0-3 complete, Phase 4 next). Scope: make the ProofForge `wasm-near` NEP-141
+Status: active (2026-07-13; Phases 0-3 and Phase 4 Landing 4a complete,
+Landing 4b next). Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
 conformance.
@@ -260,6 +261,32 @@ parser early in the phase.
 **Gate:** a real JSON `ft_balance_of` call returns a decimal-string U128 on the
 real VM (or compare harness).
 **Acceptance:** wallet-compatible JSON views.
+
+### Landing 4a — canonical `ft_balance_of` JSON boundary (DONE 2026-07-13)
+
+- `NearAbiPlan.buildSignaturePlan` is the single per-entrypoint codec decision
+  consumed by both legacy and canonical Core builders. The standard signature
+  `ft_balance_of(account_id : String) -> U128` selects JSON input/output;
+  existing non-standard entrypoints remain Borsh.
+- The Wasm decoder accepts the canonical one-field object
+  `{"account_id":"<AccountId>"}`, validates its exact frame and the NEAR
+  AccountId 2-64-byte bound, and binds a zero-copy `(ptr,len)` string view.
+  The return helper emits the NEAR JSON U128 decimal-string form (`"100"`).
+- Both legacy EmitWat and canonical `NearModulePlan` route through the same
+  codec plan and emit helpers on demand. The generated TypeScript client sends
+  UTF-8 JSON through raw RPC and converts the returned decimal string to
+  `bigint`.
+- `just near-vm-json-balance` compiles the public FT source and proves
+  `init -> ft_mint(100) -> ft_balance_of(JSON) == "100"` on the unmodified
+  upstream NEAR VM; malformed JSON aborts. Existing transfer/callback and
+  product-token gates now query balances through JSON and continue to pass.
+
+Landing 4a meets the first view-method gate, not the whole phase. Landing 4b
+adds reusable multi-field JSON decoding and JSON call transport for
+`ft_transfer`; later slices add optional/memo/msg fields and structured
+NEP-145/148 return objects. Borsh mutation entrypoints remain intentional
+compatibility behavior until their individual JSON decoders and real-VM gates
+land.
 
 ## Phase 5 — NEP-141 core interop (N-03)  (effort L; depends 4)
 

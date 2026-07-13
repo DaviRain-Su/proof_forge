@@ -19,7 +19,8 @@
 #
 # Phase 2 (semantic + callback dispatch): the full NEP-141 transfer_call flow
 #   (init, ft_mint, ft_approve, balance_of*, ft_transfer_call, ft_resolve_transfer,
-#   balance_of*) with Borsh inputs (`--inputs-hex`) and one injected Successful
+#   balance_of*) with Borsh mutation inputs plus standard JSON balance queries
+#   (`--inputs-hex`) and one injected Successful
 #   promise_result (`--promise-result-u64`). ft_transfer_call must create a
 #   promise (return=receipt), and ft_resolve_transfer must read it via the REAL
 #   promise_results_count / promise_result host functions, producing the same
@@ -75,15 +76,16 @@ grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 1 did not report 2 successful methods"
 
 echo "=== phase 2: semantic transfer_call + ft_resolve_transfer callback ==="
-# Borsh inputs: Phase 3 NEP-141 string-keyed balances — account_id params are
-# 260-byte flat string slots (4-byte LE length + UTF-8 bytes padded to 256);
-# ft_approve keeps a 32-byte hash spender_id (allowances stay hash-keyed).
+# Mutation inputs remain Borsh. Standard `ft_balance_of` uses canonical NEAR
+# JSON (`{"account_id":"..."}`) and returns a JSON decimal string.
 # Expected refund values match runtime/offline-host ft-transfer-call-smoke.sh.
 INPUTS_HEX="$(python3 - <<'PY'
 import hashlib, struct
 def acct_slot(name):
     b = name.encode()
     return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def balance_json(name):
+    return ('{"account_id":"' + name + '"}').encode()
 sender = "proof-forge.testnet"
 receiver = "demo.receiver.testnet"
 spender = hashlib.sha256(b"spender.testnet").digest()
@@ -92,14 +94,14 @@ inputs = [
     b"",                                                       # init
     acct_slot(sender) + u128(100),                             # ft_mint(receiver_id=sender, 100)
     spender + u128(13),                                        # ft_approve(spender_id hash, 13)
-    acct_slot(sender),                                          # ft_balance_of(sender)
-    acct_slot(receiver),                                        # ft_balance_of(receiver)
+    balance_json(sender),                                       # ft_balance_of(sender)
+    balance_json(receiver),                                     # ft_balance_of(receiver)
     acct_slot(receiver) + struct.pack("<I", 0) + u128(70),      # ft_transfer_call(receiver_id, idx=0, 70)
-    acct_slot(sender),                                          # ft_balance_of(sender)
-    acct_slot(receiver),                                        # ft_balance_of(receiver)
+    balance_json(sender),                                       # ft_balance_of(sender)
+    balance_json(receiver),                                     # ft_balance_of(receiver)
     struct.pack("<Q", 0) + acct_slot(sender) + acct_slot(receiver),  # ft_resolve_transfer(0, sender, receiver)
-    acct_slot(sender),                                          # ft_balance_of(sender)
-    acct_slot(receiver),                                        # ft_balance_of(receiver)
+    balance_json(sender),                                       # ft_balance_of(sender)
+    balance_json(receiver),                                     # ft_balance_of(receiver)
 ]
 print(",".join(i.hex() for i in inputs))
 PY
@@ -118,6 +120,10 @@ grep -qF 'call ft_transfer_call: return=receipt(' <<<"$out" \
 # offline host.
 grep -qF 'call ft_resolve_transfer: return_hex=2d000000000000000000000000000000' <<<"$out" \
   || fail "phase 2 ft_resolve_transfer refund != 45 (callback dispatch mismatch)"
+for expected in 2231303022 223022 22333022 22373022 22353522 22343522; do
+  grep -qF "call ft_balance_of: return_hex=$expected" <<<"$out" \
+    || fail "phase 2 missing JSON ft_balance_of return $expected"
+done
 grep -qF '11 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 2 did not report 11 successful methods"
 

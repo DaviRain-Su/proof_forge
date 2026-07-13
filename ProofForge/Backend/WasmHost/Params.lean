@@ -47,6 +47,68 @@ def nearDynamicInputPrologue (maximumBytes : Nat) : Array Insn :=
 def rawInputPrologue : Array Insn :=
   #[.i64Const 0, .call "input", .i64Const 0, .i64Const INPUT_BUF, .call "read_register"]
 
+def jsonInputLen64Name : String := "__pf_json_input_len64"
+def jsonInputLenName : String := "__pf_json_input_len"
+
+def assertJsonByteAt (offset expected : Nat) : Array Insn :=
+  #[.i32Const (INPUT_BUF + offset), .load "i32.load8_u" 0, .i32Const expected,
+    .plain "i32.ne", .if_ { insns := #[.unreachable] } { insns := #[] }]
+
+def assertJsonPrefix (jsonPrefix : String) : Array Insn :=
+  (jsonPrefix.toUTF8.data.foldl (init := (#[], 0)) fun (insns, offset) byte =>
+    (insns ++ assertJsonByteAt offset byte.toNat, offset + 1)).fst
+
+/-- Decode the Phase-4a canonical JSON object
+`{"account_id":"<NEAR AccountId>"}`. `JSON.stringify` and near-api-js emit this
+shape for the one-field object. AccountIds cannot contain JSON quote/escape
+characters, so the payload can safely remain a direct `(ptr, len)` view into
+`INPUT_BUF`. -/
+def loadJsonStringObjectParam (params : Array (String × ValueType))
+    (abiPlan : EntrypointPlan) (wireParamNames? : Option (Array String) := none) :
+    Except EmitError (Array Insn × Array Local) := do
+  let some (name, type) := params[0]?
+    | err s!"EmitWat: JSON entrypoint `{abiPlan.name}` requires one String parameter"
+  unless params.size == 1 && type == .string do
+    err s!"EmitWat: JSON entrypoint `{abiPlan.name}` currently supports exactly one String parameter"
+  let wireName ← match wireParamNames? with
+    | none => pure name
+    | some names => match names with
+      | #[wireName] => pure wireName
+      | _ => err s!"EmitWat: JSON entrypoint `{abiPlan.name}` wire-parameter mapping must contain one name"
+  let jsonPrefix := "{\"" ++ wireName ++ "\":\""
+  let prefixLen := jsonPrefix.toUTF8.size
+  let minInputLen := prefixLen + 2 + 2
+  let maxInputLen := prefixLen + 64 + 2
+  let suffixQuoteAddress := #[.i32Const INPUT_BUF, .localGet jsonInputLenName,
+    .plain "i32.add", .i32Const 2, .plain "i32.sub"]
+  let suffixBraceAddress := #[.i32Const INPUT_BUF, .localGet jsonInputLenName,
+    .plain "i32.add", .i32Const 1, .plain "i32.sub"]
+  let prologue := #[
+    .i64Const 0, .call "input",
+    .i64Const 0, .call "register_len", .localTee jsonInputLen64Name,
+    .i64Const minInputLen, .plain "i64.lt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonInputLen64Name, .i64Const maxInputLen, .plain "i64.gt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonInputLen64Name, .plain "i32.wrap_i64", .localSet jsonInputLenName,
+    .i64Const 0, .i64Const INPUT_BUF, .call "read_register"
+  ]
+  let suffixChecks := suffixQuoteAddress ++ #[.load "i32.load8_u" 0, .i32Const 0x22,
+      .plain "i32.ne", .if_ { insns := #[.unreachable] } { insns := #[] }] ++
+    suffixBraceAddress ++ #[.load "i32.load8_u" 0, .i32Const 0x7d,
+      .plain "i32.ne", .if_ { insns := #[.unreachable] } { insns := #[] }]
+  let bindParam := #[
+    .i32Const (INPUT_BUF + prefixLen), .localSet name,
+    .localGet jsonInputLenName, .i32Const (prefixLen + 2), .plain "i32.sub",
+    .localSet (name ++ "_len")
+  ]
+  .ok (prologue ++ assertJsonPrefix jsonPrefix ++ suffixChecks ++ bindParam, #[
+    { name := jsonInputLen64Name, type := .i64 },
+    { name := jsonInputLenName, type := .i32 },
+    { name := name ++ "_len", type := .i32 },
+    { name := name, type := .i32 }
+  ])
+
 /-- Build the Borsh input prologue and load each param into a local.
 
 * **No params:** empty prologue on all bridges (no residual `input` / `read_register`).
@@ -58,6 +120,7 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     (params : Array (String × ValueType))
     (abiPlan : EntrypointPlan)
     (bridge : ProofForge.Target.HostBridge := .near)
+    (wireParamNames? : Option (Array String) := none)
     : Except EmitError (Array Insn × Array Local) := do
   let plannedParams := abiPlan.params.map fun param => (param.name?.getD "", param.type)
   if abiPlan.name.isEmpty || plannedParams != params then
@@ -72,6 +135,11 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     -- Skip host `input` for zero-arg entrypoints (Counter initialize/increment/get,
     -- ValueVault views). Saves a host call with no ABI payload to decode.
     .ok (#[], #[])
+  else if abiPlan.inputCodec == .json then
+    if bridge != .near then
+      err s!"EmitWat: JSON entrypoint `{abiPlan.name}` is only supported on HostBridge.near"
+    else
+      loadJsonStringObjectParam params abiPlan wireParamNames?
   else
   if abiPlan.inputCodec != .borsh || abiPlan.inputByteWidth == 0 then
     err s!"EmitWat: entrypoint `{abiPlan.name}` has an invalid NEAR input codec plan"
@@ -150,10 +218,8 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
                       .store (storeOpFor f.type) 0]
                 acc ++ loadField) #[]
           .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
-      | .bytes =>
-        err s!"EmitWat: param `{name}` has unsupported Borsh type `dynamic_bytes` (wasm-near IR v0 does not support Bytes parameters; use String for account ids)"
-      | .string =>
-        -- Borsh dynamic string: 4-byte LE length prefix + payload.
+      | .bytes | .string =>
+        -- Borsh dynamic bytes/string: 4-byte LE length prefix + payload.
         -- Allocate a buffer, copy the 4-byte length prefix + payload from INPUT_BUF.
         -- The local holds an i32 pointer to the payload (length prefix at ptr - 4).
         let lenOff := INPUT_BUF + offset

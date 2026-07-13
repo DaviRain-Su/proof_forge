@@ -316,6 +316,11 @@ def nearDecodeResultExpr (structs : Array StructDecl) (type : ValueType) (bytesE
   | .unit => "undefined"
   | _ => "decodeNearBorshResult(" ++ nearBorshSchemaExpr structs type ++ ", " ++ bytesExpr ++ ")"
 
+def nearDecodeJsonResultExpr (type : ValueType) (resultExpr : String) : String :=
+  match type with
+  | .u128 => "BigInt(" ++ resultExpr ++ " as string)"
+  | _ => resultExpr
+
 def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
     (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan)
     (structs : Array StructDecl := #[]) : String :=
@@ -347,14 +352,19 @@ def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
         "options: NearViewOptions = {}"
       else
         params ++ ", options: NearViewOptions = {}"
+    let useJson := abiPlan.inputCodec == .json && abiPlan.outputCodec == .json
+    let viewHelper := if useJson then "nearViewFunctionJson" else "nearViewFunctionBorsh"
+    let argsExpr := if useJson then nearArgsObject entrypoint else argsBytes
+    let resultExpr := if useJson then nearDecodeJsonResultExpr abiPlan.returnType "result"
+      else nearDecodeResultExpr structs abiPlan.returnType "result"
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
-    "  const result = await nearViewFunctionBorsh({\n" ++
+    "  const result = await " ++ viewHelper ++ "({\n" ++
     "    ...options,\n" ++
     "    contractId,\n" ++
     "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
-    "    args: " ++ argsBytes ++ ",\n" ++
+    "    args: " ++ argsExpr ++ ",\n" ++
     "  });\n" ++
-    "  return " ++ nearDecodeResultExpr structs abiPlan.returnType "result" ++ " as " ++ typeToTs abiPlan.returnType ++ ";\n" ++
+    "  return " ++ resultExpr ++ " as " ++ typeToTs abiPlan.returnType ++ ";\n" ++
     "}\n"
 
 def nearEntrypointWrapper (entrypoint : Entrypoint) : String :=
@@ -387,6 +397,12 @@ def nearBorshHelpersTs : String :=
     "  const { contractId, methodName, args, finality, blockId } = request;",
     "  const response = await (account as any).connection.provider.query({ request_type: \"call_function\", account_id: contractId, method_name: methodName, args_base64: bytesToBase64(args), ...(blockId !== undefined ? { block_id: blockId } : { finality: finality ?? \"final\" }) });",
     "  return Uint8Array.from(response.result as number[]);",
+    "}",
+    "async function nearViewFunctionJson(request: { contractId: string; methodName: string; args: Record<string, unknown>; finality?: string; blockId?: string | number; [key: string]: unknown }): Promise<unknown> {",
+    "  const { contractId, methodName, args, finality, blockId } = request;",
+    "  const encodedArgs = new TextEncoder().encode(JSON.stringify(args));",
+    "  const response = await (account as any).connection.provider.query({ request_type: \"call_function\", account_id: contractId, method_name: methodName, args_base64: bytesToBase64(encodedArgs), ...(blockId !== undefined ? { block_id: blockId } : { finality: finality ?? \"final\" }) });",
+    "  return JSON.parse(new TextDecoder().decode(Uint8Array.from(response.result as number[])));",
     "}",
     "async function nearFunctionCallBorsh(request: { contractId: string; methodName: string; args: Uint8Array; gas?: bigint | string | number; attachedDeposit?: bigint | string | number }): Promise<unknown> {",
     "  return (account as any).signAndSendTransaction({ receiverId: request.contractId, actions: [transactions.functionCall(request.methodName, request.args, BigInt(request.gas ?? 30000000000000n), BigInt(request.attachedDeposit ?? 0n))] });",

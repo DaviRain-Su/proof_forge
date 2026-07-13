@@ -1015,6 +1015,11 @@ near-vm-conformance-product:
 near-vm-conformance-ft:
     scripts/near/vm-conformance-ft.sh
 
+# Real-NEAR-VM NEP-141 JSON boundary: canonical ft_balance_of account_id input,
+# quoted decimal U128 output, and malformed JSON rejection.
+near-vm-json-balance:
+    scripts/near/vm-json-balance.sh
+
 # Real-NEAR-VM U128 scalar round-trip: write/read/return a u128 on the
 # unmodified upstream NEAR VM. Foundation gate for NEP-141 U128 token amounts;
 # guards the U128 storage + Borsh-return helpers against emit-but-not-define
@@ -1030,7 +1035,7 @@ near-vm-u128-map:
 # Real-NEAR-VM string-keyed U128 map round-trip (Map<string, u128>, the NEP-141
 # `balances` keyed by raw AccountId string — Phase 3 NEAR interop gate).
 # Verifies the variable-length string-keyed map path + Borsh string param key.
-near-vm-string-key-map: near-vm-caller-account-id-map
+near-vm-string-key-map: near-vm-caller-account-id-map near-vm-json-balance
     scripts/near/vm-string-key-map.sh
 
 # U128 decimal formatter smoke (JSON U128 primitive) via the offline host.

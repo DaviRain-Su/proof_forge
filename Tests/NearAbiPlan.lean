@@ -24,6 +24,20 @@ def echoModule : Module := {
   entrypoints := #[echoEntrypoint]
 }
 
+def ftBalanceEntrypoint : Entrypoint := {
+  name := "ft_balance_of"
+  mutability := .view
+  params := #[("account_id", .string)]
+  returns := .u128
+  body := #[.return (.literal (.u128 100))]
+}
+
+def ftBalanceModule : Module := {
+  name := "NearFtBalanceJson"
+  state := #[]
+  entrypoints := #[ftBalanceEntrypoint]
+}
+
 def dynamicBytesModule : Module := {
   name := "DynamicBytesNearAbi"
   state := #[]
@@ -56,6 +70,29 @@ def main : IO Unit := do
     "NEAR entrypoint codecs must be Borsh"
   require (abi.inputByteWidth == 8 && abi.outputByteWidth == 8)
     "NEAR u64 round-trip must use exact 8-byte input/output widths"
+  let ftAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] ftBalanceEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (ftAbi.inputCodec == .json && ftAbi.outputCodec == .json)
+    "NEAR ft_balance_of must use the standard JSON codec"
+  require (ftAbi.inputByteWidth == 0 && ftAbi.outputByteWidth == 0)
+    "dynamic JSON codec widths must not claim a fixed Borsh payload"
+  let ftPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftBalanceModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  let ftWat ← match ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan ftBalanceModule ftPlan with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error.message
+  require (ftWat.contains "call $__pf_return_json_u128")
+    "NEAR ft_balance_of must route U128 through the JSON decimal-string return helper"
+  require (ftWat.contains "i32.const 123" && ftWat.contains "i32.const 125")
+    "NEAR ft_balance_of JSON input must validate object braces"
+  let invalidFtBalance := { ftBalanceEntrypoint with returns := .u64 }
+  match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] invalidFtBalance with
+  | .error message =>
+      require (message.contains "must have signature")
+        "invalid standard ft_balance_of signature must be actionable"
+  | .ok _ => throw <| IO.userError "invalid standard ft_balance_of signature did not fail closed"
   let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan echoModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message

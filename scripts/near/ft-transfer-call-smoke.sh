@@ -58,6 +58,8 @@ def acct_slot(name):
     b = name.encode()
     assert len(b) <= 256
     return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def balance_json(name):
+    return ('{"account_id":"' + name + '"}').encode()
 def u128(v):
     return struct.pack("<QQ", v, 0)
 def u64(v):
@@ -79,14 +81,14 @@ inputs = [
     b"",
     acct_slot(sender) + u128(mint_amount),
     spender + u128(approve_amount),
-    acct_slot(sender),
-    acct_slot(receiver),
+    balance_json(sender),
+    balance_json(receiver),
     acct_slot(receiver) + u32(receiver_idx) + u128(transfer_amount),
-    acct_slot(sender),
-    acct_slot(receiver),
+    balance_json(sender),
+    balance_json(receiver),
     u64(0) + acct_slot(sender) + acct_slot(receiver),
-    acct_slot(sender),
-    acct_slot(receiver),
+    balance_json(sender),
+    balance_json(receiver),
 ]
 
 print(f'SENDER_ACCT="{sender}"')
@@ -100,8 +102,8 @@ refund_inputs = [
     acct_slot(sender) + u128(mint_amount),
     acct_slot(receiver) + u32(receiver_idx) + u128(transfer_amount),
     u64(0) + acct_slot(sender) + acct_slot(receiver),
-    acct_slot(sender),
-    acct_slot(receiver),
+    balance_json(sender),
+    balance_json(receiver),
 ]
 concurrent_inputs = [
     b"",
@@ -110,9 +112,9 @@ concurrent_inputs = [
     acct_slot(receiver2) + u32(receiver_idx) + u128(20),
     u64(1) + acct_slot(sender) + acct_slot(receiver2),
     u64(0) + acct_slot(sender) + acct_slot(receiver),
-    acct_slot(sender),
-    acct_slot(receiver),
-    acct_slot(receiver2),
+    balance_json(sender),
+    balance_json(receiver),
+    balance_json(receiver2),
 ]
 callback_input = u64(0) + acct_slot(sender) + acct_slot(receiver)
 print(f'RECEIVER2_ACCT="{receiver2}"')
@@ -150,8 +152,8 @@ echo "$out"
 
 assert_contains "$out" "call 1:ft_mint: return=<none>" "mint call"
 assert_contains "$out" "call 1:ft_approve: return=<none>" "approve call"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=64000000000000000000000000000000 return_len=16" "sender balance after mint"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=00000000000000000000000000000000 return_len=16" "receiver balance before transfer"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=2231303022" "sender JSON balance after mint"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=223022" "receiver JSON balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"
 # deposit is near-sys amount_ptr → offline-host reads the full u128 LE value.
 # The private callback receives Borsh transfer id + sender/receiver account ids.
@@ -161,10 +163,10 @@ assert_contains "$out" "promise_return id=1" "promise_return trace"
 assert_order "$out" "promise_create id=0" "promise_then id=1 parent=0"
 assert_contains "$out" "promise_result index=0 status=1 return_u64=25" "promise result stub"
 assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=2d000000000000000000000000000000 return_len=16" "resolve used amount"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=1e000000000000000000000000000000 return_len=16" "sender balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=46000000000000000000000000000000 return_len=16" "receiver balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=37000000000000000000000000000000 return_len=16" "sender balance after refund"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=2d000000000000000000000000000000 return_len=16" "receiver balance after refund"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22333022" "sender JSON balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22373022" "receiver JSON balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22353522" "sender JSON balance after refund"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22343522" "receiver JSON balance after refund"
 
 assert_traps "repeat init" "${HOST[@]}" "$WAT" init init \
   --predecessor-account-id proof-forge.testnet \
@@ -185,8 +187,8 @@ refund_out="$("${HOST[@]}" "$WAT" \
   --promise-result-u64 1000 \
   --inputs-hex "$REFUND_INPUTS_HEX")"
 assert_contains "$refund_out" "call 1:ft_resolve_transfer: return_hex=00000000000000000000000000000000 return_len=16" "refund bounded to original amount"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=64000000000000000000000000000000 return_len=16" "sender balance after bounded refund"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=00000000000000000000000000000000 return_len=16" "receiver balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=2231303022" "sender JSON balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=223022" "receiver JSON balance after bounded refund"
 
 concurrent_out="$("${HOST[@]}" "$WAT" \
   init ft_mint ft_transfer_call ft_transfer_call ft_resolve_transfer ft_resolve_transfer \
@@ -196,8 +198,8 @@ concurrent_out="$("${HOST[@]}" "$WAT" \
   --current-account-id proof-forge.testnet \
   --promise-result-u64 5 \
   --inputs-hex "$CONCURRENT_INPUTS_HEX")"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=3c000000000000000000000000000000 return_len=16" "sender balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=19000000000000000000000000000000 return_len=16" "first receiver balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=0f000000000000000000000000000000 return_len=16" "second receiver balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22363022" "sender JSON balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22323522" "first receiver JSON balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22313522" "second receiver JSON balance after out-of-order callbacks"
 
 echo "ft-transfer-call-smoke: ok (happy path, repeat-init, private callback, bounded refund, concurrent contexts)"

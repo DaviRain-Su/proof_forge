@@ -1150,11 +1150,17 @@ mutual
 
 end
 
-def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
+def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType)
+    (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
-  let aggBytes? ← borshReturnPayloadBytes ctx.structs expected
-  returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars aggBytes?
+  if outputCodec == .json then
+    unless expected == .u128 && t == .u128 do
+      err s!"EmitWat: JSON return codec currently supports U128, got `{t.name}` for `{expected.name}`"
+    .ok (is ++ #[.call returnJsonU128Name])
+  else
+    let aggBytes? ← borshReturnPayloadBytes ctx.structs expected
+    returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars aggBytes?
 
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
@@ -1172,6 +1178,7 @@ partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (field
   .ok (header ++ fieldInsns ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
+    (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec)
     (s : Statement) : Except EmitError (Array Insn) :=
   match s with
   | .letBind name t e | .letMutBind name t e => do
@@ -1240,16 +1247,16 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
                             .if_ { insns := failInsns } { insns := #[] }])
   | .release name => do
     releaseInsns ctx env name
-  | .return e => lowerReturn ctx env returns e
+  | .return e => lowerReturn ctx env returns outputCodec e
   | .ifElse cond thenBody elseBody => do
     let (cis, ct) ← lowerExpr ctx env cond
     if ct != .bool then err "EmitWat: if/else condition must be Bool"
     else do
-      let thenInsns ← appendInsnChunksM thenBody fun s => lowerStmt ctx env returns s
-      let elseInsns ← appendInsnChunksM elseBody fun s => lowerStmt ctx env returns s
+      let thenInsns ← appendInsnChunksM thenBody fun s => lowerStmt ctx env returns outputCodec s
+      let elseInsns ← appendInsnChunksM elseBody fun s => lowerStmt ctx env returns outputCodec s
       .ok (ifElseInsns cis thenInsns elseInsns)
   | .boundedFor indexName start stop body => do
-    let bodyInsns ← appendInsnChunksM body fun s => lowerStmt ctx env returns s
+    let bodyInsns ← appendInsnChunksM body fun s => lowerStmt ctx env returns outputCodec s
     .ok (boundedForInsns indexName start stop bodyInsns)
   | _ => err "EmitWat: this statement form is not yet supported"
 
@@ -1284,7 +1291,8 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
         { name := b.name ++ "_len", type := .i32 : Local }]
     else
       #[{ name := b.name, type := wasmTypeOf b.vt : Local }])
-  let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s
+  let bodyInsns ← appendInsnChunksM ep.body fun s =>
+    lowerStmt ctx allLocalTypes ep.returns abiPlan.outputCodec s
   let resetPrefix : Array Insn :=
     (if ctx.usesHashAlloc then #[.i32Const HASH_HEAP, .globalSet hashPtrGlobal] else #[]) ++
     (if ctx.allocator.usesEntryReset then

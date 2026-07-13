@@ -105,6 +105,7 @@
     "near-vm-conformance",
     "near-vm-conformance-product",
     "near-vm-conformance-ft",
+    "near-vm-json-balance",
     "near-vm-u128-scalar",
     "near-vm-u128-map",
     "near-vm-string-key-map",
@@ -1014,6 +1015,15 @@
     },
     {
       "name": "near-vm-conformance-ft",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-json-balance",
       "lane": "wasm-other-exclusive",
       "execution": "lane_serial",
       "tags": [

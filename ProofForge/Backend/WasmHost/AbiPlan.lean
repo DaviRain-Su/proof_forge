@@ -6,10 +6,12 @@ open ProofForge.IR
 
 inductive Codec where
   | borsh
+  | json
   deriving Repr, BEq
 
 def Codec.id : Codec -> String
   | .borsh => "borsh"
+  | .json => "json"
 
 structure ValuePlan where
   name? : Option String := none

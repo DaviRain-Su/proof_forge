@@ -105,14 +105,16 @@ LIFECYCLE_WAT="$(find "$FT_OUT" -name '*.wat' | head -n1)"
 require_file "$LIFECYCLE_WAT"
 
 # ft_transfer param order in stdlib: receiver account_id (string) + amount (see NearFungibleToken).
-# NEP-141 string-keyed balances: account ids are raw Borsh strings in a fixed
-# 260-byte slot (4-byte LE length + payload + zero padding).
+# Mutations keep their current Borsh string slots. Standard `ft_balance_of`
+# queries use NEAR JSON and return quoted decimal U128 values.
 eval "$(python3 - <<'PY'
 import struct
 def acct_slot(name):
     b = name.encode()
     assert len(b) <= 256
     return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def balance_json(name):
+    return ('{"account_id":"' + name + '"}').encode()
 def u128(v):
     return struct.pack("<QQ", v, 0)
 sender = "alice.testnet"
@@ -120,10 +122,10 @@ receiver = "bob.testnet"
 inputs = [
     b"",
     acct_slot(sender) + u128(100),
-    acct_slot(sender),
+    balance_json(sender),
     acct_slot(receiver) + u128(30),
-    acct_slot(sender),
-    acct_slot(receiver),
+    balance_json(sender),
+    balance_json(receiver),
 ]
 print(f'INPUTS_HEX="{",".join(i.hex() for i in inputs)}"')
 PY
@@ -142,9 +144,9 @@ out="$("${HOST[@]}" "$LIFECYCLE_WAT" \
   --current-account-id proof-forge.testnet \
   --inputs-hex "$INPUTS_HEX")"
 echo "$out"
-grep -Fq "return_hex=64000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected mint balance 100"
-grep -Fq "return_hex=46000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected sender balance 70 after transfer"
-grep -Fq "return_hex=1e000000000000000000000000000000 return_len=16" <<<"$out" || fail "expected receiver balance 30 after transfer"
+grep -Fq "return_hex=2231303022" <<<"$out" || fail "expected JSON mint balance 100"
+grep -Fq "return_hex=22373022" <<<"$out" || fail "expected JSON sender balance 70 after transfer"
+grep -Fq "return_hex=22333022" <<<"$out" || fail "expected JSON receiver balance 30 after transfer"
 echo "backend FT offline mint/transfer conformance: ok"
 
 echo "product-token-near: ok (TokenSpec plan · stdlib body WAT · backend FT offline conformance)"

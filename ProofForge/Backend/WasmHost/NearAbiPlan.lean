@@ -30,24 +30,46 @@ partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except S
       .ok size
   | type => .error s!"NEAR Borsh ABI does not support dynamic `{type.name}` values"
 
-def buildEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint) :
+/-- First wallet-compatible inbound JSON slice. Keep this classification in
+the target ABI plan so contract lowering and generated clients consume the same
+decision. Additional NEP-141/145 methods join only when their decoder and
+real-VM gate land. -/
+def usesJsonCodecForSignature (name : String) (params : Array (String × ValueType))
+    (returns : ValueType) : Except String Bool := do
+  if name != "ft_balance_of" then
+    return false
+  unless params == #[("account_id", .string)] && returns == .u128 do
+    throw "NEAR standard entrypoint `ft_balance_of` must have signature (account_id : String) -> U128"
+  return true
+
+def buildSignaturePlan (structs : Array StructDecl) (name : String)
+    (signatureParams : Array (String × ValueType)) (returns : ValueType) :
     Except String EntrypointPlan := do
+  let useJson ← usesJsonCodecForSignature name signatureParams returns
+  let inputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
+    if useJson then .json else .borsh
+  let outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
+    if useJson then .json else .borsh
   let mut offset := 0
   let mut params := #[]
-  for param in entrypoint.params do
-    let width ← borshByteWidth structs param.snd
+  for param in signatureParams do
+    let width ← if useJson then pure 0 else borshByteWidth structs param.snd
     params := params.push { name? := some param.fst, type := param.snd, offset, byteWidth := width }
     offset := offset + width
-  let outputByteWidth ← borshByteWidth structs entrypoint.returns
+  let outputByteWidth ← if useJson then pure 0 else borshByteWidth structs returns
   .ok {
-    name := entrypoint.name
-    inputCodec := .borsh
-    outputCodec := .borsh
+    name
+    inputCodec
+    outputCodec
     params
     inputByteWidth := offset
-    returnType := entrypoint.returns
+    returnType := returns
     outputByteWidth
   }
+
+def buildEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint) :
+    Except String EntrypointPlan :=
+  buildSignaturePlan structs entrypoint.name entrypoint.params entrypoint.returns
 
 def buildModulePlans (module : Module) : Except String (Array EntrypointPlan) :=
   module.entrypoints.mapM (buildEntrypointPlan module.structs)

@@ -286,8 +286,8 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
   let unsupportedEntrypoint : ProofForge.IR.Entrypoint := {
     name := "echo_bytes"
     mutability := .view
-    params := #[("value", ProofForge.IR.ValueType.bytes)]
-    «returns» := ProofForge.IR.ValueType.bytes
+    params := #[("value", ProofForge.IR.ValueType.array .u64)]
+    «returns» := ProofForge.IR.ValueType.array .u64
     body := #[]
   }
   let unsupportedSpec := ProofForge.Contract.ContractSpec.fromIR {
@@ -300,6 +300,19 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
       require (contains message "does not support dynamic")
         "unsupported NEAR client codec must report an actionable error"
   | .ok _ => throw <| IO.userError "unsupported NEAR client codec did not fail closed"
+
+  let some ftBalance := ProofForge.Contract.Stdlib.NearFungibleToken.spec.module.entrypoints.find?
+      (fun entrypoint => entrypoint.name == "ft_balance_of")
+    | throw <| IO.userError "NEAR FT fixture missing ft_balance_of"
+  let ftWrapper := ProofForge.Contract.Client.nearEntrypointWrapper ftBalance
+  require (contains ftWrapper "nearViewFunctionJson({")
+    "NEAR ft_balance_of client must use the contract JSON codec plan"
+  require (contains ftWrapper "args: {\"account_id\": account_id}")
+    "NEAR ft_balance_of client must emit the canonical account_id JSON object"
+  require (contains ftWrapper "BigInt(result as string)")
+    "NEAR ft_balance_of client must decode the JSON U128 decimal string"
+  require (!contains ftWrapper "nearViewFunctionBorsh({")
+    "NEAR ft_balance_of client must not use Borsh transport"
 
 def testAbiWordControlsTypescriptParameterType : IO Unit := do
   let wrapper ← renderEvm addressOverrideSpec "AddressOverrideProbe"
