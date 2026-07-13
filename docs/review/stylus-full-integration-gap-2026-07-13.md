@@ -2,7 +2,7 @@
 
 ## Executive Status
 
-The completion plan currently has 26 of 63 acceptance items checked (41%).
+The completion plan currently has 29 of 64 acceptance items checked (45%).
 That number understates the foundation already built but accurately shows that
 the target is not release-integrated. A useful engineering estimate is:
 
@@ -20,7 +20,7 @@ fragment, and no current Nitro evidence authorizes a direct-Wasm cutover.
 |---|---|---|
 | Wide scalar semantics | `just stylus-wide-values`, `just stylus-wide-arithmetic` | Complete for the planned u128 slice |
 | Canonical ValueVault | `just stylus-value-vault-canonical` | Rust/direct/local runtime green; Nitro evidence missing |
-| Single-key mappings/events | `just stylus-mapping-events` | u64 and address-to-u128 maps plus static indexed events green |
+| Mapping/event layouts | `just stylus-mapping-events`, `just stylus-nested-map` | scalar and nested maps, ABI overrides, and standard Transfer/Approval layouts green |
 | Canonical nested mapping | `just stylus-nested-map` | address-to-address-to-u128 semantics, plan keys, Rust SDK crate, direct Wasm, and local VM slot parity green |
 | Dynamic ABI | `just stylus-aggregate-differential` | bounded bytes/string parameter/return slice green after the plan-derived clear-bound fix |
 | Remote calls | `just stylus-remote-call-differential` | modes, value, gas, bounded static/dynamic returns, revert, cache policy, nested local frames green |
@@ -33,19 +33,16 @@ envelope.
 
 ## Remaining Work Packages
 
-### W1 - Canonical Nested Storage and Full Event Layouts (large, blocking)
+### W1 - Canonical Nested Storage and Full Event Layouts (complete)
 
 Core now represents composite maps with `StateShape.mapN`, validates every key
 in order, and gives logical semantics to the composite key. Both Stylus
-renderers consume the same ordered `StylusStorageWordPlan.keyTypes`; the local
-gate proves the Solidity-compatible sequential Keccak slot and compiles the
-generated nested `StorageMap` crate. Remaining work in this package:
+renderers consume the same ordered `StylusStorageWordPlan.keyTypes`. The gates
+pin nested slots with Foundry `cast index`, execute both direct-Wasm read/write
+paths, compile the generated nested Rust SDK crate, and verify standard
+`Transfer(address,address,uint256)` / `Approval(address,address,uint256)` logs.
 
-- lock the nested allowance slot against a deployed Foundry reference contract;
-- add full `Transfer` and `Approval` topic/data vectors;
-- close the package only after those event/reference vectors are green.
-
-### W2 - Canonical ERC-20 State Machine (large, blocked by W1)
+### W2 - Canonical ERC-20 State Machine (large, now unblocked)
 
 No Stylus token driver exists today; `TargetDriver` rejects token/NFT surfaces.
 The shared token source must materialize through canonical Core and pass direct,
@@ -89,8 +86,8 @@ after renderer cutover, not before it.
 
 Execute in this order:
 
-1. W1 nested storage and full event vectors.
-2. W2 canonical ERC-20.
+1. W1 nested storage and full event vectors. Complete at `095ef266`.
+2. W2 canonical ERC-20. Current next package.
 3. W3 remaining aggregate layouts and resource limits.
 4. W4 Rust/direct remote parity and context closure.
 5. W5 Nitro evidence when the daemon/tool PATH is available.

@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W1 - Canonical nested storage and full event layouts |
-| Next task | Pin `Transfer` / `Approval` event layouts and deployed Foundry allowance reference |
+| Active task | W2 - Canonical ERC-20 state machine |
+| Next task | Materialize the shared token source into one checked Stylus plan |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

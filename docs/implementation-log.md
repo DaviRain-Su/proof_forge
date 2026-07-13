@@ -1397,3 +1397,22 @@ Rules:
   `Transfer` / `Approval` topic/data vectors before the package is complete.
 - Documentation: updated the Stylus completion plan and full-integration gap
   audit without closing the remaining W1 event/reference criteria.
+
+## 2026-07-13 - STYLUS-W1: Complete mapping and event layouts
+
+- Status: `done (verified at 095ef266)`
+- Commit: `095ef266`
+- Result: preserved canonical event ABI-word overrides in the Stylus plan and
+  pinned standard `Transfer(address,address,uint256)` and
+  `Approval(address,address,uint256)` log buffers across direct Wasm and Rust.
+  The repair also added address/u128 direct event encoding and moved event
+  scratch away from calldata-backed wide parameters.
+- Interfaces: Stylus event planning, direct-Wasm event memory/encoding, typed
+  Rust event rendering, mapping/event vectors, and Foundry nested-slot vectors.
+- Verification: `just stylus-mapping-events`, `just stylus-nested-map`,
+  `just stylus-rust-render`, and `lake build` (792 jobs) all passed; both
+  generated crates compiled against `stylus-sdk = 0.10.8`.
+- Remaining: W1 is complete. W2 canonical ERC-20 materialization is next;
+  Nitro deployment evidence remains in W5.
+- Documentation: closed the W1 acceptance items in the Stylus completion plan,
+  advanced the integration audit to W2, and updated the agent checkpoint.

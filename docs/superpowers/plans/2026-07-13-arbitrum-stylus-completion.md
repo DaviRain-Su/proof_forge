@@ -87,11 +87,11 @@ work packages and their dependency order are audited in
 - [x] Add plan types for single-key resolved storage paths and indexed event emissions, including the maximum-four-topics check.
 - [x] Implement `keccak256` HostIO envelopes with exact 32-byte outputs and checked static key types.
 - [x] Implement `emit_log` buffers for static indexed/data words; reject more than four topics and dynamic indexed values not pre-hashed by the plan.
-- [ ] Pin Foundry vectors for `mapping(address => uint128)`, nested allowance mappings, `Transfer`, and `Approval` topics/data.
+- [x] Pin Foundry `cast index` vectors for `mapping(address => uint128)` and nested allowance mappings, plus standard `Transfer` / `Approval` topic/data vectors.
 - [x] Render identical Rust/direct layouts and compare single-key/static-event paths to Foundry vectors.
 - [x] Run `just stylus-mapping-events`, `just stylus-rust-render`, and `just stylus-diagnostics`.
 - [x] Extend canonical Core with ordered composite `StateShape.mapN` keys, logical semantics, shared Stylus planning, nested Rust `StorageMap` rendering, and direct-Wasm VM parity (`just stylus-nested-map`).
-- [ ] Commit the full nested slice as `feat(stylus): add mapping and event layouts`.
+- [x] Commit the full nested slice (`09579b6d`, `095ef266`) as canonical nested mapping plus complete mapping/event layouts.
 
 ### Task 4: ERC-20 State Machine and EVM Interoperability
 
