@@ -2,7 +2,7 @@
 
 ## Executive Status
 
-The completion plan currently has 31 of 64 acceptance items checked (48%).
+The completion plan currently has 32 of 64 acceptance items checked (50%).
 That number understates the foundation already built but accurately shows that
 the target is not release-integrated. A useful engineering estimate is:
 
@@ -48,9 +48,10 @@ paths, compile the generated nested Rust SDK crate, and verify standard
 The shared TokenSpec now materializes through the existing ERC-20 stdlib into
 canonical Core and one Stylus plan. Direct Wasm executes the complete local
 lifecycle, edge cases, rollback, standard selectors/events, and unlimited
-allowance; the generated Rust SDK crate compiles. Remaining work is normalized
-abstract/Rust/direct runtime parity, the public token driver, EVM-client
-interop packaging, and Nitro evidence.
+allowance; the generated Rust SDK crate compiles. Normalized Lean abstract,
+Rust oracle, and direct-Wasm traces now agree, and the public `--token` route
+emits checked Wasm, ABI, client, and metadata artifacts. Remaining W2 work is
+Nitro deployment and standard-client live interoperability evidence.
 
 ### W3 - Aggregate Storage and General ABI Layout (large)
 

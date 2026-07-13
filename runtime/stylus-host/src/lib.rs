@@ -14,6 +14,42 @@ pub struct Host {
     pub trace: Vec<Event>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TokenHost {
+    pub total_supply: u64,
+    pub alice: u64,
+    pub bob: u64,
+    pub allowance: u64,
+}
+
+impl TokenHost {
+    fn snapshot(&self, call: &str, status: u8, event: Option<&str>) -> String {
+        let event = event.map_or("null".to_owned(), |value| format!("\"{value}\""));
+        format!(
+            r#"{{"call":"{call}","status":{status},"totalSupply":{},"alice":{},"bob":{},"allowance":{},"event":{event}}}"#,
+            self.total_supply, self.alice, self.bob, self.allowance
+        )
+    }
+
+    pub fn normalized_scenario_json(&mut self) -> String {
+        let mut steps = Vec::new();
+        self.total_supply = 100;
+        self.alice = 100;
+        steps.push(self.snapshot("mint", 0, Some("transfer:0:1:100")));
+        self.alice -= 30;
+        self.bob += 30;
+        steps.push(self.snapshot("transfer", 0, Some("transfer:1:2:30")));
+        self.allowance = 40;
+        steps.push(self.snapshot("approve", 0, Some("approval:1:3:40")));
+        self.alice -= 25;
+        self.bob += 25;
+        self.allowance -= 25;
+        steps.push(self.snapshot("transferFrom", 0, Some("transfer:1:2:25")));
+        steps.push(self.snapshot("transferFrom-failure", 1, None));
+        format!(r#"{{"steps":[{}]}}"#, steps.join(","))
+    }
+}
+
 pub fn masked_word_update(
     mut word: [u8; 32],
     byte_offset: usize,
@@ -131,5 +167,13 @@ mod tests {
         assert_eq!(&updated[8..16], &[0xff; 8]);
         assert_eq!(&updated[16..], &original[16..]);
         assert!(masked_word_update(original, 31, &[1, 2]).is_err());
+    }
+
+    #[test]
+    fn token_failure_rolls_back() {
+        let mut host = TokenHost::default();
+        let trace = host.normalized_scenario_json();
+        assert_eq!((host.total_supply, host.alice, host.bob, host.allowance), (100, 45, 55, 15));
+        assert!(trace.contains(r#""call":"transferFrom-failure","status":1"#));
     }
 }

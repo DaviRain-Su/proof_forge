@@ -46,35 +46,61 @@ def emitted(output):
     return [item for item in output["trace"] if item["event"] == "emit_log"]
 
 storage = {}
+normalized_steps = []
+
+def normalized_step(call, status, total_supply, alice_value, bob_value, allowance_value, event=None):
+    normalized_steps.append({
+        "call": call, "status": status, "totalSupply": total_supply,
+        "alice": alice_value, "bob": bob_value, "allowance": allowance_value,
+        "event": event,
+    })
+
 mint = invoke("40c10f19", [address_word(alice), word(100)], alice, storage)
 assert mint["calls"][0]["status"] == 0
 storage = mint["storage"]
 assert storage[word(0)] == word(100)
 assert storage[alice_slot] == word(100)
 assert emitted(mint)[0]["value"] == transfer_topic + word(0) + address_word(alice) + word(100)
+normalized_step("mint", 0, 100, 100, 0, 0, "transfer:0:1:100")
 
 transfer = invoke("a9059cbb", [address_word(bob), word(30)], alice, storage)
 assert transfer["calls"][0]["status"] == 0 and transfer["result"] == word(1)
 storage = transfer["storage"]
 assert storage[alice_slot] == word(70) and storage[bob_slot] == word(30), (storage, transfer["trace"])
 assert emitted(transfer)[0]["value"] == transfer_topic + address_word(alice) + address_word(bob) + word(30)
+normalized_step("transfer", 0, 100, 70, 30, 0, "transfer:1:2:30")
 
 approval = invoke("095ea7b3", [address_word(spender), word(40)], alice, storage)
 assert approval["calls"][0]["status"] == 0 and approval["result"] == word(1)
 storage = approval["storage"]
 assert storage[allowance_slot] == word(40)
 assert emitted(approval)[0]["value"] == approval_topic + address_word(alice) + address_word(spender) + word(40)
+normalized_step("approve", 0, 100, 70, 30, 40, "approval:1:3:40")
 
 spent = invoke("23b872dd", [address_word(alice), address_word(bob), word(25)], spender, storage)
 assert spent["calls"][0]["status"] == 0 and spent["result"] == word(1)
 storage = spent["storage"]
 assert storage[allowance_slot] == word(15)
 assert storage[alice_slot] == word(45) and storage[bob_slot] == word(55)
+normalized_step("transferFrom", 0, 100, 45, 55, 15, "transfer:1:2:25")
 
 before_failure = storage.copy()
 failed = invoke("23b872dd", [address_word(alice), address_word(bob), word(20)], spender, storage)
 assert failed["calls"][0]["status"] == 1
 assert failed["storage"] == before_failure
+normalized_step("transferFrom-failure", 1, 100, 45, 55, 15)
+
+direct_trace = {"steps": normalized_steps}
+abstract_trace = json.loads(open("build/stylus/token/abstract-trace.json").read())
+rust_trace = json.loads(subprocess.check_output([
+    "cargo", "run", "--quiet", "--manifest-path",
+    "runtime/stylus-host/Cargo.toml", "--", "token"
+], text=True))
+assert direct_trace == abstract_trace, (direct_trace, abstract_trace)
+assert rust_trace == abstract_trace, (rust_trace, abstract_trace)
+with open("build/stylus/token/normalized-trace.json", "w") as output:
+    json.dump(abstract_trace, output, separators=(",", ":"))
+    output.write("\n")
 
 zero = invoke("a9059cbb", [word(0), word(1)], alice, storage)
 assert zero["calls"][0]["status"] == 1 and zero["storage"] == storage
@@ -99,7 +125,7 @@ assert unlimited_spent["calls"][0]["status"] == 0
 storage = unlimited_spent["storage"]
 assert storage[allowance_slot] == word(maximum)
 assert storage[alice_slot] == word(44) and storage[bob_slot] == word(56)
-print("stylus-token-differential-runtime: ok")
+print("stylus-token-differential-runtime: abstract/rust/direct parity ok")
 PY
 
 RUSTUP_TOOLCHAIN=1.91.0 CARGO_TARGET_DIR=build/stylus/cargo-target \

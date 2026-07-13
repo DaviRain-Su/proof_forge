@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 26/63 acceptance items are complete. Seven remaining
+**Current checkpoint:** 32/64 acceptance items are complete. Six remaining
 work packages and their dependency order are audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
 
@@ -107,7 +107,7 @@ work packages and their dependency order are audited in
 
 - [x] Pin selector, return, zero-address, insufficient balance/allowance, self-transfer, max allowance, and event vectors (`just stylus-token-differential`).
 - [x] Materialize the shared `Examples.Product.FungibleToken.spec` through canonical Core to one Stylus plan; no target-specific frontend fixture.
-- [ ] Execute normalized abstract/Rust/direct traces for mint/approve/transfer/transferFrom and failure rollback.
+- [x] Execute normalized abstract/Rust/direct traces for mint/approve/transfer/transferFrom and failure rollback.
 - [ ] Deploy direct Wasm to Nitro and call it through standard Solidity ABI with `cast`; compare storage-visible balances and emitted logs.
 - [ ] Run `just stylus-token-differential`, `just stylus-token-evm-interop`, and `just stylus-nitro-check`.
 - [ ] Mark Task 12 complete and commit as `feat(stylus): complete ERC20 interoperability`.

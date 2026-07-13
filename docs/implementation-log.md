@@ -1566,3 +1566,21 @@ Rules:
   open in W2/W5.
 - Documentation: checked the first two W2 acceptance items, refreshed the gap
   audit, and advanced the agent checkpoint.
+
+## 2026-07-13 - STYLUS-W2: Public token artifacts and normalized trace parity
+
+- Status: `done (pending commit)`
+- Result: opened the public `proof-forge build --target wasm-arbitrum-stylus
+  --token` route from a shared `TokenSpec`, producing the pinned Rust SDK Wasm,
+  Solidity ABI, TypeScript client, deploy metadata, and honest artifact bundle.
+- Semantics: added an executable Lean ERC-20 state model and an independent
+  Rust host oracle. Mint, transfer, approve, transferFrom, and rejected
+  transferFrom now produce the same normalized JSON state/event trace as the
+  generated direct Wasm under `tools/stylus-vm-runner`; the failure step proves
+  state rollback in all three observations.
+- Registry: promoted only the locally evidenced Stylus capabilities needed by
+  the canonical token slice while retaining research maturity and no
+  final-deployable claim.
+- Verification: `just stylus-token-differential` and `just
+  stylus-public-route` passed. Remaining W2 work is standard-client Nitro
+  deployment/interoperability evidence.

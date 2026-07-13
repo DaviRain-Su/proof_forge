@@ -1,6 +1,7 @@
 import Examples.Product.FungibleToken
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.Backend.Stylus.Token
+import ProofForge.Backend.Stylus.TokenSemantics
 import ProofForge.Backend.Stylus.DirectWasm.Module
 import ProofForge.Backend.Stylus.RustSdk.Render
 import ProofForge.Backend.Stylus.Package
@@ -43,6 +44,16 @@ def main : IO Unit := do
   IO.FS.createDirAll "build/stylus/token"
   IO.FS.writeFile "build/stylus/token/token.wat"
     (ProofForge.Compiler.Wasm.Printer.render direct)
+  IO.FS.writeFile "build/stylus/token/abstract-trace.json"
+    (ProofForge.Backend.Stylus.TokenSemantics.normalizedScenarioJson ++ "\n")
+  let abstractTrace := ProofForge.Backend.Stylus.TokenSemantics.normalizedScenario
+  require (abstractTrace.size == 5) "abstract token scenario step count changed"
+  let some spent := abstractTrace[3]?
+    | throw <| IO.userError "abstract transferFrom step missing"
+  let some rejected := abstractTrace[4]?
+    | throw <| IO.userError "abstract transferFrom failure step missing"
+  require (rejected.status == 1 && rejected.state == spent.state)
+    "abstract failed transferFrom did not roll back state"
   let cratePath := System.FilePath.mk "build/stylus/token/rust"
   if ← cratePath.pathExists then IO.FS.removeDirAll cratePath
   match ← ProofForge.Backend.Stylus.writeCrateAtomic crate cratePath with

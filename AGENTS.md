@@ -25,7 +25,7 @@ Keep this section short and update it whenever the active task changes.
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
 | Active task | W2 - Canonical ERC-20 state machine |
-| Next task | Add normalized abstract/Rust/direct token trace parity and public token routing |
+| Next task | Add standard EVM-client token interoperability and Nitro evidence |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
