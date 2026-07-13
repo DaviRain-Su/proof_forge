@@ -2233,7 +2233,8 @@ Rules:
 
 ## 2026-07-13 - NEAR-NEP141: Landing 2b - FT AccountId string keys and full transfer_call
 
-- Status: `done`
+- Status: `done (verified at 29b3299f)`
+- Commit: `29b3299f`
 - Scope: converted the NEP-141 NearFungibleToken to raw AccountId string keys
   through the canonical `NearModulePlan` lowering path, with the full
   `ft_transfer_call` and `ft_resolve_transfer` callback validated on the
