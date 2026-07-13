@@ -399,6 +399,29 @@ def moduleCapabilities (module : Core.Module) : Array Capability :=
     (fun caps function => caps ++ functionCapabilities function) #[]
   stableUniqueCapabilities (structCaps ++ stateCaps ++ eventCaps ++ errorCaps ++ functionCaps)
 
+private def instructionHostOpCalls (catalog : Core.HostOp.HostOpCatalog)
+    (instruction : Instruction) : Array CapabilityCall :=
+  match instruction.op with
+  | .hostCall call =>
+      match catalog.lookup call.id with
+      | .ok signature => signature.requiredCapabilities.map fun capability => {
+          capability
+          operation := .hostOp call.id
+          source? := none
+          metadata := #[]
+        }
+      | .error _ => #[]
+  | _ => #[]
+
+/-- Exact versioned HostOp capability calls derived from executable Core. An
+unknown ID is left to Core validation, which reports the stronger catalog
+diagnostic before requirement comparison. -/
+def moduleHostOpCapabilityCalls (module : Core.Module)
+    (catalog : Core.HostOp.HostOpCatalog) : Array CapabilityCall :=
+  module.functions.flatMap fun function =>
+    function.blocks.flatMap fun block =>
+      block.instructions.flatMap (instructionHostOpCalls catalog)
+
 def materializationCapabilityCalls
     (materialization : MaterializationContract) : Array CapabilityCall :=
   materialization.intents.filterMap (fun intent =>
@@ -411,9 +434,11 @@ def materializationCapabilityCalls
 
 /-- Stable union of source-free capability intents and Core-derived defaults. -/
 def deriveCapabilityRequirements (module : Core.Module)
-    (materialization : MaterializationContract) : Array CapabilityCall :=
+    (materialization : MaterializationContract)
+    (hostOpCatalog : Core.HostOp.HostOpCatalog := .empty) : Array CapabilityCall :=
   let calls := materializationCapabilityCalls materialization ++
-    (moduleCapabilities module).map CapabilityCall.fromCapability
+    (moduleCapabilities module).map CapabilityCall.fromCapability ++
+    moduleHostOpCapabilityCalls module hostOpCatalog
   calls.foldl (fun unique call =>
     if unique.contains call then unique else unique.push call) #[]
 
@@ -689,7 +714,8 @@ private def validateMaterialization (module : Core.Module)
     let _ := owner
 
 private def validateRequirements (module : Core.Module)
-    (materialization : MaterializationContract) (requirements : Array CapabilityCall) :
+    (materialization : MaterializationContract) (hostOpCatalog : Core.HostOp.HostOpCatalog)
+    (requirements : Array CapabilityCall) :
     Except ValidationError Unit := do
   if hasDuplicate requirements then
     throw <| ValidationError.mkSimple .invalidMaterialization "capability"
@@ -701,7 +727,7 @@ private def validateRequirements (module : Core.Module)
     unless call.source?.isNone do
       throw <| ValidationError.mkSimple .invalidMaterialization "capability"
         s!"capability call `{call.operation.render}` leaked source evidence into the checked contract"
-  let expected := deriveCapabilityRequirements module materialization
+  let expected := deriveCapabilityRequirements module materialization hostOpCatalog
   unless requirements == expected do
     throw <| ValidationError.mkSimple .invalidMaterialization "capability"
       s!"capability requirements do not match canonical payload; expected {repr expected}, got {repr requirements}"
@@ -723,7 +749,7 @@ def validateCanonical (c : CanonicalContract) :
   -- otherwise stale metadata would mask the actionable Core validation error.
   validateInterface c.module c.interface
   validateMaterialization c.module c.interface c.materialization
-  validateRequirements c.module c.materialization c.requirements
+  validateRequirements c.module c.materialization c.hostOpCatalog c.requirements
   return { contract := c }
 
 /- Manual `Inhabited` instances for panic/debug contexts. These defaults are

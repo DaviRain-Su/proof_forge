@@ -2,6 +2,7 @@ import ProofForge.Frontend.Surface.Syntax
 import ProofForge.IR.Core
 import ProofForge.IR.Core.HostOp
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOps.Near
 
 /-! # Surface NEAR Host Operations
 
@@ -14,24 +15,14 @@ open ProofForge.IR.Core
 open ProofForge.IR.Core.HostOp
 
 /-- The exact `near.promise.create@1.0.0` HostOpId. -/
-def promiseCreateId : HostOpId := {
-  namespace_ := "near.promise",
-  name := "create",
-  version := { major := 1, minor := 0, patch := 0 }
-}
+def promiseCreateId : HostOpId := ProofForge.Target.HostOps.Near.promiseCreateSig.id
 
 /-- The canonical `near.promise.create@1.0.0` HostOp signature. -/
-def promiseCreateSig : HostOpSig := {
-  id := promiseCreateId,
-  params := #[.string, .string, .bytes, .u128, .u64],
-  results := #[.u64],
-  effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
+def promiseCreateSig : HostOpSig := ProofForge.Target.HostOps.Near.promiseCreateSig
 
 /-- A catalog containing only the `near.promise.create@1.0.0` signature. -/
 def nearPromiseCatalog : Except HostOpError HostOpCatalog :=
-  HostOpCatalog.empty.register promiseCreateSig
+  ProofForge.Target.HostOps.Near.catalog
 
 /-- Surface constructor for `near.promise.create@1.0.0`.
 Accepts account ID, method name, serialized args, deposit, gas, and a

@@ -1,6 +1,7 @@
 import ProofForge.Frontend.Surface.NormalizeStmt
 import ProofForge.IR.Core.Error
 import ProofForge.IR.Canonical
+import ProofForge.Target.HostOps.Near
 
 /-! # Surface AST — Top-Level Normalization to CanonicalBundle
 
@@ -141,16 +142,21 @@ def normalizeSurface (contract : SurfaceContract) :
   let (mod, finalSt) ← StateT.run (adaptModule contract) st
   let (interface, _) ← StateT.run (buildInterface contract mod) finalSt
   let (materialization, _) ← StateT.run (buildMaterialization contract interface) finalSt
-  let requirements := deriveCapabilityRequirements mod materialization
   let evidence := buildEvidence contract
+  let hostOpCatalog ← if moduleUsesHostOps mod then
+    match ProofForge.Target.HostOps.Near.catalog with
+    | .ok catalog => pure catalog
+    | .error error => throw (.unsupportedSurface "HostOpCatalog" s!"registration failed: {repr error}")
+  else
+    pure .empty
+  let requirements := deriveCapabilityRequirements mod materialization hostOpCatalog
   let canonical : CanonicalContract := {
     schemaVersion := canonicalSchemaVersion,
     module := mod,
     interface := interface,
     materialization := materialization,
     requirements := requirements,
-    hostOpCatalog := if moduleUsesHostOps mod then
-      ProofForge.IR.Core.HostOp.canonicalHostOpCatalog else .empty
+    hostOpCatalog
   }
   match validateCanonical canonical with
   | Except.ok checked => pure { contract := checked, evidence := evidence }

@@ -10,7 +10,6 @@ import ProofForge.Target.Registry
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Backend.WasmHost.ModulePlan.Core
-import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Backend.Stylus.Plan.Core
 /-! # Internal Canonical Dual-Run Harness
 This module provides an internal-only dual-run compiler pipeline. It is not
@@ -106,13 +105,14 @@ a handler for the given target. Returns a list of error messages for unhandled
 host calls. EVM/Solana with no handler return `missingHostOpHandler`. -/
 def checkHostOpHandlers (targetId : String) (checked : CheckedCanonicalContract) :
     Array String :=
+  let supported := (ProofForge.Target.find? targetId).map (·.hostOps) |>.getD #[]
   let m := checked.contract.module
   m.functions.foldl (init := #[]) fun errs func =>
     func.blocks.foldl (init := errs) fun errs block =>
       block.instructions.foldl (init := errs) fun errs instr =>
         match instr.op with
         | .hostCall call =>
-          if ProofForge.Backend.WasmHost.NearModulePlan.HostOps.hasHandlerFor targetId call.id then
+          if supported.contains call.id then
             errs
           else
             errs.push s!"missingHostOpHandler: {call.id.render} on target {targetId}"

@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "02f9177aaa3572d4be58ebe9bc2e61e5a6a4cdfc3707605fbc4a5ce64ad58028",
+    "sha256": "e92059e24732756849fd6a05b708e02fb4d9fbf0b5f287487f1194192da1bd81",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh for the 2026-07-14 NEAR task and capability reconciliation"
+    "note": "synced EN/zh for the 2026-07-14 target-extension boundary program"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

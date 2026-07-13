@@ -2371,3 +2371,28 @@ Rules:
 - Verification: `just ir-target-boundary`, `just docs-check`, and
   `git diff --check`.
 - Next: IR-B1, open extension identities and target-owned catalog composition.
+
+## 2026-07-14 - IR-B1: open target-extension protocol
+
+- Status: `done (verified 2026-07-14)`.
+- Moved typed HostOp identity/version ownership from Canonical Core to
+  `ProofForge.Target.HostOp` and changed capability identity from a closed
+  inductive to an open stable-ID structure.
+- Removed the global NEAR catalog from Core. `ProofForge.Target.HostOps.Near`
+  now owns NEAR signatures, the NEAR target profile declares the supported
+  operation IDs, and canonical pipeline validation resolves handlers from the
+  selected profile.
+- Canonical requirement derivation now records exact HostOp calls and validates
+  their signature/effect/capability contract. Focused tests cover extension IDs,
+  target profile ownership, fail-closed resolution, and NEAR plan handlers.
+- Verification passed: `just target-registry`, `just hostop-protocol`,
+  `just near-promise-hostop`, `just ir-target-boundary`, `just build`, and
+  `git diff --check`.
+- `just product` was also attempted. It passed the preceding product gates and
+  stopped at the independent Soroban spike limitation: `OwnableHash` cannot
+  lower 32-byte Hash storage through Soroban's scalar `_get` ABI. No IR-B1
+  HostOp/NEAR gate failed.
+- Expanded the remaining program to cover EVM, Solana, all implemented
+  Wasm-host profiles, Move, Aleo, Psy, Quint, and shared interface records.
+- Next: IR-B2, inject target host semantics and remove NEAR promise modes/traces
+  from Canonical Core.

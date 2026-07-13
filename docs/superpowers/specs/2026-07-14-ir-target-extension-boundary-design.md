@@ -108,6 +108,26 @@ not an accepted exception to the boundary.
   semantic IDs; target-native extension requirements belong to an open
   registry.
 
+## Repository-Wide Target Audit Scope
+
+The migration is not a NEAR-only cleanup. NEAR exposed the coupling first, but
+completion requires the same classification for every implemented target
+family:
+
+| Family | Target-owned concerns to remove or keep out of shared IR |
+|---|---|
+| EVM and Stylus | Solidity ABI/error/dispatch layout, EIP/ERC protocols, CALL mode details, CREATE/CREATE2, EVM environment fields, Stylus host ABI |
+| Solana sBPF | PDA seeds/bumps, CPI account metas and signer seeds, sysvars, account ownership/realloc, instruction packing, SPL/Token-2022 protocol layouts |
+| NEAR Wasm | promise scheduling/results, attached-deposit width, storage usage/refunds, JSON ABI, NEP protocols, host string/register plans |
+| Other Wasm hosts | CosmWasm/Soroban/Cloudflare imports, storage bridges, ABI envelopes, environment and runtime conventions |
+| Move Aptos/Sui | signer/resource/object/ability semantics, transaction context, module and entry-function conventions |
+| Aleo/Psy | records/mappings/privacy, proof/public-input contracts, target metadata and execution-model constraints |
+| Quint | verification projection, replay configuration, and trace adapters rather than executable target semantics |
+
+The audit may conclude that an existing Solana or other-target feature is
+already correctly isolated. That result still needs a focused boundary test;
+absence of a chain name in the first grep is not sufficient evidence.
+
 ## Target-Neutral Semantic Vocabulary
 
 The migration must distinguish common semantics from target-native APIs. It
@@ -149,4 +169,6 @@ This boundary repair is complete only when:
 4. target SDK wrappers lower before the checked Core boundary;
 5. a repository gate rejects new forbidden constructors/fields;
 6. primary-triad product and focused target runtime gates preserve behavior;
-7. the old match arms and compatibility fields are removed, not only deprecated.
+7. the old match arms and compatibility fields are removed, not only deprecated;
+8. EVM, Solana, every implemented Wasm-host profile, Move, Aleo, Psy, and Quint
+   have an explicit ownership audit with focused acceptance evidence.

@@ -82,7 +82,7 @@ inductive SurfaceExpr
   | hash (arg : SurfaceExpr)
   | contextRead (field : SurfaceContextField)
   | nativeValue
-  | hostCall (id : ProofForge.IR.Core.HostOpId) (args : Array SurfaceExpr)
+  | hostCall (id : ProofForge.Target.HostOpId) (args : Array SurfaceExpr)
   deriving Repr
 
 /-- Surface-level statements. -/
@@ -98,7 +98,7 @@ inductive SurfaceStmt
   | revert (message : String)
   | branch (condition : SurfaceExpr) (thenBody elseBody : Array SurfaceStmt)
   | boundedLoop (indexName : String) (start stopExclusive : Nat) (body : Array SurfaceStmt)
-  | hostCallBind (name : String) (type : SurfaceType) (id : ProofForge.IR.Core.HostOpId) (args : Array SurfaceExpr)
+  | hostCallBind (name : String) (type : SurfaceType) (id : ProofForge.Target.HostOpId) (args : Array SurfaceExpr)
   | returnExpr (value : SurfaceExpr)
   | returnUnit
   deriving Repr

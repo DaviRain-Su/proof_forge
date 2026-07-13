@@ -1,4 +1,5 @@
 import ProofForge.IR.Core.Storage
+import ProofForge.Target.HostOp
 
 namespace ProofForge.IR.Core
 
@@ -26,23 +27,14 @@ structure CoreCrosscallSpec where
   returnType : CoreType
   deriving BEq, Repr
 
-/- Typed host-operation identifiers (Wave 3 extension point). Exact versions
-are required; there is no implicit version range. -/
+/- Compatibility aliases while call sites migrate to the Target extension
+protocol. Identity ownership is `ProofForge.Target`, not Canonical Core. -/
 
-structure HostOpVersion where
-  major : Nat
-  minor : Nat
-  patch : Nat
-  deriving BEq, DecidableEq, Repr
-
-structure HostOpId where
-  namespace_ : String
-  name : String
-  version : HostOpVersion
-  deriving BEq, DecidableEq, Repr
+abbrev HostOpVersion := ProofForge.Target.HostOpVersion
+abbrev HostOpId := ProofForge.Target.HostOpId
 
 structure HostOpCall where
-  id : HostOpId
+  id : ProofForge.Target.HostOpId
   args : Array ValueRef
   deriving BEq, Repr
 

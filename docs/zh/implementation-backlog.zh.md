@@ -1677,3 +1677,17 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   NEP-141/145；NEP-148 metadata；NEP-297 events；在现有最小 lifecycle 之上的
   完整 NEP-171 compliance；其他 crypto/account/economics host APIs；protocol gas
   bands；real NEAR broadcast smoke。
+
+### IR / target-extension 边界修复（2026-07-14 进行中）
+
+- ✅ IR-B0：完成全仓 target leakage 清单、接受 D-054 边界，并加入单调收紧的
+  `just ir-target-boundary` baseline。
+- ✅ IR-B1：开放 capability/HostOp identity，并将 NEAR catalog 归属 target。
+- IR-B2/IR-B3：在恢复 N-T4 前，从共享 Core/IR 移除 NEAR promise semantics
+  和 legacy constructor。
+- IR-B4：拆出 EVM ABI、protocol、call mode 和 dispatch 细节。
+- IR-B5：审计并迁移 Solana PDA、CPI、account、sysvar 和 packing 细节。
+- IR-B6：审计其他 Wasm-host profile、Move、Aleo、Psy 和 Quint 的所有权。
+- IR-B7：拆出 target environment、error、interface 和 materialization 数据。
+- IR-B8：清空 compatibility allowlist，并完成各 target/runtime 的定向证据。
+  Research 或 fixture 成熟度不构成向共享 IR 泄漏 target 概念的例外。

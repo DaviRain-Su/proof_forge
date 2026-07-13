@@ -2,6 +2,7 @@ import ProofForge.IR.Legacy.Adapter.Statement
 import ProofForge.IR.Legacy.Classification
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.IR.Legacy.Adapter
 
@@ -446,15 +447,18 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
   let interface ← adaptInterface spec module finalSt.env registeredErrors
   let materialization ← adaptMaterialization spec finalSt.env interface registeredErrors
   let evidence := adaptEvidence spec
+  let hostOpCatalog ← match ProofForge.Target.HostOps.Near.catalog with
+    | .ok catalog => pure catalog
+    | .error error => throw (.other s!"NEAR HostOp catalog registration failed: {repr error}")
   let requirements := ProofForge.IR.Canonical.deriveCapabilityRequirements
-    module materialization
+    module materialization hostOpCatalog
   let canonical : CanonicalContract := {
     schemaVersion := canonicalSchemaVersion,
     module := module,
     interface := interface,
     materialization := materialization,
     requirements := requirements,
-    hostOpCatalog := ProofForge.IR.Core.HostOp.canonicalHostOpCatalog
+    hostOpCatalog
   }
   match validateCanonical canonical with
   | .error e => throw (CanonicalizeError.validation e)

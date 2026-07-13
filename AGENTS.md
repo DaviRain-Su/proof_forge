@@ -76,17 +76,21 @@ or JSON balance/transfer slices from stale gap prose.
 
 The immediate architecture prerequisite is the
 [IR Target Extension Boundary plan](docs/superpowers/plans/2026-07-14-ir-target-extension-boundary.md).
-Complete IR-B0 through IR-B3 before N-T4 adds more NEAR behavior to shared IR.
+Complete IR-B0 through IR-B3 before N-T4 resumes. IR-B4 through IR-B8 then
+apply the same boundary to EVM, Solana, every other implemented target family,
+and shared interface/materialization records.
 
 | ID | State | Task |
 |---|---|---|
 | IR-B0 | done (verified 2026-07-14) | Audit all shared-layer target leakage and freeze the boundary |
-| IR-B1 | in_progress | Open extension identities and split target catalogs |
-| IR-B2 | pending | Remove NEAR promise modes and semantics from Canonical Core |
+| IR-B1 | done (verified 2026-07-14) | Open extension identities and split target catalogs |
+| IR-B2 | in_progress | Remove NEAR promise modes and semantics from Canonical Core |
 | IR-B3 | pending | Remove NEAR constructors and fields from legacy shared IR |
 | IR-B4 | pending | Move EVM protocol and ABI operations out of shared IR |
-| IR-B5 | pending | Move target environment/interface/materialization fields |
-| IR-B6 | pending | Empty the compatibility allowlist and enforce the boundary |
+| IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
+| IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |
+| IR-B7 | pending | Move target environment/interface/materialization fields |
+| IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
 
 | ID | State | Task | Authoritative section |
 |---|---|---|---|

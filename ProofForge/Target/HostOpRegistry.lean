@@ -14,7 +14,7 @@ open ProofForge.IR.Core
 /-- A handler for one host operation on one target. -/
 structure HostOpHandler (PlanOp : Type) where
   targetId : String
-  id : HostOpId
+  id : ProofForge.Target.HostOpId
   lower : Array PlanOp
 
 /-- A registry of host-op handlers for one target plan type. -/
@@ -36,18 +36,18 @@ def HostOpRegistry.register {PlanOp : Type} (reg : HostOpRegistry PlanOp)
 
 /-- Look up a handler for a given target and host-op ID. -/
 def HostOpRegistry.lookup {PlanOp : Type} (reg : HostOpRegistry PlanOp)
-    (targetId : String) (id : HostOpId) : Option (HostOpHandler PlanOp) :=
+    (targetId : String) (id : ProofForge.Target.HostOpId) : Option (HostOpHandler PlanOp) :=
   reg.handlers.find? (fun h => h.targetId == targetId && h.id == id)
 
 /-- Check if a handler exists for a given target and host-op ID. -/
 def HostOpRegistry.hasHandler {PlanOp : Type} (reg : HostOpRegistry PlanOp)
-    (targetId : String) (id : HostOpId) : Bool :=
+    (targetId : String) (id : ProofForge.Target.HostOpId) : Bool :=
   (reg.lookup targetId id).isSome
 
 inductive HostOpResolutionError where
   | missingCapability (targetId : String) (capability : Capability)
-  | missingHandler (targetId : String) (id : HostOpId)
-  | invalidPlan (targetId : String) (id : HostOpId) (message : String)
+  | missingHandler (targetId : String) (id : ProofForge.Target.HostOpId)
+  | invalidPlan (targetId : String) (id : ProofForge.Target.HostOpId) (message : String)
   deriving Repr, BEq
 
 /-- Resolve a typed HostOp for one target. Capability membership, handler

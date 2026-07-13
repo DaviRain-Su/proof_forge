@@ -57,6 +57,11 @@ def HostOpCatalog.register (cat : HostOpCatalog) (sig : HostOpSig) :
   else
     .ok { entries := cat.entries.push sig }
 
+/-- Register a collection without bypassing duplicate checks. -/
+def HostOpCatalog.registerAll (cat : HostOpCatalog) (signatures : Array HostOpSig) :
+    Except HostOpError HostOpCatalog :=
+  signatures.foldlM HostOpCatalog.register cat
+
 /-- Look up a signature by exact ID. -/
 def HostOpCatalog.lookup (cat : HostOpCatalog) (id : HostOpId) :
     Except HostOpError HostOpSig :=
@@ -89,78 +94,4 @@ def HostOpCatalog.validateCallUsage (sig : HostOpSig) :
   | .pure => .error .pureEffectfulMismatch
   | .external => .ok ()
 
-/-- The canonical `near.promise.create@1.0.0` signature. -/
-def nearPromiseCreateSig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "create", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[.string, .string, .bytes, .u128, .u64],
-  results := #[.u64],
-  effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-def nearPromiseResultU64Sig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "result_u64", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[.u64],
-  results := #[.u64],
-  effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-def nearPromiseResultsCountSig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "results_count", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[], results := #[.u64], effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-def nearPromiseResultStatusSig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "result_status", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[.u64], results := #[.u64], effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-def nearPromiseResultU128Sig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "result_u128", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[.u64],
-  results := #[.u128],
-  effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-def nearStorageUsageSig : HostOpSig := {
-  id := { namespace_ := "near.storage", name := "usage", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[], results := #[.u64], effectClass := .external,
-  requiredCapabilities := #[.storageScalar]
-}
-
-def nearPromiseTransferSig : HostOpSig := {
-  id := { namespace_ := "near.promise", name := "transfer", version := { major := 1, minor := 0, patch := 0 } },
-  params := #[.string, .u128], results := #[.u64], effectClass := .external,
-  requiredCapabilities := #[.nearPromise]
-}
-
-/-- The canonical host-op catalog containing all registered host operations.
-Currently only `near.promise.create@1.0.0`. -/
-def canonicalHostOpCatalog : HostOpCatalog :=
-  match HostOpCatalog.empty.register nearPromiseCreateSig with
-  | .ok cat => match cat.register nearPromiseResultU64Sig with
-    | .ok cat => match cat.register nearPromiseResultsCountSig with
-      | .ok cat => match cat.register nearPromiseResultStatusSig with
-        | .ok cat => match cat.register nearPromiseResultU128Sig with
-          | .ok cat => match cat.register nearStorageUsageSig with
-            | .ok cat => match cat.register nearPromiseTransferSig with
-              | .ok cat => cat
-              | .error _ => HostOpCatalog.empty
-            | .error _ => HostOpCatalog.empty
-          | .error _ => HostOpCatalog.empty
-        | .error _ => HostOpCatalog.empty
-      | .error _ => HostOpCatalog.empty
-    | .error _ => HostOpCatalog.empty
-  | .error _ => HostOpCatalog.empty
 end ProofForge.IR.Core.HostOp
-
-/-- Render a HostOpId as `namespace/name@major.minor.patch`. -/
-def ProofForge.IR.Core.HostOpId.render (id : ProofForge.IR.Core.HostOpId) : String :=
-  s!"{id.namespace_}/{id.name}@{id.version.major}.{id.version.minor}.{id.version.patch}"
-
-instance : ToString ProofForge.IR.Core.HostOpId where
-  toString := ProofForge.IR.Core.HostOpId.render

@@ -1,5 +1,6 @@
 import ProofForge.IR.Legacy.Adapter.Env
 import ProofForge.IR.Core.HostOp
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.IR.Legacy.Adapter
 
@@ -598,24 +599,24 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       return { instructions := instructions ++ call.instructions, value := call.value }
   | .nearPromiseResultsCount =>
       emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id, args := #[] }) .u64
+        id := ProofForge.Target.HostOps.Near.promiseResultsCountSig.id, args := #[] }) .u64
   | .nearPromiseResultStatus index => do
       let normalizedIndex ← normalizeExpr index
       let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id,
+        id := ProofForge.Target.HostOps.Near.promiseResultStatusSig.id,
         args := #[normalizedIndex.value] }) .u64
       return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
   | .nearPromiseResultU64 index => do
       let normalizedIndex ← normalizeExpr index
       let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearPromiseResultU64Sig.id
+        id := ProofForge.Target.HostOps.Near.promiseResultU64Sig.id
         args := #[normalizedIndex.value]
       }) .u64
       return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
   | .nearPromiseResultU128 index => do
       let normalizedIndex ← normalizeExpr index
       let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearPromiseResultU128Sig.id
+        id := ProofForge.Target.HostOps.Near.promiseResultU128Sig.id
         args := #[normalizedIndex.value]
       }) .u128
       return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
@@ -623,12 +624,12 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       emitValueInstruction (.contextRead .value) .u128
   | .nearStorageUsage =>
       emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearStorageUsageSig.id, args := #[] }) .u64
+        id := ProofForge.Target.HostOps.Near.storageUsageSig.id, args := #[] }) .u64
   | .nearPromiseTransfer account amount => do
       let normalizedAccount ← normalizeExpr account
       let normalizedAmount ← normalizeExpr amount
       let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.IR.Core.HostOp.nearPromiseTransferSig.id
+        id := ProofForge.Target.HostOps.Near.promiseTransferSig.id
         args := #[normalizedAccount.value, normalizedAmount.value]
       }) .u64
       return {

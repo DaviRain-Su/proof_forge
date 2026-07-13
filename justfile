@@ -37,8 +37,15 @@ legacy-freeze:
 # D0: Legacy replacement freeze — production IR.Legacy imports must not grow beyond baseline.
 legacy-replacement-freeze:
     scripts/canonical/check-legacy-freeze.sh
+# Typed open capability/HostOp identity and target-owned catalog contract.
+hostop-protocol:
+    lake env lean --run Tests/Canonical/HostOpCatalog.lean
+    lake env lean --run Tests/Canonical/HostOpFailClosed.lean
+    lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
+
 # Wave 1/2 canonical IR foundation and Legacy adapter gates.
-canonical-foundation:
+canonical-foundation: hostop-protocol
     lake env lean --run Tests/Canonical/CoreSchema.lean
     lake env lean --run Tests/Canonical/CoreValidate.lean
     lake env lean --run Tests/Canonical/EvidenceIsolation.lean
@@ -1022,6 +1029,9 @@ near-vm-conformance-ft:
 
 # Real-NEAR-VM NEP-141 JSON boundary: canonical ft_balance_of account_id input,
 # quoted decimal U128 output, and malformed JSON rejection.
+near-vm-caller-account-id-map:
+    scripts/near/vm-caller-account-id-map.sh
+
 near-vm-json-balance:
     scripts/near/vm-json-balance.sh
 

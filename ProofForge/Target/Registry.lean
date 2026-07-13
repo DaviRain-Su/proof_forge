@@ -4,6 +4,8 @@ import ProofForge.IR.Allocator
 import ProofForge.Target.Capability
 import ProofForge.Target.HostBridge
 import ProofForge.Target.Support
+import ProofForge.Target.HostOp
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Target
 
@@ -48,6 +50,8 @@ structure TargetProfile where
   family : TargetFamily
   artifactKind : ArtifactKind
   capabilities : CapabilitySet
+  /-- Exact typed target extensions with registered lowering handlers. -/
+  hostOps : Array HostOpId := #[]
   deploymentAllocator? : Option ProofForge.IR.AllocatorConfig := none
   offlineAllocators : Array ProofForge.IR.AllocatorConfig := #[]
   requiredTools : Array String := #[]
@@ -141,6 +145,7 @@ def wasmNear : TargetProfile := {
     .dataStruct,
     .dataDynamicBytes
   ]
+  hostOps := HostOps.Near.supportedIds
   hostBridge? := some .near
   requiredTools := #["rustup", "cargo", "near-cli"]
   support := TargetSupport.primaryTriad

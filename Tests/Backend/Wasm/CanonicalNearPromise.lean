@@ -63,9 +63,13 @@ def main : IO Unit := do
   let reg ← match nearPromiseRegistry with
   | Except.ok r => pure r
   | Except.error e => throw <| IO.userError s!"nearPromiseRegistry failed: {e}"
-  require (reg.handlers.size == 4) "registry should have exactly four handlers"
+  let supportedIds := ProofForge.Target.HostOps.Near.supportedIds
+  require (reg.handlers.size == supportedIds.size)
+    "handler registry and target-owned signature catalog must have equal size"
   require (reg.handlers.all (·.targetId == "wasm-near"))
     "all handler targets should be wasm-near"
+  require (supportedIds.all fun id => reg.handlers.any (·.id == id))
+    "every target-owned NEAR HostOp signature must have a plan handler"
   require (reg.handlers.any (·.id == pcId))
     "registry should contain near.promise.create@1.0.0"
   require (reg.handlers.any (·.id == promiseResultU64Id))
@@ -92,10 +96,11 @@ def main : IO Unit := do
   | .error diag => throw <| IO.userError s!"Counter canonical EVM failed: {repr diag}"
   | .ok _ => pure ()
 
-  /- Check 5: hasHandlerFor returns true for NEAR, false for EVM/Solana. -/
-  require (hasHandlerFor "wasm-near" pcId) "NEAR should have handler"
-  require (!hasHandlerFor "evm" pcId) "EVM should not have handler"
-  require (!hasHandlerFor "solana-sbpf-asm" pcId) "Solana should not have handler"
+  /- Check 5: target profiles own exact HostOp support declarations. -/
+  require (ProofForge.Target.wasmNear.hostOps.contains pcId) "NEAR profile should advertise handler"
+  require (!ProofForge.Target.evm.hostOps.contains pcId) "EVM profile must not advertise NEAR handler"
+  require (!ProofForge.Target.solanaSbpfAsm.hostOps.contains pcId)
+    "Solana profile must not advertise NEAR handler"
 
   /- Check 6: pcId render matches. -/
   require (pcId.render == "near.promise/create@1.0.0") "render mismatch"
@@ -104,6 +109,10 @@ def main : IO Unit := do
   let bundle ← match normalizeSurface promiseContract with
   | Except.ok b => pure b
   | Except.error e => throw <| IO.userError s!"normalizeSurface failed: {repr e}"
+  require (bundle.contract.contract.requirements.any fun call =>
+      call.capability == ProofForge.Target.Capability.nearPromise &&
+      call.operation == .hostOp pcId)
+    "canonical requirements must retain the exact HostOp ID and capability"
 
   /- Check 8: EVM reports missingHostOpHandler for promise.create. -/
   let evmErrors := checkHostOpHandlers "evm" bundle.contract

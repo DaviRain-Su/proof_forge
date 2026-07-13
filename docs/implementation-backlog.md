@@ -3634,3 +3634,18 @@ fixtures.
   NEP-141/145; NEP-148 metadata; NEP-297 events; complete NEP-171 compliance
   beyond the existing minimal lifecycle; additional crypto/account/economics
   host APIs; protocol gas bands; real NEAR broadcast smoke.
+
+### IR / target-extension boundary repair (active 2026-07-14)
+
+- ✅ IR-B0: repository-wide leakage inventory, accepted D-054 boundary, and
+  monotonic `just ir-target-boundary` baseline.
+- ✅ IR-B1: open capability/HostOp identities and target-owned NEAR catalog.
+- IR-B2/IR-B3: remove NEAR promise semantics and legacy constructors from
+  shared Core/IR before resuming N-T4.
+- IR-B4: extract EVM ABI, protocol, call-mode, and dispatch details.
+- IR-B5: audit/migrate Solana PDA, CPI, account, sysvar, and packing details.
+- IR-B6: audit other Wasm-host profiles, Move, Aleo, Psy, and Quint ownership.
+- IR-B7: extract target environment, error, interface, and materialization data.
+- IR-B8: empty the compatibility allowlist and sign off focused target/runtime
+  evidence. Research or fixture maturity does not exempt a target from the
+  shared-boundary rule.

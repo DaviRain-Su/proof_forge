@@ -2,6 +2,7 @@ import ProofForge.IR.Core
 import ProofForge.IR.Core.HostOp
 import ProofForge.Target.HostOpRegistry
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOps.Near
 
 /-! # NEAR HostOp Plan Handlers
 
@@ -31,24 +32,16 @@ inductive NearOpPlan
 instance : Inhabited NearOpPlan := ⟨.promiseCreate⟩
 instance : Inhabited (HostOpHandler NearOpPlan) := ⟨{ targetId := "", id := { namespace_ := "", name := "", version := { major := 0, minor := 0, patch := 0 } }, lower := #[] }⟩
 /-- The exact `near.promise.create@1.0.0` HostOpId. -/
-def promiseCreateId : HostOpId := {
-  namespace_ := "near.promise",
-  name := "create",
-  version := { major := 1, minor := 0, patch := 0 }
-}
+def promiseCreateId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseCreateSig.id
 
-def promiseResultU64Id : HostOpId := {
-  namespace_ := "near.promise",
-  name := "result_u64",
-  version := { major := 1, minor := 0, patch := 0 }
-}
+def promiseResultU64Id : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultU64Sig.id
 
-def promiseResultU128Id : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultU128Sig.id
+def promiseResultU128Id : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultU128Sig.id
 
-def promiseResultsCountId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultsCountSig.id
-def promiseResultStatusId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseResultStatusSig.id
-def storageUsageId : HostOpId := ProofForge.IR.Core.HostOp.nearStorageUsageSig.id
-def promiseTransferId : HostOpId := ProofForge.IR.Core.HostOp.nearPromiseTransferSig.id
+def promiseResultsCountId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultsCountSig.id
+def promiseResultStatusId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultStatusSig.id
+def storageUsageId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.storageUsageSig.id
+def promiseTransferId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseTransferSig.id
 
 /-- Registry for the supported `near.promise` host operations. -/
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
@@ -82,14 +75,14 @@ def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
     lower := #[NearOpPlan.promiseTransfer] }
 
 /-- Check whether a host-op ID has a handler for `wasm-near`. -/
-def hasNearHandler (id : HostOpId) : Bool :=
+def hasNearHandler (id : ProofForge.Target.HostOpId) : Bool :=
   match nearPromiseRegistry with
   | Except.ok reg => HostOpRegistry.hasHandler reg "wasm-near" id
   | Except.error _ => false
 
 /-- Check whether a host-op ID has a handler for a given target.
 EVM and Solana have no handlers; returns false (missingHostOpHandler). -/
-def hasHandlerFor (targetId : String) (id : HostOpId) : Bool :=
+def hasHandlerFor (targetId : String) (id : ProofForge.Target.HostOpId) : Bool :=
   match targetId with
   | "wasm-near" => hasNearHandler id
   | _ => false

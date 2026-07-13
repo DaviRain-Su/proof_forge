@@ -14,7 +14,7 @@ JSON and learn artifacts remain wire-compatible through `.render`. -/
 
 inductive CapabilityOperation
   | builtin (name : String)
-  | hostOp (id : ProofForge.IR.Core.HostOpId)
+  | hostOp (id : ProofForge.Target.HostOpId)
   deriving BEq, Repr
 
 def CapabilityOperation.render : CapabilityOperation → String

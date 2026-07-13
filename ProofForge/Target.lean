@@ -1,4 +1,6 @@
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOp
+import ProofForge.Target.HostOps.Near
 import ProofForge.Target.Support
 import ProofForge.Target.HostRuntime
 import ProofForge.Target.Identity
