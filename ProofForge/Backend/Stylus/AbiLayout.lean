@@ -21,6 +21,21 @@ structure DynamicArrayAbiSlice where
   endOffset : Nat
   deriving Repr, BEq
 
+structure DynamicTupleFieldSlice where
+  fieldIndex : Nat
+  relativeOffset : Nat
+  dataOffset : Nat
+  length : Nat
+  paddedEnd : Nat
+  deriving Repr, BEq, Inhabited
+
+structure DynamicTupleAbiSlice where
+  offset : Nat
+  headWords : Nat
+  endOffset : Nat
+  dynamicFields : Array DynamicTupleFieldSlice
+  deriving Repr, BEq
+
 private def fail (message : String) : Except AbiLayoutError α :=
   .error { message }
 
@@ -134,5 +149,61 @@ def decodeDynamicArrayArgument (arguments : Array UInt8) (headWords index maximu
   let mut cursor := dataOffset
   for _ in [0:length] do cursor ← validateStaticAt arguments cursor element
   pure { offset, dataOffset, length, elementWords, endOffset }
+
+/-- Decode a dynamic tuple whose dynamic children are bytes/string. Static
+children may themselves be fixed arrays or static tuples. Child offsets are
+relative to the tuple base, not the outer argument block. -/
+def decodeDynamicTupleArgument (arguments : Array UInt8) (outerHeadWords index : Nat)
+    (fields : Array StylusAbiType) (maximumLengths : Array Nat) :
+    Except AbiLayoutError DynamicTupleAbiSlice := do
+  if index >= outerHeadWords then fail s!"dynamic-tuple ABI index {index} exceeds head words {outerHeadWords}"
+  let outerHeadBytes ← checkedMul "dynamic-tuple outer head" arguments.size outerHeadWords 32
+  if outerHeadBytes > arguments.size then fail "dynamic-tuple outer head is truncated"
+  let offset := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments (index * 32))
+  if offset % 32 != 0 then fail s!"dynamic-tuple offset {offset} is not word aligned"
+  if offset < outerHeadBytes then fail s!"dynamic-tuple offset {offset} points inside the outer head"
+  let mut tupleHeadWords := 0
+  let mut dynamicCount := 0
+  for field in fields do
+    if field.isDynamic then
+      unless field == .bytes || field == .string do
+        fail "dynamic-tuple nested arrays/tuples require recursive child planning"
+      tupleHeadWords ← checkedAdd "dynamic-tuple head" (arguments.size / 32 + 1) tupleHeadWords 1
+      dynamicCount := dynamicCount + 1
+    else
+      tupleHeadWords ← checkedAdd "dynamic-tuple head" (arguments.size / 32 + 1)
+        tupleHeadWords (← staticAbiWords (arguments.size / 32 + 1) field)
+  unless dynamicCount == maximumLengths.size do
+    fail s!"dynamic-tuple has {dynamicCount} dynamic fields but {maximumLengths.size} maximum lengths"
+  let tupleHeadBytes ← checkedMul "dynamic-tuple head bytes" arguments.size tupleHeadWords 32
+  let headEnd ← checkedAdd "dynamic-tuple head end" arguments.size offset tupleHeadBytes
+  if headEnd > arguments.size then fail "dynamic-tuple head exceeds calldata"
+  let mut wordIndex := 0
+  let mut maximumIndex := 0
+  let mut endOffset := headEnd
+  let mut slices := #[]
+  for h : fieldIndex in [0:fields.size] do
+    let field := fields[fieldIndex]
+    if field.isDynamic then
+      let relativeOffset := ProofForge.Backend.Stylus.DirectWasm.wordToNat
+        (← wordAt arguments (offset + wordIndex * 32))
+      if relativeOffset % 32 != 0 then fail s!"dynamic tuple field {fieldIndex} offset is not aligned"
+      if relativeOffset < tupleHeadBytes then fail s!"dynamic tuple field {fieldIndex} points inside tuple head"
+      let lengthOffset ← checkedAdd s!"dynamic tuple field {fieldIndex} length" arguments.size offset relativeOffset
+      let length := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments lengthOffset)
+      let maximum := maximumLengths[maximumIndex]!
+      if length > maximum then fail s!"dynamic tuple field {fieldIndex} length {length} exceeds maximum {maximum}"
+      let dataOffset ← checkedAdd s!"dynamic tuple field {fieldIndex} data" arguments.size lengthOffset 32
+      let paddedEnd ← checkedAdd s!"dynamic tuple field {fieldIndex} tail" arguments.size
+        dataOffset (roundUpWord length)
+      if paddedEnd > arguments.size then fail s!"dynamic tuple field {fieldIndex} tail exceeds calldata"
+      endOffset := max endOffset paddedEnd
+      slices := slices.push { fieldIndex, relativeOffset, dataOffset, length, paddedEnd }
+      maximumIndex := maximumIndex + 1
+      wordIndex := wordIndex + 1
+    else
+      wordIndex ← validateStaticAt arguments (offset + wordIndex * 32) field |>.map fun next =>
+        (next - offset) / 32
+  pure { offset, headWords := tupleHeadWords, endOffset, dynamicFields := slices }
 
 end ProofForge.Backend.Stylus

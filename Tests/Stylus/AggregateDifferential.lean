@@ -65,6 +65,26 @@ def main : IO Unit := do
     | .error _ => pure ()
     | .ok _ => throw <| IO.userError "invalid dynamic-array ABI vector was accepted"
 
+  let twoTailArgs := word 32 ++ word 7 ++ word 96 ++ word 160 ++
+    word 5 ++ "hello".toUTF8.data ++ Array.replicate 27 0 ++
+    word 6 ++ "你好".toUTF8.data ++ Array.replicate 26 0
+  let twoTail <- match decodeDynamicTupleArgument twoTailArgs 1 0
+      #[.uint 64, .bytes, .string] #[64, 64] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.message
+  require (twoTail.headWords == 3 && twoTail.dynamicFields.size == 2 &&
+      twoTail.dynamicFields[0]!.length == 5 && twoTail.dynamicFields[1]!.length == 6 &&
+      twoTail.endOffset == 256) "multi-tail dynamic tuple layout changed"
+  for result in #[
+      decodeDynamicTupleArgument twoTailArgs 1 0 #[.uint 64, .bytes, .string] #[64],
+      decodeDynamicTupleArgument (word 32 ++ word 7 ++ word 64 ++ word 160 ++ word 0 ++
+        Array.replicate 64 0) 1 0 #[.uint 64, .bytes, .string] #[64, 64],
+      decodeDynamicTupleArgument twoTailArgs 1 0 #[.uint 64, .bytes, .string] #[4, 64],
+      decodeDynamicTupleArgument twoTailArgs 1 0 #[.dynamicArray (.uint 64)] #[4]] do
+    match result with
+    | .error _ => pure ()
+    | .ok _ => throw <| IO.userError "invalid multi-tail dynamic tuple vector was accepted"
+
   let empty := word 32 ++ word 0
   let emptySlice <- match decodeDynamicArgument empty 1 0 64 with
     | .ok value => pure value | .error error => throw <| IO.userError error.message

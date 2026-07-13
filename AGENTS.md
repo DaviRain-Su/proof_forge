@@ -25,7 +25,7 @@ Keep this section short and update it whenever the active task changes.
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
 | Active task | W3 - Aggregate storage and general ABI layout |
-| Next task | Generalize dynamic tuple offsets to multiple children and nested dynamic arrays |
+| Next task | Compile multi-child tuple extent carriers into direct Wasm, then recurse nested arrays |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

@@ -98,7 +98,11 @@ The first recursive dynamic tuple slice is also executable: `(uint64,bytes)`
 validates a top-level argument-relative offset and a tuple-relative bytes tail,
 including high-bit length rejection and complete padded bounds. This is
 deliberately limited to one bytes/string child; multiple dynamic children and
-nested dynamic arrays are not yet admitted.
+nested dynamic arrays were not admitted by that direct slice. The plan-side
+layout now supports multiple bytes/string children with independent maxima and
+returns a validated tuple extent; `(uint64,bytes,string)` and adversarial
+relative-offset vectors are pinned. Direct multi-child extent lowering and
+nested dynamic arrays remain open.
 
 ### W4 - Remote-Call Parity Closure (medium)
 

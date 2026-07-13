@@ -1715,3 +1715,24 @@ Rules:
 - Scope: exactly one bytes/string dynamic field is supported. Multiple dynamic
   fields, nested dynamic arrays, dynamic tuple returns, and storage remain
   named follow-ups; no W3 completion checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Multi-child dynamic tuple layout
+
+- Status: `plan-side layout complete; direct multi-child carrier pending`
+- Result: added a tuple layout decoder for multiple bytes/string dynamic
+  children mixed with recursive static fields. Each child offset is relative
+  to the tuple base and has an independent plan maximum; the result includes
+  every child slice and the maximum validated encoded extent.
+- Carrier decision: direct multi-child tuples will use `(tuple base pointer,
+  validated encoded extent)`. A single child length is insufficient, while
+  hidden per-field function parameters would make calling conventions depend
+  on tuple shape.
+- Vectors: `(uint64,bytes,string)` pins two tails (`hello`, UTF-8 `你好`), a
+  three-word head, child lengths, and 256-byte extent. Maximum-count mismatch,
+  inner offset into the tuple head, per-child limit failure, and nested
+  dynamic-array children reject explicitly.
+- Verification: `just stylus-aggregate-differential` passes the layout vectors
+  and all existing direct/Rust aggregate runtime gates.
+- Remaining: compile the extent carrier into direct Wasm, recurse dynamic
+  array/tuple children, and implement dynamic storage. No W3 completion
+  checkbox was closed.
