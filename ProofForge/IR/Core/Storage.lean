@@ -15,6 +15,7 @@ account offsets, or NEAR storage prefixes. -/
 inductive StateShape
   | scalar (value : CoreType)
   | map (key value : CoreType) (capacity : Option Nat)
+  | mapN (keys : Array CoreType) (value : CoreType) (capacity : Option Nat)
   | fixedArray (element : CoreType) (length : Nat)
   | dynamicArray (element : CoreType)
   | record (type : TypeId)

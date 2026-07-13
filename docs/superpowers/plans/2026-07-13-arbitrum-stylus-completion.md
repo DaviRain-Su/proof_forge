@@ -90,7 +90,7 @@ work packages and their dependency order are audited in
 - [ ] Pin Foundry vectors for `mapping(address => uint128)`, nested allowance mappings, `Transfer`, and `Approval` topics/data.
 - [x] Render identical Rust/direct layouts and compare single-key/static-event paths to Foundry vectors.
 - [x] Run `just stylus-mapping-events`, `just stylus-rust-render`, and `just stylus-diagnostics`.
-- [ ] Extend canonical Core beyond its current single-key `StateShape.map` model before claiming nested allowance compatibility.
+- [x] Extend canonical Core with ordered composite `StateShape.mapN` keys, logical semantics, shared Stylus planning, nested Rust `StorageMap` rendering, and direct-Wasm VM parity (`just stylus-nested-map`).
 - [ ] Commit the full nested slice as `feat(stylus): add mapping and event layouts`.
 
 ### Task 4: ERC-20 State Machine and EVM Interoperability

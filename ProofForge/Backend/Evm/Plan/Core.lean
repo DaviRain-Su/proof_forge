@@ -220,6 +220,7 @@ def coreStateSlotSpan (m : Core.Module) (decl : Core.StateDecl) : Nat :=
   match decl.shape with
   | .scalar _ => 1
   | .map _ _ _ => 1
+  | .mapN _ _ _ => 1
   | .fixedArray elem len =>
       match elem with
       | .structType tid =>
@@ -250,6 +251,7 @@ def coreStorageLayout (module : Core.Module) (materialization : MaterializationC
       | .map keyType valueType capacity =>
           pure (StateKind.map (coreTypeToValueType keyType) (capacity.getD 0),
             coreTypeToValueType valueType)
+      | .mapN .. => throw { message := "nested-map state is not yet materialized by the EVM Core plan" }
       | .fixedArray element length =>
           pure (StateKind.array length, coreTypeToValueType element)
       | .dynamicArray .. => throw { message := "dynamic-array state is not yet materialized by the EVM Core plan" }

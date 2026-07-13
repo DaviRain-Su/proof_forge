@@ -310,6 +310,9 @@ private def stateShapeCapabilities : StateShape → Array Capability
   | .scalar value => #[.storageScalar] ++ coreTypeCapabilities value
   | .map key value _ =>
       #[.storageMap] ++ coreTypeCapabilities key ++ coreTypeCapabilities value
+  | .mapN keys value _ =>
+      #[.storageMap] ++ keys.foldl (fun capabilities key =>
+        capabilities ++ coreTypeCapabilities key) #[] ++ coreTypeCapabilities value
   | .fixedArray element _ =>
       #[.storageArray, .dataFixedArray] ++ coreTypeCapabilities element
   | .dynamicArray element =>

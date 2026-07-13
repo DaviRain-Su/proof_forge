@@ -94,14 +94,14 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
         | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
-      let #[key] := keys | fail "Rust SDK mapping access currently requires one key"
-      pure (.letMapGet (localName result) field.name (localName key) word.type)
+      if keys.isEmpty then fail "Rust SDK mapping access requires at least one key"
+      pure (.letMapGet (localName result) field.name (keys.map localName) word.type)
   | .storagePathCache wordId keys value => do
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
         | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
-      let #[key] := keys | fail "Rust SDK mapping access currently requires one key"
-      pure (.mapSet field.name (localName key) (localName value) word.type)
+      if keys.isEmpty then fail "Rust SDK mapping access requires at least one key"
+      pure (.mapSet field.name (keys.map localName) (localName value) word.type)
   | .add result type mode lhs rhs => do
       pure (.letAdd (localName result) (← rustTypeName type) (localName lhs) (localName rhs) mode)
   | .sub result type mode lhs rhs => do
@@ -173,6 +173,15 @@ private def storageRustAlias : StylusAbiType -> Option String
   | .uint 128 => some "U128" | .uint 160 => some "U160" | .uint 256 => some "U256"
   | _ => none
 
+private def nestedStorageMapType (keys : Array StylusAbiType) (value : StylusAbiType) :
+    Except RenderError String := do
+  let some alias := storageRustAlias value
+    | fail s!"Rust SDK mapping has unsupported value type `{repr value}`"
+  let mut result := s!"Storage{alias}"
+  for key in keys.reverse do
+    result := s!"StorageMap<{← rustTypeName key}, {result}>"
+  pure result
+
 private def storageRead (field : String) (type : StylusAbiType) : String :=
   match type with
   | .uint bits => s!"self.{field}.get().to::<u{bits}>()"
@@ -183,17 +192,27 @@ private def storageWrite (field value : String) (type : StylusAbiType) : String 
   | some alias => s!"self.{field}.set({alias}::from({value}));"
   | none => s!"self.{field}.set({value});"
 
+private def mapRead (field : String) (keys : Array String) : String :=
+  keys.foldl (fun access key => s!"{access}.get({key})") s!"self.{field}"
+
+private def mapWrite (field : String) (keys : Array String) (value : String)
+    (type : StylusAbiType) : String :=
+  let prefixKeys := keys.extract 0 (keys.size - 1)
+  let access := prefixKeys.foldl (fun access key => s!"{access}.setter({key})") s!"self.{field}"
+  let key := keys[keys.size - 1]!
+  match storageRustAlias type with
+  | some alias => s!"{access}.insert({key}, {alias}::from({value}));"
+  | none => s!"{access}.insert({key}, {value});"
+
 private def renderStmt (stmt : RustStmt) : Array String :=
   match stmt with
   | .letLiteral name typeName value => #[s!"let {name}: {typeName} = {value};"]
   | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
-  | .letMapGet name field key (.uint bits) =>
-      #[s!"let {name} = self.{field}.get({key}).to::<u{bits}>();"]
-  | .letMapGet name field key _ => #[s!"let {name} = self.{field}.get({key});"]
+  | .letMapGet name field keys (.uint bits) =>
+      #[s!"let {name} = {mapRead field keys}.to::<u{bits}>();"]
+  | .letMapGet name field keys _ => #[s!"let {name} = {mapRead field keys};"]
   | .storageSet field value type => #[storageWrite field value type]
-  | .mapSet field key value (.uint bits) =>
-      #[s!"self.{field}.insert({key}, U{bits}::from({value}));"]
-  | .mapSet field key value _ => #[s!"self.{field}.insert({key}, {value});"]
+  | .mapSet field keys value type => #[mapWrite field keys value type]
   | .returnValue value => #[value]
   | .okValue value => #[s!"Ok({value})"]
   | .okUnit => #["Ok(())"]
@@ -264,13 +283,7 @@ def renderCrate (plan : StylusPlan) : Except RenderError RustCrate := do
     let valueType <- storageTypeName word.type
     let typeName <- match word.keyTypes with
       | #[] => pure valueType
-      | #[key] => do
-          let keyType <- rustTypeName key
-          let storageValue <- match storageRustAlias word.type with
-            | some alias => pure s!"Storage{alias}"
-            | none => fail s!"Rust SDK mapping `{word.id}` has unsupported value type"
-          pure s!"StorageMap<{keyType}, {storageValue}>"
-      | _ => fail s!"Rust SDK mapping `{word.id}` has unsupported nested keys"
+      | keys => nestedStorageMapType keys word.type
     pure { name := word.id, typeName }
   let functions <- plan.functions.mapM (renderFunction plan)
   let contract : RustContract := { name := plan.moduleName, storage, functions }

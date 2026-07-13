@@ -266,6 +266,8 @@ inductive StorageCell
   | scalar (value : CoreValue)
   | map (keyType : CoreType) (valueType : CoreType) (capacity : Option Nat)
       (entries : Array (CoreValue × CoreValue))
+  | mapN (keyTypes : Array CoreType) (valueType : CoreType) (capacity : Option Nat)
+      (entries : Array (Array CoreValue × CoreValue))
   | fixedArray (element : CoreType) (entries : Array CoreValue)
   | dynamicArray (element : CoreType) (entries : Array CoreValue)
   | record (typeId : TypeId) (fields : FieldId → Option CoreValue)
@@ -276,6 +278,14 @@ private def mapEntriesFootprint : List (CoreValue × CoreValue) → Nat → Nat
       if total > maxLogicalCollectionLength then total
       else mapEntriesFootprint rest <| saturatingAdd total <|
         saturatingAdd (valueFootprint entry.1) (valueFootprint entry.2)
+
+private def mapNEntriesFootprint : List (Array CoreValue × CoreValue) → Nat → Nat
+  | [], total => max 1 total
+  | entry :: rest, total =>
+      let keyFootprint := entry.1.foldl (fun size key => saturatingAdd size (valueFootprint key)) 0
+      if total > maxLogicalCollectionLength then total
+      else mapNEntriesFootprint rest <| saturatingAdd total <|
+        saturatingAdd keyFootprint (valueFootprint entry.2)
 
 def validateStorageCell (module : Module) (shape : StateShape)
     (cell : StorageCell) : Except RuntimeError Unit := do
@@ -304,6 +314,24 @@ def validateStorageCell (module : Module) (shape : StateShape)
             .error .typeMismatch
           keys := keys.insert entry.1
         pure (mapEntriesFootprint entries.toList 0)
+    | .mapN keyTypes valueType capacity,
+        .mapN cellKeyTypes cellValueType cellCapacity entries => do
+        unless cellKeyTypes == keyTypes && cellValueType == valueType && cellCapacity == capacity do
+          .error .invalidStorageShape
+        match capacity with
+        | some maximum => if entries.size > maximum then .error (.mapCapacityExceeded maximum)
+        | none => pure ()
+        if entries.size > maxLogicalCollectionLength then
+          .error (.collectionLimitExceeded entries.size maxLogicalCollectionLength)
+        for index in [:entries.size] do
+          let entry := entries[index]!
+          unless entry.1.size == keyTypes.size do .error .invalidStorageShape
+          for keyIndex in [:keyTypes.size] do
+            unless valueHasType module entry.1[keyIndex]! keyTypes[keyIndex]! do .error .typeMismatch
+          unless valueHasType module entry.2 valueType do .error .typeMismatch
+          if (entries.take index).any (fun previous => previous.1 == entry.1) then
+            .error .invalidStorageShape
+        pure (mapNEntriesFootprint entries.toList 0)
     | .fixedArray element length, .fixedArray cellElement entries => do
         unless cellElement == element && entries.size == length do
           .error .invalidStorageShape
@@ -335,15 +363,17 @@ def validateStorageCell (module : Module) (shape : StateShape)
             .error .typeMismatch
           values := values.push (field.id, value)
         pure (valueFootprint (.structValue typeId values))
-    | .scalar _, .map _ _ _ _ | .scalar _, .fixedArray _ _ |
+    | .scalar _, .map _ _ _ _ | .scalar _, .mapN _ _ _ _ | .scalar _, .fixedArray _ _ |
         .scalar _, .dynamicArray _ _ | .scalar _, .record _ _ |
-        .map _ _ _, .scalar _ | .map _ _ _, .fixedArray _ _ |
+        .map _ _ _, .scalar _ | .map _ _ _, .mapN _ _ _ _ | .map _ _ _, .fixedArray _ _ |
         .map _ _ _, .dynamicArray _ _ | .map _ _ _, .record _ _ |
-        .fixedArray _ _, .scalar _ | .fixedArray _ _, .map _ _ _ _ |
+        .mapN _ _ _, .scalar _ | .mapN _ _ _, .map _ _ _ _ |
+        .mapN _ _ _, .fixedArray _ _ | .mapN _ _ _, .dynamicArray _ _ | .mapN _ _ _, .record _ _ |
+        .fixedArray _ _, .scalar _ | .fixedArray _ _, .map _ _ _ _ | .fixedArray _ _, .mapN _ _ _ _ |
         .fixedArray _ _, .dynamicArray _ _ | .fixedArray _ _, .record _ _ |
-        .dynamicArray _, .scalar _ | .dynamicArray _, .map _ _ _ _ |
+        .dynamicArray _, .scalar _ | .dynamicArray _, .map _ _ _ _ | .dynamicArray _, .mapN _ _ _ _ |
         .dynamicArray _, .fixedArray _ _ | .dynamicArray _, .record _ _ |
-        .record _, .scalar _ | .record _, .map _ _ _ _ |
+        .record _, .scalar _ | .record _, .map _ _ _ _ | .record _, .mapN _ _ _ _ |
         .record _, .fixedArray _ _ | .record _, .dynamicArray _ _ =>
       .error .invalidStorageShape
   if footprint > maxLogicalCollectionLength then
@@ -355,6 +385,7 @@ from the shape, never from a hard-coded scalar zero. -/
 def stateShapeDefault (module : Module) : StateShape → StorageCell
   | .scalar ty => .scalar (typeDefaultForModule module ty)
   | .map keyTy valTy capacity => .map keyTy valTy capacity #[]
+  | .mapN keyTypes valTy capacity => .mapN keyTypes valTy capacity #[]
   | .fixedArray elem len =>
       if typeFootprintForModule module (.fixedArray elem len) ≤ maxLogicalCollectionLength then
         .fixedArray elem
@@ -733,6 +764,30 @@ def upsertMapEntry (entries : Array (CoreValue × CoreValue))
     (key value : CoreValue) : Array (CoreValue × CoreValue) :=
   (upsertMapEntryList entries.toList key value).toArray
 
+def findMapNValue? (entries : Array (Array CoreValue × CoreValue))
+    (keys : Array CoreValue) : Option CoreValue :=
+  (entries.find? (fun entry => entry.1 == keys)).map (·.2)
+
+def upsertMapNEntry (entries : Array (Array CoreValue × CoreValue))
+    (keys : Array CoreValue) (value : CoreValue) : Array (Array CoreValue × CoreValue) :=
+  match entries.findIdx? (fun entry => entry.1 == keys) with
+  | some index => entries.set! index (keys, value)
+  | none => entries.push (keys, value)
+
+private def evalMapNKeys (module : Module) (env : Env) (keyTypes : Array CoreType)
+    (segments : List StorageSegment) : Except RuntimeError (Array CoreValue × List StorageSegment) := do
+  let mut remaining := segments
+  let mut keys := #[]
+  for keyType in keyTypes do
+    match remaining with
+    | .mapKey keyRef :: rest =>
+        let key ← evalRef env keyRef
+        unless valueHasType module key keyType do .error .typeMismatch
+        keys := keys.push key
+        remaining := rest
+    | _ => .error .invalidStorageShape
+  pure (keys, remaining)
+
 def StorageCell.readMap (key : CoreValue) (valueType : CoreType) : StorageCell → Except RuntimeError CoreValue
   | .map _ _ _ entries => .ok ((findMapValue? entries key).getD (typeDefault valueType))
   | _ => .error .invalidStorageShape
@@ -913,6 +968,10 @@ def readPath (module : Module) (env : Env) (state : LogicalState) (path : Storag
         let key ← evalRef env keyRef
         let value := (findMapValue? entries key).getD (typeDefaultForModule module valueType)
         readNestedValue module env value rest
+    | .mapN keyTypes valueType _ entries, segments => do
+        let (keys, rest) ← evalMapNKeys module env keyTypes segments
+        let value := (findMapNValue? entries keys).getD (typeDefaultForModule module valueType)
+        readNestedValue module env value rest
     | .fixedArray element entries, .index indexRef :: rest =>
         readNestedValue module env (.fixedArray element entries) (.index indexRef :: rest)
     | .dynamicArray element entries, .index indexRef :: rest =>
@@ -964,6 +1023,17 @@ def writePath (module : Module) (env : Env) (state : LogicalState) (path : Stora
             if isNew && entries.size ≥ maximum then .error (.mapCapacityExceeded maximum)
             else .ok (.map keyType valueType capacity (upsertMapEntry entries key updated))
         | none => .ok (.map keyType valueType capacity (upsertMapEntry entries key updated))
+    | .mapN keyTypes valueType capacity entries, segments => do
+        let (keys, rest) ← evalMapNKeys module env keyTypes segments
+        let previous := (findMapNValue? entries keys).getD (typeDefaultForModule module valueType)
+        let updated ← writeNestedValue module env previous rest value
+        unless valueHasType module updated valueType do .error .typeMismatch
+        let isNew := (findMapNValue? entries keys).isNone
+        match capacity with
+        | some maximum =>
+            if isNew && entries.size ≥ maximum then .error (.mapCapacityExceeded maximum)
+            else .ok (.mapN keyTypes valueType capacity (upsertMapNEntry entries keys updated))
+        | none => .ok (.mapN keyTypes valueType capacity (upsertMapNEntry entries keys updated))
     | .fixedArray element entries, .index indexRef :: rest => do
         let updated ← writeNestedValue module env (.fixedArray element entries)
           (.index indexRef :: rest) value
@@ -1048,6 +1118,11 @@ def containsPath (module : Module) (env : Env) (state : LogicalState)
     | .map _ _ _ entries, .mapKey keyRef :: rest => do
         let key ← evalRef env keyRef
         match findMapValue? entries key with
+        | none => .ok false
+        | some value => if rest.isEmpty then .ok true else containsNestedValue module env value rest
+    | .mapN keyTypes _ _ entries, segments => do
+        let (keys, rest) ← evalMapNKeys module env keyTypes segments
+        match findMapNValue? entries keys with
         | none => .ok false
         | some value => if rest.isEmpty then .ok true else containsNestedValue module env value rest
     | .fixedArray element entries, .index indexRef :: rest =>

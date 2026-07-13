@@ -61,6 +61,7 @@ def coreStateByteSize : StateShape → Except PlanError Nat
       let valueSize <- coreScalarByteSize value
       return (1 + keySize + valueSize) * cap
   | .map _ _ none => .error { message := "Solana map state requires a finite capacity" }
+  | .mapN _ _ _ => .error { message := "Solana nested map state is not yet materialized" }
   | .fixedArray elem len => do
       let elemSize <- coreScalarByteSize elem
       return elemSize * len
@@ -71,6 +72,7 @@ def coreStateByteSize : StateShape → Except PlanError Nat
 def coreStateKindName : StateShape → String
   | .scalar _ => "scalar"
   | .map _ _ _ => "map"
+  | .mapN _ _ _ => "map"
   | .fixedArray _ _ => "array"
   | .dynamicArray _ => "dynamicArray"
   | .record _ => "struct"
@@ -103,6 +105,7 @@ def coreStateFields (m : ProofForge.IR.Core.Module) (acctDataOff : Nat) : Except
       typeName := match decl.shape with
         | .scalar ty => coreTypeToSolanaName ty
         | .map _ vty _ => coreTypeToSolanaName vty
+        | .mapN _ vty _ => coreTypeToSolanaName vty
         | .fixedArray elem _ => coreTypeToSolanaName elem
         | .dynamicArray elem => coreTypeToSolanaName elem
         | .record _ => "struct"

@@ -214,10 +214,12 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
     let type <- match state.shape with
       | .scalar type => coreTypeToAbi type
       | .map _ value _ => coreTypeToAbi value
+      | .mapN _ value _ => coreTypeToAbi value
       | .fixedArray .. | .dynamicArray .. | .record .. =>
           fail "Stylus aggregate storage is scheduled for the aggregate slice"
     let keyTypes <- match state.shape with
       | .map key _ _ => pure #[← coreTypeToAbi key]
+      | .mapN keys _ _ => keys.mapM coreTypeToAbi
       | _ => pure #[]
     words := words.push {
       id := ← stateSymbol contract state.id

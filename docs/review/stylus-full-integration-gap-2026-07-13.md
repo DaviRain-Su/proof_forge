@@ -21,6 +21,7 @@ fragment, and no current Nitro evidence authorizes a direct-Wasm cutover.
 | Wide scalar semantics | `just stylus-wide-values`, `just stylus-wide-arithmetic` | Complete for the planned u128 slice |
 | Canonical ValueVault | `just stylus-value-vault-canonical` | Rust/direct/local runtime green; Nitro evidence missing |
 | Single-key mappings/events | `just stylus-mapping-events` | u64 and address-to-u128 maps plus static indexed events green |
+| Canonical nested mapping | `just stylus-nested-map` | address-to-address-to-u128 semantics, plan keys, Rust SDK crate, direct Wasm, and local VM slot parity green |
 | Dynamic ABI | `just stylus-aggregate-differential` | bounded bytes/string parameter/return slice green after the plan-derived clear-bound fix |
 | Remote calls | `just stylus-remote-call-differential` | modes, value, gas, bounded static/dynamic returns, revert, cache policy, nested local frames green |
 | Full Lean build/docs | `lake build`, `just docs-check` | green at this checkpoint |
@@ -34,15 +35,15 @@ envelope.
 
 ### W1 - Canonical Nested Storage and Full Event Layouts (large, blocking)
 
-Core `StateShape.map` currently stores a scalar value type, so it cannot express
-`mapping(address => mapping(address => uint256))`. `StylusCallPlan` and direct
-slot hashing can carry multiple keys, but `buildStorage` creates one key type and
-the Rust renderer explicitly rejects multiple keys. Required work:
+Core now represents composite maps with `StateShape.mapN`, validates every key
+in order, and gives logical semantics to the composite key. Both Stylus
+renderers consume the same ordered `StylusStorageWordPlan.keyTypes`; the local
+gate proves the Solidity-compatible sequential Keccak slot and compiles the
+generated nested `StorageMap` crate. Remaining work in this package:
 
-- introduce a recursive or otherwise canonical nested storage shape;
-- preserve every key type in `StylusStorageWordPlan`;
-- render identical nested slots in Rust and direct Wasm;
-- lock allowance, Transfer, and Approval vectors against Foundry.
+- lock the nested allowance slot against a deployed Foundry reference contract;
+- add full `Transfer` and `Approval` topic/data vectors;
+- close the package only after those event/reference vectors are green.
 
 ### W2 - Canonical ERC-20 State Machine (large, blocked by W1)
 

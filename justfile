@@ -159,6 +159,11 @@ stylus-mapping-events:
     lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/mapping-events.sh
 
+# Canonical address => address => u128 storage through both Stylus renderers.
+stylus-nested-map:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/nested-map.sh
+
 stylus-aggregate-differential:
     lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/aggregate-differential.sh

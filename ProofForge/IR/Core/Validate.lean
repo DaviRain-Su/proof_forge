@@ -183,6 +183,12 @@ private def stateShapeFootprint (m : Module) (shape : StateShape) : Nat :=
         (saturatingAdd (typeFootprint m key) (typeFootprint m value)))
   | .map key value none =>
       max 1 (saturatingAdd (typeFootprint m key) (typeFootprint m value))
+  | .mapN keys value capacity =>
+      let entry := keys.foldl (fun total key => saturatingAdd total (typeFootprint m key))
+        (typeFootprint m value)
+      match capacity with
+      | some maximum => max 1 (saturatingMul maximum entry)
+      | none => max 1 entry
 
 private def containsMemoryRef : CoreType → Bool
   | .memoryRef _ => true
@@ -252,6 +258,7 @@ private def checkCoreTypeReferences (m : Module) (ty : CoreType)
 private def stateShapeTypes : StateShape → Array CoreType
   | .scalar value => #[value]
   | .map key value _ => #[key, value]
+  | .mapN keys value _ => keys.push value
   | .fixedArray element length => #[.fixedArray element length]
   | .dynamicArray element => #[.array element]
   | .record typeId => #[.structType typeId]
@@ -321,6 +328,7 @@ private inductive StorageCursor
   | dynamicArray (element : CoreType)
   | record (type : TypeId)
   | map (key value : CoreType)
+  | mapN (keys : Array CoreType) (value : CoreType)
 
 private def cursorOfType : CoreType → StorageCursor
   | .fixedArray element length => .fixedArray element length
@@ -341,6 +349,7 @@ private def cursorOfType : CoreType → StorageCursor
 private def cursorOfShape : StateShape → StorageCursor
   | .scalar type => cursorOfType type
   | .map key value _ => .map key value
+  | .mapN keys value _ => .mapN keys value
   | .fixedArray element length => .fixedArray element length
   | .dynamicArray element => .dynamicArray element
   | .record type => .record type
@@ -351,6 +360,7 @@ private def cursorType? : StorageCursor → Option CoreType
   | .dynamicArray element => some (.array element)
   | .record type => some (.structType type)
   | .map _ _ => none
+  | .mapN _ _ => none
 
 private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
     (idx : Nat) (path : StorageRef) (requirePresence : Bool := false) :
@@ -370,6 +380,16 @@ private def checkStoragePath (m : Module) (fid : FunctionId) (bid : BlockId)
           .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
             s!"map key type {repr key.type} does not match {repr keyTy}"
         cursor := cursorOfType valTy
+        hasPresence := true
+      | .mapKey key, .mapN keyTypes valTy =>
+        let some keyTy := keyTypes[0]?
+          | .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
+              s!"nested map has no remaining key type at {repr path.root}"
+        unless key.type == keyTy do
+          .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
+            s!"nested map key type {repr key.type} does not match {repr keyTy}"
+        let remaining := keyTypes.extract 1 keyTypes.size
+        cursor := if remaining.isEmpty then cursorOfType valTy else .mapN remaining valTy
         hasPresence := true
       | .mapKey _, _ =>
         .error <| error .invalidStoragePath "state-shape" (some fid) (some bid) (some idx)
@@ -450,6 +470,14 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
         if capacity > maxLogicalCollectionLength then
           .error <| ValidationError.mkSimple .typeMismatch "state-shape"
             s!"state {repr decl.id} map capacity {capacity} exceeds {maxLogicalCollectionLength}"
+    | .mapN keys _ capacity =>
+        if keys.size < 2 then
+          .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+            s!"state {repr decl.id} nested map requires at least two key types"
+        if let some maximum := capacity then
+          if maximum > maxLogicalCollectionLength then
+            .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+              s!"state {repr decl.id} nested map capacity {maximum} exceeds {maxLogicalCollectionLength}"
     | .fixedArray _ length =>
         if length > maxLogicalCollectionLength then
           .error <| ValidationError.mkSimple .typeMismatch "state-shape"
@@ -466,7 +494,15 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
         if totalFootprint > maxLogicalCollectionLength then
           .error <| ValidationError.mkSimple .typeMismatch "state-shape"
             s!"state {repr decl.id} map capacity footprint {totalFootprint} exceeds {maxLogicalCollectionLength}"
-    | .scalar _ | .map _ _ none | .fixedArray _ _ | .dynamicArray _ | .record _ =>
+    | .mapN keyTypes valueType (some capacity) =>
+        let entryFootprint := keyTypes.foldl
+          (fun total keyType => saturatingAdd total (typeFootprint m keyType))
+          (typeFootprint m valueType)
+        let totalFootprint := saturatingMul capacity entryFootprint
+        if totalFootprint > maxLogicalCollectionLength then
+          .error <| ValidationError.mkSimple .typeMismatch "state-shape"
+            s!"state {repr decl.id} nested map capacity footprint {totalFootprint} exceeds {maxLogicalCollectionLength}"
+    | .scalar _ | .map _ _ none | .mapN _ _ none | .fixedArray _ _ | .dynamicArray _ | .record _ =>
         pure ()
     let footprint := stateShapeFootprint m decl.shape
     if footprint > maxLogicalCollectionLength then
@@ -502,7 +538,7 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
           | some declaration => pure declaration
           match declaration.shape with
           | .fixedArray _ _ | .dynamicArray _ => pure ()
-          | .scalar _ | .map _ _ _ | .record _ =>
+          | .scalar _ | .map _ _ _ | .mapN _ _ _ | .record _ =>
             .error <| error .invalidStoragePath "state-shape" (some f.id) (some b.id) (some idx)
               s!"storageLength requires array root, got {repr declaration.shape}"
         | .storageResize root _ =>
@@ -513,7 +549,7 @@ def checkStateShapeReferences (m : Module) : Except ValidationError Unit := do
           | some declaration => pure declaration
           match declaration.shape with
           | .dynamicArray _ => pure ()
-          | .scalar _ | .map _ _ _ | .fixedArray _ _ | .record _ =>
+          | .scalar _ | .map _ _ _ | .mapN _ _ _ | .fixedArray _ _ | .record _ =>
             .error <| error .invalidStoragePath "state-shape" (some f.id) (some b.id) (some idx)
               s!"storageResize requires dynamic-array root, got {repr declaration.shape}"
         | .memoryAlloc type _ =>
