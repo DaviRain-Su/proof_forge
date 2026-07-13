@@ -3,15 +3,18 @@ import ProofForge.Target.HostOp
 
 namespace ProofForge.IR.Core
 
-/- Portable cross-calls have a closed mode and explicit typed operands. Target-
-specific forms such as CREATE, CPI, and NEAR promises remain HostOps. -/
+/- Portable cross-calls have closed semantic modes and explicit typed operands.
+Target-specific ABI, account-layout, deployment, and scheduling forms remain
+typed extensions or target-plan data. -/
 
 inductive CoreCrosscallMode
   | invoke
   | staticInvoke
   | delegateInvoke
-  | nearPoolInvoke
-  | nearPromiseThen
+  /-- Invoke a named remote endpoint. Target plans decide how names are bound. -/
+  | namedInvoke
+  /-- Schedule an invocation after a prior asynchronous result handle. -/
+  | continuation
   deriving BEq, DecidableEq, Repr, Inhabited
 
 structure CoreCrosscallSpec where

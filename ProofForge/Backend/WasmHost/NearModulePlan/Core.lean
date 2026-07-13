@@ -192,7 +192,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
           if call.id == HostOps.storageUsageId then usesStorageUsage := true
           if call.id == HostOps.promiseTransferId then usesPromiseTransfer := true
         | .crosscall spec _ =>
-          if spec.mode == .nearPromiseThen then pure () else usesPromiseCreate := true
+          if spec.mode == .continuation then pure () else usesPromiseCreate := true
         | _ => pure ()
   {
     contextOps
@@ -226,7 +226,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesPromiseCreate
     usesPromiseThen := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
+        | .crosscall { mode := .continuation, .. } _ => true | _ => false
     usesPromiseResults := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .hostCall call => call.id == HostOps.promiseResultU64Id ||
@@ -238,25 +238,25 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
             call.id == HostOps.promiseResultU128Id | _ => false
     usesPromiseReturn := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .invoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
+        | .crosscall { mode := .invoke, .. } _ | .crosscall { mode := .continuation, .. } _ => true
         | _ => false
     usesPromiseReceiverAccount := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .nearPromiseThen, .. } _ => true | _ => false
+        | .crosscall { mode := .continuation, .. } _ => true | _ => false
     usesStorageUsage
     usesPromiseTransfer
     usesCrosscallArgs := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .nearPoolInvoke, .. } _ | .crosscall { mode := .nearPromiseThen, .. } _ => true
+        | .crosscall { mode := .namedInvoke, .. } _ | .crosscall { mode := .continuation, .. } _ => true
         | _ => false
     usesCrosscallHash := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .nearPoolInvoke, .. } args | .crosscall { mode := .nearPromiseThen, .. } args =>
+        | .crosscall { mode := .namedInvoke, .. } args | .crosscall { mode := .continuation, .. } args =>
             args.any (fun arg => arg.type == .hash)
         | _ => false
     usesFmtU64 := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
-        | .crosscall { mode := .nearPoolInvoke, .. } args | .crosscall { mode := .nearPromiseThen, .. } args =>
+        | .crosscall { mode := .namedInvoke, .. } args | .crosscall { mode := .continuation, .. } args =>
             args.any (fun arg => arg.type == .u8 || arg.type == .u32 || arg.type == .u64 || arg.type == .u128)
         | _ => false
     usesEventApi
@@ -327,8 +327,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .pure (.hashTwoToOne ..) => true
         | .storageLoad { path := #[.mapKey key], .. }
         | .storageStore { path := #[.mapKey key], .. } _ => key.type == .hash
-        | .crosscall { mode := .nearPoolInvoke, .. } args
-        | .crosscall { mode := .nearPromiseThen, .. } args => args.any (fun arg => arg.type == .hash)
+        | .crosscall { mode := .namedInvoke, .. } args
+        | .crosscall { mode := .continuation, .. } args => args.any (fun arg => arg.type == .hash)
         | _ => false
     arrayLitShapes := #[]
     arrayEqShapes := #[]
@@ -549,13 +549,13 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         let result := { (<- nearResult instr) with typeName := "promiseReturn" }
         return .portableCrosscall result accountId methodName payload 0
           ProofForge.Backend.WasmHost.Memory.crosscallDefaultGas
-      | .nearPoolInvoke =>
+      | .namedInvoke =>
         let deposit ← match spec.value with
           | some value => pure value
           | none => throw { message := "NEAR pool invoke requires a deposit" }
         return .promiseCreatePool (<- nearResult instr) (nearValue spec.target)
           (nearValue spec.method) (args.map nearValue) (nearValue deposit) spec.argNames
-      | .nearPromiseThen =>
+      | .continuation =>
         let deposit ← match spec.value with
           | some value => pure value
           | none => throw { message := "NEAR promise_then requires a deposit" }
@@ -586,7 +586,7 @@ private def lowerNearFunction (iface : InterfaceContract)
   let promiseReturnIds := fn.blocks.flatMap fun block => block.instructions.filterMap fun instruction =>
     match instruction.results, instruction.op with
     | #[result], .crosscall { mode := .invoke, .. } _
-    | #[result], .crosscall { mode := .nearPromiseThen, .. } _ => some result.id
+    | #[result], .crosscall { mode := .continuation, .. } _ => some result.id
     | _, _ => none
   let blocks <- fn.blocks.mapM fun block => do
     let ops <- block.instructions.mapM (lowerNearOp iface materialization literals)

@@ -13,8 +13,8 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 |---|---|---|---|
 | IR-B0 | done (verified 2026-07-14) | Audit all target leakage and freeze the boundary | accepted design, inventory, `just ir-target-boundary`, docs gate |
 | IR-B1 | done (verified 2026-07-14) | Open the capability/HostOp identity and split target catalogs | Core build, catalog/handler tests, unsupported-target diagnostic |
-| IR-B2 | pending | Remove NEAR promise modes and semantics from Canonical Core | canonical adapter/plan tests, no `near*` Core constructors |
-| IR-B3 | pending | Remove NEAR constructors and fields from legacy shared IR | Near SDK compatibility, NEP-141/145 focused VM gates |
+| IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core | canonical adapter/plan tests, no `near*` Core constructors |
+| IR-B3 | in_progress | Remove NEAR constructors and fields from legacy shared IR | Near SDK compatibility, NEP-141/145 focused VM gates |
 | IR-B4 | pending | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
@@ -61,6 +61,20 @@ Completion evidence (2026-07-14):
 3. Inject host semantics into the Core evaluator rather than matching NEAR IDs
    in Core.
 4. Prove EVM/Solana reject unhandled async extensions before plan construction.
+
+Completion evidence (2026-07-14):
+
+- Core modes are now semantic `namedInvoke` and `continuation`; the
+  `nearPoolInvoke` and `nearPromiseThen` constructors and validation branches
+  are gone.
+- NEAR Promise trace/reference execution moved from `IR.Core.Semantics` to
+  `Target.HostOps.Near.Semantics`, using Core's existing injected
+  `HostSemantics` boundary.
+- EVM, Stylus, and NEAR plans consume the semantic modes without reintroducing
+  chain names into Core; EVM/Solana public routes retain fail-closed HostOp
+  behavior.
+- The source-scan baseline was tightened immediately so removed Core names
+  cannot be reintroduced before final sign-off.
 
 ## IR-B3 - Legacy NEAR Cleanup
 

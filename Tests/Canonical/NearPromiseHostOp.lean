@@ -3,6 +3,7 @@ import ProofForge.IR.Core.HostOp
 import ProofForge.Target.Capability
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.IR.Core.Semantics
+import ProofForge.Target.HostOps.Near.Semantics
 
 /-! # NEAR Promise HostOp Test
 
@@ -20,6 +21,7 @@ open ProofForge.IR.Core
 open ProofForge.IR.Core.HostOp
 open ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 open ProofForge.IR.Core.Semantics
+open ProofForge.Target.HostOps.Near.Semantics
 
 /-- Unambiguous alias for the Surface host signature. -/
 def sig := ProofForge.Frontend.Surface.Host.Near.promiseCreateSig
@@ -97,7 +99,7 @@ def main : IO Unit := do
 
   /- Check 11: reference semantics preserve every typed argument and index. -/
   let call : HostOpCall := { id := pcId, args := #[] }
-  match nearPromiseHost #[] call #[
+  match handlePromiseCreate #[] call #[
       .string "alice.near", .string "methodName", .bytes (ByteArray.mk #[42, 7]),
       .u128 18446744073709551619, .u64 1000] with
   | .ok (.u64 0, #[trace]) =>
@@ -111,7 +113,7 @@ def main : IO Unit := do
   /- Check 12: reference semantics reject unknown patch versions. -/
   let wrongVersion : HostOpCall := { call with
     id := { pcId with version := { major := 1, minor := 0, patch := 1 } } }
-  match nearPromiseHost #[] wrongVersion #[] with
+  match handlePromiseCreate #[] wrongVersion #[] with
   | .error (.unknownHostOp id) => require (id == wrongVersion.id) "unknown HostOp id changed"
   | result => throw <| IO.userError s!"unknown promise version accepted: {repr result}"
 

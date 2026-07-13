@@ -10,7 +10,7 @@ deriving instance BEq, ReflBEq, LawfulBEq, DecidableEq, Repr, Inhabited, Hashabl
 
 /- State shapes describe the logical layout of a persistent state variable.
 They contain no target allocation information such as EVM slots, Solana
-account offsets, or NEAR storage prefixes. -/
+account offsets, or target storage prefixes. -/
 
 inductive StateShape
   | scalar (value : CoreType)

@@ -412,7 +412,7 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         | .delegateInvoke, none => pure CrosscallMode.delegatecall
         | .staticInvoke, some _ | .delegateInvoke, some _ =>
             throw { message := "static/delegate crosscall cannot carry value" }
-        | .nearPoolInvoke, _ | .nearPromiseThen, _ =>
+        | .namedInvoke, _ | .continuation, _ =>
             throw { message := "NEAR promise crosscall modes are unsupported by the EVM Core plan" }
       let mut argPlans := #[]
       for arg in args do
@@ -673,7 +673,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
               | .invoke, some _ => CrosscallMode.callValue
               | .staticInvoke, _ => CrosscallMode.staticcall
               | .delegateInvoke, _ => CrosscallMode.delegatecall
-              | .nearPoolInvoke, _ | .nearPromiseThen, _ => CrosscallMode.call
+              | .namedInvoke, _ | .continuation, _ => CrosscallMode.call
             let returnType := coreTypeToValueType spec.returnType
             let helper : CrosscallHelperSpec := {
               arity := args.size

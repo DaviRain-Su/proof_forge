@@ -566,7 +566,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         argRefs := argRefs.push normalizedArg.value
         paramTypes := paramTypes.push normalizedArg.value.type
       let call ← emitValueInstruction (.crosscall {
-        mode := .nearPoolInvoke
+        mode := .namedInvoke
         target := account.value
         method := method.value
         value := some normalizedDeposit.value
@@ -588,7 +588,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         argRefs := argRefs.push normalizedArg.value
         paramTypes := paramTypes.push normalizedArg.value.type
       let call ← emitValueInstruction (.crosscall {
-        mode := .nearPromiseThen
+        mode := .continuation
         target := parent.value
         method := method.value
         value := some normalizedDeposit.value

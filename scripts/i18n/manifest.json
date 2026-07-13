@@ -61,7 +61,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "e92059e24732756849fd6a05b708e02fb4d9fbf0b5f287487f1194192da1bd81",
+    "sha256": "0ada12c52675f38ba3ee4a9ae8571da2c0da222962b720c1ab66282c0893bef4",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh for the 2026-07-14 target-extension boundary program"

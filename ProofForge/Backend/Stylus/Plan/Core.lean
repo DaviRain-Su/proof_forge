@@ -329,7 +329,7 @@ private def instructionHostOps (contract : CanonicalContract) (instruction : Ins
       | .invoke => pure #[.keccak256, .storageFlush, .callContract, .readReturnData]
       | .staticInvoke => pure #[.keccak256, .storageFlush, .staticCallContract, .readReturnData]
       | .delegateInvoke => pure #[.keccak256, .storageFlush, .delegateCallContract, .readReturnData]
-      | .nearPoolInvoke | .nearPromiseThen =>
+      | .namedInvoke | .continuation =>
           fail "Stylus plan rejects NEAR promise crosscall modes"
   | .pure (.hash ..) | .pure (.hashTwoToOne ..) => pure #[.keccak256]
   | .hostCall call => fail s!"Stylus plan has no handler for HostOp `{call.id.render}`"
@@ -411,7 +411,7 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               | .invoke => pure StylusCallMode.call
               | .staticInvoke => pure .staticCall
               | .delegateInvoke => pure .delegateCall
-              | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
+              | .namedInvoke | .continuation => fail "Stylus rejects named or continuation crosscall modes"
             let methodName <- stringLiteralFor contract function spec.method.id
             let paramTypes <- spec.paramTypes.mapM coreTypeToAbi
             let returnType <- coreTypeToAbi spec.returnType

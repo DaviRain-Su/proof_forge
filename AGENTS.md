@@ -84,8 +84,8 @@ and shared interface/materialization records.
 |---|---|---|
 | IR-B0 | done (verified 2026-07-14) | Audit all shared-layer target leakage and freeze the boundary |
 | IR-B1 | done (verified 2026-07-14) | Open extension identities and split target catalogs |
-| IR-B2 | in_progress | Remove NEAR promise modes and semantics from Canonical Core |
-| IR-B3 | pending | Remove NEAR constructors and fields from legacy shared IR |
+| IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core |
+| IR-B3 | in_progress | Remove NEAR constructors and fields from legacy shared IR |
 | IR-B4 | pending | Move EVM protocol and ABI operations out of shared IR |
 | IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
 | IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |

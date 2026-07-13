@@ -2396,3 +2396,25 @@ Rules:
   Wasm-host profiles, Move, Aleo, Psy, Quint, and shared interface records.
 - Next: IR-B2, inject target host semantics and remove NEAR promise modes/traces
   from Canonical Core.
+
+## 2026-07-14 - IR-B2: remove NEAR semantics from Canonical Core
+
+- Status: `done (verified 2026-07-14)`.
+- Replaced Core's chain-named promise modes with target-neutral
+  `namedInvoke` and `continuation` semantics. The legacy adapter temporarily
+  maps old source constructors to these modes until IR-B3 removes that source
+  compatibility surface.
+- Moved the Promise trace type and executable reference handler out of
+  `IR.Core.Semantics` into `Target.HostOps.Near.Semantics`. Core now owns only
+  the generic injected `HostSemantics` hook.
+- Updated NEAR, EVM, and Stylus Core plan consumers. Unsupported-target HostOps
+  still fail before plan construction; no fake EVM/Solana promise behavior was
+  added.
+- Tightened `target-boundary-baseline.txt` to remove all deleted Core NEAR
+  catalog, mode, validation, and semantics entries, preventing regression.
+- Verification passed: focused `lake build` of Core, adapter, NEAR/EVM/Stylus
+  plan modules; `just hostop-protocol`; `just canonical-near-route`;
+  `just canonical-evm-route`; `just canonical-solana-route`;
+  `just ir-target-boundary`; and `git diff --check`. No full `just check` ran.
+- Next: IR-B3, replace legacy shared NEAR `Expr` constructors and materialized
+  string-pool fields with neutral calls or target-owned extension payloads.

@@ -986,15 +986,15 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     checkErrorRef m f b (some idx) errorRef
   | .crosscall spec args =>
     let targetTypeOk : Bool := match spec.mode with
-      | .nearPoolInvoke =>
+      | .namedInvoke =>
           spec.target.type == .u32 || spec.target.type == .u64 || spec.target.type == .string
-      | .nearPromiseThen => spec.target.type == .u32 || spec.target.type == .u64
+      | .continuation => spec.target.type == .u32 || spec.target.type == .u64
       | _ => spec.target.type == .address
     unless targetTypeOk do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"crosscall target type is invalid for {repr spec.mode}: got {repr spec.target.type}"
     let methodTypeOk : Bool := match spec.mode with
-      | .nearPoolInvoke | .nearPromiseThen =>
+      | .namedInvoke | .continuation =>
           spec.method.type == .u32 || spec.method.type == .u64 || spec.method.type == .address
       | _ => validCrosscallMethodType spec.method.type
     unless methodTypeOk do
@@ -1008,7 +1008,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     match spec.value with
     | some value =>
         let valueTypeOk : Bool := match spec.mode with
-          | .nearPoolInvoke | .nearPromiseThen => value.type == .u64 || value.type == .u128
+          | .namedInvoke | .continuation => value.type == .u64 || value.type == .u128
           | _ => value.type == .u128
         unless valueTypeOk do
           .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)

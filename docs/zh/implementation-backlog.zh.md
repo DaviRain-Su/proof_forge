@@ -1683,8 +1683,10 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
 - ✅ IR-B0：完成全仓 target leakage 清单、接受 D-054 边界，并加入单调收紧的
   `just ir-target-boundary` baseline。
 - ✅ IR-B1：开放 capability/HostOp identity，并将 NEAR catalog 归属 target。
-- IR-B2/IR-B3：在恢复 N-T4 前，从共享 Core/IR 移除 NEAR promise semantics
-  和 legacy constructor。
+- ✅ IR-B2：Core 采用中立的 named-invocation/continuation mode，NEAR reference
+  semantics 归 target 所有。
+- IR-B3：在恢复 N-T4 前，从共享 IR 移除 NEAR legacy constructor 和
+  materialization field。
 - IR-B4：拆出 EVM ABI、protocol、call mode 和 dispatch 细节。
 - IR-B5：审计并迁移 Solana PDA、CPI、account、sysvar 和 packing 细节。
 - IR-B6：审计其他 Wasm-host profile、Move、Aleo、Psy 和 Quint 的所有权。

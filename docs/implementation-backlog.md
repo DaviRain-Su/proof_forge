@@ -3640,8 +3640,10 @@ fixtures.
 - ✅ IR-B0: repository-wide leakage inventory, accepted D-054 boundary, and
   monotonic `just ir-target-boundary` baseline.
 - ✅ IR-B1: open capability/HostOp identities and target-owned NEAR catalog.
-- IR-B2/IR-B3: remove NEAR promise semantics and legacy constructors from
-  shared Core/IR before resuming N-T4.
+- ✅ IR-B2: Core uses neutral named-invocation/continuation modes and NEAR
+  reference semantics is target-owned.
+- IR-B3: remove NEAR legacy constructors and materialization fields from shared
+  IR before resuming N-T4.
 - IR-B4: extract EVM ABI, protocol, call-mode, and dispatch details.
 - IR-B5: audit/migrate Solana PDA, CPI, account, sysvar, and packing details.
 - IR-B6: audit other Wasm-host profiles, Move, Aleo, Psy, and Quint ownership.
