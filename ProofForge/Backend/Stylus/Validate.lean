@@ -133,6 +133,14 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
             for maximum in param.dynamicFieldMaxLengths do
               if maximum == 0 || maximum > 4096 then
                 fail s!"Stylus dynamic tuple parameter `{param.name}` has invalid field maximum {maximum}"
+        | .dynamicArray element =>
+            let expected := if element.isDynamic then 1 else 0
+            unless param.dynamicFieldMaxLengths.size == expected do
+              fail (s!"Stylus dynamic-array parameter `{param.name}` requires {expected} dynamic element " ++
+                s!"maximum but has {param.dynamicFieldMaxLengths.size}")
+            for maximum in param.dynamicFieldMaxLengths do
+              if maximum == 0 || maximum > 4096 then
+                fail s!"Stylus dynamic-array parameter `{param.name}` has invalid element maximum {maximum}"
         | _ =>
             unless param.dynamicFieldMaxLengths.isEmpty do
               fail s!"Stylus non-tuple parameter `{param.name}` has dynamic field maxima"

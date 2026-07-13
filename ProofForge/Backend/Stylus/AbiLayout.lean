@@ -21,6 +21,22 @@ structure DynamicArrayAbiSlice where
   endOffset : Nat
   deriving Repr, BEq
 
+structure DynamicArrayChildSlice where
+  index : Nat
+  relativeOffset : Nat
+  dataOffset : Nat
+  length : Nat
+  paddedEnd : Nat
+  deriving Repr, BEq, Inhabited
+
+structure DynamicBytesArrayAbiSlice where
+  offset : Nat
+  dataOffset : Nat
+  length : Nat
+  endOffset : Nat
+  children : Array DynamicArrayChildSlice
+  deriving Repr, BEq
+
 structure DynamicTupleFieldSlice where
   fieldIndex : Nat
   relativeOffset : Nat
@@ -149,6 +165,45 @@ def decodeDynamicArrayArgument (arguments : Array UInt8) (headWords index maximu
   let mut cursor := dataOffset
   for _ in [0:length] do cursor ← validateStaticAt arguments cursor element
   pure { offset, dataOffset, length, elementWords, endOffset }
+
+/-- Decode a Solidity `bytes[]` or `string[]` argument. Element offsets are
+relative to the array element-head base (the word immediately after length). -/
+def decodeDynamicBytesArrayArgument (arguments : Array UInt8)
+    (headWords index maximumElements maximumChildLength : Nat) :
+    Except AbiLayoutError DynamicBytesArrayAbiSlice := do
+  if index >= headWords then fail s!"dynamic-array ABI index {index} exceeds head words {headWords}"
+  let headBytes <- checkedMul "dynamic-array ABI head" arguments.size headWords 32
+  if headBytes > arguments.size then fail "dynamic-array ABI head is truncated"
+  let offset := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments (index * 32))
+  if offset % 32 != 0 then fail s!"dynamic-array ABI offset {offset} is not word aligned"
+  if offset < headBytes then fail s!"dynamic-array ABI offset {offset} points inside the static head"
+  let length := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments offset)
+  if length > maximumElements then fail s!"dynamic-array length {length} exceeds maximum {maximumElements}"
+  let dataOffset <- checkedAdd "dynamic-array data offset" arguments.size offset 32
+  let childHeadBytes <- checkedMul "dynamic-array child head" arguments.size length 32
+  let headEnd <- checkedAdd "dynamic-array child head end" arguments.size dataOffset childHeadBytes
+  if headEnd > arguments.size then fail "dynamic-array child head exceeds calldata"
+  let mut endOffset := headEnd
+  let mut children := #[]
+  for childIndex in [0:length] do
+    let relativeOffset := ProofForge.Backend.Stylus.DirectWasm.wordToNat
+      (← wordAt arguments (dataOffset + childIndex * 32))
+    if relativeOffset % 32 != 0 then fail s!"dynamic-array child {childIndex} offset is not aligned"
+    if relativeOffset < childHeadBytes then fail s!"dynamic-array child {childIndex} points inside array head"
+    let lengthOffset <- checkedAdd s!"dynamic-array child {childIndex} length" arguments.size
+      dataOffset relativeOffset
+    let childLength := ProofForge.Backend.Stylus.DirectWasm.wordToNat (← wordAt arguments lengthOffset)
+    if childLength > maximumChildLength then
+      fail s!"dynamic-array child {childIndex} length {childLength} exceeds maximum {maximumChildLength}"
+    let childDataOffset <- checkedAdd s!"dynamic-array child {childIndex} data" arguments.size lengthOffset 32
+    let paddedEnd <- checkedAdd s!"dynamic-array child {childIndex} tail" arguments.size
+      childDataOffset (roundUpWord childLength)
+    if paddedEnd > arguments.size then fail s!"dynamic-array child {childIndex} tail exceeds calldata"
+    endOffset := max endOffset paddedEnd
+    children := children.push {
+      index := childIndex, relativeOffset, dataOffset := childDataOffset,
+      length := childLength, paddedEnd }
+  pure { offset, dataOffset, length, endOffset, children }
 
 /-- Decode a dynamic tuple whose dynamic children are bytes/string. Static
 children may themselves be fixed arrays or static tuples. Child offsets are

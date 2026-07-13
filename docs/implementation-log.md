@@ -1961,3 +1961,19 @@ Rules:
 - Verification: `just stylus-remote-call-differential` passes four generated
   Rust tests, direct/reentrant runner assertions, normalized trace equality,
   and the pinned HostIO audit.
+
+## 2026-07-13 - STYLUS-W3.1a: Recursive `bytes[]` calldata carriers
+
+- Status: `complete slice; nested dynamic tuples remain W3.1`
+- Generalized plan-owned dynamic child maxima so a dynamic array with a dynamic
+  element has an explicit child bound, while static-element arrays remain free
+  of irrelevant child policy.
+- Added a pure recursive `bytes[]`/`string[]` ABI decoder and Direct Wasm entry
+  validation. Element offsets are interpreted relative to the array element
+  head, and every child is checked for alignment, head separation, bounded
+  length, padded extent, calldata containment, and 32-bit offset wraparound
+  before the contract function is invoked.
+- Added generated Rust `Vec<Vec<u8>>` coverage plus local VM vectors for a valid
+  two-element array and malformed inside-head, unaligned, high-offset,
+  over-limit, and truncated-child inputs.
+- Verification: `just stylus-aggregate-differential` and `git diff --check`.

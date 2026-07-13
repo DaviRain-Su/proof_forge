@@ -176,8 +176,9 @@ structure StylusFunctionParamPlan where
   name : String
   type : StylusAbiType
   dynamicMaxLength? : Option Nat := none
-  /-- Per-child maxima for dynamic aggregate fields, in ABI field order. Empty
-  for scalar bytes/string and dynamic arrays. -/
+  /-- Per-child maxima for immediate dynamic aggregate children, in ABI order.
+  Dynamic tuples provide one entry per dynamic field; dynamic arrays with a
+  dynamic element provide one entry for that element type. -/
   dynamicFieldMaxLengths : Array Nat := #[]
   deriving Repr, BEq
 

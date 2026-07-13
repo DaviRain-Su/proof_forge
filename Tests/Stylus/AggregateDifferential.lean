@@ -65,6 +65,30 @@ def main : IO Unit := do
     | .error _ => pure ()
     | .ok _ => throw <| IO.userError "invalid dynamic-array ABI vector was accepted"
 
+  let bytesArrayArgs := word 32 ++ word 2 ++ word 64 ++ word 128 ++
+    word 2 ++ "hi".toUTF8.data ++ Array.replicate 30 0 ++
+    word 5 ++ "world".toUTF8.data ++ Array.replicate 27 0
+  let bytesArray <- match decodeDynamicBytesArrayArgument bytesArrayArgs 1 0 3 16 with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.message
+  require (bytesArray.dataOffset == 64 && bytesArray.length == 2 &&
+      bytesArray.children.size == 2 && bytesArray.children[0]!.length == 2 &&
+      bytesArray.children[1]!.length == 5 && bytesArray.endOffset == 256)
+    "dynamic bytes-array recursive layout changed"
+  for result in #[
+      decodeDynamicBytesArrayArgument (word 32 ++ word 2 ++ word 32 ++ word 128 ++
+        Array.replicate 128 0) 1 0 3 16,
+      decodeDynamicBytesArrayArgument (word 32 ++ word 1 ++ word 65 ++ Array.replicate 96 0) 1 0 3 16,
+      decodeDynamicBytesArrayArgument (word 32 ++ word 1 ++ word 4294967264 ++
+        Array.replicate 96 0) 1 0 3 16,
+      decodeDynamicBytesArrayArgument (word 32 ++ word 1 ++ word 32 ++ word 17 ++
+        Array.replicate 32 0) 1 0 3 16,
+      decodeDynamicBytesArrayArgument (word 32 ++ word 2 ++ word 64 ++ word 128 ++
+        word 0 ++ Array.replicate 32 0 ++ word 10 ++ Array.replicate 5 0) 1 0 3 16] do
+    match result with
+    | .error _ => pure ()
+    | .ok _ => throw <| IO.userError "invalid dynamic bytes-array ABI vector was accepted"
+
   let twoTailArgs := word 32 ++ word 7 ++ word 96 ++ word 160 ++
     word 5 ++ "hello".toUTF8.data ++ Array.replicate 27 0 ++
     word 6 ++ "你好".toUTF8.data ++ Array.replicate 26 0
@@ -158,10 +182,16 @@ def main : IO Unit := do
     selector := #[0xde, 0xad, 0xbe, 0x09]
     params := #[{ name := "value", type := multiDynamicTuple }], returns := #[], mutability := .view
   }
+  let bytesArrayMethod : StylusAbiMethodPlan := {
+    name := "acceptBytesArray", canonicalSignature := "acceptBytesArray(bytes[])"
+    selector := #[0xde, 0xad, 0xbe, 0x0a]
+    params := #[{ name := "values", type := .dynamicArray .bytes }], returns := #[], mutability := .view
+  }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "AggregateEcho"
     abi := { methods := #[bytesMethod, stringMethod, fixedMethod, tupleMethod, mixedMethod,
-      arrayMethod, tupleArrayMethod, dynamicTupleMethod, multiDynamicTupleMethod], errors := #[] },
+      arrayMethod, tupleArrayMethod, dynamicTupleMethod, multiDynamicTupleMethod,
+      bytesArrayMethod], errors := #[] },
     storage := { words := #[] }
     functions := #[
       { id := "echoBytes", abiMethod := "echoBytes", params := #[{
@@ -193,6 +223,10 @@ def main : IO Unit := do
       { id := "acceptMultiDynamicTuple", abiMethod := "acceptMultiDynamicTuple", params := #[{
           valueId := 10, name := "value", type := multiDynamicTuple, dynamicMaxLength? := some 64,
           dynamicFieldMaxLengths := #[64, 64] }]
+        entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support },
+      { id := "acceptBytesArray", abiMethod := "acceptBytesArray", params := #[{
+          valueId := 11, name := "values", type := .dynamicArray .bytes, dynamicMaxLength? := some 3,
+          dynamicFieldMaxLengths := #[16] }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[] }], support }
     ]
     events := #[], calls := #[]
@@ -214,7 +248,9 @@ def main : IO Unit := do
       { id := "dynamic-tuple.value", functionId := "acceptDynamicTuple", operation := .msgValue, support },
       { id := "dynamic-tuple.result", functionId := "acceptDynamicTuple", operation := .writeResult, support },
       { id := "multi-dynamic-tuple.value", functionId := "acceptMultiDynamicTuple", operation := .msgValue, support },
-      { id := "multi-dynamic-tuple.result", functionId := "acceptMultiDynamicTuple", operation := .writeResult, support }
+      { id := "multi-dynamic-tuple.result", functionId := "acceptMultiDynamicTuple", operation := .writeResult, support },
+      { id := "bytes-array.value", functionId := "acceptBytesArray", operation := .msgValue, support },
+      { id := "bytes-array.result", functionId := "acceptBytesArray", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := false }
     artifacts := { solidityAbi := true, typescriptClient := true }
