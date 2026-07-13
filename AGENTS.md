@@ -25,7 +25,7 @@ Keep this section short and update it whenever the active task changes.
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
 | Active task | Stylus continuous queue - W3.2 aggregate storage and resources |
-| Next task | Implement short/long dynamic storage transitions and exhaustion gates |
+| Next task | Extend W3.2 from bounded bytes to string runtime and dynamic-array element storage |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -105,8 +105,10 @@ For every implementation or review task:
 3. Write or identify the failing acceptance test before changing behavior.
 4. Implement the smallest slice that satisfies the task boundary. Preserve the
    shared architecture; do not bypass it with target-specific frontend routing.
-5. Run targeted gates first, then `just product` for authoring/portable changes,
-   and `just check` before closing a cross-module task.
+5. During implementation, run only gates directly affected by the current
+   change. Reserve `just product`, `just check`, `just stylus-all`, and other
+   full aggregates for the final integration checkpoint or an explicit request;
+   do not pay their cost after every development slice.
 6. Review the diff for unsupported claims, legacy-path regressions, accidental
    generated output, and unrelated edits.
 7. Update the task plan, backlog, gate evidence, implementation log, and this

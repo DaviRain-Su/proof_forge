@@ -32,6 +32,12 @@ blockers may defer an item.
 - [ ] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
   dynamic bytes/string/array short-long storage transitions, checked allocation
   exhaustion, maximum-page gates, and Rust/direct differential fixtures.
+  Bounded `bytes` now has renderer-neutral short/long transition planning,
+  direct-Wasm load/cache lowering, Rust `StorageBytes`, maximum-page rejection,
+  and a local `short -> long -> short` VM lifecycle. The runner's opt-in
+  `--shared-storage-batch` mode preserves committed storage without changing
+  the isolated default batch semantics. String runtime vectors and dynamic
+  array element storage remain before this item can close.
 - [ ] **W3.3 Aggregate closure gate:** run the complete aggregate differential,
   diagnostics, resource-adversarial, Rust oracle, and direct-Wasm gates; update
   Task 6 evidence without claiming Nitro execution.

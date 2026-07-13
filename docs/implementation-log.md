@@ -2095,3 +2095,23 @@ Rules:
 - Verification: `just stylus-aggregate-differential`, `just
   stylus-diagnostics`, targeted Lean module builds, and `git diff --check` pass.
   No full repository suite was run during this development slice.
+
+## 2026-07-13 - STYLUS-W3.2a: Bounded dynamic bytes storage
+
+- Status: `W3.2 in progress; bytes lifecycle complete`
+- Added renderer-neutral Solidity/Stylus short and long bytes storage planning,
+  including padded payload words, stale long-word cleanup, checked array slot
+  sizing, and explicit maximum bounds.
+- Added plan operations and validation for bounded dynamic storage. Direct Wasm
+  now reads and caches inline values below 32 bytes, hashes long-value roots,
+  increments 256-bit payload slots, clears stale long words, and rejects corrupt
+  or out-of-page lengths before copying. Rust SDK output uses `StorageBytes` and
+  `StorageString` handlers.
+- Added opt-in `--shared-storage-batch` to the local VM runner. Default batch
+  cases remain isolated; the new mode carries only committed storage/cache into
+  the next transaction and supports lifecycle testing.
+- Added `just stylus-aggregate-storage`, covering pure layout vectors,
+  resource-adversarial rejection, WAT validation, generated Rust `cargo check`,
+  and local `short -> long -> short` storage execution. `just
+  stylus-diagnostics` also passes. No product/check/stylus-all suite was run;
+  string runtime and dynamic-array element storage remain in W3.2.

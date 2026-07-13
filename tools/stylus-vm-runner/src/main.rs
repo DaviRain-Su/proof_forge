@@ -497,7 +497,7 @@ fn run_case(
     linker: &Linker<HostState>,
     host: HostState,
     exports: &[String],
-) -> Result<Value> {
+) -> Result<(Value, HostState)> {
     let mut store = Store::new(engine, host);
     let instance = linker
         .instantiate(&mut store, module)
@@ -536,12 +536,13 @@ fn run_case(
         .iter()
         .map(|(key, value)| (hex(key), Value::String(hex(value))))
         .collect::<serde_json::Map<_, _>>();
-    Ok(json!({
+    let output = json!({
         "calls": calls,
         "storage": storage,
         "result": hex(&store.data().result),
         "trace": store.data().trace,
-    }))
+    });
+    Ok((output, store.data().clone()))
 }
 
 fn main() -> Result<()> {
@@ -551,6 +552,7 @@ fn main() -> Result<()> {
     }
     let mut host = HostState::default();
     let mut calldata_batch = Vec::new();
+    let mut shared_storage_batch = false;
     let mut exports = Vec::new();
     let mut index = 1;
     while index < args.len() {
@@ -591,6 +593,10 @@ fn main() -> Result<()> {
                     }
                 }
                 index += 2;
+            }
+            "--shared-storage-batch" => {
+                shared_storage_batch = true;
+                index += 1;
             }
             "--block-number" => {
                 host.block_number = value(index)?.parse().context("invalid block number")?;
@@ -681,7 +687,12 @@ fn main() -> Result<()> {
     for calldata in calldata_batch {
         let mut case_host = host.clone();
         case_host.calldata = calldata;
-        results.push(run_case(&engine, &module, &linker, case_host, &exports)?);
+        let (result, final_host) = run_case(&engine, &module, &linker, case_host, &exports)?;
+        if shared_storage_batch {
+            host.storage = final_host.storage;
+            host.cache = final_host.cache;
+        }
+        results.push(result);
     }
     if batch_mode {
         println!("{}", json!({"batch": results}));

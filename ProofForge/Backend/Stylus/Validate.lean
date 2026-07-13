@@ -138,6 +138,49 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
         fail s!"Stylus scalar parameter `{param.name}` has a dynamic length policy"
       else unless param.dynamicFieldMaxLengths.isEmpty do
         fail s!"Stylus static parameter `{param.name}` has dynamic field maxima"
+    for block in function.blocks do
+      for operation in block.operations do
+        match operation with
+        | .storageDynamicLoad _ wordId maximum =>
+            let some word := plan.storage.words.find? (fun word => word.id == wordId)
+              | fail s!"Stylus dynamic storage operation references missing word `{wordId}`"
+            unless word.type == .bytes || word.type == .string do
+              fail s!"Stylus dynamic storage word `{wordId}` must be bytes or string"
+            if maximum == 0 || maximum > 256 then
+              fail s!"Stylus dynamic storage word `{wordId}` has invalid maximum {maximum}"
+            for required in #[StylusHostOp.storageLoad, .keccak256] do
+              unless plan.hostOps.any (fun host => host.functionId == function.id && host.operation == required) do
+                fail s!"Stylus dynamic storage function `{function.id}` is missing HostOp `{repr required}`"
+        | .storageDynamicCache wordId value maximum =>
+            let some word := plan.storage.words.find? (fun word => word.id == wordId)
+              | fail s!"Stylus dynamic storage operation references missing word `{wordId}`"
+            unless word.type == .bytes || word.type == .string do
+              fail s!"Stylus dynamic storage word `{wordId}` must be bytes or string"
+            if maximum == 0 || maximum > 256 then
+              fail s!"Stylus dynamic storage word `{wordId}` has invalid maximum {maximum}"
+            let mut valueType? := (function.params.find? fun param => param.valueId == value).map (·.type)
+            for sourceBlock in function.blocks do
+              for source in sourceBlock.operations do
+                let result? : Option (StylusValueId × StylusAbiType) := match source with
+                  | .literal result type _ | .cast result _ type _
+                  | .add result type .. | .sub result type .. | .mul result type .. | .div result type ..
+                  | .contextRead result type _ | .call result type _ => some (result, type)
+                  | .compare result .. => some (result, .bool)
+                  | .storageLoad result sourceWord | .storageDynamicLoad result sourceWord _ =>
+                      (plan.storage.words.find? fun candidate => candidate.id == sourceWord).map
+                        (fun candidate => (result, candidate.type))
+                  | .storagePathLoad result sourceWord _ =>
+                      (plan.storage.words.find? fun candidate => candidate.id == sourceWord).map
+                        (fun candidate => (result, candidate.type))
+                  | _ => none
+                if let some (result, type) := result? then
+                  if result == value then valueType? := some type
+            unless valueType? == some word.type do
+              fail s!"Stylus dynamic storage cache `{wordId}` value {value} does not have type `{repr word.type}`"
+            for required in #[StylusHostOp.storageLoad, .storageCache, .storageFlush, .keccak256] do
+              unless plan.hostOps.any (fun host => host.functionId == function.id && host.operation == required) do
+                fail s!"Stylus dynamic storage function `{function.id}` is missing HostOp `{repr required}`"
+        | _ => pure ()
     let hasCall := function.blocks.any fun block => block.operations.any fun operation =>
       match operation with | .call .. => true | _ => false
     if hasCall && !plan.hostOps.any (fun op => op.functionId == function.id && op.operation == .storageFlush) then

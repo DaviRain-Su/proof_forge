@@ -50,6 +50,8 @@ private def storageTypeName : StylusAbiType -> Except RenderError String
   | .uint bits => pure s!"uint{bits}"
   | .address => pure "address"
   | .fixedBytes bytes => pure s!"bytes{bytes}"
+  | .bytes => pure "StorageBytes"
+  | .string => pure "StorageString"
   | type => fail s!"Rust SDK storage renderer does not support `{repr type}` yet"
 
 private def literalText : StylusLiteralPlan -> Except RenderError String
@@ -107,6 +109,25 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
         | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
       pure (.storageSet field.name (localName value) word.type)
+  | .storageDynamicLoad result wordId maximumLength => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let line <- match word.type with
+        | .bytes => pure s!"let {localName result}: Vec<u8> = self.{field.name}.get_bytes();"
+        | .string => pure s!"let {localName result}: String = self.{field.name}.get_string();"
+        | type => fail s!"Rust SDK dynamic storage load does not support `{repr type}`"
+      pure (.rawLines #[line,
+        s!"debug_assert!({localName result}.len() <= {maximumLength});"])
+  | .storageDynamicCache wordId value _ => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let line <- match word.type with
+        | .bytes => pure s!"self.{field.name}.set_bytes(&{localName value});"
+        | .string => pure s!"self.{field.name}.set_str(&{localName value});"
+        | type => fail s!"Rust SDK dynamic storage cache does not support `{repr type}`"
+      pure (.rawLines #[line])
   | .storagePathLoad result wordId keys => do
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)

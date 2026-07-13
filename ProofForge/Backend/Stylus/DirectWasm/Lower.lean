@@ -27,6 +27,8 @@ private def opName : StylusOpPlan -> String
   | .div result .. => s!"div-{result}"
   | .storageLoad result wordId => s!"storage-load-{wordId}-{result}"
   | .storageCache wordId value => s!"storage-cache-{wordId}-{value}"
+  | .storageDynamicLoad result wordId _ => s!"storage-dynamic-load-{wordId}-{result}"
+  | .storageDynamicCache wordId value _ => s!"storage-dynamic-cache-{wordId}-{value}"
   | .storagePathLoad result wordId _ => s!"storage-path-load-{wordId}-{result}"
   | .storagePathCache wordId _ value => s!"storage-path-cache-{wordId}-{value}"
   | .contextRead result _ operation => s!"context-{repr operation}-{result}"
@@ -117,6 +119,19 @@ private def copyFixedBytes (target source width : Nat) : Array Insn := Id.run do
       .load "i32.load8_u" 0, .store "i32.store8" 0]
   return insns
 
+private def incrementStorageSlot (ptr : Nat) : Array Insn := Id.run do
+  let mut insns : Array Insn := #[.i32Const 1, .localSet "storageCarry"]
+  for reverseIndex in [0:32] do
+    let index := 31 - reverseIndex
+    insns := insns ++ #[
+      .i32Const (ptr + index), .load "i32.load8_u" 0,
+      .localGet "storageCarry", .plain "i32.add", .localSet "storageSum",
+      .i32Const (ptr + index), .localGet "storageSum", .i32Const 255, .plain "i32.and",
+      .store "i32.store8" 0,
+      .localGet "storageSum", .i32Const 8, .plain "i32.shr_u", .localSet "storageCarry"
+    ]
+  return insns
+
 private def natBytes (width value : Nat) : Bytes :=
   (List.range width).toArray.map fun index =>
     UInt8.ofNat ((value / (2 ^ (8 * (width - 1 - index)))) % 256)
@@ -198,9 +213,10 @@ private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   match op with
   | .literal result .. | .cast result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
   | .storageLoad result .. | .storagePathLoad result ..
+  | .storageDynamicLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
   | .call result .. => #[result]
-  | .storageCache .. | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
+  | .storageCache .. | .storageDynamicCache .. | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
   let mut ids := #[]
@@ -226,8 +242,20 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
           if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | .call result type _ =>
           if type.isDynamic && !dynamicIds.contains result then dynamicIds := dynamicIds.push result
+      | .storageDynamicLoad result .. =>
+          if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | _ => pure ()
   let values := values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
+  let hasDynamicStorage := function.blocks.any fun block => block.operations.any fun op =>
+    match op with | .storageDynamicLoad .. | .storageDynamicCache .. => true | _ => false
+  let values := if hasDynamicStorage then values ++ #[
+    { name := "storageIsLong", type := .i32 },
+    { name := "storageEncodedLength", type := .i64 },
+    { name := "storageOldLength", type := .i64 },
+    { name := "storageCopyLength", type := .i32 },
+    { name := "storageCarry", type := .i32 },
+    { name := "storageSum", type := .i32 }
+  ] else values
   let hasCall := function.blocks.any fun block => block.operations.any fun op =>
     match op with | .call .. => true | _ => false
   let hasDynamicCall := function.blocks.any fun block => block.operations.any fun op =>
@@ -348,6 +376,101 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             diagnostic plan function block (opName op) "storage.cache" error.message
           pure <| writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned (64 - width) width (valueLocal value) ++
             #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
+  | .storageDynamicLoad result wordId maximumLength => do
+      let word <- wordFor plan wordId
+      let slot <- literalSlot word
+      let target := dynamicLiteralPtr result
+      let wordCount := (maximumLength + 31) / 32
+      let tooLong := #[.localGet (dynamicLengthLocal result), .i64Const maximumLength, .plain "i64.gt_u"]
+      let mut loadLong := decodeUnsigned 56 8 "storageEncodedLength" ++ #[
+        .localGet "storageEncodedLength", .i64Const 1, .plain "i64.shr_u",
+        .localSet (dynamicLengthLocal result)
+      ] ++ rejectIf tooLong "stylus: corrupt dynamic storage length" ++
+        writeBytes 0 slot ++ #[.i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"]
+      for index in [0:wordCount] do
+        let copy := #[.i32Const 64, .i32Const 32, .call "storage_load_bytes32"] ++
+          copyFixedBytes (target + index * 32) 32 32 ++ incrementStorageSlot 64
+        loadLong := loadLong ++ #[
+          .localGet (dynamicLengthLocal result), .i64Const (index * 32), .plain "i64.gt_u",
+          .if_ (.mk copy) .empty
+        ]
+      let loadShort := #[
+        .i32Const 63, .load "i32.load8_u" 0, .i32Const 1, .plain "i32.shr_u",
+        .plain "i64.extend_i32_u", .localSet (dynamicLengthLocal result)
+      ] ++ rejectIf tooLong "stylus: corrupt dynamic storage length" ++ #[
+        .i32Const target, .i32Const 32, .localGet (dynamicLengthLocal result),
+        .plain "i32.wrap_i64", .plain "memory.copy"
+      ]
+      pure <| writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .call "storage_load_bytes32",
+        .i32Const 63, .load "i32.load8_u" 0, .i32Const 1, .plain "i32.and",
+        .localTee "storageIsLong",
+        .if_ (.mk loadLong) (.mk loadShort),
+        .i64Const target, .localSet (valueLocal result)
+      ]
+  | .storageDynamicCache wordId value maximumLength => do
+      let word <- wordFor plan wordId
+      let slot <- literalSlot word
+      let wordCount := (maximumLength + 31) / 32
+      let newTooLong := #[.localGet (dynamicLengthLocal value), .i64Const maximumLength, .plain "i64.gt_u"]
+      let decodeOldLong := decodeUnsigned 56 8 "storageEncodedLength" ++ #[
+        .localGet "storageEncodedLength", .i64Const 1, .plain "i64.shr_u", .localSet "storageOldLength"
+      ] ++ rejectIf #[.localGet "storageOldLength", .i64Const maximumLength, .plain "i64.gt_u"]
+        "stylus: corrupt dynamic storage length"
+      let decodeOldShort := #[
+        .i32Const 63, .load "i32.load8_u" 0, .i32Const 1, .plain "i32.shr_u",
+        .plain "i64.extend_i32_u", .localSet "storageOldLength"
+      ]
+      let mut clearOld := writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"
+      ]
+      for index in [0:wordCount] do
+        let clear := clearWord 32 ++ #[.i32Const 64, .i32Const 32, .call "storage_cache_bytes32"] ++
+          incrementStorageSlot 64
+        clearOld := clearOld ++ #[
+          .localGet "storageOldLength", .i64Const (index * 32), .plain "i64.gt_u",
+          .if_ (.mk clear) .empty
+        ]
+      let writeShort := writeBytes 0 slot ++ clearWord 32 ++ #[
+        .i32Const 32, .localGet (valueLocal value), .plain "i32.wrap_i64",
+        .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .plain "memory.copy",
+        .i32Const 63, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
+        .i32Const 2, .plain "i32.mul", .store "i32.store8" 0,
+        .i32Const 0, .i32Const 32, .call "storage_cache_bytes32"
+      ]
+      let mut writeLong := #[
+        .localGet (dynamicLengthLocal value), .i64Const 2, .plain "i64.mul", .i64Const 1,
+        .plain "i64.add", .localSet "storageEncodedLength"
+      ] ++ writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned 56 8 "storageEncodedLength" ++ #[
+        .i32Const 0, .i32Const 32, .call "storage_cache_bytes32"
+      ] ++ writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"
+      ]
+      for index in [0:wordCount] do
+        let copyWord := clearWord 32 ++ #[
+          .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .i32Const (index * 32),
+          .plain "i32.sub", .localSet "storageCopyLength",
+          .localGet "storageCopyLength", .i32Const 32, .plain "i32.gt_u",
+          .if_ (.mk #[.i32Const 32, .localSet "storageCopyLength"]) .empty,
+          .i32Const 32,
+          .localGet (valueLocal value), .plain "i32.wrap_i64", .i32Const (index * 32), .plain "i32.add",
+          .localGet "storageCopyLength",
+          .plain "memory.copy", .i32Const 64, .i32Const 32, .call "storage_cache_bytes32"
+        ] ++ incrementStorageSlot 64
+        writeLong := writeLong ++ #[
+          .localGet (dynamicLengthLocal value), .i64Const (index * 32), .plain "i64.gt_u",
+          .if_ (.mk copyWord) .empty
+        ]
+      pure <| rejectIf newTooLong "stylus: dynamic storage length exceeds maximum" ++
+        writeBytes 0 slot ++ #[
+          .i32Const 0, .i32Const 32, .call "storage_load_bytes32",
+          .i32Const 63, .load "i32.load8_u" 0, .i32Const 1, .plain "i32.and",
+          .localTee "storageIsLong",
+          .if_ (.mk decodeOldLong) (.mk decodeOldShort),
+          .localGet "storageIsLong", .if_ (.mk clearOld) .empty,
+          .localGet (dynamicLengthLocal value), .i64Const 32, .plain "i64.lt_u",
+          .if_ (.mk writeShort) (.mk writeLong)
+        ]
   | .storagePathLoad result wordId keys => do
       let word <- wordFor plan wordId
       let slot <- mappingSlot word keys |>.mapError fun error =>
@@ -568,6 +691,8 @@ private def dynamicReturnMaximum (plan : StylusPlan) (function : StylusFunctionP
           if result == value && type.isDynamic then
             let call <- callFor plan callId
             if let some maximum := call.returnMaxLength? then return maximum
+      | .storageDynamicLoad result _ maximum =>
+          if result == value then return maximum
       | _ => pure ()
   fail s!"Stylus dynamic return value {value} has no plan-owned maximum length"
 
@@ -657,7 +782,7 @@ private partial def lowerBlock (plan : StylusPlan) (function : StylusFunctionPla
   | .return values =>
       let mutatesStorage := function.blocks.any fun functionBlock =>
         functionBlock.operations.any fun operation => match operation with
-          | .storageCache .. | .storagePathCache .. => true
+          | .storageCache .. | .storageDynamicCache .. | .storagePathCache .. => true
           | _ => false
       let flush := if mutatesStorage then #[.i32Const 0, .call "storage_flush_cache"] else #[]
       pure <| body ++ flush ++ (← lowerReturn plan function block values) ++ #[.return_]

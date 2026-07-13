@@ -722,11 +722,26 @@ private def ensureDynamicLiteralScratchFits (plan : StylusPlan) : Except LowerEr
                 s!"op=literal-{result} capability=memory.dynamic-literal renderer=direct-wasm: literal scratch exceeds bounds" }
         | _ => pure ()
 
+private def ensureDynamicStorageScratchFits (plan : StylusPlan) : Except LowerError Unit := do
+  let limit := plan.resources.maxMemoryPages * wasmPageBytes
+  for function in plan.functions do
+    for block in function.blocks do
+      for op in block.operations do
+        match op with
+        | .storageDynamicLoad result _ maximum =>
+            let endOffset := dynamicLiteralPtr result + maximum
+            if endOffset > limit then
+              throw { message := s!"target={plan.targetId} function={function.id} block={block.id} " ++
+                s!"op=storage-dynamic-load-{result} capability=memory.dynamic-storage renderer=direct-wasm: " ++
+                s!"dynamic storage scratch end {endOffset} exceeds memory limit {limit}" }
+        | _ => pure ()
+
 def lowerFromPlan (plan : StylusPlan) : Except LowerError Module := do
   validatePlan plan |>.mapError fun error => { message := error.message }
   ensureHostOpsComplete plan
   ensureWideScratchFits plan
   ensureDynamicLiteralScratchFits plan
+  ensureDynamicStorageScratchFits plan
   let imports <- selectImports (plan.hostOps.push {
       id := "module.calldata", functionId := "user_entrypoint", operation := .calldataCopy,
       support := { rustSdk := .implemented, directWasm := .implemented } })
