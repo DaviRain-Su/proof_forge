@@ -26,6 +26,11 @@
 #   refund (45) as runtime/offline-host. This is a conformance approximation:
 #   receipts are not scheduled and the peer contract is not executed — only the
 #   callback-side read is validated against the real VM.
+#
+# Phase 3 (transaction context + authorization): one persistent VM sequence
+#   injects a predecessor and attached deposit per call, proves an authorized
+#   storage withdrawal changes 7 -> 4, then proves an attacker predecessor
+#   aborts on the same string AccountId equality check.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -70,25 +75,31 @@ grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 1 did not report 2 successful methods"
 
 echo "=== phase 2: semantic transfer_call + ft_resolve_transfer callback ==="
-# Borsh inputs mirror runtime/offline-host ft-transfer-call-smoke.sh exactly,
-# so the expected refund values are directly comparable.
+# Borsh inputs: Phase 3 NEP-141 string-keyed balances — account_id params are
+# 260-byte flat string slots (4-byte LE length + UTF-8 bytes padded to 256);
+# ft_approve keeps a 32-byte hash spender_id (allowances stay hash-keyed).
+# Expected refund values match runtime/offline-host ft-transfer-call-smoke.sh.
 INPUTS_HEX="$(python3 - <<'PY'
 import hashlib, struct
-sender = hashlib.sha256(b"proof-forge.testnet").digest()
-receiver = hashlib.sha256(b"demo.receiver.testnet").digest()
+def acct_slot(name):
+    b = name.encode()
+    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+sender = "proof-forge.testnet"
+receiver = "demo.receiver.testnet"
 spender = hashlib.sha256(b"spender.testnet").digest()
+def u128(v): return struct.pack("<QQ", v, 0)
 inputs = [
-    b"",
-    sender + struct.pack("<QQ", 100, 0),
-    spender + struct.pack("<QQ", 13, 0),
-    sender,
-    receiver,
-    receiver + struct.pack("<I", 0) + struct.pack("<QQ", 70, 0),
-    sender,
-    receiver,
-    struct.pack("<Q", 0) + sender + receiver,
-    sender,
-    receiver,
+    b"",                                                       # init
+    acct_slot(sender) + u128(100),                             # ft_mint(receiver_id=sender, 100)
+    spender + u128(13),                                        # ft_approve(spender_id hash, 13)
+    acct_slot(sender),                                          # ft_balance_of(sender)
+    acct_slot(receiver),                                        # ft_balance_of(receiver)
+    acct_slot(receiver) + struct.pack("<I", 0) + u128(70),      # ft_transfer_call(receiver_id, idx=0, 70)
+    acct_slot(sender),                                          # ft_balance_of(sender)
+    acct_slot(receiver),                                        # ft_balance_of(receiver)
+    struct.pack("<Q", 0) + acct_slot(sender) + acct_slot(receiver),  # ft_resolve_transfer(0, sender, receiver)
+    acct_slot(sender),                                          # ft_balance_of(sender)
+    acct_slot(receiver),                                        # ft_balance_of(receiver)
 ]
 print(",".join(i.hex() for i in inputs))
 PY
@@ -110,4 +121,55 @@ grep -qF 'call ft_resolve_transfer: return_hex=2d000000000000000000000000000000'
 grep -qF '11 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 2 did not report 11 successful methods"
 
-echo "vm-conformance-ft: ok (host-ABI link + NEP-141 transfer_call + callback on real NEAR VM)"
+echo "=== phase 3: per-call predecessor/deposit + string authorization ==="
+eval "$(python3 - <<'PY'
+import struct
+def acct_slot(name):
+    b = name.encode()
+    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+sender = "proof-forge.testnet"
+authorized = [
+    b"",
+    acct_slot(sender),
+    acct_slot(sender),
+    acct_slot(sender) + struct.pack("<Q", 3),
+    acct_slot(sender),
+]
+unauthorized = [
+    b"",
+    acct_slot(sender),
+    acct_slot(sender) + struct.pack("<Q", 1),
+]
+print(f'STORAGE_INPUTS_HEX="{",".join(value.hex() for value in authorized)}"')
+print(f'UNAUTHORIZED_INPUTS_HEX="{",".join(value.hex() for value in unauthorized)}"')
+PY
+)"
+
+out="$("${RUNNER[@]}" "$WASM" \
+  init storage_deposit storage_balance_of storage_withdraw storage_balance_of \
+  --inputs-hex "$STORAGE_INPUTS_HEX" \
+  --predecessor-account-ids \
+    proof-forge.testnet,proof-forge.testnet,proof-forge.testnet,proof-forge.testnet,proof-forge.testnet \
+  --attached-deposits-yocto 0,7,0,1,0)"
+echo "$out"
+grep -qF 'call storage_balance_of: return_hex=0700000000000000' <<<"$out" \
+  || fail "phase 3 storage deposit balance != 7"
+grep -qF 'call storage_balance_of: return_hex=0400000000000000' <<<"$out" \
+  || fail "phase 3 authorized withdrawal did not reduce balance to 4"
+grep -qF '5 methods executed successfully on real NEAR VM' <<<"$out" \
+  || fail "phase 3 did not report 5 successful methods"
+
+set +e
+unauthorized_out="$("${RUNNER[@]}" "$WASM" init storage_deposit storage_withdraw \
+  --inputs-hex "$UNAUTHORIZED_INPUTS_HEX" \
+  --predecessor-account-ids proof-forge.testnet,proof-forge.testnet,attacker.testnet \
+  --attached-deposits-yocto 0,7,1 2>&1)"
+unauthorized_status=$?
+set -e
+echo "$unauthorized_out"
+[[ $unauthorized_status -ne 0 ]] \
+  || fail "phase 3 unauthorized storage withdrawal unexpectedly succeeded"
+grep -qF 'call storage_withdraw: ABORTED:' <<<"$unauthorized_out" \
+  || fail "phase 3 unauthorized withdrawal did not abort in the real VM"
+
+echo "vm-conformance-ft: ok (host ABI + transfer_call callback + predecessor/deposit authorization on real NEAR VM)"

@@ -21,8 +21,8 @@ partial def collectLocalsFrom (acc : LocalTypes) (s : Statement) : Except EmitEr
   | .letBind name t _ | .letMutBind name t _ =>
     if isNumeric t || t == .bool || t == .hash then .ok (acc.push { name := name, vt := t })
     else match t with
-      | .fixedArray _ _ | .structType _ => .ok (acc.push { name := name, vt := t })
-      | _ => err s!"EmitWat: only U32/U64/Bool/Hash/FixedArray/Struct locals are supported (got `{t.name}`)"
+      | .fixedArray _ _ | .structType _ | .string | .bytes => .ok (acc.push { name := name, vt := t })
+      | _ => err s!"EmitWat: only U32/U64/Bool/Hash/FixedArray/Struct/String/Bytes locals are supported (got `{t.name}`)"
   | .ifElse _ thenBody elseBody =>
     let acc ← thenBody.foldlM (init := acc) collectLocalsFrom
     elseBody.foldlM (init := acc) collectLocalsFrom

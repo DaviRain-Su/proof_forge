@@ -384,6 +384,8 @@ mutual
     | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
     | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
     | .hash => .ok (vis, #[.call crosscallArgsPuthashName])
+    | .string => .ok (vis, #[.i32Const 0x22, .call crosscallArgsPutcName,
+      .call crosscallArgsPutstrName, .i32Const 0x22, .call crosscallArgsPutcName])
     | _ => err s!"EmitWat: NEAR crosscall argument type `{vt.name}` is not supported yet"
 
   /-- Pool index as i64: address-literal handles (peerHandle) or U32/U64. -/
@@ -1276,6 +1278,10 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
     if b.vt == .u128 then
       #[{ name := b.name, type := .i64 : Local },
         { name := u128HiName b.name, type := .i64 : Local }]
+    else if b.vt == .string || b.vt == .bytes then
+      -- string/bytes local: ptr (i32) + len (i32) — mirrors the param _len local.
+      #[{ name := b.name, type := .i32 : Local },
+        { name := b.name ++ "_len", type := .i32 : Local }]
     else
       #[{ name := b.name, type := wasmTypeOf b.vt : Local }])
   let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s

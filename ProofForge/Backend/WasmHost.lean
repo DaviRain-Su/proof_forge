@@ -31,6 +31,7 @@ import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.Event
 import ProofForge.Backend.WasmHost.ExprAnalysis
 import ProofForge.Backend.WasmHost.Hash
+import ProofForge.Backend.WasmHost.StringCmp
 import ProofForge.Backend.WasmHost.IR
 import ProofForge.Backend.WasmHost.Imports
 import ProofForge.Backend.WasmHost.Layout

@@ -138,7 +138,8 @@ def wasmNear : TargetProfile := {
     .controlConditional,
     .controlBoundedLoop,
     .dataFixedArray,
-    .dataStruct
+    .dataStruct,
+    .dataDynamicBytes
   ]
   hostBridge? := some .near
   requiredTools := #["rustup", "cargo", "near-cli"]

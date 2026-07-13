@@ -43,6 +43,7 @@ structure ModulePlan where
   usesHashPreimage : Bool
   usesHashTwoToOne : Bool
   usesHashEq : Bool
+  usesStrEq : Bool
   usesPowU32 : Bool
   usesPowU64 : Bool
   usesMemcpy : Bool
@@ -94,6 +95,7 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     usesHashPreimage := surface.usesHashPreimage
     usesHashTwoToOne := surface.usesHashTwoToOne
     usesHashEq := surface.usesHashEq
+    usesStrEq := surface.usesStrEq
     usesPowU32 := surface.usesPowU32
     usesPowU64 := surface.usesPowU64
     usesMemcpy := surface.usesMemcpy

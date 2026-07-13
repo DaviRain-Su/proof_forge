@@ -1512,8 +1512,8 @@ Rules:
   - `EmitWat.lean`: `lowerExpr (.local)` for `.string`/`.bytes` emits
     `(localGet name, localGet (name ++ "_len"))` — the param `_len` local exists
     from `Params.loadParams`. `lowerMapKeyFor` dispatches `.string` to a
-    `(ptr, len)` key. `mapStateShapeSupported` admits `.string` keys + `.u128`
-    values for consistency.
+    `(ptr, len)` key. Canonical EmitWat planning owns `.string` keys + `.u128`
+    values; the frozen Rust sourcegen retains its narrower map boundary.
   - `Capabilities.lean` / `NearAbiPlan.lean` / `Plan/Surface.lean`:
     `emitWatCapabilities` admits `.dataDynamicBytes`; `borshByteWidth` returns
     the flat 260-byte slot for `.string`/`.bytes` (matching `Params.loadParams`);
@@ -1542,7 +1542,8 @@ Rules:
   returning the raw `predecessor_account_id` as a `(ptr, len)` string, no
   sha256); two-slot string locals (`let sender : .string := callerAccountId`);
   string equality (`__pf_str_eq`); FT conversion (`balances` / `storageDeposits`
-  → `.string` keys, `account_id` params → `.string`, `mintAuthority` → string);
+  → `.string` keys and `account_id` params → `.string`; `mintAuthority` remains
+  a full SHA-256 hash because raw string scalar storage is out of scope);
   the wasm-near target-profile `dataDynamicBytes` admission for the canonical
   `contract_source` path.
 ## 2026-07-13 - STYLUS-W2: Canonical ERC-20 local lifecycle
@@ -2229,3 +2230,28 @@ Rules:
   Docker, the pinned Nitro checkout, and `http://127.0.0.1:8547` are not.
   `final.json` remains absent. Durable Woodpecker publication still requires an
   external artifact sink and credentials.
+
+## 2026-07-13 - NEAR-NEP141: Landing 2b - FT AccountId string keys and full transfer_call
+
+- Status: `done`
+- Scope: converted the NEP-141 NearFungibleToken to raw AccountId string keys
+  through the canonical `NearModulePlan` lowering path, with the full
+  `ft_transfer_call` and `ft_resolve_transfer` callback validated on the
+  unmodified upstream NEAR VM.
+- FT source: `balances` and `storageDeposits` use `.string` keys;
+  `account_id` and `receiver_id` params use `.string`; `callerAccountId` owns
+  balance and transfer authorization. Allowances and `mintAuthority` remain
+  `.hash` because raw string scalar storage is outside this landing.
+- Added two-slot string locals, string event values, canonical
+  `Core.ContextField.accountId`, string equality, and strict dynamic string
+  parameter decoding. Dynamic `.bytes` ABI parameters remain fail closed in
+  canonical EmitWat; frozen Rust sourcegen retains its `Vec<u8>` ABI.
+- Extended `near-vm-runner` with per-call predecessor ids and attached deposits.
+  The FT gate covers storage deposit, authorized withdrawal, and attacker abort.
+- Deduplicated generated helper functions by name and kept the frozen Rust
+  sourcegen boundary separate from canonical string-keyed U128 map support.
+- Verification recorded by the original landing: `near-vm-conformance-ft`,
+  `wasm-near-ft-transfer-call`, `wasm-near-ft-transfer-call-e2e`,
+  `near-ft-security`, `product-token-near`, `near-vm-caller-account-id-map`,
+  `near-vm-string-key-map`, the U128 VM gates, and focused canonical gates.
+- Next: wallet-compatible JSON argument and return codecs.

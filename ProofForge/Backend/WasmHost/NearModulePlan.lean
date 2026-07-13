@@ -51,6 +51,8 @@ import ProofForge.Backend.WasmHost.Scalar
 import ProofForge.Backend.WasmHost.Params
 import ProofForge.Backend.WasmHost.Event
 import ProofForge.Backend.WasmHost.Hash
+import ProofForge.Backend.WasmHost.StringCmp
+import ProofForge.Backend.WasmHost.ArrayHeap
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Promise
 import ProofForge.Backend.WasmHost.Context
@@ -342,33 +344,46 @@ private def canonicalNearType (name : String) : ValueType :=
   else if name.endsWith "u32" then .u32
   else if name.endsWith "u128" then .u128
   else if name.endsWith "hash" then .hash
+  else if name.endsWith "string" then .string
   else .u64
 
-/-! Two-word u128 local convention (mirrors the legacy path): a u128 value
-    `v{id}` occupies `v{id}` (lo) and `v{id}__hi` (hi). get pushes both words
-    (lo then hi); set consumes hi then lo. -/
+/-! Two-word value conventions (mirrors the legacy path):
+    * u128 `v{id}` occupies `v{id}` (lo) + `v{id}__hi` (hi); get pushes both
+      (lo then hi); set consumes hi then lo.
+    * string `v{id}` occupies `v{id}` (ptr) + `v{id}_len (len); get pushes
+      (ptr then len); set consumes len then ptr. -/
 
 private def canonicalNearGet (id : Nat) (typeName : String) :
     Array ProofForge.Compiler.Wasm.Insn :=
   if canonicalNearType typeName == .u128 then
     #[.localGet s!"v{id}", .localGet (Types.u128HiName s!"v{id}")]
+  else if canonicalNearType typeName == .string then
+    #[.localGet s!"v{id}", .localGet (s!"v{id}_len")]
   else #[.localGet s!"v{id}"]
 
 private def canonicalNearSet (id : Nat) (typeName : String) :
     Array ProofForge.Compiler.Wasm.Insn :=
   if canonicalNearType typeName == .u128 then
     #[.localSet (Types.u128HiName s!"v{id}"), .localSet s!"v{id}"]
+  else if canonicalNearType typeName == .string then
+    #[.localSet (s!"v{id}_len"), .localSet s!"v{id}"]
   else #[.localSet s!"v{id}"]
 
 private def canonicalNearLocals (value : NearValuePlan) : Array ProofForge.Compiler.Wasm.Local :=
   if canonicalNearType value.typeName == .u128 then
     #[{ name := s!"v{value.id}", type := .i64 },
       { name := Types.u128HiName s!"v{value.id}", type := .i64 }]
+  else if canonicalNearType value.typeName == .string then
+    #[{ name := s!"v{value.id}", type := .i32 },
+      { name := s!"v{value.id}_len", type := .i32 }]
   else
     #[{ name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }]
 
 private def canonicalNearLocal (value : NearValuePlan) : ProofForge.Compiler.Wasm.Local :=
-  { name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }
+  if canonicalNearType value.typeName == .string then
+    { name := s!"v{value.id}", type := .i32 }
+  else
+    { name := s!"v{value.id}", type := Types.wasmTypeOf (canonicalNearType value.typeName) }
 
 private def canonicalNearState? (plan : NearModulePlan) (id : Nat) : Option Layout.StateInfo :=
   plan.layout.scalars.find? (fun state => state.coreId? == some id) |>.map fun state => {
@@ -432,6 +447,12 @@ private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofFor
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPutboolName]
     else if arg.typeName.endsWith "hash" then
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPuthashName]
+    else if arg.typeName.endsWith "string" then
+      -- JSON-quoted UTF-8 string arg (two-slot ptr+len local).
+      insns := insns ++ #[.i32Const 0x22, .call Crosscall.crosscallArgsPutcName,
+        .localGet s!"v{arg.id}", .localGet (s!"v{arg.id}_len"),
+        .call Crosscall.crosscallArgsPutstrName,
+        .i32Const 0x22, .call Crosscall.crosscallArgsPutcName]
     else if canonicalNearType arg.typeName == .u128 then
       -- u128 crosscall arg: two-word (lo, hi) → decimal string via putu128.
       insns := insns ++ #[.localGet s!"v{arg.id}", .localGet (Types.u128HiName s!"v{arg.id}"),
@@ -554,6 +575,11 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       if ty == .hash && (op == .eq || op == .ne) then
         .ok (#[.localGet s!"v{lhs.id}", .localGet s!"v{rhs.id}", .call Hash.hashEqName] ++
           (if op == .ne then #[.plain "i32.eqz"] else #[]) ++ #[.localSet s!"v{result.id}"])
+      else if ty == .string && (op == .eq || op == .ne) then
+        -- string comparison: two-slot operands (ptr, len) each → __pf_str_eq.
+        .ok (canonicalNearGet lhs.id lhs.typeName ++ canonicalNearGet rhs.id rhs.typeName ++
+          #[.call StringCmp.strEqName] ++
+          (if op == .ne then #[.plain "i32.eqz"] else #[]) ++ #[.localSet s!"v{result.id}"])
       else if ty == .u128 then
         -- u128 comparison: two-word operands → __pf_u128_eq / __pf_u128_lt.
         -- eq/ne → u128_eq (+ eqz for ne); ge → u128_lt + eqz;
@@ -621,6 +647,14 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i32Const Memory.RET_BUF, .load "i64.load" 0, .localSet s!"v{result.id}"]
     else if field.endsWith "sender" then
       .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
+    else if field.endsWith "accountId" then
+      -- Raw predecessor_account_id string (no sha256). The VOID helper stages
+      -- the bytes at ACCT_ID_BUF and the 4-byte LE length at ACCT_ID_LEN;
+      -- materialize (ptr, len) into the two-slot string local.
+      .ok (#[.call Context.ctxAccountIdName,
+        .i32Const Memory.ACCT_ID_BUF,
+        .i32Const Memory.ACCT_ID_LEN, .load "i32.load" 0]
+        ++ canonicalNearSet result.id result.typeName)
     else if field.endsWith "contractAddress" then
       .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
     else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
@@ -839,7 +873,8 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
         let acc := if plan.surface.scalarReadTypes.contains ty then acc.push (Scalar.readFunc ty bridge) else acc
         if plan.surface.scalarWriteTypes.contains ty then acc.push (Scalar.writeFunc ty bridge) else acc) #[]
   let mapHelpers := Map.mapHelperFuncsForModulePlan plan.surface bridge ++
-    Map.mapHashHelperFuncsForModulePlan plan.surface bridge
+    Map.mapHashHelperFuncsForModulePlan plan.surface bridge ++
+    Map.mapStringHelperFuncsForModulePlan plan.surface bridge
   let hashHelpers := Hash.hashExprHelperFuncsForModulePlan plan.surface
   let hashStorageHelpers := Hash.hashStorageHelperFuncsForModulePlan plan.surface bridge
   let crosscallHelpers := Crosscall.crosscallArgsHelperFuncsForModulePlan plan.surface ++
@@ -849,6 +884,8 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     else #[])
   let promiseHelpers := Promise.promiseHelperFuncsForModulePlan plan.surface
   let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface bridge
+  let strEqHelpers := StringCmp.strEqFuncsForModulePlan plan.surface
+  let arrHeapHelpers := ArrayHeap.arrHeapHelperFuncsForModulePlan plan.surface defaultAllocator
   let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u128 then #[Scalar.returnU128Func bridge] else #[]) ++
@@ -882,9 +919,11 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     imports := imports
     globals := (if Hash.modulePlanUsesHashAlloc plan.surface then #[Hash.hashPtrGlobalDecl] else #[]) ++
       (if eventStrings.isEmpty then #[] else Event.evtGlobals) ++
-      Crosscall.crosscallGlobalsForModulePlan plan.surface
+      Crosscall.crosscallGlobalsForModulePlan plan.surface ++
+      (if ArrayHeap.modulePlanUsesArrHeap plan.surface && !defaultAllocator.requiresHost then
+        #[ArrayHeap.arrPtrGlobalDecl defaultAllocator.heapBase] else #[])
     funcs := (helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
-      returnFuncs ++ eventHelpers ++ u128ArithHelpers ++ funcs).foldl
+      strEqHelpers ++ arrHeapHelpers ++ returnFuncs ++ eventHelpers ++ u128ArithHelpers ++ funcs).foldl
       (fun acc f => if acc.any (fun g => g.name == f.name) then acc else acc.push f) #[]
     memory := some { min := 1 }
     dataSegments := data }

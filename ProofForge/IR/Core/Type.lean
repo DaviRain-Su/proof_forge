@@ -76,7 +76,7 @@ inductive CompareOp
 
 inductive ContextField
   | sender | value | blockNumber | blockTimestamp | epochHeight | randomSeed
-  | origin | gas | contractAddress
+  | origin | gas | contractAddress | accountId
   deriving BEq, DecidableEq, Repr
 
 /- Reference to a structured error declared in the module's error schema. -/

@@ -11,6 +11,7 @@ import ProofForge.Backend.WasmHost.Context
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Event
 import ProofForge.Backend.WasmHost.Hash
+import ProofForge.Backend.WasmHost.StringCmp
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.LoweringEnv
 import ProofForge.Backend.WasmHost.Map
@@ -30,6 +31,7 @@ open ProofForge.Backend.WasmHost.Context
 open ProofForge.Backend.WasmHost.Crosscall
 open ProofForge.Backend.WasmHost.Event
 open ProofForge.Backend.WasmHost.Hash
+open ProofForge.Backend.WasmHost.StringCmp
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.LoweringEnv
 open ProofForge.Backend.WasmHost.Map
@@ -105,6 +107,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
+    StringCmp.strEqFuncsForModulePlan modulePlan ++
     evtHelperFuncsForModulePlan modulePlan ++ crosscallArgsHelperFuncsForModulePlan modulePlan ++
     promiseHelperFuncsForModulePlan modulePlan ++
     crosscallPoolHelperFuncs ctx.crosscallStrings ++

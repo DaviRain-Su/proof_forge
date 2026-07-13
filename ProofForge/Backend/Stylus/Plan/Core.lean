@@ -157,7 +157,7 @@ private def contextHostOp : ContextField -> Option StylusHostOp
   | .blockNumber => some .blockNumber | .blockTimestamp => some .blockTimestamp
   | .origin => some .txOrigin | .gas => some .gasLeft
   | .contractAddress => some .contractAddress
-  | .epochHeight | .randomSeed => none
+  | .epochHeight | .randomSeed | .accountId => none
 
 private def instructionPlan (contract : CanonicalContract) (function : Function)
     (instruction : Instruction) :

@@ -33,6 +33,7 @@ def testHostSemantics : HostSemantics where
     | .blockNumber | .blockTimestamp | .epochHeight | .gas => .ok (.u64 0)
     | .randomSeed => .ok (.hash "")
     | .value => .ok (.u128 0)
+    | .accountId => .ok (.string "")
   handleHash _ := .error .unsupportedHash
   handleCrosscall request _ := .error (.unsupportedCrosscall request.mode)
 

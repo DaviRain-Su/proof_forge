@@ -887,6 +887,12 @@ def caller : ProofForge.IR.Expr :=
 def callerHash : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.callerHash
 
+/-- NEAR predecessor account id as a raw string (Phase 3 NEP-141 interop).
+Identity is not hash-truncated: balances keyed by this are keyed by the raw
+account id string. NEAR-only. -/
+def callerAccountId : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.callerAccountId
+
 /-- This contract / program id (`address(this)` · program_id · current_account).
 Portable triad after HostEnv U1.2 (Solana: sha256(program_id) limb0). -/
 def contractId : ProofForge.IR.Expr :=

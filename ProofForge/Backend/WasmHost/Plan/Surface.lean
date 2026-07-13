@@ -72,6 +72,7 @@ structure ModuleSurface where
   usesHashPreimage : Bool := false
   usesHashTwoToOne : Bool := false
   usesHashEq : Bool := false
+  usesStrEq : Bool := false
   usesPowU32 : Bool := false
   usesPowU64 : Bool := false
   usesMemcpy : Bool := false
@@ -132,6 +133,7 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesHashPreimage := lhs.usesHashPreimage || rhs.usesHashPreimage
   usesHashTwoToOne := lhs.usesHashTwoToOne || rhs.usesHashTwoToOne
   usesHashEq := lhs.usesHashEq || rhs.usesHashEq
+  usesStrEq := lhs.usesStrEq || rhs.usesStrEq
   usesPowU32 := lhs.usesPowU32 || rhs.usesPowU32
   usesPowU64 := lhs.usesPowU64 || rhs.usesPowU64
   usesMemcpy := lhs.usesMemcpy || rhs.usesMemcpy

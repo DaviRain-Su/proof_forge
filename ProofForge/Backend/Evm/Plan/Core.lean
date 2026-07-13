@@ -142,6 +142,7 @@ def coreContextToPlan? : Core.ContextField → Option ContextExprPlan
   | .gas => some .gasLeft
   | .contractAddress => some .contractId
   | .value => none  -- handled via ExprPlan.nativeValue, not a context field
+  | .accountId => none  -- NEAR-only string account id; EVM has no equivalent
 
 /-- Derive the result name for an instruction from its result ValueDef array. -/
 private def resultName (instr : Instruction) : String :=

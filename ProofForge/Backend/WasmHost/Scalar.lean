@@ -717,7 +717,10 @@ def u128FmtFunc : Func :=
       .localGet "p" ] } }
 
 def u128ArithFuncs : Array Func :=
-  #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc, u128Divmod10Func, u128FmtFunc]
+  -- divmod10/fmt are event-format helpers (emitted via evtHelperFuncsForModulePlan
+  -- when usesEventNumeric), not u128 arithmetic; exclude them to avoid a
+  -- redefinition when both the event helper set and this list are emitted.
+  #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc]
 
 def powName (vt : ValueType) : String := "__pf_pow_" ++ typeSuffix vt
 

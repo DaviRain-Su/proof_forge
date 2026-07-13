@@ -19,16 +19,21 @@
 // execute the receipts that `promise_create`/`promise_then` produce — only the
 // callback-side read is validated against the real VM.
 //
+// `--predecessor-account-id(s)` and `--attached-deposit(s)-yocto` set either a
+// shared or per-call transaction context. This lets one persistent VM/storage
+// sequence exercise caller authorization and payable entrypoints without
+// pretending to be a full node or receipt scheduler.
+//
 // Exit codes: 0 = every method executed without abort; 1 = I/O or execution
 // failure (including `outcome.aborted`, which the VM reports as `Ok`); 2 =
 // usage error.
 
+use near_parameters::vm::Config;
 use near_parameters::ExtCostsConfig;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
-use near_parameters::vm::Config;
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{Gas, StorageUsage};
+use near_primitives_core::types::{AccountId, Balance, Gas, StorageUsage};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::types::{PromiseResult, ReturnData};
@@ -51,6 +56,11 @@ struct Cli {
     /// Injected promise results applied to every call's VMContext (empty by
     /// default, matching real receipt-free execution).
     promise_results: Arc<[PromiseResult]>,
+    /// Transaction predecessor for each call. This is also used as signer and
+    /// refund account in the conformance context.
+    predecessor_account_ids: Vec<AccountId>,
+    /// Attached yoctoNEAR deposit for each call.
+    attached_deposits_yocto: Vec<u128>,
 }
 
 impl Cli {
@@ -59,6 +69,10 @@ impl Cli {
         let mut single_input: Option<Vec<u8>> = None;
         let mut inputs_seq: Option<Vec<Vec<u8>>> = None;
         let mut promise_result_u64: Option<u64> = None;
+        let mut predecessor_account_id: Option<String> = None;
+        let mut predecessor_account_ids: Option<Vec<String>> = None;
+        let mut attached_deposit_yocto: Option<u128> = None;
+        let mut attached_deposits_yocto: Option<Vec<u128>> = None;
 
         let mut it = args.into_iter().peekable();
         while let Some(arg) = it.next() {
@@ -75,9 +89,32 @@ impl Cli {
                 }
                 "--promise-result-u64" => {
                     let raw = take_value(&mut it, "--promise-result-u64")?;
-                    promise_result_u64 = Some(
-                        raw.parse::<u64>()
-                            .map_err(|_| format!("--promise-result-u64 must be a u64, got `{raw}`"))?,
+                    promise_result_u64 =
+                        Some(raw.parse::<u64>().map_err(|_| {
+                            format!("--promise-result-u64 must be a u64, got `{raw}`")
+                        })?);
+                }
+                "--predecessor-account-id" => {
+                    predecessor_account_id = Some(take_value(&mut it, "--predecessor-account-id")?);
+                }
+                "--predecessor-account-ids" => {
+                    predecessor_account_ids = Some(
+                        take_value(&mut it, "--predecessor-account-ids")?
+                            .split(',')
+                            .map(str::to_string)
+                            .collect(),
+                    );
+                }
+                "--attached-deposit-yocto" => {
+                    let raw = take_value(&mut it, "--attached-deposit-yocto")?;
+                    attached_deposit_yocto = Some(parse_u128(&raw, "--attached-deposit-yocto")?);
+                }
+                "--attached-deposits-yocto" => {
+                    let raw = take_value(&mut it, "--attached-deposits-yocto")?;
+                    attached_deposits_yocto = Some(
+                        raw.split(',')
+                            .map(|value| parse_u128(value, "--attached-deposits-yocto"))
+                            .collect::<Result<Vec<_>, _>>()?,
                     );
                 }
                 s if s.starts_with('-') => return Err(format!("unknown option `{s}`")),
@@ -119,12 +156,78 @@ impl Cli {
             None => Arc::from(Vec::new()),
         };
 
-        Ok(Self { wasm_path, methods, inputs, promise_results })
+        if predecessor_account_id.is_some() && predecessor_account_ids.is_some() {
+            return Err(
+                "--predecessor-account-id cannot be combined with --predecessor-account-ids"
+                    .to_string(),
+            );
+        }
+        let predecessor_values = match (predecessor_account_ids, predecessor_account_id) {
+            (Some(values), _) => {
+                require_sequence_len("--predecessor-account-ids", values, methods.len())?
+            }
+            (_, Some(value)) => vec![value; methods.len()],
+            _ => vec!["proof-forge.testnet".to_string(); methods.len()],
+        };
+        let predecessor_account_ids = predecessor_values
+            .into_iter()
+            .map(|value| {
+                value
+                    .parse::<AccountId>()
+                    .map_err(|err| format!("invalid predecessor account id `{value}`: {err}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if attached_deposit_yocto.is_some() && attached_deposits_yocto.is_some() {
+            return Err(
+                "--attached-deposit-yocto cannot be combined with --attached-deposits-yocto"
+                    .to_string(),
+            );
+        }
+        let attached_deposits_yocto = match (attached_deposits_yocto, attached_deposit_yocto) {
+            (Some(values), _) => {
+                require_sequence_len("--attached-deposits-yocto", values, methods.len())?
+            }
+            (_, Some(value)) => vec![value; methods.len()],
+            _ => vec![0; methods.len()],
+        };
+
+        Ok(Self {
+            wasm_path,
+            methods,
+            inputs,
+            promise_results,
+            predecessor_account_ids,
+            attached_deposits_yocto,
+        })
     }
 }
 
-fn take_value<I: Iterator<Item = String>>(it: &mut std::iter::Peekable<I>, option: &str) -> Result<String, String> {
-    it.next().ok_or_else(|| format!("{option} requires a value"))
+fn require_sequence_len<T>(
+    option: &str,
+    values: Vec<T>,
+    methods_len: usize,
+) -> Result<Vec<T>, String> {
+    if values.len() != methods_len {
+        return Err(format!(
+            "{option} provided {} item(s), but the method sequence has {methods_len} call(s)",
+            values.len()
+        ));
+    }
+    Ok(values)
+}
+
+fn parse_u128(raw: &str, option: &str) -> Result<u128, String> {
+    raw.parse::<u128>()
+        .map_err(|_| format!("{option} must contain unsigned 128-bit integers, got `{raw}`"))
+}
+
+fn take_value<I: Iterator<Item = String>>(
+    it: &mut std::iter::Peekable<I>,
+    option: &str,
+) -> Result<String, String> {
+    it.next()
+        .ok_or_else(|| format!("{option} requires a value"))
 }
 
 fn print_usage() {
@@ -135,6 +238,14 @@ fn print_usage() {
            --input-hex HEX           Borsh input bytes (hex) applied to every method call\n\
            --inputs-hex HEX[,HEX...]  one Borsh input blob per method in the sequence\n\
            --promise-result-u64 N    inject one Successful promise_result (Borsh U64 LE) into every call\n\
+           --predecessor-account-id ID\n\
+                                      predecessor/signer account applied to every call\n\
+           --predecessor-account-ids ID[,ID...]\n\
+                                      one predecessor/signer account per method call\n\
+           --attached-deposit-yocto N\n\
+                                      attached yoctoNEAR applied to every call\n\
+           --attached-deposits-yocto N[,N...]\n\
+                                      one attached yoctoNEAR value per method call\n\
          \n\
          exit codes: 0 = all methods executed without abort; 1 = failure; 2 = usage error"
     );
@@ -151,9 +262,7 @@ fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(compact.len() / 2);
     for chunk in compact.as_bytes().chunks_exact(2) {
         let s = std::str::from_utf8(chunk).map_err(|_| "invalid hex byte".to_string())?;
-        out.push(
-            u8::from_str_radix(s, 16).map_err(|_| format!("invalid hex byte `{s}`"))?,
-        );
+        out.push(u8::from_str_radix(s, 16).map_err(|_| format!("invalid hex byte `{s}`"))?);
     }
     Ok(out)
 }
@@ -166,19 +275,16 @@ fn make_context(
     storage_usage: StorageUsage,
     input: Rc<[u8]>,
     promise_results: Arc<[PromiseResult]>,
+    predecessor_account_id: AccountId,
+    attached_deposit_yocto: u128,
 ) -> VMContext {
-    // All three account ids default to the contract account, matching the
-    // `runtime/offline-host` defaults used by the NEP-141 fixture flow (where
-    // the input's sender hash is sha256("proof-forge.testnet")). The Counter
-    // conformance fixture is account-id-agnostic, so this default is safe.
-    let account_id: near_primitives_core::types::AccountId =
-        "proof-forge.testnet".parse().unwrap();
+    let current_account_id: AccountId = "proof-forge.testnet".parse().unwrap();
     VMContext {
-        current_account_id: account_id.clone(),
-        signer_account_id: account_id.clone(),
+        current_account_id: current_account_id.clone(),
+        signer_account_id: predecessor_account_id.clone(),
         signer_account_pk: vec![0u8; 32],
-        predecessor_account_id: account_id.clone(),
-        refund_to_account_id: account_id,
+        predecessor_account_id: predecessor_account_id.clone(),
+        refund_to_account_id: predecessor_account_id,
         input,
         promise_results,
         block_height: 1,
@@ -188,7 +294,7 @@ fn make_context(
         account_locked_balance: near_primitives_core::types::Balance::ZERO,
         storage_usage,
         account_contract: AccountContract::from_local_code_hash(CryptoHash::default()),
-        attached_deposit: near_primitives_core::types::Balance::ZERO,
+        attached_deposit: Balance::from_yoctonear(attached_deposit_yocto),
         prepaid_gas: Gas::from_gas(PREPAID_GAS),
         random_seed: vec![0u8; 32],
         view_config: None,
@@ -233,6 +339,8 @@ fn main() {
             storage_usage,
             Rc::clone(&input),
             Arc::clone(&config.promise_results),
+            config.predecessor_account_ids[call_index].clone(),
+            config.attached_deposits_yocto[call_index],
         );
         let gas_counter = near_vm_runner::logic::GasCounter::new(
             ExtCostsConfig::test(),
@@ -294,4 +402,68 @@ fn main() {
         "[near-vm-runner] {} methods executed successfully on real NEAR VM",
         config.methods.len()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_per_call_context() {
+        let cli = Cli::parse(args(&[
+            "contract.wasm",
+            "init",
+            "storage_deposit",
+            "--predecessor-account-ids",
+            "owner.near,alice.near",
+            "--attached-deposits-yocto",
+            "0,7",
+        ]))
+        .expect("per-call context should parse");
+
+        assert_eq!(cli.predecessor_account_ids[0].as_str(), "owner.near");
+        assert_eq!(cli.predecessor_account_ids[1].as_str(), "alice.near");
+        assert_eq!(cli.attached_deposits_yocto, vec![0, 7]);
+    }
+
+    #[test]
+    fn rejects_context_sequence_length_mismatch() {
+        let err = Cli::parse(args(&[
+            "contract.wasm",
+            "init",
+            "storage_deposit",
+            "--attached-deposits-yocto",
+            "0",
+        ]))
+        .err()
+        .expect("mismatched sequence must fail");
+
+        assert!(
+            err.contains("provided 1 item(s)"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_conflicting_context_options() {
+        let err = Cli::parse(args(&[
+            "contract.wasm",
+            "init",
+            "--predecessor-account-id",
+            "owner.near",
+            "--predecessor-account-ids",
+            "owner.near",
+        ]))
+        .err()
+        .expect("conflicting options must fail");
+
+        assert!(
+            err.contains("cannot be combined"),
+            "unexpected error: {err}"
+        );
+    }
 }

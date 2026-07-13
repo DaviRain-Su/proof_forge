@@ -38,7 +38,7 @@ def main : IO Unit := do
     "ft_transfer_call must pass its transfer id to the callback"
 
   let resolver <- requireEntrypoint "ft_resolve_transfer"
-  require (resolver.params == #[("transfer_id", .u64), ("sender", .hash), ("receiver", .hash)])
+  require (resolver.params == #[("transfer_id", .u64), ("sender", .string), ("receiver", .string)])
     "ft_resolve_transfer must receive the transfer id and immutable callback identities"
   let resolverIr := reprStr resolver.body
   require (resolverIr.contains "callback must be private")

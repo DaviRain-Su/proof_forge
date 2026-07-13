@@ -951,6 +951,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
         | .randomSeed => .hash
         | .value => .u128
         | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
+        | .accountId => .string
       unless r.type == expected do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"contextRead {repr field} result must be {repr expected}, got {repr r.type}"

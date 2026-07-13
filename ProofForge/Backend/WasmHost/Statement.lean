@@ -29,6 +29,9 @@ def localLetBindInsns (name : String) (expectedType : ValueType)
   else if expectedType == .u128 then
     -- valueInsns leave (lo, hi); set hi first (top of stack), then lo.
     .ok (valueInsns ++ #[.localSet (u128HiName name), .localSet name])
+  else if expectedType == .string || expectedType == .bytes then
+    -- valueInsns leave (ptr, len); set len first (top of stack), then ptr.
+    .ok (valueInsns ++ #[.localSet (name ++ "_len"), .localSet name])
   else
     .ok (valueInsns ++ #[.localSet name])
 
@@ -37,7 +40,9 @@ def localAssignInsns (env : LocalTypes) (name : String) (valueInsns : Array Insn
   match lookupLocal? env name with
   | none => err s!"EmitWat: assignment to unknown local `{name}`"
   | some .u128 => .ok (valueInsns ++ #[.localSet (u128HiName name), .localSet name])
-  | _ => .ok (valueInsns ++ #[.localSet name])
+  | some vt => if vt == .string || vt == .bytes then
+    .ok (valueInsns ++ #[.localSet (name ++ "_len"), .localSet name])
+  else .ok (valueInsns ++ #[.localSet name])
 
 def localAssignOpTargetType (env : LocalTypes) (name : String) : Except EmitError ValueType := do
   let some localType ← pure (lookupLocal? env name) |

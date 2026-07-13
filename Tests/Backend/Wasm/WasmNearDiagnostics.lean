@@ -133,6 +133,18 @@ def u32KeyMapModule : Module := {
   entrypoints := #[unitEntrypoint "bad"]
 }
 
+def stringKeyMapModule : Module := {
+  name := "CanonicalOnlyStringMap"
+  state := #[{ id := "balances", kind := .map .string 16, type := .u64 }]
+  entrypoints := #[unitEntrypoint "bad"]
+}
+
+def u128ValueMapModule : Module := {
+  name := "CanonicalOnlyU128Map"
+  state := #[{ id := "balances", kind := .map .hash 16, type := .u128 }]
+  entrypoints := #[unitEntrypoint "bad"]
+}
+
 -- ---------------------------------------------------------------------------
 -- Entrypoint ABI cases
 -- ---------------------------------------------------------------------------
@@ -352,6 +364,16 @@ def mutableLocalModule : Module := {
   entrypoints := #[unitEntrypoint "tick" tickBody]
 }
 
+def extendedAbiModule : Module := {
+  name := "ExtendedAbi"
+  state := #[markerState]
+  entrypoints := #[
+    paramEntrypoint "echo_u128" #[("value", .u128)] .u128 #[.return (.local "value")],
+    paramEntrypoint "echo_string" #[("value", .string)] .string #[.return (.local "value")],
+    paramEntrypoint "echo_bytes" #[("value", .bytes)] .bytes #[.return (.local "value")]
+  ]
+}
+
 -- ---------------------------------------------------------------------------
 -- Test harness
 -- ---------------------------------------------------------------------------
@@ -372,9 +394,9 @@ def cases : Array (String × Module × String) := #[
   ("bounded loop sourcegen unsupported", boundedLoopModule,
     "bounded for loops are not supported by wasm-near IR v0"),
   ("fixed array ABI unsupported", fixedArrayModule,
-    "entrypoint `bad` parameter `xs` uses `Array<U64,1>`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address"),
+    "entrypoint `bad` parameter `xs` uses `Array<U64,1>`; wasm-near IR v0 ABI parameters must use U32, U64, U128, Bool, Hash, Address, Bytes, or String"),
   ("struct ABI unsupported", structModule,
-    "entrypoint `bad` parameter `point` uses `Point`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address"),
+    "entrypoint `bad` parameter `point` uses `Point`; wasm-near IR v0 ABI parameters must use U32, U64, U128, Bool, Hash, Address, Bytes, or String"),
   ("storage array sourcegen unsupported", storageArrayModule,
     "state `values` is storage.array; wasm-near IR v0 does not lower portable array storage"),
   ("crosscall Rust sourcegen unsupported", crosscallModule,
@@ -386,9 +408,13 @@ def cases : Array (String × Module × String) := #[
   ("zero capacity map unsupported", zeroCapacityMapModule,
     "map state `balances` must have non-zero capacity"),
   ("map shape unsupported", u32KeyMapModule,
-    "map state `balances` has unsupported wasm-near IR v0 type `Map<U32, U64, 16>`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported"),
+    "map state `balances` has unsupported wasm-near Rust sourcegen v0 type `Map<U32, U64, 16>`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported; use canonical EmitWat for String-keyed or U128-valued maps"),
+  ("string-key map belongs to canonical EmitWat", stringKeyMapModule,
+    "map state `balances` has unsupported wasm-near Rust sourcegen v0 type `Map<String, U64, 16>`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported; use canonical EmitWat for String-keyed or U128-valued maps"),
+  ("u128 map value belongs to canonical EmitWat", u128ValueMapModule,
+    "map state `balances` has unsupported wasm-near Rust sourcegen v0 type `Map<Hash, U128, 16>`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported; use canonical EmitWat for String-keyed or U128-valued maps"),
   ("unit parameter unsupported", unitParameterModule,
-    "entrypoint `set` parameter `value` uses `Unit`; wasm-near IR v0 ABI parameters must use U32, U64, Bool, Hash, or Address"),
+    "entrypoint `set` parameter `value` uses `Unit`; wasm-near IR v0 ABI parameters must use U32, U64, U128, Bool, Hash, Address, Bytes, or String"),
   ("invalid module name", invalidModuleName,
     "module name `1bad` is not a valid Rust identifier; identifiers must start with an ASCII letter or `_` and contain only ASCII letters, digits, or `_`"),
   ("reserved entrypoint name", reservedEntrypointNameModule,
@@ -450,7 +476,13 @@ def okCases : Array (String × Module × String) := #[
   ("hash context lowers sha256 account helper", hashContextModule, "__pf_account_id_hash_u64"),
   ("hash context lowers hash intrinsic", hashContextModule, "__pf_hash("),
   ("mutable local lowers compound assignment", mutableLocalModule, "acc *= 2u64;"),
-  ("native value lowers attached deposit", nativeValueModule, "env::attached_deposit()")
+  ("native value lowers attached deposit", nativeValueModule, "env::attached_deposit()"),
+  ("u128 ABI remains available in frozen sourcegen", extendedAbiModule,
+    "pub fn echo_u128(value: u128) -> u128"),
+  ("string ABI remains available in frozen sourcegen", extendedAbiModule,
+    "pub fn echo_string(value: String) -> String"),
+  ("bytes ABI remains available in frozen sourcegen", extendedAbiModule,
+    "pub fn echo_bytes(value: Vec<u8>) -> Vec<u8>")
 ]
 
 def checkCase (name : String) (module : Module) (expected : String) : IO Bool := do

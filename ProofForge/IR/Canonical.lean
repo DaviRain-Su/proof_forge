@@ -332,6 +332,7 @@ private def contextCapabilities : ContextField → Array Capability
   | .randomSeed => #[.cryptoHash]
   | .origin => #[.callerSender]
   | .contractAddress => #[.accountExplicit]
+  | .accountId => #[.callerSender]
 
 private def instructionCapabilities (instruction : Instruction) : Array Capability :=
   let resultCaps := instruction.results.foldl

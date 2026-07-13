@@ -1,6 +1,6 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: proposed (2026-07-13). Scope: make the ProofForge `wasm-near` NEP-141
+Status: active (2026-07-13; Phases 0-3 complete, Phase 4 next). Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
 conformance.
@@ -159,6 +159,9 @@ touching the FT or the cross-backend `ContextField` sweep.
   the flat 260-byte slot for `.string`/`.bytes` (matching `Params.loadParams`);
   `surfaceFromValueType` sets `withArrAlloc` for `.string`/`.bytes` (Borsh
   param decode allocs a payload buffer via `__pf_arr_alloc`).
+- The frozen Rust sourcegen keeps its narrower map boundary
+  (`Map<U64|Hash, U32|U64|Bool|Hash>`). String-keyed/U128-valued map support is
+  owned by canonical EmitWat planning/lowering, not by the sourcegen validator.
 - Gate: `just near-vm-string-key-map` — `StringKeyMapProbe`
   (`Map<string, u128>`; `map_roundtrip(key : String) -> U128`: write u128(100)
   at the key, read back) rendered via `EmitWat`, executed on the unmodified
@@ -170,10 +173,81 @@ touching the FT or the cross-backend `ContextField` sweep.
 `ContextField.accountId` exhaustiveness sweep (`__pf_ctx_account_id` returning
 the raw `predecessor_account_id` as a `(ptr, len)` string, no sha256); two-slot
 string locals (`let sender : .string := callerAccountId`); string equality;
-FT conversion (`balances`/`storageDeposits` → `.string` keys,
-`account_id` params → `.string`, `mintAuthority` → string); variable-length
+FT conversion (`balances`/`storageDeposits` → `.string` keys and
+`account_id` params → `.string`; `mintAuthority` remains a full SHA-256 hash
+because raw string scalar storage is outside this landing); variable-length
 string INPUT (the current flat-260 prologue assert is a ProofForge convention;
 real variable-length Borsh string input is Phase 4 JSON/Borsh codec).
+
+### Landing 2a — callerAccountId + ContextField.accountId sweep  (DONE 2026-07-13)
+
+Added `ContextField.accountId` to Core `Type.lean` plus the `__pf_ctx_account_id`
+VOID host helper (stages the raw `predecessor_account_id` bytes at `ACCT_ID_BUF`
+with a 4-byte LE length at `ACCT_ID_LEN`, no sha256) and the `lowerContextExprPlan
+.accountId` materializer (`(ptr, len)` of type `.string`). Swept every non-NEAR
+backend (EVM ToYul/Effect/Lower/Plan, Legacy classification, IR Semantics +
+SemanticsFuel, Solana/Psy/Aleo/Stylus/PortableHonesty/Adapter/Elaborate) to reject
+`.accountId` so the triad stays portable.
+- Gate: `just near-vm-caller-account-id-map` — `CallerAccountIdMapProbe`
+  (`Map<string, u128>` round-trip keyed by `callerAccountId`) returns `u128 100`
+  (`64000000000000000000000000000000`) on the upstream NEAR VM. Direct account
+  map keys no longer require a hashed identity projection.
+- No regressions across the NEAR/EVM/portable gate set; `lake build` (792 jobs).
+
+### Landing 2b — NearFungibleToken AccountId string keys + full transfer_call  (DONE 2026-07-13)
+
+Converted the NEP-141 FT to raw AccountId string keys end-to-end through the
+canonical `NearModulePlan` lowering path.
+- **FT source:** `balances` / `storageDeposits` → `.string` keys;
+  `account_id` / `receiver_id` params → `.string`; `callerHash` →
+  `callerAccountId` for balances and transfer ownership; string equality via
+  `__pf_str_eq`. **Allowances and `mintAuthority` remain `.hash`**: allowance
+  keys are derived composites, while raw string scalar storage is outside this
+  landing. The hash is the full 256-bit SHA-256 value, not a truncated limb.
+- **Two-slot string locals:** legacy `EmitWat.lean` + `Locals.lean` +
+  `Statement.lean` and canonical `NearModulePlan.lean` lower `let sender :
+  .string := callerAccountId` to a `(name i32, name_len i32)` local pair.
+- **String event field values:** `__pf_evt_putstr_value` emits dynamic `(ptr, len)`
+  strings as JSON-quoted UTF-8 (FTransfer now logs `"from":"alice.testnet"`).
+- **Params payload copy fix:** `Params.loadParams` for `.string` now
+  copies the full `len + 4` bytes (length prefix + payload) from `INPUT_BUF`, not
+  just the 4-byte length prefix — the param string pointer previously pointed at
+  uninitialized memory, so param-keyed writes and `callerAccountId`-keyed reads
+  mismatched and `ft_transfer` trapped on `requireGe`. Dynamic `.bytes` ABI
+  parameters remain explicitly unsupported in canonical EmitWat (the frozen
+  Rust sourcegen has its own `Vec<u8>` ABI surface).
+- **u128 helper dedup:** `__pf_u128_divmod10` / `__pf_fmt_u128` are event-format
+  helpers, not u128 arithmetic; removed from `u128ArithFuncs` (kept in the event
+  helper set) and added name-based dedup to the legacy `helperFuncsForModulePlan`
+  (the canonical path already deduped via `foldl`). Fixes a redefinition that
+  broke `near-u128-fmt-smoke` and would have broken any legacy render with both
+  crosscall and event u128.
+- **Canonical context path:** `Core.ContextField.accountId` + adapter +
+  `NearModulePlan` lowering + Core surface + `LegacyParity.lean` handleContext.
+- **Local real-VM contexts:** `near-vm-runner` accepts per-call predecessor and
+  attached-deposit sequences. The FT gate proves deposit `7`, authorized
+  withdrawal `3` (balance `4`), and an attacker predecessor abort on the
+  unmodified upstream VM, covering both outcomes of string equality.
+- **Backend-boundary repair:** the frozen Rust sourcegen now rejects
+  String-keyed/U128-valued maps during validation with a canonical-EmitWat
+  routing diagnostic, instead of accepting shapes for which it has no map
+  helpers. Its existing U128/String/Bytes parameter and return surface remains
+  covered by positive sourcegen diagnostics.
+- Gates (all on the unmodified upstream NEAR VM / offline host):
+  `just near-vm-conformance-ft` — full NEP-141 `ft_transfer_call` +
+  `ft_resolve_transfer` callback (sender 100→30→55, receiver 0→70→45, refund 45);
+  `just wasm-near-ft-transfer-call`, `just wasm-near-ft-transfer-call-e2e`
+  (happy path, repeat-init, private callback, bounded refund, concurrent
+  contexts), `just near-ft-security`, `just product-token-near`,
+  `just near-vm-caller-account-id-map`, `just near-vm-string-key-map`,
+  `just near-u128-fmt-smoke`, `just portable-nft-multi-target`, `just nft-intent`,
+  `just evm-plan`, `just evm-abi-schema`, `just strict-intent-materialization`.
+  `lake build` (794 jobs). Both Wasm coverage manifests contain all 149 IR
+  constructors; Rust sourcegen diagnostics pass 51 cases.
+- **Known unrelated baseline drift:** `portable-value-vault` / `solana-light`
+  still reference a stale `ValueVault.canonical.golden.wat` predating the Phase
+  2 u128 event helpers. The missing canonical refinement constructors were
+  repaired here and `just canonical-core` now passes.
 
 ## Phase 4 — JSON codecs (N-01)  (effort XL; biggest risk; depends 2,3)
 

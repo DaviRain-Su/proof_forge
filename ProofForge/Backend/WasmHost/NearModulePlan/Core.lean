@@ -164,6 +164,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .contextRead .epochHeight => contextOps := contextOps.push .epochHeight
         | .contextRead .randomSeed => contextOps := contextOps.push .randomSeed
         | .contextRead .origin => contextOps := contextOps.push .origin
+        | .contextRead .accountId => contextOps := contextOps.push .accountId
         | .emit event _ =>
           usesEventApi := true
           match m.events.find? (fun decl => decl.id == event) with
@@ -261,9 +262,21 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | _ => false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
-    stringIndexedReadTypes := #[]
-    stringIndexedWriteTypes := #[]
-    usesStringIndexedBuildKey := false
+    stringIndexedReadTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+      | .storageLoad { path := #[.mapKey key], resultType, .. } =>
+          if key.type == .string then some (coreTypeToValueType resultType) else none
+      | _ => none))
+    stringIndexedWriteTypes := dedupValueTypes <| m.functions.flatMap (fun function => function.blocks.flatMap (fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+      | .storageStore { path := #[.mapKey key], resultType, .. } _ =>
+          if key.type == .string then some (coreTypeToValueType resultType) else none
+      | _ => none))
+    usesStringIndexedBuildKey := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+      | .storageLoad { path := #[.mapKey key], .. }
+      | .storageStore { path := #[.mapKey key], .. } _ => key.type == .string
+      | _ => false
     usesStringIndexedContains := false
     usesHashMake := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
@@ -280,6 +293,10 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
       block.instructions.any fun instruction => match instruction.op with
         | .pure (.compare op lhs _) => lhs.type == .hash && (op == .eq || op == .ne)
         | _ => false
+    usesStrEq := m.functions.any fun function => function.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .pure (.compare op lhs _) => lhs.type == .string && (op == .eq || op == .ne)
+        | _ => false
     usesPowU32 := false
     usesPowU64 := false
     usesMemcpy := !usesEventApi && m.functions.any fun function => function.blocks.any fun block =>
@@ -293,7 +310,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     arrayLitShapes := #[]
     arrayEqShapes := #[]
     structLitNames := #[]
-    usesArrAlloc := false
+    usesArrAlloc := m.functions.any (fun fn =>
+      fn.params.any (fun p => p.type == .string || p.type == .bytes))
     usesArrDealloc := false
   }
 

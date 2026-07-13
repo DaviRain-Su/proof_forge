@@ -137,6 +137,7 @@ def contextFieldType (field : ContextField) : CoreType :=
   | .randomSeed => .hash
   | .value => .u128
   | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
+  | .accountId => .string
 
 /- Convert a Surface constructor binding kind to Canonical. -/
 def adaptCtorKind (kind : SurfaceConstructorBindingKind) :

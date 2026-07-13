@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "d6125b0b52d83cab62c1ed5e2e403ba3c1ef24a777a60b8b9859491c0addd542",
+    "sha256": "a0554cfcd4772264815946d2523395b1c4aca58c5196465d5e934def38d38aa2",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus static matrix, doctor, and CI evidence gates"
+    "note": "manually synced for Stylus evidence gates and NEP-141 real-VM predecessor/deposit authorization"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

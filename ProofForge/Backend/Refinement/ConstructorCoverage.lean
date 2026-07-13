@@ -367,6 +367,7 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
   cases field with
   | userId => simp [evalEffectFuel, h]
   | userIdHash => simp at h
+  | accountId => simp at h
   | contractId => simp [evalEffectFuel, h]
   | checkpointId => simp [evalEffectFuel, h]
   | timestamp => simp [evalEffectFuel, h]

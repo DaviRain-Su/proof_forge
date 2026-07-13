@@ -104,18 +104,26 @@ lake env proof-forge build --target wasm-near --root . -o "$FT_OUT" \
 LIFECYCLE_WAT="$(find "$FT_OUT" -name '*.wat' | head -n1)"
 require_file "$LIFECYCLE_WAT"
 
-# ft_transfer param order in stdlib: receiver hash + amount (see NearFungibleToken).
+# ft_transfer param order in stdlib: receiver account_id (string) + amount (see NearFungibleToken).
+# NEP-141 string-keyed balances: account ids are raw Borsh strings in a fixed
+# 260-byte slot (4-byte LE length + payload + zero padding).
 eval "$(python3 - <<'PY'
-import hashlib, struct
-sender = hashlib.sha256(b"alice.testnet").digest()
-receiver = hashlib.sha256(b"bob.testnet").digest()
+import struct
+def acct_slot(name):
+    b = name.encode()
+    assert len(b) <= 256
+    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def u128(v):
+    return struct.pack("<QQ", v, 0)
+sender = "alice.testnet"
+receiver = "bob.testnet"
 inputs = [
     b"",
-    sender + struct.pack("<QQ", 100, 0),
-    sender,
-    receiver + struct.pack("<QQ", 30, 0),
-    sender,
-    receiver,
+    acct_slot(sender) + u128(100),
+    acct_slot(sender),
+    acct_slot(receiver) + u128(30),
+    acct_slot(sender),
+    acct_slot(receiver),
 ]
 print(f'INPUTS_HEX="{",".join(i.hex() for i in inputs)}"')
 PY

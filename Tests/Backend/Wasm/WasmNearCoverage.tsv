@@ -7,10 +7,10 @@ ValueType	hash	lowered	valueTypeName emits [u64; 4], literal emits four-limb arr
 ValueType	fixedArray	unsupported	The wasm-near target profile advertises data.fixed_array for the EmitWat path, but Rust sourcegen v0 rejects fixed-array ABI parameters/returns and lowerExpr rejects array literals/indexing.
 ValueType	structType	unsupported	The wasm-near target profile advertises data.struct for the EmitWat path, but Rust sourcegen v0 rejects struct ABI parameters/returns and lowerExpr rejects struct literals/field access.
 ValueType	address	lowered	valueTypeName emits u64 (same as numeric scalars), literal emits {value}u64, and Address ABI parameters/returns/event fields/storage lower directly; pattern match exhaustiveness verified across wasm-near backend.
-ValueType	bytes	unsupported	wasm-near IR v0 rejects data.dynamic_bytes; valueTypeName returns error "wasm-near IR v0 does not support Bytes" and validateEntrypointParameters/validateEntrypointReturn reject bytes parameters and returns.
-ValueType	string	unsupported	wasm-near IR v0 rejects data.dynamic_bytes; valueTypeName returns error "wasm-near IR v0 does not support String" and validateEntrypointParameters/validateEntrypointReturn reject string parameters and returns.
+ValueType	bytes	lowered	Frozen Rust sourcegen v0 emits Vec<u8> types and vec![..] literals and accepts Bytes parameters/returns; this sourcegen-only support is distinct from canonical EmitWat, which rejects dynamic Bytes ABI values.
+ValueType	string	lowered	Frozen Rust sourcegen v0 emits String types and quoted literals and accepts String parameters/returns; it does not support String equality or String-keyed storage maps, which belong to canonical EmitWat.
 ValueType	u8	lowered	wasm-near IR v0 lowers U8 as i32 (same as U32); literal emits {value}u32; U8 ABI parameters/locals/returns/event fields/storage lower with the u32 codec helpers; pattern match exhaustiveness verified.
-ValueType	u128	unsupported	wasm-near IR v0 rejects U128; valueTypeName returns error "wasm-near IR v0 does not support U128" and validateEntrypointParameters/Return reject U128 parameters and returns.
+ValueType	u128	lowered	Frozen Rust sourcegen v0 emits u128 types/literals and accepts U128 parameters, returns, locals, numeric expressions, and casts; U128 scalar/map storage helpers are not supported and canonical EmitWat owns those shapes.
 StateKind	scalar	lowered	scalar state lowers to a pub struct field read/written via self.<id>; U32/U64/Bool/Hash scalar shapes are accepted by validateState and Counter covers U64 scalar storage.
 StateKind	map	validated	validateState accepts only Map<U64|Hash, U32|U64|Bool|Hash, N>; Ledger covers Map<U64, U64, 16> and Tests/Backend/Wasm/WasmNearDiagnostics.lean covers zero-capacity and U32-key map rejection.
 StateKind	array	unsupported	The wasm-near target profile advertises storage.array for the EmitWat path, but Rust sourcegen v0 rejects array state during validateState.
@@ -20,11 +20,12 @@ Literal	bool	lowered	literal emits true/false and is covered by the conditional 
 Literal	hash4	lowered	literal emits four-limb [u64; 4] arrays and is covered by the Hasher fixture and the cast-mismatch diagnostic.
 Literal	address	lowered	literal emits {value}u64 and is covered by validateLiteralBounds and pattern match exhaustiveness across the wasm-near backend; address is treated as a u64 scalar.
 Literal	u8	lowered	wasm-near IR v0 emits i32.const for U8 literals (same as U32); covered by literalType and checkLiteralBounds with max 255.
-Literal	u128	unsupported	wasm-near IR v0 does not support U128 literals; literal function returns placeholder, literalType maps to .u128 but valueTypeName rejects it.
-Literal	bytes	unsupported	EmitWat rejects bytes literals with an explicit diagnostic; dynamic bytes are accepted only through decoded parameters or allocated memory.
-Literal	string	unsupported	EmitWat rejects string literals with an explicit diagnostic; dynamic strings are accepted only through decoded parameters or allocated memory.
+Literal	u128	lowered	Frozen Rust sourcegen v0 emits checked Nu128 Rust literals and infers their type as U128.
+Literal	bytes	lowered	Frozen Rust sourcegen v0 emits Bytes literals as vec![Nu8, ...] and infers Vec<u8>; canonical EmitWat does not implement this literal form.
+Literal	string	lowered	Frozen Rust sourcegen v0 emits quoted String literals and infers String; canonical EmitWat currently receives strings through parameters/context/string pools instead of direct literals.
 ContextField	userId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::predecessor_account_id()); Hasher fixture covers it and the context-as-statement diagnostic guards misuse.
 ContextField	userIdHash	lowered	EmitWat lowers contextRead userIdHash to __pf_ctx_user_hash (sha256 predecessor account id bytes); NearFungibleToken callerHash covers hash-keyed balance transfers.
+ContextField	accountId	unsupported	Frozen Rust sourcegen v0 rejects raw accountId context reads; canonical EmitWat lowers accountId to the predecessor_account_id byte payload as a bounded String.
 ContextField	contractId	lowered	lowerEffectExpr emits __pf_account_id_hash_u64(&env::current_account_id()); AccountIdHash helper generation is gated by moduleUsesAccountIdHash.
 ContextField	checkpointId	lowered	lowerEffectExpr emits env::block_height(); capability envBlock is present in the wasm-near profile.
 ContextField	timestamp	unsupported	wasm-near IR v0 context read catch-all rejects timestamp with an explicit diagnostic; only userId, contractId, and checkpointId are available.
@@ -32,8 +33,8 @@ ContextField	epochHeight	unsupported	wasm-near IR v0 sourcegen is frozen and rej
 ContextField	chainId	unsupported	wasm-near IR v0 context read catch-all rejects chainId with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasPrice	unsupported	wasm-near IR v0 context read catch-all rejects gasPrice with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	gasLeft	unsupported	wasm-near IR v0 context read catch-all rejects gasLeft with an explicit diagnostic; only userId, contractId, and checkpointId are available.
-ContextField	prepaidGas	lowered	EmitWat lowers prepaidGas to the NEAR prepaid_gas host import and tracks it in the module plan.
-ContextField	usedGas	lowered	EmitWat lowers usedGas to the NEAR used_gas host import and tracks it in the module plan.
+ContextField	prepaidGas	unsupported	Frozen Rust sourcegen v0 rejects prepaidGas context reads; canonical EmitWat maps it to the NEAR prepaid_gas host import.
+ContextField	usedGas	unsupported	Frozen Rust sourcegen v0 rejects usedGas context reads; canonical EmitWat maps it to the NEAR used_gas host import.
 ContextField	baseFee	unsupported	wasm-near IR v0 context read catch-all rejects baseFee with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	prevRandao	unsupported	wasm-near IR v0 context read catch-all rejects prevRandao with an explicit diagnostic; only userId, contractId, and checkpointId are available.
 ContextField	randomSeed	unsupported	wasm-near IR v0 sourcegen is frozen and rejects randomSeed with an explicit diagnostic; EmitWat is the canonical path for env.random_seed.
@@ -98,15 +99,15 @@ Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen to promise_then on t
 Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count in callback entrypoints; Plan tracks usesPromiseResults.
 Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns the NEAR status code as U64.
 Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64); NearFungibleToken ft_resolve_transfer returns pending amount minus unused callback amount.
-Expr	nearPromiseResultU128	lowered	EmitWat lowers nearPromiseResultU128 via __pf_promise_result_u128 (promise_result + read_register Borsh U128); callback amounts preserve both 64-bit limbs.
+Expr	nearPromiseResultU128	lowered	Canonical EmitWat lowers nearPromiseResultU128 through promise_result/read_register and reloads the staged 16-byte Borsh payload as low/high words; frozen Rust sourcegen rejects the NEAR promise API.
 Effect	storageScalarRead	lowered	lowerEffectExpr emits self.<id>; Counter get covers it and the read-as-statement diagnostic guards misuse.
 Effect	storageScalarWrite	lowered	lowerEffectStmt emits self.<id> = value;; Counter increment covers it and the write-as-expression diagnostic guards misuse.
 Effect	storageScalarAssignOp	unsupported	validateEffectStmtTypes and lowerEffectStmt both reject storage.scalar.assign_op in wasm-near IR v0; diagnostic covers it.
 Effect	storageMapContains	lowered	lowerEffectExpr emits env::storage_has_key after key-type validation; statement-misuse diagnostic guards it.
 Effect	storageMapGet	lowered	lowerEffectExpr emits __pf_decode_<t>(env::storage_read(...)); Ledger get covers it.
+Effect	storageMapDelete	lowered	Frozen Rust sourcegen lowers storageMapDelete to env::storage_remove for supported U64/Hash map keys in expression and statement positions.
 Effect	storageMapInsert	lowered	lowerEffectExpr and lowerEffectStmt emit __pf_map_set_<t>(key, value); Ledger fixtures cover expression and statement forms.
 Effect	storageMapSet	lowered	lowerEffectExpr and lowerEffectStmt emit __pf_map_set_<t>(key, value); Ledger set covers the statement form.
-Effect	storageMapDelete	lowered	EmitWat lowers map deletion through the typed storage_remove helper in expression and statement position.
 Effect	storageArrayRead	unsupported	Rust sourcegen v0 rejects storage array reads in lowerEffectExpr; storage.array is present on the target profile for EmitWat coverage.
 Effect	storageArrayWrite	unsupported	Rust sourcegen v0 rejects storage array writes in lowerEffectStmt; storage.array is present on the target profile for EmitWat coverage.
 Effect	storageArrayStructFieldRead	unsupported	Rust sourcegen v0 rejects storage array struct field reads in lowerEffectExpr; storage.array/data.struct are present on the target profile for EmitWat coverage.

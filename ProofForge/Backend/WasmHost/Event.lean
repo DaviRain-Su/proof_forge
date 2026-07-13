@@ -174,6 +174,8 @@ def evtValueInsnsForType (fieldName : String) (type : ValueType) :
   | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
   | .bool => .ok #[.call evtPutboolName]
   | .hash => .ok #[.call evtPutHashName]
+  | .string => .ok #[.i32Const 0x22, .call evtPutcName, .call evtPutstrName,
+    .i32Const 0x22, .call evtPutcName]
   | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
 
 /-- Emit composite `,"field":` + value (one putstr for the static key fragment). -/

@@ -150,8 +150,10 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
                       .store (storeOpFor f.type) 0]
                 acc ++ loadField) #[]
           .ok (insns ++ loadInsns, locals.push { name := name, type := .i32 }, offset + totalBytes, hslot)
-      | .bytes | .string =>
-        -- Borsh dynamic bytes/string: 4-byte LE length prefix + payload.
+      | .bytes =>
+        err s!"EmitWat: param `{name}` has unsupported Borsh type `dynamic_bytes` (wasm-near IR v0 does not support Bytes parameters; use String for account ids)"
+      | .string =>
+        -- Borsh dynamic string: 4-byte LE length prefix + payload.
         -- Allocate a buffer, copy the 4-byte length prefix + payload from INPUT_BUF.
         -- The local holds an i32 pointer to the payload (length prefix at ptr - 4).
         let lenOff := INPUT_BUF + offset

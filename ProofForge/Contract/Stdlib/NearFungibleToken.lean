@@ -75,17 +75,17 @@ def tokenSymbol : ScalarRef :=
 def storageRequired : ScalarRef :=
   ProofForge.Contract.Surface.slot "storageRequired" .u64
 
-/-- Balance mapping: account hash -> u128 balance. -/
+/-- Balance mapping: account id string -> u128 balance. -/
 def balances : MapRef :=
-  { id := "balances", keyType := .hash, valueType := .u128 }
+  { id := "balances", keyType := .string, valueType := .u128 }
 
 /-- Allowance mapping: hashTwoToOne(owner, spender) -> u128 allowance. -/
 def allowances : MapRef :=
   { id := "allowances", keyType := .hash, valueType := .u128 }
 
-/-- NEP-145 storage deposits: account hash -> U64 projected yoctoNEAR balance. -/
+/-- NEP-145 storage deposits: account id string -> U64 projected yoctoNEAR balance. -/
 def storageDeposits : MapRef :=
-  { id := "storageDeposits", keyType := .hash, valueType := .u64 }
+  { id := "storageDeposits", keyType := .string, valueType := .u64 }
 
 /-- One-shot initialization marker and mint authority. -/
 def initialized : ScalarRef :=
@@ -164,7 +164,7 @@ contract_mixin NearFungibleTokenMixin do
   query ft_total_supply returns(.u128) do
     return totalSupply;
 
-  query ft_balance_of (account_id : .hash) returns(.u128) do
+  query ft_balance_of (account_id : .string) returns(.u128) do
     return mapRead balances account_id;
 
   query ft_metadata returns(.u64) do
@@ -179,10 +179,10 @@ contract_mixin NearFungibleTokenMixin do
   query storage_balance_bounds returns(.u64) do
     return storageRequired;
 
-  query storage_balance_of (account_id : .hash) returns(.u64) do
+  query storage_balance_of (account_id : .string) returns(.u64) do
     return mapRead storageDeposits account_id;
 
-  entry storage_deposit (account_id : .hash) do
+  entry storage_deposit (account_id : .string) do
     let amount : .u64 := ProofForge.Contract.Surface.cast nativeValue .u64;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref amount)
       (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small";
@@ -190,9 +190,9 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite storageDeposits account_id (previous +! amount);
     emit StorageDeposit indexed #[fieldAsName "account" account_id] data #[fieldAsName "amount" amount];
 
-  entry storage_withdraw (account_id : .hash, amount : .u64) do
+  entry storage_withdraw (account_id : .string, amount : .u64) do
     let deposit : .u64 := nativeValue;
-    do ProofForge.Contract.Surface.requireEq callerHash
+    do ProofForge.Contract.Surface.requireEq callerAccountId
       (ProofForge.Contract.Surface.ref account_id) "storage withdraw caller mismatch";
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref deposit)
       (u64 1) "storage withdraw requires at least 1 yoctoNEAR deposit";
@@ -201,9 +201,9 @@ contract_mixin NearFungibleTokenMixin do
       (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";
     do mapWrite storageDeposits account_id (previous -! amount);
 
-  entry ft_transfer (receiver_id : .hash, amount : .u128) do
+  entry ft_transfer (receiver_id : .string, amount : .u128) do
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
-    let sender : .hash := callerHash;
+    let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
@@ -212,7 +212,7 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite balances receiver_id (dstBal +! amount);
     emit FTransfer indexed #[fieldAsName "from" sender, fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
 
-  entry ft_mint (receiver_id : .hash, amount : .u128) do
+  entry ft_mint (receiver_id : .string, amount : .u128) do
     do ProofForge.Contract.Surface.requireEq callerHash
       (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
     let srcBal : .u128 := mapRead balances receiver_id;
@@ -222,7 +222,7 @@ contract_mixin NearFungibleTokenMixin do
     emit FMint indexed #[fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
 
   entry ft_burn (amount : .u128) do
-    let who : .hash := callerHash;
+    let who : .string := callerAccountId;
     let bal : .u128 := mapRead balances who;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref bal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
@@ -237,9 +237,9 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite allowances allowanceKey amount;
     emit FApproval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
 
-  entry ft_transfer_call (receiver_id : .hash, receiver_idx : .u32, amount : .u128) returns(.u64) do
+  entry ft_transfer_call (receiver_id : .string, receiver_idx : .u32, amount : .u128) returns(.u64) do
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
-    let sender : .hash := callerHash;
+    let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
       (ProofForge.Contract.Surface.ref amount) "insufficient balance";
@@ -263,7 +263,7 @@ contract_mixin NearFungibleTokenMixin do
       #[ProofForge.Contract.Surface.ref transferId, ProofForge.Contract.Surface.ref sender,
         ProofForge.Contract.Surface.ref receiver_id] (u64 0);
 
-  entry ft_resolve_transfer (transfer_id : .u64, sender : .hash, receiver : .hash) returns(.u128) do
+  entry ft_resolve_transfer (transfer_id : .u64, sender : .string, receiver : .string) returns(.u128) do
     do ProofForge.Contract.Surface.requireEq caller contractId "callback must be private";
     do ProofForge.Contract.Surface.requireEq .nearPromiseResultsCount (u64 1)
       "callback requires exactly one promise result";
