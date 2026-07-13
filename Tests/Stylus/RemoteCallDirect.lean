@@ -1,4 +1,6 @@
 import ProofForge.Backend.Stylus.DirectWasm.Module
+import ProofForge.Backend.Stylus.Package
+import ProofForge.Backend.Stylus.RustSdk.Render
 import ProofForge.Compiler.Wasm.Printer
 
 open ProofForge.Backend.Stylus
@@ -149,4 +151,21 @@ def main : IO Unit := do
     | .ok value => pure value | .error error => throw <| IO.userError error.message
   IO.FS.createDirAll "build/stylus/remote-call"
   IO.FS.writeFile "build/stylus/remote-call/call.wat" (ProofForge.Compiler.Wasm.Printer.render module)
+  let implemented : RendererSupportPlan := { rustSdk := .implemented, directWasm := .implemented }
+  let rustPlan := { plan with
+    abi := { plan.abi with methods := plan.abi.methods.filter (fun method => method.name != "invokeBytes") }
+    functions := (plan.functions.filter (fun function => function.id != "invokeBytes")).map
+      (fun function => { function with support := implemented })
+    calls := (plan.calls.filter (fun call => call.id != "call-25")).map
+      (fun call => { call with support := implemented })
+    hostOps := (plan.hostOps.filter (fun hostOp => hostOp.functionId != "invokeBytes")).map
+      (fun hostOp => { hostOp with support := implemented }) }
+  let crate <- match ProofForge.Backend.Stylus.RustSdk.renderCrate rustPlan with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"Rust remote-call rendering failed: {error.message}"
+  let cratePath := System.FilePath.mk "build/stylus/remote-call/rust"
+  if ← cratePath.pathExists then IO.FS.removeDirAll cratePath
+  match ← ProofForge.Backend.Stylus.writeCrateAtomic crate cratePath with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError error.message
   IO.println "stylus-remote-call-direct: ok"

@@ -21,6 +21,7 @@ inductive RustReturnType where
   deriving Repr, BEq
 
 inductive RustStmt where
+  | rawLines (lines : Array String)
   | letLiteral (name typeName value : String)
   | letCast (name typeName expression : String)
   | letStorageGet (name field : String) (type : StylusAbiType)

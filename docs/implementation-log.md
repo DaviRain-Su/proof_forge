@@ -1736,3 +1736,21 @@ Rules:
 - Remaining: compile the extent carrier into direct Wasm, recurse dynamic
   array/tuple children, and implement dynamic storage. No W3 completion
   checkbox was closed.
+
+## 2026-07-13 - STYLUS-W4: Rust SDK static-call oracle foundation
+
+- Status: `static uint64 call slice complete; runtime parity closure pending`
+- Result: the Rust SDK renderer now consumes `StylusCallPlan` for uint64-return
+  call, static-call, and delegate-call envelopes. It emits pinned SDK 0.10.8
+  `RawCall`, plan-owned cache policy, optional gas/value, selector plus static
+  uint64 arguments, bounded return copying, revert propagation, and canonical
+  uint64 return validation.
+- Fallibility: functions containing calls now return `Result<_, Vec<u8>>`, so
+  callee revert bytes and malformed return data are preserved rather than
+  hidden behind an infallible generated signature.
+- Verification: `just stylus-remote-call-differential` executes all existing
+  direct/runner/reentrant vectors and compiles the generated Rust call/static/
+  delegate/value/gas crate under the pinned toolchain.
+- Remaining: generated-Rust TestVM execution, dynamic return rendering,
+  static-write rejection, delegate context assertions, and two-contract local/
+  Nitro evidence. W4 remains active.

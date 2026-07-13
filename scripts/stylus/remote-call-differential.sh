@@ -148,3 +148,6 @@ assert outer_revert["result"] == "outer reverted".encode().hex()
 assert slot_zero not in outer_revert["storage"]
 print("stylus-remote-call-differential-runtime: ok")
 PY
+
+RUSTUP_TOOLCHAIN=1.91.0 CARGO_TARGET_DIR=build/stylus/cargo-target \
+  cargo test --manifest-path build/stylus/remote-call/rust/Cargo.toml --features stylus-test

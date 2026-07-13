@@ -179,7 +179,7 @@ stylus-aggregate-differential:
     scripts/stylus/aggregate-differential.sh
 
 stylus-remote-call-differential:
-    lake build Examples.Product.RemoteCall ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module
+    lake build Examples.Product.RemoteCall ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
     scripts/stylus/remote-call-differential.sh
 
 stylus-scalar-params:

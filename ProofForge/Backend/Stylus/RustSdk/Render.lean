@@ -136,7 +136,48 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let data := (event.fields.zip values).filterMap fun (field, value) =>
         if field.indexed then none else some (localName value, field.type)
       pure (.emitEvent event.canonicalSignature indexed data)
-  | .call _ _ callId => fail s!"Rust SDK call envelope `{callId}` lowering is not implemented"
+  | .call result type callId => do
+      let some call := plan.calls.find? (fun call => call.id == callId)
+        | fail s!"Rust SDK call envelope `{callId}` is missing"
+      unless type == .uint 64 && call.returnType == .uint 64 do
+        fail s!"Rust SDK call envelope `{callId}` currently requires uint64 return"
+      let mut lines := #[
+        s!"let mut __pf_calldata_{result} = self.vm().native_keccak256(b\"{call.canonicalSignature}\")[..4].to_vec();"
+      ]
+      for index in [0:call.arguments.size] do
+        let some argument := call.arguments[index]?
+          | fail s!"Rust SDK call envelope `{callId}` argument index is invalid"
+        let some argumentType := call.paramTypes[index]?
+          | fail s!"Rust SDK call envelope `{callId}` argument type is missing"
+        match argumentType with
+        | .uint 64 =>
+            lines := lines.push s!"__pf_calldata_{result}.extend_from_slice(&U256::from({localName argument}).to_be_bytes::<32>());"
+        | _ => fail s!"Rust SDK call envelope `{callId}` has unsupported argument `{repr argumentType}`"
+      let constructor := match call.mode, call.value? with
+        | .call, some value => s!"stylus_sdk::call::RawCall::new_with_value(self.vm(), U256::from({localName value}))"
+        | .call, none => "stylus_sdk::call::RawCall::new(self.vm())"
+        | .staticCall, _ => "stylus_sdk::call::RawCall::new_static(self.vm())"
+        | .delegateCall, _ => "stylus_sdk::call::RawCall::new_delegate(self.vm())"
+      let constructor := match call.gas? with
+        | some gas => constructor ++ s!".gas({localName gas})"
+        | none => constructor
+      let constructor := match call.cachePolicy with
+        | .clear => constructor ++ ".clear_storage_cache()"
+        | .flush => constructor ++ ".flush_storage_cache()"
+        | .doNothing => constructor
+      let targetName := localName call.target
+      let resultText := toString result
+      let resultName := localName result
+      lines := lines ++ #[
+        "let __pf_return_" ++ resultText ++ " = unsafe { " ++ constructor ++
+          ".limit_return_data(0, 32).call(" ++ targetName ++ ", &__pf_calldata_" ++ resultText ++
+          ") }.map_err(|data| data)?;",
+        "if __pf_return_" ++ resultText ++ ".len() != 32 || __pf_return_" ++ resultText ++
+          "[..24].iter().any(|byte| *byte != 0) { return Err(b\"stylus: malformed return data\".to_vec()); }",
+        "let " ++ resultName ++ ": u64 = u64::from_be_bytes(__pf_return_" ++ resultText ++
+          "[24..32].try_into().unwrap());"
+      ]
+      pure (.rawLines lines)
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     Except RenderError RustFunction := do
@@ -175,7 +216,7 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     | .div _ _ .checked _ _ => true
     | _ => false
   let hasAssertion := operations.any fun operation =>
-    match operation with | .assert_ .. => true | _ => false
+    match operation with | .assert_ .. | .call .. => true | _ => false
   let returnType <- match method.returns with
     | #[] => pure <| if hasCheckedArithmetic || hasAssertion then .resultUnit else .unit
     | #[type] =>
@@ -239,6 +280,7 @@ private def mapWrite (field : String) (keys : Array String) (value : String)
 
 private partial def renderStmt (stmt : RustStmt) : Array String :=
   match stmt with
+  | .rawLines lines => lines
   | .letLiteral name typeName value => #[s!"let {name}: {typeName} = {value};"]
   | .letCast name typeName expression => #[s!"let {name}: {typeName} = {expression};"]
   | .letStorageGet name field type => #[s!"let {name} = {storageRead field type};"]
@@ -308,7 +350,7 @@ private def renderLib (contract : RustContract) : String :=
   String.intercalate "\n" <| (#[] ++ #[
     "#![cfg_attr(not(any(test, feature = \"export-abi\")), no_main)]",
     "#![cfg_attr(not(test), no_std)]", "", "extern crate alloc;", "",
-    "use alloc::{string::String, vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};", "",
+    "use alloc::{string::String, vec, vec::Vec};", "use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};", "use core::convert::TryInto;", "",
     "sol_storage! {", s!"{indent 1}#[entrypoint]", indent 1 ++ "pub struct " ++ contract.name ++ " {"
   ] ++ storage ++ #[indent 1 ++ "}", "}", "", "#[public]", "impl " ++ contract.name ++ " {"] ++
     (functions.toList.intersperse "").toArray ++ #["}", ""]).toList
