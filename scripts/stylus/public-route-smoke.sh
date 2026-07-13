@@ -40,6 +40,10 @@ assert "export const ABI" in (root / "proof-forge-client.ts").read_text()
 deploy = json.loads((root / "proof-forge-deploy.json").read_text())
 assert deploy["broadcast"] is False and deploy["activationValidation"] == "notRun"
 assert not list(root.parent.glob(root.name + ".bundle-tmp-*"))
+(root.parent / "direct-identity.json").write_text(json.dumps({
+    output["kind"]: output["sha256"] for output in bundle["outputs"]
+    if output["kind"] in {"stylus-plan", "stylus-storage-layout", "solidity-abi"}
+}, sort_keys=True))
 print("stylus-public-route-artifact: ok")
 PY
 
@@ -59,6 +63,12 @@ assert bundle["primaryOutput"] == "stylus-rust-source"
 assert bundle["finalOutput"] is None
 assert (root / "Cargo.toml").is_file() and (root / "src/lib.rs").is_file()
 assert not (root / "contract.wat").exists()
+direct_identity = json.loads((root.parent / "direct-identity.json").read_text())
+rust_identity = {
+    output["kind"]: output["sha256"] for output in bundle["outputs"]
+    if output["kind"] in {"stylus-plan", "stylus-storage-layout", "solidity-abi"}
+}
+assert rust_identity == direct_identity
 print("stylus-public-route-rust-oracle: ok")
 PY
 

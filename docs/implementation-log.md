@@ -1772,6 +1772,13 @@ Rules:
 - Remaining: independent plan/storage/evidence files and hashes, live-evidence
   freshness enforcement, and the full Counter/ValueVault/Token/Remote/Aggregate
   CLI matrix.
+- Follow-up: direct and Rust bundles now include full renderer-neutral
+  `proof-forge-plan.txt` and `proof-forge-storage.txt` identities. The public
+  route gate proves their hashes and the Solidity ABI hash are identical across
+  renderers. Literal direct CLI builds also pass for ValueVault and RemoteCall.
+- The final Aggregate CLI row remains open: current `contract_source` grammar
+  cannot declare bytes/string/array/tuple ABI parameters. `ArrayExample` only
+  exercises local fixed arrays and is not counted as Aggregate ABI coverage.
 
 ## 2026-07-13 - STYLUS-W5: Persistent Nitro environment audit
 

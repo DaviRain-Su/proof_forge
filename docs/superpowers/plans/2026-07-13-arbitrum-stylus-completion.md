@@ -57,10 +57,15 @@ blockers may defer an item.
   atomically with renderer, plan-schema, ABI, storage, toolchain, and evidence
   hashes; reject skipped or stale required evidence.
   Directory publication and WAT/Wasm/ABI/client/deploy hashes are implemented;
-  independent plan/storage/evidence hashes and freshness rejection remain open.
+  independent renderer-neutral plan/storage files and hashes are now verified
+  equal across direct/Rust. Evidence hashes and freshness rejection remain open.
 - [ ] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
   RemoteCall, and Aggregate bundles through literal CLI commands for both
   supported renderer modes.
+  Default-direct Counter, ValueVault, Token, and RemoteCall builds pass; explicit
+  Rust is pinned for Counter. A real Aggregate ABI `contract_source` remains
+  blocked because the source grammar cannot yet declare dynamic/tuple ABI
+  parameters; local fixed-array expressions are not accepted as a substitute.
 - [ ] **W7.1 Static test integration:** create `stylus-all` with no named skip,
   register every static gate exactly once in four-worker lanes and serial
   coverage, and preserve live Nitro as an explicit separate gate.

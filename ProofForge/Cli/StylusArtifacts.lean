@@ -70,6 +70,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let libPath := output / "src/lib.rs"
   let abiPath := output / "proof-forge-abi.json"
   let clientPath := output / "proof-forge-client.ts"
+  let planPath := output / "proof-forge-plan.txt"
+  let storagePath := output / "proof-forge-storage.txt"
   let wasmPath := output / "contract.wasm"
   let watPath := output / "contract.wat"
   let deployPath := output / "proof-forge-deploy.json"
@@ -99,6 +101,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
     | .error error => throw <| IO.userError error
   IO.FS.writeFile abiPath (abi ++ "\n")
   IO.FS.writeFile clientPath (client ++ "\n")
+  IO.FS.writeFile planPath ("stylus-plan-v1\n" ++ reprStr plan ++ "\n")
+  IO.FS.writeFile storagePath ("stylus-storage-v1\n" ++ reprStr plan.storage ++ "\n")
   match opts.stylusRenderer, crate? with
   | .directWasm, none =>
       let module <- match ProofForge.Backend.Stylus.DirectWasm.lowerFromPlan plan with
@@ -128,6 +132,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   IO.FS.writeFile deployPath deployJson
   let abiDigest <- fileDigestAndBytes abiPath
   let clientDigest <- fileDigestAndBytes clientPath
+  let planDigest <- fileDigestAndBytes planPath
+  let storageDigest <- fileDigestAndBytes storagePath
   let wasmDigest <- fileDigestAndBytes wasmPath
   let deployDigest <- fileDigestAndBytes deployPath
   let source : ProofForge.Target.ArtifactBundle.SourceIdentity := {
@@ -149,6 +155,12 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
           "contract.wat" "contract.wasm" "proof-forge-abi.json" "proof-forge-client.ts"
           "proof-forge-deploy.json" watDigest.1 wasmDigest.1 abiDigest.1 clientDigest.1 deployDigest.1
           watDigest.2 wasmDigest.2 abiDigest.2 clientDigest.2 deployDigest.2 sourceTools
+  let artifactBundle := { artifactBundle with outputs := artifactBundle.outputs ++ #[
+    { kind := "stylus-plan", role := .sidecar, path? := some "proof-forge-plan.txt",
+      sha256? := some planDigest.1, bytes? := some planDigest.2 },
+    { kind := "stylus-storage-layout", role := .sidecar, path? := some "proof-forge-storage.txt",
+      sha256? := some storageDigest.1, bytes? := some storageDigest.2 }
+  ] }
   match ProofForge.Target.ArtifactBundle.validateHonesty artifactBundle with
   | .error error => throw <| IO.userError error.message
   | .ok () => pure ()

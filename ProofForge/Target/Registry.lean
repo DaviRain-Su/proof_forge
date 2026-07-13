@@ -241,9 +241,9 @@ def wasmStellarSoroban : TargetProfile := {
   }
 }
 
-/-- Arbitrum Stylus research backend. Rust SDK crate generation remains the
-bootstrap renderer; the direct renderer currently covers the Counter fragment
-without target-native vm_hooks execution evidence. This is not a primary target. -/
+/-- Arbitrum Stylus research backend. Direct Wasm is the CLI default and the
+Rust SDK renderer is an explicit oracle. Local vm_hooks evidence is required;
+live Nitro activation evidence is still incomplete. This is not a primary target. -/
 def wasmArbitrumStylus : TargetProfile := {
   id := "wasm-arbitrum-stylus"
   family := .wasmHost
@@ -254,12 +254,22 @@ def wasmArbitrumStylus : TargetProfile := {
     .storageScalar,
     .storageMap,
     .callerSender,
+    .valueNative,
     .eventsEmit,
+    .crosscallInvoke,
+    .crosscallNamed,
+    .envBlock,
+    .dataDynamicBytes,
+    .dataFixedArray,
+    .dataDynamicArray,
+    .dataStruct,
+    .runtimeMemory,
+    .runtimeReturnData,
     .assertions,
     .controlConditional,
     .checkedArithmetic
   ]
-  requiredTools := #["rustup", "cargo", "cargo-stylus"]
+  requiredTools := #["wat2wasm", "rustup", "cargo", "cargo-stylus"]
   support := {
     maturity := .research
     inputModes := #[.contractSource]
@@ -268,8 +278,8 @@ def wasmArbitrumStylus : TargetProfile := {
     validationLevel := .plan
     supportedFragment :=
       "Counter, ValueVault, mapping/event, and ERC-20 research slices via canonical StylusPlan; " ++
-      "pinned Rust SDK and direct Wasm renderers with local differential evidence; " ++
-      "target-native Nitro deployment evidence remains optional"
+      "direct Wasm default and pinned Rust SDK oracle with local differential evidence; " ++
+      "target-native Nitro deployment evidence remains required for release promotion"
     toolStages := #[
       { tool := "rustc-1.91.0", stage := "wasm-bootstrap" },
       { tool := "cargo-stylus-0.10.8", stage := "artifact-check" }
