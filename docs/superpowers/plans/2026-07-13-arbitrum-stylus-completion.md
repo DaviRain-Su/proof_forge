@@ -33,12 +33,14 @@ blockers may defer an item.
 - [x] **W4.1 HostIO/context closure:** audit all remote-call imports against the
   pinned SDK and add static-write rejection plus delegate caller/value/address/
   storage context vectors to the local runner.
-- [ ] **W4.2 Renderer parity:** support the same bounded static and dynamic
+- [x] **W4.2 Renderer parity:** support the same bounded static and dynamic
   return envelopes in generated Rust, then compare normalized Rust/direct/
   runner results, failures, calldata, cache transitions, and nested frames.
-  Generated Rust now runs three native `stylus-test` cases for static/dynamic
-  results, failures, modes, calldata, value, and gas; normalized cross-renderer
-  trace comparison remains open.
+  Generated Rust now runs four native `stylus-test` cases and writes the same
+  versioned seven-step common trace as the direct local runner for results,
+  failures, modes, target, calldata, and value. Cache transitions and nested
+  frames remain explicitly runner-only because upstream `stylus-test` 0.10.8
+  implements cache flush as a no-op and exposes no frame trace.
 - [x] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
   callee local evidence manifest and make the remote differential gate verify
   its schema and hashes. This is local evidence, never Nitro evidence.

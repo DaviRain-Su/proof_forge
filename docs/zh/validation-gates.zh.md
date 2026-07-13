@@ -236,6 +236,7 @@ live Surfpool/Rust gates 是可选项。
 | 完整本地/静态闭环 | `just stylus-all` | Lean、固定 Rust 1.91 与 Wasm target、`wat2wasm`、Foundry `cast`、Cargo | 无命名 skip 地运行全部 plan、Rust oracle、direct-Wasm、VM runner、产品 CLI 与差分门禁；live Nitro 保持独立 |
 | 产品 literal 双 renderer 矩阵 | `just stylus-cli-matrix` | 同一静态工具链 | 用 direct/Rust 构建 Counter、ValueVault、Token、RemoteCall、Aggregate；检查全部哈希、plan/storage/ABI 身份一致、未绑定 peer 拒绝和完整地址 RemoteCall VM trace |
 | Direct bytecode host | `just stylus-vm-runner` | Lean、`wat2wasm`、Rust/Cargo | 在 Wasmtime 中执行 direct Wasm Counter lifecycle、公开 `user_entrypoint`、authorization、nonpayable policy、storage、result 和标准化 host trace |
+| Stylus RemoteCall parity | `just stylus-remote-call-differential` | Lean、`wat2wasm`、Rust 1.91/Cargo、Foundry `cast` | 执行 call/static/delegate、revert、calldata、value、有界动态返回、cache 和嵌套 frame 向量；生成的 Rust `stylus-test` 与 direct runner 必须输出相同的 `proof-forge.stylus.remote-common.v1` steps，并将 cache/frame 可观察性明确记录为 runner-only |
 | Nitro readiness 证据 | `just stylus-nitro-doctor` | Rust 1.91、cargo-stylus、Docker daemon、Foundry `cast`、固定 Nitro checkout、本地 RPC | 始终写入 `build/evidence/stylus/nitro-doctor.json`；任何 live 依赖不可用时非零退出 |
 | Nitro 编排语法 | `just stylus-nitro-scripts` | Bash | 不启动容器，校验固定 revision、脚本语法、本地 RPC 边界和独立 Sepolia endpoint |
 | Nitro 安装 | `just stylus-nitro-install` | Git/网络 | 克隆官方 Nitro Testnode，并校验准确的固定 revision 和 submodule |

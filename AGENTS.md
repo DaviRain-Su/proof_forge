@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W4.2 normalized renderer parity |
-| Next task | Emit and compare Rust/direct common traces, then continue W3 aggregate recursion/storage |
+| Active task | Stylus continuous queue - W3.1 recursive aggregate carriers |
+| Next task | Add recursively nested dynamic array/tuple layouts and adversarial direct-Wasm vectors |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

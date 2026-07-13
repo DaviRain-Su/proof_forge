@@ -1942,3 +1942,22 @@ Rules:
   `just emitwat-aggregate-abi`, `just near-vm-string-key-map`, `just testkit`,
   all constructor coverage scripts, `just portable-default`, and
   `git diff --check`.
+
+## 2026-07-13 - STYLUS-W4.2: Normalized remote renderer parity
+
+- Status: `complete within local observability; Nitro evidence remains W5`
+- The generated Rust oracle now executes a fourth native `stylus-test` case and
+  writes `proof-forge.stylus.remote-common.v1`. The direct Wasmtime runner
+  writes the same schema from its actual HostIO trace.
+- Seven common steps cover successful and reverted calls, static/delegate
+  modes, static argument calldata, 128-bit call value, and bounded dynamic
+  bytes returns. The gate compares target, mode, calldata, value, status, and
+  normalized result byte-for-byte across renderers.
+- Observability is explicit rather than invented: direct runner evidence owns
+  cache transitions and nested frames; pinned upstream `stylus-test` 0.10.8
+  has a no-op `flush_cache` and no frame trace API, so its schema marks both
+  fields false. Existing reentrant/static-write/delegate-context vectors remain
+  required runner-only evidence.
+- Verification: `just stylus-remote-call-differential` passes four generated
+  Rust tests, direct/reentrant runner assertions, normalized trace equality,
+  and the pinned HostIO audit.

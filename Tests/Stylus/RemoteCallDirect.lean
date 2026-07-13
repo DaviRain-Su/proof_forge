@@ -173,6 +173,32 @@ mod remote_parity {
         vm.native_keccak256(signature)[..4].to_vec()
     }
 
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn push_step(json: &mut String, id: &str, mode: &str, target: &str,
+                 calldata: &str, value: &str, status: u8, result: &str) {
+        if !json.ends_with('[') {
+            json.push(',');
+        }
+        json.push_str("{\"id\":\"");
+        json.push_str(id);
+        json.push_str("\",\"mode\":\"");
+        json.push_str(mode);
+        json.push_str("\",\"target\":\"");
+        json.push_str(target);
+        json.push_str("\",\"calldata\":\"");
+        json.push_str(calldata);
+        json.push_str("\",\"value\":\"");
+        json.push_str(value);
+        json.push_str("\",\"status\":");
+        json.push_str(&status.to_string());
+        json.push_str(",\"result\":\"");
+        json.push_str(result);
+        json.push_str("\"}");
+    }
+
     #[test]
     fn call_modes_and_failures_match_direct_vectors() {
         let vm = TestVM::new();
@@ -227,6 +253,69 @@ mod remote_parity {
         bad.extend_from_slice(&U256::ZERO.to_be_bytes::<32>());
         vm.mock_call(target, data, U256::ZERO, Ok(bad));
         assert_eq!(contract.invokeBytes(target), Err(b"stylus: malformed dynamic return data".to_vec()));
+    }
+
+    #[test]
+    fn writes_normalized_renderer_trace() {
+        let Ok(path) = std::env::var("PROOF_FORGE_STYLUS_RUST_TRACE") else {
+            return;
+        };
+        let vm = TestVM::new();
+        let contract = RemoteCallDirect::from(&vm);
+        let target = Address::from([0x22; 20]);
+        let target_hex = hex(target.as_slice());
+        let zero = hex(&[0_u8; 32]);
+        let word_42 = word(42);
+        let word_42_hex = hex(&word_42);
+        let ping = selector(&vm, b"ping()");
+
+        vm.mock_call(target, ping.clone(), U256::ZERO, Ok(word_42.clone()));
+        assert_eq!(contract.invoke(target), Ok(42));
+        vm.mock_call(target, ping.clone(), U256::ZERO, Err(vec![0xde, 0xad, 0xbe, 0xef]));
+        assert_eq!(contract.invoke(target), Err(vec![0xde, 0xad, 0xbe, 0xef]));
+        vm.mock_static_call(target, ping.clone(), Ok(word_42.clone()));
+        assert_eq!(contract.invokeStatic(target), Ok(42));
+        vm.mock_delegate_call(target, ping.clone(), Ok(word_42.clone()));
+        assert_eq!(contract.invokeDelegate(target), Ok(42));
+
+        let mut args = selector(&vm, b"ping(uint64,uint64)");
+        args.extend_from_slice(&U256::from(42).to_be_bytes::<32>());
+        args.extend_from_slice(&U256::from(7).to_be_bytes::<32>());
+        vm.mock_call(target, args.clone(), U256::ZERO, Ok(word_42.clone()));
+        assert_eq!(contract.invokeArgs(target, 42, 7), Ok(42));
+
+        let amount = (1_u128 << 64) + 42;
+        let pay = selector(&vm, b"pay()");
+        vm.mock_call(target, pay.clone(), U256::from(amount), Ok(word_42.clone()));
+        assert_eq!(contract.invokeValue(target, amount), Ok(42));
+
+        let data = selector(&vm, b"data()");
+        let mut hello_abi = U256::from(32).to_be_bytes::<32>().to_vec();
+        hello_abi.extend_from_slice(&U256::from(5).to_be_bytes::<32>());
+        hello_abi.extend_from_slice(b"hello");
+        hello_abi.resize(96, 0);
+        vm.mock_call(target, data.clone(), U256::ZERO, Ok(hello_abi));
+        let hello = contract.invokeBytes(target);
+        assert_eq!(hello, Ok(b"hello".to_vec()));
+
+        let mut json = String::from(
+            "{\"schema\":\"proof-forge.stylus.remote-common.v1\",\"renderer\":\"rust-sdk-stylus-test\",\"observability\":{\"cacheTransitions\":false,\"nestedFrames\":false},\"steps\":[");
+        push_step(&mut json, "call-success", "call", &target_hex, &hex(&ping),
+            &zero, 0, &word_42_hex);
+        push_step(&mut json, "call-revert", "call", &target_hex, &hex(&ping),
+            &zero, 1, "deadbeef");
+        push_step(&mut json, "static-success", "static", &target_hex, &hex(&ping),
+            &zero, 0, &word_42_hex);
+        push_step(&mut json, "delegate-success", "delegate", &target_hex, &hex(&ping),
+            &zero, 0, &word_42_hex);
+        push_step(&mut json, "args-success", "call", &target_hex, &hex(&args),
+            &zero, 0, &word_42_hex);
+        push_step(&mut json, "value-success", "call", &target_hex, &hex(&pay),
+            &hex(&U256::from(amount).to_be_bytes::<32>()), 0, &word_42_hex);
+        push_step(&mut json, "bytes-success", "call", &target_hex, &hex(&data),
+            &zero, 0, &hex(hello.as_ref().unwrap()));
+        json.push_str("]}\n");
+        std::fs::write(path, json).expect("write normalized Rust renderer trace");
     }
 }
 "#

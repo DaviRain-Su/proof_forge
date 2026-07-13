@@ -81,7 +81,10 @@ Stylus backend must not route through `NearModulePlan`.
    `proof-forge build --target wasm-arbitrum-stylus --token ...`.
 4. RemoteCall: call/static/delegate modes, value/gas, bounded static/dynamic
    return data, revert propagation, cache transitions, and local nested frames.
-   Cross-renderer normalized trace parity and Nitro two-contract evidence remain.
+   Generated Rust and the direct local runner produce equal versioned common
+   traces for target, mode, calldata, value, status, and result. Cache and frame
+   traces are runner-only because the pinned upstream TestVM does not expose
+   them. Nitro two-contract evidence remains.
 5. Aggregates: bytes/string and fixed-array ABI carriers are product/CLI covered;
    local fixtures cover bounded tuples and dynamic arrays. Recursive dynamic
    children, dynamic storage transitions, and allocation/page exhaustion remain.

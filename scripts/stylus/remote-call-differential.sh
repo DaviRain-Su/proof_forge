@@ -180,6 +180,40 @@ assert delegate_frames[0]["contract"] == caller
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+def call_event(result, event):
+    matches = [item for item in result["trace"] if item["event"] == event]
+    assert len(matches) == 1
+    return matches[0]
+
+def normalized_step(id, mode, run, event, result=None):
+    observed = call_event(run, event)
+    return {
+        "id": id,
+        "mode": mode,
+        "target": observed["address"],
+        "calldata": observed["calldata"],
+        "value": observed.get("value", "00" * 32),
+        "status": observed["status"],
+        "result": run["result"] if result is None else result,
+    }
+
+direct_trace = {
+    "schema": "proof-forge.stylus.remote-common.v1",
+    "renderer": "direct-wasm-local-runner",
+    "observability": {"cacheTransitions": True, "nestedFrames": True},
+    "steps": [
+        normalized_step("call-success", "call", success, "call_contract"),
+        normalized_step("call-revert", "call", revert, "call_contract"),
+        normalized_step("static-success", "static", static, "static_call_contract"),
+        normalized_step("delegate-success", "delegate", delegate, "delegate_call_contract"),
+        normalized_step("args-success", "call", args, "call_contract"),
+        normalized_step("value-success", "call", value_call, "call_contract"),
+        normalized_step("bytes-success", "call", bytes_hello, "call_contract", "68656c6c6f"),
+    ],
+}
+direct_trace_path = Path("build/stylus/remote-call/direct-normalized.json")
+direct_trace_path.write_text(json.dumps(direct_trace, indent=2, sort_keys=True) + "\n")
+
 evidence = {
     "schema": "proof-forge.stylus.remote-local.v1",
     "environment": "local-wasmtime",
@@ -203,6 +237,23 @@ evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
 print("stylus-remote-call-differential-runtime: ok")
 PY
 
+rust_trace="$root/build/stylus/remote-call/rust-normalized.json"
+rm -f "$rust_trace"
+PROOF_FORGE_STYLUS_RUST_TRACE="$rust_trace" \
 RUSTUP_TOOLCHAIN=1.91.0 CARGO_TARGET_DIR=build/stylus/cargo-target \
   cargo test --manifest-path build/stylus/remote-call/rust/Cargo.toml --features stylus-test
+test -s "$rust_trace"
+python3 - "$root/build/stylus/remote-call/direct-normalized.json" "$rust_trace" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+direct = json.loads(Path(sys.argv[1]).read_text())
+rust = json.loads(Path(sys.argv[2]).read_text())
+assert direct["schema"] == rust["schema"] == "proof-forge.stylus.remote-common.v1"
+assert direct["steps"] == rust["steps"]
+assert direct["observability"] == {"cacheTransitions": True, "nestedFrames": True}
+assert rust["observability"] == {"cacheTransitions": False, "nestedFrames": False}
+print("stylus-remote-call-normalized-parity: ok")
+PY
 python3 scripts/stylus/audit-remote-hostio.py
