@@ -1878,3 +1878,42 @@ Rules:
 - Remaining release blocker: `build/evidence/stylus/final.json` cannot be
   produced honestly until the pinned Nitro environment is available and all
   five live gate families have passed.
+
+## 2026-07-13 - STYLUS-W6.3: Literal product CLI cutover matrix
+
+- Status: `complete locally; Nitro promotion remains unavailable`
+- Added `Examples/Product/Aggregate.lean` and `just stylus-cli-matrix`. The gate
+  builds Counter, ValueVault, FungibleToken, RemoteCall, and Aggregate through
+  default direct Wasm and explicit Rust SDK modes, then verifies renderer,
+  final-output honesty, every artifact hash, evidence state, and equal
+  renderer-neutral plan/storage/ABI identities.
+- The public ABI and TypeScript wrapper now consume ABI JSON derived from the
+  checked `StylusPlan`. This repaired a real mismatch where a planned
+  `uint64[2]` method was published as `uint256[2]` by legacy EVM defaults.
+- RemoteCall now applies CLI peer bindings before canonical adaptation,
+  resolves canonical string-pool handles for the target and method, rejects an
+  unbound/non-address peer before atomic publication, and renders the bound
+  address in both backends. The direct renderer writes the complete 20-byte
+  HostIO address and the Rust renderer avoids oversized inferred integer
+  literals by constructing `Address` from bytes.
+- Runtime verification calls the product `call_remote()` entrypoint under the
+  local VM and asserts the exact target address, remote selector, and returned
+  word. Aggregate product coverage is bytes/string/fixed-array only; recursive
+  dynamic arrays, tuples, and their resource limits remain W3.
+
+## 2026-07-13 - STYLUS-W7.2: CI evidence preservation and claim synchronization
+
+- Status: `GitHub complete; Woodpecker durable upload externally blocked`
+- Replaced the single optional generated-Counter GitHub smoke with four
+  independent Stylus static lane jobs. Each installs the pinned toolchain,
+  runs its manifest lane, records Nitro doctor JSON on failure, and uploads
+  generated Wasm/WAT/Rust bundles, normalized traces, evidence, and timings.
+- Woodpecker's shared workflow now always records doctor output and packages
+  the same evidence surface under `build/ci-artifacts`. Woodpecker does not
+  provide a built-in durable artifact store; publishing that archive requires
+  a separately configured Codeberg/S3 sink and credentials, so the plan keeps
+  that item open rather than embedding unavailable secrets.
+- Updated README, Wasm-family and Stylus target status, target roadmap,
+  validation catalog, Chinese mirrors, and i18n hashes. Claims now distinguish
+  direct-Wasm default, Rust oracle, local VM evidence, incomplete W3/W4 work,
+  and required Nitro promotion evidence.

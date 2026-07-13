@@ -3,6 +3,7 @@ import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.Backend.Stylus.DirectWasm.Imports
 import ProofForge.Contract.Spec
 import ProofForge.IR.Legacy.Adapter
+import ProofForge.Target.PeerMap
 
 def main : IO Unit := do
   let expectedImports := #[
@@ -23,7 +24,10 @@ def main : IO Unit := do
         | "call_remote" => some "e8902e74"
         | "call_with_args" => some "728f8748"
         | _ => entrypoint.selector? } }
-  let spec := ProofForge.Contract.ContractSpec.fromIR hydrated
+  let bound := ProofForge.Target.PeerMap.applyToModule hydrated <|
+    ProofForge.Target.PeerMap.ofList [
+      ("peer.callee", "0x2222222222222222222222222222222222222222")]
+  let spec := ProofForge.Contract.ContractSpec.fromIR bound
   let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"adaptLegacy failed: {repr error}"

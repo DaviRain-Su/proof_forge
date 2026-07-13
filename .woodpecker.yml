@@ -49,3 +49,17 @@ steps:
       - scripts/ci/woodpecker-setup.sh
       - JOBS=4 just check-parallel
       - just wave-t-gate
+
+  # Woodpecker shares this workspace between steps. Package the same Stylus
+  # evidence surface uploaded by GitHub Actions; durable publication requires
+  # a separately configured Codeberg/S3 artifact sink and credentials.
+  - name: proof-forge-stylus-evidence
+    image: ubuntu:24.04
+    commands:
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+      - just stylus-nitro-doctor || true
+      - mkdir -p build/ci-artifacts
+      - tar -czf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" build/stylus build/evidence/stylus build/test-lanes 2>/dev/null || true
+      - test -f "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz"
+    when:
+      - status: [success, failure]

@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "cddf68f1064d8bbcee9c0a0bdbcb591026dec69683661f1b505213c5dd2bd19d",
+    "sha256": "661651eb8e62aac490ea3b54bbc5b2511d3f3273ceb4c0b0602a7e2e245259bd",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Arbitrum Stylus research backend status and NEP-141 FT real-VM conformance"
+    "note": "manually synced for direct-default Arbitrum Stylus research status"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "15dc4135d47208cc8b3b216a4edf4333a326c207692a92afdc855ef050d00ac0",
+    "sha256": "d4d21d7c0d39ef68f3ca1787d50f13a0713884638e522dc28129f0e707fedd82",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced for fast, parallel, serial, Arbitrum Stylus, NEP-141 FT real-VM (U128 amounts, Phase 2), U128 scalar real-VM conformance, and string-keyed U128 map real-VM (Phase 3 Landing 1) gates"
+    "note": "manually synced for Stylus static matrix, doctor, and CI evidence gates"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -141,10 +141,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "a660784210d260725b22dcf3b2fa10489effe9831bbd910f0eb1833b874204e1",
+    "sha256": "8edc99444ea2a84d7984778a4cfd93aa4fc9e1507f9ec31c64471ecb642f566c",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus family classification"
+    "note": "manually synced for implemented Stylus research classification"
   },
   "docs/targets/arbitrum-stylus.md": {
     "sha256": "ab9a146946e00c51330e4a3bdb1d7f686bf2ac4953392955c5d2f877d321dc12",

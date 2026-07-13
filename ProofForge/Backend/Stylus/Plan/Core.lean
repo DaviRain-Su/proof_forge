@@ -6,6 +6,7 @@ import ProofForge.Backend.Stylus.Plan
 import ProofForge.Backend.Stylus.Validate
 import ProofForge.IR.Canonical
 import ProofForge.Target.Plan
+import ProofForge.Target.ProtocolMaterialize
 
 namespace ProofForge.Backend.Stylus.Plan.Core
 
@@ -120,6 +121,29 @@ private def literalPlan : CoreLiteral -> Except PlanError (StylusAbiType × Styl
   | .bytesLit value => pure (.bytes, .bytes value.data)
   | .stringLit value => pure (.string, .string value)
 
+private inductive CrosscallLiteralRole where
+  | target
+  | method
+
+private def crosscallLiteralRole? (function : Function) (id : ValueId) :
+    Option CrosscallLiteralRole :=
+  function.blocks.findSome? fun block =>
+    block.instructions.findSome? fun instruction => match instruction.op with
+      | .crosscall spec _ =>
+          if spec.target.id == id then some .target
+          else if spec.method.id == id then some .method
+          else none
+      | _ => none
+
+private def poolEntryForLiteral? (contract : CanonicalContract) : CoreLiteral -> Option String
+  | .addressLit value => do
+      let index <- value.toNat?
+      contract.materialization.nearHostStrings[index]?
+  | .stringLit value => do
+      let index <- value.toNat?
+      contract.materialization.nearHostStrings[index]?
+  | _ => none
+
 private def contextHostOp : ContextField -> Option StylusHostOp
   | .sender => some .msgSender | .value => some .msgValue
   | .blockNumber => some .blockNumber | .blockTimestamp => some .blockTimestamp
@@ -127,12 +151,29 @@ private def contextHostOp : ContextField -> Option StylusHostOp
   | .contractAddress => some .contractAddress
   | .epochHeight | .randomSeed => none
 
-private def instructionPlan (contract : CanonicalContract) (instruction : Instruction) :
+private def instructionPlan (contract : CanonicalContract) (function : Function)
+    (instruction : Instruction) :
     Except PlanError StylusOpPlan :=
   match instruction.op with
   | .pure (.literal literal) => do
-      let (type, value) <- literalPlan literal
-      pure (.literal (← resultId instruction) type value)
+      let result <- resultId instruction
+      match crosscallLiteralRole? function { value := result } with
+      | some .target => match poolEntryForLiteral? contract literal with
+        | some host =>
+            let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? host
+              | fail s!"Stylus crosscall target `{host}` is not an address; bind the logical peer with --peer logical=0x..."
+            pure (.literal result .address (.address (toString address)))
+        | none =>
+            let (type, value) <- literalPlan literal
+            pure (.literal result type value)
+      | some .method => match poolEntryForLiteral? contract literal with
+        | some method => pure (.literal result .string (.string method))
+        | none =>
+            let (type, value) <- literalPlan literal
+            pure (.literal result type value)
+      | none =>
+        let (type, value) <- literalPlan literal
+        pure (.literal result type value)
   | .pure (.cast target value) => do
       pure (.cast (← resultId instruction) (← coreTypeToAbi value.type)
         (← coreTypeToAbi target) value.id.value)
@@ -203,11 +244,11 @@ private def terminatorPlan : Terminator -> Except PlanError StylusTerminatorPlan
   | .return values => pure (.return (values.map fun value => value.id.value))
   | .revert error => pure (.revert s!"error-{error.id.value}")
 
-private def blockPlan (contract : CanonicalContract) (block : Block) :
+private def blockPlan (contract : CanonicalContract) (function : Function) (block : Block) :
     Except PlanError StylusBlockPlan := do
   pure {
     id := block.id.value
-    operations := ← block.instructions.mapM (instructionPlan contract)
+    operations := ← block.instructions.mapM (instructionPlan contract function)
     terminator := ← terminatorPlan block.terminator
   }
 
@@ -287,7 +328,7 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
           dynamicMaxLength? := if type.isDynamic then some 4096 else none
         }
       entryBlock := function.entry.value
-      blocks := ← function.blocks.mapM (blockPlan contract)
+      blocks := ← function.blocks.mapM (blockPlan contract function)
       support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
@@ -305,12 +346,17 @@ private def buildEvents (contract : CanonicalContract) : Except PlanError (Array
       support := { rustSdk := .implemented, directWasm := .implemented }
     }
 
-private def stringLiteralFor (function : Function) (id : ValueId) : Except PlanError String := do
+private def stringLiteralFor (contract : CanonicalContract) (function : Function)
+    (id : ValueId) : Except PlanError String := do
   for block in function.blocks do
     for instruction in block.instructions do
       match instruction.results, instruction.op with
-      | #[result], .pure (.literal (.stringLit value)) =>
-          if result.id == id then return value
+      | #[result], .pure (.literal literal) =>
+          if result.id == id then
+            match poolEntryForLiteral? contract literal, literal with
+            | some value, _ => return value
+            | none, .stringLit value => return value
+            | none, _ => pure ()
       | _, _ => pure ()
   fail s!"Stylus call method value {id.value} must be a canonical string literal"
 
@@ -327,7 +373,7 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               | .staticInvoke => pure .staticCall
               | .delegateInvoke => pure .delegateCall
               | .nearPoolInvoke | .nearPromiseThen => fail "Stylus rejects NEAR promise crosscall modes"
-            let methodName <- stringLiteralFor function spec.method.id
+            let methodName <- stringLiteralFor contract function spec.method.id
             let paramTypes <- spec.paramTypes.mapM coreTypeToAbi
             let returnType <- coreTypeToAbi spec.returnType
             let valueType? <- match spec.value with
@@ -348,7 +394,7 @@ private def buildCalls (contract : CanonicalContract) : Except PlanError (Array 
               cachePolicy := match mode with
                 | .staticCall => .flush
                 | .call | .delegateCall => .clear
-              support := { rustSdk := .planned, directWasm := .implemented }
+              support := { rustSdk := .implemented, directWasm := .implemented }
             }
         | _ => pure ()
   pure calls

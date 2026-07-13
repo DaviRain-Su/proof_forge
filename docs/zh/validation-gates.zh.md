@@ -233,12 +233,20 @@ live Surfpool/Rust gates 是可选项。
 
 | 门禁 | 命令 | 前提条件 | 证据 |
 |---|---|---|---|
+| 完整本地/静态闭环 | `just stylus-all` | Lean、固定 Rust 1.91 与 Wasm target、`wat2wasm`、Foundry `cast`、Cargo | 无命名 skip 地运行全部 plan、Rust oracle、direct-Wasm、VM runner、产品 CLI 与差分门禁；live Nitro 保持独立 |
+| 产品 literal 双 renderer 矩阵 | `just stylus-cli-matrix` | 同一静态工具链 | 用 direct/Rust 构建 Counter、ValueVault、Token、RemoteCall、Aggregate；检查全部哈希、plan/storage/ABI 身份一致、未绑定 peer 拒绝和完整地址 RemoteCall VM trace |
 | Direct bytecode host | `just stylus-vm-runner` | Lean、`wat2wasm`、Rust/Cargo | 在 Wasmtime 中执行 direct Wasm Counter lifecycle、公开 `user_entrypoint`、authorization、nonpayable policy、storage、result 和标准化 host trace |
+| Nitro readiness 证据 | `just stylus-nitro-doctor` | Rust 1.91、cargo-stylus、Docker daemon、Foundry `cast`、固定 Nitro checkout、本地 RPC | 始终写入 `build/evidence/stylus/nitro-doctor.json`；任何 live 依赖不可用时非零退出 |
 | Nitro 编排语法 | `just stylus-nitro-scripts` | Bash | 不启动容器，校验固定 revision、脚本语法、本地 RPC 边界和独立 Sepolia endpoint |
 | Nitro 安装 | `just stylus-nitro-install` | Git/网络 | 克隆官方 Nitro Testnode，并校验准确的固定 revision 和 submodule |
 | 官方本地检查 | `just stylus-nitro-check` | 运行中的 Nitro Testnode、cargo-stylus | 对本地 Nitro RPC `127.0.0.1:8547` 执行 `cargo stylus check --wasm-file` |
 | 本地链 E2E | `just stylus-nitro-e2e` | Docker、cargo-stylus、Foundry `cast` | 部署并 activate direct Wasm，通过 Solidity ABI 调用 Counter，并观测值 `1` |
 | Sepolia E2E | `just stylus-sepolia-e2e` | 显式 Sepolia 私钥路径和已充值账户 | 通过 Arbitrum Sepolia RPC 检查、部署并 activate；绝不进入默认静态 CI |
+
+GitHub 独立运行四条 Stylus 静态 lane，并上传生成 artifact、trace、evidence、timing
+和失败 doctor JSON。Woodpecker 将同一 workspace 证据打包到
+`build/ci-artifacts`；在 Codeberg pipeline 配置 artifact sink 与凭据之前，持久上传
+仍受外部条件阻塞。两条 CI 路径都不会在缺少真实 Nitro 执行时伪造 `final.json`。
 
 ## 可选外部工具
 

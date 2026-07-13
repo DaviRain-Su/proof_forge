@@ -4,8 +4,10 @@
 
 `wasm-arbitrum-stylus` is a **research** `contract_source` target. It is present
 in the target registry, `--list-targets`, and the CLI build route, but it is not
-part of the primary triad. The public route emits a pinned Rust SDK source
-bundle and intermediate Wasm metadata; it does not claim a deployable artifact.
+part of the primary triad. The public route defaults to a direct HostIO Wasm
+bundle and retains the pinned Rust SDK renderer as an explicit oracle. Bundles
+are locally executable and hash-bound, but absent live Nitro evidence is
+published as `unavailable`; research artifacts are not release promotion.
 
 ## Classification
 
@@ -60,7 +62,7 @@ The reusable pieces are canonical IR, neutral Solidity ABI/storage planning,
 the Wasm AST/printer, artifacts, and generic refinement infrastructure. The
 Stylus backend must not route through `NearModulePlan`.
 
-## Supported And Planned Fragment
+## Implemented And Open Fragment
 
 1. Counter (research implementation): `u64` scalar storage, ABI dispatch,
    checked arithmetic, cache flush, direct WAT compilation, and abstract/direct
@@ -69,16 +71,20 @@ Stylus backend must not route through `NearModulePlan`.
    non-canonical ABI padding before the call.
    Direct `uint128` parameters and `msg.value` use checked 16-byte big-endian
    memory values, with ABI return, equality, literal, checked/wrapping add, and
-   scalar storage support. Ordering remains fail-closed pending the rest of the
-   ValueVault slice.
-2. ValueVault: address, sender, value, block context, authorization, payable.
+   scalar storage support, including wide ordering and checked scratch bounds.
+2. ValueVault: address, sender, value, block context, authorization, payable,
+   canonical Core planning, local rollback, and event traces.
 3. Token (research implementation): shared `TokenSpec` materializes through the
    canonical ERC-20 body, address-keyed balances and nested allowances, indexed
    events, standard Solidity selectors, Rust SDK/direct Wasm renderers, and a
    local VM lifecycle. The public CLI route is
    `proof-forge build --target wasm-arbitrum-stylus --token ...`.
-4. RemoteCall: call modes, value/gas, return data, revert, reentrancy.
-5. Aggregates: structs, arrays, bytes, string, dynamic ABI and storage layouts.
+4. RemoteCall: call/static/delegate modes, value/gas, bounded static/dynamic
+   return data, revert propagation, cache transitions, and local nested frames.
+   Cross-renderer normalized trace parity and Nitro two-contract evidence remain.
+5. Aggregates: bytes/string and fixed-array ABI carriers are product/CLI covered;
+   local fixtures cover bounded tuples and dynamic arrays. Recursive dynamic
+   children, dynamic storage transitions, and allocation/page exhaustion remain.
 
 "Any contract" means any validated canonical contract entirely inside the
 implemented Stylus capability fragment. Unsupported operations fail before
@@ -90,7 +96,8 @@ Promotion beyond research requires `cargo stylus check`, target-native direct
 `vm_hooks` execution, exact Solidity ABI and storage vectors, complete
 deployable artifacts, Rust/direct runtime trace parity, resource evidence, and
 static CI. Direct WAT compilation plus abstract trace parity is only an
-intermediate gate. Live RPC/deployment remains optional.
+intermediate gate. Pinned local Nitro activation/deployment is required for
+promotion; public Sepolia and mainnet deployment remain optional/manual.
 
 Passing `cargo stylus check` alone is not runtime or deployment evidence.
 

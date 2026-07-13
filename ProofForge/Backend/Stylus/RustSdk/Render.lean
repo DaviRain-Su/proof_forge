@@ -16,6 +16,10 @@ structure RenderError where
 private def fail (message : String) : Except RenderError α :=
   .error { message }
 
+private def fixedNatBytes (width number : Nat) : List Nat :=
+  (List.range width).map fun index =>
+    (number / (2 ^ (8 * (width - 1 - index)))) % 256
+
 private def fromPlanError (result : Except PlanError α) : Except RenderError α :=
   result.mapError fun error => { message := error.message }
 
@@ -53,7 +57,9 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
   | .bool false => pure "false"
   | .uint value => pure (toString value)
   | .address value => match value.toNat? with
-      | some number => pure s!"Address::from_word(B256::from(U256::from({number})))"
+      | some number =>
+          let bytes := String.intercalate ", " (fixedNatBytes 20 number |>.map toString)
+          pure s!"Address::from_slice(&[{bytes}])"
       | none => pure s!"Address::parse_checksummed(\"{value}\", None).unwrap()"
   | .fixedBytes _ => fail "Rust SDK fixed-bytes literals are not implemented"
   | .bytes value => pure s!"vec![{String.intercalate ", " (value.toList.map (fun byte => toString byte.toNat))}]"

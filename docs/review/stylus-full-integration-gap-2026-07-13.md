@@ -117,19 +117,23 @@ not running; `cast` is not on the current shell PATH. Live gates must persist
 machine-readable address/transaction/result evidence and may not be replaced by
 the Wasmtime runner.
 
-### W6 - Direct-Wasm CLI Cutover (large, blocked by W1-W5)
+### W6 - Direct-Wasm CLI Cutover (complete locally)
 
-`ProofForge.Cli.StylusArtifacts` still builds the pinned Rust crate and publishes
-that Wasm. Required work includes explicit renderer selection, direct default,
-plan/ABI/storage hashes, atomic WAT/Wasm/client metadata, evidence freshness,
-and strict no-fallback tests.
+`ProofForge.Cli.StylusArtifacts` defaults to direct Wasm and retains explicit
+`--renderer rust-sdk` oracle mode. Atomic bundles publish plan-derived ABI,
+client, plan, storage, Wasm/WAT or Rust source, deploy metadata, and hashed
+evidence. `just stylus-cli-matrix` covers five product sources through both
+renderers, including logical-peer fail-closed and full-address runtime checks.
+Unavailable, stale, skipped, or identity-mismatched Nitro evidence cannot be
+promoted.
 
 ### W7 - Unified Static CI and Release Evidence (medium, last)
 
-There is no `stylus-all`, the full static suite is not registered in the
-four-worker lane manifest, GitHub only runs the generated Rust Counter smoke,
-and registry/docs are stale. CI artifacts and final evidence manifests come
-after renderer cutover, not before it.
+`stylus-all` and four-worker registration are complete. GitHub still only runs
+the older optional generated-Rust Counter smoke, Woodpecker has no durable
+artifact sink configured, and registry/status documents remain stale. CI
+artifact preservation, failure doctor data, claim synchronization, full
+regression, and real Nitro evidence remain.
 
 ## Critical Path
 

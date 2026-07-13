@@ -10,10 +10,10 @@ Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet
 - **Soroban：**Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
   落地前，interpreter auth 始终授权。
 - **Cloudflare Workers：**仅用于 research / off-chain。
-- **Arbitrum Stylus（`wasm-arbitrum-stylus`）：**docs-only 研究。Stylus 的
+- **Arbitrum Stylus（`wasm-arbitrum-stylus`）：**已实现的 Research 目标。Stylus 的
   产物是 Wasm，但语义属于 EVM；它拥有独立 `StylusPlan`，不得经过
-  `NearModulePlan`。Direct Wasm 是最终 renderer，固定版本 Rust SDK
-  sourcegen 是 bootstrap 和差分 oracle。
+  `NearModulePlan`。Direct Wasm 是 CLI 默认 renderer，固定版本 Rust SDK
+  sourcegen 是差分 oracle；Nitro 证据仍未完成。
 
 ## 通用形态
 

@@ -524,12 +524,21 @@ If no runnable local command exists, the target remains `Research`.
 
 | Gate | Command | Prerequisites | Evidence |
 |---|---|---|---|
+| Complete local/static closure | `just stylus-all` | Lean, pinned Rust 1.91 + Wasm target, `wat2wasm`, Foundry `cast`, Cargo | Runs every registered plan, Rust oracle, direct-Wasm, VM-runner, product CLI, and differential gate with no named skip; live Nitro stays separate |
+| Literal product renderer matrix | `just stylus-cli-matrix` | Same static toolchain | Builds Counter, ValueVault, Token, RemoteCall, and Aggregate through direct/Rust modes; checks all hashes, equal plan/storage/ABI identities, unbound-peer rejection, and a full-address RemoteCall VM trace |
 | Direct bytecode host | `just stylus-vm-runner` | Lean, `wat2wasm`, Rust/Cargo | Executes direct Wasm Counter lifecycle, public `user_entrypoint`, authorization, nonpayable policy, storage, result, and normalized host trace under Wasmtime |
+| Nitro readiness evidence | `just stylus-nitro-doctor` | Rust 1.91, cargo-stylus, Docker daemon, Foundry `cast`, pinned Nitro checkout, local RPC | Always writes `build/evidence/stylus/nitro-doctor.json`; exits nonzero while any required live dependency is unavailable |
 | Nitro orchestration syntax | `just stylus-nitro-scripts` | Bash | Validates pinned revision, script syntax, local RPC boundary, and separate Sepolia endpoint without starting containers |
 | Nitro install | `just stylus-nitro-install` | Git/network | Clones official Nitro Testnode and verifies exact pinned revision and submodules |
 | Official local check | `just stylus-nitro-check` | Running Nitro Testnode, cargo-stylus | Runs `cargo stylus check --wasm-file` against local Nitro RPC `127.0.0.1:8547` |
 | Local chain E2E | `just stylus-nitro-e2e` | Docker, cargo-stylus, Foundry `cast` | Deploys/activates direct Wasm, calls Counter through Solidity ABI, and observes value `1` |
 | Sepolia E2E | `just stylus-sepolia-e2e` | Explicit Sepolia private-key path and funded account | Checks, deploys, and activates through Arbitrum Sepolia RPC; never part of default static CI |
+
+GitHub runs the four static Stylus lanes independently and uploads generated
+artifacts, traces, evidence, timings, and failure doctor JSON. Woodpecker
+packages the same workspace evidence into `build/ci-artifacts`; durable upload
+there remains blocked until the Codeberg pipeline is given an artifact sink and
+credentials. Neither CI path synthesizes `final.json` without real Nitro runs.
 
 ## Optional external tools
 

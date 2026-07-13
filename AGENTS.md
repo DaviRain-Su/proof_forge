@@ -24,9 +24,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W6.3 literal CLI product matrix |
-| Next task | Close every source-expressible renderer row and record the Aggregate ABI grammar blocker |
-| Known blocker | Nitro live evidence still requires a running Docker daemon |
+| Active task | Stylus continuous queue - W7.3 full regression and range review |
+| Next task | Run product, stylus-all, docs/i18n, and four-worker repository gates |
+| Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

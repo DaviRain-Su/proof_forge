@@ -8,8 +8,9 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 46/80 acceptance items are complete. Six remaining
-work packages and their dependency order are audited in
+**Current checkpoint:** 51/79 acceptance items are complete. Eight open queue
+packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
+Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
 
 ## Continuous Execution Queue
@@ -62,19 +63,28 @@ blockers may defer an item.
   evidence is explicit `unavailable`, while supplied final evidence must match
   plan/storage/ABI identities, Task 2-6 Nitro provenance, non-skipped states,
   and a seven-day freshness window before atomic publication.
-- [ ] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
+- [x] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
   RemoteCall, and Aggregate bundles through literal CLI commands for both
   supported renderer modes.
-  Default-direct Counter, ValueVault, Token, and RemoteCall builds pass; explicit
-  Rust is pinned for Counter. A real Aggregate ABI `contract_source` remains
-  blocked because the source grammar cannot yet declare dynamic/tuple ABI
-  parameters; local fixed-array expressions are not accepted as a substitute.
+  `just stylus-cli-matrix` now builds all five real product sources through
+  both renderers, compares renderer-neutral identities and every published
+  hash, validates plan-derived aggregate ABI types, rejects an unbound logical
+  peer before publication, and executes the bound RemoteCall direct Wasm
+  against the full 20-byte address. Aggregate currently covers bytes, string,
+  and fixed-array parameters; dynamic-array resource bounds and tuple source
+  expression remain W3 work, not W6 CLI blockers.
 - [x] **W7.1 Static test integration:** create `stylus-all` with no named skip,
   register every static gate exactly once in four-worker lanes and serial
   coverage, and preserve live Nitro as an explicit separate gate.
 - [ ] **W7.2 CI/release evidence:** add GitHub/Woodpecker artifact upload and
   failure doctor data, synchronize registry/README/status/roadmap/i18n claims,
   and generate the final evidence manifest only after live requirements pass.
+  GitHub now runs four independent static lanes and uploads artifacts, traces,
+  evidence, timings, and failure doctor JSON. Woodpecker packages the same
+  evidence in its shared workspace, but durable upload is externally blocked
+  until Codeberg supplies an artifact sink and credentials. Registry and
+  bilingual status/gate/roadmap docs are synchronized; `final.json` remains
+  correctly absent without Nitro.
 - [ ] **W7.3 Full regression:** run `just product`, `just stylus-all`, manifest
   and equivalence checks, docs/i18n checks, `JOBS=4 just check-parallel`, and
   `git diff --check`; review the complete range for hidden fallback or
@@ -255,8 +265,8 @@ blockers may defer an item.
 - [x] Pin CLI tests for direct default, explicit Rust selection, identical plan/ABI/storage hashes, no fallback, atomic artifacts, and unavailable-renderer diagnostics.
 - [x] Add renderer selection to CLI options without adding Stylus to the public-beta primary triad.
 - [x] Publish direct Wasm, WAT, ABI, client, plan metadata, renderer id, tool versions, and evidence hash atomically.
-- [ ] Require a machine-readable evidence manifest whose Task 2-6 gates match the current plan-schema hash and are neither skipped nor stale.
-- [ ] Run literal CLI builds for Counter, ValueVault, Token, RemoteCall, and Aggregate fixtures and inspect artifact bundles.
+- [x] Require a machine-readable evidence manifest whose Task 2-6 gates match the current plan-schema hash and are neither skipped nor stale.
+- [x] Run literal CLI builds for Counter, ValueVault, Token, RemoteCall, and Aggregate fixtures and inspect artifact bundles.
 - [ ] Commit as `feat(stylus): make direct Wasm the canonical renderer`.
 
 ### Task 8: Unified Developer Tooling, CI, and Release Evidence
@@ -273,8 +283,8 @@ blockers may defer an item.
 **Interfaces:**
 - Produces: `just stylus-all`, deterministic local doctor/runner/Nitro workflows, parallel static CI, optional live CI, and final evidence bundle.
 
-- [ ] Make `stylus-all` aggregate every static Rust/direct/differential gate with no named SKIP; keep Nitro live jobs separate and explicit.
-- [ ] Register each recipe exactly once in test lanes and serial coverage; run independent static gates in the default four-worker framework.
+- [x] Make `stylus-all` aggregate every static Rust/direct/differential gate with no named SKIP; keep Nitro live jobs separate and explicit.
+- [x] Register each recipe exactly once in test lanes and serial coverage; run independent static gates in the default four-worker framework.
 - [ ] Add CI artifact upload for WAT/Wasm, Rust crate, normalized traces, Nitro tx/address, timing, and doctor JSON on failure.
 - [ ] Update registry text and documentation to distinguish implemented fragment, research maturity, direct default, Rust oracle, local VM evidence, and Nitro evidence.
 - [ ] Run `just product`, `just stylus-all`, `just test-manifest`, `just test-equivalence`, `just docs-check`, `JOBS=4 just check-parallel`, and `git diff --check`.

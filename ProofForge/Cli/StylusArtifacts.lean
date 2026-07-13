@@ -1,4 +1,5 @@
 import ProofForge.Backend.Stylus.Artifact
+import ProofForge.Backend.Stylus.AbiJson
 import ProofForge.Backend.Stylus.DirectWasm.Module
 import ProofForge.Backend.Stylus.Package
 import ProofForge.Backend.Stylus.Plan.Core
@@ -36,7 +37,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
       pure sourceSpec.module
     else
       hydrateEvmSelectors opts.cast sourceSpec.module
-  let spec := { sourceSpec with module := hydratedModule }
+  let spec := { sourceSpec with
+    module := ProofForge.Target.PeerMap.applyToModule hydratedModule opts.peerMap }
   let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"Stylus canonical adapter: {repr error}"
@@ -94,10 +96,8 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
                 paramAbiWords := paramAbiWords
                 returnAbiWord? := returnAbiWord? } } }
     else spec
-  let abi <- match ProofForge.Contract.Client.abiJson clientSpec.module with
-    | .ok abi => pure abi
-    | .error error => throw <| IO.userError error
-  let client <- match ProofForge.Contract.Client.renderEvmAbiWrapper clientSpec "contract" with
+  let abi := ProofForge.Backend.Stylus.AbiJson.render plan
+  let client <- match ProofForge.Contract.Client.renderEvmAbiWrapperWithAbi clientSpec abi "contract" with
     | .ok client => pure client
     | .error error => throw <| IO.userError error
   IO.FS.writeFile abiPath (abi ++ "\n")

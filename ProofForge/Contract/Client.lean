@@ -245,13 +245,13 @@ def evmDeployHelpersTs : String :=
     "}"
   ]
 
-def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec.name) :
+def renderEvmAbiWrapperWithAbi (spec : ContractSpec) (abi : String)
+    (artifactBaseName : String := spec.name) :
     Except String String := do
   ProofForge.IR.Mutability.validateModule spec.module
   let entrypointLines := String.intercalate "" <|
     (spec.module.entrypoints.filter (fun entrypoint => entrypoint.kind == .function)
       |>.map evmEntrypointWrapper).toList
-  let abi ← abiJson spec.module
   pure <| String.intercalate "\n" [
     "/* ProofForge generated EVM ABI wrapper. */",
     "/* eslint-disable @typescript-eslint/no-explicit-any */",
@@ -275,6 +275,10 @@ def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec
     "}",
     entrypointLines
   ]
+
+def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec.name) :
+    Except String String := do
+  renderEvmAbiWrapperWithAbi spec (← abiJson spec.module) artifactBaseName
 
 def nearArgsObject (entrypoint : Entrypoint) : String :=
   "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"

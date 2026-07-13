@@ -170,7 +170,7 @@ waits for Aptos M4.
 | Target | Enabler (gate) | Marginal work once enabled | Recommendation |
 |---|---|---|---|
 | `wasm-stellar-soroban` | CosmWasm M4 (proves host-adapter split) | Soroban host imports, XDR/contract-spec ABI, storage TTL model as target metadata, Stellar CLI gate | Do after CosmWasm; second-cheapest Wasm host |
-| `wasm-arbitrum-stylus` | Primary-triad covenant plus approved `StylusPlan` design | Solidity ABI/EVM slot plan, pinned Rust SDK oracle, direct HostIO Wasm, differential traces | Docs-only now; do not model as a renamed NEAR/Soroban bridge |
+| `wasm-arbitrum-stylus` | Approved standalone `StylusPlan`; local static/runtime closure | Direct HostIO Wasm default, pinned Rust SDK oracle, atomic evidence-bound bundles, bounded aggregate/storage completion, Nitro activation/E2E | Keep at Research until W3/W4 parity and live Nitro evidence close; never route through NEAR/Soroban |
 | `wasm-icp-canister` | CosmWasm M4 **plus** an async/inter-canister design note | Candid ABI, update/query split, cycles metadata; its async call model does not fit the current synchronous IR effect set | Defer; hardest Wasm host — do not start on adapter momentum alone |
 | `move-sui` | Aptos M4 | Object model as target extension (parallel to Solana accounts), Sui CLI gates | Follows Aptos per D-007 |
 | `starknet-cairo` | Aptos M4 (sourcegen pattern proven) + one maintainer with Cairo depth | Cairo/Scarb package printer, Sierra/CASM artifact + class-hash metadata | First non-Move sourcegen candidate; ZK-adjacent knowledge partially shared with Psy/Aleo |

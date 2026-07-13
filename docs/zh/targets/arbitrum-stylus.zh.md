@@ -3,8 +3,10 @@
 ## 状态
 
 `wasm-arbitrum-stylus` 当前是 **research** `contract_source` 目标。它已加入目标
-注册表、`--list-targets` 和 CLI build 路由，但不属于主三目标。公开路由生成固定
-版本的 Rust SDK source bundle 和 intermediate Wasm metadata，不声明可部署产物。
+注册表、`--list-targets` 和 CLI build 路由，但不属于主三目标。公开路由默认生成
+direct HostIO Wasm bundle，并保留固定 Rust SDK renderer 作为显式 oracle。bundle
+可在本地执行且受哈希约束，但缺少 live Nitro 证据时会明确记录 `unavailable`；
+research artifact 不等于 release 晋级。
 
 ## 分类
 
@@ -52,19 +54,23 @@ Canonical Contract
 可复用边界是 canonical IR、中立 Solidity ABI/storage planning、Wasm AST/printer、
 artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
 
-## 已实现与计划支持片段
+## 已实现与剩余片段
 
 1. Counter（research 实现）：`u64` scalar storage、ABI dispatch、checked arithmetic、
    cache flush、Direct WAT 编译和 abstract/direct 归一化 trace parity。静态
    `bool`/`u8`/`u32`/`u64` 函数参数由 plan 持有并被两条 renderer lowering；
    direct dispatch 会在调用前拒绝非 canonical ABI padding。
    Direct `uint128` 参数和 `msg.value` 使用经过检查的 16 字节大端内存值，
-   支持 ABI 返回、相等比较、literal、checked/wrapping add 和 scalar storage；
-   排序在 ValueVault 后续切片完成前继续 fail-closed。
-2. ValueVault：address、sender、value、block、授权和 payable。
-3. Token：mapping、indexed event、allowance 和 EVM ABI 互操作。
-4. RemoteCall：call mode、value/gas、return data、revert、reentrancy。
-5. Aggregates：struct、array、bytes、string、动态 ABI 和 storage layout。
+   支持 ABI 返回、比较、literal、checked/wrapping arithmetic、scalar storage
+   和经过检查的 scratch bound。
+2. ValueVault：address、sender、value、block、授权、payable、canonical Core
+   planning、本地 rollback 和 event trace。
+3. Token：mapping、nested allowance、indexed event 和 EVM ABI 本地生命周期。
+4. RemoteCall：call/static/delegate、value/gas、有界静态/动态返回、revert、cache
+   transition 和本地 nested frame；仍缺跨 renderer 归一化 trace 与 Nitro 双合约证据。
+5. Aggregates：产品/CLI 已覆盖 bytes/string/fixed-array；本地 fixture 覆盖有界 tuple
+   和 dynamic array。递归动态 child、动态 storage transition 和 allocation/page
+   exhaustion 仍未完成。
 
 “任意合约”表示完整落在已实现 Stylus capability fragment 内的 canonical 合约。
 不支持的操作必须在 artifact emission 前返回 target/function/operation 命名诊断。
@@ -73,8 +79,8 @@ artifact 和通用 refinement。Stylus backend 不得经过 `NearModulePlan`。
 
 晋级到 research 以上仍要求 `cargo stylus check`、目标原生 direct `vm_hooks` 执行、
 精确 ABI/storage 向量、完整可部署 artifact、Rust/direct runtime trace parity、资源
-证据和静态 CI。Direct WAT 编译与 abstract trace parity 只是中间 gate。
-Live RPC/deployment 保持可选。
+证据和静态 CI。Direct WAT 编译与 abstract trace parity 只是中间 gate。固定本地
+Nitro activation/deployment 是晋级必需项；公共 Sepolia 与 mainnet 部署仍保持可选/手工。
 
 仅通过 `cargo stylus check` 不等于 runtime 或 deployment 证据。
 

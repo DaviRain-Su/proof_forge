@@ -683,9 +683,13 @@ jobs:
       - name: Run CosmWasm Counter smoke
         run: just cosmwasm-counter-smoke
 
-  stylus-smoke:
+  stylus-static:
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [stylus-plan, stylus-runtime, stylus-differential-a, stylus-differential-b]
 
     steps:
       - name: Checkout
@@ -707,13 +711,36 @@ jobs:
           toolchain: 1.91.0
           targets: wasm32-unknown-unknown
 
-      - name: Install pinned cargo-stylus
-        run: cargo install cargo-stylus --version =0.10.8 --locked
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a  # v1.9.0
+        with:
+          version: stable
 
-      - name: Run Stylus generated Counter smoke
-        env:
-          PROOF_FORGE_STYLUS_STRICT: "1"
-        run: just stylus-rust-counter
+      - name: Install wabt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wabt
+
+      - name: Build Lean package
+        run: lake build
+
+      - name: Run ${{ matrix.lane }} lane
+        run: just check-lane ${{ matrix.lane }}
+
+      - name: Persist Nitro doctor on failure
+        if: failure()
+        run: just stylus-nitro-doctor || true
+
+      - name: Upload Stylus artifacts, traces, evidence, and timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: stylus-${{ matrix.lane }}-${{ github.run_id }}
+          path: |
+            build/stylus/
+            build/evidence/stylus/
+            build/test-lanes/
+          if-no-files-found: warn
 
   aptos-smoke:
     runs-on: ubuntu-latest

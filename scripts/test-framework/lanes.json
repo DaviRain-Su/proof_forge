@@ -120,6 +120,7 @@
     "stylus-rust-counter",
     "stylus-counter-lifecycle",
     "stylus-public-route",
+    "stylus-cli-matrix",
     "stylus-direct-storage",
     "stylus-direct-abi",
     "stylus-counter-differential",
@@ -1112,6 +1113,12 @@
       "lane": "stylus-plan",
       "execution": "lane_serial",
       "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-cli-matrix",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
     },
     {
       "name": "stylus-rust-counter",

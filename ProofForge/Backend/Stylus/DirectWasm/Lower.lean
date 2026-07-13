@@ -253,7 +253,7 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             | throw <| diagnostic plan function block (opName op) "literal.address"
                 "direct address literals currently require a decimal canonical value"
           pure <| clearWord (widePtr result) ++
-            writeBytes (widePtr result + 12) (natBytes 8 number) ++
+            writeBytes (widePtr result) (natBytes 20 number) ++
             #[.i64Const (widePtr result), .localSet (valueLocal result)]
       | .bytes, .bytes value =>
           if value.size > dynamicLiteralMaxBytes then
