@@ -2207,3 +2207,25 @@ Rules:
 - Verification: `just test-manifest` reports 143 recipes across eight lanes;
   `just test-equivalence` reports the same 143 recipes in serial and parallel
   coverage. No recipe body, `stylus-all`, or repository full suite was run.
+
+## 2026-07-13 - Stylus final integration: Rebase and full regression
+
+- Status: `local final integration complete; W5.2/W7.2 externally blocked`
+- Rebased the feature history onto `origin/main` at `7e38c4a5` while preserving
+  its two material merge nodes. Historical resolutions were reused rather than
+  replacing either side wholesale. The pre/post final-tree comparison differs
+  only in the three EVM demo files introduced upstream, with matching stable
+  patch IDs.
+- Published the rebased branch with an exact force-with-lease after confirming
+  the remote feature tip had not moved. The unrelated dirty main worktree and
+  its NEAR changes were not touched.
+- Verification: `just product`, `just stylus-all`, `just test-manifest` (143
+  recipes, eight lanes), `just test-equivalence` (143 recipes), and
+  `just docs-check` pass. `JOBS=4 just check-parallel` passed every registered
+  recipe in 953.76 seconds; `git diff --check` passes after this documentation
+  update.
+- A fresh `just stylus-nitro-doctor` correctly exits nonzero with
+  `ready=false`: Rust 1.91.0, cargo-stylus 0.10.8, and cast are available;
+  Docker, the pinned Nitro checkout, and `http://127.0.0.1:8547` are not.
+  `final.json` remains absent. Durable Woodpecker publication still requires an
+  external artifact sink and credentials.

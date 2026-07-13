@@ -9,10 +9,11 @@ oracle. Recursive aggregate storage/resource work is closed locally, but the
 target must remain at Research maturity because real Nitro evidence is still
 open.
 
-The active completion plan records 59 of 80 acceptance items complete. Three
-queue packages remain: environment-blocked W5.2, externally limited W7.2, and
-final integration. This audit is a gap ledger, not completion proof; the plan
-and reproducible gates remain authoritative.
+The active completion plan records 62 of 80 acceptance items complete. Local
+final integration is closed. Two external queue packages remain:
+environment-blocked W5.2 and externally limited W7.2. This audit is a gap
+ledger, not completion proof; the plan and reproducible gates remain
+authoritative.
 
 ## Verified Baseline
 
@@ -24,7 +25,7 @@ and reproducible gates remain authoritative.
 | Aggregate ABI/storage | `just stylus-aggregate-differential`, `just stylus-aggregate-storage`, `just stylus-core-plan` | recursive calldata carriers plus bounded bytes/string/packed scalar-array storage green locally; indexed/composite array storage remains fail-closed |
 | Remote calls | `just stylus-remote-call-differential` | Rust/direct normalized parity plus runner-only cache/frame/context vectors and local two-contract evidence green |
 | Public artifact route | `just stylus-public-route`, `just stylus-cli-matrix` | direct default, explicit Rust oracle, no fallback, atomic bundles, exact ABI selectors, and evidence hashes green |
-| Static integration | `just stylus-all`, `just test-manifest`, `just test-equivalence` | 26 Stylus gates registered once across four lanes; live Nitro remains separate; final post-rebase full rerun is deferred |
+| Static integration | `just stylus-all`, `just test-manifest`, `just test-equivalence`, `JOBS=4 just check-parallel` | 26 Stylus gates registered once; 143 total recipes across eight lanes passed post-rebase in 953.76 seconds; live Nitro remains separate |
 
 ## Closed Packages
 
@@ -68,6 +69,14 @@ evidence is fresh and identity-bound, and must include the pinned local Nitro
 revision, doctor hash, one chain id, and per-gate transaction/artifact/summary
 hashes. Missing evidence stays `unavailable` and cannot promote maturity.
 
+### Final Integration
+
+The complete branch was reviewed and rebased onto `origin/main` at
+`7e38c4a5` with merge topology preserved. A pre/post tree comparison found no
+branch drift beyond the three upstream EVM demo files. Product, Stylus,
+manifest/equivalence, docs/i18n, and the four-worker full baseline are green,
+and the rebased branch was published with an exact force-with-lease.
+
 ## Open Packages
 
 ### W5.2 - Live Nitro Evidence (environment-blocked)
@@ -88,15 +97,7 @@ JSON. Durable Codeberg publication still requires an externally configured
 artifact sink and credentials. Real `final.json` generation remains gated by
 W5.2.
 
-### Final Integration
-
-After external blockers are either cleared or recorded with exact evidence,
-review the complete branch, rebase the main work branch, resolve conflicts, and
-run the final full regression once. Feature iteration continues to use only
-change-related gates.
-
 ## Critical Path
 
 1. Run W5.2 when the pinned Nitro environment is available.
 2. Configure the Woodpecker durable artifact sink for W7.2.
-3. Perform final review, rebase, conflict resolution, and one full regression.

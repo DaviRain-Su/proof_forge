@@ -24,9 +24,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus final integration review |
-| Next task | Review the complete branch range, then reconcile/rebase the main work branch before the single deferred full regression |
-| Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
+| Active task | External Stylus evidence follow-up |
+| Next task | Provision the pinned Nitro Testnode and configure a durable Woodpecker artifact sink, then close W5.2/W7.2 |
+| Known blocker | Nitro needs Docker, the pinned checkout, and local RPC; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
@@ -163,7 +163,7 @@ CI is product-first: required `just product` runs before backend-heavy suites.
 |---|---|---|
 | Product (required, fail-fast) | `just product` | GitHub `product`; Woodpecker `proof-forge-product` |
 | Fast affected-path baseline | `just check-fast` (fixed core/product + focused changed targets) | Local inner loop |
-| Full parallel baseline | `just check` / `just check-parallel` (108 recipes, default max 4 workers) | GitHub lane matrix; Woodpecker `proof-forge-check`; local pre-push |
+| Full parallel baseline | `just check` / `just check-parallel` (143 recipes, default max 4 workers) | GitHub lane matrix; Woodpecker `proof-forge-check`; local pre-push |
 | Serial full reference | `just check-serial` | Local race diagnosis and coverage reference |
 | Backend-heavy | `build-test` after `product` | GitHub `build-test` (`needs: product`) |
 

@@ -8,9 +8,10 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 59/80 acceptance items are complete. Three open queue
-packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
-Their dependency order is audited in
+**Current checkpoint:** 62/80 acceptance items are complete. Local final
+integration is closed; two external queue packages remain. W5.2 is blocked by
+the unavailable Nitro runtime, and W7.2 needs a durable Woodpecker artifact
+sink and credentials. Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
 
 ## Continuous Execution Queue
@@ -129,13 +130,18 @@ blockers may defer an item.
   and equivalence checks, docs/i18n checks, `JOBS=4 just check-parallel`, and
   `git diff --check`; review the complete range for hidden fallback or
   unsupported claims.
-  The final four-worker run passed all lanes in 1020.51 seconds after repairing
-  stale NEAR dynamic-ABI expectations, both ValueVault WAT goldens, standalone
-  gate rebuild dependencies, exclusive Anvil scheduling, and complete
-  Canonical/EVM/Psy/Wasm constructor coverage manifests.
-- [ ] **Final integration:** only after the queue is closed or externally
+  After rebasing onto `origin/main` at `7e38c4a5`, the final four-worker run
+  passed all 143 recipes across eight lanes in 953.76 seconds. Product, all 26
+  Stylus static gates, manifest/equivalence, docs/i18n, and diff checks are
+  green; live Nitro remains a separate external gate.
+- [x] **Final integration:** only after the queue is closed or externally
   blocked with exact evidence, review the complete branch, rebase the main
   working branch, resolve conflicts, rerun required gates, and push.
+  The branch was rebased with merge topology preserved. Tree comparison against
+  the pre-rebase tip showed only the three EVM demo files added by current
+  `origin/main`; the rebased branch was pushed with an exact force-with-lease.
+  W5.2 and W7.2 remain open with the blockers above rather than being promoted
+  by local evidence.
 
 ## Global Constraints
 
@@ -331,9 +337,9 @@ blockers may defer an item.
 - [x] Register each recipe exactly once in test lanes and serial coverage; run independent static gates in the default four-worker framework.
 - [ ] Add CI artifact upload for WAT/Wasm, Rust crate, normalized traces, Nitro tx/address, timing, and doctor JSON on failure.
 - [x] Update registry text and documentation to distinguish implemented fragment, research maturity, direct default, Rust oracle, local VM evidence, and Nitro evidence.
-- [ ] Run `just product`, `just stylus-all`, `just test-manifest`, `just test-equivalence`, `just docs-check`, `JOBS=4 just check-parallel`, and `git diff --check`.
+- [x] Run `just product`, `just stylus-all`, `just test-manifest`, `just test-equivalence`, `just docs-check`, `JOBS=4 just check-parallel`, and `git diff --check`.
 - [ ] Run `just stylus-nitro-doctor`, restore/start Nitro if needed, then run all required Nitro E2E gates and write `build/evidence/stylus/final.json`.
-- [ ] Review the complete commit range for unsupported claims, primary-triad regressions, generated output, and hidden fallbacks.
+- [x] Review the complete commit range for unsupported claims, primary-triad regressions, generated output, and hidden fallbacks.
 - [ ] Mark the plan complete, update `AGENTS.md`, and push the final branch.
 
 ## Final Definition of Done
