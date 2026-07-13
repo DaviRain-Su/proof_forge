@@ -1753,6 +1753,32 @@ Rules:
 - Remaining: recursively planned dynamic array/tuple children, aggregate
   storage short/long transitions, and resource exhaustion. W3.1 remains open.
 
+## 2026-07-13 - STYLUS-W4: HostIO contexts, Rust runtime parity, and local evidence
+
+- Status: `W4.1 and W4.3 complete; normalized cross-renderer trace pending`
+- The local VM runner now executes explicit callback, static, and delegate
+  frames. Static storage writes fail and roll back; delegate frames preserve
+  sender, value, contract address, and caller storage. The direct fixture writes
+  those context values to storage so the assertions do not rely only on trace
+  labels.
+- Generated Rust remote methods now support bounded bytes/string ABI returns
+  with offset, length, exact padded extent, zero-padding, maximum-length, and
+  UTF-8 checks. Three native `stylus-test` tests cover call/static/delegate,
+  calldata, value, gas, revert, malformed scalar return, and dynamic return.
+- `scripts/stylus/audit-remote-hostio.py` resolves the actual Cargo package and
+  checks pinned `stylus-sdk = 0.10.8` source signatures. The Lean side pins the
+  corresponding Wasm import arities. The official call result length is an out
+  pointer; there is no invented `return_data_len` host function.
+- The differential gate writes ignored
+  `build/evidence/stylus/remote-local.json` with artifact hashes, two addresses,
+  normalized scenario outcomes, and explicit `local-wasmtime`/non-Nitro
+  provenance.
+- Verification: `just stylus-remote-call-differential` passes the canonical
+  plan, direct Wasm, static/delegate/reentrant runner vectors, three native Rust
+  tests, and official HostIO audit.
+- Remaining: one shared normalized trace schema across Rust/direct/runner and
+  the real two-contract Nitro deployment/transaction evidence.
+
 ## 2026-07-13 - STYLUS-W4: Rust SDK static-call oracle foundation
 
 - Status: `static uint64 call slice complete; runtime parity closure pending`

@@ -153,16 +153,85 @@ def main : IO Unit := do
   IO.FS.writeFile "build/stylus/remote-call/call.wat" (ProofForge.Compiler.Wasm.Printer.render module)
   let implemented : RendererSupportPlan := { rustSdk := .implemented, directWasm := .implemented }
   let rustPlan := { plan with
-    abi := { plan.abi with methods := plan.abi.methods.filter (fun method => method.name != "invokeBytes") }
-    functions := (plan.functions.filter (fun function => function.id != "invokeBytes")).map
-      (fun function => { function with support := implemented })
-    calls := (plan.calls.filter (fun call => call.id != "call-25")).map
-      (fun call => { call with support := implemented })
-    hostOps := (plan.hostOps.filter (fun hostOp => hostOp.functionId != "invokeBytes")).map
-      (fun hostOp => { hostOp with support := implemented }) }
+    functions := plan.functions.map (fun function => { function with support := implemented })
+    calls := plan.calls.map (fun call => { call with support := implemented })
+    hostOps := plan.hostOps.map (fun hostOp => { hostOp with support := implemented }) }
   let crate <- match ProofForge.Backend.Stylus.RustSdk.renderCrate rustPlan with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"Rust remote-call rendering failed: {error.message}"
+  let parityTests := r#"
+#[cfg(test)]
+mod remote_parity {
+    use super::*;
+    use stylus_test::TestVM;
+
+    fn word(value: u64) -> Vec<u8> {
+        U256::from(value).to_be_bytes::<32>().to_vec()
+    }
+
+    fn selector(vm: &TestVM, signature: &[u8]) -> Vec<u8> {
+        vm.native_keccak256(signature)[..4].to_vec()
+    }
+
+    #[test]
+    fn call_modes_and_failures_match_direct_vectors() {
+        let vm = TestVM::new();
+        let contract = RemoteCallDirect::from(&vm);
+        let target = Address::from([0x22; 20]);
+        let ping = selector(&vm, b"ping()");
+        vm.mock_call(target, ping.clone(), U256::ZERO, Ok(word(42)));
+        vm.mock_static_call(target, ping.clone(), Ok(word(42)));
+        vm.mock_delegate_call(target, ping.clone(), Ok(word(42)));
+        assert_eq!(contract.invoke(target), Ok(42));
+        assert_eq!(contract.invokeStatic(target), Ok(42));
+        assert_eq!(contract.invokeDelegate(target), Ok(42));
+
+        vm.mock_call(target, ping.clone(), U256::ZERO, Err(vec![0xde, 0xad, 0xbe, 0xef]));
+        assert_eq!(contract.invoke(target), Err(vec![0xde, 0xad, 0xbe, 0xef]));
+        vm.mock_call(target, ping, U256::ZERO, Ok(Vec::new()));
+        assert_eq!(contract.invoke(target), Err(b"stylus: malformed return data".to_vec()));
+    }
+
+    #[test]
+    fn calldata_value_and_gas_vectors_match_direct_vectors() {
+        let vm = TestVM::new();
+        let contract = RemoteCallDirect::from(&vm);
+        let target = Address::from([0x22; 20]);
+        let mut args = selector(&vm, b"ping(uint64,uint64)");
+        args.extend_from_slice(&U256::from(42).to_be_bytes::<32>());
+        args.extend_from_slice(&U256::from(7).to_be_bytes::<32>());
+        vm.mock_call(target, args, U256::ZERO, Ok(word(42)));
+        assert_eq!(contract.invokeArgs(target, 42, 7), Ok(42));
+
+        let amount = (1_u128 << 64) + 42;
+        vm.mock_call(target, selector(&vm, b"pay()"), U256::from(amount), Ok(word(42)));
+        assert_eq!(contract.invokeValue(target, amount), Ok(42));
+        vm.mock_call(target, selector(&vm, b"ping()"), U256::ZERO, Ok(word(42)));
+        assert_eq!(contract.invokeGas(target, 12345), Ok(42));
+    }
+
+    #[test]
+    fn dynamic_return_vectors_match_direct_vectors() {
+        let vm = TestVM::new();
+        let contract = RemoteCallDirect::from(&vm);
+        let target = Address::from([0x22; 20]);
+        let data = selector(&vm, b"data()");
+        let mut hello = U256::from(32).to_be_bytes::<32>().to_vec();
+        hello.extend_from_slice(&U256::from(5).to_be_bytes::<32>());
+        hello.extend_from_slice(b"hello");
+        hello.resize(96, 0);
+        vm.mock_call(target, data.clone(), U256::ZERO, Ok(hello));
+        assert_eq!(contract.invokeBytes(target), Ok(b"hello".to_vec()));
+
+        let mut bad = U256::from(64).to_be_bytes::<32>().to_vec();
+        bad.extend_from_slice(&U256::ZERO.to_be_bytes::<32>());
+        vm.mock_call(target, data, U256::ZERO, Ok(bad));
+        assert_eq!(contract.invokeBytes(target), Err(b"stylus: malformed dynamic return data".to_vec()));
+    }
+}
+"#
+  let crate := { crate with files := crate.files.map fun file =>
+    if file.path == "src/lib.rs" then { file with content := file.content ++ parityTests } else file }
   let cratePath := System.FilePath.mk "build/stylus/remote-call/rust"
   if ← cratePath.pathExists then IO.FS.removeDirAll cratePath
   match ← ProofForge.Backend.Stylus.writeCrateAtomic crate cratePath with

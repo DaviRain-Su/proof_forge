@@ -1,9 +1,21 @@
 import Examples.Product.RemoteCall
 import ProofForge.Backend.Stylus.Plan.Core
+import ProofForge.Backend.Stylus.DirectWasm.Imports
 import ProofForge.Contract.Spec
 import ProofForge.IR.Legacy.Adapter
 
 def main : IO Unit := do
+  let expectedImports := #[
+    (.callContract, "call_contract", 6, 1),
+    (.staticCallContract, "static_call_contract", 5, 1),
+    (.delegateCallContract, "delegate_call_contract", 5, 1),
+    (.readReturnData, "read_return_data", 3, 1)]
+  for (operation, name, params, results) in expectedImports do
+    let some hostImport := ProofForge.Backend.Stylus.DirectWasm.importForHostOp? operation
+      | throw <| IO.userError s!"missing official Stylus HostIO import `{name}`"
+    if hostImport.module_ != "vm_hooks" || hostImport.name != name ||
+        hostImport.type.params.size != params || hostImport.type.results.size != results then
+      throw <| IO.userError s!"Stylus HostIO import `{name}` signature drifted"
   let hydrated := { Examples.Product.RemoteCall.module with
     entrypoints := Examples.Product.RemoteCall.module.entrypoints.map fun entrypoint =>
       { entrypoint with selector? := match entrypoint.name with

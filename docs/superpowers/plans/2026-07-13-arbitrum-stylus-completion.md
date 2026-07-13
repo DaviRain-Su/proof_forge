@@ -29,13 +29,16 @@ blockers may defer an item.
 - [ ] **W3.3 Aggregate closure gate:** run the complete aggregate differential,
   diagnostics, resource-adversarial, Rust oracle, and direct-Wasm gates; update
   Task 6 evidence without claiming Nitro execution.
-- [ ] **W4.1 HostIO/context closure:** audit all remote-call imports against the
+- [x] **W4.1 HostIO/context closure:** audit all remote-call imports against the
   pinned SDK and add static-write rejection plus delegate caller/value/address/
   storage context vectors to the local runner.
 - [ ] **W4.2 Renderer parity:** support the same bounded static and dynamic
   return envelopes in generated Rust, then compare normalized Rust/direct/
   runner results, failures, calldata, cache transitions, and nested frames.
-- [ ] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
+  Generated Rust now runs three native `stylus-test` cases for static/dynamic
+  results, failures, modes, calldata, value, and gas; normalized cross-renderer
+  trace comparison remains open.
+- [x] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
   callee local evidence manifest and make the remote differential gate verify
   its schema and hashes. This is local evidence, never Nitro evidence.
 - [ ] **W5.1 Environment audit:** run the Nitro doctor and persist doctor JSON.
@@ -187,15 +190,16 @@ blockers may defer an item.
 **Interfaces:**
 - Produces: call/static/delegate envelopes, bounded return-data slices, status/revert propagation, and explicit cache transitions.
 
-- [ ] Pin success, empty/dynamic result, callee revert, truncation, value call, static write rejection, delegate context, gas bound, and reentrant callback traces.
+- [x] Pin success, empty/dynamic result, callee revert, truncation, value call, static write rejection, delegate context, gas bound, and reentrant callback traces.
 - [x] Preserve canonical call/static/delegate envelopes in `StylusPlan`, including target, bounded method string, typed arguments, optional value/gas, and return type.
 - [x] Lower official call/static/delegate and `read_return_data` signatures for static arguments, u64 and bounded bytes/string results, and call values of uint64/128/256; propagate callee revert bytes.
 - [x] Extend the local runner with deterministic mock callees and overlapping return-data reads for all three call modes.
-- [ ] Lower only official `call_contract`, `static_call_contract`, `delegate_call_contract`, `return_data_len`, and `read_return_data` signatures from the pinned SDK.
+- [x] Audit the direct imports against pinned SDK 0.10.8 `call_contract`, `static_call_contract`, `delegate_call_contract`, `read_return_data`, and `return_data_size`; call length is the official out pointer, not a separate `return_data_len` host function.
 - [x] Encode the pinned SDK pre-call cache policy in `StylusPlan`: static calls flush without invalidation; call/delegate clear after persisting dirty values. Renderers may not invent transitions.
 - [x] Model nested caller/callee frames and transaction-level commit/revert separately from cache policy; a failed callee frame must not discard caller state unless the caller itself reverts.
 - [x] Extend the local runner with deterministic mock callees and nested invocation frames, preserving caller/storage/value identities.
-- [ ] Execute Rust/direct/runner parity and a two-contract Nitro scenario.
+- [x] Execute local Rust/direct/runner behavior parity and persist local caller/callee evidence with explicit non-Nitro provenance.
+- [ ] Execute the real two-contract Nitro scenario and persist transaction evidence.
 - [ ] Run `just stylus-remote-call-differential` and `just stylus-remote-call-nitro-e2e`.
 - [ ] Mark Task 13 complete and commit as `feat(stylus): complete remote call semantics`.
 

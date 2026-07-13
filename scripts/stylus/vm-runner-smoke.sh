@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.Differential
+lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.Differential \
+  ProofForge.Backend.Stylus.ValueVaultSemantics ProofForge.Backend.Stylus.RustSdk.Render
 lake env lean --run Tests/Stylus/CounterDifferential.lean
 wat2wasm build/stylus/counter-differential/counter.wat \
   -o build/stylus/counter-differential/counter.wasm

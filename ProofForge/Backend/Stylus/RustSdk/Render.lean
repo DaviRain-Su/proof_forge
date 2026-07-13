@@ -139,8 +139,8 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
   | .call result type callId => do
       let some call := plan.calls.find? (fun call => call.id == callId)
         | fail s!"Rust SDK call envelope `{callId}` is missing"
-      unless type == .uint 64 && call.returnType == .uint 64 do
-        fail s!"Rust SDK call envelope `{callId}` currently requires uint64 return"
+      unless type == call.returnType do
+        fail s!"Rust SDK call envelope `{callId}` result type does not match its plan"
       let mut lines := #[
         s!"let mut __pf_calldata_{result} = self.vm().native_keccak256(b\"{call.canonicalSignature}\")[..4].to_vec();"
       ]
@@ -168,15 +168,46 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let targetName := localName call.target
       let resultText := toString result
       let resultName := localName result
-      lines := lines ++ #[
-        "let __pf_return_" ++ resultText ++ " = unsafe { " ++ constructor ++
-          ".limit_return_data(0, 32).call(" ++ targetName ++ ", &__pf_calldata_" ++ resultText ++
-          ") }.map_err(|data| data)?;",
-        "if __pf_return_" ++ resultText ++ ".len() != 32 || __pf_return_" ++ resultText ++
-          "[..24].iter().any(|byte| *byte != 0) { return Err(b\"stylus: malformed return data\".to_vec()); }",
-        "let " ++ resultName ++ ": u64 = u64::from_be_bytes(__pf_return_" ++ resultText ++
-          "[24..32].try_into().unwrap());"
-      ]
+      match call.returnType with
+      | .uint 64 =>
+          lines := lines ++ #[
+            "let __pf_return_" ++ resultText ++ " = unsafe { " ++ constructor ++
+              ".limit_return_data(0, 32).call(" ++ targetName ++ ", &__pf_calldata_" ++ resultText ++
+              ") }.map_err(|data| data)?;",
+            "if __pf_return_" ++ resultText ++ ".len() != 32 || __pf_return_" ++ resultText ++
+              "[..24].iter().any(|byte| *byte != 0) { return Err(b\"stylus: malformed return data\".to_vec()); }",
+            "let " ++ resultName ++ ": u64 = u64::from_be_bytes(__pf_return_" ++ resultText ++
+              "[24..32].try_into().unwrap());"
+          ]
+      | .bytes | .string =>
+          let some maximum := call.returnMaxLength?
+            | fail s!"Rust SDK call envelope `{callId}` dynamic return maximum is missing"
+          let limit := 64 + ((maximum + 31) / 32) * 32
+          lines := lines ++ #[
+            "let __pf_return_" ++ resultText ++ " = unsafe { " ++ constructor ++
+              s!".limit_return_data(0, {limit}).call(" ++ targetName ++ ", &__pf_calldata_" ++ resultText ++
+              ") }.map_err(|data| data)?;",
+            "if __pf_return_" ++ resultText ++ ".len() < 64 || __pf_return_" ++ resultText ++
+              "[..31].iter().any(|byte| *byte != 0) || __pf_return_" ++ resultText ++
+              "[31] != 32 || __pf_return_" ++ resultText ++
+              "[32..56].iter().any(|byte| *byte != 0) { return Err(b\"stylus: malformed dynamic return data\".to_vec()); }",
+            "let __pf_length_" ++ resultText ++ ": usize = u64::from_be_bytes(__pf_return_" ++ resultText ++
+              "[56..64].try_into().unwrap()) as usize;",
+            "if __pf_length_" ++ resultText ++ " > " ++ toString maximum ++
+              " { return Err(b\"stylus: return data exceeds limit\".to_vec()); }",
+            "let __pf_end_" ++ resultText ++ " = 64 + ((__pf_length_" ++ resultText ++ " + 31) / 32) * 32;",
+            "if __pf_return_" ++ resultText ++ ".len() != __pf_end_" ++ resultText ++
+              " || __pf_return_" ++ resultText ++ "[64 + __pf_length_" ++ resultText ++
+              "..__pf_end_" ++ resultText ++ "].iter().any(|byte| *byte != 0) { return Err(b\"stylus: malformed dynamic return data\".to_vec()); }"
+          ]
+          if call.returnType == .string then
+            lines := lines.push <| "let " ++ resultName ++ ": String = String::from_utf8(__pf_return_" ++
+              resultText ++ "[64..64 + __pf_length_" ++ resultText ++
+              "].to_vec()).map_err(|_| b\"stylus: invalid utf8 return data\".to_vec())?;"
+          else
+            lines := lines.push <| "let " ++ resultName ++ ": Vec<u8> = __pf_return_" ++ resultText ++
+              "[64..64 + __pf_length_" ++ resultText ++ "].to_vec();"
+      | _ => fail s!"Rust SDK call envelope `{callId}` has unsupported return `{repr call.returnType}`"
       pure (.rawLines lines)
 
 private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
@@ -356,7 +387,7 @@ private def renderLib (contract : RustContract) : String :=
     (functions.toList.intersperse "").toArray ++ #["}", ""]).toList
 
 private def cargoToml (crateName : String) : String :=
-  s!"[package]\nname = \"{crateName}\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"lib\"]\n\n[dependencies]\nstylus-sdk = \"=0.10.8\"\n\n[features]\ndefault = []\nexport-abi = [\"stylus-sdk/export-abi\"]\nstylus-test = [\"stylus-sdk/stylus-test\"]\ncontract-client-gen = []\n"
+  s!"[package]\nname = \"{crateName}\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"lib\"]\n\n[dependencies]\nstylus-sdk = \"=0.10.8\"\n\n[dev-dependencies]\nstylus-test = \"=0.10.8\"\n\n[features]\ndefault = []\nexport-abi = [\"stylus-sdk/export-abi\"]\nstylus-test = [\"stylus-sdk/stylus-test\"]\ncontract-client-gen = []\n"
 
 private def crateSlug (moduleName : String) : String :=
   "proof-forge-" ++ String.toLower moduleName ++ "-stylus"

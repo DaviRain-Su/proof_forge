@@ -78,13 +78,25 @@ reentrant_revert="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Car
 outer_revert="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/reentrant/reentrant.wasm --mock-reentrant "$target=ca120002" \
   --calldata ca120004${target_word} --invoke user_entrypoint)"
+caller="$(printf '33%.0s' {1..20})"
+sender="$(printf '44%.0s' {1..20})"
+delegate_value="$(printf '00%.0s' {1..31})2a"
+static_write="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/reentrant/reentrant.wasm --contract "$caller" --sender "$sender" \
+  --mock-static "$target=ca120002" --calldata ca120005${target_word} --invoke user_entrypoint)"
+delegate_context="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/reentrant/reentrant.wasm --contract "$caller" --sender "$sender" \
+  --value "$delegate_value" --mock-delegate "$target=ca120007" \
+  --calldata ca120006${target_word} --invoke user_entrypoint)"
 
-python3 - "$selector" "$args_selector" "$target" "$abi_empty" "$abi_hello" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$gas_call" "$empty_return" "$oversized_return" "$bytes_empty" "$bytes_hello" "$bytes_bad_offset" "$bytes_bad_padding" "$bytes_nonzero_padding" "$bytes_too_long" "$reentrant_success" "$reentrant_revert" "$outer_revert" <<'PY'
+python3 - "$selector" "$args_selector" "$target" "$abi_empty" "$abi_hello" "$caller" "$sender" "$delegate_value" "$success" "$revert" "$static" "$delegate" "$args" "$value_call" "$gas_call" "$empty_return" "$oversized_return" "$bytes_empty" "$bytes_hello" "$bytes_bad_offset" "$bytes_bad_padding" "$bytes_nonzero_padding" "$bytes_too_long" "$reentrant_success" "$reentrant_revert" "$outer_revert" "$static_write" "$delegate_context" <<'PY'
+import hashlib
 import json
+from pathlib import Path
 import sys
 
-selector, args_selector, target, abi_empty, abi_hello = sys.argv[1:6]
-success, revert, static, delegate, args, value_call, gas_call, empty_return, oversized_return, bytes_empty, bytes_hello, bytes_bad_offset, bytes_bad_padding, bytes_nonzero_padding, bytes_too_long, reentrant_success, reentrant_revert, outer_revert = map(json.loads, sys.argv[6:24])
+selector, args_selector, target, abi_empty, abi_hello, caller, sender, delegate_value = sys.argv[1:9]
+success, revert, static, delegate, args, value_call, gas_call, empty_return, oversized_return, bytes_empty, bytes_hello, bytes_bad_offset, bytes_bad_padding, bytes_nonzero_padding, bytes_too_long, reentrant_success, reentrant_revert, outer_revert, static_write, delegate_context = map(json.loads, sys.argv[9:29])
 def require_pre_call_cache(trace, event, clear):
     index = next(i for i, item in enumerate(trace) if item["event"] == event)
     assert index > 0
@@ -146,8 +158,51 @@ assert any(item["event"] == "frame_exit" and item["status"] == 1 for item in ree
 assert outer_revert["calls"][0]["status"] == 1
 assert outer_revert["result"] == "outer reverted".encode().hex()
 assert slot_zero not in outer_revert["storage"]
+assert static_write["calls"][0]["status"] == 1
+assert slot_zero not in static_write["storage"]
+assert any(item["event"] == "static_write_rejected" for item in static_write["trace"])
+static_frames = [item for item in static_write["trace"] if item["event"] == "frame_enter"]
+assert len(static_frames) == 1 and static_frames[0]["mode"] == "static"
+assert static_frames[0]["sender"] == caller and static_frames[0]["contract"] == target
+assert static_frames[0]["value"] == "00" * 32
+assert delegate_context["calls"][0]["status"] == 0
+assert delegate_context["result"] == word_42
+slot_one, slot_two, slot_three = "00" * 31 + "01", "00" * 31 + "02", "00" * 31 + "03"
+assert delegate_context["storage"][slot_one] == "00" * 12 + sender
+assert delegate_context["storage"][slot_two] == "00" * 16 + delegate_value[32:]
+assert delegate_context["storage"][slot_three] == "00" * 12 + caller
+delegate_frames = [item for item in delegate_context["trace"] if item["event"] == "frame_enter"]
+assert len(delegate_frames) == 1 and delegate_frames[0]["mode"] == "delegate"
+assert delegate_frames[0]["sender"] == sender
+assert delegate_frames[0]["value"] == delegate_value
+assert delegate_frames[0]["contract"] == caller
+
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+evidence = {
+    "schema": "proof-forge.stylus.remote-local.v1",
+    "environment": "local-wasmtime",
+    "nitro": False,
+    "artifacts": {
+        "remoteWasmSha256": sha256("build/stylus/remote-call/call.wasm"),
+        "reentrantWasmSha256": sha256("build/stylus/reentrant/reentrant.wasm"),
+    },
+    "contracts": {"caller": caller, "callee": target},
+    "scenarios": {
+        "call": {"status": success["calls"][0]["status"], "result": success["result"]},
+        "staticWrite": {"status": static_write["calls"][0]["status"], "storage": static_write["storage"]},
+        "delegateContext": {"status": delegate_context["calls"][0]["status"], "storage": delegate_context["storage"]},
+        "reentrantSuccess": {"status": reentrant_success["calls"][0]["status"], "storage": reentrant_success["storage"]},
+        "reentrantRevert": {"status": reentrant_revert["calls"][0]["status"], "storage": reentrant_revert["storage"]},
+    },
+}
+evidence_path = Path("build/evidence/stylus/remote-local.json")
+evidence_path.parent.mkdir(parents=True, exist_ok=True)
+evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
 print("stylus-remote-call-differential-runtime: ok")
 PY
 
 RUSTUP_TOOLCHAIN=1.91.0 CARGO_TARGET_DIR=build/stylus/cargo-target \
   cargo test --manifest-path build/stylus/remote-call/rust/Cargo.toml --features stylus-test
+python3 scripts/stylus/audit-remote-hostio.py

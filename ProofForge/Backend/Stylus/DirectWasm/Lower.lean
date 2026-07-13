@@ -337,6 +337,9 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       let word <- wordFor plan wordId
       let slot <- literalSlot word
       match word.type with
+      | .address => pure <| writeBytes 0 slot ++ clearWord 32 ++
+          copyPointerBytes 44 (valueLocal value) addressBytes ++
+          #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
       | .uint 128 => pure <| writeBytes 0 slot ++ clearWord 32 ++
           copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 0, .i32Const 32, .call "storage_cache_bytes32"]
@@ -362,6 +365,8 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       let slot <- mappingSlot word keys |>.mapError fun error =>
         diagnostic plan function block (opName op) "storage.mapping" error.message
       match word.type with
+      | .address => pure <| slot ++ clearWord 64 ++ copyPointerBytes 76 (valueLocal value) addressBytes ++
+          #[.i32Const 32, .i32Const 64, .call "storage_cache_bytes32"]
       | .uint 128 => pure <| slot ++ clearWord 64 ++ copyPointerBytes 80 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 64, .call "storage_cache_bytes32"]
       | type =>

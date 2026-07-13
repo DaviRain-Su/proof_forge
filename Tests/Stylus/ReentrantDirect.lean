@@ -20,6 +20,20 @@ def main : IO Unit := do
     name := "invokeThenRevert", canonicalSignature := "invokeThenRevert(address)",
     selector := #[0xca, 0x12, 0x00, 0x04], params := #[{ name := "target", type := .address }]
   }
+  let staticMethod : StylusAbiMethodPlan := {
+    name := "invokeStatic", canonicalSignature := "invokeStatic(address)"
+    selector := #[0xca, 0x12, 0x00, 0x05], params := #[{ name := "target", type := .address }]
+    returns := #[.uint 64], mutability := .view
+  }
+  let delegateMethod : StylusAbiMethodPlan := {
+    name := "invokeDelegate", canonicalSignature := "invokeDelegate(address)"
+    selector := #[0xca, 0x12, 0x00, 0x06], params := #[{ name := "target", type := .address }]
+    returns := #[.uint 64], payable := true
+  }
+  let delegateCallbackMethod : StylusAbiMethodPlan := {
+    name := "delegateCallback", canonicalSignature := "delegateCallback()"
+    selector := #[0xca, 0x12, 0x00, 0x07], returns := #[.uint 64], payable := true
+  }
   let invokeFunction : StylusFunctionPlan := {
     id := "invoke", abiMethod := "invoke", params := #[{ valueId := 1, name := "target", type := .address }]
     entryBlock := 0
@@ -59,20 +73,67 @@ def main : IO Unit := do
     }]
     support
   }
+  let staticFunction : StylusFunctionPlan := {
+    id := "invokeStatic", abiMethod := "invokeStatic"
+    params := #[{ valueId := 9, name := "target", type := .address }]
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      operations := #[.literal 10 .string (.string "callback"), .call 11 (.uint 64) "call-11"]
+      terminator := .return #[11]
+    }]
+    support
+  }
+  let delegateFunction : StylusFunctionPlan := {
+    id := "invokeDelegate", abiMethod := "invokeDelegate"
+    params := #[{ valueId := 12, name := "target", type := .address }]
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      operations := #[.literal 13 .string (.string "delegateCallback"), .call 14 (.uint 64) "call-14"]
+      terminator := .return #[14]
+    }]
+    support
+  }
+  let delegateCallbackFunction : StylusFunctionPlan := {
+    id := "delegateCallback", abiMethod := "delegateCallback", entryBlock := 0
+    blocks := #[{ id := 0, operations := #[
+      .contextRead 15 .address .msgSender, .storageCache "delegateSender" 15,
+      .contextRead 16 (.uint 128) .msgValue, .storageCache "delegateValue" 16,
+      .contextRead 17 .address .contractAddress, .storageCache "delegateContract" 17,
+      .literal 18 (.uint 64) (.uint 42)], terminator := .return #[18] }], support
+  }
   let plan : StylusPlan := {
     targetId := "wasm-arbitrum-stylus", moduleName := "ReentrantDirect"
-    abi := { methods := #[invokeMethod, callbackMethod, revertMethod, outerRevertMethod], errors := #[] }
+    abi := { methods := #[invokeMethod, callbackMethod, revertMethod, outerRevertMethod,
+      staticMethod, delegateMethod, delegateCallbackMethod], errors := #[] }
     storage := { words := #[{
       id := "seen", slot := .literal (Array.replicate 32 0), byteOffset := 24,
       byteWidth := 8, type := .uint 64
+    }, {
+      id := "delegateSender", slot := .literal (Array.replicate 31 0 ++ #[1]),
+      byteOffset := 12, byteWidth := 20, type := .address
+    }, {
+      id := "delegateValue", slot := .literal (Array.replicate 31 0 ++ #[2]),
+      byteOffset := 16, byteWidth := 16, type := .uint 128
+    }, {
+      id := "delegateContract", slot := .literal (Array.replicate 31 0 ++ #[3]),
+      byteOffset := 12, byteWidth := 20, type := .address
     }] }
-    functions := #[invokeFunction, callbackFunction, revertFunction, outerRevertFunction]
+    functions := #[invokeFunction, callbackFunction, revertFunction, outerRevertFunction,
+      staticFunction, delegateFunction, delegateCallbackFunction]
     events := #[], calls := #[{
       id := "call-3", mode := .call, canonicalSignature := "callback()", target := 1, method := 2,
       returnType := .uint 64, cachePolicy := .clear, support
     }, {
       id := "call-8", mode := .call, canonicalSignature := "callback()", target := 6, method := 7,
       returnType := .uint 64, cachePolicy := .clear, support
+    }, {
+      id := "call-11", mode := .staticCall, canonicalSignature := "callback()", target := 9, method := 10,
+      returnType := .uint 64, cachePolicy := .flush, support
+    }, {
+      id := "call-14", mode := .delegateCall, canonicalSignature := "delegateCallback()",
+      target := 12, method := 13, returnType := .uint 64, cachePolicy := .clear, support
     }]
     hostOps := #[
       { id := "invoke.value", functionId := "invoke", operation := .msgValue, support },
@@ -93,7 +154,24 @@ def main : IO Unit := do
       { id := "outer.keccak", functionId := "invokeThenRevert", operation := .keccak256, support },
       { id := "outer.call", functionId := "invokeThenRevert", operation := .callContract, support },
       { id := "outer.return", functionId := "invokeThenRevert", operation := .readReturnData, support },
-      { id := "outer.result", functionId := "invokeThenRevert", operation := .writeResult, support }
+      { id := "outer.result", functionId := "invokeThenRevert", operation := .writeResult, support },
+      { id := "static.value", functionId := "invokeStatic", operation := .msgValue, support },
+      { id := "static.flush", functionId := "invokeStatic", operation := .storageFlush, support },
+      { id := "static.keccak", functionId := "invokeStatic", operation := .keccak256, support },
+      { id := "static.call", functionId := "invokeStatic", operation := .staticCallContract, support },
+      { id := "static.return", functionId := "invokeStatic", operation := .readReturnData, support },
+      { id := "static.result", functionId := "invokeStatic", operation := .writeResult, support },
+      { id := "delegate.value", functionId := "invokeDelegate", operation := .msgValue, support },
+      { id := "delegate.flush", functionId := "invokeDelegate", operation := .storageFlush, support },
+      { id := "delegate.keccak", functionId := "invokeDelegate", operation := .keccak256, support },
+      { id := "delegate.call", functionId := "invokeDelegate", operation := .delegateCallContract, support },
+      { id := "delegate.return", functionId := "invokeDelegate", operation := .readReturnData, support },
+      { id := "delegate.result", functionId := "invokeDelegate", operation := .writeResult, support },
+      { id := "delegate-callback.sender", functionId := "delegateCallback", operation := .msgSender, support },
+      { id := "delegate-callback.value", functionId := "delegateCallback", operation := .msgValue, support },
+      { id := "delegate-callback.contract", functionId := "delegateCallback", operation := .contractAddress, support },
+      { id := "delegate-callback.cache", functionId := "delegateCallback", operation := .storageCache, support },
+      { id := "delegate-callback.result", functionId := "delegateCallback", operation := .writeResult, support }
     ]
     resources := { maxMemoryPages := 1, requiresStorageFlush := true }
     artifacts := { solidityAbi := true, typescriptClient := true }
