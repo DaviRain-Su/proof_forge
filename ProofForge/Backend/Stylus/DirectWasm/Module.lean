@@ -734,6 +734,12 @@ private def ensureDynamicStorageScratchFits (plan : StylusPlan) : Except LowerEr
               throw { message := s!"target={plan.targetId} function={function.id} block={block.id} " ++
                 s!"op=storage-dynamic-load-{result} capability=memory.dynamic-storage renderer=direct-wasm: " ++
                 s!"dynamic storage scratch end {endOffset} exceeds memory limit {limit}" }
+        | .storageArrayLoad result _ maximum =>
+            let endOffset := dynamicLiteralPtr result + maximum * 32
+            if endOffset > limit || maximum * 32 > dynamicLiteralStride then
+              throw { message := s!"target={plan.targetId} function={function.id} block={block.id} " ++
+                s!"op=storage-array-load-{result} capability=memory.dynamic-storage renderer=direct-wasm: " ++
+                s!"dynamic array scratch end {endOffset} exceeds bounded carrier or memory limit {limit}" }
         | _ => pure ()
 
 def lowerFromPlan (plan : StylusPlan) : Except LowerError Module := do

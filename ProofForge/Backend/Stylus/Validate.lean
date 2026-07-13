@@ -22,6 +22,11 @@ def RendererKind.id : RendererKind -> String
 private def fail (message : String) : Except PlanError α :=
   .error { message }
 
+private def supportedArrayStorageElement : StylusAbiType -> Bool
+  | .bool | .address => true
+  | .uint bits => #[8, 16, 32, 64, 128].contains bits
+  | _ => false
+
 partial def validateAbiType : StylusAbiType -> Except PlanError Unit
   | .bool | .address | .bytes | .string => pure ()
   | .uint bits =>
@@ -180,6 +185,40 @@ def validatePlan (plan : StylusPlan) : Except PlanError Unit := do
             for required in #[StylusHostOp.storageLoad, .storageCache, .storageFlush, .keccak256] do
               unless plan.hostOps.any (fun host => host.functionId == function.id && host.operation == required) do
                 fail s!"Stylus dynamic storage function `{function.id}` is missing HostOp `{repr required}`"
+        | .storageArrayLoad _ wordId maximum =>
+            let some word := plan.storage.words.find? (fun word => word.id == wordId)
+              | fail s!"Stylus array storage operation references missing word `{wordId}`"
+            let some element := match word.type with | .dynamicArray element => some element | _ => none
+              | fail s!"Stylus array storage word `{wordId}` must be a dynamic array"
+            unless supportedArrayStorageElement element do
+              fail s!"Stylus array storage word `{wordId}` has unsupported element `{repr element}`"
+            if maximum == 0 || maximum > 8 then
+              fail s!"Stylus array storage word `{wordId}` has invalid maximum {maximum}"
+            for required in #[StylusHostOp.storageLoad, .keccak256] do
+              unless plan.hostOps.any (fun host => host.functionId == function.id && host.operation == required) do
+                fail s!"Stylus array storage function `{function.id}` is missing HostOp `{repr required}`"
+        | .storageArrayCache wordId value maximum =>
+            let some word := plan.storage.words.find? (fun word => word.id == wordId)
+              | fail s!"Stylus array storage operation references missing word `{wordId}`"
+            let some element := match word.type with | .dynamicArray element => some element | _ => none
+              | fail s!"Stylus array storage word `{wordId}` must be a dynamic array"
+            unless supportedArrayStorageElement element do
+              fail s!"Stylus array storage word `{wordId}` has unsupported element `{repr element}`"
+            if maximum == 0 || maximum > 8 then
+              fail s!"Stylus array storage word `{wordId}` has invalid maximum {maximum}"
+            let mut valueType? := (function.params.find? fun param => param.valueId == value).map (·.type)
+            for sourceBlock in function.blocks do
+              for source in sourceBlock.operations do
+                match source with
+                | .storageArrayLoad result sourceWord _ =>
+                    if result == value then
+                      valueType? := (plan.storage.words.find? fun candidate => candidate.id == sourceWord).map (·.type)
+                | _ => pure ()
+            unless valueType? == some word.type do
+              fail s!"Stylus array storage cache `{wordId}` value {value} does not have type `{repr word.type}`"
+            for required in #[StylusHostOp.storageLoad, .storageCache, .storageFlush, .keccak256] do
+              unless plan.hostOps.any (fun host => host.functionId == function.id && host.operation == required) do
+                fail s!"Stylus array storage function `{function.id}` is missing HostOp `{repr required}`"
         | _ => pure ()
     let hasCall := function.blocks.any fun block => block.operations.any fun operation =>
       match operation with | .call .. => true | _ => false

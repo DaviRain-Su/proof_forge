@@ -104,6 +104,8 @@ inductive StylusOpPlan where
   | storageCache (wordId : String) (value : StylusValueId)
   | storageDynamicLoad (result : StylusValueId) (wordId : String) (maximumLength : Nat)
   | storageDynamicCache (wordId : String) (value : StylusValueId) (maximumLength : Nat)
+  | storageArrayLoad (result : StylusValueId) (wordId : String) (maximumLength : Nat)
+  | storageArrayCache (wordId : String) (value : StylusValueId) (maximumLength : Nat)
   | storagePathLoad (result : StylusValueId) (wordId : String) (keys : Array StylusValueId)
   | storagePathCache (wordId : String) (keys : Array StylusValueId) (value : StylusValueId)
   | contextRead (result : StylusValueId) (type : StylusAbiType) (operation : StylusHostOp)

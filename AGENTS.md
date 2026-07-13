@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W3.2 aggregate storage and resources |
-| Next task | Extend W3.2 from bounded bytes to string runtime and dynamic-array element storage |
+| Active task | W4 Remote-call closure review |
+| Next task | Audit Rust/direct/runner parity, static/delegate/reentrancy vectors, and local two-contract evidence |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

@@ -2115,3 +2115,31 @@ Rules:
   and local `short -> long -> short` storage execution. `just
   stylus-diagnostics` also passes. No product/check/stylus-all suite was run;
   string runtime and dynamic-array element storage remain in W3.2.
+
+## 2026-07-13 - STYLUS-W3.2b/W3.3: Aggregate storage closure
+
+- Status: `complete locally; Nitro not claimed`
+- Extended the plan with bounded dynamic-array storage operations. The neutral
+  planner now computes Solidity-compatible scalar element widths, packing
+  density, and payload words; composite layouts remain explicit fail-closed
+  work rather than being treated as one-slot elements.
+- Direct Wasm now loads, caches, packs, clears, and bounds scalar dynamic arrays
+  below `keccak256(rootSlot)`. The public accepted fragment covers bool,
+  uint8/16/32/64/128, and address arrays with at most eight elements, matching
+  the current 256-byte carrier. Fixed-bytes, uint256, and composite public
+  carriers are rejected until their existing ABI boundary is extended.
+- Rust SDK rendering now uses `StorageString` and Solidity array storage,
+  returns explicit `Result` errors for over-limit/corrupt values in release
+  builds, and executes a `stylus-test` oracle for bytes, UTF-8 string, and
+  packed uint64 array short/max/shrink lifecycles. Direct VM vectors use the
+  same values and additionally reject oversized calldata and corrupt roots.
+- Canonical Core planning now recognizes root scalar bytes/string and dynamic
+  array state, derives the matching storage/HostIO plan, and applies the
+  eight-element Direct carrier bound to dynamic-array parameters. A checked
+  six-entrypoint Core fixture proves this route before renderer validation;
+  indexed arrays and composite elements continue to fail closed.
+- Verification: `just stylus-aggregate-storage`, `just
+  stylus-aggregate-differential`, `just stylus-core-plan`, and `just
+  stylus-diagnostics` pass. The storage gate also compiles Direct/Rust bool,
+  uint16, uint128, and address array variants. No product/check/stylus-all
+  suite or Nitro execution was run during this development slice.

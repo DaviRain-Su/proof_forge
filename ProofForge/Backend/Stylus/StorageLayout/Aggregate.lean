@@ -32,7 +32,9 @@ structure DynamicBytesWritePlan where
 
 structure DynamicArrayStoragePlan where
   lengthWord : Array UInt8
-  elementSlots : Nat
+  elementByteWidth : Nat
+  density : Nat
+  dataWords : Nat
   deriving Repr, BEq
 
 private def fail (message : String) : Except AbiLayoutError α :=
@@ -77,8 +79,9 @@ def planDynamicBytesWrite (limit maximumLength oldLength : Nat) (value : Array U
       clearDataWordIndices := (List.range clearCount).toArray.map (words.size + ·)
     }
 
-/-- Size the payload below `keccak256(rootSlot)` for a bounded dynamic array
-whose element layout is static. -/
+/-- Size the packed payload below `keccak256(rootSlot)` for a bounded dynamic
+array of Solidity value types. Composite element layouts remain fail-closed
+until their field-level packing plan is represented explicitly. -/
 def planDynamicArrayStorage (limit maximumLength length : Nat) (element : StylusAbiType) :
     Except AbiLayoutError DynamicArrayStoragePlan := do
   if maximumLength == 0 then fail "dynamic-array storage maximum must be positive"
@@ -86,8 +89,23 @@ def planDynamicArrayStorage (limit maximumLength length : Nat) (element : Stylus
     fail s!"dynamic-array storage maximum {maximumLength} exceeds layout limit {limit}"
   if length > maximumLength then
     fail s!"dynamic-array storage length {length} exceeds maximum {maximumLength}"
-  let elementWidth <- staticStorageSlots limit element
-  let slots <- checkedMul "dynamic-array storage payload" limit length elementWidth
-  pure { lengthWord := wordOfNat length, elementSlots := slots }
+  let elementWidth <- match element with
+    | .bool => pure 1
+    | .uint bits =>
+        if bits == 0 || bits > 256 || bits % 8 != 0 then
+          fail s!"dynamic-array storage has unsupported uint{bits} element"
+        pure (bits / 8)
+    | .address => pure 20
+    | .fixedBytes bytes =>
+        if bytes == 0 || bytes > 32 then
+          fail s!"dynamic-array storage has unsupported bytes{bytes} element"
+        pure bytes
+    | type => fail s!"dynamic-array composite storage element `{repr type}` requires packing planning"
+  let density := 32 / elementWidth
+  if density == 0 then fail "dynamic-array storage element has zero packing density"
+  let words := (length + density - 1) / density
+  if words > limit then
+    fail s!"dynamic-array storage payload uses {words} words beyond layout limit {limit}"
+  pure { lengthWord := wordOfNat length, elementByteWidth := elementWidth, density, dataWords := words }
 
 end ProofForge.Backend.Stylus.StorageLayout.Aggregate

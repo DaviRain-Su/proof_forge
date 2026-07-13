@@ -18,6 +18,14 @@ open ProofForge.Target
 private def fail (message : String) : Except PlanError α :=
   .error { message }
 
+private def dynamicStorageMaxBytes : Nat := 256
+private def dynamicStorageMaxElements : Nat := 8
+
+private def stateFor (contract : CanonicalContract) (id : StateId) : Except PlanError StateDecl :=
+  match contract.module.state.find? (fun state => state.id == id) with
+  | some state => pure state
+  | none => fail s!"Stylus storage path references missing state {id.value}"
+
 def coreTypeToAbi : CoreType -> Except PlanError StylusAbiType
   | .bool => pure .bool
   | .u8 => pure (.uint 8)
@@ -192,17 +200,33 @@ private def instructionPlan (contract : CanonicalContract) (function : Function)
       | .div => pure (.div result type mode lhs.id.value rhs.id.value)
       | operation => fail s!"Stylus arithmetic `{repr operation}` is not implemented"
   | .storageLoad path => do
+      let state <- stateFor contract path.root
+      let wordId <- stateSymbol contract path.root
+      if path.path.isEmpty then
+        match state.shape with
+        | .scalar .bytes | .scalar .string =>
+            return .storageDynamicLoad (← resultId instruction) wordId dynamicStorageMaxBytes
+        | .dynamicArray _ =>
+            return .storageArrayLoad (← resultId instruction) wordId dynamicStorageMaxElements
+        | _ => pure ()
       let keys := path.path.filterMap fun segment => match segment with
         | .mapKey key => some key.id.value | _ => none
       unless keys.size == path.path.size do fail "Stylus storage paths support map keys only"
-      let wordId <- stateSymbol contract path.root
       if keys.isEmpty then pure (.storageLoad (← resultId instruction) wordId)
       else pure (.storagePathLoad (← resultId instruction) wordId keys)
   | .storageStore path value => do
+      let state <- stateFor contract path.root
+      let wordId <- stateSymbol contract path.root
+      if path.path.isEmpty then
+        match state.shape with
+        | .scalar .bytes | .scalar .string =>
+            return .storageDynamicCache wordId value.id.value dynamicStorageMaxBytes
+        | .dynamicArray _ =>
+            return .storageArrayCache wordId value.id.value dynamicStorageMaxElements
+        | _ => pure ()
       let keys := path.path.filterMap fun segment => match segment with
         | .mapKey key => some key.id.value | _ => none
       unless keys.size == path.path.size do fail "Stylus storage paths support map keys only"
-      let wordId <- stateSymbol contract path.root
       if keys.isEmpty then pure (.storageCache wordId value.id.value)
       else pure (.storagePathCache wordId keys value.id.value)
   | .contextRead field => do
@@ -260,7 +284,8 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
       | .scalar type => coreTypeToAbi type
       | .map _ value _ => coreTypeToAbi value
       | .mapN _ value _ => coreTypeToAbi value
-      | .fixedArray .. | .dynamicArray .. | .record .. =>
+      | .dynamicArray element => pure (.dynamicArray (← coreTypeToAbi element))
+      | .fixedArray .. | .record .. =>
           fail "Stylus aggregate storage is scheduled for the aggregate slice"
     let keyTypes <- match state.shape with
       | .map key _ _ => pure #[← coreTypeToAbi key]
@@ -278,12 +303,24 @@ private def buildStorage (contract : CanonicalContract) : Except PlanError Stylu
     index := index + 1
   pure { words }
 
-private def instructionHostOps (instruction : Instruction) : Except PlanError (Array StylusHostOp) :=
+private def instructionHostOps (contract : CanonicalContract) (instruction : Instruction) :
+    Except PlanError (Array StylusHostOp) := do
   match instruction.op with
   | .storageLoad path | .storageContains path =>
-      pure <| if path.path.isEmpty then #[.storageLoad] else #[.keccak256, .storageLoad]
+      let state <- stateFor contract path.root
+      pure <| if path.path.isEmpty then
+        match state.shape with
+        | .scalar .bytes | .scalar .string | .dynamicArray _ => #[.keccak256, .storageLoad]
+        | _ => #[.storageLoad]
+      else #[.keccak256, .storageLoad]
   | .storageStore path _ =>
-      pure <| if path.path.isEmpty then #[.storageCache] else #[.keccak256, .storageCache]
+      let state <- stateFor contract path.root
+      pure <| if path.path.isEmpty then
+        match state.shape with
+        | .scalar .bytes | .scalar .string | .dynamicArray _ =>
+            #[.storageLoad, .keccak256, .storageCache]
+        | _ => #[.storageCache]
+      else #[.keccak256, .storageCache]
   | .contextRead field => match contextHostOp field with
       | some op => pure #[op]
       | none => fail s!"Stylus plan has no context HostIO handler for `{repr field}`"
@@ -298,12 +335,12 @@ private def instructionHostOps (instruction : Instruction) : Except PlanError (A
   | .hostCall call => fail s!"Stylus plan has no handler for HostOp `{call.id.render}`"
   | _ => pure #[]
 
-private def collectFunctionHostOps (functionName : String) (function : Function) :
+private def collectFunctionHostOps (contract : CanonicalContract) (functionName : String) (function : Function) :
     Except PlanError (Array StylusHostOpPlan) := do
   let mut operations := #[]
   for block in function.blocks do
     for instruction in block.instructions do
-      operations := operations ++ (← instructionHostOps instruction)
+      operations := operations ++ (← instructionHostOps contract instruction)
   let finalOperations :=
     let operations := if operations.contains .storageCache then operations.push .storageFlush else operations
     operations.push .writeResult
@@ -325,7 +362,9 @@ private def buildFunctions (contract : CanonicalContract) : Except PlanError (Ar
         let type <- coreTypeToAbi param.type
         pure {
           valueId := param.valueId.value, name := param.name, type
-          dynamicMaxLength? := if type.isDynamic then some 4096 else none
+          dynamicMaxLength? := match type with
+            | .dynamicArray _ => some dynamicStorageMaxElements
+            | _ => if type.isDynamic then some 4096 else none
         }
       entryBlock := function.entry.value
       blocks := ← function.blocks.mapM (blockPlan contract function)
@@ -418,7 +457,7 @@ def buildFromCore (checked : CheckedCanonicalContract) (capPlan : CapabilityPlan
   for entrypoint in contract.interface.entrypoints do
     let some function := contract.module.functions.find? (fun fn => fn.id == entrypoint.functionId)
       | fail s!"Stylus interface method `{entrypoint.name}` has no Core function"
-    hostOps := hostOps ++ (← collectFunctionHostOps entrypoint.name function)
+    hostOps := hostOps ++ (← collectFunctionHostOps contract entrypoint.name function)
   for method in methods do
     if !method.payable && !hostOps.any (fun op => op.functionId == method.name && op.operation == .msgValue) then
       hostOps := hostOps.push {

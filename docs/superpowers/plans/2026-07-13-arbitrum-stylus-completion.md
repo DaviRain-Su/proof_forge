@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 54/80 acceptance items are complete. Five open queue
+**Current checkpoint:** 57/80 acceptance items are complete. Five open queue
 packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
 Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
@@ -29,18 +29,28 @@ blockers may defer an item.
   dynamic tuples. The pure decoder, direct-Wasm validator/local VM, and pinned
   Rust renderer agree for `(uint64,(bytes,string))` and
   `(uint64,bytes)[]`, including inside-head, over-limit, and truncated tails.
-- [ ] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
+- [x] **W3.2 Aggregate storage/resources:** implement Solidity-compatible
   dynamic bytes/string/array short-long storage transitions, checked allocation
   exhaustion, maximum-page gates, and Rust/direct differential fixtures.
-  Bounded `bytes` now has renderer-neutral short/long transition planning,
-  direct-Wasm load/cache lowering, Rust `StorageBytes`, maximum-page rejection,
-  and a local `short -> long -> short` VM lifecycle. The runner's opt-in
-  `--shared-storage-batch` mode preserves committed storage without changing
-  the isolated default batch semantics. String runtime vectors and dynamic
-  array element storage remain before this item can close.
-- [ ] **W3.3 Aggregate closure gate:** run the complete aggregate differential,
+  Bounded bytes/string now share renderer-neutral short/long transition
+  planning and Direct-Wasm load/cache lowering, with Rust `StorageBytes` and
+  `StorageString` as the oracle. Dynamic arrays use Solidity packing density
+  for the public scalar fragment (bool, uint8..128, address); unsupported
+  composite/fixed-bytes/uint256 public carriers fail closed. Maximum-page,
+  corrupt-root, exact-maximum, over-limit, stale-word cleanup, Rust `TestVM`,
+  and Direct runner vectors pass. The runner's opt-in
+  `--shared-storage-batch` preserves committed storage without changing the
+  isolated default batch semantics. A validated Canonical Core fixture proves
+  that root bytes/string/dynamic-array state reaches these plan operations;
+  indexed arrays and composite element storage remain explicit fail-closed
+  boundaries.
+- [x] **W3.3 Aggregate closure gate:** run the complete aggregate differential,
   diagnostics, resource-adversarial, Rust oracle, and direct-Wasm gates; update
-  Task 6 evidence without claiming Nitro execution.
+  Task 6 evidence without claiming Nitro execution. `just
+  stylus-aggregate-differential`, `just stylus-aggregate-storage`, and `just
+  stylus-diagnostics` pass; `just stylus-core-plan` additionally covers the
+  checked canonical aggregate route. The storage gate executes one Rust
+  `stylus-test` oracle plus Direct-Wasm bytes/string/packed-array lifecycles.
 - [x] **W4.1 HostIO/context closure:** audit all remote-call imports against the
   pinned SDK and add static-write rejection plus delegate caller/value/address/
   storage context vectors to the local runner.
@@ -267,7 +277,7 @@ blockers may defer an item.
 **Interfaces:**
 - Produces: plan-owned static heads, dynamic tails, storage paths, allocation bounds, and maximum memory pages.
 
-- [ ] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
+- [x] Pin empty/max bytes/string, fixed/dynamic arrays, tuples, nested tails, malformed offsets, UTF-8 byte semantics, short/long storage transition, and allocation exhaustion vectors.
 - [x] Add renderer-neutral dynamic ABI head/tail validation for empty/non-aligned payloads, malformed offsets, truncated tails, padding bounds, and maximum length.
 - [x] Add plan-owned pointer/length carriers for bounded bytes/string parameters and Solidity-compatible dynamic returns in direct Wasm; compile the same plan as Rust `Vec<u8>`/`String`.
 - [x] Lower bounded bytes/string literals into checked scratch carriers for canonical method names and other aggregate consumers.

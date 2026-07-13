@@ -29,6 +29,8 @@ private def opName : StylusOpPlan -> String
   | .storageCache wordId value => s!"storage-cache-{wordId}-{value}"
   | .storageDynamicLoad result wordId _ => s!"storage-dynamic-load-{wordId}-{result}"
   | .storageDynamicCache wordId value _ => s!"storage-dynamic-cache-{wordId}-{value}"
+  | .storageArrayLoad result wordId _ => s!"storage-array-load-{wordId}-{result}"
+  | .storageArrayCache wordId value _ => s!"storage-array-cache-{wordId}-{value}"
   | .storagePathLoad result wordId _ => s!"storage-path-load-{wordId}-{result}"
   | .storagePathCache wordId _ value => s!"storage-path-cache-{wordId}-{value}"
   | .contextRead result _ operation => s!"context-{repr operation}-{result}"
@@ -192,6 +194,19 @@ private def scalarWidth : StylusAbiType -> Except LowerError Nat
       else fail s!"direct Counter scalar lowering supports uint widths through 64, received uint{bits}"
   | type => fail s!"direct Counter scalar lowering has no handler for `{repr type}`"
 
+private def arrayElementLayout : StylusAbiType -> Except LowerError (Nat × Nat × Nat)
+  | .bool => pure (1, 32, 31)
+  | .uint bits =>
+      if StylusAbiType.validUintBits.contains bits then
+        let width := bits / 8
+        pure (width, 32 / width, 32 - width)
+      else fail s!"direct array storage has unsupported uint{bits} element"
+  | .address => pure (20, 1, 12)
+  | .fixedBytes bytes =>
+      if bytes > 0 && bytes <= 32 then pure (bytes, 32 / bytes, 0)
+      else fail s!"direct array storage has unsupported bytes{bytes} element"
+  | type => fail s!"direct array storage has no packed element handler for `{repr type}`"
+
 private def mappingSlot (word : StylusStorageWordPlan) (keys : Array StylusValueId) :
     Except LowerError (Array Insn) := do
   unless keys.size == word.keyTypes.size do fail s!"Stylus mapping `{word.id}` key arity mismatch"
@@ -214,9 +229,11 @@ private def resultIds (op : StylusOpPlan) : Array StylusValueId :=
   | .literal result .. | .cast result .. | .add result .. | .sub result .. | .mul result .. | .div result ..
   | .storageLoad result .. | .storagePathLoad result ..
   | .storageDynamicLoad result ..
+  | .storageArrayLoad result ..
   | .contextRead result .. | .compare result .. => #[result]
   | .call result .. => #[result]
-  | .storageCache .. | .storageDynamicCache .. | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
+  | .storageCache .. | .storageDynamicCache .. | .storageArrayCache ..
+  | .storagePathCache .. | .assert_ .. | .emitEvent .. => #[]
 
 private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.run do
   let mut ids := #[]
@@ -244,10 +261,15 @@ private def functionLocals (function : StylusFunctionPlan) : Array Local := Id.r
           if type.isDynamic && !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | .storageDynamicLoad result .. =>
           if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
+      | .storageArrayLoad result .. =>
+          if !dynamicIds.contains result then dynamicIds := dynamicIds.push result
       | _ => pure ()
   let values := values ++ dynamicIds.map fun id => { name := dynamicLengthLocal id, type := .i64 }
   let hasDynamicStorage := function.blocks.any fun block => block.operations.any fun op =>
-    match op with | .storageDynamicLoad .. | .storageDynamicCache .. => true | _ => false
+    match op with
+    | .storageDynamicLoad .. | .storageDynamicCache ..
+    | .storageArrayLoad .. | .storageArrayCache .. => true
+    | _ => false
   let values := if hasDynamicStorage then values ++ #[
     { name := "storageIsLong", type := .i32 },
     { name := "storageEncodedLength", type := .i64 },
@@ -471,6 +493,95 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           .localGet (dynamicLengthLocal value), .i64Const 32, .plain "i64.lt_u",
           .if_ (.mk writeShort) (.mk writeLong)
         ]
+  | .storageArrayLoad result wordId maximumLength => do
+      let word <- wordFor plan wordId
+      let slot <- literalSlot word
+      let element <- match word.type with
+        | .dynamicArray element => pure element
+        | type => fail s!"direct array storage load requires a dynamic array, received `{repr type}`"
+      let (elementWidth, density, abiOffset) <- arrayElementLayout element
+      let target := dynamicLiteralPtr result
+      let groupCount := (maximumLength + density - 1) / density
+      let tooLong := #[.localGet (dynamicLengthLocal result), .i64Const maximumLength, .plain "i64.gt_u"]
+      let mut body := writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .call "storage_load_bytes32"
+      ] ++ decodeUnsigned 56 8 (dynamicLengthLocal result) ++
+        rejectIf tooLong "stylus: corrupt dynamic array length" ++ writeBytes 0 slot ++ #[
+          .i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"
+        ]
+      for group in [0:groupCount] do
+        let mut loadGroup : Array Insn := #[.i32Const 64, .i32Const 32, .call "storage_load_bytes32"]
+        for item in [0:density] do
+          let index := group * density + item
+          if index < maximumLength then
+            let copy := clearWord (target + index * 32) ++
+              copyFixedBytes (target + index * 32 + abiOffset)
+                (32 + 32 - elementWidth * (item + 1)) elementWidth
+            loadGroup := loadGroup ++ #[
+              .localGet (dynamicLengthLocal result), .i64Const index, .plain "i64.gt_u",
+              .if_ (.mk copy) .empty
+            ]
+        loadGroup := loadGroup ++ incrementStorageSlot 64
+        body := body ++ #[
+          .localGet (dynamicLengthLocal result), .i64Const (group * density), .plain "i64.gt_u",
+          .if_ (.mk loadGroup) .empty
+        ]
+      pure <| body ++ #[.i64Const target, .localSet (valueLocal result)]
+  | .storageArrayCache wordId value maximumLength => do
+      let word <- wordFor plan wordId
+      let slot <- literalSlot word
+      let element <- match word.type with
+        | .dynamicArray element => pure element
+        | type => fail s!"direct array storage cache requires a dynamic array, received `{repr type}`"
+      let (elementWidth, density, abiOffset) <- arrayElementLayout element
+      let groupCount := (maximumLength + density - 1) / density
+      let newTooLong := #[.localGet (dynamicLengthLocal value), .i64Const maximumLength, .plain "i64.gt_u"]
+      let mut clearOld := writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"
+      ]
+      for group in [0:groupCount] do
+        let clear := clearWord 32 ++ #[.i32Const 64, .i32Const 32, .call "storage_cache_bytes32"] ++
+          incrementStorageSlot 64
+        clearOld := clearOld ++ #[
+          .localGet "storageOldLength", .i64Const (group * density), .plain "i64.gt_u",
+          .if_ (.mk clear) .empty
+        ]
+      let mut writeNew := writeBytes 0 slot ++ #[
+        .i32Const 0, .i32Const 32, .i32Const 64, .call "native_keccak256"
+      ]
+      for group in [0:groupCount] do
+        let mut writeGroup := clearWord 32
+        for item in [0:density] do
+          let index := group * density + item
+          if index < maximumLength then
+            let copyFromValue := #[
+              .localGet (valueLocal value), .plain "i32.wrap_i64", .i32Const (index * 32 + abiOffset),
+              .plain "i32.add", .localSet "storageCopyLength"
+            ] ++ Id.run do
+              let mut insns := #[]
+              for byte in [0:elementWidth] do
+                insns := insns ++ #[.i32Const (32 + 32 - elementWidth * (item + 1) + byte),
+                  .localGet "storageCopyLength", .i32Const byte, .plain "i32.add",
+                  .load "i32.load8_u" 0, .store "i32.store8" 0]
+              return insns
+            writeGroup := writeGroup ++ #[
+              .localGet (dynamicLengthLocal value), .i64Const index, .plain "i64.gt_u",
+              .if_ (.mk copyFromValue) .empty
+            ]
+        writeGroup := writeGroup ++ #[.i32Const 64, .i32Const 32, .call "storage_cache_bytes32"] ++
+          incrementStorageSlot 64
+        writeNew := writeNew ++ #[
+          .localGet (dynamicLengthLocal value), .i64Const (group * density), .plain "i64.gt_u",
+          .if_ (.mk writeGroup) .empty
+        ]
+      pure <| rejectIf newTooLong "stylus: dynamic array length exceeds maximum" ++
+        writeBytes 0 slot ++ #[.i32Const 0, .i32Const 32, .call "storage_load_bytes32"] ++
+        decodeUnsigned 56 8 "storageOldLength" ++
+        rejectIf #[.localGet "storageOldLength", .i64Const maximumLength, .plain "i64.gt_u"]
+          "stylus: corrupt dynamic array length" ++ clearOld ++
+        writeBytes 0 slot ++ clearWord 32 ++ encodeUnsigned 56 8 (dynamicLengthLocal value) ++ #[
+          .i32Const 0, .i32Const 32, .call "storage_cache_bytes32"
+        ] ++ writeNew
   | .storagePathLoad result wordId keys => do
       let word <- wordFor plan wordId
       let slot <- mappingSlot word keys |>.mapError fun error =>
@@ -693,6 +804,8 @@ private def dynamicReturnMaximum (plan : StylusPlan) (function : StylusFunctionP
             if let some maximum := call.returnMaxLength? then return maximum
       | .storageDynamicLoad result _ maximum =>
           if result == value then return maximum
+      | .storageArrayLoad result _ maximum =>
+          if result == value then return maximum
       | _ => pure ()
   fail s!"Stylus dynamic return value {value} has no plan-owned maximum length"
 
@@ -782,7 +895,8 @@ private partial def lowerBlock (plan : StylusPlan) (function : StylusFunctionPla
   | .return values =>
       let mutatesStorage := function.blocks.any fun functionBlock =>
         functionBlock.operations.any fun operation => match operation with
-          | .storageCache .. | .storageDynamicCache .. | .storagePathCache .. => true
+          | .storageCache .. | .storageDynamicCache .. | .storageArrayCache ..
+          | .storagePathCache .. => true
           | _ => false
       let flush := if mutatesStorage then #[.i32Const 0, .call "storage_flush_cache"] else #[]
       pure <| body ++ flush ++ (← lowerReturn plan function block values) ++ #[.return_]

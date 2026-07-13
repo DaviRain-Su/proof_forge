@@ -26,6 +26,7 @@ private def fromPlanError (result : Except PlanError α) : Except RenderError α
 partial def rustTypeName : StylusAbiType -> Except RenderError String
   | .bool => pure "bool"
   | .uint 8 => pure "u8"
+  | .uint 16 => pure "u16"
   | .uint 32 => pure "u32"
   | .uint 64 => pure "u64"
   | .uint 128 => pure "u128"
@@ -52,6 +53,7 @@ private def storageTypeName : StylusAbiType -> Except RenderError String
   | .fixedBytes bytes => pure s!"bytes{bytes}"
   | .bytes => pure "StorageBytes"
   | .string => pure "StorageString"
+  | .dynamicArray element => do pure s!"{← storageTypeName element}[]"
   | type => fail s!"Rust SDK storage renderer does not support `{repr type}` yet"
 
 private def literalText : StylusLiteralPlan -> Except RenderError String
@@ -70,6 +72,27 @@ private def literalText : StylusLiteralPlan -> Except RenderError String
       pure s!"String::from(\"{escaped}\")"
 
 private def localName (id : StylusValueId) : String := s!"v{id}"
+
+private def lengthGuard (value : String) (maximum : Nat) (message : String) : String :=
+  "if " ++ value ++ ".len() > " ++ toString maximum ++ " { return Err(b\"" ++
+    message ++ "\".to_vec()); }"
+
+private def arrayReadExpression (field : String) : StylusAbiType -> Except RenderError String
+  | .uint bits =>
+      if #[8, 16, 32, 64, 128].contains bits then
+        pure s!"self.{field}.get(index).unwrap().to::<u{bits}>()"
+      else if bits == 256 then pure s!"self.{field}.get(index).unwrap()"
+      else fail s!"Rust SDK array storage has unsupported uint{bits} element"
+  | .bool | .address | .fixedBytes _ => pure s!"self.{field}.get(index).unwrap()"
+  | type => fail s!"Rust SDK array storage load does not support `{repr type}`"
+
+private def arrayWriteExpression : StylusAbiType -> Except RenderError String
+  | .uint bits =>
+      if #[8, 16, 32, 64, 128].contains bits then pure s!"U{bits}::from(*item)"
+      else if bits == 256 then pure "*item"
+      else fail s!"Rust SDK array storage has unsupported uint{bits} element"
+  | .bool | .address | .fixedBytes _ => pure "*item"
+  | type => fail s!"Rust SDK array storage cache does not support `{repr type}`"
 
 private def contextExpression (type : StylusAbiType) : StylusHostOp -> Except RenderError String
   | .msgSender => pure "self.vm().msg_sender()"
@@ -118,8 +141,8 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
         | .string => pure s!"let {localName result}: String = self.{field.name}.get_string();"
         | type => fail s!"Rust SDK dynamic storage load does not support `{repr type}`"
       pure (.rawLines #[line,
-        s!"debug_assert!({localName result}.len() <= {maximumLength});"])
-  | .storageDynamicCache wordId value _ => do
+        lengthGuard (localName result) maximumLength "corrupt dynamic storage length"])
+  | .storageDynamicCache wordId value maximumLength => do
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
         | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
@@ -127,7 +150,34 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
         | .bytes => pure s!"self.{field.name}.set_bytes(&{localName value});"
         | .string => pure s!"self.{field.name}.set_str(&{localName value});"
         | type => fail s!"Rust SDK dynamic storage cache does not support `{repr type}`"
-      pure (.rawLines #[line])
+      pure (.rawLines #[
+        lengthGuard (localName value) maximumLength "dynamic storage length exceeds maximum",
+        line])
+  | .storageArrayLoad result wordId maximumLength => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let some element := match word.type with | .dynamicArray element => some element | _ => none
+        | fail s!"Rust SDK array storage load requires a dynamic array"
+      let read <- arrayReadExpression field.name element
+      pure (.rawLines #[
+        s!"let {localName result}: {← rustTypeName word.type} = (0..self.{field.name}.len())",
+        s!"    .map(|index| {read}).collect();",
+        lengthGuard (localName result) maximumLength "corrupt dynamic array length"
+      ])
+  | .storageArrayCache wordId value maximumLength => do
+      let field <- storageField plan wordId
+      let some word := plan.storage.words.find? (fun word => word.id == wordId)
+        | fail s!"Rust SDK operation references unknown storage word `{wordId}`"
+      let some element := match word.type with | .dynamicArray element => some element | _ => none
+        | fail s!"Rust SDK array storage cache requires a dynamic array"
+      let write <- arrayWriteExpression element
+      pure (.rawLines #[
+        lengthGuard (localName value) maximumLength "dynamic array length exceeds maximum",
+        s!"self.{field.name}.erase();",
+        "for item in &" ++ localName value ++ " { self." ++ field.name ++
+          ".push(" ++ write ++ "); }"
+      ])
   | .storagePathLoad result wordId keys => do
       let field <- storageField plan wordId
       let some word := plan.storage.words.find? (fun word => word.id == wordId)
@@ -274,7 +324,10 @@ private def renderFunction (plan : StylusPlan) (function : StylusFunctionPlan) :
     | .div _ _ .checked _ _ => true
     | _ => false
   let hasAssertion := operations.any fun operation =>
-    match operation with | .assert_ .. | .call .. => true | _ => false
+    match operation with
+    | .assert_ .. | .call .. | .storageDynamicLoad .. | .storageDynamicCache ..
+    | .storageArrayLoad .. | .storageArrayCache .. => true
+    | _ => false
   let returnType <- match method.returns with
     | #[] => pure <| if hasCheckedArithmetic || hasAssertion then .resultUnit else .unit
     | #[type] =>
