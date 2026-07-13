@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W3.1 recursive aggregate carriers |
-| Next task | Add tree-shaped bounds for nested dynamic tuples and dynamic-tuple arrays |
+| Active task | Stylus continuous queue - W6 direct-Wasm cutover re-audit |
+| Next task | W7.2 release evidence and stale-document reconciliation |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

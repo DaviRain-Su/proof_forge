@@ -2023,3 +2023,22 @@ Rules:
   preflight for bytes/string/fixed-array echoes, `just
   stylus-aggregate-differential`, and `just stylus-cli-matrix` pass. No full
   repository suite was run during this development slice.
+
+## 2026-07-13 - STYLUS-W5.2: Nitro product evidence pipeline
+
+- Status: `implementation and local preflight complete; live Nitro blocked`
+- Added versioned live gate summaries for ValueVault and Token, including
+  receipt status/hash checks, result assertions, Transfer/Approval topics,
+  chain identity, and Wasm hashes. Added deployable RemoteCallee plus
+  two-contract RemoteCall and Aggregate live recipes.
+- Added a fail-closed assembler for ValueVault, mapping/events, token,
+  RemoteCall, and Aggregate. It requires the pinned ready doctor, one chain,
+  passed non-skipped summaries, transaction and artifact hashes, and publishes
+  `final.json` atomically with plan/storage/ABI identities. Invalid input removes
+  stale final evidence.
+- Verification: `lake build Examples.Backend.Stylus.RemoteCallee`, `just
+  stylus-nitro-scripts`, product RemoteCall/Aggregate local VM preflights, and
+  `just stylus-cli-matrix` pass. The current doctor remains `ready=false`
+  because Docker, the pinned checkout, and the local Nitro RPC are unavailable;
+  no live evidence or synthetic completion is claimed. No full repository suite
+  was run during this development slice.

@@ -239,6 +239,8 @@ live Surfpool/Rust gates 是可选项。
 | Stylus RemoteCall parity | `just stylus-remote-call-differential` | Lean、`wat2wasm`、Rust 1.91/Cargo、Foundry `cast` | 执行 call/static/delegate、revert、calldata、value、有界动态返回、cache 和嵌套 frame 向量；生成的 Rust `stylus-test` 与 direct runner 必须输出相同的 `proof-forge.stylus.remote-common.v1` steps，并将 cache/frame 可观察性明确记录为 runner-only |
 | Nitro readiness 证据 | `just stylus-nitro-doctor` | Rust 1.91、cargo-stylus、Docker daemon、Foundry `cast`、固定 Nitro checkout、本地 RPC | 始终写入 `build/evidence/stylus/nitro-doctor.json`；任何 live 依赖不可用时非零退出 |
 | Nitro 编排语法 | `just stylus-nitro-scripts` | Bash | 不启动容器，校验固定 revision、脚本语法、本地 RPC 边界和独立 Sepolia endpoint |
+| 产品 Nitro 场景 | `just stylus-value-vault-nitro-e2e`、`just stylus-token-nitro-e2e`、`just stylus-remote-call-nitro-e2e`、`just stylus-aggregate-nitro-e2e` | ready 的固定 Nitro Testnode、cargo-stylus、Foundry `cast` | 部署各 direct-Wasm 产品，校验 receipt/result/event 或双合约绑定，并在 `build/evidence/stylus/` 写入带版本的 gate summary |
+| 最终 Nitro 证据 | `just stylus-nitro-evidence` | ready doctor JSON 与全部四组产品 summary | 仅当 ValueVault、mapping/events、token、remote-call、aggregate 在同一 Nitro 链通过时才原子写入带 plan/storage/ABI 身份的 `build/evidence/stylus/final.json`；否则 fail closed |
 | Nitro 安装 | `just stylus-nitro-install` | Git/网络 | 克隆官方 Nitro Testnode，并校验准确的固定 revision 和 submodule |
 | 官方本地检查 | `just stylus-nitro-check` | 运行中的 Nitro Testnode、cargo-stylus | 对本地 Nitro RPC `127.0.0.1:8547` 执行 `cargo stylus check --wasm-file` |
 | 本地链 E2E | `just stylus-nitro-e2e` | Docker、cargo-stylus、Foundry `cast` | 部署并 activate direct Wasm，通过 Solidity ABI 调用 Counter，并观测值 `1` |

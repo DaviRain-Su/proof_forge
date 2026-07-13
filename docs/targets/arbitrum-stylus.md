@@ -150,6 +150,11 @@ just stylus-nitro-status   # wait for http://127.0.0.1:8547
 just stylus-nitro-check    # cargo stylus check --wasm-file over local RPC
 just stylus-nitro-deploy   # deploy and activate direct Wasm
 just stylus-nitro-e2e      # initialize, increment, and ABI-read Counter == 1
+just stylus-value-vault-nitro-e2e
+just stylus-token-nitro-e2e
+just stylus-remote-call-nitro-e2e
+just stylus-aggregate-nitro-e2e
+just stylus-nitro-evidence # assemble final.json only from passed live gates
 just stylus-nitro-down
 ```
 
@@ -163,6 +168,11 @@ The doctor reports `ready`, exact Rust/cargo-stylus versions, Docker, Foundry,
 the checked-out Nitro revision, endpoint, and chain ID as JSON. Docker and RPC
 probes have hard timeouts so an unhealthy local VM produces evidence and a
 nonzero exit instead of hanging indefinitely.
+The four product recipes persist transaction receipts and versioned gate
+summaries under `build/evidence/stylus/`. The assembler deletes stale output
+before validation and only publishes `final.json` when the doctor is ready and
+all required gates report one chain, real transaction hashes, and artifact
+identities.
 
 Sepolia is deliberately separate and requires an explicit key path:
 

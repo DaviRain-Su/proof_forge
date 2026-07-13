@@ -124,6 +124,11 @@ just stylus-nitro-status   # 等待 http://127.0.0.1:8547
 just stylus-nitro-check    # 通过本地 RPC 执行官方 check
 just stylus-nitro-deploy   # 部署并 activate direct Wasm
 just stylus-nitro-e2e      # initialize、increment、ABI 读取 Counter == 1
+just stylus-value-vault-nitro-e2e
+just stylus-token-nitro-e2e
+just stylus-remote-call-nitro-e2e
+just stylus-aggregate-nitro-e2e
+just stylus-nitro-evidence # 仅从通过的 live gate 组装 final.json
 just stylus-nitro-down
 ```
 
@@ -135,6 +140,9 @@ Cargo/Stylus workspace；否则 cargo-stylus 0.10.8 即使不编译 Rust crate�
 doctor 以 JSON 报告 `ready`、准确的 Rust/cargo-stylus 版本、Docker、Foundry、
 已检出的 Nitro revision、endpoint 和 chain ID。Docker 与 RPC 探测都有硬超时，
 因此本地 VM 异常时会留下证据并返回非零，而不是无限挂起。
+四个产品 recipe 会在 `build/evidence/stylus/` 保存 transaction receipt 与带版本的
+gate summary。assembler 在校验前删除陈旧输出；只有 doctor ready、全部必需 gate
+来自同一链且 transaction hash 与 artifact identity 合法时才发布 `final.json`。
 
 Sepolia 流程单独提供，并强制显式指定密钥：
 

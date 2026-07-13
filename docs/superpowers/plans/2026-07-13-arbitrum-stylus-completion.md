@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 51/79 acceptance items are complete. Eight open queue
+**Current checkpoint:** 51/79 acceptance items are complete. Six open queue
 packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
 Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
@@ -56,6 +56,11 @@ blockers may defer an item.
   remote two-contract, and aggregate check/deploy/E2E scenarios and persist
   addresses, transaction hashes, receipts, results, logs, gas/ink, tool
   versions, and source/artifact hashes.
+  All four live recipes and the fail-closed final evidence assembler are now
+  implemented and pass syntax/schema self-tests. RemoteCall and Aggregate also
+  pass local product artifact/VM preflight. `final.json` remains absent because
+  the current doctor report is `ready=false`; live receipts, gas/ink, and
+  deployment evidence cannot be produced without Docker and the pinned RPC.
 - [x] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
   default, Rust-oracle mode, named unavailable-renderer diagnostics, and strict
   no-fallback tests without promoting Stylus into the primary triad.

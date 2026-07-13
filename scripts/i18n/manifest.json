@@ -90,7 +90,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "42f0d2acd3b8022c68356726f47b95d22714350605aeb765f49e79d71a9cc120",
+    "sha256": "244c44482012a2201c215d5968d3fc3ecebf61a471439c8b0b070ebaf9873b05",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "manually synced for Stylus static matrix, doctor, and CI evidence gates"
@@ -147,7 +147,7 @@
     "note": "manually synced for implemented Stylus research classification"
   },
   "docs/targets/arbitrum-stylus.md": {
-    "sha256": "aece7de3d9bad3e6440f3615c18c305c6a120974ffaa7b2f154b618fe93eb891",
+    "sha256": "67d488b8625a1c387fdcb7b25d3f3c0e2ee733db8382e0dd14ab15e34a07b682",
     "zh": "docs/zh/targets/arbitrum-stylus.zh.md",
     "model": "manual-zh",
     "note": "initial docs-only Stylus target classification"

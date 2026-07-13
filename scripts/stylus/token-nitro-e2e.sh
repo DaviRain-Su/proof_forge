@@ -42,24 +42,54 @@ cast send --json --rpc-url "$endpoint" --private-key "$spender_key" "$address" \
 alice_balance="$(cast call --rpc-url "$endpoint" "$address" "balanceOf(address)(uint256)" "$alice")"
 bob_balance="$(cast call --rpc-url "$endpoint" "$address" "balanceOf(address)(uint256)" "$bob")"
 remaining="$(cast call --rpc-url "$endpoint" "$address" "allowance(address,address)(uint256)" "$alice" "$spender")"
+chain_id="$(cast chain-id --rpc-url "$endpoint")"
+transfer_topic="$(cast keccak 'Transfer(address,address,uint256)')"
+approval_topic="$(cast keccak 'Approval(address,address,uint256)')"
 
-python3 - "$address" "$alice_balance" "$bob_balance" "$remaining" "$evidence/summary.json" <<'PY'
+python3 - "$address" "$alice_balance" "$bob_balance" "$remaining" "$chain_id" \
+  "$wasm" "$transfer_topic" "$approval_topic" "$evidence" \
+  "$evidence/summary.json" "$evidence/mapping-events-summary.json" <<'PY'
+import hashlib
 import json
+from pathlib import Path
 import sys
 
-address, alice, bob, allowance, output = sys.argv[1:]
+address, alice, bob, allowance, chain_id, wasm, transfer_topic, approval_topic, evidence_dir, output, mapping_output = sys.argv[1:]
 decode = lambda value: int(value, 16) if value.startswith("0x") else int(value.split()[0])
-summary = {
-    "address": address,
-    "aliceBalance": decode(alice),
-    "bobBalance": decode(bob),
-    "allowance": decode(allowance),
+results = {"aliceBalance": decode(alice), "bobBalance": decode(bob), "allowance": decode(allowance)}
+assert results == {"aliceBalance": 45, "bobBalance": 55, "allowance": 15}
+transactions = {}
+receipts = {}
+for name in ("mint", "transfer", "approve", "transfer-from"):
+    receipt = json.loads((Path(evidence_dir) / f"{name}.json").read_text())
+    assert receipt.get("status") in ("0x1", 1, "1")
+    transaction_hash = receipt.get("transactionHash")
+    assert isinstance(transaction_hash, str) and transaction_hash.startswith("0x")
+    transactions[name] = transaction_hash
+    receipts[name] = receipt
+
+def topics(receipt):
+    return {log["topics"][0].lower() for log in receipt.get("logs", []) if log.get("topics")}
+
+assert transfer_topic.lower() in topics(receipts["mint"])
+assert transfer_topic.lower() in topics(receipts["transfer"])
+assert approval_topic.lower() in topics(receipts["approve"])
+assert transfer_topic.lower() in topics(receipts["transfer-from"])
+artifact = {"wasmSha256": hashlib.sha256(Path(wasm).read_bytes()).hexdigest()}
+base = {
+    "schema": "proof-forge.stylus.nitro-gate.v1",
+    "state": "passed",
+    "skipped": False,
+    "provenance": "nitro-testnode",
+    "chainId": int(chain_id),
+    "addresses": {"token": address},
+    "transactions": transactions,
+    "artifacts": artifact,
 }
-assert summary["aliceBalance"] == 45
-assert summary["bobBalance"] == 55
-assert summary["allowance"] == 15
-with open(output, "w", encoding="utf-8") as stream:
-    json.dump(summary, stream, sort_keys=True)
-    stream.write("\n")
+summary = {**base, "gate": "token", "results": results}
+mapping = {**base, "gate": "mappingEvents", "results": {
+    "transferTopic": transfer_topic.lower(), "approvalTopic": approval_topic.lower()}}
+Path(output).write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+Path(mapping_output).write_text(json.dumps(mapping, indent=2, sort_keys=True) + "\n")
 print(f"stylus-token-nitro-e2e: ok ({address})")
 PY

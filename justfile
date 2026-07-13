@@ -246,6 +246,19 @@ stylus-value-vault-nitro-e2e:
 stylus-token-nitro-e2e:
     scripts/stylus/token-nitro-e2e.sh
 
+stylus-remote-call-nitro-e2e:
+    scripts/stylus/remote-call-nitro-e2e.sh
+
+stylus-aggregate-nitro-e2e:
+    scripts/stylus/aggregate-nitro-e2e.sh
+
+stylus-nitro-evidence:
+    python3 scripts/stylus/assemble-nitro-evidence.py \
+      --artifact "${PROOF_FORGE_STYLUS_ARTIFACT:-build/stylus/cli-matrix/counter-direct/proof-forge-artifact.json}" \
+      --doctor build/evidence/stylus/nitro-doctor.json \
+      --evidence-root build/evidence/stylus \
+      --output build/evidence/stylus/final.json
+
 stylus-nitro-down:
     tools/stylus-nitro/manage.sh down
 

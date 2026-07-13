@@ -15,6 +15,7 @@ This path:    fixtures · goldens · Source.Solana · Learn · spikes
 | `Evm/` | Golden Yul, Foundry, proxy/constructor probes |
 | `Solana/` | Golden sBPF + manifests; may re-export Product Counter |
 | `WasmNear/` | Golden WAT + Layer B `FtPeerClient` (NEP-141 peer, not stdlib FT body) |
+| `Stylus/` | Nitro deployment peers and target-only live fixtures |
 | `Learn/` | Legacy parser fixtures |
 | `Psy/`, `Aleo/`, `Aptos/`, `CosmWasm/`, `CloudflareWorkers/`, `near/` | Target research |
 
