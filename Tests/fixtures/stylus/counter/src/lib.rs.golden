@@ -5,6 +5,7 @@ extern crate alloc;
 
 use alloc::{string::String, vec, vec::Vec};
 use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};
+use core::convert::TryInto;
 
 sol_storage! {
     #[entrypoint]

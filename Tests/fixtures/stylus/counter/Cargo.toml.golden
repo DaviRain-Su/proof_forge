@@ -10,6 +10,9 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 stylus-sdk = "=0.10.8"
 
+[dev-dependencies]
+stylus-test = "=0.10.8"
+
 [features]
 default = []
 export-abi = ["stylus-sdk/export-abi"]

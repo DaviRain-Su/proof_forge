@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | Stylus continuous queue - W6 direct-Wasm CLI cutover |
-| Next task | Add independent plan/storage/evidence hashes and freshness validation, then expand the CLI fixture matrix |
+| Active task | Stylus continuous queue - W6.2 evidence-bound artifact bundle |
+| Next task | Add evidence hashes and freshness rejection, then expand the literal CLI fixture matrix |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

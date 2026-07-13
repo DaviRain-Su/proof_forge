@@ -21,6 +21,11 @@ WASM_PREFIXES = (
     "ProofForge/Backend/WasmHost/", "ProofForge/Compiler/Wasm/", "scripts/near/",
     "Tests/Backend/Wasm/",
 )
+STYLUS_PREFIXES = (
+    "ProofForge/Backend/Stylus/", "ProofForge/Cli/StylusArtifacts.lean",
+    "runtime/stylus-host/", "scripts/stylus/", "Tests/Stylus/",
+    "tools/stylus-",
+)
 DOC_PREFIXES = ("docs/", "README.md", "CONTRIBUTING.md", "scripts/i18n/")
 
 
@@ -28,13 +33,15 @@ def select_tags(paths: Sequence[str]) -> set[str]:
     tags = {"fast"}
     for path in paths:
         if path.startswith(SHARED_PREFIXES):
-            tags.update({"evm-fast", "solana-fast", "wasm-fast"})
+            tags.update({"evm-fast", "solana-fast", "wasm-fast", "stylus-fast"})
         elif path.startswith(EVM_PREFIXES):
             tags.add("evm-fast")
         elif path.startswith(SOLANA_PREFIXES):
             tags.add("solana-fast")
         elif path.startswith(WASM_PREFIXES):
             tags.add("wasm-fast")
+        elif path.startswith(STYLUS_PREFIXES):
+            tags.add("stylus-fast")
         elif path.startswith(DOC_PREFIXES):
             tags.add("docs")
     return tags

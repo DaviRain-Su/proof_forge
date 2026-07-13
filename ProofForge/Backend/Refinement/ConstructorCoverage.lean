@@ -535,6 +535,7 @@ mutual
     | n + 1, .nearPromiseResultsCount => true
     | n + 1, .nearPromiseResultStatus i => exprFC n i
     | n + 1, .nearPromiseResultU64 i => exprFC n i
+    | n + 1, .nearPromiseResultU128 i => exprFC n i
     | n + 1, .effect eff => effectFC n eff
 
   /-- Shallow + depth wrapper: a node is covered iff its constructor is

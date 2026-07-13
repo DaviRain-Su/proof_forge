@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 34/64 acceptance items are complete. Six remaining
+**Current checkpoint:** 42/80 acceptance items are complete. Six remaining
 work packages and their dependency order are audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
 
@@ -66,7 +66,7 @@ blockers may defer an item.
   Rust is pinned for Counter. A real Aggregate ABI `contract_source` remains
   blocked because the source grammar cannot yet declare dynamic/tuple ABI
   parameters; local fixed-array expressions are not accepted as a substitute.
-- [ ] **W7.1 Static test integration:** create `stylus-all` with no named skip,
+- [x] **W7.1 Static test integration:** create `stylus-all` with no named skip,
   register every static gate exactly once in four-worker lanes and serial
   coverage, and preserve live Nitro as an explicit separate gate.
 - [ ] **W7.2 CI/release evidence:** add GitHub/Woodpecker artifact upload and

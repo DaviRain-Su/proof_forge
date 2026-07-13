@@ -1835,3 +1835,25 @@ Rules:
 - Remaining: generated-Rust TestVM execution, dynamic return rendering,
   static-write rejection, delegate context assertions, and two-contract local/
   Nitro evidence. W4 remains active.
+
+## 2026-07-13 - STYLUS-W7.1: Unified static gate and four-worker registration
+
+- Status: `complete`
+- Added `just stylus-all` as the no-skip aggregate for 24 local/static Stylus
+  plan, Rust SDK, direct-Wasm, differential, runner, and Nitro-script gates.
+  Official `cargo stylus check` and live Nitro execution remain explicit gates
+  because they require separately provisioned tooling or services.
+- Registered every static recipe exactly once in both `check-serial` and the
+  parallel manifest. Four dedicated Stylus lanes allow the existing automatic
+  four-worker scheduler to overlap independent plan, runtime, and differential
+  families while preserving serial order inside each family.
+- Stylus and shared IR/frontend paths now select `stylus-fast`; selector unit
+  tests pin both backend-specific and shared-change behavior.
+- Cold execution found and repaired three latent coverage defects: stale Rust
+  crate golden files, the missing `nearPromiseResultU128` recursive coverage
+  branch, and omitted Example build dependencies in
+  `constructor-coverage-smoke`.
+- Verification: `just stylus-all`, `just constructor-coverage-smoke`,
+  `just test-manifest`, `just test-equivalence`, scheduler/select unit tests,
+  and `git diff --check` pass. The manifest contains 141 unique recipes across
+  eight conflict-aware lanes and still defaults to at most four workers.

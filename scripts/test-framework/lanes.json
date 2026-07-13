@@ -4,7 +4,11 @@
     "core-product",
     "evm",
     "solana",
-    "wasm-other-exclusive"
+    "wasm-other-exclusive",
+    "stylus-plan",
+    "stylus-runtime",
+    "stylus-differential-a",
+    "stylus-differential-b"
   ],
   "serialCoverage": [
     "build",
@@ -108,6 +112,30 @@
     "near-compare-matrix-test",
     "wasm-near-ft-transfer-call",
     "wasm-near-ft-transfer-call-e2e",
+    "stylus-plan-contract",
+    "stylus-core-plan",
+    "stylus-diagnostics",
+    "stylus-rust-render",
+    "stylus-package",
+    "stylus-rust-counter",
+    "stylus-counter-lifecycle",
+    "stylus-public-route",
+    "stylus-direct-storage",
+    "stylus-direct-abi",
+    "stylus-counter-differential",
+    "stylus-value-vault-differential",
+    "stylus-value-vault-canonical",
+    "stylus-mapping-events",
+    "stylus-nested-map",
+    "stylus-token-differential",
+    "stylus-token-evm-interop",
+    "stylus-aggregate-differential",
+    "stylus-remote-call-differential",
+    "stylus-scalar-params",
+    "stylus-wide-values",
+    "stylus-wide-arithmetic",
+    "stylus-vm-runner",
+    "stylus-nitro-scripts",
     "docs-check",
     "testkit",
     "evm-diagnostics",
@@ -1048,6 +1076,150 @@
         "full",
         "wasm-other"
       ]
+    },
+    {
+      "name": "stylus-plan-contract",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-core-plan",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-diagnostics",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-rust-render",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-package",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-public-route",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-rust-counter",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-counter-lifecycle",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-direct-storage",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-vm-runner",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-nitro-scripts",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-direct-abi",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-counter-differential",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-value-vault-differential",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-value-vault-canonical",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-scalar-params",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-wide-values",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-wide-arithmetic",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-mapping-events",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-nested-map",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-token-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-token-evm-interop",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-aggregate-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-remote-call-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
     },
     {
       "name": "docs-check",
