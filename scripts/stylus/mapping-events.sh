@@ -30,14 +30,27 @@ wide_set="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml 
 wide_get="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
   build/stylus/mapping-events/map.wasm --storage "$wide_slot=$wide_word" \
   --calldata aabbcc02${address_word} --invoke user_entrypoint)"
+other_address="$(printf '22%.0s' {1..20})"
+other_word="$(printf '00%.0s' {1..12})${other_address}"
+event_value="$(printf '%064x' 42)"
+transfer_topic="$(cast keccak 'Transfer(address,address,uint256)' | sed 's/^0x//')"
+approval_topic="$(cast keccak 'Approval(address,address,uint256)' | sed 's/^0x//')"
+transfer_output="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/mapping-events/map.wasm \
+  --calldata "aabbcc03${address_word}${other_word}${event_value}" --invoke user_entrypoint)"
+approval_output="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \
+  build/stylus/mapping-events/map.wasm \
+  --calldata "aabbcc04${address_word}${other_word}${event_value}" --invoke user_entrypoint)"
 
-python3 - "$slot" "$topic" "$wide_slot" "$wide_word" \
-  "$set_output" "$get_output" "$wide_set" "$wide_get" <<'PY'
+python3 - "$slot" "$topic" "$wide_slot" "$wide_word" "$transfer_topic" \
+  "$approval_topic" "$address_word" "$other_word" "$event_value" \
+  "$set_output" "$get_output" "$wide_set" "$wide_get" "$transfer_output" \
+  "$approval_output" <<'PY'
 import json
 import sys
 
-slot, topic, wide_slot, wide_word = sys.argv[1:5]
-set_data, get_data, wide_set, wide_get = map(json.loads, sys.argv[5:9])
+slot, topic, wide_slot, wide_word, transfer_topic, approval_topic, owner, other, value = sys.argv[1:10]
+set_data, get_data, wide_set, wide_get, transfer, approval = map(json.loads, sys.argv[10:16])
 assert set_data["calls"][0]["status"] == 0
 assert set_data["storage"][slot] == "00" * 31 + "63"
 assert get_data["calls"][0]["status"] == 0
@@ -52,6 +65,16 @@ assert logs == [{
 assert wide_set["calls"][0]["status"] == 0
 assert wide_set["storage"][wide_slot] == wide_word
 assert wide_get["calls"][0]["status"] == 0 and wide_get["result"] == wide_word
+expected_transfer = transfer_topic + owner + other + value
+expected_approval = approval_topic + owner + other + value
+assert transfer["calls"][0]["status"] == 0
+assert [item for item in transfer["trace"] if item["event"] == "emit_log"] == [{
+    "event": "emit_log", "topics": 3, "value": expected_transfer,
+}]
+assert approval["calls"][0]["status"] == 0
+assert [item for item in approval["trace"] if item["event"] == "emit_log"] == [{
+    "event": "emit_log", "topics": 3, "value": expected_approval,
+}]
 print("stylus-mapping-events-runtime: ok")
 PY
 

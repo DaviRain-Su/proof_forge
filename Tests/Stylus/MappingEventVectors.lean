@@ -18,6 +18,10 @@ def mapModule : ProofForge.IR.Module := {
     { id := "values", kind := .map .u64 64, type := .u64 },
     { id := "wide", kind := .map .address 64, type := .u128 }
   ]
+  eventAbiWords := #[
+    { eventName := "Transfer", fieldName := "value", abiWord := "uint256" },
+    { eventName := "Approval", fieldName := "value", abiWord := "uint256" }
+  ]
   entrypoints := #[
     { name := "set", selector? := some "1ab06ee5", params := #[
         ("key", .u64), ("value", .u64)]
@@ -34,7 +38,16 @@ def mapModule : ProofForge.IR.Module := {
       body := #[.effect (.storagePathWrite "wide" #[.mapKey (.local "key")] (.local "value"))] },
     { name := "getWide", selector? := some "aabbcc02", mutability := .view,
       params := #[("key", .address)], returns := .u128
-      body := #[.return (.effect (.storagePathRead "wide" #[.mapKey (.local "key")]))] }
+      body := #[.return (.effect (.storagePathRead "wide" #[.mapKey (.local "key")]))] },
+    { name := "emitTransfer", selector? := some "aabbcc03", params := #[
+        ("from", .address), ("to", .address), ("value", .u128)]
+      body := #[.effect (.eventEmitIndexed "Transfer"
+        #[("from", .local "from"), ("to", .local "to")] #[("value", .local "value")])] },
+    { name := "emitApproval", selector? := some "aabbcc04", params := #[
+        ("owner", .address), ("spender", .address), ("value", .u128)]
+      body := #[.effect (.eventEmitIndexed "Approval"
+        #[("owner", .local "owner"), ("spender", .local "spender")]
+        #[("value", .local "value")])] }
   ]
 }
 
@@ -49,7 +62,15 @@ def main : IO Unit := do
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"buildFromCore failed: {error.message}"
   require (plan.storage.words.size == 2) "map plan must own both base storage words"
-  require (plan.functions.size == 4) "map plan must retain scalar and wide methods"
+  require (plan.functions.size == 6) "map plan must retain map and standard event methods"
+  let some transfer := plan.events.find? (fun event => event.id == "Transfer")
+    | throw <| IO.userError "Transfer event plan missing"
+  let some approval := plan.events.find? (fun event => event.id == "Approval")
+    | throw <| IO.userError "Approval event plan missing"
+  require (transfer.canonicalSignature == "Transfer(address,address,uint256)")
+    "Transfer ABI override was not preserved"
+  require (approval.canonicalSignature == "Approval(address,address,uint256)")
+    "Approval ABI override was not preserved"
   let direct <- match ProofForge.Backend.Stylus.DirectWasm.lowerFromPlan plan with
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"direct map lowering failed: {error.message}"

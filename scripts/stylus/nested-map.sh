@@ -15,6 +15,10 @@ spender_word="$(printf '00%.0s' {1..12})${spender}"
 base="$(printf '%064x' 0)"
 owner_slot="$(cast keccak "0x${owner_word}${base}" | sed 's/^0x//')"
 allowance_slot="$(cast keccak "0x${spender_word}${owner_slot}" | sed 's/^0x//')"
+foundry_owner_slot="$(cast index address "0x${owner}" 0 | sed 's/^0x//')"
+foundry_allowance_slot="$(cast index address "0x${spender}" "0x${foundry_owner_slot}" | sed 's/^0x//')"
+test "$owner_slot" = "$foundry_owner_slot"
+test "$allowance_slot" = "$foundry_allowance_slot"
 value_word="$(printf '%064x' 42)"
 
 set_output="$(cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- \

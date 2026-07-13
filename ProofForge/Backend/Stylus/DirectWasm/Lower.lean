@@ -404,7 +404,9 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
       if topicCount > 4 then
         throw <| diagnostic plan function block (opName op) "event.emit" "more than four topics"
       let signature := event.canonicalSignature.toUTF8.data
-      let eventPtr := 256
+      /- Keep event assembly clear of calldata-backed parameter words. The
+         dispatcher may leave wide/address parameters pointing into calldata. -/
+      let eventPtr := 4096
       let mut insns := writeBytes eventPtr signature ++ #[.i32Const eventPtr,
         .i32Const signature.size, .i32Const eventPtr, .call "native_keccak256"]
       let mut topicIndex := 1
@@ -414,11 +416,16 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
           | throw <| diagnostic plan function block (opName op) "event.emit" "value index is invalid"
         let some field := event.fields[index]?
           | throw <| diagnostic plan function block (opName op) "event.emit" "field index is invalid"
-        let width <- scalarWidth field.type |>.mapError fun error =>
-          diagnostic plan function block (opName op) "event.emit" error.message
         let wordIndex := if field.indexed then topicIndex else topicCount + dataIndex
-        insns := insns ++ clearWord (eventPtr + wordIndex * 32) ++
-          encodeUnsigned (eventPtr + (wordIndex + 1) * 32 - width) width (valueLocal value)
+        let wordPtr := eventPtr + wordIndex * 32
+        let encoded <- match field.type with
+          | .address => pure <| clearWord wordPtr ++ copyPointerBytes (wordPtr + 12) (valueLocal value) 20
+          | .uint 128 => pure <| clearWord wordPtr ++ copyPointerBytes (wordPtr + 16) (valueLocal value) 16
+          | type => do
+              let width <- scalarWidth type |>.mapError fun error =>
+                diagnostic plan function block (opName op) "event.emit" error.message
+              pure <| clearWord wordPtr ++ encodeUnsigned (wordPtr + 32 - width) width (valueLocal value)
+        insns := insns ++ encoded
         if field.indexed then topicIndex := topicIndex + 1 else dataIndex := dataIndex + 1
       pure <| insns ++ #[.i32Const eventPtr, .i32Const ((topicCount + dataIndex) * 32),
         .i32Const topicCount, .call "emit_log"]

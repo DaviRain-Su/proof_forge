@@ -291,7 +291,8 @@ private def buildEvents (contract : CanonicalContract) : Except PlanError (Array
   contract.interface.events.mapM fun event => do
     let fields <- event.fields.mapM fun field => do
       pure { name := field.name, type := (← coreTypeToAbi field.type), indexed := field.indexed }
-    let typeNames := fields.toList.map (fun field => abiTypeName field.type)
+    let typeNames := (event.fields.zip fields).toList.map fun (source, field) =>
+      source.abiWord?.getD (abiTypeName field.type)
     pure {
       id := event.name
       canonicalSignature := s!"{event.name}({String.intercalate "," typeNames})"

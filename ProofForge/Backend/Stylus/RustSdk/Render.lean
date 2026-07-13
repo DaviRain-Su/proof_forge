@@ -121,9 +121,9 @@ private def renderOperation (plan : StylusPlan) : StylusOpPlan -> Except RenderE
       let topicCount := 1 + (event.fields.filter fun field => field.indexed).size
       if topicCount > 4 then fail s!"Rust SDK event `{eventId}` has more than four topics"
       let indexed := (event.fields.zip values).filterMap fun (field, value) =>
-        if field.indexed then some (localName value) else none
+        if field.indexed then some (localName value, field.type) else none
       let data := (event.fields.zip values).filterMap fun (field, value) =>
-        if field.indexed then none else some (localName value)
+        if field.indexed then none else some (localName value, field.type)
       pure (.emitEvent event.canonicalSignature indexed data)
   | .call _ _ callId => fail s!"Rust SDK call envelope `{callId}` lowering is not implemented"
 
@@ -237,9 +237,11 @@ private def renderStmt (stmt : RustStmt) : Array String :=
       "if !" ++ condition ++ " {", "    return Err(b\"" ++ message ++ "\".to_vec());", "}"
     ]
   | .emitEvent signature indexed data =>
+      let renderWord := fun (value, type) => match type with
+        | .address => s!"__pf_event.extend_from_slice({value}.into_word().as_slice());"
+        | _ => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());"
       #["let mut __pf_event = self.vm().native_keccak256(b\"" ++ signature ++ "\").to_vec();"] ++
-      indexed.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
-      data.map (fun value => s!"__pf_event.extend_from_slice(&U256::from({value}).to_be_bytes::<32>());") ++
+      indexed.map renderWord ++ data.map renderWord ++
       #[s!"self.vm().emit_log(&__pf_event, {1 + indexed.size});"]
 
 private def renderFunctionText (function : RustFunction) : String :=
